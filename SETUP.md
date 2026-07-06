@@ -59,9 +59,17 @@ Cloud Console.
    (`crm-sheets@…iam.gserviceaccount.com`) as **Editor**.
 4. `DRIVE_FOLDER_ID` = the part of the folder URL after `/folders/`.
 
-The CRM creates these spreadsheets in that folder on first sync:
-`CRM — Membership` (you fill this one), `CRM — IGV Accounts`,
-`CRM — IGT Accounts`, `CRM — Contact Log`, `CRM — Visits`, `CRM — Blacklist`.
+5. **Create six empty Google Sheets inside the folder** with these names
+   (service accounts have no Drive storage quota, so the CRM cannot create
+   files — it finds yours by name, tolerant of dash/case differences, and
+   fills them):
+
+   - `CRM — Membership` (you fill this one; auto-seeded with headers + EB)
+   - `CRM — IGV Accounts`
+   - `CRM — IGT Accounts`
+   - `CRM — Contact Log`
+   - `CRM — Visits`
+   - `CRM — Blacklist`
 
 ## 4. Membership sheet
 

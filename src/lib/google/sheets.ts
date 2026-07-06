@@ -53,6 +53,11 @@ function clients(): { sheets: sheets_v4.Sheets; drive: drive_v3.Drive } {
   };
 }
 
+/** Loose title matching so "CRM — Membership" vs "CRM - membership" both work. */
+function normTitle(t: string): string {
+  return t.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
 async function ensureSpreadsheet(
   title: string,
   headers: string[],
@@ -70,21 +75,39 @@ async function ensureSpreadsheet(
 
   const { sheets, drive } = clients();
   const list = await drive.files.list({
-    q: `'${env.driveFolderId}' in parents and name = '${title.replace(/'/g, "\\'")}' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false`,
-    fields: "files(id)",
+    q: `'${env.driveFolderId}' in parents and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false`,
+    fields: "files(id, name)",
+    pageSize: 100,
   });
-  let id = list.data.files?.[0]?.id ?? null;
+  let id =
+    (list.data.files ?? []).find((f) => normTitle(f.name ?? "") === normTitle(title))
+      ?.id ?? null;
 
   if (!id) {
-    const created = await drive.files.create({
-      requestBody: {
-        name: title,
-        mimeType: "application/vnd.google-apps.spreadsheet",
-        parents: [env.driveFolderId],
-      },
-      fields: "id",
-    });
-    id = created.data.id!;
+    // Service accounts have no Drive storage quota of their own, so creating a
+    // file usually fails — but try anyway, then fall back to a clear message.
+    try {
+      const created = await drive.files.create({
+        requestBody: {
+          name: title,
+          mimeType: "application/vnd.google-apps.spreadsheet",
+          parents: [env.driveFolderId],
+        },
+        fields: "id",
+      });
+      id = created.data.id!;
+    } catch {
+      throw new Error(
+        `Missing spreadsheet "${title}". The service account cannot create files in Drive (no storage quota) — create an empty Google Sheet with that name inside the CRM folder, then run the sync again.`
+      );
+    }
+  }
+
+  // Write headers (and seed rows) if the sheet is still blank.
+  const firstCell = await sheets.spreadsheets.values
+    .get({ spreadsheetId: id, range: "A1:B1" })
+    .catch(() => null);
+  if (!firstCell?.data.values?.[0]?.[0]) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: id,
       range: "A1",
