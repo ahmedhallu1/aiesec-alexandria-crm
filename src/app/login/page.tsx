@@ -56,6 +56,14 @@ export default async function LoginPage({
           membership sheet. Signing in lets the CRM place visit reminders on
           your Google Calendar.
         </p>
+        <a
+          href="https://wa.me/201099019374?text=Hi%20Ahmed!%20I%27m%20reaching%20out%20about%20the%20AIESEC%20Alexandria%20CRM%20%F0%9F%91%8B"
+          target="_blank"
+          rel="noreferrer"
+          className="mt-4 block text-center text-xs text-muted-foreground transition-colors hover:text-primary"
+        >
+          System made by <span className="font-semibold">Ahmed Hallul</span> · 💬 WhatsApp
+        </a>
       </div>
     </main>
   );

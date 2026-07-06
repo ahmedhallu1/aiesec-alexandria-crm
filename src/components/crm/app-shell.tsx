@@ -74,6 +74,17 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
     </nav>
   );
 
+  const credit = (
+    <a
+      href="https://wa.me/201099019374?text=Hi%20Ahmed!%20I%27m%20reaching%20out%20about%20the%20AIESEC%20Alexandria%20CRM%20%F0%9F%91%8B"
+      target="_blank"
+      rel="noreferrer"
+      className="block px-5 pb-4 text-center text-[11px] text-sidebar-foreground/50 transition-colors hover:text-sidebar-foreground"
+    >
+      System made by <span className="font-semibold">Ahmed Hallul</span> · 💬 WhatsApp
+    </a>
+  );
+
   const userBlock = (
     <div className="border-t border-sidebar-border p-3">
       <div className="flex items-center gap-3 rounded-lg px-2 py-2">
@@ -124,6 +135,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
         {brand}
         {navList}
         {userBlock}
+        {credit}
       </aside>
 
       {/* Mobile top bar */}
@@ -139,6 +151,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
             {brand}
             {navList}
             {userBlock}
+            {credit}
           </SheetContent>
         </Sheet>
         <p className="text-sm font-bold text-sidebar-foreground">
