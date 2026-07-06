@@ -1,26 +1,138 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+
+/* AIESEC brand palette
+   Blue  #0A2540  |  Cyan #037EF3  |  White  |  Mid Gray
+   Dark mode follows the device preference (no manual toggle). */
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --radius: 0.625rem;
+
+  --background: #f7f9fc;
+  --foreground: #0a2540;
+  --card: #ffffff;
+  --card-foreground: #0a2540;
+  --popover: #ffffff;
+  --popover-foreground: #0a2540;
+  --primary: #037ef3;
+  --primary-foreground: #ffffff;
+  --secondary: #e8eef6;
+  --secondary-foreground: #0a2540;
+  --muted: #eef2f7;
+  --muted-foreground: #5c6b80;
+  --accent: #e3f1fe;
+  --accent-foreground: #0a2540;
+  --destructive: #dc2626;
+  --border: #dde5ee;
+  --input: #dde5ee;
+  --ring: #037ef3;
+
+  --chart-1: #037ef3;
+  --chart-2: #0a2540;
+  --chart-3: #52ad32;
+  --chart-4: #f48924;
+  --chart-5: #f85a40;
+
+  --sidebar: #0a2540;
+  --sidebar-foreground: #e8eef6;
+  --sidebar-primary: #037ef3;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #14355c;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #14355c;
+  --sidebar-ring: #037ef3;
+
+  --success: #16a34a;
+  --warning: #f48924;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #081b30;
+    --foreground: #e8eef6;
+    --card: #0d2a49;
+    --card-foreground: #e8eef6;
+    --popover: #0d2a49;
+    --popover-foreground: #e8eef6;
+    --primary: #2f96ff;
+    --primary-foreground: #ffffff;
+    --secondary: #14355c;
+    --secondary-foreground: #e8eef6;
+    --muted: #112f52;
+    --muted-foreground: #93a5bc;
+    --accent: #14355c;
+    --accent-foreground: #e8eef6;
+    --destructive: #ef4444;
+    --border: #1b3d66;
+    --input: #1b3d66;
+    --ring: #2f96ff;
+
+    --chart-1: #2f96ff;
+    --chart-2: #93a5bc;
+    --chart-3: #6cc24a;
+    --chart-4: #f48924;
+    --chart-5: #f85a40;
+
+    --sidebar: #061524;
+    --sidebar-foreground: #e8eef6;
+    --sidebar-primary: #2f96ff;
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: #0d2a49;
+    --sidebar-accent-foreground: #ffffff;
+    --sidebar-border: #0d2a49;
+    --sidebar-ring: #2f96ff;
+
+    --success: #22c55e;
+    --warning: #f4a340;
+  }
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --font-sans: var(--font-app-sans), system-ui, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
   }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
 }
