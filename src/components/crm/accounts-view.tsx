@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, CalendarClock, Phone, Plus, Search, X } from "lucide-react";
+import { AlertTriangle, Archive, CalendarClock, Phone, Plus, Search, X } from "lucide-react";
 import type { PipelineRow } from "@/server/data";
-import { IGV_PROJECTS, STAGES } from "@/lib/types";
+import { FUNCTION_COLORS, IGV_PROJECTS, STAGES } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { StageBadge } from "./stage-badge";
 import { ContactDialog, type ContactTarget } from "./contact-dialog";
 import { AddAccountDialog, type MemberOption } from "./add-account-dialog";
@@ -23,8 +24,10 @@ interface ViewerInfo {
   id: string;
   role: string;
   isAdmin: boolean;
-  function: string | null;
   canAssignOthers: boolean;
+  canViewArchive: boolean;
+  allowedFns: ("IGV" | "IGT")[];
+  showFnFilter: boolean;
 }
 
 export function AccountsView({
@@ -59,28 +62,39 @@ export function AccountsView({
     return () => { if (debounce.current) clearTimeout(debounce.current); };
   }, [q, filters.q, setParam]);
 
-  const masterView = viewer.isAdmin || viewer.role === "LCP";
-  const showFnFilter = masterView;
-  const activeFn = filters.fn || (masterView ? "" : viewer.function ?? "");
+  const archived = filters.archived === "1";
+  const activeFn = filters.fn || (viewer.allowedFns.length === 1 ? viewer.allowedFns[0] : "");
   const anyFilter = Object.values(filters).some(Boolean);
-
-  const fixedFn: "IGV" | "IGT" | null =
-    !masterView && (viewer.function === "IGV" || viewer.function === "IGT")
-      ? viewer.function
-      : null;
+  const stageOptions = STAGES.filter((s) => s !== "Out of Process");
 
   return (
     <div className="mx-auto max-w-7xl space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Accounts</h1>
+          <h1 className="text-2xl font-bold">
+            {archived ? "Archived accounts" : "Accounts"}
+          </h1>
           <p className="text-sm text-muted-foreground">
-            {rows.length} account{rows.length === 1 ? "" : "s"} in your scope
+            {archived
+              ? `${rows.length} out-of-process account${rows.length === 1 ? "" : "s"} — names here can never be re-added`
+              : `${rows.length} account${rows.length === 1 ? "" : "s"} in your scope`}
           </p>
         </div>
-        <Button onClick={() => setAddOpen(true)}>
-          <Plus className="size-4" /> Add account
-        </Button>
+        <div className="flex gap-2">
+          {viewer.canViewArchive ? (
+            <Button
+              variant={archived ? "default" : "outline"}
+              onClick={() => setParam("archived", archived ? "" : "1")}
+            >
+              <Archive className="size-4" /> {archived ? "Back to active" : "Archive"}
+            </Button>
+          ) : null}
+          {!archived ? (
+            <Button onClick={() => setAddOpen(true)} disabled={viewer.allowedFns.length === 0}>
+              <Plus className="size-4" /> Add account
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       {/* Filter bar */}
@@ -94,11 +108,11 @@ export function AccountsView({
             onChange={(e) => setQ(e.target.value)}
           />
         </div>
-        {showFnFilter ? (
+        {viewer.showFnFilter ? (
           <FilterSelect
             value={filters.fn} placeholder="Function"
             onChange={(v) => setParam("fn", v)}
-            options={[["IGV", "IGV"], ["IGT", "IGT"]]}
+            options={viewer.allowedFns.map((f) => [f, f])}
           />
         ) : null}
         {activeFn !== "IGT" ? (
@@ -115,11 +129,13 @@ export function AccountsView({
             options={[["GTa", "GTa"], ["GTe", "GTe"]]}
           />
         ) : null}
-        <FilterSelect
-          value={filters.stage} placeholder="Stage"
-          onChange={(v) => setParam("stage", v)}
-          options={STAGES.map((s) => [s, s])}
-        />
+        {!archived ? (
+          <FilterSelect
+            value={filters.stage} placeholder="Stage"
+            onChange={(v) => setParam("stage", v)}
+            options={stageOptions.map((s) => [s, s])}
+          />
+        ) : null}
         {members.length > 1 ? (
           <FilterSelect
             value={filters.resp} placeholder="Responsible"
@@ -127,14 +143,16 @@ export function AccountsView({
             options={members.map((m) => [m.id, m.label])}
           />
         ) : null}
-        <FilterSelect
-          value={filters.flag} placeholder="Flags"
-          onChange={(v) => setParam("flag", v)}
-          options={[
-            ["contact_limit", "⚠️ 3-contact limit"],
-            ["next_step_missing", "🚨 No next step"],
-          ]}
-        />
+        {!archived ? (
+          <FilterSelect
+            value={filters.flag} placeholder="Flags"
+            onChange={(v) => setParam("flag", v)}
+            options={[
+              ["contact_limit", "⚠️ 3-contact limit"],
+              ["next_step_missing", "🚨 No next step"],
+            ]}
+          />
+        ) : null}
         {anyFilter ? (
           <Button variant="ghost" size="sm" onClick={() => { setQ(""); router.replace("/accounts"); }}>
             <X className="size-4" /> Clear
@@ -153,8 +171,14 @@ export function AccountsView({
                 <TableHead>Responsible</TableHead>
                 <TableHead>Stage</TableHead>
                 <TableHead className="text-center">Contacts</TableHead>
-                <TableHead>Next step</TableHead>
-                <TableHead>Visit</TableHead>
+                {archived ? (
+                  <TableHead>Reason</TableHead>
+                ) : (
+                  <>
+                    <TableHead>Next step</TableHead>
+                    <TableHead>Visit</TableHead>
+                  </>
+                )}
                 <TableHead></TableHead>
               </TableRow>
             </TableHeader>
@@ -162,7 +186,7 @@ export function AccountsView({
               {rows.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
-                    No accounts here yet. Add your first one 🚀
+                    {archived ? "The archive is empty." : "No accounts here yet. Add your first one 🚀"}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -180,7 +204,15 @@ export function AccountsView({
                       >
                         {row.name}
                       </Link>
-                      <span className="ml-2 text-xs text-muted-foreground">{row.function}</span>
+                      <Badge
+                        className={cn(
+                          "ml-2 border-transparent text-[10px] font-bold",
+                          FUNCTION_COLORS[row.function]?.bg,
+                          FUNCTION_COLORS[row.function]?.text
+                        )}
+                      >
+                        {row.function}
+                      </Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {row.function === "IGV" ? row.project : `${row.product ?? ""}${row.sub_product ? ` · ${row.sub_product}` : ""}`}
@@ -197,24 +229,32 @@ export function AccountsView({
                         ) : null}
                       </span>
                     </TableCell>
-                    <TableCell className="text-sm">
-                      {row.next_step_missing ? (
-                        <Badge variant="destructive" className="font-normal">missing</Badge>
-                      ) : row.next_step_date ? (
-                        <span className="text-muted-foreground">{row.next_step_date}</span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {row.visit_date ? (
-                        <span className="inline-flex items-center gap-1">
-                          <CalendarClock className="size-3.5" />
-                          {row.visit_date}
-                          {row.visit_done === true ? " ✓" : ""}
-                        </span>
-                      ) : "—"}
-                    </TableCell>
+                    {archived ? (
+                      <TableCell className="max-w-56 truncate text-sm text-muted-foreground">
+                        {row.oop_reason ?? "—"}
+                      </TableCell>
+                    ) : (
+                      <>
+                        <TableCell className="text-sm">
+                          {row.next_step_missing ? (
+                            <Badge variant="destructive" className="font-normal">missing</Badge>
+                          ) : row.next_step_date ? (
+                            <span className="text-muted-foreground">{row.next_step_date}</span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {row.visit_date ? (
+                            <span className="inline-flex items-center gap-1">
+                              <CalendarClock className="size-3.5" />
+                              {row.visit_date}
+                              {row.visit_done === true ? " ✓" : ""}
+                            </span>
+                          ) : "—"}
+                        </TableCell>
+                      </>
+                    )}
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       {!row.out_of_process && !row.slot_raised ? (
                         <Button
@@ -249,7 +289,11 @@ export function AccountsView({
       <AddAccountDialog
         open={addOpen}
         onOpenChange={setAddOpen}
-        viewer={{ ...viewer, fixedFn }}
+        viewer={{
+          id: viewer.id,
+          canAssignOthers: viewer.canAssignOthers,
+          allowedFns: viewer.allowedFns,
+        }}
         members={members}
       />
     </div>

@@ -66,7 +66,12 @@ export function escapeHtml(s: string): string {
 
 // ------------------------------------------------------------------ templates
 
-export function welcomeEmail(member: { name: string; nickname: string | null; role: string; function: string | null }) {
+export function welcomeEmail(member: {
+  name: string;
+  nickname: string | null;
+  role: string;
+  functions?: string[] | null;
+}) {
   const first = member.nickname || member.name.split(" ")[0];
   return {
     subject: "Welcome to the AIESEC in Alexandria CRM 🎉",
@@ -78,7 +83,7 @@ export function welcomeEmail(member: { name: string; nickname: string | null; ro
         accounts, contacts, visits and pipeline live from now on.</p>
         ${detailsTable([
           ["Role", member.role],
-          ["Function", member.function ?? "—"],
+          ["Function", member.functions?.join(", ") || "—"],
         ])}
         <p style="margin-bottom:0;">A few ground rules the CRM will help you keep:</p>
         <ul style="margin-top:8px;">
@@ -87,7 +92,7 @@ export function welcomeEmail(member: { name: string; nickname: string | null; ro
           <li>Visits you schedule land on your <b>Google Calendar</b> with reminders 24h and 1h before.</li>
         </ul>
         ${button("Open the CRM", env.appUrl)}
-        <p style="color:#5c6b80;font-size:13px;">Spotted a bug or have an idea? Use the Feedback button inside the CRM.</p>`,
+        <p style="color:#5c6b80;font-size:13px;">Spotted a bug or have an idea? Open <b>Feedback</b> in the CRM sidebar — your feedback builds this system for you.</p>`,
     }),
   };
 }
@@ -138,6 +143,30 @@ export function visitFollowupEmail(opts: {
         <p>Report it now — it takes less than 2 minutes, and your TL & VP get notified automatically.</p>
         ${button("Report the visit", opts.reportUrl)}
         <p style="color:#5c6b80;font-size:13px;">Didn't happen? Report it as not completed and set the next step so the account keeps moving.</p>`,
+    }),
+  };
+}
+
+export function feedbackEmail(opts: {
+  memberName: string;
+  memberEmail: string;
+  type: string;
+  message: string;
+  inboxUrl: string;
+}) {
+  const icon = opts.type === "Bug" ? "🐞" : opts.type === "Enhancement" ? "✨" : "💬";
+  return {
+    subject: `${icon} CRM feedback (${opts.type}) — ${opts.memberName}`,
+    html: emailLayout({
+      preheader: `${opts.memberName}: ${opts.message.slice(0, 80)}`,
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">New feedback from ${escapeHtml(opts.memberName)}</h1>
+        ${detailsTable([
+          ["Type", `${icon} ${opts.type}`],
+          ["From", `${opts.memberName} <${opts.memberEmail}>`],
+        ])}
+        <p style="white-space:pre-wrap;background:#f7f9fc;border-radius:8px;padding:14px;">${escapeHtml(opts.message)}</p>
+        ${button("Open the feedback inbox", opts.inboxUrl)}`,
     }),
   };
 }

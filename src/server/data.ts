@@ -11,6 +11,7 @@ import {
   type AccountScope,
 } from "@/lib/rbac";
 import type {
+  AccountComment,
   AccountPipeline,
   BlacklistEntry,
   Member,
@@ -49,6 +50,8 @@ export async function getViewerByEmail(email: string): Promise<Viewer | null> {
     .eq("is_active", true);
   return {
     ...member,
+    functions: member.functions ?? [],
+    sub_functions: member.sub_functions ?? [],
     isAdmin: env.adminEmails.includes(member.email.toLowerCase()),
     teamMemberIds: (team ?? []).map((t) => t.id),
   };
@@ -58,7 +61,7 @@ export async function getViewerByEmail(email: string): Promise<Viewer | null> {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function applyScope<T extends { eq: any; in: any }>(query: T, scope: AccountScope): T {
-  if (scope.kind === "function") return query.eq("function", scope.fn);
+  if (scope.kind === "functions") return query.in("function", scope.fns);
   if (scope.kind === "members") return query.in("responsible_id", scope.ids);
   return query;
 }
@@ -72,7 +75,16 @@ export interface AccountFilters {
   product?: "GTa" | "GTe";
   stage?: Stage;
   responsibleId?: string;
+  /** a Team Leader's id — their own accounts + their members' accounts */
+  teamId?: string;
   flag?: "contact_limit" | "next_step_missing";
+  /** created_at range (YYYY-MM-DD) */
+  from?: string;
+  to?: string;
+  /** OOP accounts are archived: hidden unless explicitly requested */
+  archived?: boolean;
+  /** dashboards need the full picture including archived accounts */
+  includeArchived?: boolean;
 }
 
 export async function listAccounts(
@@ -83,11 +95,22 @@ export async function listAccounts(
     db().from("accounts_pipeline").select("*"),
     accountScope(viewer)
   );
+  if (filters.archived) query = query.eq("out_of_process", true);
+  else if (!filters.includeArchived) query = query.eq("out_of_process", false);
   if (filters.fn) query = query.eq("function", filters.fn);
   if (filters.project) query = query.eq("project", filters.project);
   if (filters.product) query = query.eq("product", filters.product);
   if (filters.stage) query = query.eq("stage", filters.stage);
   if (filters.responsibleId) query = query.eq("responsible_id", filters.responsibleId);
+  if (filters.teamId) {
+    const { data: team } = await db()
+      .from("members")
+      .select("id")
+      .eq("stakeholder_id", filters.teamId);
+    query = query.in("responsible_id", [filters.teamId, ...(team ?? []).map((t) => t.id)]);
+  }
+  if (filters.from) query = query.gte("created_at", `${filters.from}T00:00:00Z`);
+  if (filters.to) query = query.lte("created_at", `${filters.to}T23:59:59Z`);
   if (filters.flag === "contact_limit") query = query.eq("contact_limit_reached", true);
   if (filters.flag === "next_step_missing") query = query.eq("next_step_missing", true);
   if (filters.q) query = query.ilike("normalized_name", `%${normalizeName(filters.q)}%`);
@@ -104,7 +127,7 @@ export async function getAccount(viewer: Viewer, id: string) {
     .maybeSingle<PipelineRow>();
   if (!account || !canViewAccount(viewer, account)) return null;
 
-  const [{ data: attempts }, { data: visits }] = await Promise.all([
+  const [{ data: attempts }, { data: visits }, { data: comments }] = await Promise.all([
     db()
       .from("contact_attempts")
       .select("*, member:members(name, nickname)")
@@ -116,15 +139,33 @@ export async function getAccount(viewer: Viewer, id: string) {
       .eq("account_id", id)
       .order("visit_date", { ascending: false })
       .order("visit_time", { ascending: false }),
+    db()
+      .from("account_comments")
+      .select("*, member:members(name, nickname)")
+      .eq("account_id", id)
+      .order("created_at", { ascending: true }),
   ]);
-  return { account, attempts: attempts ?? [], visits: visits ?? [] };
+  return {
+    account,
+    attempts: attempts ?? [],
+    visits: visits ?? [],
+    comments: (comments ?? []) as CommentWithMember[],
+  };
 }
 
-/** Cross-ICX duplicate + blacklist check for the Add Account flow. */
-export async function checkAccountName(name: string): Promise<{
+export type CommentWithMember = AccountComment & {
+  member: { name: string; nickname: string | null } | null;
+};
+
+export interface NameCheckResult {
   duplicate: PipelineRow | null;
   blacklisted: BlacklistEntry | null;
-}> {
+}
+
+/** Cross-ICX duplicate + archive/blacklist check for the Add Account flow.
+ *  Out-of-process accounts stay in the data as an archive — re-adding their
+ *  name is blocked exactly like a blacklist hit. */
+export async function checkAccountName(name: string): Promise<NameCheckResult> {
   const normalized = normalizeName(name);
   if (!normalized) return { duplicate: null, blacklisted: null };
   const [{ data: duplicate }, { data: blacklisted }] = await Promise.all([
@@ -147,7 +188,7 @@ export async function checkAccountName(name: string): Promise<{
 export async function listVisibleMembers(viewer: Viewer): Promise<Member[]> {
   let query = db().from("members").select("*").eq("is_active", true);
   const scope = accountScope(viewer);
-  if (scope.kind === "function") query = query.eq("function", scope.fn);
+  if (scope.kind === "functions") query = query.overlaps("functions", scope.fns);
   if (scope.kind === "members") query = query.in("id", scope.ids);
   const { data } = await query.order("name");
   return (data ?? []) as Member[];
@@ -157,9 +198,9 @@ export async function listReassignTargets(viewer: Viewer, fn: "IGV" | "IGT"): Pr
   const scope = reassignTargetScope(viewer);
   if (scope.kind === "members" && scope.ids.length === 0) return [];
   let query = db().from("members").select("*").eq("is_active", true);
-  if (scope.kind === "all" || scope.kind === "function") {
+  if (scope.kind === "all" || scope.kind === "functions") {
     // reassignment stays inside the account's function
-    query = query.eq("function", fn);
+    query = query.contains("functions", [fn]);
   } else {
     query = query.in("id", scope.ids);
   }
@@ -168,19 +209,14 @@ export async function listReassignTargets(viewer: Viewer, fn: "IGV" | "IGT"): Pr
 }
 
 export async function listAllMembers(): Promise<Member[]> {
-  const { data } = await db().from("members").select("*").order("function").order("role").order("name");
+  const { data } = await db().from("members").select("*").order("role").order("name");
   return (data ?? []) as Member[];
 }
 
-// ------------------------------------------------------------------ blacklist
-
-export async function listBlacklist(): Promise<(BlacklistEntry & { added_by_member: { name: string } | null })[]> {
-  const { data } = await db()
-    .from("blacklist")
-    .select("*, added_by_member:members(name)")
-    .order("created_at", { ascending: false });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (data ?? []) as any;
+/** Team Leaders visible to this viewer (for the dashboard team filter). */
+export async function listTeamLeaders(viewer: Viewer): Promise<Member[]> {
+  const members = await listVisibleMembers(viewer);
+  return members.filter((m) => m.role === "Team Leader");
 }
 
 // ------------------------------------------------------------------ dashboard
@@ -219,7 +255,7 @@ function addRow(s: FunnelStats, r: PipelineRow) {
 }
 
 export async function getDashboard(viewer: Viewer, filters: AccountFilters = {}) {
-  const rows = await listAccounts(viewer, filters);
+  const rows = await listAccounts(viewer, { ...filters, includeArchived: true });
   const members = await listVisibleMembers(viewer);
   const byId = new Map(members.map((m) => [m.id, m]));
 
@@ -231,12 +267,16 @@ export async function getDashboard(viewer: Viewer, filters: AccountFilters = {})
   for (const r of rows) {
     addRow(total, r);
 
-    const fnGroup = getOrInit(byFunction, r.function, r.function);
-    addRow(fnGroup, r);
+    // IGT splits into its products (IGTa / IGTe); IGV stays one lane
+    const fnKey =
+      r.function === "IGT" ? (r.product ? `I${r.product}` : "IGT") : r.function;
+    addRow(getOrInit(byFunction, fnKey, fnKey), r);
 
-    // team = the TL: the responsible themself when they are a TL, otherwise their stakeholder
+    // team = the TL: the responsible themself when they lead, otherwise their stakeholder
     const teamKey =
-      r.responsible_role === "TL" ? r.responsible_id : r.responsible_stakeholder_id ?? "none";
+      r.responsible_role === "Team Leader"
+        ? r.responsible_id
+        : r.responsible_stakeholder_id ?? "none";
     const teamLead = byId.get(teamKey);
     const teamLabel =
       teamLead?.team_name ||

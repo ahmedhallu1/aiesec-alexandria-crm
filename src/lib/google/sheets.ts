@@ -1,6 +1,7 @@
 import { google, sheets_v4, drive_v3 } from "googleapis";
 import { db } from "@/lib/supabase";
 import { env, requireEnv } from "@/lib/env";
+import { LC_FUNCTIONS, SUB_FUNCTIONS } from "@/lib/types";
 import type { Member } from "@/lib/types";
 
 /** Google Sheets mirror layer.
@@ -9,28 +10,24 @@ import type { Member } from "@/lib/types";
  *  folder (DRIVE_FOLDER_ID) inside Ahmed's Drive, shared with the service
  *  account as Editor. The CRM creates each sheet on first use:
  *
- *  "CRM — Membership"      IMPORT — filled by hand, source of truth for users
+ *  "CRM — Membership"      TWO-WAY — filled by hand AND updated by the in-app
+ *                          membership editor; imported into the members table
  *  "CRM — IGV Accounts"    export mirror
  *  "CRM — IGT Accounts"    export mirror
  *  "CRM — Contact Log"     export mirror
  *  "CRM — Visits"          export mirror
- *  "CRM — Blacklist"       export mirror
+ *  "CRM — Blacklist"       export mirror (legacy archive)
  */
 
+/** Final Membership sheet structure (column order is the contract):
+ *  A Name · B Nickname · C Email · D Phone · E Role · F Function (multi) ·
+ *  G Sub Function (multi) · H Stakeholder (by NAME) · I Team Name · J Active */
 const MEMBERSHIP_HEADERS = [
-  "Name", "Nickname", "Email", "Phone", "Function (IGV/IGT/OGV/OGT)",
-  "Sub Function (Raising/Consideration/ICX/OGX)", "Role (LCP/VP/TL/Coordinator/Member)",
-  "Stakeholder Email", "Team Name", "Active (Yes/No)",
-];
-
-// The current EB (changes each term — edit freely in the sheet).
-const MEMBERSHIP_SEED = [
-  ["Arwa Gouda", "Arwa", "arwagouda923@aiesec.net", "01204717268", "", "", "LCP", "", "", "Yes"],
-  ["Omar Eldeeb", "El-DeeB", "omareldeeb123@aiesec.net", "01002200337", "IGT", "ICX", "VP", "arwagouda923@aiesec.net", "", "Yes"],
-  ["Nada Assem", "Nada", "nadaassem@aiesec.net", "", "IGV", "ICX", "VP", "arwagouda923@aiesec.net", "", "Yes"],
-  ["Yassin Hawash", "Hawash", "yassinamr@aiesec.net", "", "OGT", "OGX", "VP", "arwagouda923@aiesec.net", "", "Yes"],
-  ["Barthinya", "Barthinya", "barthinya199@aiesec.net", "", "OGV", "OGX", "VP", "arwagouda923@aiesec.net", "", "Yes"],
-  ["Ahmed Hallul", "Hallul", "ahmedhallul@aiesec.net", "01099019374", "IGT", "ICX", "Member", "omareldeeb123@aiesec.net", "", "Yes"],
+  "Name", "Nickname", "Email", "Phone",
+  "Role (LCP/VP/TL/Coordinator/Member)",
+  "Function (IGV/IGT/OGV/OGT)",
+  "Sub Function (Raising/Consideration/ICX/OGX)",
+  "Stakeholder", "Team Name", "Active (Yes/No)",
 ];
 
 function clients(): { sheets: sheets_v4.Sheets; drive: drive_v3.Drive } {
@@ -138,20 +135,90 @@ async function overwriteSheet(title: string, headers: string[], rows: (string | 
 
 // ------------------------------------------------------------------ import
 
-const FUNCTIONS = ["IGV", "IGT", "OGV", "OGT"];
-const SUB_FUNCTIONS = ["Raising", "Consideration", "ICX", "OGX"];
-const ROLES = ["LCP", "VP", "TL", "Coordinator", "Member"];
+const ROLE_ALIASES: Record<string, string> = {
+  lcp: "LCP",
+  lcvp: "LCVP",
+  vp: "LCVP",
+  "team leader": "Team Leader",
+  tl: "Team Leader",
+  coordinator: "Coordinator",
+  member: "Member",
+  director: "Director",
+};
 
-function pick(list: string[], raw: string | undefined): string | null {
-  if (!raw) return null;
-  const hit = list.find((v) => v.toLowerCase() === raw.trim().toLowerCase());
-  return hit ?? null;
+function parseRole(raw: string | undefined): string {
+  return ROLE_ALIASES[(raw ?? "").trim().toLowerCase()] ?? "Member";
+}
+
+/** Multi-select dropdown cells arrive as "IGV, IGT". "LCP" as a function value
+ *  means LC-wide (no specific function). */
+function parseMulti(raw: string | undefined, allowed: readonly string[]): string[] {
+  if (!raw) return [];
+  const out: string[] = [];
+  for (const part of raw.split(/[,;/]+/)) {
+    const clean = part.trim();
+    if (!clean || clean.toUpperCase() === "LCP") continue;
+    const hit = allowed.find((v) => v.toLowerCase() === clean.toLowerCase());
+    if (hit && !out.includes(hit)) out.push(hit);
+  }
+  return out;
+}
+
+interface SheetMemberRow {
+  name: string;
+  nickname: string | null;
+  email: string;
+  phone: string | null;
+  role: string;
+  functions: string[];
+  sub_functions: string[];
+  stakeholder_name: string | null;
+  team_name: string | null;
+  is_active: boolean;
+}
+
+function parseSheetRow(row: string[]): SheetMemberRow | null {
+  const [name, nickname, email, phone, role, fns, subs, stakeholder, teamName, active] = row;
+  const cleanEmail = email?.trim().toLowerCase();
+  if (!name?.trim() || !cleanEmail || !cleanEmail.includes("@")) return null;
+  return {
+    name: name.trim(),
+    nickname: nickname?.trim() || null,
+    email: cleanEmail,
+    phone: phone?.trim() || null,
+    role: parseRole(role),
+    functions: parseMulti(fns, LC_FUNCTIONS),
+    sub_functions: parseMulti(subs, SUB_FUNCTIONS),
+    stakeholder_name: stakeholder?.trim() || null,
+    team_name: teamName?.trim() || null,
+    is_active: (active ?? "Yes").trim().toLowerCase() !== "no",
+  };
+}
+
+/** Resolves "Stakeholder" names to member ids (matches name OR nickname). */
+async function relinkStakeholders(): Promise<void> {
+  const { data: members } = await db()
+    .from("members")
+    .select("id, name, nickname, stakeholder_name, stakeholder_id");
+  const byName = new Map<string, string>();
+  for (const m of members ?? []) {
+    byName.set(m.name.trim().toLowerCase(), m.id);
+    if (m.nickname) byName.set(m.nickname.trim().toLowerCase(), m.id);
+  }
+  for (const m of members ?? []) {
+    const targetId = m.stakeholder_name
+      ? byName.get(m.stakeholder_name.trim().toLowerCase()) ?? null
+      : null;
+    if (targetId !== m.stakeholder_id && targetId !== m.id) {
+      await db().from("members").update({ stakeholder_id: targetId }).eq("id", m.id);
+    }
+  }
 }
 
 /** Reads the Membership sheet and upserts the members table.
  *  Members missing from the sheet are deactivated (never deleted). */
 export async function importMembership(): Promise<number> {
-  const id = await ensureSpreadsheet("CRM — Membership", MEMBERSHIP_HEADERS, MEMBERSHIP_SEED);
+  const id = await ensureSpreadsheet("CRM — Membership", MEMBERSHIP_HEADERS);
   const { sheets } = clients();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: id,
@@ -160,39 +227,14 @@ export async function importMembership(): Promise<number> {
   const rows = (res.data.values ?? []) as string[][];
 
   const seen: string[] = [];
-  for (const row of rows) {
-    const [name, nickname, email, phone, fn, sub, role, stakeholderEmail, teamName, active] = row;
-    const cleanEmail = email?.trim().toLowerCase();
-    if (!name?.trim() || !cleanEmail || !cleanEmail.includes("@")) continue;
-    seen.push(cleanEmail);
-    await db()
-      .from("members")
-      .upsert(
-        {
-          email: cleanEmail,
-          name: name.trim(),
-          nickname: nickname?.trim() || null,
-          phone: phone?.trim() || null,
-          function: pick(FUNCTIONS, fn),
-          sub_function: pick(SUB_FUNCTIONS, sub),
-          role: pick(ROLES, role) ?? "Member",
-          stakeholder_email: stakeholderEmail?.trim().toLowerCase() || null,
-          team_name: teamName?.trim() || null,
-          is_active: (active ?? "Yes").trim().toLowerCase() !== "no",
-        },
-        { onConflict: "email" }
-      );
+  for (const raw of rows) {
+    const row = parseSheetRow(raw);
+    if (!row) continue;
+    seen.push(row.email);
+    await db().from("members").upsert(row, { onConflict: "email" });
   }
 
-  // resolve stakeholder links (second pass, emails now all exist)
-  const { data: members } = await db().from("members").select("id, email, stakeholder_email, stakeholder_id");
-  const byEmail = new Map((members ?? []).map((m) => [m.email.toLowerCase(), m.id]));
-  for (const m of members ?? []) {
-    const targetId = m.stakeholder_email ? byEmail.get(m.stakeholder_email) ?? null : null;
-    if (targetId !== m.stakeholder_id) {
-      await db().from("members").update({ stakeholder_id: targetId }).eq("id", m.id);
-    }
-  }
+  await relinkStakeholders();
 
   // deactivate anyone removed from the sheet (admins stay)
   if (seen.length > 0) {
@@ -207,10 +249,69 @@ export async function importMembership(): Promise<number> {
   return seen.length;
 }
 
+// ------------------------------------------------------------------ write-back
+
+export interface MemberWriteBack {
+  name: string;
+  nickname: string | null;
+  email: string;
+  phone: string | null;
+  role: string;
+  functions: string[];
+  sub_functions: string[];
+  stakeholder_name: string | null;
+  team_name: string | null;
+  is_active: boolean;
+}
+
+/** Writes one member's row back to the Membership sheet (found by email,
+ *  appended if new) so in-app edits survive the next import. Best-effort:
+ *  callers should .catch() and keep going — the DB row is already saved. */
+export async function writeMemberToSheet(m: MemberWriteBack): Promise<void> {
+  const id = await ensureSpreadsheet("CRM — Membership", MEMBERSHIP_HEADERS);
+  const { sheets } = clients();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: id,
+    range: "C2:C1000", // emails
+  });
+  const emails = (res.data.values ?? []).map((r) => (r[0] ?? "").trim().toLowerCase());
+  const idx = emails.findIndex((e) => e === m.email.toLowerCase());
+
+  const rowValues = [
+    m.name,
+    m.nickname ?? "",
+    m.email,
+    m.phone ?? "",
+    m.role,
+    m.functions.join(", "),
+    m.sub_functions.join(", "),
+    m.stakeholder_name ?? "",
+    m.team_name ?? "",
+    m.is_active ? "Yes" : "No",
+  ];
+
+  if (idx >= 0) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: id,
+      range: `A${idx + 2}`,
+      valueInputOption: "RAW",
+      requestBody: { values: [rowValues] },
+    });
+  } else {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: id,
+      range: "A1:J1",
+      valueInputOption: "RAW",
+      insertDataOption: "INSERT_ROWS",
+      requestBody: { values: [rowValues] },
+    });
+  }
+}
+
 // ------------------------------------------------------------------ export
 
 export async function exportAllSheets(): Promise<void> {
-  const [{ data: accounts }, { data: contacts }, { data: visits }, { data: blacklist }] =
+  const [{ data: accounts }, { data: contacts }, { data: visits }, { data: comments }] =
     await Promise.all([
       db().from("accounts_pipeline").select("*").order("created_at"),
       db()
@@ -221,8 +322,25 @@ export async function exportAllSheets(): Promise<void> {
         .from("visits")
         .select("*, account:accounts(name), member:members(name)")
         .order("visit_date"),
-      db().from("blacklist").select("*, added_by_member:members(name)").order("created_at"),
+      db()
+        .from("account_comments")
+        .select("*, member:members(name, nickname)")
+        .order("created_at"),
     ]);
+
+  // numbered comments per account, flattened for the mirrors
+  const commentText = new Map<string, string>();
+  const counters = new Map<string, number>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const c of (comments ?? []) as any[]) {
+    const key = `${c.account_id}:${c.author_label}`;
+    const n = (counters.get(key) ?? 0) + 1;
+    counters.set(key, n);
+    const label = c.author_label === "Member" ? `Comment #${n}` : `${c.author_label} Comment #${n}`;
+    const who = c.member?.nickname || c.member?.name || "";
+    const prev = commentText.get(c.account_id) ?? "";
+    commentText.set(c.account_id, `${prev}${prev ? "\n" : ""}${label}${who ? ` (${who})` : ""}: ${c.body}`);
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rows = (accounts ?? []) as any[];
@@ -231,18 +349,18 @@ export async function exportAllSheets(): Promise<void> {
 
   await overwriteSheet(
     "CRM — IGV Accounts",
-    ["Account Name", "Project", "Account Type", "Industry", "Package Plan", "Responsible",
+    ["Account Name", "Project", "Account Type", "Industry", "Responsible",
      "Stage", "Contacts", "Requested? (Podio)", "Request State", "Proposal Sent?", "Visit Date",
      "Visit Done?", "Slot Raised?", "Slots", "Next Step", "Next Step Date", "Out of Process?",
-     "OOP Reason", "Phone", "Social Link", "Podio Link", "VP Comment", "TL Comment", "Created At"],
+     "OOP Reason", "Phone", "Email", "Social Link", "Website", "Comments", "Created At"],
     igv.map((a) => [
-      a.name, a.project, a.account_type, a.industry, a.package_plan,
+      a.name, a.project, a.account_type, a.industry,
       a.responsible_nickname || a.responsible_name, a.stage, a.attempts,
       a.requested_podio ? "Yes" : "No", a.request_state, a.proposal_sent ? "Yes" : "No",
       a.visit_date, a.visit_done == null ? "" : a.visit_done ? "Yes" : "No",
       a.slot_raised ? "Yes" : "No", a.slots_count, a.next_step, a.next_step_date,
-      a.out_of_process ? "Yes" : "No", a.oop_reason, a.phone, a.social_link,
-      a.podio_link, a.vp_comment, a.tl_comment, a.created_at?.slice(0, 10),
+      a.out_of_process ? "Yes" : "No", a.oop_reason, a.phone, a.email, a.social_link,
+      a.website, commentText.get(a.id) ?? "", a.created_at?.slice(0, 10),
     ])
   );
 
@@ -251,14 +369,14 @@ export async function exportAllSheets(): Promise<void> {
     ["Account Name", "Product", "Sub Product", "Responsible", "Stage", "Contacts",
      "Requested? (Podio)", "Request State", "Visit Date", "Visit Done?", "Slot Raised?",
      "Slots", "Next Step", "Next Step Date", "Out of Process?", "OOP Reason", "Phone",
-     "Social Link", "Podio Link", "VP Comment", "TL Comment", "Created At"],
+     "Email", "Social Link", "Website", "Comments", "Created At"],
     igt.map((a) => [
       a.name, a.product, a.sub_product, a.responsible_nickname || a.responsible_name,
       a.stage, a.attempts, a.requested_podio ? "Yes" : "No", a.request_state,
       a.visit_date, a.visit_done == null ? "" : a.visit_done ? "Yes" : "No",
       a.slot_raised ? "Yes" : "No", a.slots_count, a.next_step, a.next_step_date,
-      a.out_of_process ? "Yes" : "No", a.oop_reason, a.phone, a.social_link,
-      a.podio_link, a.vp_comment, a.tl_comment, a.created_at?.slice(0, 10),
+      a.out_of_process ? "Yes" : "No", a.oop_reason, a.phone, a.email, a.social_link,
+      a.website, commentText.get(a.id) ?? "", a.created_at?.slice(0, 10),
     ])
   );
 
@@ -282,14 +400,16 @@ export async function exportAllSheets(): Promise<void> {
     ])
   );
 
+  // The archive mirror: out-of-process accounts act as the blacklist.
   await overwriteSheet(
     "CRM — Blacklist",
-    ["Account Name", "Project", "Comments", "Link", "Added By", "Added At"],
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ((blacklist ?? []) as any[]).map((b) => [
-      b.account_name, b.project, b.comments, b.link, b.added_by_member?.name,
-      b.created_at?.slice(0, 10),
-    ])
+    ["Account Name", "Function", "Project / Product", "Reason", "Archived At", "Responsible"],
+    rows
+      .filter((a) => a.out_of_process)
+      .map((a) => [
+        a.name, a.function, a.project ?? a.sub_product ?? a.product, a.oop_reason,
+        a.oop_at?.slice(0, 10), a.responsible_nickname || a.responsible_name,
+      ])
   );
 }
 

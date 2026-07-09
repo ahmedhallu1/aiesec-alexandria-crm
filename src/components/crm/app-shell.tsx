@@ -6,27 +6,28 @@ import { useState } from "react";
 import {
   LayoutDashboard,
   Building2,
-  ShieldBan,
   Users,
   Menu,
   LogOut,
   Inbox,
+  MessageSquareHeart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { ThemeToggle } from "./theme-toggle";
 
 interface ShellProps {
   user: {
     name: string;
     email: string;
     role: string;
-    function: string | null;
+    functions: string[];
     photoUrl: string | null;
     isAdmin: boolean;
   };
-  nav: { raising: boolean; blacklist: boolean; membership: boolean; blacklistManage: boolean };
+  nav: { raising: boolean; membership: boolean; feedbackInbox: boolean };
   signOutAction: () => Promise<void>;
   children: React.ReactNode;
 }
@@ -42,20 +43,18 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
           { href: "/accounts", label: "Accounts", icon: Building2 },
         ]
       : []),
-    ...(nav.blacklist ? [{ href: "/blacklist", label: "Blacklist", icon: ShieldBan }] : []),
-    ...(nav.membership
-      ? [
-          { href: "/membership", label: "Membership", icon: Users },
-          { href: "/feedback", label: "Feedback inbox", icon: Inbox },
-        ]
-      : []),
+    ...(nav.membership ? [{ href: "/membership", label: "Membership", icon: Users }] : []),
+    { href: "/feedback", label: "Feedback", icon: MessageSquareHeart },
+    ...(nav.feedbackInbox ? [{ href: "/feedback/inbox", label: "Feedback inbox", icon: Inbox }] : []),
   ];
 
   const navList = (
     <nav className="flex flex-1 flex-col gap-1 p-3">
       {items.map((item) => {
         const active =
-          item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+          item.href === "/" ? pathname === "/" : pathname === item.href ||
+          (item.href !== "/feedback" && pathname.startsWith(item.href + "/")) ||
+          (item.href === "/feedback" && pathname === "/feedback");
         return (
           <Link
             key={item.href}
@@ -71,6 +70,10 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
           </Link>
         );
       })}
+      <p className="mt-1 px-3 text-[11px] leading-snug text-sidebar-foreground/45">
+        Your feedback builds this system for <b>YOU</b> — every idea or bug you
+        report makes it better and more reliable. 💙
+      </p>
     </nav>
   );
 
@@ -81,26 +84,34 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
       rel="noreferrer"
       className="block px-5 pb-4 text-center text-[11px] text-sidebar-foreground/50 transition-colors hover:text-sidebar-foreground"
     >
-      System made by <span className="font-semibold">Ahmed Hallul</span> · 💬 WhatsApp
+      System made by <span className="font-semibold">Ahmed Hallul</span>
     </a>
   );
 
   const userBlock = (
     <div className="border-t border-sidebar-border p-3">
-      <div className="flex items-center gap-3 rounded-lg px-2 py-2">
-        <Avatar className="size-9">
-          {user.photoUrl ? <AvatarImage src={user.photoUrl} alt="" /> : null}
-          <AvatarFallback className="bg-sidebar-primary text-sidebar-primary-foreground text-xs font-bold">
-            {user.name.slice(0, 2).toUpperCase()}
-          </AvatarFallback>
-        </Avatar>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-sidebar-foreground">{user.name}</p>
-          <p className="truncate text-xs text-sidebar-foreground/60">
-            {user.isAdmin ? "Admin" : user.role}
-            {user.function ? ` · ${user.function}` : ""}
-          </p>
-        </div>
+      <div className="flex items-center gap-2 rounded-lg px-2 py-2">
+        <Link
+          href="/profile"
+          onClick={() => setOpen(false)}
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg transition-opacity hover:opacity-80"
+          title="My profile"
+        >
+          <Avatar className="size-9">
+            {user.photoUrl ? <AvatarImage src={user.photoUrl} alt="" /> : null}
+            <AvatarFallback className="bg-sidebar-primary text-sidebar-primary-foreground text-xs font-bold">
+              {user.name.slice(0, 2).toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-sidebar-foreground">{user.name}</p>
+            <p className="truncate text-xs text-sidebar-foreground/60">
+              {user.isAdmin ? "Admin" : user.role}
+              {user.functions.length > 0 ? ` · ${user.functions.join(", ")}` : ""}
+            </p>
+          </div>
+        </Link>
+        <ThemeToggle className="text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
         <form action={signOutAction}>
           <Button
             type="submit"
@@ -118,11 +129,10 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
 
   const brand = (
     <div className="flex items-center gap-2.5 px-5 py-5">
-      <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-lg font-black text-primary-foreground">
-        A
-      </div>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/brand/aiesec-white.png" alt="AIESEC" className="h-7 w-auto" />
       <div className="leading-tight">
-        <p className="text-sm font-bold text-sidebar-foreground">AIESEC in Alexandria</p>
+        <p className="text-[11px] font-bold text-sidebar-foreground">in Alexandria</p>
         <p className="text-[11px] text-sidebar-foreground/60">ICX CRM</p>
       </div>
     </div>
@@ -154,9 +164,9 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
             {credit}
           </SheetContent>
         </Sheet>
-        <p className="text-sm font-bold text-sidebar-foreground">
-          AIESEC <span className="text-primary">CRM</span>
-        </p>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/brand/aiesec-white.png" alt="AIESEC" className="h-6 w-auto" />
+        <p className="text-sm font-bold text-sidebar-foreground">CRM</p>
       </div>
 
       <main className="flex-1 px-4 pb-24 pt-16 md:ml-60 md:px-8 md:pt-8">{children}</main>

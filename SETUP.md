@@ -15,6 +15,8 @@ Work through the sections in order; each produces env vars for `.env.local`
 
 1. Create a project at [supabase.com](https://supabase.com) (free tier, region `eu-central`).
 2. SQL Editor → paste and run **`supabase/migrations/0001_init.sql`**.
+3. SQL Editor → paste and run **`supabase/migrations/0002_membership_v2.sql`**
+   (final membership structure, password auth, numbered comments, call scheduling).
 3. Project Settings → API:
    - `SUPABASE_URL` = Project URL
    - `SUPABASE_SERVICE_ROLE_KEY` = `service_role` secret key
@@ -76,20 +78,24 @@ Cloud Console.
 After the first sync (button on the `/membership` page, or the cron), open
 **CRM — Membership** — it's pre-seeded with the current EB. Columns:
 
+Final structure (column order matters — A→J):
+
 | Column | Values |
 |---|---|
 | Name | full name |
 | Nickname | shown in the UI |
-| Email | the @aiesec.net Google account (used for sign-in) |
-| Phone | optional |
-| Function | IGV / IGT / OGV / OGT (empty for LCP) |
-| Sub Function | Raising / Consideration / ICX / OGX |
-| Role | LCP / VP / TL / Coordinator / Member |
-| Stakeholder Email | VP for TLs & coordinators · LCP for VPs · TL (or VP) for members |
+| Email | the @aiesec.net account (used for sign-in) |
+| Phone | numbers only |
+| Role | LCP / LCVP / Team Leader / Coordinator / Member / Director |
+| Function | IGT / IGV / OGV / OGT / CXP / B2C / F&L — **multi-select allowed** ("LCP" = LC-wide) |
+| Sub Function | Raising / Consideration / ICX / OGX / CXP / B2C / Finance / BD / B2B — multi-select allowed |
+| Stakeholder | the stakeholder's **name** (dropdown referencing column A) |
 | Team Name | optional, shown on dashboards (set on the TL row) |
 | Active | Yes / No — No blocks sign-in |
 
 Rows removed from the sheet are deactivated automatically at the next sync.
+The sheet is **two-way**: in-app membership edits (EB) and member profile
+confirmations are written back to it, so imports never revert them.
 
 ## 5. Gmail refresh token (transactional email)
 

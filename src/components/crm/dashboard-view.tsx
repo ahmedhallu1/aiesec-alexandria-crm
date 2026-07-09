@@ -1,16 +1,27 @@
 "use client";
 
+import { useCallback } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { FUNCTION_COLORS } from "@/lib/types";
 import type { DrillGroup, FunnelStats } from "@/server/data";
 
 interface Goal { function: string; metric: string; target: number }
+
+export interface DashboardScopeView { key: string; label: string }
 
 interface Props {
   total: FunnelStats;
@@ -18,18 +29,36 @@ interface Props {
   byTeam: DrillGroup[];
   byMember: DrillGroup[];
   goals: Goal[];
-  activeFn: "all" | "IGV" | "IGT";
+  /** the lanes this viewer may switch between (IGV / IGTa / IGTe / all) */
+  views: DashboardScopeView[];
+  activeFn: string;
   scopeLabel: string;
-  showFnFilter: boolean;
   showTeamDrill: boolean;
+  teamOptions: { id: string; label: string }[];
+  memberOptions: { id: string; label: string }[];
+  filters: { team: string; member: string; from: string; to: string };
 }
 
 const pct = (num: number, den: number) =>
   den > 0 ? `${Math.round((num / den) * 100)}%` : "—";
 
 export function DashboardView({
-  total, byFunction, byTeam, byMember, goals, activeFn, scopeLabel, showFnFilter, showTeamDrill,
+  total, byFunction, byTeam, byMember, goals, views, activeFn, scopeLabel,
+  showTeamDrill, teamOptions, memberOptions, filters,
 }: Props) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const setParam = useCallback(
+    (key: string, value: string) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (value) params.set(key, value);
+      else params.delete(key);
+      router.replace(params.size > 0 ? `/?${params.toString()}` : "/");
+    },
+    [router, searchParams]
+  );
+
   const funnel = [
     { label: "Leads", value: total.leads, hint: "accounts in the pipeline" },
     { label: "Contacted", value: total.contacted, hint: "at least one logged contact" },
@@ -38,9 +67,12 @@ export function DashboardView({
     { label: "Deal Done", value: total.dealDone, hint: "slot raised" },
   ];
   const max = Math.max(total.leads, 1);
+  // IGTa/IGTe lanes share the IGT goal
+  const goalFn = activeFn.startsWith("IGT") ? "IGT" : activeFn;
   const slotsGoal = goals
-    .filter((g) => g.metric === "Slots" && (activeFn === "all" || g.function === activeFn))
+    .filter((g) => g.metric === "Slots" && (activeFn === "all" || g.function === goalFn))
     .reduce((s, g) => s + g.target, 0);
+  const anyFilter = Object.values(filters).some(Boolean);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -49,23 +81,80 @@ export function DashboardView({
           <h1 className="text-2xl font-bold">Raising Dashboard</h1>
           <p className="text-sm text-muted-foreground">{scopeLabel} · Summer Peak 26</p>
         </div>
-        {showFnFilter ? (
+        {views.length > 1 ? (
           <div className="flex gap-1 rounded-lg bg-muted p-1">
-            {(["all", "IGV", "IGT"] as const).map((fn) => (
+            {views.map((v) => (
               <Link
-                key={fn}
-                href={fn === "all" ? "/" : `/?fn=${fn}`}
+                key={v.key}
+                href={v.key === views[0].key ? "/" : `/?fn=${v.key}`}
                 className={cn(
                   "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                  activeFn === fn
+                  activeFn === v.key
                     ? "bg-card text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 )}
               >
-                {fn === "all" ? "All ICX" : fn}
+                {v.label}
               </Link>
             ))}
           </div>
+        ) : null}
+      </div>
+
+      {/* Filter bar */}
+      <div className="flex flex-wrap items-center gap-2">
+        {teamOptions.length > 0 ? (
+          <Select
+            value={filters.team || "__all"}
+            onValueChange={(v) => setParam("team", v === "__all" ? "" : v)}
+          >
+            <SelectTrigger className="w-auto min-w-32">
+              <SelectValue placeholder="Team" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all">Team: all</SelectItem>
+              {teamOptions.map((t) => (
+                <SelectItem key={t.id} value={t.id}>{t.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
+        {memberOptions.length > 1 ? (
+          <Select
+            value={filters.member || "__all"}
+            onValueChange={(v) => setParam("member", v === "__all" ? "" : v)}
+          >
+            <SelectTrigger className="w-auto min-w-32">
+              <SelectValue placeholder="Member" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all">Member: all</SelectItem>
+              {memberOptions.map((m) => (
+                <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
+        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          <span>From</span>
+          <Input
+            type="date"
+            className="h-9 w-36"
+            value={filters.from}
+            onChange={(e) => setParam("from", e.target.value)}
+          />
+          <span>to</span>
+          <Input
+            type="date"
+            className="h-9 w-36"
+            value={filters.to}
+            onChange={(e) => setParam("to", e.target.value)}
+          />
+        </div>
+        {anyFilter ? (
+          <Button variant="ghost" size="sm" onClick={() => router.replace(activeFn && activeFn !== "all" ? `/?fn=${activeFn}` : "/") }>
+            <X className="size-4" /> Clear
+          </Button>
         ) : null}
       </div>
 
@@ -124,7 +213,7 @@ export function DashboardView({
             </div>
           ))}
           <p className="pt-1 text-xs text-muted-foreground">
-            {total.outOfProcess} account{total.outOfProcess === 1 ? "" : "s"} out of process
+            {total.outOfProcess} account{total.outOfProcess === 1 ? "" : "s"} archived (out of process)
           </p>
         </CardContent>
       </Card>
@@ -137,12 +226,12 @@ export function DashboardView({
         <CardContent>
           <Tabs defaultValue={byFunction.length > 1 ? "function" : showTeamDrill ? "team" : "member"}>
             <TabsList>
-              {byFunction.length > 1 ? <TabsTrigger value="function">By function</TabsTrigger> : null}
+              {byFunction.length > 1 ? <TabsTrigger value="function">By product</TabsTrigger> : null}
               {showTeamDrill ? <TabsTrigger value="team">By team</TabsTrigger> : null}
               <TabsTrigger value="member">By member</TabsTrigger>
             </TabsList>
             {byFunction.length > 1 ? (
-              <TabsContent value="function"><DrillTable groups={byFunction} /></TabsContent>
+              <TabsContent value="function"><DrillTable groups={byFunction} colorKeys /></TabsContent>
             ) : null}
             {showTeamDrill ? (
               <TabsContent value="team"><DrillTable groups={byTeam} /></TabsContent>
@@ -186,7 +275,7 @@ function KpiCard({
   return href ? <Link href={href}>{body}</Link> : body;
 }
 
-function DrillTable({ groups }: { groups: DrillGroup[] }) {
+function DrillTable({ groups, colorKeys }: { groups: DrillGroup[]; colorKeys?: boolean }) {
   if (groups.length === 0)
     return <p className="py-6 text-center text-sm text-muted-foreground">No data yet.</p>;
   return (
@@ -206,25 +295,38 @@ function DrillTable({ groups }: { groups: DrillGroup[] }) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {groups.map((g) => (
-            <TableRow key={g.key}>
-              <TableCell className="font-medium">{g.label}</TableCell>
-              <TableCell className="text-right">{g.leads}</TableCell>
-              <TableCell className="text-right">{g.contacted}</TableCell>
-              <TableCell className="text-right">{g.visitScheduled}</TableCell>
-              <TableCell className="text-right">{g.visitDone}</TableCell>
-              <TableCell className="text-right">{g.dealDone}</TableCell>
-              <TableCell className="text-right font-semibold">{g.slots}</TableCell>
-              <TableCell className="text-right text-muted-foreground">{pct(g.dealDone, g.leads)}</TableCell>
-              <TableCell className="text-right">
-                {g.contactLimitFlags + g.nextStepMissingFlags > 0 ? (
-                  <Badge variant="destructive">{g.contactLimitFlags + g.nextStepMissingFlags}</Badge>
-                ) : (
-                  <span className="text-muted-foreground">—</span>
-                )}
-              </TableCell>
-            </TableRow>
-          ))}
+          {groups.map((g) => {
+            const color = colorKeys
+              ? FUNCTION_COLORS[g.key.startsWith("IGT") ? "IGT" : g.key]
+              : undefined;
+            return (
+              <TableRow key={g.key}>
+                <TableCell className="font-medium">
+                  {color ? (
+                    <Badge className={cn("border-transparent font-semibold", color.bg, color.text)}>
+                      {g.label}
+                    </Badge>
+                  ) : (
+                    g.label
+                  )}
+                </TableCell>
+                <TableCell className="text-right">{g.leads}</TableCell>
+                <TableCell className="text-right">{g.contacted}</TableCell>
+                <TableCell className="text-right">{g.visitScheduled}</TableCell>
+                <TableCell className="text-right">{g.visitDone}</TableCell>
+                <TableCell className="text-right">{g.dealDone}</TableCell>
+                <TableCell className="text-right font-semibold">{g.slots}</TableCell>
+                <TableCell className="text-right text-muted-foreground">{pct(g.dealDone, g.leads)}</TableCell>
+                <TableCell className="text-right">
+                  {g.contactLimitFlags + g.nextStepMissingFlags > 0 ? (
+                    <Badge variant="destructive">{g.contactLimitFlags + g.nextStepMissingFlags}</Badge>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
     </div>

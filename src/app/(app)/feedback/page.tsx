@@ -1,54 +1,24 @@
-import { redirect } from "next/navigation";
 import { getViewer } from "@/server/data";
-import { canManageMembership } from "@/lib/rbac";
-import { db } from "@/lib/supabase";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
+import { canSeeFeedbackInbox } from "@/lib/rbac";
+import { FeedbackForm } from "@/components/crm/feedback-form";
 
-export const metadata = { title: "Feedback inbox" };
+export const metadata = { title: "Feedback" };
 
 export default async function FeedbackPage() {
   const viewer = await getViewer();
-  if (!canManageMembership(viewer)) redirect("/");
-
-  const { data: items } = await db()
-    .from("feedback")
-    .select("*, member:members(name, nickname)")
-    .order("created_at", { ascending: false })
-    .limit(200);
-
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
+    <div className="mx-auto max-w-2xl space-y-5">
       <div>
-        <h1 className="text-2xl font-bold">Feedback inbox</h1>
-        <p className="text-sm text-muted-foreground">Bugs and enhancement ideas from members.</p>
+        <h1 className="text-2xl font-bold">
+          Feedback<span className="text-primary">.</span>
+        </h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          This system is built for <b>YOU</b> — every bug you report and every
+          idea you share makes it better and more reliable for you and the whole
+          LC. Your feedback is a real contribution to building it. 💙
+        </p>
       </div>
-      {(items ?? []).length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            No feedback yet — that&apos;s either very good or very suspicious 🙂
-          </CardContent>
-        </Card>
-      ) : (
-        (items ?? []).map((f) => (
-          <Card key={f.id}>
-            <CardContent className="space-y-1.5 pt-4">
-              <div className="flex items-center gap-2">
-                <Badge variant={f.type === "Bug" ? "destructive" : "outline"}>
-                  {f.type === "Bug" ? "🐞 Bug" : f.type === "Enhancement" ? "✨ Enhancement" : "💬 Other"}
-                </Badge>
-                <span className="text-sm font-medium">
-                  {f.member?.nickname || f.member?.name || "Unknown"}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {new Date(f.created_at).toLocaleString()} {f.page ? `· ${f.page}` : ""}
-                </span>
-              </div>
-              <p className="text-sm">{f.message}</p>
-            </CardContent>
-          </Card>
-        ))
-      )}
+      <FeedbackForm showInboxLink={canSeeFeedbackInbox(viewer)} />
     </div>
   );
 }

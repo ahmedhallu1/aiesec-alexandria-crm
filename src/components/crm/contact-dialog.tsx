@@ -17,7 +17,7 @@ import {
 
 const METHODS: ContactMethod[] = ["Call", "WhatsApp", "Email"];
 const STATUSES: ContactStatus[] = [
-  "No Response", "Responded", "Interested", "Not Interested", "Wrong Contact",
+  "No Response", "Responded", "Interested", "Not Interested", "Wrong Contact", "Call Scheduled",
 ];
 
 export interface ContactTarget {
@@ -27,7 +27,8 @@ export interface ContactTarget {
   nextStepDate: string | null;
 }
 
-/** The Contact button flow: log method + status + comment. Enforces the
+/** The Contact button flow: log method + result + comment. "Call Scheduled"
+ *  captures the call's date + time (that becomes the next step). Enforces the
  *  next-step obligation and triggers the 3-contact-limit prompt. */
 export function ContactDialog({
   target, open, onOpenChange,
@@ -42,19 +43,23 @@ export function ContactDialog({
   const [nextStep, setNextStep] = useState("");
   const [nextStepDate, setNextStepDate] = useState("");
   const [nextStepTime, setNextStepTime] = useState("");
+  const [scheduledDate, setScheduledDate] = useState("");
+  const [scheduledTime, setScheduledTime] = useState("");
   const [limitPrompt, setLimitPrompt] = useState(false);
   const [oopReason, setOopReason] = useState("");
   const [pending, startTransition] = useTransition();
 
   if (!target) return null;
 
+  const isCallScheduled = status === "Call Scheduled";
   const today = new Date().toISOString().slice(0, 10);
   const nextStepAlreadySet = !!target.nextStepDate && target.nextStepDate >= today;
-  const nextStepRequired = !target.hasPendingVisit && !nextStepAlreadySet;
+  const nextStepRequired = !isCallScheduled && !target.hasPendingVisit && !nextStepAlreadySet;
 
   const reset = () => {
     setMethod("Call"); setStatus("No Response"); setComment("");
     setNextStep(""); setNextStepDate(""); setNextStepTime("");
+    setScheduledDate(""); setScheduledTime("");
     setLimitPrompt(false); setOopReason("");
   };
 
@@ -68,6 +73,8 @@ export function ContactDialog({
         nextStep: nextStep || undefined,
         nextStepDate: nextStepDate || undefined,
         nextStepTime: nextStepTime || undefined,
+        scheduledDate: scheduledDate || undefined,
+        scheduledTime: scheduledTime || undefined,
       });
       if (!res.ok) {
         toast.error(res.error);
@@ -77,7 +84,11 @@ export function ContactDialog({
         setLimitPrompt(true);
         return;
       }
-      toast.success(`Contact #${res.data?.attempts ?? ""} logged`);
+      toast.success(
+        isCallScheduled
+          ? `Contact #${res.data?.attempts ?? ""} logged — call set for ${scheduledDate} ${scheduledTime}`
+          : `Contact #${res.data?.attempts ?? ""} logged`
+      );
       reset();
       onOpenChange(false);
     });
@@ -88,7 +99,7 @@ export function ContactDialog({
         target.id,
         oopReason || "No answer after 3 contact attempts"
       );
-      if (res.ok) toast.success("Account marked Out of Process");
+      if (res.ok) toast.success("Account archived (Out of Process)");
       else toast.error(res.error);
       reset();
       onOpenChange(false);
@@ -132,11 +143,32 @@ export function ContactDialog({
                   <Select value={status} onValueChange={(v) => setStatus(v as ContactStatus)}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                      {STATUSES.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {s === "Call Scheduled" ? "📅 " : ""}{s}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
               </div>
+
+              {isCallScheduled ? (
+                <div className="rounded-lg border border-primary/40 bg-primary/5 p-3">
+                  <p className="mb-2 text-sm font-medium">
+                    Scheduled call <span className="text-destructive">*date & time required</span>
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input type="date" min={today} value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} />
+                    <Input type="time" value={scheduledTime} onChange={(e) => setScheduledTime(e.target.value)} />
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    The call becomes this account&apos;s next step. Planning an
+                    in-person meeting instead? Use the <b>Schedule visit</b> button.
+                  </p>
+                </div>
+              ) : null}
+
               <div className="grid gap-2">
                 <Label>Comment</Label>
                 <Textarea
@@ -146,32 +178,39 @@ export function ContactDialog({
                   placeholder="What was said, who you reached…"
                 />
               </div>
-              <div className="rounded-lg border p-3">
-                <p className="mb-2 text-sm font-medium">
-                  Next step{" "}
-                  {nextStepRequired ? (
-                    <span className="text-destructive">*required — no visit is scheduled</span>
-                  ) : (
-                    <span className="text-muted-foreground">(optional)</span>
-                  )}
-                </p>
-                <div className="grid gap-2">
-                  <Input
-                    value={nextStep}
-                    onChange={(e) => setNextStep(e.target.value)}
-                    placeholder="e.g. Follow-up call with the manager"
-                  />
-                  <div className="grid grid-cols-2 gap-2">
-                    <Input type="date" min={today} value={nextStepDate} onChange={(e) => setNextStepDate(e.target.value)} />
-                    <Input type="time" value={nextStepTime} onChange={(e) => setNextStepTime(e.target.value)} />
+
+              {!isCallScheduled ? (
+                <div className="rounded-lg border p-3">
+                  <p className="mb-2 text-sm font-medium">
+                    Next step{" "}
+                    {nextStepRequired ? (
+                      <span className="text-destructive">*required — no visit is scheduled</span>
+                    ) : (
+                      <span className="text-muted-foreground">(optional)</span>
+                    )}
+                  </p>
+                  <div className="grid gap-2">
+                    <Input
+                      value={nextStep}
+                      onChange={(e) => setNextStep(e.target.value)}
+                      placeholder="e.g. Follow-up call with the manager"
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input type="date" min={today} value={nextStepDate} onChange={(e) => setNextStepDate(e.target.value)} />
+                      <Input type="time" value={nextStepTime} onChange={(e) => setNextStepTime(e.target.value)} />
+                    </div>
                   </div>
                 </div>
-              </div>
+              ) : null}
             </div>
             <DialogFooter>
               <Button
                 onClick={submit}
-                disabled={pending || (nextStepRequired && (!nextStepDate || !nextStep.trim()))}
+                disabled={
+                  pending ||
+                  (isCallScheduled && (!scheduledDate || !scheduledTime)) ||
+                  (nextStepRequired && (!nextStepDate || !nextStep.trim()))
+                }
               >
                 {pending ? "Saving…" : "Log contact"}
               </Button>
@@ -200,7 +239,7 @@ export function ContactDialog({
                 Keep in process
               </Button>
               <Button variant="destructive" onClick={markOop} disabled={pending}>
-                {pending ? "Saving…" : "Mark Out of Process"}
+                {pending ? "Saving…" : "Archive (Out of Process)"}
               </Button>
             </DialogFooter>
           </>

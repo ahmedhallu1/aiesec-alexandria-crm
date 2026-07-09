@@ -18,13 +18,14 @@ export default async function MembershipPage() {
         nickname: m.nickname,
         email: m.email,
         phone: m.phone,
-        function: m.function,
-        sub_function: m.sub_function,
+        functions: m.functions ?? [],
+        sub_functions: m.sub_functions ?? [],
         role: m.role,
-        stakeholder_email: m.stakeholder_email,
+        stakeholder_name: m.stakeholder_name,
         team_name: m.team_name,
         is_active: m.is_active,
         first_login_at: m.first_login_at,
+        has_password: !!m.password_hash,
       }))}
     />
   );

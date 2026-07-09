@@ -1,9 +1,12 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-/* AIESEC brand palette
-   Blue  #0A2540  |  Cyan #037EF3  |  White  |  Mid Gray
-   Dark mode follows the device preference (no manual toggle). */
+/* Official AIESEC brand (logos.aiesec.org)
+   AIESEC Blue #037EF3 · Dark #0A2540 · White · Grey #52565E
+   Product colors: GV (Global Volunteer) #F85A40 · GTa (Global Talent) #0CB9C1
+   Dark mode: device preference by default + manual toggle (class strategy). */
+
+@custom-variant dark (&:is(.dark *));
 
 :root {
   --radius: 0.625rem;
@@ -44,47 +47,52 @@
 
   --success: #16a34a;
   --warning: #f48924;
+
+  /* official AIESEC product colors */
+  --gv: #f85a40;
+  --gt: #0cb9c1;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #081b30;
-    --foreground: #e8eef6;
-    --card: #0d2a49;
-    --card-foreground: #e8eef6;
-    --popover: #0d2a49;
-    --popover-foreground: #e8eef6;
-    --primary: #2f96ff;
-    --primary-foreground: #ffffff;
-    --secondary: #14355c;
-    --secondary-foreground: #e8eef6;
-    --muted: #112f52;
-    --muted-foreground: #93a5bc;
-    --accent: #14355c;
-    --accent-foreground: #e8eef6;
-    --destructive: #ef4444;
-    --border: #1b3d66;
-    --input: #1b3d66;
-    --ring: #2f96ff;
+.dark {
+  --background: #081b30;
+  --foreground: #e8eef6;
+  --card: #0d2a49;
+  --card-foreground: #e8eef6;
+  --popover: #0d2a49;
+  --popover-foreground: #e8eef6;
+  --primary: #2f96ff;
+  --primary-foreground: #ffffff;
+  --secondary: #14355c;
+  --secondary-foreground: #e8eef6;
+  --muted: #112f52;
+  --muted-foreground: #93a5bc;
+  --accent: #14355c;
+  --accent-foreground: #e8eef6;
+  --destructive: #ef4444;
+  --border: #1b3d66;
+  --input: #1b3d66;
+  --ring: #2f96ff;
 
-    --chart-1: #2f96ff;
-    --chart-2: #93a5bc;
-    --chart-3: #6cc24a;
-    --chart-4: #f48924;
-    --chart-5: #f85a40;
+  --chart-1: #2f96ff;
+  --chart-2: #93a5bc;
+  --chart-3: #6cc24a;
+  --chart-4: #f48924;
+  --chart-5: #f85a40;
 
-    --sidebar: #061524;
-    --sidebar-foreground: #e8eef6;
-    --sidebar-primary: #2f96ff;
-    --sidebar-primary-foreground: #ffffff;
-    --sidebar-accent: #0d2a49;
-    --sidebar-accent-foreground: #ffffff;
-    --sidebar-border: #0d2a49;
-    --sidebar-ring: #2f96ff;
+  --sidebar: #061524;
+  --sidebar-foreground: #e8eef6;
+  --sidebar-primary: #2f96ff;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #0d2a49;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #0d2a49;
+  --sidebar-ring: #2f96ff;
 
-    --success: #22c55e;
-    --warning: #f4a340;
-  }
+  --success: #22c55e;
+  --warning: #f4a340;
+
+  --gv: #ff7a63;
+  --gt: #22d3dc;
 }
 
 @theme inline {
@@ -121,6 +129,8 @@
   --color-sidebar-ring: var(--sidebar-ring);
   --color-success: var(--success);
   --color-warning: var(--warning);
+  --color-gv: var(--gv);
+  --color-gt: var(--gt);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);

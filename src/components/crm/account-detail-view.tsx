@@ -2,17 +2,23 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  ArrowLeft, ArrowRightLeft, CalendarPlus, CheckCircle2, Mail, MessageCircle,
+  ArrowLeft, CalendarPlus, CheckCircle2, Mail, MessageCircle, MessageSquareText,
   Phone, RotateCcw, Trophy, XCircle,
 } from "lucide-react";
 import {
-  markSlotRaised, reassignAccount, reportVisit, reviveAccount,
+  addComment, markSlotRaised, reassignAccount, reportVisit, reviveAccount,
   scheduleVisit, setOutOfProcess, updateAccount,
 } from "@/server/actions";
-import type { PipelineRow } from "@/server/data";
+import type { CommentWithMember, PipelineRow } from "@/server/data";
 import type { ContactAttempt, Visit } from "@/lib/types";
+import {
+  ACCOUNT_TYPES, cleanPhone, EMAIL_RE, FUNCTION_COLORS, IGT_SUB_PRODUCTS,
+  INDUSTRIES, PHONE_RE, URL_RE,
+} from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { StageBadge } from "./stage-badge";
 import { ContactDialog, type ContactTarget } from "./contact-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -34,8 +40,6 @@ type AttemptWithMember = ContactAttempt & { member: { name: string; nickname: st
 interface Caps {
   edit: boolean;
   reassign: boolean;
-  tlComment: boolean;
-  vpComment: boolean;
   requestState: boolean;
 }
 
@@ -46,13 +50,14 @@ const methodIcon = {
 };
 
 export function AccountDetailView({
-  account, attempts, visits, caps, reassignTargets, autoReportVisitId,
+  account, attempts, visits, comments, caps, reassignTargets, autoReportVisitId,
 }: {
   account: PipelineRow;
   attempts: AttemptWithMember[];
   visits: Visit[];
+  comments: CommentWithMember[];
   caps: Caps;
-  reassignTargets: { id: string; label: string; function: string | null }[];
+  reassignTargets: { id: string; label: string }[];
   autoReportVisitId: string | null;
 }) {
   const pendingVisit = visits.find((v) => v.done === null) ?? null;
@@ -63,7 +68,6 @@ export function AccountDetailView({
   const [contactOpen, setContactOpen] = useState(false);
   const [visitOpen, setVisitOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(!!autoReportVisitId && !!reportableVisit);
-  const [reassignOpen, setReassignOpen] = useState(false);
   const [oopOpen, setOopOpen] = useState(false);
   const [dealOpen, setDealOpen] = useState(false);
 
@@ -75,6 +79,7 @@ export function AccountDetailView({
   };
 
   const active = !account.out_of_process;
+  const fnColor = FUNCTION_COLORS[account.function];
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
@@ -90,7 +95,9 @@ export function AccountDetailView({
         <div className="space-y-1.5">
           <h1 className="text-2xl font-bold">{account.name}</h1>
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline">{account.function}</Badge>
+            <Badge className={cn("border-transparent font-semibold", fnColor?.bg, fnColor?.text)}>
+              {account.function}
+            </Badge>
             {account.function === "IGV" && account.project ? (
               <Badge variant="outline">{account.project}</Badge>
             ) : null}
@@ -107,12 +114,11 @@ export function AccountDetailView({
               <Badge variant="destructive">🚨 next step missing</Badge>
             ) : null}
           </div>
-          <p className="text-sm text-muted-foreground">
-            Responsible: <b>{account.responsible_nickname || account.responsible_name}</b>
-            {account.out_of_process && account.oop_reason ? (
-              <span className="text-destructive"> · OOP: {account.oop_reason}</span>
-            ) : null}
-          </p>
+          <ResponsibleRow
+            account={account}
+            canReassign={caps.reassign}
+            targets={reassignTargets}
+          />
         </div>
 
         {caps.edit ? (
@@ -140,11 +146,6 @@ export function AccountDetailView({
                 </Button>
               </>
             ) : null}
-            {caps.reassign ? (
-              <Button variant="outline" onClick={() => setReassignOpen(true)}>
-                <ArrowRightLeft className="size-4" /> Reassign
-              </Button>
-            ) : null}
             {active ? (
               <Button
                 variant="outline"
@@ -164,7 +165,7 @@ export function AccountDetailView({
         <DetailsCard account={account} canEdit={caps.edit} />
         <PodioCard account={account} canEdit={caps.edit} canEditState={caps.requestState} />
         <NextStepCard account={account} canEdit={caps.edit && active} />
-        <CommentsCard account={account} caps={caps} />
+        <CommentsCard accountId={account.id} comments={comments} canComment={caps.edit} />
       </div>
 
       <TimelineCard attempts={attempts} visits={visits} />
@@ -180,21 +181,68 @@ export function AccountDetailView({
       {reportableVisit ? (
         <ReportVisitDialog visit={reportableVisit} open={reportOpen} onOpenChange={setReportOpen} />
       ) : null}
-      <ReassignDialog
-        accountId={account.id}
-        currentId={account.responsible_id}
-        targets={reassignTargets}
-        open={reassignOpen}
-        onOpenChange={setReassignOpen}
-      />
       <OopDialog accountId={account.id} open={oopOpen} onOpenChange={setOopOpen} />
       <DealDialog accountId={account.id} open={dealOpen} onOpenChange={setDealOpen} />
     </div>
   );
 }
 
+/** Responsible: read-only for members; Team Leaders pick between themselves and
+ *  their members, VPs across the function, the LCP anywhere. */
+function ResponsibleRow({
+  account, canReassign, targets,
+}: {
+  account: PipelineRow;
+  canReassign: boolean;
+  targets: { id: string; label: string }[];
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+
+  if (!canReassign || targets.length <= 1) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Responsible: <b>{account.responsible_nickname || account.responsible_name}</b>
+        {account.out_of_process && account.oop_reason ? (
+          <span className="text-destructive"> · Archived: {account.oop_reason}</span>
+        ) : null}
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+      <span>Responsible:</span>
+      <Select
+        value={account.responsible_id}
+        disabled={pending}
+        onValueChange={(v) =>
+          start(async () => {
+            const res = await reassignAccount(account.id, v);
+            if (res.ok) { toast.success("Responsibility changed"); router.refresh(); }
+            else toast.error(res.error);
+          })
+        }
+      >
+        <SelectTrigger className="h-8 w-auto min-w-36">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {targets.map((t) => (
+            <SelectItem key={t.id} value={t.id}>{t.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {account.out_of_process && account.oop_reason ? (
+        <span className="text-destructive">Archived: {account.oop_reason}</span>
+      ) : null}
+    </div>
+  );
+}
+
 // ------------------------------------------------------------------ cards
 
+/** Details with validation + list-or-other pickers (no Podio link, no package plan). */
 function DetailsCard({ account, canEdit }: { account: PipelineRow; canEdit: boolean }) {
   const [form, setForm] = useState({
     phone: account.phone ?? "",
@@ -203,46 +251,107 @@ function DetailsCard({ account, canEdit }: { account: PipelineRow; canEdit: bool
     website: account.website ?? "",
     account_type: account.account_type ?? "",
     industry: account.industry ?? "",
-    package_plan: account.package_plan ?? "",
     sub_product: account.sub_product ?? "",
   });
   const [dirty, setDirty] = useState(false);
   const [pending, start] = useTransition();
 
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => {
-    setForm((f) => ({ ...f, [k]: e.target.value }));
+  const phoneOk = !form.phone.trim() || PHONE_RE.test(cleanPhone(form.phone));
+  const emailOk = !form.email.trim() || EMAIL_RE.test(form.email.trim());
+  const socialOk = !form.social_link.trim() || URL_RE.test(form.social_link.trim());
+  const websiteOk = !form.website.trim() || URL_RE.test(form.website.trim());
+  const allOk = phoneOk && emailOk && socialOk && websiteOk;
+
+  const set = (k: keyof typeof form) => (v: string) => {
+    setForm((f) => ({ ...f, [k]: v }));
     setDirty(true);
   };
   const save = () =>
     start(async () => {
-      const res = await updateAccount(account.id, form);
+      const res = await updateAccount(account.id, {
+        ...form,
+        phone: form.phone ? cleanPhone(form.phone) : "",
+      });
       if (res.ok) { toast.success("Saved"); setDirty(false); }
       else toast.error(res.error);
     });
 
-  const rows: [string, keyof typeof form][] =
-    account.function === "IGV"
-      ? [["Phone", "phone"], ["Email", "email"], ["Social link", "social_link"], ["Website", "website"],
-         ["Account type", "account_type"], ["Industry", "industry"], ["Package plan", "package_plan"]]
-      : [["Phone", "phone"], ["Email", "email"], ["Social link", "social_link"], ["Website", "website"],
-         ["Sub product", "sub_product"]];
+  const inputRow = (
+    label: string,
+    key: keyof typeof form,
+    ok: boolean,
+    err: string,
+    placeholder?: string
+  ) => (
+    <div key={key} className="grid grid-cols-[110px_1fr] items-center gap-2">
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      {canEdit ? (
+        <div>
+          <Input
+            className={cn("h-8", !ok && "border-destructive")}
+            value={form[key]}
+            placeholder={placeholder}
+            onChange={(e) => set(key)(e.target.value)}
+          />
+          {!ok ? <p className="mt-0.5 text-xs text-destructive">{err}</p> : null}
+        </div>
+      ) : (
+        <p className="truncate text-sm">{form[key] || "—"}</p>
+      )}
+    </div>
+  );
+
+  const listRow = (label: string, key: keyof typeof form, options: readonly string[]) => {
+    const value = form[key];
+    const inList = options.includes(value);
+    return (
+      <div key={key} className="grid grid-cols-[110px_1fr] items-center gap-2">
+        <Label className="text-xs text-muted-foreground">{label}</Label>
+        {canEdit ? (
+          <div className="grid gap-1">
+            <Select
+              value={value ? (inList ? value : "Other") : undefined}
+              onValueChange={(v) => set(key)(v === "Other" ? (inList ? "" : value) : v)}
+            >
+              <SelectTrigger className="h-8"><SelectValue placeholder="Choose…" /></SelectTrigger>
+              <SelectContent>
+                {options.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            {value && !inList ? (
+              <Input
+                className="h-8"
+                value={value}
+                onChange={(e) => set(key)(e.target.value)}
+                placeholder={`Other ${label.toLowerCase()}…`}
+              />
+            ) : null}
+          </div>
+        ) : (
+          <p className="truncate text-sm">{value || "—"}</p>
+        )}
+      </div>
+    );
+  };
 
   return (
     <Card>
       <CardHeader><CardTitle className="text-base">Details</CardTitle></CardHeader>
       <CardContent className="space-y-3">
-        {rows.map(([label, key]) => (
-          <div key={key} className="grid grid-cols-[110px_1fr] items-center gap-2">
-            <Label className="text-xs text-muted-foreground">{label}</Label>
-            {canEdit ? (
-              <Input className="h-8" value={form[key]} onChange={set(key)} />
-            ) : (
-              <p className="truncate text-sm">{form[key] || "—"}</p>
-            )}
-          </div>
-        ))}
+        {inputRow("Phone", "phone", phoneOk, "Numbers only, 8–15 digits.")}
+        {inputRow("Email", "email", emailOk, "Valid email only.")}
+        {inputRow("Social link", "social_link", socialOk, "Must be a link (https://…).", "https://…")}
+        {inputRow("Website", "website", websiteOk, "Must be a link (https://…).", "https://…")}
+        {account.function === "IGV" ? (
+          <>
+            {listRow("Account type", "account_type", ACCOUNT_TYPES)}
+            {listRow("Industry", "industry", INDUSTRIES)}
+          </>
+        ) : (
+          listRow("Sub product", "sub_product", IGT_SUB_PRODUCTS)
+        )}
         {canEdit && dirty ? (
-          <Button size="sm" onClick={save} disabled={pending}>
+          <Button size="sm" onClick={save} disabled={pending || !allOk}>
             {pending ? "Saving…" : "Save details"}
           </Button>
         ) : null}
@@ -302,16 +411,6 @@ function PodioCard({
             </SelectContent>
           </Select>
         </div>
-        {account.podio_link ? (
-          <a
-            href={account.podio_link}
-            target="_blank"
-            rel="noreferrer"
-            className="block truncate text-sm text-primary hover:underline"
-          >
-            {account.podio_link}
-          </a>
-        ) : null}
       </CardContent>
     </Card>
   );
@@ -363,47 +462,96 @@ function NextStepCard({ account, canEdit }: { account: PipelineRow; canEdit: boo
   );
 }
 
-function CommentsCard({ account, caps }: { account: PipelineRow; caps: Caps }) {
+/** Numbered comments: everyone logs as many as needed. TL/VP/LCP comments carry
+ *  their label ("VP Comment #2"); numbering is automatic per label. */
+function CommentsCard({
+  accountId, comments, canComment,
+}: {
+  accountId: string;
+  comments: CommentWithMember[];
+  canComment: boolean;
+}) {
+  const router = useRouter();
+  const [body, setBody] = useState("");
   const [pending, start] = useTransition();
-  const fields = [
-    { key: "final_comment" as const, label: "Final comment", editable: caps.edit },
-    { key: "tl_comment" as const, label: "TL comment", editable: caps.tlComment },
-    { key: "vp_comment" as const, label: "VP comment", editable: caps.vpComment },
-  ];
-  const [values, setValues] = useState<Record<string, string>>({
-    final_comment: account.final_comment ?? "",
-    tl_comment: account.tl_comment ?? "",
-    vp_comment: account.vp_comment ?? "",
-  });
-  const [dirtyKey, setDirtyKey] = useState<string | null>(null);
 
-  const save = (key: string) =>
+  // chronological numbering per label class
+  const counters: Record<string, number> = {};
+  const numbered = comments.map((c) => {
+    counters[c.author_label] = (counters[c.author_label] ?? 0) + 1;
+    const n = counters[c.author_label];
+    return {
+      ...c,
+      title: c.author_label === "Member" ? `Comment #${n}` : `${c.author_label} Comment #${n}`,
+    };
+  });
+
+  const submit = () =>
     start(async () => {
-      const res = await updateAccount(account.id, { [key]: values[key] });
-      if (res.ok) { toast.success("Comment saved"); setDirtyKey(null); }
-      else toast.error(res.error);
+      const res = await addComment(accountId, body);
+      if (res.ok) {
+        toast.success("Comment logged");
+        setBody("");
+        router.refresh();
+      } else toast.error(res.error);
     });
 
   return (
     <Card>
-      <CardHeader><CardTitle className="text-base">Comments</CardTitle></CardHeader>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <MessageSquareText className="size-4 text-muted-foreground" />
+          Comments
+          {numbered.length > 0 ? (
+            <Badge variant="outline" className="ml-1">{numbered.length}</Badge>
+          ) : null}
+        </CardTitle>
+      </CardHeader>
       <CardContent className="space-y-3">
-        {fields.map((f) => (
-          <div key={f.key} className="space-y-1">
-            <Label className="text-xs text-muted-foreground">{f.label}</Label>
+        {numbered.length === 0 ? (
+          <p className="py-2 text-center text-sm text-muted-foreground">
+            No comments yet.
+          </p>
+        ) : (
+          <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+            {[...numbered].reverse().map((c) => (
+              <div key={c.id} className="rounded-lg border p-2.5 text-sm">
+                <div className="mb-1 flex flex-wrap items-center gap-2">
+                  <Badge
+                    className={cn(
+                      "border-transparent",
+                      c.author_label === "Member"
+                        ? "bg-muted text-muted-foreground"
+                        : c.author_label === "TL"
+                          ? "bg-chart-4/15 text-chart-4"
+                          : "bg-primary/15 text-primary"
+                    )}
+                  >
+                    {c.title}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">
+                    {c.member?.nickname || c.member?.name || "—"} ·{" "}
+                    {new Date(c.created_at).toLocaleString()}
+                  </span>
+                </div>
+                <p className="whitespace-pre-wrap">{c.body}</p>
+              </div>
+            ))}
+          </div>
+        )}
+        {canComment ? (
+          <div className="space-y-2">
             <Textarea
               rows={2}
-              value={values[f.key]}
-              disabled={!f.editable}
-              onChange={(e) => { setValues((v) => ({ ...v, [f.key]: e.target.value })); setDirtyKey(f.key); }}
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              placeholder="Log a new comment — it gets numbered automatically"
             />
-            {f.editable && dirtyKey === f.key ? (
-              <Button size="sm" variant="outline" onClick={() => save(f.key)} disabled={pending}>
-                Save
-              </Button>
-            ) : null}
+            <Button size="sm" variant="outline" onClick={submit} disabled={pending || body.trim().length < 2}>
+              {pending ? "Saving…" : "Add comment"}
+            </Button>
           </div>
-        ))}
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -447,8 +595,16 @@ function TimelineCard({ attempts, visits }: { attempts: AttemptWithMember[]; vis
                 <div className="min-w-0 flex-1">
                   <p>
                     <b>Contact #{attempts.length - i}</b> · {a.method} ·{" "}
-                    <span className={a.status === "No Response" ? "text-warning" : "text-success"}>
-                      {a.status}
+                    <span
+                      className={
+                        a.status === "No Response"
+                          ? "text-warning"
+                          : a.status === "Call Scheduled"
+                            ? "text-primary"
+                            : "text-success"
+                      }
+                    >
+                      {a.status === "Call Scheduled" ? "📅 " : ""}{a.status}
                     </span>
                   </p>
                   {a.comment ? <p className="text-muted-foreground">{a.comment}</p> : null}
@@ -487,7 +643,7 @@ function VisitDialog({
       toast.success(
         res.data?.calendarLinked
           ? "Visit scheduled — reminders set on the responsible's calendar (24h & 1h before)"
-          : "Visit scheduled. Calendar reminder could not be created — the responsible should sign in once to grant calendar access."
+          : "Visit scheduled. Calendar reminder could not be created — the responsible should sign in once with Google to grant calendar access."
       );
       onOpenChange(false);
     });
@@ -588,50 +744,6 @@ function ReportVisitDialog({
   );
 }
 
-function ReassignDialog({
-  accountId, currentId, targets, open, onOpenChange,
-}: {
-  accountId: string;
-  currentId: string;
-  targets: { id: string; label: string }[];
-  open: boolean;
-  onOpenChange: (o: boolean) => void;
-}) {
-  const [target, setTarget] = useState("");
-  const [pending, start] = useTransition();
-
-  const submit = () =>
-    start(async () => {
-      const res = await reassignAccount(accountId, target);
-      if (res.ok) { toast.success("Responsibility changed"); onOpenChange(false); }
-      else toast.error(res.error);
-    });
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Change responsibility</DialogTitle>
-          <DialogDescription>Move this account to another member in your scope.</DialogDescription>
-        </DialogHeader>
-        <Select value={target} onValueChange={setTarget}>
-          <SelectTrigger><SelectValue placeholder="Choose a member…" /></SelectTrigger>
-          <SelectContent>
-            {targets.filter((t) => t.id !== currentId).map((t) => (
-              <SelectItem key={t.id} value={t.id}>{t.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <DialogFooter>
-          <Button onClick={submit} disabled={pending || !target}>
-            {pending ? "Moving…" : "Reassign"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 function OopDialog({
   accountId, open, onOpenChange,
 }: { accountId: string; open: boolean; onOpenChange: (o: boolean) => void }) {
@@ -641,7 +753,7 @@ function OopDialog({
   const submit = () =>
     start(async () => {
       const res = await setOutOfProcess(accountId, reason);
-      if (res.ok) { toast.success("Marked Out of Process"); onOpenChange(false); }
+      if (res.ok) { toast.success("Account archived (Out of Process)"); onOpenChange(false); }
       else toast.error(res.error);
     });
 
@@ -651,7 +763,8 @@ function OopDialog({
         <DialogHeader>
           <DialogTitle>Mark Out of Process</DialogTitle>
           <DialogDescription>
-            The account leaves the active pipeline. A TL, VP or the LCP can bring it back.
+            The account leaves the active pipeline and is archived — its name
+            can never be added again. A TL, VP or the LCP can bring it back.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-1.5">

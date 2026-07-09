@@ -1,6 +1,11 @@
-export type LcFunction = "IGV" | "IGT" | "OGV" | "OGT";
-export type SubFunction = "Raising" | "Consideration" | "ICX" | "OGX";
-export type MemberRole = "LCP" | "VP" | "TL" | "Coordinator" | "Member";
+export type LcFunction = "IGV" | "IGT" | "OGV" | "OGT" | "CXP" | "B2C" | "F&L";
+export type MemberRole =
+  | "LCP"
+  | "LCVP"
+  | "Team Leader"
+  | "Coordinator"
+  | "Member"
+  | "Director";
 export type IgtProduct = "GTa" | "GTe";
 export type ContactMethod = "Call" | "WhatsApp" | "Email";
 export type ContactStatus =
@@ -8,7 +13,8 @@ export type ContactStatus =
   | "Responded"
   | "Interested"
   | "Not Interested"
-  | "Wrong Contact";
+  | "Wrong Contact"
+  | "Call Scheduled";
 export type RequestState = "Checking" | "Approved" | "Rejected";
 export type Stage =
   | "Lead"
@@ -27,6 +33,21 @@ export const STAGES: Stage[] = [
   "Out of Process",
 ];
 
+// The final Membership sheet lists (mirror the sheet's dropdown validations)
+export const MEMBER_ROLES: MemberRole[] = [
+  "LCP", "LCVP", "Team Leader", "Coordinator", "Member", "Director",
+];
+export const LC_FUNCTIONS: LcFunction[] = [
+  "IGT", "IGV", "OGV", "OGT", "CXP", "B2C", "F&L",
+];
+export const SUB_FUNCTIONS = [
+  "Raising", "Consideration", "ICX", "OGX", "CXP", "B2C", "Finance", "BD", "B2B",
+] as const;
+export type SubFunction = (typeof SUB_FUNCTIONS)[number];
+
+/** The functions whose CRM modules exist today. */
+export const ICX_FUNCTIONS = ["IGV", "IGT"] as const;
+
 export const IGV_PROJECTS = [
   "Skill Up!",
   "Scale Up",
@@ -38,20 +59,65 @@ export const IGV_PROJECTS = [
   "Youth 4 Impact",
 ] as const;
 
+// Curated pick-lists (from the LC raising sheets) — "Other" allows free text.
+export const ACCOUNT_TYPES = [
+  "Startup",
+  "Company",
+  "Course Center",
+  "Institute",
+  "School",
+  "Nursery",
+  "Hospital/Clinic",
+  "Marketing Agency",
+  "NGO",
+  "Factory",
+  "Other",
+] as const;
+
+export const INDUSTRIES = [
+  "Education",
+  "Architecture",
+  "Engineering",
+  "Marketing",
+  "IT / Software",
+  "Real Estate",
+  "Medical / Veterinary",
+  "Law",
+  "Finance",
+  "Farming / Agriculture",
+  "Tourism / Hospitality",
+  "Arts / Music",
+  "Other",
+] as const;
+
+export const IGT_SUB_PRODUCTS = [
+  "Engineering",
+  "Marketing",
+  "IT",
+  "Finance",
+  "Business Administration",
+  "Education",
+  "Other",
+] as const;
+
+export type CommentLabel = "Member" | "TL" | "VP" | "LCP";
+
 export interface Member {
   id: string;
   name: string;
   nickname: string | null;
   email: string;
   phone: string | null;
-  function: LcFunction | null;
-  sub_function: SubFunction | null;
+  functions: string[];
+  sub_functions: string[];
   role: MemberRole;
-  stakeholder_email: string | null;
+  stakeholder_name: string | null;
   stakeholder_id: string | null;
   team_name: string | null;
   is_active: boolean;
   google_refresh_token: string | null;
+  password_hash: string | null;
+  profile_completed_at: string | null;
   first_login_at: string | null;
   photo_url: string | null;
 }
@@ -85,9 +151,6 @@ export interface Account {
   out_of_process: boolean;
   oop_reason: string | null;
   oop_at: string | null;
-  tl_comment: string | null;
-  vp_comment: string | null;
-  final_comment: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -98,7 +161,7 @@ export interface AccountPipeline extends Account {
   responsible_nickname: string | null;
   responsible_email: string;
   responsible_stakeholder_id: string | null;
-  responsible_function: LcFunction | null;
+  responsible_functions: string[];
   attempts: number;
   no_response_attempts: number;
   last_contact_at: string | null;
@@ -136,6 +199,15 @@ export interface Visit {
   report_sent_at: string | null;
 }
 
+export interface AccountComment {
+  id: string;
+  account_id: string;
+  member_id: string | null;
+  author_label: CommentLabel;
+  body: string;
+  created_at: string;
+}
+
 export interface BlacklistEntry {
   id: string;
   account_name: string;
@@ -152,3 +224,33 @@ export interface BlacklistEntry {
 export function normalizeName(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, " ");
 }
+
+// ------------------------------------------------------------------ validation
+
+/** Phone: digits only (optional leading +), 8–15 digits. */
+export const PHONE_RE = /^\+?\d{8,15}$/;
+export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+export const URL_RE = /^https?:\/\/\S+\.\S+/i;
+
+export function cleanPhone(raw: string): string {
+  return raw.replace(/[\s\-().]/g, "");
+}
+
+// ------------------------------------------------------------------ function colors
+// Official AIESEC product colors (logos.aiesec.org): GV #F85A40 · GTa teal #0CB9C1
+export const FUNCTION_COLORS: Record<string, { bg: string; text: string }> = {
+  IGV: { bg: "bg-gv/15", text: "text-gv" },
+  OGV: { bg: "bg-gv/15", text: "text-gv" },
+  IGT: { bg: "bg-gt/15", text: "text-gt" },
+  OGT: { bg: "bg-gt/15", text: "text-gt" },
+};
+
+/** The IM director — receives "fix my info" requests from members. */
+export const ADMIN_EMAIL = "ahmedhallul@aiesec.net";
+
+/** Feedback goes ONLY to the IM director (admin) and the IM coach — every
+ *  submission is emailed to them and only they can open the inbox. */
+export const FEEDBACK_INBOX_EMAILS = [
+  "ahmedhallul@aiesec.net",
+  "omareldeeb123@aiesec.net",
+] as const;

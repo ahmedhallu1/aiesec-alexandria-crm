@@ -14,7 +14,7 @@ export default function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     // Everything except auth endpoints, the login page, cron endpoints,
-    // static assets, PWA files and .well-known
-    "/((?!api/auth|api/cron|login|_next/static|_next/image|favicon.ico|icons|manifest.webmanifest|\\.well-known).*)",
+    // static assets, brand images, PWA files and .well-known
+    "/((?!api/auth|api/cron|login|_next/static|_next/image|favicon.ico|icons|brand|manifest.webmanifest|\\.well-known).*)",
   ],
 };

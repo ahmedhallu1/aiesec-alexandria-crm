@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { getAccount, getViewer, listReassignTargets } from "@/server/data";
 import {
-  canEditAccount, canEditRequestState, canEditTlComment, canEditVpComment, canReassignAccount,
+  canEditAccount, canEditRequestState, canReassignAccount,
 } from "@/lib/rbac";
 import { AccountDetailView } from "@/components/crm/account-detail-view";
 
@@ -17,7 +17,7 @@ export default async function AccountPage({
 
   const result = await getAccount(viewer, id);
   if (!result) notFound();
-  const { account, attempts, visits } = result;
+  const { account, attempts, visits, comments } = result;
 
   const reassignTargets = canReassignAccount(viewer, account)
     ? await listReassignTargets(viewer, account.function)
@@ -28,17 +28,15 @@ export default async function AccountPage({
       account={account}
       attempts={attempts}
       visits={visits}
+      comments={comments}
       caps={{
         edit: canEditAccount(viewer, account),
         reassign: canReassignAccount(viewer, account),
-        tlComment: canEditTlComment(viewer, account),
-        vpComment: canEditVpComment(viewer, account),
         requestState: canEditRequestState(viewer, account),
       }}
       reassignTargets={reassignTargets.map((m) => ({
         id: m.id,
         label: m.nickname || m.name,
-        function: m.function,
       }))}
       autoReportVisitId={report ?? null}
     />

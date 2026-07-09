@@ -2,16 +2,16 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import bcrypt from "bcryptjs";
 import { db } from "@/lib/supabase";
 import { env } from "@/lib/env";
 import {
+  allowedAccountFunctions,
   canEditAccount,
   canEditRequestState,
-  canEditTlComment,
-  canEditVpComment,
-  canManageBlacklist,
   canManageMembership,
   canReassignAccount,
+  commentLabel,
   reassignTargetScope,
 } from "@/lib/rbac";
 import { checkAccountName, getViewer, logAudit, type PipelineRow } from "./data";
@@ -22,20 +22,30 @@ import {
   deleteVisitEvent,
   updateVisitEvent,
 } from "@/lib/google/calendar";
-import type { Member, Visit } from "@/lib/types";
+import {
+  cleanPhone,
+  EMAIL_RE,
+  FEEDBACK_INBOX_EMAILS,
+  LC_FUNCTIONS,
+  MEMBER_ROLES,
+  PHONE_RE,
+  SUB_FUNCTIONS,
+  URL_RE,
+} from "@/lib/types";
+import type { Member, MemberRole, Visit } from "@/lib/types";
 
 export type ActionResult<T = undefined> =
   | { ok: true; data?: T }
   | {
       ok: false;
       error: string;
-      code?: "duplicate" | "blacklisted" | "next_step_required" | "forbidden";
+      code?: "duplicate" | "archived" | "next_step_required" | "forbidden";
       info?: Record<string, string | null>;
     };
 
 const fail = (
   error: string,
-  code?: "duplicate" | "blacklisted" | "next_step_required" | "forbidden",
+  code?: "duplicate" | "archived" | "next_step_required" | "forbidden",
   info?: Record<string, string | null>
 ): ActionResult<never> => ({ ok: false, error, code, info });
 
@@ -53,6 +63,27 @@ function refresh(accountId?: string) {
   if (accountId) revalidatePath(`/accounts/${accountId}`);
 }
 
+// ------------------------------------------------------------------ field validation
+
+const phoneField = z
+  .string()
+  .trim()
+  .transform(cleanPhone)
+  .refine((v) => !v || PHONE_RE.test(v), "Phone must be numbers only (8–15 digits).")
+  .nullish();
+
+const emailField = z
+  .string()
+  .trim()
+  .refine((v) => !v || EMAIL_RE.test(v), "That doesn't look like a valid email.")
+  .nullish();
+
+const linkField = z
+  .string()
+  .trim()
+  .refine((v) => !v || URL_RE.test(v), "Links must start with http:// or https://")
+  .nullish();
+
 // ================================================================== accounts
 
 const createAccountSchema = z.object({
@@ -63,12 +94,12 @@ const createAccountSchema = z.object({
   project: z.string().trim().nullish(),
   account_type: z.string().trim().nullish(),
   industry: z.string().trim().nullish(),
-  package_plan: z.string().trim().nullish(),
-  phone: z.string().trim().nullish(),
-  email: z.string().trim().nullish(),
-  social_link: z.string().trim().nullish(),
-  website: z.string().trim().nullish(),
-  podio_link: z.string().trim().nullish(),
+  phone: phoneField,
+  email: emailField,
+  social_link: linkField,
+  website: linkField,
+  requested_podio: z.boolean().nullish(),
+  comment: z.string().trim().nullish(),
   responsible_id: z.string().uuid().nullish(),
 });
 
@@ -80,21 +111,39 @@ export async function createAccount(
   if (!parsed.success) return fail(parsed.error.issues[0].message);
   const data = parsed.data;
 
+  // FUNCTION GATE: IGV-only members can't add IGT accounts and vice versa.
+  if (!allowedAccountFunctions(viewer).includes(data.function))
+    return fail(
+      `You can only add ${allowedAccountFunctions(viewer).join(" / ") || "—"} accounts.`,
+      "forbidden"
+    );
+
   if (data.function === "IGT" && !data.product)
     return fail("Choose the product (Global Talent or Global Teacher).");
   if (data.function === "IGV" && !data.project)
     return fail("Choose the project for this IGV account.");
 
-  // HARD RULE: unique account name across ALL ICX data + blacklist block
+  // HARD RULE: unique account name across ALL ICX data + archive block
   const { duplicate, blacklisted } = await checkAccountName(data.name);
   if (blacklisted)
     return fail(
-      `"${data.name}" is Black Listed and cannot be added.`,
-      "blacklisted",
+      `"${data.name}" is archived and cannot be added again.`,
+      "archived",
       {
         project: blacklisted.project,
-        comments: blacklisted.comments,
+        reason: blacklisted.comments,
         link: blacklisted.link,
+      }
+    );
+  if (duplicate && duplicate.out_of_process)
+    return fail(
+      `"${data.name}" was worked before and is archived (Out of Process) — it cannot be added again.`,
+      "archived",
+      {
+        function: duplicate.function,
+        reason: duplicate.oop_reason,
+        archived_at: duplicate.oop_at?.slice(0, 10) ?? null,
+        was_responsible: duplicate.responsible_nickname || duplicate.responsible_name,
       }
     );
   if (duplicate)
@@ -131,12 +180,11 @@ export async function createAccount(
       project: data.function === "IGV" ? data.project : null,
       account_type: data.account_type || null,
       industry: data.industry || null,
-      package_plan: data.package_plan || null,
       phone: data.phone || null,
       email: data.email || null,
       social_link: data.social_link || null,
       website: data.website || null,
-      podio_link: data.podio_link || null,
+      requested_podio: data.requested_podio ?? false,
       responsible_id: responsibleId,
       created_by: viewer.id,
     })
@@ -148,31 +196,36 @@ export async function createAccount(
       return fail("This account already exists in the ICX data.", "duplicate");
     return fail(error.message);
   }
+
+  if (data.comment) {
+    await db().from("account_comments").insert({
+      account_id: created.id,
+      member_id: viewer.id,
+      author_label: commentLabel(viewer),
+      body: data.comment,
+    });
+  }
+
   await logAudit(viewer.id, "create", "account", created.id, { name: data.name });
   refresh();
   return { ok: true, data: { id: created.id } };
 }
 
 const editableFields = z.object({
-  phone: z.string().trim().nullish(),
-  email: z.string().trim().nullish(),
-  social_link: z.string().trim().nullish(),
-  website: z.string().trim().nullish(),
-  podio_link: z.string().trim().nullish(),
+  phone: phoneField,
+  email: emailField,
+  social_link: linkField,
+  website: linkField,
   sub_product: z.string().trim().nullish(),
   project: z.string().trim().nullish(),
   account_type: z.string().trim().nullish(),
   industry: z.string().trim().nullish(),
-  package_plan: z.string().trim().nullish(),
   proposal_sent: z.boolean().nullish(),
   requested_podio: z.boolean().nullish(),
   request_state: z.enum(["Checking", "Approved", "Rejected"]).nullish(),
   next_step: z.string().trim().nullish(),
   next_step_date: z.string().nullish(),
   next_step_time: z.string().nullish(),
-  tl_comment: z.string().trim().nullish(),
-  vp_comment: z.string().trim().nullish(),
-  final_comment: z.string().trim().nullish(),
 });
 
 export async function updateAccount(
@@ -189,10 +242,6 @@ export async function updateAccount(
   const update: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(parsed.data)) {
     if (value === undefined) continue;
-    if (key === "tl_comment" && !canEditTlComment(viewer, account))
-      return fail("Only the TL, VP or LCP can edit the TL comment.", "forbidden");
-    if (key === "vp_comment" && !canEditVpComment(viewer, account))
-      return fail("Only the VP or LCP can edit the VP comment.", "forbidden");
     if (key === "request_state" && !canEditRequestState(viewer, account))
       return fail("Request State is set by the TL, Coordinator or VP.", "forbidden");
     update[key] = value === "" ? null : value;
@@ -213,7 +262,10 @@ export async function reassignAccount(
   const viewer = await getViewer();
   const account = await loadAccount(accountId);
   if (!account || !canReassignAccount(viewer, account))
-    return fail("Only the TL (within the team), VP or LCP can change responsibility.", "forbidden");
+    return fail(
+      "Only the Team Leader (within the team), VP or LCP can change responsibility.",
+      "forbidden"
+    );
 
   const scope = reassignTargetScope(viewer);
   const { data: target } = await db()
@@ -225,7 +277,8 @@ export async function reassignAccount(
   if (!target) return fail("Target member not found.");
   const inScope =
     scope.kind === "all" ||
-    (scope.kind === "function" && target.function === account.function) ||
+    (scope.kind === "functions" &&
+      (target.functions ?? []).includes(account.function)) ||
     (scope.kind === "members" && scope.ids.includes(target.id));
   if (!inScope) return fail("You can only reassign to members in your scope.", "forbidden");
 
@@ -280,12 +333,12 @@ export async function setOutOfProcess(
   return { ok: true };
 }
 
-/** Bringing an account back into process is a TL/VP/LCP override. */
+/** Bringing an account back from the archive is a TL/VP/LCP override. */
 export async function reviveAccount(accountId: string): Promise<ActionResult> {
   const viewer = await getViewer();
   const account = await loadAccount(accountId);
   if (!account || !canReassignAccount(viewer, account))
-    return fail("Only the TL, VP or LCP can bring an account back into process.", "forbidden");
+    return fail("Only the Team Leader, VP or LCP can bring an account back into process.", "forbidden");
   const { error } = await db()
     .from("accounts")
     .update({ out_of_process: false, oop_reason: null, oop_at: null })
@@ -318,16 +371,48 @@ export async function markSlotRaised(
   return { ok: true };
 }
 
+// ================================================================== comments
+
+/** Numbered comments: members log as many as they need; TL/VP/LCP comments
+ *  carry their label. Numbering is derived from creation order per label. */
+export async function addComment(
+  accountId: string,
+  body: string
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const account = await loadAccount(accountId);
+  if (!account || !canEditAccount(viewer, account))
+    return fail("You are not allowed to comment on this account.", "forbidden");
+  const text = body?.trim();
+  if (!text) return fail("Write the comment first 🙂");
+
+  const { error } = await db().from("account_comments").insert({
+    account_id: accountId,
+    member_id: viewer.id,
+    author_label: commentLabel(viewer),
+    body: text,
+  });
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "comment", "account", accountId);
+  refresh(accountId);
+  return { ok: true };
+}
+
 // ================================================================== contacts
 
 const contactSchema = z.object({
   accountId: z.string().uuid(),
   method: z.enum(["Call", "WhatsApp", "Email"]),
-  status: z.enum(["No Response", "Responded", "Interested", "Not Interested", "Wrong Contact"]),
+  status: z.enum([
+    "No Response", "Responded", "Interested", "Not Interested", "Wrong Contact", "Call Scheduled",
+  ]),
   comment: z.string().trim().optional(),
   nextStep: z.string().trim().optional(),
   nextStepDate: z.string().optional(),
   nextStepTime: z.string().optional(),
+  /** required when status = "Call Scheduled" */
+  scheduledDate: z.string().optional(),
+  scheduledTime: z.string().optional(),
 });
 
 export async function logContact(
@@ -336,13 +421,23 @@ export async function logContact(
   const viewer = await getViewer();
   const parsed = contactSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0].message);
-  const { accountId, method, status, comment, nextStep, nextStepDate, nextStepTime } = parsed.data;
+  const { accountId, method, status, comment, scheduledDate, scheduledTime } = parsed.data;
+  let { nextStep, nextStepDate, nextStepTime } = parsed.data;
 
   const account = await loadAccount(accountId);
   if (!account || !canEditAccount(viewer, account))
     return fail("You are not allowed to log contacts on this account.", "forbidden");
   if (account.out_of_process)
-    return fail("This account is Out of Process. Ask your TL/VP to bring it back first.");
+    return fail("This account is archived (Out of Process). Ask your TL/VP to bring it back first.");
+
+  // "Call Scheduled" carries its own date + time and becomes the next step
+  if (status === "Call Scheduled") {
+    if (!scheduledDate || !scheduledTime)
+      return fail("Pick the date and time of the scheduled call.");
+    nextStep = nextStep || "Scheduled call";
+    nextStepDate = scheduledDate;
+    nextStepTime = scheduledTime;
+  }
 
   // BUSINESS RULE: after a contact without a scheduled visit, the account must
   // carry a next step with a date (unless one is already set in the future).
@@ -521,11 +616,14 @@ export async function reportVisit(
       .eq("id", visit.account_id);
   }
 
-  // notify: function VP + the responsible's stakeholder (deduped)
+  // notify: function VP(s) + the responsible's stakeholder (deduped)
   const [{ data: responsible }, { data: vps }] = await Promise.all([
     db().from("members").select("*, stakeholder:members!members_stakeholder_id_fkey(*)")
       .eq("id", visit.member_id).maybeSingle(),
-    db().from("members").select("*").eq("role", "VP").eq("function", account.function).eq("is_active", true),
+    db().from("members").select("*")
+      .eq("role", "LCVP")
+      .contains("functions", [account.function])
+      .eq("is_active", true),
   ]);
   const recipients = new Map<string, string>();
   for (const vp of (vps ?? []) as Member[]) recipients.set(vp.email.toLowerCase(), vp.email);
@@ -554,43 +652,6 @@ export async function reportVisit(
   return { ok: true };
 }
 
-// ================================================================== blacklist
-
-export async function addBlacklistEntry(input: {
-  accountName: string;
-  project?: string;
-  comments?: string;
-  link?: string;
-}): Promise<ActionResult> {
-  const viewer = await getViewer();
-  if (!canManageBlacklist(viewer))
-    return fail("Only VPs and the LCP manage the blacklist.", "forbidden");
-  if (!input.accountName?.trim()) return fail("Account name is required.");
-  const { error } = await db().from("blacklist").insert({
-    account_name: input.accountName.trim(),
-    project: input.project?.trim() || null,
-    comments: input.comments?.trim() || null,
-    link: input.link?.trim() || null,
-    added_by: viewer.id,
-  });
-  if (error)
-    return fail(error.code === "23505" ? "This account is already black listed." : error.message);
-  await logAudit(viewer.id, "blacklist_add", "blacklist", null, { name: input.accountName });
-  refresh();
-  return { ok: true };
-}
-
-export async function removeBlacklistEntry(id: string): Promise<ActionResult> {
-  const viewer = await getViewer();
-  if (!canManageBlacklist(viewer))
-    return fail("Only VPs and the LCP manage the blacklist.", "forbidden");
-  const { error } = await db().from("blacklist").delete().eq("id", id);
-  if (error) return fail(error.message);
-  await logAudit(viewer.id, "blacklist_remove", "blacklist", id);
-  refresh();
-  return { ok: true };
-}
-
 // ================================================================== feedback
 
 export async function submitFeedback(input: {
@@ -607,6 +668,226 @@ export async function submitFeedback(input: {
     page: input.page || null,
   });
   if (error) return fail(error.message);
+
+  // straight to the IM director + IM coach inboxes
+  const { feedbackEmail } = await import("@/lib/email/templates");
+  const mail = feedbackEmail({
+    memberName: viewer.nickname || viewer.name,
+    memberEmail: viewer.email,
+    type: input.type,
+    message: input.message.trim(),
+    inboxUrl: `${env.appUrl}/feedback/inbox`,
+  });
+  sendEmail({ to: [...FEEDBACK_INBOX_EMAILS], ...mail }).catch((e) =>
+    console.error("[feedback] notification email failed:", e)
+  );
+  await logAudit(viewer.id, "feedback", "feedback", null, { type: input.type });
+  return { ok: true };
+}
+
+// ================================================================== profile & onboarding
+
+const profileSchema = z.object({
+  name: z.string().trim().min(2, "Your full name is required."),
+  nickname: z.string().trim().min(1, "Pick the nickname the LC knows you by."),
+  phone: z
+    .string()
+    .trim()
+    .transform(cleanPhone)
+    .refine((v) => PHONE_RE.test(v), "Phone must be numbers only (8–15 digits)."),
+});
+
+async function writeProfileBackToSheet(memberId: string) {
+  const { data: m } = await db()
+    .from("members")
+    .select("*")
+    .eq("id", memberId)
+    .maybeSingle<Member>();
+  if (!m) return;
+  const { writeMemberToSheet } = await import("@/lib/google/sheets");
+  await writeMemberToSheet({
+    name: m.name,
+    nickname: m.nickname,
+    email: m.email,
+    phone: m.phone,
+    role: m.role,
+    functions: m.functions ?? [],
+    sub_functions: m.sub_functions ?? [],
+    stakeholder_name: m.stakeholder_name,
+    team_name: m.team_name,
+    is_active: m.is_active,
+  }).catch((e) => console.error("[sheets] membership write-back failed:", e));
+}
+
+/** First login: the member confirms their info and sets their own password. */
+export async function completeOnboarding(input: {
+  name: string;
+  nickname: string;
+  phone: string;
+  password: string;
+}): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const parsed = profileSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0].message);
+  if (!input.password || input.password.length < 8)
+    return fail("Your password needs at least 8 characters.");
+
+  const password_hash = await bcrypt.hash(input.password, 10);
+  const { error } = await db()
+    .from("members")
+    .update({
+      name: parsed.data.name,
+      nickname: parsed.data.nickname,
+      phone: parsed.data.phone,
+      password_hash,
+      profile_completed_at: new Date().toISOString(),
+    })
+    .eq("id", viewer.id);
+  if (error) return fail(error.message);
+
+  await writeProfileBackToSheet(viewer.id);
+  await logAudit(viewer.id, "onboarding_complete", "member", viewer.id);
+  refresh();
+  return { ok: true };
+}
+
+/** Profile page: members edit what belongs to them (nickname, phone). */
+export async function updateProfile(input: {
+  nickname: string;
+  phone: string;
+}): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const parsed = profileSchema.safeParse({ name: viewer.name, ...input });
+  if (!parsed.success) return fail(parsed.error.issues[0].message);
+
+  const { error } = await db()
+    .from("members")
+    .update({ nickname: parsed.data.nickname, phone: parsed.data.phone })
+    .eq("id", viewer.id);
+  if (error) return fail(error.message);
+
+  await writeProfileBackToSheet(viewer.id);
+  await logAudit(viewer.id, "profile_update", "member", viewer.id);
+  refresh();
+  return { ok: true };
+}
+
+export async function changePassword(input: {
+  current: string;
+  next: string;
+}): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!input.next || input.next.length < 8)
+    return fail("Your new password needs at least 8 characters.");
+  if (viewer.password_hash) {
+    const ok = await bcrypt.compare(input.current ?? "", viewer.password_hash);
+    if (!ok) return fail("Your current password is wrong. Forgot it? Ask the IM team to reset it.");
+  }
+  const password_hash = await bcrypt.hash(input.next, 10);
+  const { error } = await db()
+    .from("members")
+    .update({ password_hash })
+    .eq("id", viewer.id);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "password_change", "member", viewer.id);
+  return { ok: true };
+}
+
+// ================================================================== membership (EB + admin)
+
+const memberSchema = z.object({
+  id: z.string().uuid().nullish(),
+  name: z.string().trim().min(2, "Name is required."),
+  nickname: z.string().trim().nullish(),
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .refine((v) => EMAIL_RE.test(v), "A valid email is required."),
+  phone: phoneField,
+  role: z.enum(MEMBER_ROLES as [MemberRole, ...MemberRole[]]),
+  functions: z.array(z.enum(LC_FUNCTIONS as unknown as [string, ...string[]])),
+  sub_functions: z.array(z.enum(SUB_FUNCTIONS as unknown as [string, ...string[]])),
+  stakeholder_name: z.string().trim().nullish(),
+  team_name: z.string().trim().nullish(),
+  is_active: z.boolean(),
+});
+
+/** EB (LCP/LCVPs) + admins edit membership directly in the system; every
+ *  change is written back to the Membership sheet so imports don't revert it. */
+export async function upsertMember(
+  input: z.infer<typeof memberSchema>
+): Promise<ActionResult<{ id: string }>> {
+  const viewer = await getViewer();
+  if (!canManageMembership(viewer))
+    return fail("Only the EB and admins can edit membership.", "forbidden");
+  const parsed = memberSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0].message);
+  const m = parsed.data;
+
+  const row = {
+    name: m.name,
+    nickname: m.nickname || null,
+    email: m.email,
+    phone: m.phone || null,
+    role: m.role,
+    functions: m.functions,
+    sub_functions: m.sub_functions,
+    stakeholder_name: m.stakeholder_name || null,
+    team_name: m.team_name || null,
+    is_active: m.is_active,
+  };
+
+  let id = m.id ?? null;
+  if (id) {
+    const { error } = await db().from("members").update(row).eq("id", id);
+    if (error) return fail(error.message);
+  } else {
+    const { data: created, error } = await db()
+      .from("members")
+      .upsert(row, { onConflict: "email" })
+      .select("id")
+      .single();
+    if (error) return fail(error.message);
+    id = created.id;
+  }
+
+  // resolve the stakeholder name → id link
+  const { data: all } = await db().from("members").select("id, name, nickname");
+  const target = m.stakeholder_name
+    ? (all ?? []).find(
+        (x) =>
+          x.id !== id &&
+          (x.name.trim().toLowerCase() === m.stakeholder_name!.trim().toLowerCase() ||
+            x.nickname?.trim().toLowerCase() === m.stakeholder_name!.trim().toLowerCase())
+      )
+    : null;
+  await db().from("members").update({ stakeholder_id: target?.id ?? null }).eq("id", id);
+
+  const { writeMemberToSheet } = await import("@/lib/google/sheets");
+  await writeMemberToSheet(row).catch((e) =>
+    console.error("[sheets] membership write-back failed:", e)
+  );
+
+  await logAudit(viewer.id, m.id ? "member_update" : "member_add", "member", id, {
+    email: m.email,
+  });
+  refresh();
+  return { ok: true, data: { id: id! } };
+}
+
+/** Clears the password so the member's next login (any password) re-runs the
+ *  first-login onboarding where they set a new one. */
+export async function resetMemberPassword(memberId: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!canManageMembership(viewer))
+    return fail("Only the EB and admins can reset passwords.", "forbidden");
+  const { error } = await db()
+    .from("members")
+    .update({ password_hash: null, profile_completed_at: null })
+    .eq("id", memberId);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "password_reset", "member", memberId);
   return { ok: true };
 }
 

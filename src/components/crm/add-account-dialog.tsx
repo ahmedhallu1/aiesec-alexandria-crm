@@ -4,23 +4,72 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { createAccount } from "@/server/actions";
-import { IGV_PROJECTS } from "@/lib/types";
+import {
+  ACCOUNT_TYPES,
+  cleanPhone,
+  EMAIL_RE,
+  IGT_SUB_PRODUCTS,
+  IGV_PROJECTS,
+  INDUSTRIES,
+  PHONE_RE,
+  URL_RE,
+} from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 
-export interface MemberOption { id: string; label: string; function: string | null }
+export interface MemberOption { id: string; label: string; functions: string[] }
 
 interface BlockInfo {
-  kind: "duplicate" | "blacklisted";
+  kind: "duplicate" | "archived";
   message: string;
   info: Record<string, string | null>;
+}
+
+/** Dropdown backed by a curated list where "Other" opens a free-text input. */
+function ListOrOther({
+  label, options, value, onChange, placeholder,
+}: {
+  label: string;
+  options: readonly string[];
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  const inList = options.includes(value);
+  const [other, setOther] = useState(!!value && !inList);
+  return (
+    <div className="grid gap-2">
+      <Label>{label}</Label>
+      <Select
+        value={other ? "Other" : value || undefined}
+        onValueChange={(v) => {
+          if (v === "Other") { setOther(true); onChange(""); }
+          else { setOther(false); onChange(v); }
+        }}
+      >
+        <SelectTrigger><SelectValue placeholder="Choose…" /></SelectTrigger>
+        <SelectContent>
+          {options.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+        </SelectContent>
+      </Select>
+      {other ? (
+        <Input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder ?? `Other ${label.toLowerCase()}…`}
+        />
+      ) : null}
+    </div>
+  );
 }
 
 export function AddAccountDialog({
@@ -28,18 +77,26 @@ export function AddAccountDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  viewer: { id: string; function: string | null; canAssignOthers: boolean; fixedFn: "IGV" | "IGT" | null };
+  viewer: { id: string; canAssignOthers: boolean; allowedFns: ("IGV" | "IGT")[] };
   members: MemberOption[];
 }) {
   const router = useRouter();
-  const [fn, setFn] = useState<"IGV" | "IGT">(viewer.fixedFn ?? "IGT");
+  const [fn, setFn] = useState<"IGV" | "IGT">(viewer.allowedFns[0] ?? "IGT");
   const [form, setForm] = useState<Record<string, string>>({});
+  const [requestedPodio, setRequestedPodio] = useState(false);
   const [responsible, setResponsible] = useState(viewer.id);
   const [block, setBlock] = useState<BlockInfo | null>(null);
   const [pending, startTransition] = useTransition();
 
   const set = (key: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [key]: e.target.value }));
+  const setVal = (key: string) => (v: string) => setForm((f) => ({ ...f, [key]: v }));
+
+  const phoneOk = !form.phone?.trim() || PHONE_RE.test(cleanPhone(form.phone));
+  const emailOk = !form.email?.trim() || EMAIL_RE.test(form.email.trim());
+  const socialOk = !form.social_link?.trim() || URL_RE.test(form.social_link.trim());
+  const websiteOk = !form.website?.trim() || URL_RE.test(form.website.trim());
+  const fieldsOk = phoneOk && emailOk && socialOk && websiteOk;
 
   const submit = () =>
     startTransition(async () => {
@@ -48,20 +105,20 @@ export function AddAccountDialog({
         function: fn,
         name: form.name ?? "",
         product: fn === "IGT" ? ((form.product as "GTa" | "GTe") || null) : null,
-        sub_product: form.sub_product,
+        sub_product: fn === "IGT" ? form.sub_product : null,
         project: fn === "IGV" ? form.project : null,
-        account_type: form.account_type,
-        industry: form.industry,
-        package_plan: form.package_plan,
-        phone: form.phone,
+        account_type: fn === "IGV" ? form.account_type : null,
+        industry: fn === "IGV" ? form.industry : null,
+        phone: form.phone ? cleanPhone(form.phone) : null,
         email: form.email,
         social_link: form.social_link,
         website: form.website,
-        podio_link: form.podio_link,
+        requested_podio: requestedPodio,
+        comment: form.comment,
         responsible_id: responsible,
       });
       if (!res.ok) {
-        if (res.code === "duplicate" || res.code === "blacklisted") {
+        if (res.code === "duplicate" || res.code === "archived") {
           setBlock({ kind: res.code, message: res.error, info: res.info ?? {} });
         } else {
           toast.error(res.error);
@@ -74,7 +131,9 @@ export function AddAccountDialog({
       router.push(`/accounts/${res.data!.id}`);
     });
 
-  const fnMembers = members.filter((m) => m.function === fn || m.id === viewer.id);
+  const fnMembers = members.filter(
+    (m) => m.functions.includes(fn) || m.id === viewer.id
+  );
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) setBlock(null); onOpenChange(o); }}>
@@ -82,21 +141,21 @@ export function AddAccountDialog({
         <DialogHeader>
           <DialogTitle>Add account</DialogTitle>
           <DialogDescription>
-            Names are checked against all ICX accounts and the blacklist.
+            Names are checked against all ICX accounts and the archive.
           </DialogDescription>
         </DialogHeader>
 
         {block ? (
           <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm">
             <p className="font-semibold text-destructive">
-              {block.kind === "blacklisted" ? "⛔ Black listed" : "🚫 Already exists"} — {block.message}
+              {block.kind === "archived" ? "🗄️ Archived" : "🚫 Already exists"} — {block.message}
             </p>
             <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-foreground">
               {Object.entries(block.info)
                 .filter(([, v]) => v)
                 .map(([k, v]) => (
                   <div key={k} className="contents">
-                    <dt className="font-medium capitalize text-muted-foreground">{k.replace("_", " ")}</dt>
+                    <dt className="font-medium capitalize text-muted-foreground">{k.replaceAll("_", " ")}</dt>
                     <dd>{v}</dd>
                   </div>
                 ))}
@@ -111,12 +170,13 @@ export function AddAccountDialog({
               <Select
                 value={fn}
                 onValueChange={(v) => setFn(v as "IGV" | "IGT")}
-                disabled={!!viewer.fixedFn}
+                disabled={viewer.allowedFns.length < 2}
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="IGV">IGV</SelectItem>
-                  <SelectItem value="IGT">IGT</SelectItem>
+                  {viewer.allowedFns.map((f) => (
+                    <SelectItem key={f} value={f}>{f}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -125,7 +185,7 @@ export function AddAccountDialog({
                 <Label>Product *</Label>
                 <Select
                   value={form.product ?? ""}
-                  onValueChange={(v) => setForm((f) => ({ ...f, product: v }))}
+                  onValueChange={setVal("product")}
                 >
                   <SelectTrigger><SelectValue placeholder="Choose…" /></SelectTrigger>
                   <SelectContent>
@@ -139,7 +199,7 @@ export function AddAccountDialog({
                 <Label>Project *</Label>
                 <Select
                   value={form.project ?? ""}
-                  onValueChange={(v) => setForm((f) => ({ ...f, project: v }))}
+                  onValueChange={setVal("project")}
                 >
                   <SelectTrigger><SelectValue placeholder="Choose…" /></SelectTrigger>
                   <SelectContent>
@@ -156,53 +216,71 @@ export function AddAccountDialog({
           </div>
 
           {fn === "IGT" ? (
-            <div className="grid gap-2">
-              <Label>Sub product / industry</Label>
-              <Input value={form.sub_product ?? ""} onChange={set("sub_product")} placeholder="Engineering, Marketing, IT…" />
-            </div>
+            <ListOrOther
+              label="Sub product / industry"
+              options={IGT_SUB_PRODUCTS}
+              value={form.sub_product ?? ""}
+              onChange={setVal("sub_product")}
+            />
           ) : (
             <div className="grid grid-cols-2 gap-3">
-              <div className="grid gap-2">
-                <Label>Account type</Label>
-                <Input value={form.account_type ?? ""} onChange={set("account_type")} placeholder="Startup, Course Center…" />
-              </div>
-              <div className="grid gap-2">
-                <Label>Industry</Label>
-                <Input value={form.industry ?? ""} onChange={set("industry")} placeholder="Education, Architecture…" />
-              </div>
+              <ListOrOther
+                label="Account type"
+                options={ACCOUNT_TYPES}
+                value={form.account_type ?? ""}
+                onChange={setVal("account_type")}
+              />
+              <ListOrOther
+                label="Industry"
+                options={INDUSTRIES}
+                value={form.industry ?? ""}
+                onChange={setVal("industry")}
+              />
             </div>
           )}
 
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-2">
               <Label>Phone</Label>
-              <Input value={form.phone ?? ""} onChange={set("phone")} inputMode="tel" />
+              <Input value={form.phone ?? ""} onChange={set("phone")} inputMode="tel" placeholder="Numbers only" />
+              {!phoneOk ? <p className="text-xs text-destructive">Numbers only, 8–15 digits.</p> : null}
             </div>
             <div className="grid gap-2">
               <Label>Email</Label>
               <Input value={form.email ?? ""} onChange={set("email")} inputMode="email" />
+              {!emailOk ? <p className="text-xs text-destructive">Valid email only.</p> : null}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-2">
               <Label>Social link</Label>
-              <Input value={form.social_link ?? ""} onChange={set("social_link")} placeholder="LinkedIn / Facebook / Instagram" />
+              <Input value={form.social_link ?? ""} onChange={set("social_link")} placeholder="https://…" />
+              {!socialOk ? <p className="text-xs text-destructive">Must be a link (https://…).</p> : null}
             </div>
             <div className="grid gap-2">
               <Label>Website</Label>
-              <Input value={form.website ?? ""} onChange={set("website")} />
+              <Input value={form.website ?? ""} onChange={set("website")} placeholder="https://…" />
+              {!websiteOk ? <p className="text-xs text-destructive">Must be a link (https://…).</p> : null}
             </div>
           </div>
+
+          <div className="flex items-center justify-between rounded-lg border p-3">
+            <div>
+              <p className="text-sm font-medium">Requested on Podio?</p>
+              <p className="text-xs text-muted-foreground">Already requested in the AMS</p>
+            </div>
+            <Switch checked={requestedPodio} onCheckedChange={setRequestedPodio} />
+          </div>
+
           <div className="grid gap-2">
-            <Label>Podio link</Label>
-            <Input value={form.podio_link ?? ""} onChange={set("podio_link")} />
+            <Label>Comment</Label>
+            <Textarea
+              rows={2}
+              value={form.comment ?? ""}
+              onChange={(e) => setForm((f) => ({ ...f, comment: e.target.value }))}
+              placeholder="Anything worth noting about this account (becomes Comment #1)"
+            />
           </div>
-          {fn === "IGV" ? (
-            <div className="grid gap-2">
-              <Label>Package plan details</Label>
-              <Input value={form.package_plan ?? ""} onChange={set("package_plan")} />
-            </div>
-          ) : null}
 
           {viewer.canAssignOthers ? (
             <div className="grid gap-2">
@@ -227,6 +305,8 @@ export function AddAccountDialog({
             disabled={
               pending ||
               !(form.name ?? "").trim() ||
+              !fieldsOk ||
+              viewer.allowedFns.length === 0 ||
               (fn === "IGT" && !form.product) ||
               (fn === "IGV" && !form.project)
             }

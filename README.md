@@ -10,7 +10,7 @@ dashboard engine is the reusable blueprint for the upcoming OGV/OGT modules.
 | Hosting | Vercel (Free/Hobby tier), GitHub CI/CD |
 | Database | Supabase (Free tier, Postgres) — source of truth |
 | Sheets mirror | Google Sheets via a service account (one-way export + membership import) |
-| Auth | Auth.js (NextAuth v5) — Google sign-in, allow-listed by the Membership sheet |
+| Auth | Auth.js (NextAuth v5) — email + password (first login: any password, then the member sets their own) + optional Google sign-in (grants calendar access); allow-listed by the Membership sheet |
 | Email | Gmail API, sent from the IM director's mailbox, AIESEC-branded HTML |
 | Calendar | Google Calendar API — visit reminders 24h & 1h before, on the member's own calendar |
 | Cron | Supabase `pg_cron` + `pg_net` hitting protected API routes |
@@ -36,10 +36,11 @@ Browser ──> Next.js (Vercel)
 ```
 
 **Data flow rule:** the CRM (Supabase) is the source of truth for accounts,
-contacts, visits and the blacklist. Google Sheets holds read-only mirrors that
-are regenerated hourly, **plus one writable sheet**: *CRM — Membership*, which
-is imported into the `members` table (that sheet drives who can sign in and
-with which role).
+contacts, visits and comments. Google Sheets holds read-only mirrors that are
+regenerated hourly, **plus one two-way sheet**: *CRM — Membership* — imported
+into the `members` table (it drives who can sign in and with which role), and
+updated back whenever the EB edits membership inside the app or a member
+confirms their info.
 
 ### Key directories
 
@@ -67,11 +68,17 @@ read** (`accountScope`) **and every mutation** (`can*` predicates):
 | Role | Scope |
 |---|---|
 | **LCP** | Absolute master access across all functions and roles. |
-| **VP** | Master authority within their function (IGV or IGT). |
-| **TL** | Own accounts + accounts of members whose `Stakeholder` is the TL. Exclusive right (with VP/LCP) to reassign responsibility inside the team. |
+| **LCVP** | EB — master authority within their function(s). Can edit membership. |
+| **Director** | Responsible for a function (e.g. B2C, BD) but **not EB** — function-level account authority, no EB powers (no membership editing). |
+| **Team Leader** | Own accounts + accounts of members whose `Stakeholder` is the TL. Picks the Responsible between themself and their members. |
 | **Coordinator** | Own accounts only (operational, no team management). |
 | **Member** | Own accounts only. |
 | **Admin** (`ADMIN_EMAILS`) | Treated as LCP — for the IM director. |
+
+Members can hold **multiple functions** (multi-select in the sheet). IGV-only
+members can't add IGT accounts and vice versa — both only for both-function
+members, LCVPs and the LCP. Functions without a live module (OGV/OGT/B2C/BD/
+F&L/CXP/Consideration-only) see a blurred "Soon" workspace.
 
 Sub-function (`Raising`, `Consideration`, `ICX`, `OGX`) gates which modules a
 user sees. Phase 1 ships Raising; `Consideration`-only users see a "coming
@@ -86,8 +93,9 @@ module's tables + a pipeline view, and reuse `accountScope`/`can*` unchanged.
    *all* ICX data. Adding a duplicate shows which function holds it, who is
    responsible, its stage and creation date. Enforced by a unique index on the
    normalized name (lowercase, trimmed, collapsed spaces) — race-proof.
-2. **Blacklist (hard block).** Shared across ICX; only VPs/LCP manage it.
-   Blacklisted names cannot be added as accounts.
+2. **Archive (hard block).** Out-of-process accounts are hidden from normal
+   views but stay archived — their names can never be added again (the archive
+   IS the blacklist). Leaders (TL+) can open the Archive view and revive.
 3. **Contact logging.** Every attempt = method (Call/WhatsApp/Email) + result +
    comment, logged from the Contact button.
 4. **3-contact limit.** After the 3rd attempt with zero answered contacts, the
@@ -139,5 +147,6 @@ npm install
 npm run dev
 ```
 
-Feedback from members arrives via the floating in-app widget → `/feedback`
-(admins). Analytics: set `NEXT_PUBLIC_GA_MEASUREMENT_ID` to enable GA4.
+Feedback lives in the sidebar → `/feedback`; every submission is emailed to
+the IM director + IM coach, who alone see `/feedback/inbox`. Analytics: set
+`NEXT_PUBLIC_GA_MEASUREMENT_ID` to enable GA4.
