@@ -7,6 +7,7 @@ import { createAccount } from "@/server/actions";
 import {
   ACCOUNT_TYPES,
   IGT_SUB_PRODUCTS,
+  IGV_PROJECTS,
   INDUSTRIES,
 } from "@/lib/types";
 import type { AccountContact } from "@/lib/types";
@@ -103,6 +104,7 @@ export function AddAccountDialog({
         name: form.name ?? "",
         product: fn === "IGT" ? ((form.product as "GTa" | "GTe") || null) : null,
         sub_product: fn === "IGT" ? form.sub_product : null,
+        project: fn === "IGV" ? form.project : null,
         account_type: fn === "IGV" ? form.account_type : null,
         industry: fn === "IGV" ? form.industry : null,
         contacts,
@@ -188,7 +190,22 @@ export function AddAccountDialog({
                   </SelectContent>
                 </Select>
               </div>
-            ) : null}
+            ) : (
+              <div className="grid gap-2">
+                <Label>Project *</Label>
+                <Select
+                  value={form.project ?? ""}
+                  onValueChange={setVal("project")}
+                >
+                  <SelectTrigger><SelectValue placeholder="Choose…" /></SelectTrigger>
+                  <SelectContent>
+                    {IGV_PROJECTS.map((p) => (
+                      <SelectItem key={p} value={p}>{p}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
 
           <div className="grid gap-2">
@@ -268,7 +285,8 @@ export function AddAccountDialog({
               !(form.name ?? "").trim() ||
               !fieldsOk ||
               viewer.allowedFns.length === 0 ||
-              (fn === "IGT" && !form.product)
+              (fn === "IGT" && !form.product) ||
+              (fn === "IGV" && !form.project)
             }
           >
             {pending ? "Checking…" : "Add account"}

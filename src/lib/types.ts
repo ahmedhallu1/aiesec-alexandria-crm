@@ -128,9 +128,14 @@ export interface AccountContact {
   value: string;
 }
 
-/** Tag choices for phones & emails ("Other" = free text). */
+/** Tag choices for phones ("Other" = free text). */
 export const CONTACT_TAGS = [
   "Contact", "Whatsapp", "Manager", "HR", "CEO", "Owner", "Other",
+] as const;
+
+/** Tag choices for emails — no Whatsapp here. */
+export const EMAIL_TAGS = [
+  "Contact", "Manager", "HR", "CEO", "Owner", "Other",
 ] as const;
 
 /** Tag choices for links ("Other" = free text). */
@@ -167,6 +172,8 @@ export interface Account {
   out_of_process: boolean;
   oop_reason: string | null;
   oop_at: string | null;
+  /** number of separate deals signed (one account can close many deals) */
+  deals_count: number;
   contacts: AccountContact[];
   created_by: string | null;
   created_at: string;
@@ -216,6 +223,17 @@ export interface Visit {
   next_step: string | null;
   followup_prompt_sent_at: string | null;
   report_sent_at: string | null;
+}
+
+/** One signed deal — an account can close several over time (3 slots today,
+ *  6 more next month = 2 deals · 9 slots). */
+export interface Deal {
+  id: string;
+  account_id: string;
+  member_id: string | null;
+  slots: number;
+  note: string | null;
+  created_at: string;
 }
 
 export interface AccountComment {

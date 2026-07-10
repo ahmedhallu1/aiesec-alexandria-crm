@@ -40,7 +40,7 @@ export default async function AccountPage({
 
   const result = await getAccount(viewer, id);
   if (!result) notFound();
-  const { account, attempts, visits, comments } = result;
+  const { account, attempts, visits, comments, deals } = result;
 
   const reassignTargets = canReassignAccount(viewer, account)
     ? await listReassignTargets(viewer, account.function)
@@ -52,6 +52,7 @@ export default async function AccountPage({
       attempts={attempts}
       visits={visits}
       comments={comments}
+      deals={deals}
       caps={{
         edit: canEditAccount(viewer, account),
         reassign: canReassignAccount(viewer, account),

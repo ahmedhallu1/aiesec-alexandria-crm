@@ -41,8 +41,8 @@ export default async function LoginPage({
 
         <p className="mt-6 text-center text-xs text-muted-foreground">
           Access is limited to AIESEC in Alexandria members listed in the
-          membership sheet. On your first login, any password gets you in — you
-          set your own right after.
+          membership sheet. First login is with Google (it connects your
+          calendar) — then you set a password and can use either.
         </p>
         <a
           href="https://wa.me/201099019374?text=Hi%20Ahmed!%20I%27m%20reaching%20out%20about%20the%20AIESEC%20Alexandria%20CRM%20%F0%9F%91%8B"

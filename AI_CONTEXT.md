@@ -4,7 +4,7 @@
 > to the system (feature, rule, route, schema, env var, deployment fact).
 > Add a dated entry to the **Changelog** at the bottom. No secrets in this file.
 
-Last updated: 2026-07-10 · Version: v4
+Last updated: 2026-07-10 · Version: v5
 
 ---
 
@@ -21,14 +21,14 @@ the blueprint for future OGX/other-function modules.
 | Repo | github.com/ahmedhallu1/aiesec-alexandria-crm (private) |
 | Vercel project | `aiesec-alexandria-crm` (scope `ahmedhallu1s-projects`) — deploy with `vercel deploy --prod` |
 | Stack | Next.js 16 (App Router, Turbopack) · React 19 · Tailwind v4 · shadcn/ui · Supabase (Postgres, project `iesrpuuoduxtihuaqfic`) |
-| Auth | Auth.js v5: **email + password** (first login accepts ANY password → forced onboarding) + optional Google (grants calendar scope) |
+| Auth | Auth.js v5: **FIRST sign-in is Google-only** (grants `calendar` + `gmail.send` scopes for current & upcoming features) → onboarding sets a password → afterwards email+password OR Google both work. Password reset = IM clears the hash → member signs in with Google again |
 | Google | Service account (Sheets sync) · Gmail API from `ahmedhallul@aiesec.net` · Calendar events on each member's own calendar |
 | Cron | Supabase `pg_cron` + `pg_net` → `/api/cron/*` (visit-followups 15 min · membership-import 30 min · sheets-export hourly) |
 | Admin | `ADMIN_EMAILS` env (= IM director, treated as LCP) |
 
 **Migrations** live in `supabase/migrations/` and are run **manually** in the
 Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v2`
-→ `0003_ops_v2` → `0004_pins_v2`.
+→ `0003_ops_v2` → `0004_pins_v2` → `0005_deals`.
 
 ---
 
@@ -66,16 +66,25 @@ mutation through a `can*` predicate, **server-side**.
 
 - Stage is **derived** in the `accounts_pipeline` view: Lead → Contacted →
   Visit Scheduled → Visit Done → Deal Done, exit lane Out of Process.
+- **Deals are MANY-per-account** (`deals` table + running `deals_count`/
+  `slots_count` totals): 3 slots today + 6 next month = 2 deals · 9 slots.
+  `recordDeal` appends; the account stays workable after a deal (more deals,
+  more contacts, more visits). Deal history shows in the account timeline.
+- **IGV accounts always carry a Project** (Skill Up!, Rooted, …) — required at
+  creation/import, shown on the accounts list next to the IGV badge, editable
+  in Details, filterable.
 - **Unique name across ALL ICX** (normalized); duplicates/archived names are
   blocked at creation with full context (who, stage, why archived).
 - **The archive IS the blacklist**: OOP accounts are hidden, unre-addable,
   revivable by TL+. No blacklist tab/sheet.
 - **Auto-archive rules**: contact result **"Not Interested"** and Podio request
   state **"Rejected"** both archive the account (with warning confirmations).
-- **Tagged contacts** (`accounts.contacts` jsonb): phones/emails with tags
-  `[Contact, Whatsapp, Manager, HR, CEO, Owner, Other]`, links with tags
-  `[Website, LinkedIn, Instagram, Facebook, Other]`. First-of-kind is synced to
-  the legacy flat columns for the sheet mirrors.
+- **Tagged contacts** (`accounts.contacts` jsonb): phones with tags
+  `[Contact, Whatsapp, Manager, HR, CEO, Owner, Other]`, emails with the same
+  list **minus Whatsapp**, links with `[Website, LinkedIn, Instagram, Facebook,
+  Other]`. First-of-kind is synced to the legacy flat columns for the mirrors.
+  Quick actions use brand glyphs (real WhatsApp logo, LinkedIn, Instagram,
+  Facebook — `src/components/crm/icons.tsx`).
 - **Phone rule** (`normalizePhone` in `src/lib/types.ts`): Egyptian mobile →
   canonical `+201[0/1/2/5]XXXXXXXX`; landline → `+203XXXXXXX` (Alexandria) /
   `+202…` (Cairo); anything else must be full international `+<7–15 digits>`.
@@ -117,6 +126,13 @@ mutation through a `can*` predicate, **server-side**.
 ---
 
 ## 5. Dashboard
+
+**KPI row (this exact order, nothing else):** Market Research (total accounts) ·
+Contacted · Visits (scheduled) · Visits done · Deals (count of deals, not
+accounts) · Slots raised · Lead → Deal (% of accounts reaching a deal).
+Directly below: the step-to-step **conversion strip** — MR→Contacted,
+Contacted→Visits, Visits→Done, Done→Deals. (The old funnel bars and flag KPI
+cards were removed on request; flags remain reachable via accounts filters.)
 
 - Lanes gated by the member's functions: `All ICX / IGV / All IGT / IGTa / IGTe`
   (product colors: GV `#F85A40`, GTa `#0CB9C1`, GTe `#F48924`).
@@ -194,6 +210,18 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 
 ## 10. Changelog
 
+- **2026-07-10 · v5** — IGV **Project restored everywhere** (required at
+  create/import, badge on detail, text next to the IGV badge on the list,
+  filter, editable in Details); real **WhatsApp glyph** replaces the generic
+  message icon (quick actions + contact history); **email tags exclude
+  Whatsapp**; **Google-first auth** — credentials are rejected until a password
+  exists, Google consent asks for `calendar` + `gmail.send` (future features),
+  login page reordered with Google primary, all reset copy updated;
+  **multi-deal model** — `deals` table (migration 0005), `recordDeal`, account
+  stays workable after deals, deal history in the timeline, header shows
+  "N deals · M slots"; **dashboard KPIs redesigned** to MR / Contacted /
+  Visits / Visits done / Deals / Slots / Lead→Deal + conversion strip, funnel
+  card and flag KPIs removed, drill tables use MR/deals.
 - **2026-07-10 · v4** — Password eye toggles everywhere; Podio **Rejected**
   archives the account (confirm dialog); tagged contact lists
   (Contact/Whatsapp/Manager/HR/CEO/Owner/Other) + **multi links**

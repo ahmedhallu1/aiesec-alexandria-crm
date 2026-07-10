@@ -24,6 +24,7 @@ export default async function AccountsPage({
     q: params.q || undefined,
     fn: params.fn === "IGV" || params.fn === "IGT" ? params.fn : undefined,
     product: params.product === "GTa" || params.product === "GTe" ? params.product : undefined,
+    project: params.project || undefined,
     stage: params.stage && params.stage !== "Out of Process" ? (params.stage as Stage) : undefined,
     responsibleId: params.resp || undefined,
     flag:
@@ -63,6 +64,7 @@ export default async function AccountsPage({
         q: params.q ?? "",
         fn: params.fn ?? "",
         product: params.product ?? "",
+        project: params.project ?? "",
         stage: params.stage ?? "",
         resp: params.resp ?? "",
         flag: params.flag ?? "",

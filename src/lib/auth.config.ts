@@ -9,9 +9,10 @@ export const authConfig = {
     Google({
       authorization: {
         params: {
-          // calendar.events lets the CRM place visit reminders on the member's own calendar
+          // Full calendar (visit reminders + future availability features) and
+          // gmail.send (future: emails sent on the member's own behalf).
           scope:
-            "openid email profile https://www.googleapis.com/auth/calendar.events",
+            "openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.send",
           access_type: "offline",
           prompt: "consent",
         },

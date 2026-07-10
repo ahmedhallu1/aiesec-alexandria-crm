@@ -50,11 +50,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         try {
           const member = await findMember(email);
           if (!member) return null;
-          if (member.password_hash) {
-            const ok = await bcrypt.compare(password, member.password_hash);
-            if (!ok) return null;
-          }
-          // no password set yet → any password logs in; onboarding will set one
+          // FIRST sign-in must be with Google (it grants the calendar access
+          // the CRM needs) — password login only works once a password exists.
+          if (!member.password_hash) return null;
+          const ok = await bcrypt.compare(password, member.password_hash);
+          if (!ok) return null;
           markFirstLogin(member);
           return {
             email: member.email,

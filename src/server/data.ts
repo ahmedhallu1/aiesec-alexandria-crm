@@ -15,6 +15,7 @@ import type {
   AccountComment,
   AccountPipeline,
   BlacklistEntry,
+  Deal,
   Member,
   MemberRole,
   Stage,
@@ -156,31 +157,42 @@ export async function getAccount(viewer: Viewer, idOrSlug: string) {
   if (!account || !canViewAccount(viewer, account)) return null;
   const id = account.id;
 
-  const [{ data: attempts }, { data: visits }, { data: comments }] = await Promise.all([
-    db()
-      .from("contact_attempts")
-      .select("*, member:members(name, nickname)")
-      .eq("account_id", id)
-      .order("created_at", { ascending: false }),
-    db()
-      .from("visits")
-      .select("*")
-      .eq("account_id", id)
-      .order("visit_date", { ascending: false })
-      .order("visit_time", { ascending: false }),
-    db()
-      .from("account_comments")
-      .select("*, member:members(name, nickname)")
-      .eq("account_id", id)
-      .order("created_at", { ascending: true }),
-  ]);
+  const [{ data: attempts }, { data: visits }, { data: comments }, { data: deals }] =
+    await Promise.all([
+      db()
+        .from("contact_attempts")
+        .select("*, member:members(name, nickname)")
+        .eq("account_id", id)
+        .order("created_at", { ascending: false }),
+      db()
+        .from("visits")
+        .select("*")
+        .eq("account_id", id)
+        .order("visit_date", { ascending: false })
+        .order("visit_time", { ascending: false }),
+      db()
+        .from("account_comments")
+        .select("*, member:members(name, nickname)")
+        .eq("account_id", id)
+        .order("created_at", { ascending: true }),
+      db()
+        .from("deals")
+        .select("*, member:members(name, nickname)")
+        .eq("account_id", id)
+        .order("created_at", { ascending: false }),
+    ]);
   return {
     account,
     attempts: attempts ?? [],
     visits: visits ?? [],
     comments: (comments ?? []) as CommentWithMember[],
+    deals: (deals ?? []) as DealWithMember[],
   };
 }
+
+export type DealWithMember = Deal & {
+  member: { name: string; nickname: string | null } | null;
+};
 
 export type CommentWithMember = AccountComment & {
   member: { name: string; nickname: string | null } | null;
@@ -251,11 +263,15 @@ export async function listTeamLeaders(viewer: Viewer): Promise<Member[]> {
 // ------------------------------------------------------------------ dashboard
 
 export interface FunnelStats {
-  leads: number; // everything that entered the pipeline
+  /** Market Research — every account that entered the system */
+  mr: number;
   contacted: number;
   visitScheduled: number;
   visitDone: number;
-  dealDone: number;
+  /** number of DEALS signed (an account can close several) */
+  deals: number;
+  /** accounts with at least one deal (used for conversion rates) */
+  dealAccounts: number;
   slots: number;
   outOfProcess: number;
   contactLimitFlags: number;
@@ -268,16 +284,21 @@ export interface DrillGroup extends FunnelStats {
 }
 
 const emptyStats = (): FunnelStats => ({
-  leads: 0, contacted: 0, visitScheduled: 0, visitDone: 0, dealDone: 0,
-  slots: 0, outOfProcess: 0, contactLimitFlags: 0, nextStepMissingFlags: 0,
+  mr: 0, contacted: 0, visitScheduled: 0, visitDone: 0, deals: 0,
+  dealAccounts: 0, slots: 0, outOfProcess: 0, contactLimitFlags: 0,
+  nextStepMissingFlags: 0,
 });
 
 function addRow(s: FunnelStats, r: PipelineRow) {
-  s.leads += 1;
+  s.mr += 1;
   if (r.attempts > 0) s.contacted += 1;
   if (r.visit_id) s.visitScheduled += 1;
   if (r.visit_done) s.visitDone += 1;
-  if (r.slot_raised) { s.dealDone += 1; s.slots += r.slots_count || 1; }
+  if (r.slot_raised) {
+    s.dealAccounts += 1;
+    s.deals += r.deals_count || 1;
+    s.slots += r.slots_count || 1;
+  }
   if (r.out_of_process) s.outOfProcess += 1;
   if (r.contact_limit_reached) s.contactLimitFlags += 1;
   if (r.next_step_missing) s.nextStepMissingFlags += 1;
@@ -362,7 +383,7 @@ export async function getDashboard(viewer: Viewer, filters: AccountFilters = {})
 
   // ---- leaderboards (never across functions: they live inside the lane filter)
   const rank = (a: DrillGroup, b: DrillGroup) =>
-    b.slots - a.slots || b.dealDone - a.dealDone || b.visitDone - a.visitDone || b.contacted - a.contacted;
+    b.slots - a.slots || b.deals - a.deals || b.visitDone - a.visitDone || b.contacted - a.contacted;
   const functionBoard = [...byMember.values()].sort(rank);
 
   // the viewer's team: the TL is themself (TL) or their manager (member/coordinator)
@@ -388,7 +409,7 @@ export async function getDashboard(viewer: Viewer, filters: AccountFilters = {})
   return {
     total,
     byFunction: [...byFunction.values()],
-    byTeam: [...byTeam.values()].sort((a, b) => b.leads - a.leads),
+    byTeam: [...byTeam.values()].sort((a, b) => b.mr - a.mr),
     byMember: functionBoard,
     functionBoard,
     teamBoard,

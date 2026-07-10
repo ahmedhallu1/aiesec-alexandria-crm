@@ -39,6 +39,30 @@ export function LoginForm() {
 
   return (
     <div className="grid gap-4">
+      {/* FIRST sign-in is Google-only — it grants the calendar (and future
+          Google) access the CRM runs on. Email+password works afterwards. */}
+      <form action={loginWithGoogle}>
+        <Button type="submit" className="w-full" size="lg">
+          <svg viewBox="0 0 24 24" className="mr-1 size-4" aria-hidden>
+            <path
+              fill="currentColor"
+              d="M21.35 11.1H12v2.9h5.35c-.5 2.5-2.6 4.3-5.35 4.3a6.3 6.3 0 1 1 0-12.6c1.6 0 3 .6 4.1 1.6l2.1-2.1A9.3 9.3 0 1 0 12 21.3c5.35 0 8.9-3.75 8.9-9 0-.4-.05-.8-.1-1.2Z"
+            />
+          </svg>
+          Continue with Google
+        </Button>
+        <p className="mt-1.5 text-center text-xs text-muted-foreground">
+          <b>First time here?</b> Google sign-in is required once — it connects
+          your calendar for visit reminders.
+        </p>
+      </form>
+
+      <div className="flex items-center gap-3">
+        <Separator className="flex-1" />
+        <span className="text-xs text-muted-foreground">or use your password</span>
+        <Separator className="flex-1" />
+      </div>
+
       <form action={formAction} className="grid gap-3">
         {state.error ? (
           <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
@@ -75,30 +99,12 @@ export function LoginForm() {
             id="password"
             name="password"
             autoComplete="current-password"
-            placeholder="First time? Type any password"
+            placeholder="The password you set in the CRM"
             required
           />
         </div>
-        <Button type="submit" size="lg" className="mt-1 w-full" disabled={pending}>
-          {pending ? "Signing in…" : "Sign in"}
-        </Button>
-      </form>
-
-      <div className="flex items-center gap-3">
-        <Separator className="flex-1" />
-        <span className="text-xs text-muted-foreground">or</span>
-        <Separator className="flex-1" />
-      </div>
-
-      <form action={loginWithGoogle}>
-        <Button type="submit" variant="outline" className="w-full" size="lg">
-          <svg viewBox="0 0 24 24" className="mr-1 size-4" aria-hidden>
-            <path
-              fill="currentColor"
-              d="M21.35 11.1H12v2.9h5.35c-.5 2.5-2.6 4.3-5.35 4.3a6.3 6.3 0 1 1 0-12.6c1.6 0 3 .6 4.1 1.6l2.1-2.1A9.3 9.3 0 1 0 12 21.3c5.35 0 8.9-3.75 8.9-9 0-.4-.05-.8-.1-1.2Z"
-            />
-          </svg>
-          Continue with Google (enables calendar reminders)
+        <Button type="submit" size="lg" variant="outline" className="mt-1 w-full" disabled={pending}>
+          {pending ? "Signing in…" : "Sign in with password"}
         </Button>
       </form>
 
@@ -107,9 +113,8 @@ export function LoginForm() {
           <DialogHeader>
             <DialogTitle>Request a password reset</DialogTitle>
             <DialogDescription>
-              The IM team gets notified instantly. Once they reset it, your next
-              sign-in accepts <b>any password</b> and walks you through setting a
-              new one.
+              The IM team gets notified instantly. Once they reset it, sign in
+              with <b>Google</b> and you&apos;ll set a new password.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-1.5">

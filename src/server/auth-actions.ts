@@ -24,7 +24,7 @@ export async function loginWithPassword(
       return {
         error:
           e.type === "CredentialsSignin"
-            ? "Wrong password — or this email is not on the LC membership list. If you forgot your password, ask the IM team to reset it."
+            ? "Wrong password — or you haven't set one yet. Your FIRST sign-in must be with Google (it connects your calendar); after that you can use email + password."
             : "Sign-in failed. Try again — if it keeps happening, contact the IM team.",
       };
     }
@@ -70,7 +70,7 @@ export async function requestPasswordReset(
     return {
       ok: true,
       message:
-        "The IM team was notified ✅ — once they reset it, sign in with ANY password and you'll set a new one.",
+        "The IM team was notified ✅ — once they reset it, sign in with GOOGLE and you'll set a new password.",
     };
   } catch (e) {
     console.error("[auth] reset request failed:", e);

@@ -21,6 +21,8 @@ Work through the sections in order; each produces env vars for `.env.local`
    (tagged multi contacts per account + performance goals).
 5. SQL Editor → paste and run **`supabase/migrations/0004_pins_v2.sql`**
    (pinned comments + 📌 on the accounts list).
+6. SQL Editor → paste and run **`supabase/migrations/0005_deals.sql`**
+   (multi-deal model: an account can close many deals).
 3. Project Settings → API:
    - `SUPABASE_URL` = Project URL
    - `SUPABASE_SERVICE_ROLE_KEY` = `service_role` secret key
@@ -39,7 +41,9 @@ Use the existing project `gen-lang-client-0055329754` (or a fresh one named
 - User type **External**, publishing status **In production** (otherwise
   refresh tokens die after 7 days).
 - Scopes: `email`, `profile`, `openid`,
-  `https://www.googleapis.com/auth/calendar.events`, `https://mail.google.com/`.
+  `https://www.googleapis.com/auth/calendar`,
+  `https://www.googleapis.com/auth/gmail.send`, `https://mail.google.com/`.
+  (Members' first sign-in is Google-only and grants calendar + gmail.send.)
 - Because the app is external + sensitive scopes, Google shows an "unverified
   app" screen. That's fine for our LC: members just click *Advanced →
   Continue*. (Optional later: verify the app to remove the warning.)

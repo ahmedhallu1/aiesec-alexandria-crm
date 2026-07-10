@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ArrowLeft, CheckCircle2, FileUp, Loader2, Trash2, XCircle } from "lucide-react";
 import { importAccountsBulk, type ImportRowResult } from "@/server/actions";
-import { cleanPhone, EMAIL_RE, PHONE_RE } from "@/lib/types";
+import { cleanPhone, EMAIL_RE, IGV_PROJECTS, PHONE_RE } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,7 @@ interface DraftRow {
   name: string;
   function: "IGV" | "IGT";
   product: "" | "GTa" | "GTe";
+  project: string;
   sub_product: string;
   account_type: string;
   industry: string;
@@ -41,6 +42,7 @@ const HEADER_MAP: [RegExp, keyof DraftRow][] = [
   [/^(account\s*)?name$|company/i, "name"],
   [/^function$/i, "function"],
   [/^product$/i, "product"],
+  [/^project$/i, "project"],
   [/sub\s*product/i, "sub_product"],
   [/account\s*type|^type$/i, "account_type"],
   [/industry/i, "industry"],
@@ -107,7 +109,7 @@ export function ImportView({
       const drafts: DraftRow[] = [];
       for (const line of grid.slice(1)) {
         const draft: DraftRow = {
-          name: "", function: defaultFn, product: "", sub_product: "",
+          name: "", function: defaultFn, product: "", project: "", sub_product: "",
           account_type: "", industry: "", phone: "", email: "",
           social_link: "", website: "", comment: "", responsible_id: viewer.id,
         };
@@ -121,6 +123,9 @@ export function ImportView({
             const v = value.toLowerCase();
             draft.product = v.includes("gta") || v.includes("talent") ? "GTa"
               : v.includes("gte") || v.includes("teacher") ? "GTe" : "";
+          } else if (key === "project") {
+            draft.project =
+              IGV_PROJECTS.find((p) => p.toLowerCase().replace(/[^a-z]/g, "") === value.toLowerCase().replace(/[^a-z]/g, "")) ?? value;
           } else if (key === "responsible_id") {
             draft.responsible_id = resolveResponsible(value);
           } else if (key === "phone") {
@@ -158,6 +163,7 @@ export function ImportView({
   const rowIssue = (r: DraftRow): string | null => {
     if (r.name.trim().length < 2) return "Name required";
     if (r.function === "IGT" && !r.product) return "Pick GTa/GTe";
+    if (r.function === "IGV" && !r.project) return "Pick a project";
     if (r.phone && !PHONE_RE.test(cleanPhone(r.phone))) return "Bad phone";
     if (r.email && !EMAIL_RE.test(r.email.trim())) return "Bad email";
     return null;
@@ -171,6 +177,7 @@ export function ImportView({
           function: r.function,
           name: r.name.trim(),
           product: r.product || null,
+          project: r.function === "IGV" ? r.project || null : null,
           sub_product: r.function === "IGT" ? r.sub_product || null : null,
           account_type: r.function === "IGV" ? r.account_type || null : null,
           industry: r.function === "IGV" ? r.industry || null : null,
@@ -240,9 +247,9 @@ export function ImportView({
               Expected columns (any order, extra columns are ignored):
             </p>
             <p className="mx-auto max-w-xl font-mono text-xs leading-relaxed">
-              Name* · Function (IGV/IGT) · Product (GTa/GTe) · Sub Product ·
-              Account Type · Industry · Phone · Email · Social · Website ·
-              Comment · Responsible
+              Name* · Function (IGV/IGT) · Product (GTa/GTe) · Project (IGV) ·
+              Sub Product · Account Type · Industry · Phone · Email · Social ·
+              Website · Comment · Responsible
             </p>
             <p>
               Each row passes the same checks as a hand-added account —
@@ -320,12 +327,17 @@ export function ImportView({
                               </SelectContent>
                             </Select>
                           ) : (
-                            <Input
-                              className="h-8"
-                              value={r.account_type}
-                              placeholder="Account type"
-                              onChange={(e) => update(i, { account_type: e.target.value })}
-                            />
+                            <Select
+                              value={r.project || undefined}
+                              onValueChange={(v) => update(i, { project: v })}
+                            >
+                              <SelectTrigger className="h-8 w-32"><SelectValue placeholder="Project *" /></SelectTrigger>
+                              <SelectContent>
+                                {IGV_PROJECTS.map((pj) => (
+                                  <SelectItem key={pj} value={pj}>{pj}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           )}
                         </TableCell>
                         <TableCell>

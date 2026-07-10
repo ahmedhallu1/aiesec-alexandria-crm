@@ -299,7 +299,7 @@ function MemberDialog({
       const res = await resetMemberPassword(member.id);
       if (res.ok)
         toast.success(
-          `${member.nickname || member.name} can now sign in with any password and will set a new one.`
+          `${member.nickname || member.name} will sign in with Google next time and set a new password.`
         );
       else toast.error(res.error);
     });

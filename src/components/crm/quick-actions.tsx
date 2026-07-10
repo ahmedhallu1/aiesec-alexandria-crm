@@ -1,25 +1,7 @@
 "use client";
 
-import { Globe, Mail, MessageCircle, MoreHorizontal, Phone } from "lucide-react";
-
-/* lucide no longer ships brand icons — minimal inline glyphs instead */
-const LinkedinIcon = ({ className }: { className?: string }) => (
-  <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden>
-    <path d="M20.45 20.45h-3.55v-5.57c0-1.33-.03-3.04-1.85-3.04-1.86 0-2.14 1.45-2.14 2.94v5.67H9.35V9h3.41v1.56h.05c.47-.9 1.63-1.85 3.36-1.85 3.6 0 4.27 2.37 4.27 5.45v6.29ZM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12ZM7.12 20.45H3.56V9h3.56v11.45Z" />
-  </svg>
-);
-const InstagramIcon = ({ className }: { className?: string }) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className} aria-hidden>
-    <rect x="3" y="3" width="18" height="18" rx="5" />
-    <circle cx="12" cy="12" r="4" />
-    <circle cx="17.2" cy="6.8" r="1" fill="currentColor" stroke="none" />
-  </svg>
-);
-const FacebookIcon = ({ className }: { className?: string }) => (
-  <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden>
-    <path d="M13.5 21v-7h2.4l.36-2.8H13.5V9.4c0-.81.22-1.36 1.38-1.36h1.48V5.55c-.26-.03-1.13-.11-2.15-.11-2.13 0-3.58 1.3-3.58 3.68v2.08H8.25V14h2.38v7h2.87Z" />
-  </svg>
-);
+import { Globe, Mail, MoreHorizontal, Phone } from "lucide-react";
+import { FacebookIcon, InstagramIcon, LinkedinIcon, WhatsAppIcon } from "./icons";
 import { quickActions, type AccountContact } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -50,7 +32,7 @@ export function buildActions(contacts: AccountContact[] | null | undefined): Act
       key: "wa",
       label: `WhatsApp ${qa.whatsapp}`,
       href: `https://wa.me/${qa.whatsapp}`,
-      icon: <MessageCircle className="size-3.5" />,
+      icon: <WhatsAppIcon className="size-3.5" />,
     });
   if (qa.call)
     items.push({

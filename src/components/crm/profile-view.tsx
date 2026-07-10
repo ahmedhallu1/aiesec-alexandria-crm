@@ -205,8 +205,8 @@ export function ProfileView({ member }: { member: ProfileInfo }) {
               {pending ? "Saving…" : "Update password"}
             </Button>
             <p className="mt-2 text-xs text-muted-foreground">
-              Forgot your current password? Request a reset — your next sign-in
-              will accept any password and walk you through setting a new one.
+              Forgot your current password? Request a reset — then sign in with
+              Google and set a new one.
             </p>
             <RequestResetButton email={member.email} />
           </div>

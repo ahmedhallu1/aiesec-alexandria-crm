@@ -5,22 +5,23 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  ArrowLeft, CalendarPlus, CheckCircle2, Mail, MessageCircle, MessageSquareText,
+  ArrowLeft, CalendarPlus, CheckCircle2, Mail, MessageSquareText,
   Phone, Pin, PinOff, RotateCcw, Trophy, XCircle,
 } from "lucide-react";
 import {
-  addComment, markSlotRaised, reassignAccount, reportVisit, reviveAccount,
+  addComment, reassignAccount, recordDeal, reportVisit, reviveAccount,
   scheduleVisit, setOutOfProcess, toggleCommentPin, updateAccount, updateAccountContacts,
 } from "@/server/actions";
-import type { CommentWithMember, PipelineRow } from "@/server/data";
+import type { CommentWithMember, DealWithMember, PipelineRow } from "@/server/data";
 import type { ContactAttempt, Visit } from "@/lib/types";
 import {
-  ACCOUNT_TYPES, IGT_SUB_PRODUCTS, INDUSTRIES, productBadge,
+  ACCOUNT_TYPES, IGT_SUB_PRODUCTS, IGV_PROJECTS, INDUSTRIES, productBadge,
 } from "@/lib/types";
 import type { AccountContact } from "@/lib/types";
 import { Hint } from "./hint";
 import { MultiPick } from "./multi-pick";
 import { ContactsEditor, contactsValid } from "./contacts-editor";
+import { WhatsAppIcon } from "./icons";
 import { cn } from "@/lib/utils";
 import { StageBadge } from "./stage-badge";
 import { ContactDialog, type ContactTarget } from "./contact-dialog";
@@ -48,17 +49,18 @@ interface Caps {
 
 const methodIcon = {
   Call: <Phone className="size-3.5" />,
-  WhatsApp: <MessageCircle className="size-3.5" />,
+  WhatsApp: <WhatsAppIcon className="size-3.5" />,
   Email: <Mail className="size-3.5" />,
 };
 
 export function AccountDetailView({
-  account, attempts, visits, comments, caps, reassignTargets, autoReportVisitId,
+  account, attempts, visits, comments, deals, caps, reassignTargets, autoReportVisitId,
 }: {
   account: PipelineRow;
   attempts: AttemptWithMember[];
   visits: Visit[];
   comments: CommentWithMember[];
+  deals: DealWithMember[];
   caps: Caps;
   reassignTargets: { id: string; label: string }[];
   autoReportVisitId: string | null;
@@ -101,7 +103,15 @@ export function AccountDetailView({
             <Badge className={cn("border-transparent font-semibold", fnBadge.bg, fnBadge.text)}>
               {fnBadge.label}
             </Badge>
+            {account.function === "IGV" && account.project ? (
+              <Badge variant="outline">{account.project}</Badge>
+            ) : null}
             <StageBadge stage={account.stage} />
+            {account.deals_count > 0 ? (
+              <Badge className="border-transparent bg-success/15 text-success">
+                🏆 {account.deals_count} deal{account.deals_count === 1 ? "" : "s"} · {account.slots_count} slot{account.slots_count === 1 ? "" : "s"}
+              </Badge>
+            ) : null}
             {account.contact_limit_reached ? (
               <Badge className="border-transparent bg-warning/15 text-warning">⚠️ 3-contact limit</Badge>
             ) : null}
@@ -118,7 +128,7 @@ export function AccountDetailView({
 
         {caps.edit ? (
           <div className="flex flex-wrap gap-2">
-            {active && !account.slot_raised ? (
+            {active ? (
               <>
                 <Hint label="Log a call / WhatsApp / email attempt — every attempt counts">
                   <Button onClick={() => setContactOpen(true)}>
@@ -138,13 +148,14 @@ export function AccountDetailView({
                     </Button>
                   </Hint>
                 ) : null}
-                <Hint label="Deal signed! Record how many slots were raised">
+                <Hint label="Deal signed! Record it — accounts can close many deals over time">
                   <Button
                     variant="outline"
                     className="text-success hover:text-success"
                     onClick={() => setDealOpen(true)}
                   >
-                    <Trophy className="size-4" /> Slot raised
+                    <Trophy className="size-4" />
+                    {account.deals_count > 0 ? "New deal" : "Deal signed"}
                   </Button>
                 </Hint>
               </>
@@ -174,7 +185,7 @@ export function AccountDetailView({
         <CommentsCard accountId={account.id} comments={comments} canComment={caps.edit} />
       </div>
 
-      <TimelineCard attempts={attempts} visits={visits} />
+      <TimelineCard attempts={attempts} visits={visits} deals={deals} />
 
       {/* dialogs */}
       <ContactDialog target={contactTarget} open={contactOpen} onOpenChange={setContactOpen} />
@@ -188,7 +199,12 @@ export function AccountDetailView({
         <ReportVisitDialog visit={reportableVisit} open={reportOpen} onOpenChange={setReportOpen} />
       ) : null}
       <OopDialog accountId={account.id} open={oopOpen} onOpenChange={setOopOpen} />
-      <DealDialog accountId={account.id} open={dealOpen} onOpenChange={setDealOpen} />
+      <DealDialog
+        accountId={account.id}
+        dealNumber={account.deals_count + 1}
+        open={dealOpen}
+        onOpenChange={setDealOpen}
+      />
     </div>
   );
 }
@@ -252,6 +268,7 @@ function ResponsibleRow({
  *  and links live in the tagged Contact info card. */
 function DetailsCard({ account, canEdit }: { account: PipelineRow; canEdit: boolean }) {
   const [form, setForm] = useState({
+    project: account.project ?? "",
     account_type: account.account_type ?? "",
     industry: account.industry ?? "",
     sub_product: account.sub_product ?? "",
@@ -310,6 +327,22 @@ function DetailsCard({ account, canEdit }: { account: PipelineRow; canEdit: bool
       <CardContent className="space-y-3">
         {account.function === "IGV" ? (
           <>
+            <div className="grid gap-1 sm:grid-cols-[110px_1fr] sm:items-center sm:gap-2">
+              <Label className="text-xs text-muted-foreground">Project</Label>
+              {canEdit ? (
+                <Select
+                  value={form.project || undefined}
+                  onValueChange={(v) => set("project")(v)}
+                >
+                  <SelectTrigger className="h-8"><SelectValue placeholder="Choose…" /></SelectTrigger>
+                  <SelectContent>
+                    {IGV_PROJECTS.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <p className="truncate text-sm">{form.project || "—"}</p>
+              )}
+            </div>
             {listRow("Account type", "account_type")}
             {canEdit ? (
               <MultiPick
@@ -668,11 +701,35 @@ function CommentsCard({
   );
 }
 
-function TimelineCard({ attempts, visits }: { attempts: AttemptWithMember[]; visits: Visit[] }) {
+function TimelineCard({
+  attempts, visits, deals,
+}: {
+  attempts: AttemptWithMember[];
+  visits: Visit[];
+  deals: DealWithMember[];
+}) {
   return (
     <Card>
       <CardHeader><CardTitle className="text-base">History</CardTitle></CardHeader>
       <CardContent>
+        {deals.length > 0 ? (
+          <div className="mb-4 space-y-2">
+            {deals.map((d, i) => (
+              <div key={d.id} className="flex items-start gap-3 rounded-lg border border-success/40 bg-success/5 p-3 text-sm">
+                <Trophy className="mt-0.5 size-4 text-success" />
+                <div>
+                  <p className="font-medium">
+                    Deal #{deals.length - i} · {d.slots} slot{d.slots === 1 ? "" : "s"}
+                  </p>
+                  {d.note ? <p className="text-muted-foreground">{d.note}</p> : null}
+                  <p className="text-xs text-muted-foreground">
+                    {d.member?.nickname || d.member?.name || "—"} · {new Date(d.created_at).toLocaleDateString()}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
         {visits.length > 0 ? (
           <div className="mb-4 space-y-2">
             {visits.map((v) => (
@@ -893,29 +950,54 @@ function OopDialog({
 }
 
 function DealDialog({
-  accountId, open, onOpenChange,
-}: { accountId: string; open: boolean; onOpenChange: (o: boolean) => void }) {
+  accountId, dealNumber, open, onOpenChange,
+}: {
+  accountId: string;
+  dealNumber: number;
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+}) {
+  const router = useRouter();
   const [slots, setSlots] = useState("1");
+  const [note, setNote] = useState("");
   const [pending, start] = useTransition();
 
   const submit = () =>
     start(async () => {
-      const res = await markSlotRaised(accountId, Number(slots));
-      if (res.ok) { toast.success("🎉 Deal done — slots counted on the dashboard!"); onOpenChange(false); }
-      else toast.error(res.error);
+      const res = await recordDeal(accountId, Number(slots), note);
+      if (res.ok) {
+        toast.success(
+          `🎉 Deal #${res.data?.deals} recorded — ${res.data?.slots} total slot${(res.data?.slots ?? 0) === 1 ? "" : "s"} with this account!`
+        );
+        setSlots("1"); setNote("");
+        onOpenChange(false);
+        router.refresh();
+      } else toast.error(res.error);
     });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>🏆 Slot raised!</DialogTitle>
-          <DialogDescription>How many slots were signed with this account?</DialogDescription>
+          <DialogTitle>🏆 Deal #{dealNumber}</DialogTitle>
+          <DialogDescription>
+            How many slots/opens were signed in THIS deal? Accounts can close
+            more deals later — every one is counted.
+          </DialogDescription>
         </DialogHeader>
-        <Input type="number" min={1} value={slots} onChange={(e) => setSlots(e.target.value)} />
+        <div className="grid gap-3">
+          <div className="grid gap-1.5">
+            <Label>Slots in this deal *</Label>
+            <Input type="number" min={1} value={slots} onChange={(e) => setSlots(e.target.value)} />
+          </div>
+          <div className="grid gap-1.5">
+            <Label>Note (optional)</Label>
+            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. 3 GTa slots for summer" />
+          </div>
+        </div>
         <DialogFooter>
           <Button onClick={submit} disabled={pending || Number(slots) < 1}>
-            {pending ? "Saving…" : "Confirm deal"}
+            {pending ? "Saving…" : "Record deal"}
           </Button>
         </DialogFooter>
       </DialogContent>

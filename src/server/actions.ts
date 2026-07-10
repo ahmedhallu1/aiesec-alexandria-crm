@@ -171,6 +171,8 @@ export async function createAccount(
 
   if (data.function === "IGT" && !data.product)
     return fail("Choose the product (Global Talent or Global Teacher).");
+  if (data.function === "IGV" && !data.project)
+    return fail("Choose the project for this IGV account.");
 
   // HARD RULE: unique account name across ALL ICX data + archive block
   const { duplicate, blacklisted } = await checkAccountName(data.name);
@@ -417,26 +419,44 @@ export async function reviveAccount(accountId: string): Promise<ActionResult> {
   return { ok: true };
 }
 
-export async function markSlotRaised(
+/** Records ONE deal — an account can close many over time (3 slots today, 6
+ *  more next month = 2 deals · 9 slots). Totals live on the account row. */
+export async function recordDeal(
   accountId: string,
-  slots: number
-): Promise<ActionResult> {
+  slots: number,
+  note?: string
+): Promise<ActionResult<{ deals: number; slots: number }>> {
   const viewer = await getViewer();
   const account = await loadAccount(accountId);
   if (!account || !canEditAccount(viewer, account))
     return fail("You are not allowed to edit this account.", "forbidden");
-  const { error } = await db()
-    .from("accounts")
-    .update({
-      slot_raised: true,
-      slots_count: Math.max(1, Math.round(slots || 1)),
-      slot_raised_at: new Date().toISOString(),
-    })
-    .eq("id", accountId);
+  if (account.out_of_process)
+    return fail("This account is archived — bring it back in process first.");
+  const cleanSlots = Math.max(1, Math.round(slots || 1));
+
+  const { error } = await db().from("deals").insert({
+    account_id: accountId,
+    member_id: viewer.id,
+    slots: cleanSlots,
+    note: note?.trim() || null,
+  });
   if (error) return fail(error.message);
-  await logAudit(viewer.id, "slot_raised", "account", accountId, { slots });
+
+  const totals = {
+    slot_raised: true,
+    slot_raised_at: new Date().toISOString(),
+    slots_count: (account.slots_count ?? 0) + cleanSlots,
+    deals_count: (account.deals_count ?? 0) + 1,
+  };
+  const { error: updateError } = await db()
+    .from("accounts")
+    .update(totals)
+    .eq("id", accountId);
+  if (updateError) return fail(updateError.message);
+
+  await logAudit(viewer.id, "deal", "account", accountId, { slots: cleanSlots });
   refresh(accountId);
-  return { ok: true };
+  return { ok: true, data: { deals: totals.deals_count, slots: totals.slots_count } };
 }
 
 // ================================================================== comments
@@ -1149,6 +1169,7 @@ export interface ImportRowInput {
   function: "IGV" | "IGT";
   name: string;
   product?: string | null;
+  project?: string | null;
   sub_product?: string | null;
   account_type?: string | null;
   industry?: string | null;
@@ -1185,6 +1206,7 @@ export async function importAccountsBulk(
         row.function === "IGT" && (row.product === "GTa" || row.product === "GTe")
           ? row.product
           : null,
+      project: row.function === "IGV" ? row.project ?? null : null,
       sub_product: row.sub_product ?? null,
       account_type: row.account_type ?? null,
       industry: row.industry ?? null,

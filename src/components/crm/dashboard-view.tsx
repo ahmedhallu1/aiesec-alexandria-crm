@@ -98,14 +98,21 @@ export function DashboardView({
     [go]
   );
 
-  const funnel = [
-    { label: "Leads", value: total.leads },
-    { label: "Contacted", value: total.contacted },
-    { label: "Visit Scheduled", value: total.visitScheduled },
-    { label: "Visit Done", value: total.visitDone },
-    { label: "Deal Done", value: total.dealDone },
+  // KPIs, in the LC's order — conversions between consecutive steps live below
+  const kpis = [
+    { label: "Market Research", value: total.mr, hint: "total accounts in the system" },
+    { label: "Contacted", value: total.contacted, hint: "accounts with ≥1 contact" },
+    { label: "Visits", value: total.visitScheduled, hint: "visits scheduled" },
+    { label: "Visits done", value: total.visitDone, hint: "confirmed visits" },
+    { label: "Deals", value: total.deals, hint: "deals signed (accounts can close many)" },
+    { label: "Slots raised", value: total.slots, hint: "total slots/opens" },
   ];
-  const max = Math.max(total.leads, 1);
+  const conversions = [
+    { label: "MR → Contacted", value: pct(total.contacted, total.mr) },
+    { label: "Contacted → Visits", value: pct(total.visitScheduled, total.contacted) },
+    { label: "Visits → Done", value: pct(total.visitDone, total.visitScheduled) },
+    { label: "Done → Deals", value: pct(total.dealAccounts, total.visitDone) },
+  ];
   const month = monthRange();
   const today = new Date().toISOString().slice(0, 10);
   const thisMonthActive = filters.from === month.from && filters.to === month.to;
@@ -248,25 +255,29 @@ export function DashboardView({
         </div>
       ) : null}
 
-      {/* KPI cards */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 rise-in rise-in-2">
-        <KpiCard label="Slots raised" value={total.slots} sub={`${total.dealDone} deal${total.dealDone === 1 ? "" : "s"} done`} />
-        <KpiCard label="Lead → Deal" valueText={pct(total.dealDone, total.leads)} sub={`${total.leads} leads in the pipeline`} />
+      {/* KPI row — MR · Contacted · Visits · Visits done · Deals · Slots · Lead→Deal */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7 rise-in rise-in-2">
+        {kpis.map((k) => (
+          <KpiCard key={k.label} label={k.label} value={k.value} sub={k.hint} />
+        ))}
         <KpiCard
-          label="⚠️ 3-contact limit"
-          value={total.contactLimitFlags}
-          sub="need an Out-of-Process decision"
-          tone={total.contactLimitFlags > 0 ? "warn" : undefined}
-          href="/accounts?flag=contact_limit"
-        />
-        <KpiCard
-          label="🚨 No next step"
-          value={total.nextStepMissingFlags}
-          sub="floating accounts"
-          tone={total.nextStepMissingFlags > 0 ? "bad" : undefined}
-          href="/accounts?flag=next_step_missing"
+          label="Lead → Deal"
+          valueText={pct(total.dealAccounts, total.mr)}
+          sub="accounts that reached a deal"
         />
       </div>
+
+      {/* step-to-step conversion strip */}
+      <Card className="rise-in rise-in-2">
+        <CardContent className="grid grid-cols-2 gap-3 pt-4 sm:grid-cols-4">
+          {conversions.map((c) => (
+            <div key={c.label} className="text-center">
+              <p className="text-xl font-bold text-primary">{c.value}</p>
+              <p className="text-xs text-muted-foreground">{c.label}</p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
       {/* Leaderboards */}
       <div className="grid gap-4 lg:grid-cols-2 rise-in rise-in-3">
@@ -280,41 +291,6 @@ export function DashboardView({
           />
         ) : null}
       </div>
-
-      {/* Funnel */}
-      <Card className="rise-in rise-in-3">
-        <CardHeader>
-          <CardTitle className="text-base">Pipeline funnel</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {funnel.map((step, i) => (
-            <div key={step.label} className="space-y-1">
-              <div className="flex items-baseline justify-between text-sm">
-                <span className="font-medium">{step.label}</span>
-                <span className="text-muted-foreground">
-                  {step.value}
-                  {i > 0 ? (
-                    <span className="ml-2 hidden text-xs sm:inline">
-                      ({pct(step.value, funnel[i - 1].value)} of {funnel[i - 1].label.toLowerCase()})
-                    </span>
-                  ) : null}
-                </span>
-              </div>
-              <div className="h-7 w-full overflow-hidden rounded-md bg-muted">
-                <div
-                  className="flex h-full items-center rounded-md bg-primary px-2 text-xs font-semibold text-primary-foreground transition-all duration-500"
-                  style={{ width: `${Math.max((step.value / max) * 100, step.value > 0 ? 6 : 0)}%` }}
-                >
-                  {step.value > 0 ? step.value : ""}
-                </div>
-              </div>
-            </div>
-          ))}
-          <p className="pt-1 text-xs text-muted-foreground">
-            {total.outOfProcess} account{total.outOfProcess === 1 ? "" : "s"} archived (out of process)
-          </p>
-        </CardContent>
-      </Card>
 
       {/* Drill-down */}
       <Card className="rise-in rise-in-4">
@@ -588,9 +564,9 @@ function DrillTable({ groups, colorKeys }: { groups: DrillGroup[]; colorKeys?: b
         <TableHeader>
           <TableRow>
             <TableHead></TableHead>
-            <TableHead className="text-right">Leads</TableHead>
+            <TableHead className="text-right">MR</TableHead>
             <TableHead className="text-right">Contacted</TableHead>
-            <TableHead className="text-right">Visits sched.</TableHead>
+            <TableHead className="text-right">Visits</TableHead>
             <TableHead className="text-right">Visits done</TableHead>
             <TableHead className="text-right">Deals</TableHead>
             <TableHead className="text-right">Slots</TableHead>
@@ -612,13 +588,13 @@ function DrillTable({ groups, colorKeys }: { groups: DrillGroup[]; colorKeys?: b
                     g.label
                   )}
                 </TableCell>
-                <TableCell className="text-right">{g.leads}</TableCell>
+                <TableCell className="text-right">{g.mr}</TableCell>
                 <TableCell className="text-right">{g.contacted}</TableCell>
                 <TableCell className="text-right">{g.visitScheduled}</TableCell>
                 <TableCell className="text-right">{g.visitDone}</TableCell>
-                <TableCell className="text-right">{g.dealDone}</TableCell>
+                <TableCell className="text-right">{g.deals}</TableCell>
                 <TableCell className="text-right font-semibold">{g.slots}</TableCell>
-                <TableCell className="text-right text-muted-foreground">{pct(g.dealDone, g.leads)}</TableCell>
+                <TableCell className="text-right text-muted-foreground">{pct(g.dealAccounts, g.mr)}</TableCell>
                 <TableCell className="text-right">
                   {g.contactLimitFlags + g.nextStepMissingFlags > 0 ? (
                     <Badge variant="destructive">{g.contactLimitFlags + g.nextStepMissingFlags}</Badge>

@@ -2,7 +2,7 @@
 
 import { Globe, Mail, Phone, Plus, Trash2 } from "lucide-react";
 import {
-  CONTACT_TAGS, EMAIL_RE, LINK_TAGS, normalizePhone, URL_RE,
+  CONTACT_TAGS, EMAIL_RE, EMAIL_TAGS, LINK_TAGS, normalizePhone, URL_RE,
   type AccountContact,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -21,7 +21,7 @@ const kindMeta = {
   },
   email: {
     icon: <Mail className="size-3.5" />,
-    tags: CONTACT_TAGS,
+    tags: EMAIL_TAGS,
     placeholder: "name@company.com",
     inputMode: "email" as const,
   },

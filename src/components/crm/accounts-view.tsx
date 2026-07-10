@@ -7,7 +7,7 @@ import {
   AlertTriangle, Archive, FileUp, Loader2, Phone, Pin, Plus, Search, X,
 } from "lucide-react";
 import type { PipelineRow } from "@/server/data";
-import { accountSlug, productBadge, STAGES } from "@/lib/types";
+import { accountSlug, IGV_PROJECTS, productBadge, STAGES } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { StageBadge } from "./stage-badge";
 import { ContactDialog, type ContactTarget } from "./contact-dialog";
@@ -39,9 +39,14 @@ interface ViewerInfo {
 function FnBadge({ row, className }: { row: PipelineRow; className?: string }) {
   const b = productBadge(row.function, row.product);
   return (
-    <Badge className={cn("border-transparent text-[10px] font-bold", b.bg, b.text, className)}>
-      {b.label}
-    </Badge>
+    <span className={cn("inline-flex items-center gap-1.5", className)}>
+      <Badge className={cn("border-transparent text-[10px] font-bold", b.bg, b.text)}>
+        {b.label}
+      </Badge>
+      {row.function === "IGV" && row.project ? (
+        <span className="text-xs text-muted-foreground">{row.project}</span>
+      ) : null}
+    </span>
   );
 }
 
@@ -173,6 +178,13 @@ export function AccountsView({
             options={[["GTa", "IGTa"], ["GTe", "IGTe"]]}
           />
         ) : null}
+        {filters.fn !== "IGT" && viewer.allowedFns.includes("IGV") ? (
+          <FilterSelect
+            value={filters.project} placeholder="Project"
+            onChange={(v) => setParam("project", v)}
+            options={IGV_PROJECTS.map((p) => [p, p])}
+          />
+        ) : null}
         {!archived ? (
           <FilterSelect
             value={filters.stage} placeholder="Status"
@@ -259,7 +271,7 @@ export function AccountsView({
                       ) : null}
                     </div>
                   </div>
-                  {!row.out_of_process && !row.slot_raised ? (
+                  {!row.out_of_process ? (
                     <Button
                       size="sm"
                       variant="outline"
@@ -371,7 +383,7 @@ export function AccountsView({
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-1.5">
                         {!archived ? <QuickActions contacts={row.contacts} /> : null}
-                        {!row.out_of_process && !row.slot_raised ? (
+                        {!row.out_of_process ? (
                           <Hint label="Log a call / WhatsApp / email attempt on this account">
                             <Button
                               size="sm"
