@@ -118,7 +118,7 @@ export function ProfileView({ member }: { member: ProfileInfo }) {
                 onChange={(e) => { setPhone(e.target.value); setDirty(true); }}
               />
               {phone && !phoneOk ? (
-                <p className="text-xs text-destructive">Numbers only, 8–15 digits.</p>
+                <p className="text-xs text-destructive">Numbers only, 7–15 digits.</p>
               ) : null}
             </div>
             {dirty ? (
@@ -144,7 +144,7 @@ export function ProfileView({ member }: { member: ProfileInfo }) {
             <ReadRow label="Sub function" value={member.subFunctions.join(", ") || "—"} />
             {member.teamName ? <ReadRow label="Team" value={member.teamName} /> : null}
             {member.stakeholderName ? (
-              <ReadRow label="Stakeholder" value={member.stakeholderName} />
+              <ReadRow label="Manager" value={member.stakeholderName} />
             ) : null}
             <a
               href={fixInfoMailto}
@@ -207,13 +207,36 @@ export function ProfileView({ member }: { member: ProfileInfo }) {
               {pending ? "Saving…" : "Update password"}
             </Button>
             <p className="mt-2 text-xs text-muted-foreground">
-              Forgot your password? Ask the IM team to reset it — your next sign-in
+              Forgot your current password? Request a reset — your next sign-in
               will accept any password and walk you through setting a new one.
             </p>
+            <RequestResetButton email={member.email} />
           </div>
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function RequestResetButton({ email }: { email: string }) {
+  const [pending, start] = useTransition();
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      className="mt-2"
+      disabled={pending}
+      onClick={() =>
+        start(async () => {
+          const { requestPasswordReset } = await import("@/server/auth-actions");
+          const res = await requestPasswordReset(email);
+          if (res.ok) toast.success(res.message);
+          else toast.error(res.message);
+        })
+      }
+    >
+      {pending ? "Sending…" : "🔑 Ask the IM team for a reset"}
+    </Button>
   );
 }
 

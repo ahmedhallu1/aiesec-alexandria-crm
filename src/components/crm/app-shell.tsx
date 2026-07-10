@@ -128,14 +128,19 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
   );
 
   const brand = (
-    <div className="flex items-center gap-2.5 px-5 py-5">
+    <Link
+      href="/"
+      onClick={() => setOpen(false)}
+      title="Back to the dashboard"
+      className="flex items-center gap-2.5 px-5 py-5 transition-opacity hover:opacity-80"
+    >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/brand/aiesec-white.png" alt="AIESEC" className="h-7 w-auto" />
       <div className="leading-tight">
         <p className="text-[11px] font-bold text-sidebar-foreground">in Alexandria</p>
         <p className="text-[11px] text-sidebar-foreground/60">ICX CRM</p>
       </div>
-    </div>
+    </Link>
   );
 
   return (
@@ -164,12 +169,14 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
             {credit}
           </SheetContent>
         </Sheet>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/brand/aiesec-white.png" alt="AIESEC" className="h-6 w-auto" />
-        <p className="text-sm font-bold text-sidebar-foreground">CRM</p>
+        <Link href="/" className="flex items-center gap-2" title="Back to the dashboard">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/aiesec-white.png" alt="AIESEC" className="h-6 w-auto" />
+          <p className="text-sm font-bold text-sidebar-foreground">CRM</p>
+        </Link>
       </div>
 
-      <main className="flex-1 px-4 pb-24 pt-16 md:ml-60 md:px-8 md:pt-8">{children}</main>
+      <main className="min-w-0 flex-1 px-4 pb-24 pt-16 md:ml-60 md:px-8 md:pt-8">{children}</main>
     </div>
   );
 }

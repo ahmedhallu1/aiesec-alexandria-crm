@@ -1,8 +1,17 @@
 "use client";
 
-import { useActionState } from "react";
-import { loginWithGoogle, loginWithPassword, type LoginState } from "@/server/auth-actions";
+import { useActionState, useRef, useState, useTransition } from "react";
+import { toast } from "sonner";
+import {
+  loginWithGoogle,
+  loginWithPassword,
+  requestPasswordReset,
+  type LoginState,
+} from "@/server/auth-actions";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -11,6 +20,21 @@ const initial: LoginState = { error: null };
 
 export function LoginForm() {
   const [state, formAction, pending] = useActionState(loginWithPassword, initial);
+  const emailRef = useRef<HTMLInputElement>(null);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetPending, startReset] = useTransition();
+
+  const askReset = () =>
+    startReset(async () => {
+      const res = await requestPasswordReset(resetEmail);
+      if (res.ok) {
+        toast.success(res.message);
+        setResetOpen(false);
+      } else {
+        toast.error(res.message);
+      }
+    });
 
   return (
     <div className="grid gap-4">
@@ -28,11 +52,24 @@ export function LoginForm() {
             type="email"
             autoComplete="email"
             placeholder="you@aiesec.net"
+            ref={emailRef}
             required
           />
         </div>
         <div className="grid gap-1.5">
-          <Label htmlFor="password">Password</Label>
+          <div className="flex items-center justify-between">
+            <Label htmlFor="password">Password</Label>
+            <button
+              type="button"
+              className="text-xs font-medium text-primary hover:underline"
+              onClick={() => {
+                setResetEmail(emailRef.current?.value ?? "");
+                setResetOpen(true);
+              }}
+            >
+              Forgot password?
+            </button>
+          </div>
           <Input
             id="password"
             name="password"
@@ -64,6 +101,33 @@ export function LoginForm() {
           Continue with Google (enables calendar reminders)
         </Button>
       </form>
+
+      <Dialog open={resetOpen} onOpenChange={setResetOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Request a password reset</DialogTitle>
+            <DialogDescription>
+              The IM team gets notified instantly. Once they reset it, your next
+              sign-in accepts <b>any password</b> and walks you through setting a
+              new one.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-1.5">
+            <Label>Your AIESEC email</Label>
+            <Input
+              type="email"
+              value={resetEmail}
+              onChange={(e) => setResetEmail(e.target.value)}
+              placeholder="you@aiesec.net"
+            />
+          </div>
+          <DialogFooter>
+            <Button onClick={askReset} disabled={resetPending || !resetEmail.includes("@")}>
+              {resetPending ? "Sending…" : "Notify the IM team"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

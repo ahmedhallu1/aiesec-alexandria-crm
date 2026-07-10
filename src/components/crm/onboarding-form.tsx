@@ -87,7 +87,7 @@ export function OnboardingForm({ member }: { member: MemberInfo }) {
             placeholder="01XXXXXXXXX"
           />
           {phone && !phoneOk ? (
-            <p className="text-xs text-destructive">Numbers only, 8–15 digits.</p>
+            <p className="text-xs text-destructive">Numbers only, 7–15 digits.</p>
           ) : null}
         </div>
       </div>
@@ -112,7 +112,7 @@ export function OnboardingForm({ member }: { member: MemberInfo }) {
           ) : null}
           {member.stakeholderName ? (
             <>
-              <dt className="text-muted-foreground">Stakeholder</dt>
+              <dt className="text-muted-foreground">Manager</dt>
               <dd className="font-medium">{member.stakeholderName}</dd>
             </>
           ) : null}

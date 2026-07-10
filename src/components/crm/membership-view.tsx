@@ -98,7 +98,50 @@ export function MembershipView({ members }: { members: MemberRow[] }) {
         </div>
       </div>
 
-      <Card>
+      {/* Mobile: cards */}
+      <div className="space-y-2.5 md:hidden">
+        {members.map((m) => (
+          <Card key={m.id} className={!m.is_active ? "opacity-50" : undefined}>
+            <CardContent className="space-y-1.5 p-3.5" onClick={() => setEditing(m)}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate font-semibold">{m.nickname || m.name}</p>
+                  <p className="truncate text-xs text-muted-foreground">{m.email}</p>
+                </div>
+                <Pencil className="size-4 shrink-0 text-muted-foreground" />
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Badge variant="outline">{m.role}</Badge>
+                {m.functions.map((f) => (
+                  <Badge
+                    key={f}
+                    className={cn(
+                      "border-transparent text-[10px] font-semibold",
+                      FUNCTION_COLORS[f]?.bg ?? "bg-primary/15",
+                      FUNCTION_COLORS[f]?.text ?? "text-primary"
+                    )}
+                  >
+                    {f}
+                  </Badge>
+                ))}
+                {!m.is_active ? (
+                  <Badge variant="destructive" className="text-[10px]">inactive</Badge>
+                ) : m.first_login_at ? (
+                  <Badge className="border-transparent bg-success/15 text-[10px] text-success">active</Badge>
+                ) : (
+                  <Badge variant="outline" className="text-[10px]">never signed in</Badge>
+                )}
+              </div>
+              {m.stakeholder_name ? (
+                <p className="text-xs text-muted-foreground">Manager: {m.stakeholder_name}</p>
+              ) : null}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Desktop: table */}
+      <Card className="hidden md:block">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <Table>
@@ -109,7 +152,7 @@ export function MembershipView({ members }: { members: MemberRow[] }) {
                   <TableHead>Role</TableHead>
                   <TableHead>Function</TableHead>
                   <TableHead>Sub function</TableHead>
-                  <TableHead>Stakeholder</TableHead>
+                  <TableHead>Manager</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead />
                 </TableRow>
@@ -220,6 +263,10 @@ function MemberDialog({
         : [...f[key], value],
     }));
 
+  // known lists + whatever the sheet already holds (new functions appear automatically)
+  const fnOptions = [...LC_FUNCTIONS, ...form.functions.filter((f) => !(LC_FUNCTIONS as readonly string[]).includes(f))];
+  const sfOptions = [...SUB_FUNCTIONS, ...form.sub_functions.filter((f) => !(SUB_FUNCTIONS as readonly string[]).includes(f))];
+
   const emailOk = EMAIL_RE.test(form.email.trim());
   const phoneOk = !form.phone.trim() || PHONE_RE.test(cleanPhone(form.phone));
   const ready = form.name.trim().length >= 2 && emailOk && phoneOk;
@@ -325,7 +372,7 @@ function MemberDialog({
           <div className="grid gap-1.5">
             <Label>Function (multi-select)</Label>
             <div className="flex flex-wrap gap-1.5">
-              {LC_FUNCTIONS.map((fn) => (
+              {fnOptions.map((fn) => (
                 <button
                   key={fn}
                   type="button"
@@ -346,7 +393,7 @@ function MemberDialog({
           <div className="grid gap-1.5">
             <Label>Sub function (multi-select)</Label>
             <div className="flex flex-wrap gap-1.5">
-              {SUB_FUNCTIONS.map((sf) => (
+              {sfOptions.map((sf) => (
                 <button
                   key={sf}
                   type="button"
@@ -366,7 +413,7 @@ function MemberDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
-              <Label>Stakeholder</Label>
+              <Label>Manager</Label>
               <Select
                 value={form.stakeholder_name || "__none"}
                 onValueChange={(v) =>

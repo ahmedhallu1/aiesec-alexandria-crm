@@ -23,36 +23,51 @@ export default async function DashboardPage({
   const params = await searchParams;
 
   // Which lanes may this viewer switch between? IGV members see IGV only;
-  // IGT members see IGTa + IGTe; members with both functions (and LCP /
-  // LCVPs / admins) see everything.
+  // IGT members see All IGT + IGTa + IGTe; members with both functions (and
+  // LCP / LCVPs / admins) see everything.
   const scope = accountScope(viewer);
-  const fns: ("IGV" | "IGT")[] =
-    scope.kind === "all" ? ["IGV", "IGT"] : icxFunctions(viewer);
+  const master = scope.kind === "all";
+  const fns: ("IGV" | "IGT")[] = master ? ["IGV", "IGT"] : icxFunctions(viewer);
   const views: DashboardScopeView[] = [];
   if (fns.includes("IGV") && fns.includes("IGT")) views.push({ key: "all", label: "All ICX" });
   if (fns.includes("IGV")) views.push({ key: "IGV", label: "IGV" });
   if (fns.includes("IGT")) {
-    if (!fns.includes("IGV")) views.push({ key: "IGT", label: "All IGT" });
-    views.push({ key: "IGTa", label: "IGTa" }, { key: "IGTe", label: "IGTe" });
+    views.push(
+      { key: "IGT", label: "All IGT" },
+      { key: "IGTa", label: "IGTa" },
+      { key: "IGTe", label: "IGTe" }
+    );
   }
 
+  const defaultView = views[0]?.key ?? "all";
   const requestedFn =
     params.fn && views.some((v) => v.key === params.fn) ? params.fn : undefined;
+  const activeFn = requestedFn ?? defaultView;
   const filters: AccountFilters = {
-    ...parseFnParam(requestedFn),
+    ...parseFnParam(activeFn === "all" ? undefined : activeFn),
     teamId: params.team || undefined,
     responsibleId: params.member || undefined,
     from: params.from || undefined,
     to: params.to || undefined,
   };
-  // single-function members always stay inside their function
-  if (!filters.fn && fns.length === 1) filters.fn = fns[0];
 
   const [data, teamLeaders, members] = await Promise.all([
     getDashboard(viewer, filters),
     listTeamLeaders(viewer),
     listVisibleMembers(viewer),
   ]);
+
+  // Member filter: only people with access to the active lane — and never the
+  // LCP (they don't do market research or operations).
+  const laneFn = filters.fn ?? null;
+  const memberOptions = members
+    .filter((m) => m.role !== "LCP")
+    .filter((m) =>
+      laneFn
+        ? (m.functions ?? []).includes(laneFn)
+        : (m.functions ?? []).some((f) => f === "IGV" || f === "IGT")
+    )
+    .map((m) => ({ id: m.id, label: m.nickname || m.name }));
 
   const scopeLabel =
     viewer.isAdmin || viewer.role === "LCP"
@@ -61,29 +76,56 @@ export default async function DashboardPage({
         ? `${viewer.functions.join(" & ")} function`
         : viewer.role === "Team Leader"
           ? viewer.team_name || "Your team"
-          : "Your accounts";
+          : `${icxFunctions(viewer).join(" & ")} — your function's picture`;
+
+  // goal-setting powers on the current lane
+  const laneForGoal: "IGV" | "IGT" | null = laneFn;
+  const canSetFunctionGoal =
+    !!laneForGoal &&
+    (viewer.isAdmin ||
+      viewer.role === "LCP" ||
+      ((viewer.role === "LCVP" || viewer.role === "Director") &&
+        viewer.functions.includes(laneForGoal)));
+  const teamLead = data.teamLeadId
+    ? members.find((m) => m.id === data.teamLeadId)
+    : null;
 
   return (
     <DashboardView
       total={data.total}
       byFunction={data.byFunction}
       byTeam={data.byTeam}
-      byMember={data.byMember}
-      goals={data.goals}
+      functionBoard={data.functionBoard}
+      teamBoard={data.teamBoard}
+      funcGoal={data.funcGoal}
+      teamGoal={data.teamGoal}
       views={views}
-      activeFn={requestedFn ?? (views.length > 0 ? views[0].key : "all")}
+      activeFn={activeFn}
+      laneLabel={activeFn === "all" ? "ICX" : activeFn}
       scopeLabel={scopeLabel}
-      showTeamDrill={!["Member", "Coordinator"].includes(viewer.role)}
+      showTeamDrill={teamLeaders.length > 0}
       teamOptions={teamLeaders.map((t) => ({
         id: t.id,
         label: t.team_name || `Team ${t.nickname || t.name}`,
       }))}
-      memberOptions={members.map((m) => ({ id: m.id, label: m.nickname || m.name }))}
+      memberOptions={memberOptions}
       filters={{
         team: params.team ?? "",
         member: params.member ?? "",
         from: params.from ?? "",
         to: params.to ?? "",
+      }}
+      goalCaps={{
+        functionGoalFn: canSetFunctionGoal ? laneForGoal : null,
+        teamGoal: viewer.role === "Team Leader",
+        teamLeaderId:
+          viewer.role === "Team Leader" ? viewer.id : data.teamLeadId,
+        teamLabel:
+          viewer.role === "Team Leader"
+            ? viewer.team_name || "My team"
+            : teamLead
+              ? teamLead.team_name || `Team ${teamLead.nickname || teamLead.name}`
+              : null,
       }}
     />
   );

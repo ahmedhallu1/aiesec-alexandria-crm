@@ -1,18 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, Archive, CalendarClock, Phone, Plus, Search, X } from "lucide-react";
+import {
+  AlertTriangle, Archive, CalendarClock, FileUp, Loader2, Phone, Plus, Search, X,
+} from "lucide-react";
 import type { PipelineRow } from "@/server/data";
-import { FUNCTION_COLORS, IGV_PROJECTS, STAGES } from "@/lib/types";
+import { productBadge, STAGES } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { StageBadge } from "./stage-badge";
 import { ContactDialog, type ContactTarget } from "./contact-dialog";
 import { AddAccountDialog, type MemberOption } from "./add-account-dialog";
+import { Hint } from "./hint";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -28,6 +32,17 @@ interface ViewerInfo {
   canViewArchive: boolean;
   allowedFns: ("IGV" | "IGT")[];
   showFnFilter: boolean;
+  /** members who only ever see their own accounts don't need a Responsible column */
+  seesOthers: boolean;
+}
+
+function FnBadge({ row, className }: { row: PipelineRow; className?: string }) {
+  const b = productBadge(row.function, row.product);
+  return (
+    <Badge className={cn("border-transparent text-[10px] font-bold", b.bg, b.text, className)}>
+      {b.label}
+    </Badge>
+  );
 }
 
 export function AccountsView({
@@ -43,6 +58,7 @@ export function AccountsView({
   const [q, setQ] = useState(filters.q);
   const [contactTarget, setContactTarget] = useState<ContactTarget | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [navPending, startNav] = useTransition();
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const setParam = useCallback(
@@ -50,7 +66,7 @@ export function AccountsView({
       const params = new URLSearchParams(searchParams.toString());
       if (value) params.set(key, value);
       else params.delete(key);
-      router.replace(`/accounts?${params.toString()}`);
+      startNav(() => router.replace(`/accounts?${params.toString()}`));
     },
     [router, searchParams]
   );
@@ -63,16 +79,23 @@ export function AccountsView({
   }, [q, filters.q, setParam]);
 
   const archived = filters.archived === "1";
-  const activeFn = filters.fn || (viewer.allowedFns.length === 1 ? viewer.allowedFns[0] : "");
   const anyFilter = Object.values(filters).some(Boolean);
   const stageOptions = STAGES.filter((s) => s !== "Out of Process");
 
+  const contactFor = (row: PipelineRow): ContactTarget => ({
+    id: row.id,
+    name: row.name,
+    hasPendingVisit: !!row.visit_id && row.visit_done === null,
+    nextStepDate: row.next_step_date,
+  });
+
   return (
-    <div className="mx-auto max-w-7xl space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className={cn("mx-auto max-w-7xl space-y-4", navPending && "nav-pending")}>
+      <div className="flex flex-wrap items-center justify-between gap-3 rise-in">
         <div>
           <h1 className="text-2xl font-bold">
             {archived ? "Archived accounts" : "Accounts"}
+            {navPending ? <Loader2 className="ml-2 inline size-4 animate-spin text-primary" /> : null}
           </h1>
           <p className="text-sm text-muted-foreground">
             {archived
@@ -80,26 +103,39 @@ export function AccountsView({
               : `${rows.length} account${rows.length === 1 ? "" : "s"} in your scope`}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {viewer.canViewArchive ? (
-            <Button
-              variant={archived ? "default" : "outline"}
-              onClick={() => setParam("archived", archived ? "" : "1")}
-            >
-              <Archive className="size-4" /> {archived ? "Back to active" : "Archive"}
-            </Button>
+            <Hint label="Out-of-process accounts live here — hidden from lists but their names stay blocked">
+              <Button
+                variant={archived ? "default" : "outline"}
+                onClick={() => setParam("archived", archived ? "" : "1")}
+              >
+                <Archive className="size-4" /> {archived ? "Back to active" : "Archive"}
+              </Button>
+            </Hint>
           ) : null}
           {!archived ? (
-            <Button onClick={() => setAddOpen(true)} disabled={viewer.allowedFns.length === 0}>
-              <Plus className="size-4" /> Add account
-            </Button>
+            <>
+              <Hint label="Got a sheet of market research? Import a whole CSV/Excel at once">
+                <Button variant="outline" asChild>
+                  <Link href="/accounts/import">
+                    <FileUp className="size-4" /> Import
+                  </Link>
+                </Button>
+              </Hint>
+              <Hint label="Add one account — checked against all ICX data and the archive">
+                <Button onClick={() => setAddOpen(true)} disabled={viewer.allowedFns.length === 0}>
+                  <Plus className="size-4" /> Add account
+                </Button>
+              </Hint>
+            </>
           ) : null}
         </div>
       </div>
 
       {/* Filter bar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-52 flex-1 sm:max-w-xs">
+      <div className="flex flex-wrap items-center gap-2 rise-in rise-in-1">
+        <div className="relative min-w-40 flex-1 sm:max-w-xs">
           <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="pl-8"
@@ -115,18 +151,11 @@ export function AccountsView({
             options={viewer.allowedFns.map((f) => [f, f])}
           />
         ) : null}
-        {activeFn !== "IGT" ? (
-          <FilterSelect
-            value={filters.project} placeholder="Project"
-            onChange={(v) => setParam("project", v)}
-            options={IGV_PROJECTS.map((p) => [p, p])}
-          />
-        ) : null}
-        {activeFn !== "IGV" ? (
+        {filters.fn !== "IGV" && viewer.allowedFns.includes("IGT") ? (
           <FilterSelect
             value={filters.product} placeholder="Product"
             onChange={(v) => setParam("product", v)}
-            options={[["GTa", "GTa"], ["GTe", "GTe"]]}
+            options={[["GTa", "IGTa"], ["GTe", "IGTe"]]}
           />
         ) : null}
         {!archived ? (
@@ -136,7 +165,7 @@ export function AccountsView({
             options={stageOptions.map((s) => [s, s])}
           />
         ) : null}
-        {members.length > 1 ? (
+        {viewer.seesOthers && members.length > 1 ? (
           <FilterSelect
             value={filters.resp} placeholder="Responsible"
             onChange={(v) => setParam("resp", v)}
@@ -154,21 +183,83 @@ export function AccountsView({
           />
         ) : null}
         {anyFilter ? (
-          <Button variant="ghost" size="sm" onClick={() => { setQ(""); router.replace("/accounts"); }}>
+          <Button variant="ghost" size="sm" onClick={() => { setQ(""); startNav(() => router.replace("/accounts")); }}>
             <X className="size-4" /> Clear
           </Button>
         ) : null}
       </div>
 
-      {/* Table */}
-      <div className="overflow-hidden rounded-xl border bg-card">
+      {/* Mobile: cards */}
+      <div className="space-y-2.5 md:hidden">
+        {rows.length === 0 ? (
+          <Card>
+            <CardContent className="py-10 text-center text-sm text-muted-foreground">
+              {archived ? "The archive is empty." : "No accounts here yet. Add your first one 🚀"}
+            </CardContent>
+          </Card>
+        ) : (
+          rows.map((row, i) => (
+            <Card
+              key={row.id}
+              className={cn("rise-in", i < 4 && `rise-in-${i + 1}`)}
+              onClick={() => router.push(`/accounts/${row.id}`)}
+            >
+              <CardContent className="space-y-2 p-3.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold">{row.name}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                      <FnBadge row={row} />
+                      <StageBadge stage={row.stage} className="text-[10px]" />
+                      {row.contact_limit_reached ? (
+                        <Badge className="border-transparent bg-warning/15 text-[10px] text-warning">⚠️ 3 contacts</Badge>
+                      ) : null}
+                      {row.next_step_missing ? (
+                        <Badge variant="destructive" className="text-[10px]">🚨 no next step</Badge>
+                      ) : null}
+                    </div>
+                  </div>
+                  {!row.out_of_process && !row.slot_raised ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="shrink-0"
+                      onClick={(e) => { e.stopPropagation(); setContactTarget(contactFor(row)); }}
+                    >
+                      <Phone className="size-3.5" /> Contact
+                    </Button>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                  {viewer.seesOthers ? (
+                    <span>👤 {row.responsible_nickname || row.responsible_name}</span>
+                  ) : null}
+                  <span>📞 {row.attempts} contact{row.attempts === 1 ? "" : "s"}</span>
+                  {archived ? (
+                    <span className="text-destructive">🗄️ {row.oop_reason ?? "archived"}</span>
+                  ) : (
+                    <>
+                      {row.next_step_date ? <span>⏭️ {row.next_step_date}</span> : null}
+                      {row.visit_date ? (
+                        <span>🗓️ {row.visit_date}{row.visit_done === true ? " ✓" : ""}</span>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        )}
+      </div>
+
+      {/* Desktop: table */}
+      <div className="hidden overflow-hidden rounded-xl border bg-card md:block rise-in rise-in-2">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Account</TableHead>
-                <TableHead>Project / Product</TableHead>
-                <TableHead>Responsible</TableHead>
+                {viewer.seesOthers ? <TableHead>Responsible</TableHead> : null}
                 <TableHead>Stage</TableHead>
                 <TableHead className="text-center">Contacts</TableHead>
                 {archived ? (
@@ -185,7 +276,7 @@ export function AccountsView({
             <TableBody>
               {rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="py-12 text-center text-muted-foreground">
                     {archived ? "The archive is empty." : "No accounts here yet. Add your first one 🚀"}
                   </TableCell>
                 </TableRow>
@@ -204,22 +295,13 @@ export function AccountsView({
                       >
                         {row.name}
                       </Link>
-                      <Badge
-                        className={cn(
-                          "ml-2 border-transparent text-[10px] font-bold",
-                          FUNCTION_COLORS[row.function]?.bg,
-                          FUNCTION_COLORS[row.function]?.text
-                        )}
-                      >
-                        {row.function}
-                      </Badge>
+                      <FnBadge row={row} className="ml-2" />
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {row.function === "IGV" ? row.project : `${row.product ?? ""}${row.sub_product ? ` · ${row.sub_product}` : ""}`}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {row.responsible_nickname || row.responsible_name}
-                    </TableCell>
+                    {viewer.seesOthers ? (
+                      <TableCell className="text-sm">
+                        {row.responsible_nickname || row.responsible_name}
+                      </TableCell>
+                    ) : null}
                     <TableCell><StageBadge stage={row.stage} /></TableCell>
                     <TableCell className="text-center">
                       <span className="inline-flex items-center gap-1">
@@ -257,20 +339,15 @@ export function AccountsView({
                     )}
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       {!row.out_of_process && !row.slot_raised ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() =>
-                            setContactTarget({
-                              id: row.id,
-                              name: row.name,
-                              hasPendingVisit: !!row.visit_id && row.visit_done === null,
-                              nextStepDate: row.next_step_date,
-                            })
-                          }
-                        >
-                          <Phone className="size-3.5" /> Contact
-                        </Button>
+                        <Hint label="Log a call / WhatsApp / email attempt on this account">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setContactTarget(contactFor(row))}
+                          >
+                            <Phone className="size-3.5" /> Contact
+                          </Button>
+                        </Hint>
                       ) : null}
                     </TableCell>
                   </TableRow>
@@ -310,7 +387,7 @@ function FilterSelect({
 }) {
   return (
     <Select value={value || "__all"} onValueChange={(v) => onChange(v === "__all" ? "" : v)}>
-      <SelectTrigger className="w-auto min-w-32">
+      <SelectTrigger className="h-9 w-auto min-w-28">
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent>

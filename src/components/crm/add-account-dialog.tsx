@@ -9,11 +9,11 @@ import {
   cleanPhone,
   EMAIL_RE,
   IGT_SUB_PRODUCTS,
-  IGV_PROJECTS,
   INDUSTRIES,
   PHONE_RE,
   URL_RE,
 } from "@/lib/types";
+import { MultiPick } from "./multi-pick";
 import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -106,7 +106,6 @@ export function AddAccountDialog({
         name: form.name ?? "",
         product: fn === "IGT" ? ((form.product as "GTa" | "GTe") || null) : null,
         sub_product: fn === "IGT" ? form.sub_product : null,
-        project: fn === "IGV" ? form.project : null,
         account_type: fn === "IGV" ? form.account_type : null,
         industry: fn === "IGV" ? form.industry : null,
         phone: form.phone ? cleanPhone(form.phone) : null,
@@ -164,7 +163,7 @@ export function AddAccountDialog({
         ) : null}
 
         <div className="grid gap-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="grid gap-2">
               <Label>Function</Label>
               <Select
@@ -194,20 +193,7 @@ export function AddAccountDialog({
                   </SelectContent>
                 </Select>
               </div>
-            ) : (
-              <div className="grid gap-2">
-                <Label>Project *</Label>
-                <Select
-                  value={form.project ?? ""}
-                  onValueChange={setVal("project")}
-                >
-                  <SelectTrigger><SelectValue placeholder="Choose…" /></SelectTrigger>
-                  <SelectContent>
-                    {IGV_PROJECTS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+            ) : null}
           </div>
 
           <div className="grid gap-2">
@@ -216,22 +202,22 @@ export function AddAccountDialog({
           </div>
 
           {fn === "IGT" ? (
-            <ListOrOther
-              label="Sub product / industry"
+            <MultiPick
+              label="Sub product / industry (pick all that apply)"
               options={IGT_SUB_PRODUCTS}
               value={form.sub_product ?? ""}
               onChange={setVal("sub_product")}
             />
           ) : (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-4">
               <ListOrOther
                 label="Account type"
                 options={ACCOUNT_TYPES}
                 value={form.account_type ?? ""}
                 onChange={setVal("account_type")}
               />
-              <ListOrOther
-                label="Industry"
+              <MultiPick
+                label="Industry (pick all that apply)"
                 options={INDUSTRIES}
                 value={form.industry ?? ""}
                 onChange={setVal("industry")}
@@ -239,11 +225,11 @@ export function AddAccountDialog({
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="grid gap-2">
               <Label>Phone</Label>
               <Input value={form.phone ?? ""} onChange={set("phone")} inputMode="tel" placeholder="Numbers only" />
-              {!phoneOk ? <p className="text-xs text-destructive">Numbers only, 8–15 digits.</p> : null}
+              {!phoneOk ? <p className="text-xs text-destructive">Numbers only, 7–15 digits.</p> : null}
             </div>
             <div className="grid gap-2">
               <Label>Email</Label>
@@ -251,7 +237,7 @@ export function AddAccountDialog({
               {!emailOk ? <p className="text-xs text-destructive">Valid email only.</p> : null}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="grid gap-2">
               <Label>Social link</Label>
               <Input value={form.social_link ?? ""} onChange={set("social_link")} placeholder="https://…" />
@@ -307,8 +293,7 @@ export function AddAccountDialog({
               !(form.name ?? "").trim() ||
               !fieldsOk ||
               viewer.allowedFns.length === 0 ||
-              (fn === "IGT" && !form.product) ||
-              (fn === "IGV" && !form.project)
+              (fn === "IGT" && !form.product)
             }
           >
             {pending ? "Checking…" : "Add account"}

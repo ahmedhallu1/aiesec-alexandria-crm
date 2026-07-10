@@ -2,7 +2,7 @@ import { google, sheets_v4, drive_v3 } from "googleapis";
 import { db } from "@/lib/supabase";
 import { env, requireEnv } from "@/lib/env";
 import { LC_FUNCTIONS, SUB_FUNCTIONS } from "@/lib/types";
-import type { Member } from "@/lib/types";
+import type { Member, MemberRole } from "@/lib/types";
 
 /** Google Sheets mirror layer.
  *
@@ -16,7 +16,7 @@ import type { Member } from "@/lib/types";
  *  "CRM — IGT Accounts"    export mirror
  *  "CRM — Contact Log"     export mirror
  *  "CRM — Visits"          export mirror
- *  "CRM — Blacklist"       export mirror (legacy archive)
+ *  (no blacklist sheet — archived out-of-process accounts ARE the blacklist)
  */
 
 /** Final Membership sheet structure (column order is the contract):
@@ -151,15 +151,17 @@ function parseRole(raw: string | undefined): string {
 }
 
 /** Multi-select dropdown cells arrive as "IGV, IGT". "LCP" as a function value
- *  means LC-wide (no specific function). */
-function parseMulti(raw: string | undefined, allowed: readonly string[]): string[] {
+ *  means LC-wide (no specific function). Values are FREE-FORM: known values are
+ *  normalized to their canonical casing, anything new in the sheet (e.g. a new
+ *  "TM" function) is kept as-is so the system follows the sheet automatically. */
+function parseMulti(raw: string | undefined, known: readonly string[]): string[] {
   if (!raw) return [];
   const out: string[] = [];
-  for (const part of raw.split(/[,;/]+/)) {
+  for (const part of raw.split(/[,;]+/)) {
     const clean = part.trim();
     if (!clean || clean.toUpperCase() === "LCP") continue;
-    const hit = allowed.find((v) => v.toLowerCase() === clean.toLowerCase());
-    if (hit && !out.includes(hit)) out.push(hit);
+    const hit = known.find((v) => v.toLowerCase() === clean.toLowerCase()) ?? clean;
+    if (!out.includes(hit)) out.push(hit);
   }
   return out;
 }
@@ -195,21 +197,53 @@ function parseSheetRow(row: string[]): SheetMemberRow | null {
   };
 }
 
-/** Resolves "Stakeholder" names to member ids (matches name OR nickname). */
+interface LinkableMember {
+  id: string;
+  name: string;
+  nickname: string | null;
+  role: MemberRole;
+  functions: string[] | null;
+  stakeholder_name: string | null;
+  stakeholder_id: string | null;
+  is_active: boolean;
+}
+
+/** DEFAULT MANAGER RULES when the sheet doesn't name one:
+ *  MM (TL / Coordinator / Member) → their function's VP → else the function's
+ *  Director → else the LCP. VPs and Directors → the LCP. */
+export function defaultManagerId(m: LinkableMember, all: LinkableMember[]): string | null {
+  const lcp = all.find((x) => x.role === "LCP" && x.is_active);
+  if (m.role === "LCP") return null;
+  if (m.role === "LCVP" || m.role === "Director") return lcp?.id ?? null;
+  const fns = m.functions ?? [];
+  const inFunction = (x: LinkableMember) =>
+    x.is_active && (x.functions ?? []).some((f) => fns.includes(f));
+  const vp = all.find((x) => x.role === "LCVP" && inFunction(x));
+  if (vp) return vp.id;
+  const director = all.find((x) => x.role === "Director" && inFunction(x));
+  if (director) return director.id;
+  return lcp?.id ?? null;
+}
+
+/** Resolves "Stakeholder" (Manager) names to member ids (name OR nickname),
+ *  falling back to the default manager chain when the cell is empty. */
 async function relinkStakeholders(): Promise<void> {
   const { data: members } = await db()
     .from("members")
-    .select("id, name, nickname, stakeholder_name, stakeholder_id");
+    .select("id, name, nickname, role, functions, stakeholder_name, stakeholder_id, is_active");
+  const all = (members ?? []) as LinkableMember[];
   const byName = new Map<string, string>();
-  for (const m of members ?? []) {
+  for (const m of all) {
     byName.set(m.name.trim().toLowerCase(), m.id);
     if (m.nickname) byName.set(m.nickname.trim().toLowerCase(), m.id);
   }
-  for (const m of members ?? []) {
-    const targetId = m.stakeholder_name
+  for (const m of all) {
+    let targetId = m.stakeholder_name
       ? byName.get(m.stakeholder_name.trim().toLowerCase()) ?? null
       : null;
-    if (targetId !== m.stakeholder_id && targetId !== m.id) {
+    if (!targetId || targetId === m.id) targetId = defaultManagerId(m, all);
+    if (targetId === m.id) targetId = null;
+    if (targetId !== m.stakeholder_id) {
       await db().from("members").update({ stakeholder_id: targetId }).eq("id", m.id);
     }
   }
@@ -400,17 +434,6 @@ export async function exportAllSheets(): Promise<void> {
     ])
   );
 
-  // The archive mirror: out-of-process accounts act as the blacklist.
-  await overwriteSheet(
-    "CRM — Blacklist",
-    ["Account Name", "Function", "Project / Product", "Reason", "Archived At", "Responsible"],
-    rows
-      .filter((a) => a.out_of_process)
-      .map((a) => [
-        a.name, a.function, a.project ?? a.sub_product ?? a.product, a.oop_reason,
-        a.oop_at?.slice(0, 10), a.responsible_nickname || a.responsible_name,
-      ])
-  );
 }
 
 export type { Member };

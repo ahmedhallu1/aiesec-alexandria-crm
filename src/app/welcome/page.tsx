@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getViewer } from "@/server/data";
+import { ROLE_BLURBS } from "@/lib/types";
 import { OnboardingForm } from "@/components/crm/onboarding-form";
 import { ThemeToggle } from "@/components/crm/theme-toggle";
 
@@ -21,6 +22,9 @@ export default async function WelcomePage() {
           <h1 className="text-2xl font-bold">
             Welcome, {viewer.nickname || viewer.name.split(" ")[0]} 👋
           </h1>
+          <p className="mt-1 text-sm font-medium text-primary">
+            {ROLE_BLURBS[viewer.role] ?? ROLE_BLURBS.Member}
+          </p>
           <p className="mt-1 text-sm text-muted-foreground">
             First login — confirm your info and set your own password.
           </p>

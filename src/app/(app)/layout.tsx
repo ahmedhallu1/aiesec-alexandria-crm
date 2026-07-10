@@ -4,6 +4,8 @@ import { hasRaisingAccess, canManageMembership, canSeeFeedbackInbox } from "@/li
 import { signOut } from "@/lib/auth";
 import { AppShell } from "@/components/crm/app-shell";
 import { ComingSoon } from "@/components/crm/coming-soon";
+import { GateClient } from "@/components/crm/gate-client";
+import { Tour } from "@/components/crm/tour";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const viewer = await getViewer();
@@ -33,39 +35,22 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         await signOut({ redirectTo: "/login" });
       }}
     >
-      {raising ? children : <GatedContent viewerFunctions={viewer.functions}>{children}</GatedContent>}
+      {raising ? (
+        children
+      ) : (
+        <>
+          <GateClient mode="allowed">{children}</GateClient>
+          <GateClient mode="soon">
+            <ComingSoon functions={viewer.functions} />
+          </GateClient>
+        </>
+      )}
+      <Tour
+        email={viewer.email}
+        role={viewer.isAdmin && viewer.role !== "LCP" ? "LCP" : viewer.role}
+        functions={viewer.functions}
+        hasModule={raising}
+      />
     </AppShell>
-  );
-}
-
-/** Members without a live module still reach their profile + feedback pages. */
-function GatedContent({
-  viewerFunctions,
-  children,
-}: {
-  viewerFunctions: string[];
-  children: React.ReactNode;
-}) {
-  return (
-    <>
-      <AllowedRoutes>{children}</AllowedRoutes>
-      <ComingSoonSwitch functions={viewerFunctions} />
-    </>
-  );
-}
-
-// Server components can't read the pathname without opting the whole layout
-// into dynamic rendering — the split below is handled client-side instead.
-import { GateClient } from "@/components/crm/gate-client";
-
-function AllowedRoutes({ children }: { children: React.ReactNode }) {
-  return <GateClient mode="allowed">{children}</GateClient>;
-}
-
-function ComingSoonSwitch({ functions }: { functions: string[] }) {
-  return (
-    <GateClient mode="soon">
-      <ComingSoon functions={functions} />
-    </GateClient>
   );
 }

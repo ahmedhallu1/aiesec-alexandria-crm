@@ -1,6 +1,6 @@
 import { getViewer, listAccounts, listVisibleMembers } from "@/server/data";
 import type { AccountFilters } from "@/server/data";
-import { allowedAccountFunctions, canViewArchive } from "@/lib/rbac";
+import { accountScope, allowedAccountFunctions, canViewArchive } from "@/lib/rbac";
 import { AccountsView } from "@/components/crm/accounts-view";
 import type { Stage } from "@/lib/types";
 
@@ -17,11 +17,12 @@ export default async function AccountsPage({
   const allowedFns = allowedAccountFunctions(viewer);
   const archiveAllowed = canViewArchive(viewer);
   const archived = params.archived === "1" && archiveAllowed;
+  const scope = accountScope(viewer);
+  const seesOthers = !(scope.kind === "members" && scope.ids.length <= 1);
 
   const filters: AccountFilters = {
     q: params.q || undefined,
     fn: params.fn === "IGV" || params.fn === "IGT" ? params.fn : undefined,
-    project: params.project || undefined,
     product: params.product === "GTa" || params.product === "GTe" ? params.product : undefined,
     stage: params.stage && params.stage !== "Out of Process" ? (params.stage as Stage) : undefined,
     responsibleId: params.resp || undefined,
@@ -54,11 +55,11 @@ export default async function AccountsPage({
         canViewArchive: archiveAllowed,
         allowedFns,
         showFnFilter: allowedFns.length > 1,
+        seesOthers,
       }}
       filters={{
         q: params.q ?? "",
         fn: params.fn ?? "",
-        project: params.project ?? "",
         product: params.product ?? "",
         stage: params.stage ?? "",
         resp: params.resp ?? "",

@@ -74,29 +74,28 @@ export const ACCOUNT_TYPES = [
   "Other",
 ] as const;
 
+// IGV industries = IGT list + Hospital/Clinic + NGO. Multi-select, "Other" = free text.
 export const INDUSTRIES = [
-  "Education",
-  "Architecture",
-  "Engineering",
+  "Software",
   "Marketing",
-  "IT / Software",
-  "Real Estate",
-  "Medical / Veterinary",
-  "Law",
-  "Finance",
-  "Farming / Agriculture",
-  "Tourism / Hospitality",
-  "Arts / Music",
+  "Engineering",
+  "Architecture",
+  "Nursery",
+  "Course Center",
+  "School",
+  "Hospital/Clinic",
+  "NGO",
   "Other",
 ] as const;
 
 export const IGT_SUB_PRODUCTS = [
-  "Engineering",
+  "Software",
   "Marketing",
-  "IT",
-  "Finance",
-  "Business Administration",
-  "Education",
+  "Engineering",
+  "Architecture",
+  "Nursery",
+  "Course Center",
+  "School",
   "Other",
 ] as const;
 
@@ -120,6 +119,13 @@ export interface Member {
   profile_completed_at: string | null;
   first_login_at: string | null;
   photo_url: string | null;
+}
+
+/** A tagged phone number or email on an account ("CEO", "HR", …). */
+export interface AccountContact {
+  tag: string;
+  kind: "phone" | "email";
+  value: string;
 }
 
 export interface Account {
@@ -151,6 +157,7 @@ export interface Account {
   out_of_process: boolean;
   oop_reason: string | null;
   oop_at: string | null;
+  contacts: AccountContact[];
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -227,8 +234,8 @@ export function normalizeName(name: string): string {
 
 // ------------------------------------------------------------------ validation
 
-/** Phone: digits only (optional leading +), 8–15 digits. */
-export const PHONE_RE = /^\+?\d{8,15}$/;
+/** Phone: digits only (optional leading +), 7–15 digits. */
+export const PHONE_RE = /^\+?\d{7,15}$/;
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 export const URL_RE = /^https?:\/\/\S+\.\S+/i;
 
@@ -237,12 +244,37 @@ export function cleanPhone(raw: string): string {
 }
 
 // ------------------------------------------------------------------ function colors
-// Official AIESEC product colors (logos.aiesec.org): GV #F85A40 · GTa teal #0CB9C1
+// Official AIESEC product colors (logos.aiesec.org):
+// GV #F85A40 · GTa (Global Talent) teal #0CB9C1 · GTe (Global Teacher) orange #F48924
 export const FUNCTION_COLORS: Record<string, { bg: string; text: string }> = {
   IGV: { bg: "bg-gv/15", text: "text-gv" },
   OGV: { bg: "bg-gv/15", text: "text-gv" },
   IGT: { bg: "bg-gt/15", text: "text-gt" },
   OGT: { bg: "bg-gt/15", text: "text-gt" },
+  IGTa: { bg: "bg-gt/15", text: "text-gt" },
+  IGTe: { bg: "bg-gte/15", text: "text-gte" },
+};
+
+/** Product-level badge next to an account name: IGV / IGTa / IGTe. */
+export function productBadge(fn: "IGV" | "IGT", product: IgtProduct | null): {
+  label: string;
+  bg: string;
+  text: string;
+} {
+  const key = fn === "IGT" ? (product ? `I${product}` : "IGT") : "IGV";
+  const c = FUNCTION_COLORS[key] ?? FUNCTION_COLORS.IGT;
+  return { label: key, ...c };
+}
+
+/** How each role experiences the CRM — used by the welcome page, welcome
+ *  email and the first-run tour. */
+export const ROLE_BLURBS: Record<string, string> = {
+  LCP: "You lead the LC — the whole picture, every function and every team, is yours to watch (operations stay with your VPs).",
+  LCVP: "You own your function — its accounts, goals, members and results are under your command.",
+  Director: "You are responsible for your function's operations — full authority over its accounts and pipeline.",
+  "Team Leader": "You lead your team — assign accounts, set the team goal and keep everyone moving.",
+  Coordinator: "You run your own accounts — log every contact, keep next steps set, and close deals.",
+  Member: "Your accounts, contacts and visits live here — log everything, keep a next step on every account, and raise those slots.",
 };
 
 /** The IM director — receives "fix my info" requests from members. */

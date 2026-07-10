@@ -150,3 +150,10 @@ npm run dev
 Feedback lives in the sidebar → `/feedback`; every submission is emailed to
 the IM director + IM coach, who alone see `/feedback/inbox`. Analytics: set
 `NEXT_PUBLIC_GA_MEASUREMENT_ID` to enable GA4.
+
+More v3 facts: mobile-first UI with card lists; role/function-aware first-run
+tour; VPs/TLs set slots **goals** (function/team, per month or peak) shown with
+progress + **leaderboards** (never IGV vs IGT); bulk **CSV/XLSX import** at
+`/accounts/import` (same rules as manual adds); tagged multi phones/emails per
+account; "Not Interested" auto-archives; manager defaults MM→VP→Director→LCP;
+the LCP never receives operational report emails.

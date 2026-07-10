@@ -32,7 +32,7 @@ import {
   SUB_FUNCTIONS,
   URL_RE,
 } from "@/lib/types";
-import type { Member, MemberRole, Visit } from "@/lib/types";
+import type { AccountContact, Member, MemberRole, Visit } from "@/lib/types";
 
 export type ActionResult<T = undefined> =
   | { ok: true; data?: T }
@@ -69,7 +69,7 @@ const phoneField = z
   .string()
   .trim()
   .transform(cleanPhone)
-  .refine((v) => !v || PHONE_RE.test(v), "Phone must be numbers only (8–15 digits).")
+  .refine((v) => !v || PHONE_RE.test(v), "Phone must be numbers only (7–15 digits).")
   .nullish();
 
 const emailField = z
@@ -120,8 +120,6 @@ export async function createAccount(
 
   if (data.function === "IGT" && !data.product)
     return fail("Choose the product (Global Talent or Global Teacher).");
-  if (data.function === "IGV" && !data.project)
-    return fail("Choose the project for this IGV account.");
 
   // HARD RULE: unique account name across ALL ICX data + archive block
   const { duplicate, blacklisted } = await checkAccountName(data.name);
@@ -430,6 +428,9 @@ export async function logContact(
   if (account.out_of_process)
     return fail("This account is archived (Out of Process). Ask your TL/VP to bring it back first.");
 
+  // "Not Interested" closes the account: it is archived automatically
+  const notInterested = status === "Not Interested";
+
   // "Call Scheduled" carries its own date + time and becomes the next step
   if (status === "Call Scheduled") {
     if (!scheduledDate || !scheduledTime)
@@ -444,7 +445,7 @@ export async function logContact(
   const hasPendingVisit = account.visit_id && account.visit_done === null;
   const hasFutureNextStep =
     account.next_step_date && account.next_step_date >= new Date().toISOString().slice(0, 10);
-  if (!hasPendingVisit && !nextStepDate && !hasFutureNextStep) {
+  if (!notInterested && !hasPendingVisit && !nextStepDate && !hasFutureNextStep) {
     return fail(
       "Set a next step with a date (or schedule a visit) — no account may float without one.",
       "next_step_required"
@@ -459,6 +460,22 @@ export async function logContact(
     comment: comment || null,
   });
   if (error) return fail(error.message);
+
+  if (notInterested) {
+    await db()
+      .from("accounts")
+      .update({
+        out_of_process: true,
+        oop_reason: comment ? `Not interested — ${comment}` : "Not interested",
+        oop_at: new Date().toISOString(),
+      })
+      .eq("id", accountId);
+    await logAudit(viewer.id, "out_of_process", "account", accountId, {
+      reason: "Not interested",
+    });
+    refresh(accountId);
+    return { ok: true, data: { attempts: 0, contactLimitReached: false } };
+  }
 
   if (nextStep || nextStepDate) {
     await db()
@@ -628,7 +645,9 @@ export async function reportVisit(
   const recipients = new Map<string, string>();
   for (const vp of (vps ?? []) as Member[]) recipients.set(vp.email.toLowerCase(), vp.email);
   const stakeholder = (responsible as { stakeholder?: Member } | null)?.stakeholder;
-  if (stakeholder?.email) recipients.set(stakeholder.email.toLowerCase(), stakeholder.email);
+  // the LCP does not receive operational reports — that is the VP's concern
+  if (stakeholder?.email && stakeholder.role !== "LCP")
+    recipients.set(stakeholder.email.toLowerCase(), stakeholder.email);
   recipients.delete(viewer.email.toLowerCase());
 
   if (recipients.size > 0) {
@@ -694,7 +713,7 @@ const profileSchema = z.object({
     .string()
     .trim()
     .transform(cleanPhone)
-    .refine((v) => PHONE_RE.test(v), "Phone must be numbers only (8–15 digits)."),
+    .refine((v) => PHONE_RE.test(v), "Phone must be numbers only (7–15 digits)."),
 });
 
 async function writeProfileBackToSheet(memberId: string) {
@@ -852,17 +871,29 @@ export async function upsertMember(
     id = created.id;
   }
 
-  // resolve the stakeholder name → id link
-  const { data: all } = await db().from("members").select("id, name, nickname");
-  const target = m.stakeholder_name
-    ? (all ?? []).find(
+  // resolve the manager name → id link (default chain: VP → Director → LCP)
+  const { data: all } = await db()
+    .from("members")
+    .select("id, name, nickname, role, functions, stakeholder_name, stakeholder_id, is_active");
+  let targetId: string | null = null;
+  if (m.stakeholder_name) {
+    targetId =
+      (all ?? []).find(
         (x) =>
           x.id !== id &&
           (x.name.trim().toLowerCase() === m.stakeholder_name!.trim().toLowerCase() ||
             x.nickname?.trim().toLowerCase() === m.stakeholder_name!.trim().toLowerCase())
-      )
-    : null;
-  await db().from("members").update({ stakeholder_id: target?.id ?? null }).eq("id", id);
+      )?.id ?? null;
+  }
+  if (!targetId) {
+    const { defaultManagerId } = await import("@/lib/google/sheets");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const self = (all ?? []).find((x) => x.id === id) as any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (self) targetId = defaultManagerId({ ...self, role: m.role, functions: m.functions }, (all ?? []) as any);
+  }
+  if (targetId === id) targetId = null;
+  await db().from("members").update({ stakeholder_id: targetId }).eq("id", id);
 
   const { writeMemberToSheet } = await import("@/lib/google/sheets");
   await writeMemberToSheet(row).catch((e) =>
@@ -916,4 +947,180 @@ export async function runSheetsExport(): Promise<ActionResult> {
   } catch (e) {
     return fail(e instanceof Error ? e.message : "Sheets export failed.");
   }
+}
+
+// ================================================================== contacts (tagged)
+
+/** Multiple tagged phones/emails per account ("CEO", "HR", …). The first phone
+ *  and first email also fill the legacy columns so sheet mirrors keep working. */
+export async function updateAccountContacts(
+  accountId: string,
+  contacts: AccountContact[]
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const account = await loadAccount(accountId);
+  if (!account || !canEditAccount(viewer, account))
+    return fail("You are not allowed to edit this account.", "forbidden");
+
+  const clean: AccountContact[] = [];
+  for (const c of contacts ?? []) {
+    const value = (c.value ?? "").trim();
+    if (!value) continue;
+    const tag = (c.tag ?? "").trim() || "Contact";
+    if (c.kind === "phone") {
+      const phone = cleanPhone(value);
+      if (!PHONE_RE.test(phone))
+        return fail(`"${tag}" phone must be numbers only (7–15 digits).`);
+      clean.push({ tag, kind: "phone", value: phone });
+    } else {
+      if (!EMAIL_RE.test(value)) return fail(`"${tag}" email doesn't look valid.`);
+      clean.push({ tag, kind: "email", value });
+    }
+  }
+
+  const firstPhone = clean.find((c) => c.kind === "phone")?.value ?? null;
+  const firstEmail = clean.find((c) => c.kind === "email")?.value ?? null;
+  const { error } = await db()
+    .from("accounts")
+    .update({ contacts: clean, phone: firstPhone, email: firstEmail })
+    .eq("id", accountId);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "update_contacts", "account", accountId, { count: clean.length });
+  refresh(accountId);
+  return { ok: true };
+}
+
+// ================================================================== performance goals
+
+const goalSchema = z.object({
+  scope: z.enum(["function", "team"]),
+  function: z.enum(["IGV", "IGT"]).nullish(),
+  teamLeaderId: z.string().uuid().nullish(),
+  target: z.number().int().min(1, "The goal must be at least 1 slot."),
+  periodLabel: z.string().trim().min(2, "Name the period (e.g. July 2026 or Summer Peak 26)."),
+  periodStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  periodEnd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
+/** VPs (and the LCP) set the function goal; Team Leaders set their team goal.
+ *  Shown on every member's dashboard as the shared target. */
+export async function setPerformanceGoal(
+  input: z.infer<typeof goalSchema>
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const parsed = goalSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0].message);
+  const g = parsed.data;
+  if (g.periodEnd < g.periodStart) return fail("The period ends before it starts.");
+
+  const master = viewer.isAdmin || viewer.role === "LCP";
+  if (g.scope === "function") {
+    if (!g.function) return fail("Pick the function for this goal.");
+    const ownsFunction =
+      (viewer.role === "LCVP" || viewer.role === "Director") &&
+      viewer.functions.includes(g.function);
+    if (!master && !ownsFunction)
+      return fail("Only the function's VP (or the LCP) sets the function goal.", "forbidden");
+  } else {
+    const teamLeaderId = g.teamLeaderId ?? viewer.id;
+    const isOwnTeam = viewer.role === "Team Leader" && teamLeaderId === viewer.id;
+    const isLeadOver =
+      (viewer.role === "LCVP" || viewer.role === "Director") || master;
+    if (!isOwnTeam && !isLeadOver)
+      return fail("Only the Team Leader (or their VP/LCP) sets the team goal.", "forbidden");
+    g.teamLeaderId = teamLeaderId;
+  }
+
+  // one goal per scope/key/period label — update in place if it exists
+  let existing = db()
+    .from("performance_goals")
+    .select("id")
+    .eq("scope", g.scope)
+    .eq("period_label", g.periodLabel);
+  existing =
+    g.scope === "function"
+      ? existing.eq("function", g.function!)
+      : existing.eq("team_leader_id", g.teamLeaderId!);
+  const { data: found } = await existing.maybeSingle<{ id: string }>();
+
+  const row = {
+    scope: g.scope,
+    function: g.scope === "function" ? g.function : null,
+    team_leader_id: g.scope === "team" ? g.teamLeaderId : null,
+    target: g.target,
+    period_label: g.periodLabel,
+    period_start: g.periodStart,
+    period_end: g.periodEnd,
+    created_by: viewer.id,
+  };
+  const { error } = found
+    ? await db().from("performance_goals").update(row).eq("id", found.id)
+    : await db().from("performance_goals").insert(row);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "set_goal", "goal", null, { ...row });
+  refresh();
+  return { ok: true };
+}
+
+// ================================================================== bulk import
+
+export interface ImportRowInput {
+  function: "IGV" | "IGT";
+  name: string;
+  product?: string | null;
+  sub_product?: string | null;
+  account_type?: string | null;
+  industry?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  social_link?: string | null;
+  website?: string | null;
+  comment?: string | null;
+  responsible_id?: string | null;
+}
+
+export interface ImportRowResult {
+  name: string;
+  ok: boolean;
+  error?: string;
+}
+
+/** Market-research import: each row goes through the exact same rules as a
+ *  hand-added account (function gate, duplicate + archive block, owner scope). */
+export async function importAccountsBulk(
+  rows: ImportRowInput[]
+): Promise<ActionResult<{ results: ImportRowResult[]; created: number }>> {
+  await getViewer(); // auth check up-front
+  if (!rows?.length) return fail("Nothing to import.");
+  if (rows.length > 500) return fail("Import at most 500 accounts at a time.");
+
+  const results: ImportRowResult[] = [];
+  let created = 0;
+  for (const row of rows) {
+    const res = await createAccount({
+      function: row.function,
+      name: row.name ?? "",
+      product:
+        row.function === "IGT" && (row.product === "GTa" || row.product === "GTe")
+          ? row.product
+          : null,
+      sub_product: row.sub_product ?? null,
+      account_type: row.account_type ?? null,
+      industry: row.industry ?? null,
+      phone: row.phone ? cleanPhone(row.phone) : null,
+      email: row.email ?? null,
+      social_link: row.social_link ?? null,
+      website: row.website ?? null,
+      comment: row.comment ?? null,
+      responsible_id: row.responsible_id ?? null,
+    });
+    if (res.ok) {
+      created += 1;
+      results.push({ name: row.name, ok: true });
+    } else {
+      results.push({ name: row.name, ok: false, error: res.error });
+    }
+  }
+  refresh();
+  return { ok: true, data: { results, created } };
 }

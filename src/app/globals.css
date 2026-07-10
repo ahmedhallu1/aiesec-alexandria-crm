@@ -51,6 +51,7 @@
   /* official AIESEC product colors */
   --gv: #f85a40;
   --gt: #0cb9c1;
+  --gte: #f48924;
 }
 
 .dark {
@@ -93,6 +94,7 @@
 
   --gv: #ff7a63;
   --gt: #22d3dc;
+  --gte: #ffa64d;
 }
 
 @theme inline {
@@ -131,6 +133,7 @@
   --color-warning: var(--warning);
   --color-gv: var(--gv);
   --color-gt: var(--gt);
+  --color-gte: var(--gte);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -145,4 +148,26 @@
   body {
     @apply bg-background text-foreground antialiased;
   }
+}
+
+/* Subtle motion (respects prefers-reduced-motion) */
+@media (prefers-reduced-motion: no-preference) {
+  .rise-in {
+    animation: rise-in 0.35s cubic-bezier(0.21, 1.02, 0.73, 1) both;
+  }
+  .rise-in-1 { animation-delay: 0.05s; }
+  .rise-in-2 { animation-delay: 0.1s; }
+  .rise-in-3 { animation-delay: 0.15s; }
+  .rise-in-4 { animation-delay: 0.2s; }
+}
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Route-transition shimmer for pending navigations */
+.nav-pending {
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
 }

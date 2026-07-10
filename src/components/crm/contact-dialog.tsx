@@ -52,9 +52,11 @@ export function ContactDialog({
   if (!target) return null;
 
   const isCallScheduled = status === "Call Scheduled";
+  const isNotInterested = status === "Not Interested";
   const today = new Date().toISOString().slice(0, 10);
   const nextStepAlreadySet = !!target.nextStepDate && target.nextStepDate >= today;
-  const nextStepRequired = !isCallScheduled && !target.hasPendingVisit && !nextStepAlreadySet;
+  const nextStepRequired =
+    !isCallScheduled && !isNotInterested && !target.hasPendingVisit && !nextStepAlreadySet;
 
   const reset = () => {
     setMethod("Call"); setStatus("No Response"); setComment("");
@@ -85,9 +87,11 @@ export function ContactDialog({
         return;
       }
       toast.success(
-        isCallScheduled
-          ? `Contact #${res.data?.attempts ?? ""} logged — call set for ${scheduledDate} ${scheduledTime}`
-          : `Contact #${res.data?.attempts ?? ""} logged`
+        isNotInterested
+          ? `"${target.name}" archived — not interested. Its name can't be added again.`
+          : isCallScheduled
+            ? `Contact #${res.data?.attempts ?? ""} logged — call set for ${scheduledDate} ${scheduledTime}`
+            : `Contact #${res.data?.attempts ?? ""} logged`
       );
       reset();
       onOpenChange(false);
@@ -153,6 +157,19 @@ export function ContactDialog({
                 </div>
               </div>
 
+              {isNotInterested ? (
+                <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
+                  <p className="font-semibold text-destructive">
+                    ⚠️ Saving this archives the account
+                  </p>
+                  <p className="mt-1 text-muted-foreground">
+                    “Not Interested” closes the account automatically: it moves
+                    to the archive (Out of Process) and its name can never be
+                    added again. Your comment goes on the record as the reason.
+                  </p>
+                </div>
+              ) : null}
+
               {isCallScheduled ? (
                 <div className="rounded-lg border border-primary/40 bg-primary/5 p-3">
                   <p className="mb-2 text-sm font-medium">
@@ -179,7 +196,7 @@ export function ContactDialog({
                 />
               </div>
 
-              {!isCallScheduled ? (
+              {!isCallScheduled && !isNotInterested ? (
                 <div className="rounded-lg border p-3">
                   <p className="mb-2 text-sm font-medium">
                     Next step{" "}
@@ -206,13 +223,14 @@ export function ContactDialog({
             <DialogFooter>
               <Button
                 onClick={submit}
+                variant={isNotInterested ? "destructive" : "default"}
                 disabled={
                   pending ||
                   (isCallScheduled && (!scheduledDate || !scheduledTime)) ||
                   (nextStepRequired && (!nextStepDate || !nextStep.trim()))
                 }
               >
-                {pending ? "Saving…" : "Log contact"}
+                {pending ? "Saving…" : isNotInterested ? "Log & archive account" : "Log contact"}
               </Button>
             </DialogFooter>
           </>

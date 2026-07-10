@@ -6,18 +6,21 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   ArrowLeft, CalendarPlus, CheckCircle2, Mail, MessageCircle, MessageSquareText,
-  Phone, RotateCcw, Trophy, XCircle,
+  Phone, Plus, RotateCcw, Trash2, Trophy, XCircle,
 } from "lucide-react";
 import {
   addComment, markSlotRaised, reassignAccount, reportVisit, reviveAccount,
-  scheduleVisit, setOutOfProcess, updateAccount,
+  scheduleVisit, setOutOfProcess, updateAccount, updateAccountContacts,
 } from "@/server/actions";
 import type { CommentWithMember, PipelineRow } from "@/server/data";
 import type { ContactAttempt, Visit } from "@/lib/types";
 import {
-  ACCOUNT_TYPES, cleanPhone, EMAIL_RE, FUNCTION_COLORS, IGT_SUB_PRODUCTS,
-  INDUSTRIES, PHONE_RE, URL_RE,
+  ACCOUNT_TYPES, cleanPhone, EMAIL_RE, IGT_SUB_PRODUCTS,
+  INDUSTRIES, PHONE_RE, productBadge, URL_RE,
 } from "@/lib/types";
+import type { AccountContact } from "@/lib/types";
+import { Hint } from "./hint";
+import { MultiPick } from "./multi-pick";
 import { cn } from "@/lib/utils";
 import { StageBadge } from "./stage-badge";
 import { ContactDialog, type ContactTarget } from "./contact-dialog";
@@ -79,7 +82,7 @@ export function AccountDetailView({
   };
 
   const active = !account.out_of_process;
-  const fnColor = FUNCTION_COLORS[account.function];
+  const fnBadge = productBadge(account.function, account.product);
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
@@ -95,17 +98,9 @@ export function AccountDetailView({
         <div className="space-y-1.5">
           <h1 className="text-2xl font-bold">{account.name}</h1>
           <div className="flex flex-wrap items-center gap-2">
-            <Badge className={cn("border-transparent font-semibold", fnColor?.bg, fnColor?.text)}>
-              {account.function}
+            <Badge className={cn("border-transparent font-semibold", fnBadge.bg, fnBadge.text)}>
+              {fnBadge.label}
             </Badge>
-            {account.function === "IGV" && account.project ? (
-              <Badge variant="outline">{account.project}</Badge>
-            ) : null}
-            {account.function === "IGT" && account.product ? (
-              <Badge variant="outline">
-                {account.product === "GTa" ? "Global Talent" : "Global Teacher"}
-              </Badge>
-            ) : null}
             <StageBadge stage={account.stage} />
             {account.contact_limit_reached ? (
               <Badge className="border-transparent bg-warning/15 text-warning">⚠️ 3-contact limit</Badge>
@@ -125,35 +120,45 @@ export function AccountDetailView({
           <div className="flex flex-wrap gap-2">
             {active && !account.slot_raised ? (
               <>
-                <Button onClick={() => setContactOpen(true)}>
-                  <Phone className="size-4" /> Contact
-                </Button>
-                <Button variant="outline" onClick={() => setVisitOpen(true)}>
-                  <CalendarPlus className="size-4" />
-                  {pendingVisit ? "Reschedule visit" : "Schedule visit"}
-                </Button>
-                {reportableVisit ? (
-                  <Button variant="outline" onClick={() => setReportOpen(true)}>
-                    <CheckCircle2 className="size-4" /> Report visit
+                <Hint label="Log a call / WhatsApp / email attempt — every attempt counts">
+                  <Button onClick={() => setContactOpen(true)}>
+                    <Phone className="size-4" /> Contact
                   </Button>
+                </Hint>
+                <Hint label="Book the company visit — reminders land on the responsible's calendar 24h & 1h before">
+                  <Button variant="outline" onClick={() => setVisitOpen(true)}>
+                    <CalendarPlus className="size-4" />
+                    {pendingVisit ? "Reschedule visit" : "Schedule visit"}
+                  </Button>
+                </Hint>
+                {reportableVisit ? (
+                  <Hint label="Tell your leaders how the visit went — they're notified instantly">
+                    <Button variant="outline" onClick={() => setReportOpen(true)}>
+                      <CheckCircle2 className="size-4" /> Report visit
+                    </Button>
+                  </Hint>
                 ) : null}
-                <Button
-                  variant="outline"
-                  className="text-success hover:text-success"
-                  onClick={() => setDealOpen(true)}
-                >
-                  <Trophy className="size-4" /> Slot raised
-                </Button>
+                <Hint label="Deal signed! Record how many slots were raised">
+                  <Button
+                    variant="outline"
+                    className="text-success hover:text-success"
+                    onClick={() => setDealOpen(true)}
+                  >
+                    <Trophy className="size-4" /> Slot raised
+                  </Button>
+                </Hint>
               </>
             ) : null}
             {active ? (
-              <Button
-                variant="outline"
-                className="text-destructive hover:text-destructive"
-                onClick={() => setOopOpen(true)}
-              >
-                <XCircle className="size-4" /> Out of process
-              </Button>
+              <Hint label="Close & archive this account — its name can never be added again">
+                <Button
+                  variant="outline"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => setOopOpen(true)}
+                >
+                  <XCircle className="size-4" /> Out of process
+                </Button>
+              </Hint>
             ) : caps.reassign ? (
               <ReviveButton accountId={account.id} />
             ) : null}
@@ -162,6 +167,7 @@ export function AccountDetailView({
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
+        <ContactInfoCard account={account} canEdit={caps.edit} />
         <DetailsCard account={account} canEdit={caps.edit} />
         <PodioCard account={account} canEdit={caps.edit} canEditState={caps.requestState} />
         <NextStepCard account={account} canEdit={caps.edit && active} />
@@ -242,11 +248,10 @@ function ResponsibleRow({
 
 // ------------------------------------------------------------------ cards
 
-/** Details with validation + list-or-other pickers (no Podio link, no package plan). */
+/** Details: links + type/industry (multi-select). Phones & emails live in the
+ *  tagged Contact info card. */
 function DetailsCard({ account, canEdit }: { account: PipelineRow; canEdit: boolean }) {
   const [form, setForm] = useState({
-    phone: account.phone ?? "",
-    email: account.email ?? "",
     social_link: account.social_link ?? "",
     website: account.website ?? "",
     account_type: account.account_type ?? "",
@@ -256,11 +261,9 @@ function DetailsCard({ account, canEdit }: { account: PipelineRow; canEdit: bool
   const [dirty, setDirty] = useState(false);
   const [pending, start] = useTransition();
 
-  const phoneOk = !form.phone.trim() || PHONE_RE.test(cleanPhone(form.phone));
-  const emailOk = !form.email.trim() || EMAIL_RE.test(form.email.trim());
   const socialOk = !form.social_link.trim() || URL_RE.test(form.social_link.trim());
   const websiteOk = !form.website.trim() || URL_RE.test(form.website.trim());
-  const allOk = phoneOk && emailOk && socialOk && websiteOk;
+  const allOk = socialOk && websiteOk;
 
   const set = (k: keyof typeof form) => (v: string) => {
     setForm((f) => ({ ...f, [k]: v }));
@@ -268,10 +271,7 @@ function DetailsCard({ account, canEdit }: { account: PipelineRow; canEdit: bool
   };
   const save = () =>
     start(async () => {
-      const res = await updateAccount(account.id, {
-        ...form,
-        phone: form.phone ? cleanPhone(form.phone) : "",
-      });
+      const res = await updateAccount(account.id, form);
       if (res.ok) { toast.success("Saved"); setDirty(false); }
       else toast.error(res.error);
     });
@@ -283,10 +283,10 @@ function DetailsCard({ account, canEdit }: { account: PipelineRow; canEdit: bool
     err: string,
     placeholder?: string
   ) => (
-    <div key={key} className="grid grid-cols-[110px_1fr] items-center gap-2">
+    <div key={key} className="grid gap-1 sm:grid-cols-[110px_1fr] sm:items-center sm:gap-2">
       <Label className="text-xs text-muted-foreground">{label}</Label>
       {canEdit ? (
-        <div>
+        <div className="min-w-0">
           <Input
             className={cn("h-8", !ok && "border-destructive")}
             value={form[key]}
@@ -301,21 +301,21 @@ function DetailsCard({ account, canEdit }: { account: PipelineRow; canEdit: bool
     </div>
   );
 
-  const listRow = (label: string, key: keyof typeof form, options: readonly string[]) => {
+  const listRow = (label: string, key: "account_type") => {
     const value = form[key];
-    const inList = options.includes(value);
+    const inList = (ACCOUNT_TYPES as readonly string[]).includes(value);
     return (
-      <div key={key} className="grid grid-cols-[110px_1fr] items-center gap-2">
+      <div key={key} className="grid gap-1 sm:grid-cols-[110px_1fr] sm:items-center sm:gap-2">
         <Label className="text-xs text-muted-foreground">{label}</Label>
         {canEdit ? (
-          <div className="grid gap-1">
+          <div className="grid min-w-0 gap-1">
             <Select
               value={value ? (inList ? value : "Other") : undefined}
               onValueChange={(v) => set(key)(v === "Other" ? (inList ? "" : value) : v)}
             >
               <SelectTrigger className="h-8"><SelectValue placeholder="Choose…" /></SelectTrigger>
               <SelectContent>
-                {options.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                {ACCOUNT_TYPES.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
               </SelectContent>
             </Select>
             {value && !inList ? (
@@ -338,22 +338,155 @@ function DetailsCard({ account, canEdit }: { account: PipelineRow; canEdit: bool
     <Card>
       <CardHeader><CardTitle className="text-base">Details</CardTitle></CardHeader>
       <CardContent className="space-y-3">
-        {inputRow("Phone", "phone", phoneOk, "Numbers only, 8–15 digits.")}
-        {inputRow("Email", "email", emailOk, "Valid email only.")}
         {inputRow("Social link", "social_link", socialOk, "Must be a link (https://…).", "https://…")}
         {inputRow("Website", "website", websiteOk, "Must be a link (https://…).", "https://…")}
         {account.function === "IGV" ? (
           <>
-            {listRow("Account type", "account_type", ACCOUNT_TYPES)}
-            {listRow("Industry", "industry", INDUSTRIES)}
+            {listRow("Account type", "account_type")}
+            {canEdit ? (
+              <MultiPick
+                label="Industry"
+                options={INDUSTRIES}
+                value={form.industry}
+                onChange={set("industry")}
+                compact
+              />
+            ) : (
+              <div className="grid gap-1 sm:grid-cols-[110px_1fr] sm:items-center sm:gap-2">
+                <Label className="text-xs text-muted-foreground">Industry</Label>
+                <p className="truncate text-sm">{form.industry || "—"}</p>
+              </div>
+            )}
           </>
+        ) : canEdit ? (
+          <MultiPick
+            label="Sub product"
+            options={IGT_SUB_PRODUCTS}
+            value={form.sub_product}
+            onChange={set("sub_product")}
+            compact
+          />
         ) : (
-          listRow("Sub product", "sub_product", IGT_SUB_PRODUCTS)
+          <div className="grid gap-1 sm:grid-cols-[110px_1fr] sm:items-center sm:gap-2">
+            <Label className="text-xs text-muted-foreground">Sub product</Label>
+            <p className="truncate text-sm">{form.sub_product || "—"}</p>
+          </div>
         )}
         {canEdit && dirty ? (
           <Button size="sm" onClick={save} disabled={pending || !allOk}>
             {pending ? "Saving…" : "Save details"}
           </Button>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Tagged phones & emails — add as many as the account needs (CEO, HR, …). */
+function ContactInfoCard({
+  account, canEdit,
+}: { account: PipelineRow; canEdit: boolean }) {
+  const initial: AccountContact[] =
+    account.contacts && account.contacts.length > 0
+      ? account.contacts
+      : [
+          ...(account.phone ? [{ tag: "Contact", kind: "phone" as const, value: account.phone }] : []),
+          ...(account.email ? [{ tag: "Contact", kind: "email" as const, value: account.email }] : []),
+        ];
+  const [rows, setRows] = useState<AccountContact[]>(initial);
+  const [dirty, setDirty] = useState(false);
+  const [pending, start] = useTransition();
+
+  const update = (i: number, patch: Partial<AccountContact>) => {
+    setRows((r) => r.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+    setDirty(true);
+  };
+  const remove = (i: number) => {
+    setRows((r) => r.filter((_, j) => j !== i));
+    setDirty(true);
+  };
+  const add = (kind: "phone" | "email") => {
+    setRows((r) => [...r, { tag: "Contact", kind, value: "" }]);
+    setDirty(true);
+  };
+
+  const rowOk = (c: AccountContact) =>
+    !c.value.trim() ||
+    (c.kind === "phone" ? PHONE_RE.test(cleanPhone(c.value)) : EMAIL_RE.test(c.value.trim()));
+  const allOk = rows.every(rowOk);
+
+  const save = () =>
+    start(async () => {
+      const res = await updateAccountContacts(account.id, rows);
+      if (res.ok) { toast.success("Contact info saved"); setDirty(false); }
+      else toast.error(res.error);
+    });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Contact info</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {rows.length === 0 ? (
+          <p className="py-1 text-center text-sm text-muted-foreground">
+            No phones or emails yet.
+          </p>
+        ) : null}
+        {rows.map((c, i) => (
+          <div key={i} className="flex items-start gap-1.5">
+            <span className="mt-2 shrink-0 text-muted-foreground">
+              {c.kind === "phone" ? <Phone className="size-3.5" /> : <Mail className="size-3.5" />}
+            </span>
+            <Input
+              className="h-8 w-24 shrink-0 sm:w-28"
+              value={c.tag}
+              disabled={!canEdit}
+              placeholder="Tag"
+              onChange={(e) => update(i, { tag: e.target.value })}
+            />
+            <div className="min-w-0 flex-1">
+              <Input
+                className={cn("h-8", !rowOk(c) && "border-destructive")}
+                value={c.value}
+                disabled={!canEdit}
+                inputMode={c.kind === "phone" ? "tel" : "email"}
+                placeholder={c.kind === "phone" ? "Numbers only (7–15)" : "name@company.com"}
+                onChange={(e) => update(i, { value: e.target.value })}
+              />
+              {!rowOk(c) ? (
+                <p className="mt-0.5 text-xs text-destructive">
+                  {c.kind === "phone" ? "Numbers only, 7–15 digits." : "Valid email only."}
+                </p>
+              ) : null}
+            </div>
+            {canEdit ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
+                title="Remove"
+                onClick={() => remove(i)}
+              >
+                <Trash2 className="size-3.5" />
+              </Button>
+            ) : null}
+          </div>
+        ))}
+        {canEdit ? (
+          <div className="flex flex-wrap gap-2 pt-1">
+            <Button size="sm" variant="outline" onClick={() => add("phone")}>
+              <Plus className="size-3.5" /> Phone
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => add("email")}>
+              <Plus className="size-3.5" /> Email
+            </Button>
+            {dirty ? (
+              <Button size="sm" onClick={save} disabled={pending || !allOk}>
+                {pending ? "Saving…" : "Save contact info"}
+              </Button>
+            ) : null}
+          </div>
         ) : null}
       </CardContent>
     </Card>

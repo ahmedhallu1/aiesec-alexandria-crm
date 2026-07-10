@@ -6,6 +6,7 @@ import { env } from "@/lib/env";
 import {
   accountScope,
   canViewAccount,
+  icxFunctions,
   reassignTargetScope,
   type Viewer,
   type AccountScope,
@@ -254,9 +255,53 @@ function addRow(s: FunnelStats, r: PipelineRow) {
   if (r.next_step_missing) s.nextStepMissingFlags += 1;
 }
 
+/** Dashboard visibility is FUNCTION-wide for everyone in the module (the goal
+ *  and the numbers are a shared trigger) — members still only OPEN their own
+ *  accounts; this affects aggregates only. */
+function dashboardViewer(viewer: Viewer): Viewer {
+  const scope = accountScope(viewer);
+  if (scope.kind === "all" || scope.kind === "functions") return viewer;
+  const fns = icxFunctions(viewer);
+  if (fns.length === 0) return viewer;
+  // widen the scope to the member's function(s) by impersonating a Director-like view
+  return { ...viewer, role: "Director" };
+}
+
+export interface PerformanceGoal {
+  id: string;
+  scope: "function" | "team";
+  function: string | null;
+  team_leader_id: string | null;
+  metric: string;
+  target: number;
+  period_label: string;
+  period_start: string;
+  period_end: string;
+}
+
+/** The goal currently in effect (today inside its period; latest wins). */
+export async function getActiveGoal(
+  scope: "function" | "team",
+  key: string
+): Promise<PerformanceGoal | null> {
+  const today = new Date().toISOString().slice(0, 10);
+  let query = db()
+    .from("performance_goals")
+    .select("*")
+    .eq("scope", scope)
+    .lte("period_start", today)
+    .gte("period_end", today)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  query = scope === "function" ? query.eq("function", key) : query.eq("team_leader_id", key);
+  const { data } = await query.maybeSingle<PerformanceGoal>();
+  return data ?? null;
+}
+
 export async function getDashboard(viewer: Viewer, filters: AccountFilters = {}) {
-  const rows = await listAccounts(viewer, { ...filters, includeArchived: true });
-  const members = await listVisibleMembers(viewer);
+  const dashViewer = dashboardViewer(viewer);
+  const rows = await listAccounts(dashViewer, { ...filters, includeArchived: true });
+  const members = await listVisibleMembers(dashViewer);
   const byId = new Map(members.map((m) => [m.id, m]));
 
   const total = emptyStats();
@@ -287,13 +332,41 @@ export async function getDashboard(viewer: Viewer, filters: AccountFilters = {})
     addRow(getOrInit(byMember, r.responsible_id, respLabel), r);
   }
 
-  const { data: goals } = await db().from("goals").select("*");
+  // ---- leaderboards (never across functions: they live inside the lane filter)
+  const rank = (a: DrillGroup, b: DrillGroup) =>
+    b.slots - a.slots || b.dealDone - a.dealDone || b.visitDone - a.visitDone || b.contacted - a.contacted;
+  const functionBoard = [...byMember.values()].sort(rank);
+
+  // the viewer's team: the TL is themself (TL) or their manager (member/coordinator)
+  const teamLeadId =
+    viewer.role === "Team Leader" ? viewer.id : viewer.stakeholder_id ?? null;
+  const teamMemberIds = teamLeadId
+    ? new Set([
+        teamLeadId,
+        ...members.filter((m) => m.stakeholder_id === teamLeadId).map((m) => m.id),
+      ])
+    : null;
+  const teamBoard = teamMemberIds
+    ? functionBoard.filter((g) => teamMemberIds.has(g.key))
+    : [];
+
+  // ---- goals in effect (function goal for the lane, the viewer's team goal)
+  const laneFn = filters.fn ?? null;
+  const [funcGoal, teamGoal] = await Promise.all([
+    laneFn ? getActiveGoal("function", laneFn) : Promise.resolve(null),
+    teamLeadId ? getActiveGoal("team", teamLeadId) : Promise.resolve(null),
+  ]);
+
   return {
     total,
     byFunction: [...byFunction.values()],
     byTeam: [...byTeam.values()].sort((a, b) => b.leads - a.leads),
-    byMember: [...byMember.values()].sort((a, b) => b.leads - a.leads),
-    goals: goals ?? [],
+    byMember: functionBoard,
+    functionBoard,
+    teamBoard,
+    funcGoal,
+    teamGoal,
+    teamLeadId,
   };
 }
 

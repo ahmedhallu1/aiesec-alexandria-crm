@@ -42,9 +42,7 @@ export function ComingSoon({ functions }: { functions: string[] }) {
           Soon<span className="text-primary">.</span>
         </h1>
         <p className="max-w-md text-sm text-muted-foreground">
-          The <b>{label}</b> workspace is being built. The CRM currently covers
-          the ICX <b>Raising</b> process (IGV & IGT) — stay tuned, you&apos;ll get
-          an email the moment your module opens. 💙
+          {`The ${label} workspace is being built. The CRM currently covers the ICX Raising process (IGV & IGT) — stay tuned, you'll get an email the moment your module opens. 💙`}
         </p>
       </div>
     </div>

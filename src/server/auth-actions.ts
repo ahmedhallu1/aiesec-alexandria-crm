@@ -35,3 +35,45 @@ export async function loginWithPassword(
 export async function loginWithGoogle(): Promise<void> {
   await signIn("google", { redirectTo: "/" });
 }
+
+/** "Forgot password" CTA: notifies the IM team (director + coach) that this
+ *  member wants a reset. Public on purpose — it only ever emails the IM team. */
+export async function requestPasswordReset(
+  email: string
+): Promise<{ ok: boolean; message: string }> {
+  const clean = (email ?? "").trim().toLowerCase();
+  if (!clean.includes("@"))
+    return { ok: false, message: "Type your AIESEC email first." };
+  try {
+    const { db } = await import("@/lib/supabase");
+    const { data: member } = await db()
+      .from("members")
+      .select("name, nickname, email, is_active")
+      .ilike("email", clean)
+      .maybeSingle();
+    if (member?.is_active) {
+      const [{ sendEmail }, { passwordResetRequestEmail }, { FEEDBACK_INBOX_EMAILS }] =
+        await Promise.all([
+          import("@/lib/google/gmail"),
+          import("@/lib/email/templates"),
+          import("@/lib/types"),
+        ]);
+      const mail = passwordResetRequestEmail({
+        memberName: member.nickname || member.name,
+        memberEmail: member.email,
+      });
+      sendEmail({ to: [...FEEDBACK_INBOX_EMAILS], ...mail }).catch((e) =>
+        console.error("[auth] reset-request email failed:", e)
+      );
+    }
+    // same answer whether or not the email exists (no member-list probing)
+    return {
+      ok: true,
+      message:
+        "The IM team was notified ✅ — once they reset it, sign in with ANY password and you'll set a new one.",
+    };
+  } catch (e) {
+    console.error("[auth] reset request failed:", e);
+    return { ok: false, message: "Something went wrong — try again or contact the IM team directly." };
+  }
+}
