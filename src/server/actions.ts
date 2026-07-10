@@ -23,11 +23,13 @@ import {
   updateVisitEvent,
 } from "@/lib/google/calendar";
 import {
+  accountSlug,
   cleanPhone,
   EMAIL_RE,
   FEEDBACK_INBOX_EMAILS,
   LC_FUNCTIONS,
   MEMBER_ROLES,
+  normalizePhone,
   PHONE_RE,
   SUB_FUNCTIONS,
   URL_RE,
@@ -68,8 +70,11 @@ function refresh(accountId?: string) {
 const phoneField = z
   .string()
   .trim()
-  .transform(cleanPhone)
-  .refine((v) => !v || PHONE_RE.test(v), "Phone must be numbers only (7–15 digits).")
+  .transform((v) => (v ? normalizePhone(v).value : v))
+  .refine(
+    (v) => !v || normalizePhone(v).ok,
+    "Numbers must be Egyptian (01… mobile / 03… landline) or full international (+…)."
+  )
   .nullish();
 
 const emailField = z
@@ -101,11 +106,57 @@ const createAccountSchema = z.object({
   requested_podio: z.boolean().nullish(),
   comment: z.string().trim().nullish(),
   responsible_id: z.string().uuid().nullish(),
+  contacts: z
+    .array(
+      z.object({
+        tag: z.string().trim(),
+        kind: z.enum(["phone", "email", "link"]),
+        value: z.string().trim(),
+      })
+    )
+    .nullish(),
 });
+
+/** Validates + normalizes tagged contacts; returns null + an error message on
+ *  the first bad row. Empty rows are dropped. */
+function cleanContacts(
+  raw: AccountContact[] | null | undefined
+): { list: AccountContact[]; error: string | null } {
+  const list: AccountContact[] = [];
+  for (const c of raw ?? []) {
+    const value = (c.value ?? "").trim();
+    if (!value) continue;
+    const tag = (c.tag ?? "").trim() || (c.kind === "link" ? "Website" : "Contact");
+    if (c.kind === "phone") {
+      const check = normalizePhone(value);
+      if (!check.ok) return { list, error: `"${tag}": ${check.error}` };
+      list.push({ tag, kind: "phone", value: check.value });
+    } else if (c.kind === "email") {
+      if (!EMAIL_RE.test(value)) return { list, error: `"${tag}" email doesn't look valid.` };
+      list.push({ tag, kind: "email", value });
+    } else {
+      if (!URL_RE.test(value)) return { list, error: `"${tag}" must be a link (https://…).` };
+      list.push({ tag, kind: "link", value });
+    }
+  }
+  return { list, error: null };
+}
+
+/** First-of-kind sync into the legacy single columns (sheet mirrors use them). */
+function legacyContactColumns(list: AccountContact[]) {
+  return {
+    phone: list.find((c) => c.kind === "phone")?.value ?? null,
+    email: list.find((c) => c.kind === "email")?.value ?? null,
+    website:
+      list.find((c) => c.kind === "link" && c.tag.toLowerCase() === "website")?.value ?? null,
+    social_link:
+      list.find((c) => c.kind === "link" && c.tag.toLowerCase() !== "website")?.value ?? null,
+  };
+}
 
 export async function createAccount(
   input: z.infer<typeof createAccountSchema>
-): Promise<ActionResult<{ id: string }>> {
+): Promise<ActionResult<{ id: string; slug: string }>> {
   const viewer = await getViewer();
   const parsed = createAccountSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0].message);
@@ -168,6 +219,20 @@ export async function createAccount(
     responsibleId = data.responsible_id;
   }
 
+  // tagged contacts: either the dialog's rows or built from the flat fields (import)
+  const rawContacts: AccountContact[] =
+    data.contacts && data.contacts.length > 0
+      ? (data.contacts as AccountContact[])
+      : ([
+          ...(data.phone ? [{ tag: "Contact", kind: "phone" as const, value: data.phone }] : []),
+          ...(data.email ? [{ tag: "Contact", kind: "email" as const, value: data.email }] : []),
+          ...(data.social_link ? [{ tag: "Other", kind: "link" as const, value: data.social_link }] : []),
+          ...(data.website ? [{ tag: "Website", kind: "link" as const, value: data.website }] : []),
+        ] as AccountContact[]);
+  const { list: contacts, error: contactError } = cleanContacts(rawContacts);
+  if (contactError) return fail(contactError);
+  const legacy = legacyContactColumns(contacts);
+
   const { data: created, error } = await db()
     .from("accounts")
     .insert({
@@ -178,10 +243,8 @@ export async function createAccount(
       project: data.function === "IGV" ? data.project : null,
       account_type: data.account_type || null,
       industry: data.industry || null,
-      phone: data.phone || null,
-      email: data.email || null,
-      social_link: data.social_link || null,
-      website: data.website || null,
+      contacts,
+      ...legacy,
       requested_podio: data.requested_podio ?? false,
       responsible_id: responsibleId,
       created_by: viewer.id,
@@ -206,7 +269,7 @@ export async function createAccount(
 
   await logAudit(viewer.id, "create", "account", created.id, { name: data.name });
   refresh();
-  return { ok: true, data: { id: created.id } };
+  return { ok: true, data: { id: created.id, slug: accountSlug(data.name) } };
 }
 
 const editableFields = z.object({
@@ -245,6 +308,13 @@ export async function updateAccount(
     update[key] = value === "" ? null : value;
   }
   if (Object.keys(update).length === 0) return { ok: true };
+
+  // BUSINESS RULE: a Rejected Podio request closes the account (like Not Interested)
+  if (update.request_state === "Rejected" && !account.out_of_process) {
+    update.out_of_process = true;
+    update.oop_reason = "Podio request rejected";
+    update.oop_at = new Date().toISOString();
+  }
 
   const { error } = await db().from("accounts").update(update).eq("id", accountId);
   if (error) return fail(error.message);
@@ -393,6 +463,32 @@ export async function addComment(
   if (error) return fail(error.message);
   await logAudit(viewer.id, "comment", "account", accountId);
   refresh(accountId);
+  return { ok: true };
+}
+
+/** Pin/unpin a comment — pinned comments are highlighted and surface as a 📌
+ *  on the accounts list so nobody contacts the account without seeing it. */
+export async function toggleCommentPin(
+  commentId: string,
+  pinned: boolean
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const { data: comment } = await db()
+    .from("account_comments")
+    .select("id, account_id")
+    .eq("id", commentId)
+    .maybeSingle<{ id: string; account_id: string }>();
+  if (!comment) return fail("Comment not found.");
+  const account = await loadAccount(comment.account_id);
+  if (!account || !canEditAccount(viewer, account))
+    return fail("You are not allowed to pin comments on this account.", "forbidden");
+  const { error } = await db()
+    .from("account_comments")
+    .update({ pinned })
+    .eq("id", commentId);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, pinned ? "pin_comment" : "unpin_comment", "account", comment.account_id);
+  refresh(comment.account_id);
   return { ok: true };
 }
 
@@ -962,27 +1058,12 @@ export async function updateAccountContacts(
   if (!account || !canEditAccount(viewer, account))
     return fail("You are not allowed to edit this account.", "forbidden");
 
-  const clean: AccountContact[] = [];
-  for (const c of contacts ?? []) {
-    const value = (c.value ?? "").trim();
-    if (!value) continue;
-    const tag = (c.tag ?? "").trim() || "Contact";
-    if (c.kind === "phone") {
-      const phone = cleanPhone(value);
-      if (!PHONE_RE.test(phone))
-        return fail(`"${tag}" phone must be numbers only (7–15 digits).`);
-      clean.push({ tag, kind: "phone", value: phone });
-    } else {
-      if (!EMAIL_RE.test(value)) return fail(`"${tag}" email doesn't look valid.`);
-      clean.push({ tag, kind: "email", value });
-    }
-  }
+  const { list: clean, error: contactError } = cleanContacts(contacts);
+  if (contactError) return fail(contactError);
 
-  const firstPhone = clean.find((c) => c.kind === "phone")?.value ?? null;
-  const firstEmail = clean.find((c) => c.kind === "email")?.value ?? null;
   const { error } = await db()
     .from("accounts")
-    .update({ contacts: clean, phone: firstPhone, email: firstEmail })
+    .update({ contacts: clean, ...legacyContactColumns(clean) })
     .eq("id", accountId);
   if (error) return fail(error.message);
   await logAudit(viewer.id, "update_contacts", "account", accountId, { count: clean.length });

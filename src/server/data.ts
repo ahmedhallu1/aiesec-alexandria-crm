@@ -110,8 +110,12 @@ export async function listAccounts(
       .eq("stakeholder_id", filters.teamId);
     query = query.in("responsible_id", [filters.teamId, ...(team ?? []).map((t) => t.id)]);
   }
-  if (filters.from) query = query.gte("created_at", `${filters.from}T00:00:00Z`);
-  if (filters.to) query = query.lte("created_at", `${filters.to}T23:59:59Z`);
+  // accounts can't be created in the future — clamp the range to today
+  const today = new Date().toISOString().slice(0, 10);
+  const from = filters.from && filters.from <= today ? filters.from : filters.from ? today : undefined;
+  const to = filters.to && filters.to <= today ? filters.to : filters.to ? today : undefined;
+  if (from) query = query.gte("created_at", `${from}T00:00:00Z`);
+  if (to) query = query.lte("created_at", `${to}T23:59:59Z`);
   if (filters.flag === "contact_limit") query = query.eq("contact_limit_reached", true);
   if (filters.flag === "next_step_missing") query = query.eq("next_step_missing", true);
   if (filters.q) query = query.ilike("normalized_name", `%${normalizeName(filters.q)}%`);
@@ -120,13 +124,37 @@ export async function listAccounts(
   return (data ?? []) as PipelineRow[];
 }
 
-export async function getAccount(viewer: Viewer, id: string) {
-  const { data: account } = await db()
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Accounts are addressed by an expressive slug (/accounts/hadana) built from
+ *  the unique normalized name; raw UUIDs keep working for old links. Access is
+ *  ALWAYS re-checked server-side (canViewAccount) — a member who guesses a URL
+ *  outside their scope gets a 404, never the data. */
+export async function findAccountRow(idOrSlug: string): Promise<PipelineRow | null> {
+  const raw = decodeURIComponent(idOrSlug);
+  if (UUID_RE.test(raw)) {
+    const { data } = await db()
+      .from("accounts_pipeline")
+      .select("*")
+      .eq("id", raw)
+      .maybeSingle<PipelineRow>();
+    return data ?? null;
+  }
+  // slug: dashes were spaces (names containing real dashes are matched second)
+  const candidates = [...new Set([raw.replace(/-/g, " "), raw])];
+  const { data } = await db()
     .from("accounts_pipeline")
     .select("*")
-    .eq("id", id)
+    .in("normalized_name", candidates)
+    .limit(1)
     .maybeSingle<PipelineRow>();
+  return data ?? null;
+}
+
+export async function getAccount(viewer: Viewer, idOrSlug: string) {
+  const account = await findAccountRow(idOrSlug);
   if (!account || !canViewAccount(viewer, account)) return null;
+  const id = account.id;
 
   const [{ data: attempts }, { data: visits }, { data: comments }] = await Promise.all([
     db()

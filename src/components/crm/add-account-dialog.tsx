@@ -6,14 +6,12 @@ import { toast } from "sonner";
 import { createAccount } from "@/server/actions";
 import {
   ACCOUNT_TYPES,
-  cleanPhone,
-  EMAIL_RE,
   IGT_SUB_PRODUCTS,
   INDUSTRIES,
-  PHONE_RE,
-  URL_RE,
 } from "@/lib/types";
+import type { AccountContact } from "@/lib/types";
 import { MultiPick } from "./multi-pick";
+import { ContactsEditor, contactsValid } from "./contacts-editor";
 import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -83,6 +81,9 @@ export function AddAccountDialog({
   const router = useRouter();
   const [fn, setFn] = useState<"IGV" | "IGT">(viewer.allowedFns[0] ?? "IGT");
   const [form, setForm] = useState<Record<string, string>>({});
+  const [contacts, setContacts] = useState<AccountContact[]>([
+    { tag: "Contact", kind: "phone", value: "" },
+  ]);
   const [requestedPodio, setRequestedPodio] = useState(false);
   const [responsible, setResponsible] = useState(viewer.id);
   const [block, setBlock] = useState<BlockInfo | null>(null);
@@ -92,11 +93,7 @@ export function AddAccountDialog({
     setForm((f) => ({ ...f, [key]: e.target.value }));
   const setVal = (key: string) => (v: string) => setForm((f) => ({ ...f, [key]: v }));
 
-  const phoneOk = !form.phone?.trim() || PHONE_RE.test(cleanPhone(form.phone));
-  const emailOk = !form.email?.trim() || EMAIL_RE.test(form.email.trim());
-  const socialOk = !form.social_link?.trim() || URL_RE.test(form.social_link.trim());
-  const websiteOk = !form.website?.trim() || URL_RE.test(form.website.trim());
-  const fieldsOk = phoneOk && emailOk && socialOk && websiteOk;
+  const fieldsOk = contactsValid(contacts);
 
   const submit = () =>
     startTransition(async () => {
@@ -108,10 +105,7 @@ export function AddAccountDialog({
         sub_product: fn === "IGT" ? form.sub_product : null,
         account_type: fn === "IGV" ? form.account_type : null,
         industry: fn === "IGV" ? form.industry : null,
-        phone: form.phone ? cleanPhone(form.phone) : null,
-        email: form.email,
-        social_link: form.social_link,
-        website: form.website,
+        contacts,
         requested_podio: requestedPodio,
         comment: form.comment,
         responsible_id: responsible,
@@ -126,8 +120,9 @@ export function AddAccountDialog({
       }
       toast.success("Account added 🎉");
       setForm({});
+      setContacts([{ tag: "Contact", kind: "phone", value: "" }]);
       onOpenChange(false);
-      router.push(`/accounts/${res.data!.id}`);
+      router.push(`/accounts/${res.data!.slug}`);
     });
 
   const fnMembers = members.filter(
@@ -225,29 +220,9 @@ export function AddAccountDialog({
             </div>
           )}
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="grid gap-2">
-              <Label>Phone</Label>
-              <Input value={form.phone ?? ""} onChange={set("phone")} inputMode="tel" placeholder="Numbers only" />
-              {!phoneOk ? <p className="text-xs text-destructive">Numbers only, 7–15 digits.</p> : null}
-            </div>
-            <div className="grid gap-2">
-              <Label>Email</Label>
-              <Input value={form.email ?? ""} onChange={set("email")} inputMode="email" />
-              {!emailOk ? <p className="text-xs text-destructive">Valid email only.</p> : null}
-            </div>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="grid gap-2">
-              <Label>Social link</Label>
-              <Input value={form.social_link ?? ""} onChange={set("social_link")} placeholder="https://…" />
-              {!socialOk ? <p className="text-xs text-destructive">Must be a link (https://…).</p> : null}
-            </div>
-            <div className="grid gap-2">
-              <Label>Website</Label>
-              <Input value={form.website ?? ""} onChange={set("website")} placeholder="https://…" />
-              {!websiteOk ? <p className="text-xs text-destructive">Must be a link (https://…).</p> : null}
-            </div>
+          <div className="grid gap-2">
+            <Label>Contact info (phones · emails · links, each with a tag)</Label>
+            <ContactsEditor rows={contacts} onChange={setContacts} />
           </div>
 
           <div className="flex items-center justify-between rounded-lg border p-3">

@@ -1,9 +1,32 @@
 import { notFound } from "next/navigation";
-import { getAccount, getViewer, listReassignTargets } from "@/server/data";
+import type { Metadata } from "next";
+import { auth } from "@/lib/auth";
+import { canViewAccount } from "@/lib/rbac";
+import {
+  findAccountRow, getAccount, getViewerByEmail, getViewer, listReassignTargets,
+} from "@/server/data";
 import {
   canEditAccount, canEditRequestState, canReassignAccount,
 } from "@/lib/rbac";
 import { AccountDetailView } from "@/components/crm/account-detail-view";
+
+/** Dynamic tab title = the account name — but ONLY for viewers allowed to see
+ *  it (an unauthorized member never learns the name behind a guessed URL). */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const session = await auth();
+  const email = session?.user?.email?.toLowerCase();
+  if (!email) return { title: "Account" };
+  const viewer = await getViewerByEmail(email);
+  if (!viewer) return { title: "Account" };
+  const account = await findAccountRow(id);
+  if (!account || !canViewAccount(viewer, account)) return { title: "Account" };
+  return { title: account.name };
+}
 
 export default async function AccountPage({
   params, searchParams,

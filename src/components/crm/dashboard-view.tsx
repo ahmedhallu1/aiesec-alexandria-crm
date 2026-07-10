@@ -107,6 +107,7 @@ export function DashboardView({
   ];
   const max = Math.max(total.leads, 1);
   const month = monthRange();
+  const today = new Date().toISOString().slice(0, 10);
   const thisMonthActive = filters.from === month.from && filters.to === month.to;
   const anyFilter = Object.values(filters).some(Boolean);
   const canSetAnyGoal = !!goalCaps.functionGoalFn || goalCaps.teamGoal;
@@ -189,20 +190,28 @@ export function DashboardView({
             </SelectContent>
           </Select>
         ) : null}
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground sm:text-sm">
-          <Input
-            type="date"
-            className="h-9 w-[8.5rem]"
-            value={filters.from}
-            onChange={(e) => setParam("from", e.target.value)}
-          />
-          <span>→</span>
-          <Input
-            type="date"
-            className="h-9 w-[8.5rem]"
-            value={filters.to}
-            onChange={(e) => setParam("to", e.target.value)}
-          />
+        {/* labeled so the boxes are self-explanatory on mobile (no dd/mm/yyyy hint there) */}
+        <div className="flex items-end gap-1.5">
+          <div className="grid gap-0.5">
+            <span className="px-0.5 text-[10px] font-medium text-muted-foreground">Added from</span>
+            <Input
+              type="date"
+              max={today}
+              className="h-9 w-[8.6rem]"
+              value={filters.from}
+              onChange={(e) => setParam("from", e.target.value)}
+            />
+          </div>
+          <div className="grid gap-0.5">
+            <span className="px-0.5 text-[10px] font-medium text-muted-foreground">to</span>
+            <Input
+              type="date"
+              max={today}
+              className="h-9 w-[8.6rem]"
+              value={filters.to}
+              onChange={(e) => setParam("to", e.target.value)}
+            />
+          </div>
         </div>
         {anyFilter ? (
           <Button

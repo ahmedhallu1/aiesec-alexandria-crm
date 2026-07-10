@@ -6,21 +6,21 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   ArrowLeft, CalendarPlus, CheckCircle2, Mail, MessageCircle, MessageSquareText,
-  Phone, Plus, RotateCcw, Trash2, Trophy, XCircle,
+  Phone, Pin, PinOff, RotateCcw, Trophy, XCircle,
 } from "lucide-react";
 import {
   addComment, markSlotRaised, reassignAccount, reportVisit, reviveAccount,
-  scheduleVisit, setOutOfProcess, updateAccount, updateAccountContacts,
+  scheduleVisit, setOutOfProcess, toggleCommentPin, updateAccount, updateAccountContacts,
 } from "@/server/actions";
 import type { CommentWithMember, PipelineRow } from "@/server/data";
 import type { ContactAttempt, Visit } from "@/lib/types";
 import {
-  ACCOUNT_TYPES, cleanPhone, EMAIL_RE, IGT_SUB_PRODUCTS,
-  INDUSTRIES, PHONE_RE, productBadge, URL_RE,
+  ACCOUNT_TYPES, IGT_SUB_PRODUCTS, INDUSTRIES, productBadge,
 } from "@/lib/types";
 import type { AccountContact } from "@/lib/types";
 import { Hint } from "./hint";
 import { MultiPick } from "./multi-pick";
+import { ContactsEditor, contactsValid } from "./contacts-editor";
 import { cn } from "@/lib/utils";
 import { StageBadge } from "./stage-badge";
 import { ContactDialog, type ContactTarget } from "./contact-dialog";
@@ -248,22 +248,17 @@ function ResponsibleRow({
 
 // ------------------------------------------------------------------ cards
 
-/** Details: links + type/industry (multi-select). Phones & emails live in the
- *  tagged Contact info card. */
+/** Details: type / industry / sub-product (multi-select). All phones, emails
+ *  and links live in the tagged Contact info card. */
 function DetailsCard({ account, canEdit }: { account: PipelineRow; canEdit: boolean }) {
   const [form, setForm] = useState({
-    social_link: account.social_link ?? "",
-    website: account.website ?? "",
     account_type: account.account_type ?? "",
     industry: account.industry ?? "",
     sub_product: account.sub_product ?? "",
   });
   const [dirty, setDirty] = useState(false);
   const [pending, start] = useTransition();
-
-  const socialOk = !form.social_link.trim() || URL_RE.test(form.social_link.trim());
-  const websiteOk = !form.website.trim() || URL_RE.test(form.website.trim());
-  const allOk = socialOk && websiteOk;
+  const allOk = true;
 
   const set = (k: keyof typeof form) => (v: string) => {
     setForm((f) => ({ ...f, [k]: v }));
@@ -275,31 +270,6 @@ function DetailsCard({ account, canEdit }: { account: PipelineRow; canEdit: bool
       if (res.ok) { toast.success("Saved"); setDirty(false); }
       else toast.error(res.error);
     });
-
-  const inputRow = (
-    label: string,
-    key: keyof typeof form,
-    ok: boolean,
-    err: string,
-    placeholder?: string
-  ) => (
-    <div key={key} className="grid gap-1 sm:grid-cols-[110px_1fr] sm:items-center sm:gap-2">
-      <Label className="text-xs text-muted-foreground">{label}</Label>
-      {canEdit ? (
-        <div className="min-w-0">
-          <Input
-            className={cn("h-8", !ok && "border-destructive")}
-            value={form[key]}
-            placeholder={placeholder}
-            onChange={(e) => set(key)(e.target.value)}
-          />
-          {!ok ? <p className="mt-0.5 text-xs text-destructive">{err}</p> : null}
-        </div>
-      ) : (
-        <p className="truncate text-sm">{form[key] || "—"}</p>
-      )}
-    </div>
-  );
 
   const listRow = (label: string, key: "account_type") => {
     const value = form[key];
@@ -338,8 +308,6 @@ function DetailsCard({ account, canEdit }: { account: PipelineRow; canEdit: bool
     <Card>
       <CardHeader><CardTitle className="text-base">Details</CardTitle></CardHeader>
       <CardContent className="space-y-3">
-        {inputRow("Social link", "social_link", socialOk, "Must be a link (https://…).", "https://…")}
-        {inputRow("Website", "website", websiteOk, "Must be a link (https://…).", "https://…")}
         {account.function === "IGV" ? (
           <>
             {listRow("Account type", "account_type")}
@@ -382,38 +350,22 @@ function DetailsCard({ account, canEdit }: { account: PipelineRow; canEdit: bool
   );
 }
 
-/** Tagged phones & emails — add as many as the account needs (CEO, HR, …). */
+/** Tagged phones, emails & links — add as many as the account needs. */
 function ContactInfoCard({
   account, canEdit,
 }: { account: PipelineRow; canEdit: boolean }) {
   const initial: AccountContact[] =
     account.contacts && account.contacts.length > 0
       ? account.contacts
-      : [
-          ...(account.phone ? [{ tag: "Contact", kind: "phone" as const, value: account.phone }] : []),
-          ...(account.email ? [{ tag: "Contact", kind: "email" as const, value: account.email }] : []),
-        ];
+      : ([
+          ...(account.phone ? [{ tag: "Contact", kind: "phone", value: account.phone }] : []),
+          ...(account.email ? [{ tag: "Contact", kind: "email", value: account.email }] : []),
+          ...(account.social_link ? [{ tag: "Other", kind: "link", value: account.social_link }] : []),
+          ...(account.website ? [{ tag: "Website", kind: "link", value: account.website }] : []),
+        ] as AccountContact[]);
   const [rows, setRows] = useState<AccountContact[]>(initial);
   const [dirty, setDirty] = useState(false);
   const [pending, start] = useTransition();
-
-  const update = (i: number, patch: Partial<AccountContact>) => {
-    setRows((r) => r.map((c, j) => (j === i ? { ...c, ...patch } : c)));
-    setDirty(true);
-  };
-  const remove = (i: number) => {
-    setRows((r) => r.filter((_, j) => j !== i));
-    setDirty(true);
-  };
-  const add = (kind: "phone" | "email") => {
-    setRows((r) => [...r, { tag: "Contact", kind, value: "" }]);
-    setDirty(true);
-  };
-
-  const rowOk = (c: AccountContact) =>
-    !c.value.trim() ||
-    (c.kind === "phone" ? PHONE_RE.test(cleanPhone(c.value)) : EMAIL_RE.test(c.value.trim()));
-  const allOk = rows.every(rowOk);
 
   const save = () =>
     start(async () => {
@@ -428,65 +380,15 @@ function ContactInfoCard({
         <CardTitle className="text-base">Contact info</CardTitle>
       </CardHeader>
       <CardContent className="space-y-2">
-        {rows.length === 0 ? (
-          <p className="py-1 text-center text-sm text-muted-foreground">
-            No phones or emails yet.
-          </p>
-        ) : null}
-        {rows.map((c, i) => (
-          <div key={i} className="flex items-start gap-1.5">
-            <span className="mt-2 shrink-0 text-muted-foreground">
-              {c.kind === "phone" ? <Phone className="size-3.5" /> : <Mail className="size-3.5" />}
-            </span>
-            <Input
-              className="h-8 w-24 shrink-0 sm:w-28"
-              value={c.tag}
-              disabled={!canEdit}
-              placeholder="Tag"
-              onChange={(e) => update(i, { tag: e.target.value })}
-            />
-            <div className="min-w-0 flex-1">
-              <Input
-                className={cn("h-8", !rowOk(c) && "border-destructive")}
-                value={c.value}
-                disabled={!canEdit}
-                inputMode={c.kind === "phone" ? "tel" : "email"}
-                placeholder={c.kind === "phone" ? "Numbers only (7–15)" : "name@company.com"}
-                onChange={(e) => update(i, { value: e.target.value })}
-              />
-              {!rowOk(c) ? (
-                <p className="mt-0.5 text-xs text-destructive">
-                  {c.kind === "phone" ? "Numbers only, 7–15 digits." : "Valid email only."}
-                </p>
-              ) : null}
-            </div>
-            {canEdit ? (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
-                title="Remove"
-                onClick={() => remove(i)}
-              >
-                <Trash2 className="size-3.5" />
-              </Button>
-            ) : null}
-          </div>
-        ))}
-        {canEdit ? (
-          <div className="flex flex-wrap gap-2 pt-1">
-            <Button size="sm" variant="outline" onClick={() => add("phone")}>
-              <Plus className="size-3.5" /> Phone
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => add("email")}>
-              <Plus className="size-3.5" /> Email
-            </Button>
-            {dirty ? (
-              <Button size="sm" onClick={save} disabled={pending || !allOk}>
-                {pending ? "Saving…" : "Save contact info"}
-              </Button>
-            ) : null}
-          </div>
+        <ContactsEditor
+          rows={rows}
+          disabled={!canEdit}
+          onChange={(r) => { setRows(r); setDirty(true); }}
+        />
+        {canEdit && dirty ? (
+          <Button size="sm" onClick={save} disabled={pending || !contactsValid(rows)}>
+            {pending ? "Saving…" : "Save contact info"}
+          </Button>
         ) : null}
       </CardContent>
     </Card>
@@ -496,14 +398,20 @@ function ContactInfoCard({
 function PodioCard({
   account, canEdit, canEditState,
 }: { account: PipelineRow; canEdit: boolean; canEditState: boolean }) {
+  const router = useRouter();
   const [pending, start] = useTransition();
   const [requested, setRequested] = useState(account.requested_podio);
   const [state, setState] = useState(account.request_state ?? "");
+  const [confirmReject, setConfirmReject] = useState(false);
 
   const save = (patch: { requested_podio?: boolean; request_state?: "Checking" | "Approved" | "Rejected" }) =>
     start(async () => {
       const res = await updateAccount(account.id, patch);
-      if (!res.ok) toast.error(res.error);
+      if (!res.ok) { toast.error(res.error); return; }
+      if (patch.request_state === "Rejected") {
+        toast.success(`"${account.name}" archived — Podio request rejected.`);
+        router.refresh();
+      }
     });
 
   return (
@@ -524,15 +432,18 @@ function PodioCard({
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-sm font-medium">Request state</p>
-            <p className="text-xs text-muted-foreground">Set by TL / Coordinator / VP</p>
+            <p className="text-xs text-muted-foreground">
+              Set by TL / Coordinator / VP · Rejected = archived
+            </p>
           </div>
           <Select
             value={state || "__none"}
             disabled={!canEditState || pending}
             onValueChange={(v) => {
               const val = v === "__none" ? "" : v;
+              if (val === "Rejected") { setConfirmReject(true); return; }
               setState(val);
-              if (val) save({ request_state: val as "Checking" | "Approved" | "Rejected" });
+              if (val) save({ request_state: val as "Checking" | "Approved" });
             }}
           >
             <SelectTrigger className="w-36"><SelectValue placeholder="—" /></SelectTrigger>
@@ -545,6 +456,36 @@ function PodioCard({
           </Select>
         </div>
       </CardContent>
+
+      {/* Rejected on Podio closes the account — confirm first */}
+      <Dialog open={confirmReject} onOpenChange={setConfirmReject}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>⚠️ Reject the Podio request?</DialogTitle>
+            <DialogDescription>
+              A rejected Podio request closes the account: <b>{account.name}</b> moves
+              to the archive (Out of Process) and its name can never be added
+              again — exactly like &quot;Not Interested&quot;.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setConfirmReject(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={pending}
+              onClick={() => {
+                setState("Rejected");
+                setConfirmReject(false);
+                save({ request_state: "Rejected" });
+              }}
+            >
+              Reject & archive
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
@@ -618,6 +559,14 @@ function CommentsCard({
       title: c.author_label === "Member" ? `Comment #${n}` : `${c.author_label} Comment #${n}`,
     };
   });
+  // pinned first, then newest
+  const ordered = [...numbered].sort((a, b) =>
+    a.pinned === b.pinned
+      ? b.created_at.localeCompare(a.created_at)
+      : a.pinned
+        ? -1
+        : 1
+  );
 
   const submit = () =>
     start(async () => {
@@ -625,6 +574,15 @@ function CommentsCard({
       if (res.ok) {
         toast.success("Comment logged");
         setBody("");
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
+  const togglePin = (id: string, pinned: boolean) =>
+    start(async () => {
+      const res = await toggleCommentPin(id, pinned);
+      if (res.ok) {
+        toast.success(pinned ? "📌 Pinned — it now shows on the accounts list" : "Unpinned");
         router.refresh();
       } else toast.error(res.error);
     });
@@ -641,15 +599,22 @@ function CommentsCard({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {numbered.length === 0 ? (
+        {ordered.length === 0 ? (
           <p className="py-2 text-center text-sm text-muted-foreground">
             No comments yet.
           </p>
         ) : (
           <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
-            {[...numbered].reverse().map((c) => (
-              <div key={c.id} className="rounded-lg border p-2.5 text-sm">
+            {ordered.map((c) => (
+              <div
+                key={c.id}
+                className={cn(
+                  "rounded-lg border p-2.5 text-sm",
+                  c.pinned && "border-warning/60 bg-warning/10"
+                )}
+              >
                 <div className="mb-1 flex flex-wrap items-center gap-2">
+                  {c.pinned ? <Pin className="size-3.5 fill-current text-warning" /> : null}
                   <Badge
                     className={cn(
                       "border-transparent",
@@ -662,10 +627,23 @@ function CommentsCard({
                   >
                     {c.title}
                   </Badge>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
                     {c.member?.nickname || c.member?.name || "—"} ·{" "}
                     {new Date(c.created_at).toLocaleString()}
                   </span>
+                  {canComment ? (
+                    <Hint label={c.pinned ? "Unpin this comment" : "Pin — highlights it AND shows a 📌 on the accounts list"}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-6 text-muted-foreground hover:text-warning"
+                        disabled={pending}
+                        onClick={() => togglePin(c.id, !c.pinned)}
+                      >
+                        {c.pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+                      </Button>
+                    </Hint>
+                  ) : null}
                 </div>
                 <p className="whitespace-pre-wrap">{c.body}</p>
               </div>

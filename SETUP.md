@@ -19,6 +19,8 @@ Work through the sections in order; each produces env vars for `.env.local`
    (final membership structure, password auth, numbered comments, call scheduling).
 4. SQL Editor → paste and run **`supabase/migrations/0003_ops_v2.sql`**
    (tagged multi contacts per account + performance goals).
+5. SQL Editor → paste and run **`supabase/migrations/0004_pins_v2.sql`**
+   (pinned comments + 📌 on the accounts list).
 3. Project Settings → API:
    - `SUPABASE_URL` = Project URL
    - `SUPABASE_SERVICE_ROLE_KEY` = `service_role` secret key

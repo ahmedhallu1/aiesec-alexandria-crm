@@ -17,7 +17,8 @@ dashboard engine is the reusable blueprint for the upcoming OGV/OGT modules.
 | Theme | AIESEC Blue `#0A2540` / Cyan `#037EF3`, light & dark via device preference |
 | Mobile | Installable PWA; `/.well-known/assetlinks.json` stub ready for a future Play Store TWA |
 
-**Setup instructions live in [SETUP.md](./SETUP.md).**
+**Setup instructions live in [SETUP.md](./SETUP.md). The living, always-current
+system documentation is [AI_CONTEXT.md](./AI_CONTEXT.md) — update it with every change.**
 
 ---
 

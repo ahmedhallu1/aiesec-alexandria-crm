@@ -30,6 +30,8 @@ export default async function AccountsPage({
       params.flag === "contact_limit" || params.flag === "next_step_missing"
         ? params.flag
         : undefined,
+    from: params.from || undefined,
+    to: params.to || undefined,
     archived,
   };
 
@@ -64,6 +66,8 @@ export default async function AccountsPage({
         stage: params.stage ?? "",
         resp: params.resp ?? "",
         flag: params.flag ?? "",
+        from: params.from ?? "",
+        to: params.to ?? "",
         archived: archived ? "1" : "",
       }}
     />

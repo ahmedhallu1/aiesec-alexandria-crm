@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 
 interface ProfileInfo {
   name: string;
@@ -168,8 +169,7 @@ export function ProfileView({ member }: { member: ProfileInfo }) {
           {member.hasPassword ? (
             <div className="grid gap-1.5">
               <Label>Current password</Label>
-              <Input
-                type="password"
+              <PasswordInput
                 autoComplete="current-password"
                 value={current}
                 onChange={(e) => setCurrent(e.target.value)}
@@ -178,8 +178,7 @@ export function ProfileView({ member }: { member: ProfileInfo }) {
           ) : null}
           <div className="grid gap-1.5">
             <Label>New password</Label>
-            <Input
-              type="password"
+            <PasswordInput
               autoComplete="new-password"
               value={next}
               onChange={(e) => setNext(e.target.value)}
@@ -188,8 +187,7 @@ export function ProfileView({ member }: { member: ProfileInfo }) {
           </div>
           <div className="grid gap-1.5">
             <Label>Confirm new password</Label>
-            <Input
-              type="password"
+            <PasswordInput
               autoComplete="new-password"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}

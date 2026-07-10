@@ -8,6 +8,7 @@ import { completeOnboarding } from "@/server/actions";
 import { ADMIN_EMAIL, cleanPhone, PHONE_RE } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 
@@ -131,8 +132,7 @@ export function OnboardingForm({ member }: { member: MemberInfo }) {
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="grid gap-1.5">
             <Label>New password *</Label>
-            <Input
-              type="password"
+            <PasswordInput
               autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -141,8 +141,7 @@ export function OnboardingForm({ member }: { member: MemberInfo }) {
           </div>
           <div className="grid gap-1.5">
             <Label>Confirm password *</Label>
-            <Input
-              type="password"
+            <PasswordInput
               autoComplete="new-password"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}

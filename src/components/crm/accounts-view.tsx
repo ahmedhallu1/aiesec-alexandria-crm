@@ -4,15 +4,16 @@ import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  AlertTriangle, Archive, CalendarClock, FileUp, Loader2, Phone, Plus, Search, X,
+  AlertTriangle, Archive, FileUp, Loader2, Phone, Pin, Plus, Search, X,
 } from "lucide-react";
 import type { PipelineRow } from "@/server/data";
-import { productBadge, STAGES } from "@/lib/types";
+import { accountSlug, productBadge, STAGES } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { StageBadge } from "./stage-badge";
 import { ContactDialog, type ContactTarget } from "./contact-dialog";
 import { AddAccountDialog, type MemberOption } from "./add-account-dialog";
 import { Hint } from "./hint";
+import { QuickActions } from "./quick-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -32,7 +33,6 @@ interface ViewerInfo {
   canViewArchive: boolean;
   allowedFns: ("IGV" | "IGT")[];
   showFnFilter: boolean;
-  /** members who only ever see their own accounts don't need a Responsible column */
   seesOthers: boolean;
 }
 
@@ -42,6 +42,19 @@ function FnBadge({ row, className }: { row: PipelineRow; className?: string }) {
     <Badge className={cn("border-transparent text-[10px] font-bold", b.bg, b.text, className)}>
       {b.label}
     </Badge>
+  );
+}
+
+/** 📌 sign for accounts carrying a pinned note — hover shows the note so nobody
+ *  contacts the account without reading it first. */
+function PinSign({ text }: { text: string | null }) {
+  if (!text) return null;
+  return (
+    <Hint label={`📌 ${text}`} side="bottom">
+      <span className="inline-flex cursor-help text-warning">
+        <Pin className="size-3.5 fill-current" />
+      </span>
+    </Hint>
   );
 }
 
@@ -81,7 +94,9 @@ export function AccountsView({
   const archived = filters.archived === "1";
   const anyFilter = Object.values(filters).some(Boolean);
   const stageOptions = STAGES.filter((s) => s !== "Out of Process");
+  const today = new Date().toISOString().slice(0, 10);
 
+  const hrefFor = (row: PipelineRow) => `/accounts/${accountSlug(row.name)}`;
   const contactFor = (row: PipelineRow): ContactTarget => ({
     id: row.id,
     name: row.name,
@@ -160,7 +175,7 @@ export function AccountsView({
         ) : null}
         {!archived ? (
           <FilterSelect
-            value={filters.stage} placeholder="Stage"
+            value={filters.stage} placeholder="Status"
             onChange={(v) => setParam("stage", v)}
             options={stageOptions.map((s) => [s, s])}
           />
@@ -182,6 +197,29 @@ export function AccountsView({
             ]}
           />
         ) : null}
+        {/* Date added range */}
+        <div className="flex items-end gap-1.5">
+          <div className="grid gap-0.5">
+            <span className="px-0.5 text-[10px] font-medium text-muted-foreground">Added from</span>
+            <Input
+              type="date"
+              max={today}
+              className="h-9 w-[8.6rem]"
+              value={filters.from}
+              onChange={(e) => setParam("from", e.target.value)}
+            />
+          </div>
+          <div className="grid gap-0.5">
+            <span className="px-0.5 text-[10px] font-medium text-muted-foreground">to</span>
+            <Input
+              type="date"
+              max={today}
+              className="h-9 w-[8.6rem]"
+              value={filters.to}
+              onChange={(e) => setParam("to", e.target.value)}
+            />
+          </div>
+        </div>
         {anyFilter ? (
           <Button variant="ghost" size="sm" onClick={() => { setQ(""); startNav(() => router.replace("/accounts")); }}>
             <X className="size-4" /> Clear
@@ -202,12 +240,14 @@ export function AccountsView({
             <Card
               key={row.id}
               className={cn("rise-in", i < 4 && `rise-in-${i + 1}`)}
-              onClick={() => router.push(`/accounts/${row.id}`)}
+              onClick={() => router.push(hrefFor(row))}
             >
               <CardContent className="space-y-2 p-3.5">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="truncate font-semibold">{row.name}</p>
+                    <p className="flex items-center gap-1.5 truncate font-semibold">
+                      {row.name} <PinSign text={row.pinned_comment} />
+                    </p>
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
                       <FnBadge row={row} />
                       <StageBadge stage={row.stage} className="text-[10px]" />
@@ -230,47 +270,40 @@ export function AccountsView({
                     </Button>
                   ) : null}
                 </div>
+                {row.pinned_comment ? (
+                  <p className="rounded-md bg-warning/10 px-2 py-1 text-xs text-warning">
+                    📌 {row.pinned_comment}
+                  </p>
+                ) : null}
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                  {viewer.seesOthers ? (
-                    <span>👤 {row.responsible_nickname || row.responsible_name}</span>
-                  ) : null}
+                  <span>🗓️ {row.created_at?.slice(0, 10)}</span>
                   <span>📞 {row.attempts} contact{row.attempts === 1 ? "" : "s"}</span>
                   {archived ? (
                     <span className="text-destructive">🗄️ {row.oop_reason ?? "archived"}</span>
-                  ) : (
-                    <>
-                      {row.next_step_date ? <span>⏭️ {row.next_step_date}</span> : null}
-                      {row.visit_date ? (
-                        <span>🗓️ {row.visit_date}{row.visit_done === true ? " ✓" : ""}</span>
-                      ) : null}
-                    </>
-                  )}
+                  ) : row.next_step_date ? (
+                    <span>⏭️ {row.next_step_date}</span>
+                  ) : null}
                 </div>
+                {!archived ? <QuickActions contacts={row.contacts} max={6} /> : null}
               </CardContent>
             </Card>
           ))
         )}
       </div>
 
-      {/* Desktop: table */}
+      {/* Desktop: table — Date added · Account · Product · Status · Contacts · Next step · Quick actions */}
       <div className="hidden overflow-hidden rounded-xl border bg-card md:block rise-in rise-in-2">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>Date added</TableHead>
                 <TableHead>Account</TableHead>
-                {viewer.seesOthers ? <TableHead>Responsible</TableHead> : null}
-                <TableHead>Stage</TableHead>
+                <TableHead>Product</TableHead>
+                <TableHead>Status</TableHead>
                 <TableHead className="text-center">Contacts</TableHead>
-                {archived ? (
-                  <TableHead>Reason</TableHead>
-                ) : (
-                  <>
-                    <TableHead>Next step</TableHead>
-                    <TableHead>Visit</TableHead>
-                  </>
-                )}
-                <TableHead></TableHead>
+                {archived ? <TableHead>Reason</TableHead> : <TableHead>Next step</TableHead>}
+                <TableHead>{archived ? "" : "Quick actions"}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -285,23 +318,29 @@ export function AccountsView({
                   <TableRow
                     key={row.id}
                     className="cursor-pointer"
-                    onClick={() => router.push(`/accounts/${row.id}`)}
+                    onClick={() => router.push(hrefFor(row))}
                   >
-                    <TableCell>
-                      <Link
-                        href={`/accounts/${row.id}`}
-                        className="font-medium hover:text-primary"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {row.name}
-                      </Link>
-                      <FnBadge row={row} className="ml-2" />
+                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                      {row.created_at?.slice(0, 10)}
                     </TableCell>
-                    {viewer.seesOthers ? (
-                      <TableCell className="text-sm">
-                        {row.responsible_nickname || row.responsible_name}
-                      </TableCell>
-                    ) : null}
+                    <TableCell>
+                      <span className="inline-flex items-center gap-1.5">
+                        <Link
+                          href={hrefFor(row)}
+                          className="font-medium hover:text-primary"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {row.name}
+                        </Link>
+                        <PinSign text={row.pinned_comment} />
+                      </span>
+                      {viewer.seesOthers ? (
+                        <p className="text-xs text-muted-foreground">
+                          {row.responsible_nickname || row.responsible_name}
+                        </p>
+                      ) : null}
+                    </TableCell>
+                    <TableCell><FnBadge row={row} /></TableCell>
                     <TableCell><StageBadge stage={row.stage} /></TableCell>
                     <TableCell className="text-center">
                       <span className="inline-flex items-center gap-1">
@@ -316,39 +355,34 @@ export function AccountsView({
                         {row.oop_reason ?? "—"}
                       </TableCell>
                     ) : (
-                      <>
-                        <TableCell className="text-sm">
-                          {row.next_step_missing ? (
-                            <Badge variant="destructive" className="font-normal">missing</Badge>
-                          ) : row.next_step_date ? (
-                            <span className="text-muted-foreground">{row.next_step_date}</span>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {row.visit_date ? (
-                            <span className="inline-flex items-center gap-1">
-                              <CalendarClock className="size-3.5" />
-                              {row.visit_date}
-                              {row.visit_done === true ? " ✓" : ""}
-                            </span>
-                          ) : "—"}
-                        </TableCell>
-                      </>
+                      <TableCell className="max-w-44 text-sm">
+                        {row.next_step_missing ? (
+                          <Badge variant="destructive" className="font-normal">missing</Badge>
+                        ) : row.next_step_date ? (
+                          <span className="text-muted-foreground">
+                            {row.next_step_date}
+                            {row.next_step ? ` · ${row.next_step.slice(0, 24)}` : ""}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
                     )}
                     <TableCell onClick={(e) => e.stopPropagation()}>
-                      {!row.out_of_process && !row.slot_raised ? (
-                        <Hint label="Log a call / WhatsApp / email attempt on this account">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setContactTarget(contactFor(row))}
-                          >
-                            <Phone className="size-3.5" /> Contact
-                          </Button>
-                        </Hint>
-                      ) : null}
+                      <div className="flex items-center gap-1.5">
+                        {!archived ? <QuickActions contacts={row.contacts} /> : null}
+                        {!row.out_of_process && !row.slot_raised ? (
+                          <Hint label="Log a call / WhatsApp / email attempt on this account">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setContactTarget(contactFor(row))}
+                            >
+                              <Phone className="size-3.5" /> Log
+                            </Button>
+                          </Hint>
+                        ) : null}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))

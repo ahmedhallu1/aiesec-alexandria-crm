@@ -121,12 +121,22 @@ export interface Member {
   photo_url: string | null;
 }
 
-/** A tagged phone number or email on an account ("CEO", "HR", …). */
+/** A tagged phone number, email or link on an account ("CEO", "LinkedIn", …). */
 export interface AccountContact {
   tag: string;
-  kind: "phone" | "email";
+  kind: "phone" | "email" | "link";
   value: string;
 }
+
+/** Tag choices for phones & emails ("Other" = free text). */
+export const CONTACT_TAGS = [
+  "Contact", "Whatsapp", "Manager", "HR", "CEO", "Owner", "Other",
+] as const;
+
+/** Tag choices for links ("Other" = free text). */
+export const LINK_TAGS = [
+  "Website", "LinkedIn", "Instagram", "Facebook", "Other",
+] as const;
 
 export interface Account {
   id: string;
@@ -180,6 +190,8 @@ export interface AccountPipeline extends Account {
   stage: Stage;
   contact_limit_reached: boolean;
   next_step_missing: boolean;
+  /** latest pinned comment — surfaced as a 📌 on the accounts list */
+  pinned_comment: string | null;
 }
 
 export interface ContactAttempt {
@@ -212,6 +224,7 @@ export interface AccountComment {
   member_id: string | null;
   author_label: CommentLabel;
   body: string;
+  pinned: boolean;
   created_at: string;
 }
 
@@ -234,13 +247,82 @@ export function normalizeName(name: string): string {
 
 // ------------------------------------------------------------------ validation
 
-/** Phone: digits only (optional leading +), 7–15 digits. */
+/** Loose shape check (server safety net) — real validation is normalizePhone. */
 export const PHONE_RE = /^\+?\d{7,15}$/;
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 export const URL_RE = /^https?:\/\/\S+\.\S+/i;
 
 export function cleanPhone(raw: string): string {
   return raw.replace(/[\s\-().]/g, "");
+}
+
+export interface PhoneCheck {
+  ok: boolean;
+  /** canonical value, e.g. +201099019374 or +2034831234 */
+  value: string;
+  error?: string;
+}
+
+/** Cleans & normalizes numbers to a canonical format.
+ *  Egyptian mobile:   +201[0/1/2/5] + 8 digits
+ *  Egyptian landline: +203 + 7 digits (Alexandria) or +202 + 7–8 digits (Cairo)
+ *  Anything else must be full international: +<7–15 digits>. */
+export function normalizePhone(raw: string): PhoneCheck {
+  let v = cleanPhone(raw);
+  if (!v) return { ok: false, value: "", error: "Empty number." };
+  if (v.startsWith("00")) v = `+${v.slice(2)}`;
+
+  // pull out the Egyptian national part when we can recognize it
+  let nat: string | null = null;
+  if (v.startsWith("+20")) nat = v.slice(3);
+  else if (/^20\d{8,}$/.test(v)) nat = v.slice(2);
+  else if (v.startsWith("0")) nat = v.slice(1);
+  else if (/^1[0125]\d{8}$/.test(v) || /^[23]\d{7,8}$/.test(v)) nat = v;
+
+  if (nat !== null) {
+    if (/^1[0125]\d{8}$/.test(nat)) return { ok: true, value: `+20${nat}` }; // mobile
+    if (/^3\d{7}$/.test(nat)) return { ok: true, value: `+20${nat}` }; // Alexandria landline
+    if (/^2\d{7,8}$/.test(nat)) return { ok: true, value: `+20${nat}` }; // Cairo landline
+    return {
+      ok: false,
+      value: v,
+      error: "Egyptian numbers: mobile 01[0/1/2/5]XXXXXXXX or landline 03XXXXXXX (02 for Cairo).",
+    };
+  }
+  if (/^\+\d{7,15}$/.test(v)) return { ok: true, value: v }; // other international
+  return {
+    ok: false,
+    value: v,
+    error: "Use an Egyptian number (01… mobile, 03… landline) or a full international one starting with +.",
+  };
+}
+
+/** URL slug for an account — names are unique across all ICX, so the slug is too. */
+export function accountSlug(name: string): string {
+  return encodeURIComponent(normalizeName(name).replace(/\s+/g, "-"));
+}
+
+/** Quick-action targets from an account's tagged contacts.
+ *  WhatsApp uses the number tagged "Whatsapp" (falls back to the first phone);
+ *  Call uses the first non-Whatsapp phone (falls back to any phone). */
+export function quickActions(contacts: AccountContact[] | null | undefined): {
+  whatsapp: string | null;
+  call: string | null;
+  email: string | null;
+  links: AccountContact[];
+} {
+  const list = contacts ?? [];
+  const phones = list.filter((c) => c.kind === "phone" && c.value);
+  const wa = phones.find((c) => c.tag.toLowerCase() === "whatsapp") ?? phones[0] ?? null;
+  const call =
+    phones.find((c) => c.tag.toLowerCase() !== "whatsapp") ?? phones[0] ?? null;
+  const email = list.find((c) => c.kind === "email" && c.value) ?? null;
+  return {
+    whatsapp: wa ? wa.value.replace(/\D/g, "") : null,
+    call: call ? call.value : null,
+    email: email ? email.value : null,
+    links: list.filter((c) => c.kind === "link" && c.value),
+  };
 }
 
 // ------------------------------------------------------------------ function colors
