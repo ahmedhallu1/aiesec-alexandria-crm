@@ -110,8 +110,9 @@ export function canEditRequestState(v: Viewer, a: AccountLike): boolean {
 }
 
 /** Numbered comments carry the author's label at the time of writing. */
-export function commentLabel(v: Viewer): "Member" | "TL" | "VP" | "LCP" {
-  if (v.isAdmin || v.role === "LCP") return "LCP";
+export function commentLabel(v: Viewer): "Member" | "TL" | "VP" | "LCP" | "Admin" {
+  if (v.role === "LCP") return "LCP";
+  if (v.isAdmin) return "Admin"; // the IM director is Admin, not the LCP
   if (v.role === "LCVP" || v.role === "Director") return "VP";
   if (v.role === "Team Leader") return "TL";
   return "Member";

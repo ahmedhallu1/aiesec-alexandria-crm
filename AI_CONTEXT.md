@@ -4,7 +4,7 @@
 > to the system (feature, rule, route, schema, env var, deployment fact).
 > Add a dated entry to the **Changelog** at the bottom. No secrets in this file.
 
-Last updated: 2026-07-10 · Version: v5
+Last updated: 2026-07-11 · Version: v6
 
 ---
 
@@ -21,14 +21,14 @@ the blueprint for future OGX/other-function modules.
 | Repo | github.com/ahmedhallu1/aiesec-alexandria-crm (private) |
 | Vercel project | `aiesec-alexandria-crm` (scope `ahmedhallu1s-projects`) — deploy with `vercel deploy --prod` |
 | Stack | Next.js 16 (App Router, Turbopack) · React 19 · Tailwind v4 · shadcn/ui · Supabase (Postgres, project `iesrpuuoduxtihuaqfic`) |
-| Auth | Auth.js v5: **FIRST sign-in is Google-only** (grants `calendar` + `gmail.send` scopes for current & upcoming features) → onboarding sets a password → afterwards email+password OR Google both work. Password reset = IM clears the hash → member signs in with Google again |
+| Auth | Auth.js v5: **FIRST sign-in is Google-only** (grants `calendar` + `gmail.compose`) → onboarding sets a password → afterwards email+password OR Google both work. Password reset = IM clears the hash → member signs in with Google again |
 | Google | Service account (Sheets sync) · Gmail API from `ahmedhallul@aiesec.net` · Calendar events on each member's own calendar |
 | Cron | Supabase `pg_cron` + `pg_net` → `/api/cron/*` (visit-followups 15 min · membership-import 30 min · sheets-export hourly) |
 | Admin | `ADMIN_EMAILS` env (= IM director, treated as LCP) |
 
 **Migrations** live in `supabase/migrations/` and are run **manually** in the
 Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v2`
-→ `0003_ops_v2` → `0004_pins_v2` → `0005_deals`.
+→ `0003_ops_v2` → `0004_pins_v2` → `0005_deals` → `0006_admin_label`.
 
 ---
 
@@ -89,8 +89,17 @@ mutation through a `can*` predicate, **server-side**.
   canonical `+201[0/1/2/5]XXXXXXXX`; landline → `+203XXXXXXX` (Alexandria) /
   `+202…` (Cairo); anything else must be full international `+<7–15 digits>`.
 - **Comments**: unlimited, auto-numbered per author class (`Comment #n`,
-  `TL/VP/LCP Comment #n`). Any comment can be **pinned** → highlighted in the
-  card AND shown as a 📌 on the accounts list (hover reveals the text).
+  `TL/VP/LCP/Admin Comment #n` — the IM director's label is **Admin**, not LCP).
+  Any comment can be **pinned** → highlighted in the card AND shown as a ❗
+  (CircleAlert) on the accounts list; hover reveals the text.
+- **ICX Proposal Email** (`src/lib/email/proposal.ts` + `createProposalDraft`):
+  the "Proposal email" button on every account opens a popup (recipient,
+  sector, custom note, attachments note — product auto-detected iGV/iGTa/iGTe,
+  company prefilled). It creates a ready-to-send DRAFT **in the member's own
+  Gmail** via their `gmail.compose` grant; the UI reminds them to review,
+  attach files and hit send (email goes out from THEIR address). Sets
+  `proposal_sent` on the account. Members who signed in before the scope
+  change must re-login with Google once.
 - **Contact log results**: No Response / Responded / Interested / Not Interested
   (archives) / Wrong Contact / **Call Scheduled** (requires date+time → becomes
   the next step). Golden rule: every in-process account carries a next step
@@ -127,6 +136,11 @@ mutation through a `can*` predicate, **server-side**.
 
 ## 5. Dashboard
 
+**Teams are real Team Leaders only** — the EB (IRIS) is never a "team": VP/
+admin-owned accounts don't create an EB row in team drills/leaderboards, and
+the team goal/leaderboard cards only appear when the viewer's manager is an
+actual Team Leader.
+
 **KPI row (this exact order, nothing else):** Market Research (total accounts) ·
 Contacted · Visits (scheduled) · Visits done · Deals (count of deals, not
 accounts) · Slots raised · Lead → Deal (% of accounts reaching a deal).
@@ -147,6 +161,13 @@ cards were removed on request; flags remain reachable via accounts filters.)
 ---
 
 ## 6. UX conventions
+
+**Loading = the walking AIESEC human** (`public/brand/walk.webp`, 68KB looping
+alpha WebP converted from the official brand `.mov`; component
+`WalkingLoader`, used inside `PageSkeleton`). Motion system (all
+`prefers-reduced-motion`-safe): `rise-in` entrances, KPI **count-up** numbers,
+card hover-lift, button press scale, nav-pending shimmer, and a **confetti
+burst** when a deal is recorded.
 
 - **Mobile-first**: card lists replace tables on phones; `<main>` needs
   `min-w-0` (flex) — tables otherwise inflate the page width.
@@ -209,6 +230,17 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-07-11 · v6** — Account type vs industry lists de-overlapped (type =
+  WHAT the business is; industry = its DOMAIN: Software/Marketing/Engineering/
+  Architecture/Education/Healthcare/Law/Finance/Real Estate/Tourism/Other);
+  team drills/leaderboards exclude the EB (real Team Leaders only); WhatsApp
+  glyph in the log-contact method select; walking-AIESEC-human loader
+  everywhere; **Admin** comment label for the IM director (migration 0006);
+  pinned sign on the list is now a pulsing ❗; **ICX Proposal Email integrated**
+  (per-product Gmail drafts in the member's own mailbox, gmail.compose scope);
+  animation pass: count-up KPIs, hover-lift cards, press-scale buttons,
+  confetti on recorded deals.
 
 - **2026-07-10 · v5** — IGV **Project restored everywhere** (required at
   create/import, badge on detail, text next to the IGV badge on the list,

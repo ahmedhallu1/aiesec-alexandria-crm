@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  AlertTriangle, Archive, FileUp, Loader2, Phone, Pin, Plus, Search, X,
+  AlertTriangle, Archive, CircleAlert, FileUp, Loader2, Phone, Plus, Search, X,
 } from "lucide-react";
 import type { PipelineRow } from "@/server/data";
 import { accountSlug, IGV_PROJECTS, productBadge, STAGES } from "@/lib/types";
@@ -50,14 +50,14 @@ function FnBadge({ row, className }: { row: PipelineRow; className?: string }) {
   );
 }
 
-/** 📌 sign for accounts carrying a pinned note — hover shows the note so nobody
+/** ❗ sign for accounts carrying a pinned note — hover shows the note so nobody
  *  contacts the account without reading it first. */
 function PinSign({ text }: { text: string | null }) {
   if (!text) return null;
   return (
-    <Hint label={`📌 ${text}`} side="bottom">
+    <Hint label={`❗ ${text}`} side="bottom">
       <span className="inline-flex cursor-help text-warning">
-        <Pin className="size-3.5 fill-current" />
+        <CircleAlert className="size-4 animate-pulse" />
       </span>
     </Hint>
   );
@@ -284,7 +284,7 @@ export function AccountsView({
                 </div>
                 {row.pinned_comment ? (
                   <p className="rounded-md bg-warning/10 px-2 py-1 text-xs text-warning">
-                    📌 {row.pinned_comment}
+                    ❗ {row.pinned_comment}
                   </p>
                 ) : null}
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">

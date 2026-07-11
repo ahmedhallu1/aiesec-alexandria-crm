@@ -9,10 +9,11 @@ export const authConfig = {
     Google({
       authorization: {
         params: {
-          // Full calendar (visit reminders + future availability features) and
-          // gmail.send (future: emails sent on the member's own behalf).
+          // Full calendar (visit reminders + availability features) and
+          // gmail.compose (proposal DRAFTS created in the member's own Gmail,
+          // which they review and send themselves).
           scope:
-            "openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.send",
+            "openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.compose",
           access_type: "offline",
           prompt: "consent",
         },

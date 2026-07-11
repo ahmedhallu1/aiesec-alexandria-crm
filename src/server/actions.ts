@@ -1227,3 +1227,81 @@ export async function importAccountsBulk(
   refresh();
   return { ok: true, data: { results, created } };
 }
+
+// ================================================================== proposal drafts
+
+const proposalSchema = z.object({
+  accountId: z.string().uuid(),
+  recipientName: z.string().trim().min(2, "Who is this proposal addressed to?"),
+  recipientEmail: z
+    .string()
+    .trim()
+    .refine((v) => EMAIL_RE.test(v), "A valid recipient email is required."),
+  sector: z.string().trim().nullish(),
+  customNote: z.string().trim().nullish(),
+  attachmentsNote: z.string().trim().nullish(),
+});
+
+/** ICX Proposal Email: builds the product-specific outreach draft and places
+ *  it in the MEMBER's own Gmail drafts (gmail.compose from their Google
+ *  sign-in). The member reviews, attaches files if needed, and sends it —
+ *  the email goes out from THEIR address. */
+export async function createProposalDraft(
+  input: z.infer<typeof proposalSchema>
+): Promise<ActionResult<{ product: string }>> {
+  const viewer = await getViewer();
+  const parsed = proposalSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0].message);
+  const { accountId, recipientName, recipientEmail, sector, customNote, attachmentsNote } =
+    parsed.data;
+
+  const account = await loadAccount(accountId);
+  if (!account || !canEditAccount(viewer, account))
+    return fail("You are not allowed to work on this account.", "forbidden");
+
+  if (!viewer.google_refresh_token)
+    return fail(
+      "Your Google access is missing — sign out, then sign in with Google once to grant it (it also powers your calendar reminders)."
+    );
+
+  const product =
+    account.function === "IGV" ? "iGV" : account.product === "GTe" ? "iGTe" : "iGTa";
+
+  const { proposalDraft } = await import("@/lib/email/proposal");
+  const draft = proposalDraft({
+    product,
+    companyName: account.name,
+    recipientName,
+    sector: sector || account.industry || account.sub_product || null,
+    customNote: customNote || null,
+    attachmentsNote: attachmentsNote || null,
+    memberName: viewer.name,
+    memberRole: `${viewer.role}${viewer.functions.length ? ` — ${viewer.functions.join(" & ")}` : ""}`,
+    memberPhone: viewer.phone,
+    memberEmail: viewer.email,
+  });
+
+  try {
+    const { createMemberDraft } = await import("@/lib/google/gmail");
+    const draftId = await createMemberDraft(viewer.google_refresh_token, {
+      to: recipientEmail,
+      subject: draft.subject,
+      html: draft.html,
+    });
+    if (!draftId) return fail("Google didn't accept the draft — try again.");
+  } catch (e) {
+    console.error("[proposal] draft failed:", e);
+    return fail(
+      "Couldn't create the draft. Sign out and sign in with Google again to refresh your access, then retry."
+    );
+  }
+
+  // proposal drafted → mark the flag the sheet mirrors track
+  await db().from("accounts").update({ proposal_sent: true }).eq("id", accountId);
+  await logAudit(viewer.id, "proposal_draft", "account", accountId, {
+    product,
+    to: recipientEmail,
+  });
+  refresh(accountId);
+  return { ok: true, data: { product } };
+}

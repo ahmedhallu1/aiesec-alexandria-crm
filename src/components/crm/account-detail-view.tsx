@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  ArrowLeft, CalendarPlus, CheckCircle2, Mail, MessageSquareText,
+  ArrowLeft, CalendarPlus, CheckCircle2, FileText, Mail, MessageSquareText,
   Phone, Pin, PinOff, RotateCcw, Trophy, XCircle,
 } from "lucide-react";
 import {
@@ -22,6 +22,8 @@ import { Hint } from "./hint";
 import { MultiPick } from "./multi-pick";
 import { ContactsEditor, contactsValid } from "./contacts-editor";
 import { WhatsAppIcon } from "./icons";
+import { ProposalDialog } from "./proposal-dialog";
+import { ConfettiBurst } from "./confetti";
 import { cn } from "@/lib/utils";
 import { StageBadge } from "./stage-badge";
 import { ContactDialog, type ContactTarget } from "./contact-dialog";
@@ -75,6 +77,7 @@ export function AccountDetailView({
   const [reportOpen, setReportOpen] = useState(!!autoReportVisitId && !!reportableVisit);
   const [oopOpen, setOopOpen] = useState(false);
   const [dealOpen, setDealOpen] = useState(false);
+  const [proposalOpen, setProposalOpen] = useState(false);
 
   const contactTarget: ContactTarget = {
     id: account.id,
@@ -141,6 +144,11 @@ export function AccountDetailView({
                     {pendingVisit ? "Reschedule visit" : "Schedule visit"}
                   </Button>
                 </Hint>
+                <Hint label="Generate the ICX proposal email as a draft in YOUR Gmail — review & send it yourself">
+                  <Button variant="outline" onClick={() => setProposalOpen(true)}>
+                    <FileText className="size-4" /> Proposal email
+                  </Button>
+                </Hint>
                 {reportableVisit ? (
                   <Hint label="Tell your leaders how the visit went — they're notified instantly">
                     <Button variant="outline" onClick={() => setReportOpen(true)}>
@@ -199,6 +207,7 @@ export function AccountDetailView({
         <ReportVisitDialog visit={reportableVisit} open={reportOpen} onOpenChange={setReportOpen} />
       ) : null}
       <OopDialog accountId={account.id} open={oopOpen} onOpenChange={setOopOpen} />
+      <ProposalDialog account={account} open={proposalOpen} onOpenChange={setProposalOpen} />
       <DealDialog
         accountId={account.id}
         dealNumber={account.deals_count + 1}
@@ -655,7 +664,9 @@ function CommentsCard({
                         ? "bg-muted text-muted-foreground"
                         : c.author_label === "TL"
                           ? "bg-chart-4/15 text-chart-4"
-                          : "bg-primary/15 text-primary"
+                          : c.author_label === "Admin"
+                            ? "bg-gt/15 text-gt"
+                            : "bg-primary/15 text-primary"
                     )}
                   >
                     {c.title}
@@ -960,6 +971,7 @@ function DealDialog({
   const router = useRouter();
   const [slots, setSlots] = useState("1");
   const [note, setNote] = useState("");
+  const [celebrate, setCelebrate] = useState(false);
   const [pending, start] = useTransition();
 
   const submit = () =>
@@ -969,6 +981,7 @@ function DealDialog({
         toast.success(
           `🎉 Deal #${res.data?.deals} recorded — ${res.data?.slots} total slot${(res.data?.slots ?? 0) === 1 ? "" : "s"} with this account!`
         );
+        setCelebrate(true);
         setSlots("1"); setNote("");
         onOpenChange(false);
         router.refresh();
@@ -976,6 +989,8 @@ function DealDialog({
     });
 
   return (
+    <>
+    {celebrate ? <ConfettiBurst onDone={() => setCelebrate(false)} /> : null}
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
@@ -1002,6 +1017,7 @@ function DealDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    </>
   );
 }
 

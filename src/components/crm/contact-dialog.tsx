@@ -14,6 +14,8 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { Mail, Phone } from "lucide-react";
+import { WhatsAppIcon } from "./icons";
 
 const METHODS: ContactMethod[] = ["Call", "WhatsApp", "Email"];
 const STATUSES: ContactStatus[] = [
@@ -136,7 +138,16 @@ export function ContactDialog({
                     <SelectContent>
                       {METHODS.map((m) => (
                         <SelectItem key={m} value={m}>
-                          {m === "Call" ? "📞" : m === "WhatsApp" ? "💬" : "✉️"} {m}
+                          <span className="inline-flex items-center gap-1.5">
+                            {m === "Call" ? (
+                              <Phone className="size-3.5" />
+                            ) : m === "WhatsApp" ? (
+                              <WhatsAppIcon className="size-3.5 text-[#25D366]" />
+                            ) : (
+                              <Mail className="size-3.5" />
+                            )}
+                            {m}
+                          </span>
                         </SelectItem>
                       ))}
                     </SelectContent>

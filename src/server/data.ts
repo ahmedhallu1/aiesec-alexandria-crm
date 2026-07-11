@@ -366,16 +366,17 @@ export async function getDashboard(viewer: Viewer, filters: AccountFilters = {})
       r.function === "IGT" ? (r.product ? `I${r.product}` : "IGT") : r.function;
     addRow(getOrInit(byFunction, fnKey, fnKey), r);
 
-    // team = the TL: the responsible themself when they lead, otherwise their stakeholder
+    // team = a REAL Team Leader's group only — the EB (IRIS) is not a team,
+    // so accounts owned by VPs/admins don't create a fake EB leaderboard row
     const teamKey =
       r.responsible_role === "Team Leader"
         ? r.responsible_id
-        : r.responsible_stakeholder_id ?? "none";
-    const teamLead = byId.get(teamKey);
-    const teamLabel =
-      teamLead?.team_name ||
-      (teamLead ? `Team ${teamLead.nickname || teamLead.name}` : "No team");
-    addRow(getOrInit(byTeam, teamKey, teamLabel), r);
+        : r.responsible_stakeholder_id ?? null;
+    const teamLead = teamKey ? byId.get(teamKey) : undefined;
+    if (teamLead && teamLead.role === "Team Leader") {
+      const teamLabel = teamLead.team_name || `Team ${teamLead.nickname || teamLead.name}`;
+      addRow(getOrInit(byTeam, teamLead.id, teamLabel), r);
+    }
 
     const respLabel = r.responsible_nickname || r.responsible_name;
     addRow(getOrInit(byMember, r.responsible_id, respLabel), r);
@@ -386,9 +387,13 @@ export async function getDashboard(viewer: Viewer, filters: AccountFilters = {})
     b.slots - a.slots || b.deals - a.deals || b.visitDone - a.visitDone || b.contacted - a.contacted;
   const functionBoard = [...byMember.values()].sort(rank);
 
-  // the viewer's team: the TL is themself (TL) or their manager (member/coordinator)
+  // the viewer's team: themself (TL) or their manager — but ONLY if that
+  // manager is a real Team Leader (the EB is not a team)
+  const managerIsTl =
+    viewer.stakeholder_id != null &&
+    byId.get(viewer.stakeholder_id)?.role === "Team Leader";
   const teamLeadId =
-    viewer.role === "Team Leader" ? viewer.id : viewer.stakeholder_id ?? null;
+    viewer.role === "Team Leader" ? viewer.id : managerIsTl ? viewer.stakeholder_id : null;
   const teamMemberIds = teamLeadId
     ? new Set([
         teamLeadId,

@@ -74,17 +74,19 @@ export const ACCOUNT_TYPES = [
   "Other",
 ] as const;
 
-// IGV industries = IGT list + Hospital/Clinic + NGO. Multi-select, "Other" = free text.
+// Industry = the business DOMAIN. Account type = WHAT the business is —
+// the two lists never overlap. Multi-select, "Other" = free text.
 export const INDUSTRIES = [
   "Software",
   "Marketing",
   "Engineering",
   "Architecture",
-  "Nursery",
-  "Course Center",
-  "School",
-  "Hospital/Clinic",
-  "NGO",
+  "Education",
+  "Healthcare",
+  "Law",
+  "Finance",
+  "Real Estate",
+  "Tourism",
   "Other",
 ] as const;
 
@@ -99,7 +101,7 @@ export const IGT_SUB_PRODUCTS = [
   "Other",
 ] as const;
 
-export type CommentLabel = "Member" | "TL" | "VP" | "LCP";
+export type CommentLabel = "Member" | "TL" | "VP" | "LCP" | "Admin";
 
 export interface Member {
   id: string;

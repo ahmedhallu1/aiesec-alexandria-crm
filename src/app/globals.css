@@ -171,3 +171,36 @@
   transition: opacity 0.15s ease;
   pointer-events: none;
 }
+
+/* Celebration burst (deal recorded) */
+.confetti-piece {
+  position: absolute;
+  top: -6%;
+  animation: confetti-fall linear both;
+}
+@keyframes confetti-fall {
+  0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(110vh) rotate(540deg); opacity: 0.8; }
+}
+
+/* Life for cards & buttons (motion-safe, GPU-cheap) */
+@media (prefers-reduced-motion: no-preference) {
+  [data-slot="card"] {
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+  }
+  a [data-slot="card"]:hover,
+  .cursor-pointer[data-slot="card"]:hover,
+  tr.cursor-pointer:hover [data-slot="card"] {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px -12px rgb(3 126 243 / 0.35);
+  }
+  button[data-slot="button"]:active,
+  a[data-slot="button"]:active {
+    transform: scale(0.97);
+  }
+  button[data-slot="button"],
+  a[data-slot="button"] {
+    transition: transform 0.1s ease, background-color 0.15s ease, color 0.15s ease,
+      border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+}

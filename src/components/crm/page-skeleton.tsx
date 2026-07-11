@@ -1,11 +1,12 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { WalkingLoader } from "./walking-loader";
 
-/** Instant feedback while a route segment loads — the user always sees the
- *  system respond, even on a slow connection. */
+/** Instant feedback while a route segment loads — the AIESEC human walks
+ *  across the skeleton so the user always sees the system respond. */
 export function PageSkeleton({ rows = 4 }: { rows?: number }) {
   return (
-    <div className="mx-auto max-w-6xl space-y-4" aria-busy>
+    <div className="relative mx-auto max-w-6xl space-y-4" aria-busy>
       <div className="space-y-2">
         <Skeleton className="h-7 w-44" />
         <Skeleton className="h-4 w-64" />
@@ -21,10 +22,13 @@ export function PageSkeleton({ rows = 4 }: { rows?: number }) {
         ))}
       </div>
       <Card>
-        <CardContent className="space-y-3 pt-5">
-          {Array.from({ length: rows }).map((_, i) => (
-            <Skeleton key={i} className="h-6 w-full" />
-          ))}
+        <CardContent className="pt-5">
+          <WalkingLoader />
+          <div className="space-y-3">
+            {Array.from({ length: rows }).map((_, i) => (
+              <Skeleton key={i} className="h-5 w-full" />
+            ))}
+          </div>
         </CardContent>
       </Card>
     </div>

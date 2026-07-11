@@ -45,6 +45,17 @@ export default async function AccountPage({
   const reassignTargets = canReassignAccount(viewer, account)
     ? await listReassignTargets(viewer, account.function)
     : [];
+  // the current responsible must always be present so the select shows them
+  if (
+    reassignTargets.length > 0 &&
+    !reassignTargets.some((m) => m.id === account.responsible_id)
+  ) {
+    reassignTargets.unshift({
+      id: account.responsible_id,
+      name: account.responsible_name,
+      nickname: account.responsible_nickname,
+    } as (typeof reassignTargets)[number]);
+  }
 
   return (
     <AccountDetailView

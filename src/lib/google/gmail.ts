@@ -44,3 +44,31 @@ function encodeHeader(value: string): string {
     ? value
     : `=?UTF-8?B?${Buffer.from(value).toString("base64")}?=`;
 }
+
+
+/** Creates a DRAFT in the MEMBER's own Gmail (gmail.compose scope from their
+ *  Google sign-in). The member reviews and hits send themselves. */
+export async function createMemberDraft(
+  refreshToken: string,
+  opts: { to: string; subject: string; html: string }
+): Promise<string | null> {
+  const oauth2 = new google.auth.OAuth2(env.googleClientId, env.googleClientSecret);
+  oauth2.setCredentials({ refresh_token: refreshToken });
+  const gmail = google.gmail({ version: "v1", auth: oauth2 });
+
+  const headers = [
+    `To: ${opts.to}`,
+    `Subject: ${encodeHeader(opts.subject)}`,
+    "MIME-Version: 1.0",
+    'Content-Type: text/html; charset="UTF-8"',
+    "Content-Transfer-Encoding: base64",
+  ];
+  const message =
+    headers.join("\r\n") + "\r\n\r\n" + Buffer.from(opts.html).toString("base64");
+
+  const res = await gmail.users.drafts.create({
+    userId: "me",
+    requestBody: { message: { raw: Buffer.from(message).toString("base64url") } },
+  });
+  return res.data.id ?? null;
+}
