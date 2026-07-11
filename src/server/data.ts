@@ -387,9 +387,39 @@ export async function getDashboard(
   }
 
   // ---- leaderboards (never across functions: they live inside the lane filter)
+  // HIERARCHICAL opens: a member's deals/slots also count for their Team
+  // Leader (member 3 + TL's own 3 = TL shows 6; the function total stays 6).
+  // VPs / the LCP never appear in the by-member board.
+  const rollup = new Map<string, DrillGroup>();
+  for (const g of byMember.values()) {
+    const m = byId.get(g.key);
+    if (m && (m.role === "LCVP" || m.role === "LCP")) continue; // no VPs here
+    rollup.set(g.key, { ...g });
+  }
+  for (const g of byMember.values()) {
+    const m = byId.get(g.key);
+    const tlId = m?.stakeholder_id;
+    if (!tlId || m?.role === "Team Leader") continue;
+    const tl = byId.get(tlId);
+    if (tl?.role !== "Team Leader") continue;
+    let tlGroup = rollup.get(tlId);
+    if (!tlGroup) {
+      tlGroup = {
+        key: tlId,
+        label: tl.nickname || tl.name,
+        mr: 0, contacted: 0, visitScheduled: 0, visitDone: 0, deals: 0,
+        dealAccounts: 0, slots: 0, outOfProcess: 0, contactLimitFlags: 0,
+        nextStepMissingFlags: 0,
+      };
+      rollup.set(tlId, tlGroup);
+    }
+    tlGroup.slots += g.slots;
+    tlGroup.deals += g.deals;
+    tlGroup.dealAccounts += g.dealAccounts;
+  }
   const rank = (a: DrillGroup, b: DrillGroup) =>
     b.slots - a.slots || b.deals - a.deals || b.visitDone - a.visitDone || b.contacted - a.contacted;
-  const functionBoard = [...byMember.values()].sort(rank);
+  const functionBoard = [...rollup.values()].sort(rank);
 
   // the viewer's team: themself (TL) or their manager — but ONLY if that
   // manager is a real Team Leader (the EB is not a team)

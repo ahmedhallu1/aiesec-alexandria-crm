@@ -2,10 +2,10 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "AIESEC in Alexandria CRM",
-    short_name: "AIESEC CRM",
+    name: "Sodio — AIESEC in Alexandria",
+    short_name: "Sodio",
     description:
-      "The ICX CRM platform of AIESEC in Alexandria — accounts, visits and pipelines.",
+      "Sodio — the ICX CRM of AIESEC in Alexandria. Accounts, visits and pipelines.",
     start_url: "/",
     display: "standalone",
     background_color: "#0A2540",

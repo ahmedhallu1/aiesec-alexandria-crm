@@ -1,17 +1,19 @@
-# AI_CONTEXT.md — Single Source of Truth (AIESEC in Alexandria ICX CRM)
+# AI_CONTEXT.md — Single Source of Truth (Sodio — AIESEC in Alexandria ICX CRM)
 
 > **⚠️ LIVING DOCUMENT.** Update this file **in the same commit** as any change
 > to the system (feature, rule, route, schema, env var, deployment fact).
 > Add a dated entry to the **Changelog** at the bottom. No secrets in this file.
 
-Last updated: 2026-07-11 · Version: v7
+Last updated: 2026-07-11 · Version: v8
 
 ---
 
 ## 1. What this is
 
-A **100% free** CRM for AIESEC in Alexandria's ICX functions (**IGV** & **IGT**),
-covering the **Raising** process. Members log accounts, contacts, visits and
+**Sodio** — a **100% free** CRM for AIESEC in Alexandria's ICX functions
+(**IGV** & **IGT**), covering the **Raising** process. The brand name is
+**Sodio** (shown in the sidebar, tab titles, manifest, emails); the built-in
+AI assistant is **The Blue Man**. Members log accounts, contacts, visits and
 deals; leaders steer with goals, leaderboards and dashboards. The RBAC engine is
 the blueprint for future OGX/other-function modules.
 
@@ -28,7 +30,7 @@ the blueprint for future OGX/other-function modules.
 
 **Migrations** live in `supabase/migrations/` and are run **manually** in the
 Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v2`
-→ `0003_ops_v2` → `0004_pins_v2` → `0005_deals` → `0006_admin_label` → `0007_visit_scheduled_result`.
+→ `0003_ops_v2` → `0004_pins_v2` → `0005_deals` → `0006_admin_label` → `0007_visit_scheduled_result` → `0008_notifications_feedback`.
 
 ---
 
@@ -52,6 +54,11 @@ member profile/onboarding confirmations). Columns A→J:
 | Director | Function authority like a VP but **NOT EB** — no membership editing |
 | Team Leader | Team accounts, picks Responsible (self/member), sets the team goal |
 | Coordinator / Member | Own accounts only |
+
+**B2B** (function or sub-function contains "B2B") raises **for the whole ICX**:
+they get BOTH IGV & IGT lanes (create/see/filter accounts in either product,
+usually bulk deals of 3+ opens). Detected by `isB2B` in `rbac.ts`; feeds
+`icxFunctions`, `hasRaisingAccess`, `allowedAccountFunctions`.
 
 **OGX ↔ ICX isolation**: neither side sees the other's operations. IGV-only
 members can't create IGT accounts and vice versa (both = dual-function, LCVP, LCP).
@@ -170,6 +177,15 @@ cards were removed on request; flags remain reachable via accounts filters.)
 
 ---
 
+### Deal attribution & hierarchical rollup
+
+- A recorded deal belongs to the **account's Responsible** (whoever the opens
+  were raised for), NOT the person clicking the button.
+- **Leaderboard rollup is hierarchical**: a member's slots/deals also count for
+  their **Team Leader** (member 3 + TL's own 3 → TL shows 6, member shows 3,
+  the function total stays 6 — no double count at function level).
+- **VPs / the LCP never appear in the by-member board**.
+
 ## 6. UX conventions
 
 **Loading = the walking AIESEC human** (`public/brand/walk.png`, looping alpha
@@ -206,11 +222,15 @@ src/lib/google/{sheets,gmail,calendar}.ts  sheet import/write-back/export · mai
 src/lib/email/templates.ts    branded emails (welcome/visit/feedback/reset/module-ready)
 src/server/data.ts            scoped reads, dashboard aggregates, goals, slug lookup
 src/server/actions.ts         ALL mutations + business rules
+src/server/notify.ts          in-app notifications helper (best-effort inserts)
+src/lib/assistant.ts          The Blue Man: RBAC-scoped context + system prompt
+src/app/api/assistant/        POST → Gemini 2.5 Flash + Google Search grounding
 src/server/auth-actions.ts    login, Google, password-reset request
 src/app/(app)/                dashboard, accounts (+import, [id]=slug), membership,
                               feedback(+inbox), profile; loading.tsx everywhere
 src/app/welcome/              first-login onboarding
-src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour, Hint…
+src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour, Hint,
+                              NotificationsBell (+Broadcast), BlueManChat, FeedbackInboxView…
 ```
 
 ## 8. Where to change what
@@ -226,13 +246,18 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | Emails | `src/lib/email/templates.ts` |
 | Tour steps / role blurbs | `src/components/crm/tour.tsx`, `ROLE_BLURBS` in types |
 | DB schema | new file in `supabase/migrations/` (+ run in SQL editor + note here) |
+| The Blue Man (prompt / data scope) | `src/lib/assistant.ts` (+ `/api/assistant/route.ts`) |
+| Notifications kinds / broadcast | `src/server/notify.ts`, bell UI in `notifications-bell.tsx` |
 
 ---
 
 ## 9. Pending / operational notes
 
-- **Pending user action:** run `0003_ops_v2.sql` (if not yet) and
-  `0004_pins_v2.sql` in the Supabase SQL editor.
+- **Pending user action:** run `0007_visit_scheduled_result.sql` and
+  `0008_notifications_feedback.sql` in the Supabase SQL editor — 0007 fixes the
+  "invalid input value for enum contact_status: Visit Scheduled" error; 0008
+  creates `notifications` + feedback `anonymous`/`status` columns.
+- `GEMINI_API_KEY` must exist in `.env.local` AND Vercel env (The Blue Man).
 - **Module-ready announcement email**: template `moduleReadyEmail` is ready;
   send ONLY when Ahmed says go.
 - Legacy columns (`project`, `package_plan`, `podio_link`, flat contact
@@ -241,6 +266,23 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-07-11 · v8** — **Sodio** branding everywhere (sidebar, tab titles,
+  manifest/PWA, login, emails, tour, onboarding); **The Blue Man** AI assistant
+  (floating walking-man button → chat popup; Gemini 2.5 Flash free tier with
+  Google Search grounding; context = viewer-scoped Sodio data via
+  `buildAssistantContext` + AIESEC sites: aiesec.org, aiesec.org.eg,
+  core.aiesec.org.eg, expa.aiesec.org); **B2B = whole-ICX raising** (both
+  lanes); **deals attributed to the account's Responsible** with hierarchical
+  TL rollup on leaderboards, VPs/LCP excluded from the member board;
+  **notifications** (migration 0008): bell + unread badge, welcome/reset/visit/
+  follow-up/thanks/broadcast kinds, EB & admin broadcast to all/by function/
+  by role/hand-picked (optional BCC email); **feedback v2**: anonymous option
+  (🎭), rebuilt inbox cards, thank-you action (in-app + email, with confirm),
+  copy-email, done/archive + status filters; **KPI cards hover animation**
+  (lift + glow + value lights up); coming-soon page now uses the walking man
+  with rotating funny lines; friendly enum-error message pointing at migration
+  0007; proposal PDFs (iGV/iGTa/iGTe) bundled in `proposals/`.
 
 - **2026-07-11 · v7** — Walking-man loader re-encoded as **APNG** (WebP frame
   disposal stacked frames); **"Visit Scheduled" contact result** replaces

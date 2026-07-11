@@ -8,6 +8,7 @@ import { submitFeedback } from "@/server/actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -16,14 +17,20 @@ import {
 export function FeedbackForm({ showInboxLink }: { showInboxLink: boolean }) {
   const [type, setType] = useState<"Bug" | "Enhancement" | "Other">("Enhancement");
   const [message, setMessage] = useState("");
+  const [anonymous, setAnonymous] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const submit = () =>
     startTransition(async () => {
-      const res = await submitFeedback({ type, message, page: "/feedback" });
+      const res = await submitFeedback({ type, message, page: "/feedback", anonymous });
       if (res.ok) {
-        toast.success("Thank you! Your contribution reached the IM team 💙");
+        toast.success(
+          anonymous
+            ? "Sent! Your secret is safe with us 🎭"
+            : "Thank you! Your contribution reached the IM team 💙"
+        );
         setMessage("");
+        setAnonymous(false);
       } else {
         toast.error(res.error);
       }
@@ -51,6 +58,15 @@ export function FeedbackForm({ showInboxLink }: { showInboxLink: boolean }) {
             rows={5}
             placeholder="The more detail, the faster the fix…"
           />
+        </div>
+        <div className="flex items-center justify-between rounded-lg border p-3">
+          <div>
+            <p className="text-sm font-medium">Send anonymously 🎭</p>
+            <p className="text-xs text-muted-foreground">
+              No name attached — but also no thank-you credit. Your call.
+            </p>
+          </div>
+          <Switch checked={anonymous} onCheckedChange={setAnonymous} />
         </div>
         <div className="flex items-center justify-between gap-3">
           <Button onClick={submit} disabled={pending || message.trim().length < 3}>

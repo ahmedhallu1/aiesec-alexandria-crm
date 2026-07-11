@@ -6,6 +6,7 @@ import { env, requireEnv } from "@/lib/env";
 export async function sendEmail(opts: {
   to: string[];
   cc?: string[];
+  bcc?: string[];
   subject: string;
   html: string;
 }): Promise<void> {
@@ -23,6 +24,7 @@ export async function sendEmail(opts: {
     `From: ${encodeHeader(env.gmailSenderName)} <${env.gmailSender}>`,
     `To: ${opts.to.join(", ")}`,
     ...(opts.cc?.length ? [`Cc: ${opts.cc.join(", ")}`] : []),
+    ...(opts.bcc?.length ? [`Bcc: ${opts.bcc.join(", ")}`] : []),
     `Subject: ${encodeHeader(opts.subject)}`,
     "MIME-Version: 1.0",
     'Content-Type: text/html; charset="UTF-8"',

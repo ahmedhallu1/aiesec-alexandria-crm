@@ -17,6 +17,8 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ThemeToggle } from "./theme-toggle";
+import { NotificationsBell } from "./notifications-bell";
+import { BlueManChat } from "./blue-man-chat";
 
 interface ShellProps {
   user: {
@@ -35,6 +37,8 @@ interface ShellProps {
 export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  // admin + the EB (LCP / LCVPs) can broadcast messages to members
+  const canBroadcast = user.isAdmin || user.role === "LCP" || user.role === "LCVP";
 
   const items = [
     ...(nav.raising
@@ -79,7 +83,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
 
   const credit = (
     <a
-      href="https://wa.me/201099019374?text=Hi%20Ahmed!%20I%27m%20reaching%20out%20about%20the%20AIESEC%20Alexandria%20CRM%20%F0%9F%91%8B"
+      href="https://wa.me/201099019374?text=Hi%20Ahmed!%20I%27m%20reaching%20out%20about%20Sodio%20%F0%9F%91%8B"
       target="_blank"
       rel="noreferrer"
       className="block px-5 pb-4 text-center text-[11px] text-sidebar-foreground/50 transition-colors hover:text-sidebar-foreground"
@@ -111,6 +115,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
             </p>
           </div>
         </Link>
+        <NotificationsBell canBroadcast={canBroadcast} />
         <ThemeToggle className="text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
         <form action={signOutAction}>
           <Button
@@ -137,8 +142,8 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/brand/aiesec-white.png" alt="AIESEC" className="h-7 w-auto" />
       <div className="leading-tight">
-        <p className="text-[11px] font-bold text-sidebar-foreground">in Alexandria</p>
-        <p className="text-[11px] text-sidebar-foreground/60">ICX CRM</p>
+        <p className="text-sm font-black tracking-tight text-sidebar-foreground">Sodio</p>
+        <p className="text-[10px] text-sidebar-foreground/60">in Alexandria · ICX</p>
       </div>
     </Link>
   );
@@ -172,11 +177,14 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
         <Link href="/" className="flex items-center gap-2" title="Back to the dashboard">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/aiesec-white.png" alt="AIESEC" className="h-6 w-auto" />
-          <p className="text-sm font-bold text-sidebar-foreground">CRM</p>
+          <p className="text-sm font-black tracking-tight text-sidebar-foreground">Sodio</p>
         </Link>
       </div>
 
       <main className="min-w-0 flex-1 px-4 pb-24 pt-16 md:ml-60 md:px-8 md:pt-8">{children}</main>
+
+      {/* The Blue Man — Sodio's assistant */}
+      <BlueManChat />
     </div>
   );
 }

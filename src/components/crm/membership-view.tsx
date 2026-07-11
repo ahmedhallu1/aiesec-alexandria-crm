@@ -71,7 +71,7 @@ export function MembershipView({ members }: { members: MemberRow[] }) {
   const exportNow = () =>
     start(async () => {
       const res = await runSheetsExport();
-      if (res.ok) toast.success("CRM data exported to the Google Sheets mirrors");
+      if (res.ok) toast.success("Sodio data exported to the Google Sheets mirrors");
       else toast.error(res.error);
     });
 
@@ -311,7 +311,7 @@ function MemberDialog({
         <DialogHeader>
           <DialogTitle>{member ? `Edit ${member.nickname || member.name}` : "Add member"}</DialogTitle>
           <DialogDescription>
-            Changes are saved to the CRM and written back to the Membership sheet.
+            Changes are saved to Sodio and written back to the Membership sheet.
           </DialogDescription>
         </DialogHeader>
 

@@ -35,7 +35,7 @@ function buildSteps(role: string, functions: string[], hasModule: boolean): Tour
     steps.push({
       icon: "✨",
       title: "Your module is on the way",
-      body: "The CRM currently covers the ICX Raising process. You'll get an email the moment your workspace opens — meanwhile your Profile and Feedback pages are already yours.",
+      body: "Sodio currently covers the ICX Raising process. You'll get an email the moment your workspace opens — meanwhile your Profile and Feedback pages are already yours.",
     });
     return steps;
   }
@@ -49,7 +49,7 @@ function buildSteps(role: string, functions: string[], hasModule: boolean): Tour
     {
       icon: "📞",
       title: "Log every contact",
-      body: "Use the Contact button after every attempt (call / WhatsApp / email). Golden rule: every account carries a next step with a date — or a scheduled visit. 3 attempts with no answer → the CRM asks you to archive it. \"Not interested\" archives it automatically.",
+      body: "Use the Contact button after every attempt (call / WhatsApp / email). Golden rule: every account carries a next step with a date — or a scheduled visit. 3 attempts with no answer → Sodio asks you to archive it. \"Not interested\" archives it automatically.",
     },
     {
       icon: "🗓️",
@@ -84,7 +84,7 @@ function buildSteps(role: string, functions: string[], hasModule: boolean): Tour
   steps.push({
     icon: "💙",
     title: "This system is built for YOU",
-    body: "Anything broken? Any idea? The Feedback page in the sidebar goes straight to the IM team — every report makes the CRM better and more reliable for you.",
+    body: "Anything broken? Any idea? The Feedback page in the sidebar goes straight to the IM team — every report makes Sodio better and more reliable for you.",
   });
   return steps;
 }

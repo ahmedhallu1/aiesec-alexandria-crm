@@ -27,6 +27,14 @@ function markFirstLogin(member: Member) {
       sendEmail({ to: [member.email], ...mail }).catch((e) =>
         console.error("[auth] welcome email failed:", e)
       );
+      import("@/server/notify").then(({ notifyMembers }) =>
+        notifyMembers(
+          [member.id],
+          "welcome",
+          "Welcome to Sodio 🎉",
+          "Your workspace is ready — the Blue Man walks beside you from here."
+        )
+      );
     });
 }
 
@@ -91,6 +99,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           const mail = welcomeEmail(member);
           sendEmail({ to: [member.email], ...mail }).catch((e) =>
             console.error("[auth] welcome email failed:", e)
+          );
+          import("@/server/notify").then(({ notifyMembers }) =>
+            notifyMembers(
+              [member.id],
+              "welcome",
+              "Welcome to Sodio 🎉",
+              "Your workspace is ready — the Blue Man walks beside you from here."
+            )
           );
         }
         return true;

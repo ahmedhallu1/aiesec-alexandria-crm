@@ -14,13 +14,13 @@ const sans = Lato({
 
 export const metadata: Metadata = {
   title: {
-    default: "AIESEC in Alexandria CRM",
-    template: "%s · AIESEC in Alexandria CRM",
+    default: "Sodio · AIESEC in Alexandria",
+    template: "%s · Sodio",
   },
   description:
-    "The ICX CRM platform of AIESEC in Alexandria — accounts, visits and pipelines for IGV & IGT.",
+    "Sodio — the ICX CRM of AIESEC in Alexandria. Accounts, visits and pipelines for IGV & IGT.",
   manifest: "/manifest.webmanifest",
-  appleWebApp: { capable: true, title: "AIESEC CRM", statusBarStyle: "default" },
+  appleWebApp: { capable: true, title: "Sodio", statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {

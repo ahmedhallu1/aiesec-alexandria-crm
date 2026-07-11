@@ -28,7 +28,7 @@ export function emailLayout(opts: { preheader?: string; body: string }): string 
         </tr>
         <tr>
           <td style="padding:20px 32px;color:#5c6b80;font-size:12px;text-align:center;line-height:1.7;">
-            Sent automatically by the AIESEC in Alexandria CRM ·
+            Sent automatically by Sodio · AIESEC in Alexandria ·
             <a href="${env.appUrl}" style="color:#037EF3;text-decoration:none;font-weight:bold;">Open the CRM</a><br>
             <span style="color:#93a5bc;">This system is built for you — reply with feedback anytime. 💙</span>
           </td>
@@ -79,12 +79,12 @@ export function welcomeEmail(member: {
 }) {
   const first = member.nickname || member.name.split(" ")[0];
   return {
-    subject: "Welcome to the AIESEC in Alexandria CRM 🎉",
+    subject: "Welcome to Sodio 🎉",
     html: emailLayout({
       preheader: "Your CRM access is ready",
       body: `
         <h1 style="margin:0 0 16px;font-size:22px;color:#0A2540;">Welcome aboard, ${escapeHtml(first)}!</h1>
-        <p>Your account on the <b>AIESEC in Alexandria CRM</b> is active. This is where your
+        <p>Your account on <b>Sodio</b> — the ICX CRM of AIESEC in Alexandria — is active. This is where your
         accounts, contacts, visits and pipeline live from now on.</p>
         <p style="border-left:4px solid #037EF3;background:#f0f7ff;border-radius:0 8px 8px 0;padding:12px 16px;font-weight:600;">
           ${escapeHtml(ROLE_BLURBS[member.role] ?? ROLE_BLURBS.Member)}
@@ -212,7 +212,7 @@ export function moduleReadyEmail(opts: {
       body: `
         <h1 style="margin:0 0 16px;font-size:22px;color:#0A2540;">It's live, ${escapeHtml(opts.memberFirstName)}! 🎉</h1>
         <p>Your <b>${escapeHtml(opts.functions.join(" & ") || "AIESEC")}</b> workspace on the
-        <b>AIESEC in Alexandria CRM</b> is ready to use.</p>
+        <b>Sodio</b> is ready to use.</p>
         <ul style="margin-top:8px;">
           <li><b>Sign in</b> with your AIESEC email — first time, any password works, then you set your own.</li>
           <li><b>Add your accounts</b> (or import a whole sheet of market research).</li>
@@ -221,6 +221,44 @@ export function moduleReadyEmail(opts: {
         </ul>
         ${button("Open your workspace", opts.appUrl)}
         <p style="color:#5c6b80;font-size:13px;">Questions or ideas? The Feedback page inside the CRM goes straight to the IM team.</p>`,
+    }),
+  };
+}
+
+export function feedbackThanksEmail(opts: {
+  memberFirstName: string;
+  feedbackSnippet: string;
+}) {
+  return {
+    subject: "Your feedback just made Sodio better 💙",
+    html: emailLayout({
+      preheader: "Thank you from the IM team",
+      body: `
+        <h1 style="margin:0 0 16px;font-size:22px;color:#0A2540;">Thank you, ${escapeHtml(opts.memberFirstName)}! 🎉</h1>
+        <p>Your feedback was heard, taken seriously, and <b>applied</b>:</p>
+        <p style="border-left:4px solid #0CB9C1;background:#f0fdfd;border-radius:0 8px 8px 0;padding:12px 16px;font-style:italic;">
+          "${escapeHtml(opts.feedbackSnippet)}"
+        </p>
+        <p>Sodio is built for you, by you — keep it coming. 💙</p>
+        ${button("Open Sodio", env.appUrl)}`,
+    }),
+  };
+}
+
+export function broadcastEmail(opts: {
+  title: string;
+  body: string;
+  senderName: string;
+}) {
+  return {
+    subject: `📣 ${opts.title}`,
+    html: emailLayout({
+      preheader: opts.body.slice(0, 90),
+      body: `
+        <h1 style="margin:0 0 16px;font-size:22px;color:#0A2540;">${escapeHtml(opts.title)}</h1>
+        <p style="white-space:pre-wrap;">${escapeHtml(opts.body)}</p>
+        <p style="color:#5c6b80;font-size:13px;">— ${escapeHtml(opts.senderName)}, via Sodio</p>
+        ${button("Open Sodio", env.appUrl)}`,
     }),
   };
 }

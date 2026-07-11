@@ -1,6 +1,6 @@
-# AIESEC in Alexandria — ICX CRM
+# Sodio — AIESEC in Alexandria ICX CRM
 
-A **100% free** CRM platform for AIESEC in Alexandria, built for the ICX functions
+**Sodio** — a **100% free** CRM platform for AIESEC in Alexandria, built for the ICX functions
 (**IGV** & **IGT**), starting with the **Raising** sub-process. The RBAC and
 dashboard engine is the reusable blueprint for the upcoming OGV/OGT modules.
 

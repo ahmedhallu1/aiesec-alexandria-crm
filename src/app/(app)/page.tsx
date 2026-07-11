@@ -1,6 +1,6 @@
 import { getViewer, getDashboard, listTeamLeaders, listVisibleMembers } from "@/server/data";
 import type { AccountFilters } from "@/server/data";
-import { accountScope, icxFunctions } from "@/lib/rbac";
+import { accountScope, icxFunctions } from "@/lib/rbac"; // icxFunctions is B2B-aware
 import { DashboardView, type DashboardScopeView } from "@/components/crm/dashboard-view";
 
 export const metadata = { title: "Dashboard" };

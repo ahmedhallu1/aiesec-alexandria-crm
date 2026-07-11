@@ -542,14 +542,16 @@ function KpiCard({
   tone?: "warn" | "bad"; href?: string;
 }) {
   const body = (
-    <Card className={cn("h-full", href && "hover:shadow-md")}>
+    <Card className="kpi-card h-full">
       <CardContent className="flex h-full flex-col px-4 py-3">
-        <p className="min-h-8 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <p className="kpi-label min-h-8 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
           {label}
         </p>
         <p
           className={cn(
             "text-2xl font-bold leading-none xl:text-3xl",
+            // toned values keep their warning/danger color; neutral ones light up blue
+            !tone && "kpi-value",
             tone === "warn" && "text-warning",
             tone === "bad" && "text-destructive"
           )}

@@ -43,9 +43,9 @@ export function ProfileView({ member }: { member: ProfileInfo }) {
   const phoneOk = PHONE_RE.test(cleanPhone(phone));
 
   const fixInfoMailto = `mailto:${ADMIN_EMAIL}?subject=${encodeURIComponent(
-    "CRM — my info needs a correction"
+    "Sodio — my info needs a correction"
   )}&body=${encodeURIComponent(
-    `Hi Ahmed,\n\nMy info in the CRM membership needs a correction.\n\nMy email: ${member.email}\nWhat is wrong: \nWhat it should be: \n\nThanks!`
+    `Hi Ahmed,\n\nMy info in the Sodio membership needs a correction.\n\nMy email: ${member.email}\nWhat is wrong: \nWhat it should be: \n\nThanks!`
   )}`;
 
   const saveProfile = () =>

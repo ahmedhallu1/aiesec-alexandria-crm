@@ -99,7 +99,7 @@ export function LoginForm() {
             id="password"
             name="password"
             autoComplete="current-password"
-            placeholder="The password you set in the CRM"
+            placeholder="The password you set in Sodio"
             required
           />
         </div>

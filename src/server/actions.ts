@@ -434,9 +434,11 @@ export async function recordDeal(
     return fail("This account is archived — bring it back in process first.");
   const cleanSlots = Math.max(1, Math.round(slots || 1));
 
+  // the deal is recorded for the account's RESPONSIBLE (opens roll up from
+  // the member to their Team Leader on the leaderboards)
   const { error } = await db().from("deals").insert({
     account_id: accountId,
-    member_id: viewer.id,
+    member_id: account.responsible_id,
     slots: cleanSlots,
     note: note?.trim() || null,
   });
@@ -572,7 +574,13 @@ export async function logContact(
     status,
     comment: comment || null,
   });
-  if (error) return fail(error.message);
+  if (error) {
+    if (error.message.includes("enum contact_status"))
+      return fail(
+        'The database is missing the "Visit Scheduled" value — run migration 0007 in the Supabase SQL editor (it ends with a schema reload).'
+      );
+    return fail(error.message);
+  }
 
   if (notInterested) {
     await db()
@@ -712,6 +720,14 @@ export async function scheduleVisit(
     }
   }
 
+  const { notifyMembers } = await import("./notify");
+  await notifyMembers(
+    [account.responsible_id],
+    "visit",
+    `Visit booked — ${account.name} 🗓️`,
+    `${visitDate} at ${visitTime.slice(0, 5)}. Calendar reminders 24h & 1h before${calendarLinked ? "" : " (sign in with Google once to activate them)"}.`,
+    viewer.id
+  );
   await logAudit(viewer.id, "schedule_visit", "account", accountId, { visitDate, visitTime });
   refresh(accountId);
   return { ok: true, data: { calendarLinked } };
@@ -802,11 +818,13 @@ export async function submitFeedback(input: {
   type: "Bug" | "Enhancement" | "Other";
   message: string;
   page?: string;
+  anonymous?: boolean;
 }): Promise<ActionResult> {
   const viewer = await getViewer();
   if (!input.message?.trim()) return fail("Tell us what happened first 🙂");
   const { error } = await db().from("feedback").insert({
-    member_id: viewer.id,
+    member_id: input.anonymous ? null : viewer.id,
+    anonymous: !!input.anonymous,
     type: input.type,
     message: input.message.trim(),
     page: input.page || null,
@@ -816,8 +834,8 @@ export async function submitFeedback(input: {
   // straight to the IM director + IM coach inboxes
   const { feedbackEmail } = await import("@/lib/email/templates");
   const mail = feedbackEmail({
-    memberName: viewer.nickname || viewer.name,
-    memberEmail: viewer.email,
+    memberName: input.anonymous ? "Anonymous member 🎭" : viewer.nickname || viewer.name,
+    memberEmail: input.anonymous ? "hidden" : viewer.email,
     type: input.type,
     message: input.message.trim(),
     inboxUrl: `${env.appUrl}/feedback/inbox`,
@@ -1032,8 +1050,7 @@ export async function upsertMember(
   return { ok: true, data: { id: id! } };
 }
 
-/** Clears the password so the member's next login (any password) re-runs the
- *  first-login onboarding where they set a new one. */
+/** Clears the password so the member signs in with Google and sets a new one. */
 export async function resetMemberPassword(memberId: string): Promise<ActionResult> {
   const viewer = await getViewer();
   if (!canManageMembership(viewer))
@@ -1043,6 +1060,14 @@ export async function resetMemberPassword(memberId: string): Promise<ActionResul
     .update({ password_hash: null, profile_completed_at: null })
     .eq("id", memberId);
   if (error) return fail(error.message);
+  const { notifyMembers } = await import("./notify");
+  await notifyMembers(
+    [memberId],
+    "reset",
+    "Your password was reset 🔑",
+    "Sign in with Google and Sodio will walk you through setting a new password.",
+    viewer.id
+  );
   await logAudit(viewer.id, "password_reset", "member", memberId);
   return { ok: true };
 }
@@ -1339,4 +1364,188 @@ export async function createProposalDraft(
   });
   refresh(accountId);
   return { ok: true, data: { product } };
+}
+
+// ================================================================== notifications
+
+export interface NotificationRow {
+  id: string;
+  kind: string;
+  title: string;
+  body: string | null;
+  read_at: string | null;
+  created_at: string;
+}
+
+/** The viewer's latest notifications + unread count (bell popup). */
+export async function getMyNotifications(): Promise<
+  ActionResult<{ items: NotificationRow[]; unread: number }>
+> {
+  const viewer = await getViewer();
+  const { data, error } = await db()
+    .from("notifications")
+    .select("id, kind, title, body, read_at, created_at")
+    .eq("member_id", viewer.id)
+    .order("created_at", { ascending: false })
+    .limit(30);
+  if (error) return fail("Notifications need migration 0008 — ask the IM team.");
+  const items = (data ?? []) as NotificationRow[];
+  return {
+    ok: true,
+    data: { items, unread: items.filter((n) => !n.read_at).length },
+  };
+}
+
+export async function markNotificationsRead(): Promise<ActionResult> {
+  const viewer = await getViewer();
+  await db()
+    .from("notifications")
+    .update({ read_at: new Date().toISOString() })
+    .eq("member_id", viewer.id)
+    .is("read_at", null);
+  return { ok: true };
+}
+
+const broadcastSchema = z.object({
+  title: z.string().trim().min(2, "Give the message a title."),
+  body: z.string().trim().min(2, "Write the message."),
+  audience: z.enum(["all", "functions", "roles", "members"]),
+  functions: z.array(z.string()).nullish(),
+  roles: z.array(z.string()).nullish(),
+  memberIds: z.array(z.string().uuid()).nullish(),
+  alsoEmail: z.boolean().nullish(),
+});
+
+/** EB + admin broadcast: in-app notification to everyone / by function / by
+ *  role / hand-picked members — optionally also as an email (BCC). */
+export async function sendBroadcast(
+  input: z.infer<typeof broadcastSchema>
+): Promise<ActionResult<{ recipients: number }>> {
+  const viewer = await getViewer();
+  if (!canManageMembership(viewer))
+    return fail("Only the EB and admins can broadcast messages.", "forbidden");
+  const parsed = broadcastSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0].message);
+  const b = parsed.data;
+
+  const { data: all } = await db()
+    .from("members")
+    .select("id, email, name, nickname, role, functions")
+    .eq("is_active", true);
+  let targets = (all ?? []) as {
+    id: string; email: string; role: string; functions: string[] | null;
+  }[];
+  if (b.audience === "functions")
+    targets = targets.filter((m) =>
+      (m.functions ?? []).some((f) => (b.functions ?? []).includes(f))
+    );
+  else if (b.audience === "roles")
+    targets = targets.filter((m) => (b.roles ?? []).includes(m.role));
+  else if (b.audience === "members")
+    targets = targets.filter((m) => (b.memberIds ?? []).includes(m.id));
+  targets = targets.filter((m) => m.id !== viewer.id);
+  if (targets.length === 0) return fail("Nobody matches that audience.");
+
+  const { notifyMembers } = await import("./notify");
+  await notifyMembers(
+    targets.map((t) => t.id),
+    "broadcast",
+    b.title,
+    b.body,
+    viewer.id
+  );
+
+  if (b.alsoEmail) {
+    const { broadcastEmail } = await import("@/lib/email/templates");
+    const mail = broadcastEmail({
+      title: b.title,
+      body: b.body,
+      senderName: viewer.nickname || viewer.name,
+    });
+    sendEmail({ to: [viewer.email], bcc: targets.map((t) => t.email), ...mail }).catch(
+      (e) => console.error("[broadcast] email failed:", e)
+    );
+  }
+
+  await logAudit(viewer.id, "broadcast", "notification", null, {
+    audience: b.audience,
+    recipients: targets.length,
+  });
+  return { ok: true, data: { recipients: targets.length } };
+}
+
+/** EB-only: active members for the manual broadcast picker. */
+export async function listBroadcastTargets(): Promise<
+  ActionResult<{ id: string; label: string; role: string; functions: string[] }[]>
+> {
+  const viewer = await getViewer();
+  if (!canManageMembership(viewer)) return fail("EB only.", "forbidden");
+  const { data } = await db()
+    .from("members")
+    .select("id, name, nickname, role, functions")
+    .eq("is_active", true)
+    .order("name");
+  return {
+    ok: true,
+    data: (data ?? []).map((m) => ({
+      id: m.id,
+      label: m.nickname || m.name,
+      role: m.role,
+      functions: m.functions ?? [],
+    })),
+  };
+}
+
+// ================================================================== feedback workflow
+
+/** Thank-you: in-app notification (seen next time they open Sodio) + email. */
+export async function thankFeedback(feedbackId: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const { canSeeFeedbackInbox } = await import("@/lib/rbac");
+  if (!canSeeFeedbackInbox(viewer)) return fail("Inbox owners only.", "forbidden");
+
+  const { data: f } = await db()
+    .from("feedback")
+    .select("id, message, anonymous, member:members(id, name, nickname, email)")
+    .eq("id", feedbackId)
+    .maybeSingle<{
+      id: string; message: string; anonymous: boolean;
+      member: { id: string; name: string; nickname: string | null; email: string } | null;
+    }>();
+  if (!f) return fail("Feedback not found.");
+  if (f.anonymous || !f.member)
+    return fail("This feedback is anonymous — there's nobody to thank directly 🙂");
+
+  const { notifyMembers } = await import("./notify");
+  await notifyMembers(
+    [f.member.id],
+    "thanks",
+    "Your feedback made Sodio better 💙",
+    `The IM team applied your feedback — thank you for building Sodio with us! ("${f.message.slice(0, 120)}")`,
+    viewer.id
+  );
+
+  const { feedbackThanksEmail } = await import("@/lib/email/templates");
+  const mail = feedbackThanksEmail({
+    memberFirstName: f.member.nickname || f.member.name.split(" ")[0],
+    feedbackSnippet: f.message.slice(0, 160),
+  });
+  sendEmail({ to: [f.member.email], ...mail }).catch((e) =>
+    console.error("[feedback] thanks email failed:", e)
+  );
+
+  await logAudit(viewer.id, "feedback_thanks", "feedback", feedbackId);
+  return { ok: true };
+}
+
+export async function setFeedbackStatus(
+  feedbackId: string,
+  status: "new" | "done" | "archived"
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const { canSeeFeedbackInbox } = await import("@/lib/rbac");
+  if (!canSeeFeedbackInbox(viewer)) return fail("Inbox owners only.", "forbidden");
+  const { error } = await db().from("feedback").update({ status }).eq("id", feedbackId);
+  if (error) return fail("Feedback workflow needs migration 0008.");
+  return { ok: true };
 }

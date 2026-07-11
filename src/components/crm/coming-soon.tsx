@@ -1,9 +1,32 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { WalkingLoader } from "./walking-loader";
+
+const LINES = [
+  "The Blue Man is walking your module over here. He refuses to run — it's about the journey. 🚶",
+  "Your workspace is 87% vibes, 13% code right now. We're fixing the ratio.",
+  "Plot twist: the ICX members thought THEY were the beta testers. It was you all along.",
+  "Somewhere, Ahmed is typing very fast so this page can stop existing.",
+  "Breaking news: your module is stuck in traffic on the Corniche. ETA: soon™.",
+  "We asked the Blue Man for an ETA. He just kept walking. Legend.",
+  "Your dashboard is still in the oven. Opening it early would deflate it, like a cheesecake.",
+  "Rome wasn't built in a day. Neither was Sodio. Rome also didn't have dark mode.",
+];
 
 /** Blurred mock workspace shown to members whose function has no module yet. */
 export function ComingSoon({ functions }: { functions: string[] }) {
   const label = functions.length > 0 ? functions.join(" · ") : "your area";
+  const [idx, setIdx] = useState(() => Math.floor(Math.random() * LINES.length));
+
+  // rotate the joke every few seconds — keeps the wait entertaining
+  useEffect(() => {
+    const t = setInterval(() => setIdx((i) => (i + 1) % LINES.length), 5000);
+    return () => clearInterval(t);
+  }, []);
+
   return (
     <div className="relative min-h-[70vh] overflow-hidden rounded-2xl">
       {/* blurred fake dashboard behind the overlay */}
@@ -37,12 +60,15 @@ export function ComingSoon({ functions }: { functions: string[] }) {
 
       {/* overlay */}
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background/55 p-6 text-center">
-        <div className="animate-bounce text-5xl">✨</div>
+        <WalkingLoader label={null} className="py-0" />
         <h1 className="text-2xl font-black tracking-tight">
           Soon<span className="text-primary">.</span>
         </h1>
-        <p className="max-w-md text-sm text-muted-foreground">
-          {`The ${label} workspace is being built. The CRM currently covers the ICX Raising process (IGV & IGT) — stay tuned, you'll get an email the moment your module opens. 💙`}
+        <p key={idx} className="fade-swap max-w-md text-sm font-medium">
+          {LINES[idx]}
+        </p>
+        <p className="max-w-md text-xs text-muted-foreground">
+          {`Sodio currently covers the ICX Raising process (IGV & IGT). The ${label} workspace is on the roadmap — you'll get an email the moment it opens. 💙`}
         </p>
       </div>
     </div>

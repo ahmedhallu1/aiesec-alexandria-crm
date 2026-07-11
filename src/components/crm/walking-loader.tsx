@@ -1,9 +1,21 @@
-/** The AIESEC human, walking — the system's loading animation.
+import { cn } from "@/lib/utils";
+
+/** The AIESEC human, walking — Sodio's loading animation.
  *  (Looping alpha APNG converted from the official brand asset — APNG keeps
  *  correct frame disposal so frames never stack over each other.) */
-export function WalkingLoader({ label = "Loading…" }: { label?: string }) {
+export function WalkingLoader({
+  label = "Loading…",
+  className,
+}: {
+  /** Pass null to hide the caption. */
+  label?: string | null;
+  className?: string;
+}) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 py-10" aria-busy>
+    <div
+      className={cn("flex flex-col items-center justify-center gap-2 py-10", className)}
+      aria-busy
+    >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src="/brand/walk.png"
@@ -12,7 +24,7 @@ export function WalkingLoader({ label = "Loading…" }: { label?: string }) {
         className="h-24 w-auto select-none"
         draggable={false}
       />
-      <p className="text-sm font-medium text-muted-foreground">{label}</p>
+      {label ? <p className="text-sm font-medium text-muted-foreground">{label}</p> : null}
     </div>
   );
 }

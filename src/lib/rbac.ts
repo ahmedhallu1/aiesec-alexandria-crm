@@ -30,7 +30,14 @@ const master = (v: Viewer) => v.isAdmin || v.role === "LCP";
 /** EB = LCP + LCVPs (Directors are explicitly NOT EB). */
 export const isEb = (v: Viewer) => master(v) || v.role === "LCVP";
 
+/** B2B raises for the WHOLE ICX (usually bulk deals of 3+ opens across both
+ *  products) — unlike other functions who raise for themselves only. */
+export function isB2B(v: Viewer): boolean {
+  return v.functions.includes("B2B") || v.sub_functions.includes("B2B");
+}
+
 export function icxFunctions(v: Viewer): ("IGV" | "IGT")[] {
+  if (isB2B(v)) return ["IGV", "IGT"];
   return v.functions.filter((f): f is "IGV" | "IGT" => f === "IGV" || f === "IGT");
 }
 
@@ -48,7 +55,7 @@ export function accountScope(v: Viewer): AccountScope {
 
 /** Whether the ICX Raising module is visible at all for this user. */
 export function hasRaisingAccess(v: Viewer): boolean {
-  if (master(v) || isIcxLead(v)) return true;
+  if (master(v) || isIcxLead(v) || isB2B(v)) return true;
   return (
     icxFunctions(v).length > 0 &&
     v.sub_functions.some((s) => s === "Raising" || s === "ICX")
@@ -59,7 +66,7 @@ export function hasRaisingAccess(v: Viewer): boolean {
  *  IGV-only members cannot add IGT accounts and vice versa; both are allowed
  *  only for members holding both functions, LCVPs and the LCP. */
 export function allowedAccountFunctions(v: Viewer): ("IGV" | "IGT")[] {
-  if (master(v) || v.role === "LCVP") return ["IGV", "IGT"];
+  if (master(v) || v.role === "LCVP" || isB2B(v)) return ["IGV", "IGT"];
   return icxFunctions(v);
 }
 

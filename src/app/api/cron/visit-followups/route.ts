@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { notifyMembers } from "@/server/notify";
 import { db } from "@/lib/supabase";
 import { env } from "@/lib/env";
 import { cairoToUtc } from "@/lib/time";
@@ -41,6 +42,12 @@ export async function GET(req: NextRequest) {
     });
     try {
       await sendEmail({ to: [visit.member.email], ...mail });
+      await notifyMembers(
+        [visit.member.id],
+        "followup",
+        `How did the visit to ${visit.account.name} go? 📝`,
+        "Report it from the account page — your leaders get notified automatically."
+      );
       await db()
         .from("visits")
         .update({ followup_prompt_sent_at: new Date().toISOString() })
