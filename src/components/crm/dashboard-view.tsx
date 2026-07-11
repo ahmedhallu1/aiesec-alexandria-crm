@@ -22,6 +22,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Hint } from "./hint";
+import { CountUp } from "./count-up";
 import { cn } from "@/lib/utils";
 import { FUNCTION_COLORS } from "@/lib/types";
 import type { DrillGroup, FunnelStats, PerformanceGoal } from "@/server/data";
@@ -546,7 +547,7 @@ function KpiCard({
             tone === "bad" && "text-destructive"
           )}
         >
-          {valueText ?? value}
+          <CountUp value={value} text={valueText} />
         </p>
         {sub ? <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p> : null}
       </CardContent>
