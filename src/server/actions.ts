@@ -518,7 +518,7 @@ const contactSchema = z.object({
   accountId: z.string().uuid(),
   method: z.enum(["Call", "WhatsApp", "Email"]),
   status: z.enum([
-    "No Response", "Responded", "Interested", "Not Interested", "Wrong Contact", "Call Scheduled",
+    "No Response", "Responded", "Interested", "Not Interested", "Wrong Contact", "Visit Scheduled",
   ]),
   comment: z.string().trim().optional(),
   nextStep: z.string().trim().optional(),
@@ -535,8 +535,10 @@ export async function logContact(
   const viewer = await getViewer();
   const parsed = contactSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0].message);
-  const { accountId, method, status, comment, scheduledDate, scheduledTime } = parsed.data;
-  let { nextStep, nextStepDate, nextStepTime } = parsed.data;
+  const {
+    accountId, method, status, comment, scheduledDate, scheduledTime,
+    nextStep, nextStepDate, nextStepTime,
+  } = parsed.data;
 
   const account = await loadAccount(accountId);
   if (!account || !canEditAccount(viewer, account))
@@ -546,22 +548,17 @@ export async function logContact(
 
   // "Not Interested" closes the account: it is archived automatically
   const notInterested = status === "Not Interested";
-
-  // "Call Scheduled" carries its own date + time and becomes the next step
-  if (status === "Call Scheduled") {
-    if (!scheduledDate || !scheduledTime)
-      return fail("Pick the date and time of the scheduled call.");
-    nextStep = nextStep || "Scheduled call";
-    nextStepDate = scheduledDate;
-    nextStepTime = scheduledTime;
-  }
+  // "Visit Scheduled" as a result BOOKS the visit — exactly like the button
+  const visitScheduled = status === "Visit Scheduled";
+  if (visitScheduled && (!scheduledDate || !scheduledTime))
+    return fail("Pick the date and time of the visit.");
 
   // BUSINESS RULE: after a contact without a scheduled visit, the account must
   // carry a next step with a date (unless one is already set in the future).
   const hasPendingVisit = account.visit_id && account.visit_done === null;
   const hasFutureNextStep =
     account.next_step_date && account.next_step_date >= new Date().toISOString().slice(0, 10);
-  if (!notInterested && !hasPendingVisit && !nextStepDate && !hasFutureNextStep) {
+  if (!notInterested && !visitScheduled && !hasPendingVisit && !nextStepDate && !hasFutureNextStep) {
     return fail(
       "Set a next step with a date (or schedule a visit) — no account may float without one.",
       "next_step_required"
@@ -591,6 +588,18 @@ export async function logContact(
     });
     refresh(accountId);
     return { ok: true, data: { attempts: 0, contactLimitReached: false } };
+  }
+
+  // book the visit through the exact same path as the dedicated button
+  // (visit row + calendar reminders 24h & 1h before)
+  if (visitScheduled) {
+    const booked = await scheduleVisit({
+      accountId,
+      visitDate: scheduledDate!,
+      visitTime: scheduledTime!,
+      notes: comment || undefined,
+    });
+    if (!booked.ok) return booked;
   }
 
   if (nextStep || nextStepDate) {
@@ -1095,7 +1104,8 @@ export async function updateAccountContacts(
 
 const goalSchema = z.object({
   scope: z.enum(["function", "team"]),
-  function: z.enum(["IGV", "IGT"]).nullish(),
+  // goals are set per product lane — the IGT goal is DERIVED (IGTa + IGTe)
+  function: z.enum(["IGV", "IGTa", "IGTe"]).nullish(),
   teamLeaderId: z.string().uuid().nullish(),
   target: z.number().int().min(1, "The goal must be at least 1 slot."),
   periodLabel: z.string().trim().min(2, "Name the period (e.g. July 2026 or Summer Peak 26)."),
@@ -1116,10 +1126,11 @@ export async function setPerformanceGoal(
 
   const master = viewer.isAdmin || viewer.role === "LCP";
   if (g.scope === "function") {
-    if (!g.function) return fail("Pick the function for this goal.");
+    if (!g.function) return fail("Pick the lane for this goal.");
+    const parentFn = g.function === "IGV" ? "IGV" : "IGT";
     const ownsFunction =
       (viewer.role === "LCVP" || viewer.role === "Director") &&
-      viewer.functions.includes(g.function);
+      viewer.functions.includes(parentFn);
     if (!master && !ownsFunction)
       return fail("Only the function's VP (or the LCP) sets the function goal.", "forbidden");
   } else {
@@ -1240,6 +1251,8 @@ const proposalSchema = z.object({
   sector: z.string().trim().nullish(),
   customNote: z.string().trim().nullish(),
   attachmentsNote: z.string().trim().nullish(),
+  /** attach the official per-product proposal PDF (proposals/<product>.pdf) */
+  attachProposal: z.boolean().nullish(),
 });
 
 /** ICX Proposal Email: builds the product-specific outreach draft and places
@@ -1252,8 +1265,10 @@ export async function createProposalDraft(
   const viewer = await getViewer();
   const parsed = proposalSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0].message);
-  const { accountId, recipientName, recipientEmail, sector, customNote, attachmentsNote } =
-    parsed.data;
+  const {
+    accountId, recipientName, recipientEmail, sector, customNote,
+    attachmentsNote, attachProposal,
+  } = parsed.data;
 
   const account = await loadAccount(accountId);
   if (!account || !canEditAccount(viewer, account))
@@ -1281,12 +1296,32 @@ export async function createProposalDraft(
     memberEmail: viewer.email,
   });
 
+  // official proposal PDF (proposals/iGV.pdf / iGTa.pdf / iGTe.pdf)
+  const attachments: { filename: string; mimeType: string; contentBase64: string }[] = [];
+  if (attachProposal) {
+    try {
+      const { readFile } = await import("node:fs/promises");
+      const { join } = await import("node:path");
+      const pdf = await readFile(join(process.cwd(), "proposals", `${product}.pdf`));
+      attachments.push({
+        filename: `AIESEC Alexandria — ${product} Proposal.pdf`,
+        mimeType: "application/pdf",
+        contentBase64: pdf.toString("base64"),
+      });
+    } catch {
+      return fail(
+        `The official ${product} proposal PDF isn't uploaded to the system yet — ask the IM team, or continue without attaching it.`
+      );
+    }
+  }
+
   try {
     const { createMemberDraft } = await import("@/lib/google/gmail");
     const draftId = await createMemberDraft(viewer.google_refresh_token, {
       to: recipientEmail,
       subject: draft.subject,
       html: draft.html,
+      attachments,
     });
     if (!draftId) return fail("Google didn't accept the draft — try again.");
   } catch (e) {

@@ -14,6 +14,8 @@ export type ContactStatus =
   | "Interested"
   | "Not Interested"
   | "Wrong Contact"
+  | "Visit Scheduled"
+  /** legacy value — no longer offered in the UI */
   | "Call Scheduled";
 export type RequestState = "Checking" | "Approved" | "Rejected";
 export type Stage =

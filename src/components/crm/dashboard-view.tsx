@@ -30,8 +30,8 @@ import type { DrillGroup, FunnelStats, PerformanceGoal } from "@/server/data";
 export interface DashboardScopeView { key: string; label: string }
 
 interface GoalCaps {
-  /** which function goal the viewer may set from the current lane (IGV/IGT) */
-  functionGoalFn: "IGV" | "IGT" | null;
+  /** the lane goal the viewer may set (IGV / IGTa / IGTe — IGT is derived) */
+  functionGoalFn: "IGV" | "IGTa" | "IGTe" | null;
   /** the team whose goal the viewer may set (their own team) */
   teamGoal: boolean;
   teamLeaderId: string | null;
@@ -155,6 +155,7 @@ export function DashboardView({
         <Hint label="Show only this calendar month's accounts">
           <Button
             variant={thisMonthActive ? "default" : "outline"}
+            className="h-9"
             size="sm"
             onClick={() =>
               go((p) => {
@@ -198,28 +199,26 @@ export function DashboardView({
             </SelectContent>
           </Select>
         ) : null}
-        {/* labeled so the boxes are self-explanatory on mobile (no dd/mm/yyyy hint there) */}
-        <div className="flex items-end gap-1.5">
-          <div className="grid gap-0.5">
-            <span className="px-0.5 text-[10px] font-medium text-muted-foreground">Added from</span>
-            <Input
-              type="date"
-              max={today}
-              className="h-9 w-[8.6rem]"
-              value={filters.from}
-              onChange={(e) => setParam("from", e.target.value)}
-            />
-          </div>
-          <div className="grid gap-0.5">
-            <span className="px-0.5 text-[10px] font-medium text-muted-foreground">to</span>
-            <Input
-              type="date"
-              max={today}
-              className="h-9 w-[8.6rem]"
-              value={filters.to}
-              onChange={(e) => setParam("to", e.target.value)}
-            />
-          </div>
+        {/* one h-9 group so the whole bar sits on a single baseline */}
+        <div className="flex h-9 items-center gap-1.5 rounded-md border border-input bg-transparent px-2.5 dark:bg-input/30">
+          <span className="text-xs font-medium text-muted-foreground">Added</span>
+          <Input
+            type="date"
+            max={today}
+            className="h-7 w-[7.9rem] border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
+            aria-label="Added from"
+            value={filters.from}
+            onChange={(e) => setParam("from", e.target.value)}
+          />
+          <span className="text-xs text-muted-foreground">→</span>
+          <Input
+            type="date"
+            max={today}
+            className="h-7 w-[7.9rem] border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
+            aria-label="Added to"
+            value={filters.to}
+            onChange={(e) => setParam("to", e.target.value)}
+          />
         </div>
         {anyFilter ? (
           <Button
@@ -236,10 +235,15 @@ export function DashboardView({
       {(funcGoal || teamGoal || canSetAnyGoal) ? (
         <div className="grid gap-3 sm:grid-cols-2 rise-in rise-in-2">
           <GoalCard
-            title={`${laneLabel} goal`}
+            title={`${laneLabel} goal${activeFn === "IGT" ? " (= IGTa + IGTe)" : ""}`}
             goal={funcGoal}
             achieved={total.slots}
             canSet={!!goalCaps.functionGoalFn}
+            emptyHint={
+              activeFn === "IGT"
+                ? "Set the IGTa and IGTe goals — this lane shows their sum."
+                : undefined
+            }
             onSet={() => setGoalOpen(true)}
           />
           {(teamGoal || goalCaps.teamGoal || goalCaps.teamLeaderId) ? (
@@ -329,13 +333,14 @@ export function DashboardView({
 // ------------------------------------------------------------------ pieces
 
 function GoalCard({
-  title, goal, achieved, canSet, onSet,
+  title, goal, achieved, canSet, onSet, emptyHint,
 }: {
   title: string;
   goal: PerformanceGoal | null;
   achieved: number;
   canSet: boolean;
   onSet: () => void;
+  emptyHint?: string;
 }) {
   const progress = goal ? Math.min(1, achieved / goal.target) : 0;
   return (
@@ -354,7 +359,7 @@ function GoalCard({
               </p>
             ) : (
               <p className="mt-1 text-sm text-muted-foreground">
-                No goal set for this period yet.
+                {emptyHint ?? "No goal set for this period yet."}
               </p>
             )}
           </div>
@@ -537,19 +542,25 @@ function KpiCard({
   tone?: "warn" | "bad"; href?: string;
 }) {
   const body = (
-    <Card className={cn("h-full transition-shadow", href && "hover:shadow-md")}>
-      <CardContent className="pt-4">
-        <p className="text-xs font-medium text-muted-foreground">{label}</p>
+    <Card className={cn("h-full", href && "hover:shadow-md")}>
+      <CardContent className="flex h-full flex-col px-4 py-3">
+        <p className="min-h-8 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          {label}
+        </p>
         <p
           className={cn(
-            "mt-1 text-3xl font-bold",
+            "text-2xl font-bold leading-none xl:text-3xl",
             tone === "warn" && "text-warning",
             tone === "bad" && "text-destructive"
           )}
         >
           <CountUp value={value} text={valueText} />
         </p>
-        {sub ? <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p> : null}
+        {sub ? (
+          <p className="mt-1.5 line-clamp-2 text-[10px] leading-tight text-muted-foreground">
+            {sub}
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );

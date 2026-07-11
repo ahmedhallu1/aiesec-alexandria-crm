@@ -209,28 +209,26 @@ export function AccountsView({
             ]}
           />
         ) : null}
-        {/* Date added range */}
-        <div className="flex items-end gap-1.5">
-          <div className="grid gap-0.5">
-            <span className="px-0.5 text-[10px] font-medium text-muted-foreground">Added from</span>
-            <Input
-              type="date"
-              max={today}
-              className="h-9 w-[8.6rem]"
-              value={filters.from}
-              onChange={(e) => setParam("from", e.target.value)}
-            />
-          </div>
-          <div className="grid gap-0.5">
-            <span className="px-0.5 text-[10px] font-medium text-muted-foreground">to</span>
-            <Input
-              type="date"
-              max={today}
-              className="h-9 w-[8.6rem]"
-              value={filters.to}
-              onChange={(e) => setParam("to", e.target.value)}
-            />
-          </div>
+        {/* Date added range — one h-9 group, aligned with the other filters */}
+        <div className="flex h-9 items-center gap-1.5 rounded-md border border-input bg-transparent px-2.5 dark:bg-input/30">
+          <span className="text-xs font-medium text-muted-foreground">Added</span>
+          <Input
+            type="date"
+            max={today}
+            className="h-7 w-[7.9rem] border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
+            aria-label="Added from"
+            value={filters.from}
+            onChange={(e) => setParam("from", e.target.value)}
+          />
+          <span className="text-xs text-muted-foreground">→</span>
+          <Input
+            type="date"
+            max={today}
+            className="h-7 w-[7.9rem] border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
+            aria-label="Added to"
+            value={filters.to}
+            onChange={(e) => setParam("to", e.target.value)}
+          />
         </div>
         {anyFilter ? (
           <Button variant="ghost" size="sm" onClick={() => { setQ(""); startNav(() => router.replace("/accounts")); }}>

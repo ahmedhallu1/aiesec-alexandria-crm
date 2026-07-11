@@ -52,7 +52,7 @@ export default async function DashboardPage({
   };
 
   const [data, teamLeaders, members] = await Promise.all([
-    getDashboard(viewer, filters),
+    getDashboard(viewer, filters, activeFn),
     listTeamLeaders(viewer),
     listVisibleMembers(viewer),
   ]);
@@ -78,14 +78,17 @@ export default async function DashboardPage({
           ? viewer.team_name || "Your team"
           : `${icxFunctions(viewer).join(" & ")} — your function's picture`;
 
-  // goal-setting powers on the current lane
-  const laneForGoal: "IGV" | "IGT" | null = laneFn;
+  // goal-setting powers: goals are set on IGV / IGTa / IGTe lanes only —
+  // the IGT lane shows the derived sum (IGTa + IGTe)
+  const laneForGoal =
+    activeFn === "IGV" || activeFn === "IGTa" || activeFn === "IGTe" ? activeFn : null;
+  const parentFn = laneForGoal === "IGV" ? "IGV" : "IGT";
   const canSetFunctionGoal =
     !!laneForGoal &&
     (viewer.isAdmin ||
       viewer.role === "LCP" ||
       ((viewer.role === "LCVP" || viewer.role === "Director") &&
-        viewer.functions.includes(laneForGoal)));
+        viewer.functions.includes(parentFn)));
   const teamLead = data.teamLeadId
     ? members.find((m) => m.id === data.teamLeadId)
     : null;

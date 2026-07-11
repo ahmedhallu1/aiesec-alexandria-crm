@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
 /** ICX Proposal Email — one popup, prefilled from the account; the generated
@@ -31,6 +32,7 @@ export function ProposalDialog({
   const [recipientEmail, setRecipientEmail] = useState(firstEmail);
   const [sector, setSector] = useState(account.industry ?? account.sub_product ?? "");
   const [customNote, setCustomNote] = useState("");
+  const [attachProposal, setAttachProposal] = useState(true);
   const [attachmentsNote, setAttachmentsNote] = useState("");
   const [done, setDone] = useState(false);
   const [pending, start] = useTransition();
@@ -44,6 +46,7 @@ export function ProposalDialog({
         sector: sector || null,
         customNote: customNote || null,
         attachmentsNote: attachmentsNote || null,
+        attachProposal,
       });
       if (res.ok) {
         setDone(true);
@@ -67,7 +70,8 @@ export function ProposalDialog({
               <DialogTitle className="text-center">Draft ready in YOUR Gmail</DialogTitle>
               <DialogDescription className="text-center leading-relaxed">
                 The {product} proposal for <b>{account.name}</b> is waiting in
-                your drafts. <b>Open it, review every line{attachmentsNote ? ", attach your file(s)" : ""},
+                your drafts{attachProposal ? " with the official PDF attached" : ""}.{" "}
+                <b>Open it, review every line{attachmentsNote ? ", add your extra file(s)" : ""},
                 and hit send</b> — it goes out from your own address.
               </DialogDescription>
             </DialogHeader>
@@ -135,12 +139,21 @@ export function ProposalDialog({
                   placeholder="Anything specific to this company…"
                 />
               </div>
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div>
+                  <p className="text-sm font-medium">Attach the official {product} proposal</p>
+                  <p className="text-xs text-muted-foreground">
+                    The PDF is added to the draft automatically
+                  </p>
+                </div>
+                <Switch checked={attachProposal} onCheckedChange={setAttachProposal} />
+              </div>
               <div className="grid gap-1.5">
-                <Label>Attachments you plan to add</Label>
+                <Label>Extra attachments you plan to add yourself</Label>
                 <Input
                   value={attachmentsNote}
                   onChange={(e) => setAttachmentsNote(e.target.value)}
-                  placeholder="e.g. iGTa one-pager — the draft reminds you to attach it"
+                  placeholder="e.g. case study — the draft reminds you to attach it"
                 />
               </div>
             </div>

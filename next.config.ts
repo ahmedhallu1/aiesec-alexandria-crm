@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // the Proposal email action reads proposals/<product>.pdf at runtime
+  outputFileTracingIncludes: {
+    "/**": ["./proposals/**"],
+  },
 };
 
 export default nextConfig;

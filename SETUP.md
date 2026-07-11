@@ -25,6 +25,10 @@ Work through the sections in order; each produces env vars for `.env.local`
    (multi-deal model: an account can close many deals).
 7. SQL Editor → paste and run **`supabase/migrations/0006_admin_label.sql`**
    ("Admin" comment label for the IM director).
+8. SQL Editor → paste and run **`supabase/migrations/0007_visit_scheduled_result.sql`**
+   ("Visit Scheduled" as a contact result that books the visit).
+9. Drop the official proposal PDFs into **`proposals/`** as `iGV.pdf`,
+   `iGTa.pdf`, `iGTe.pdf` (see `proposals/README.md`).
 3. Project Settings → API:
    - `SUPABASE_URL` = Project URL
    - `SUPABASE_SERVICE_ROLE_KEY` = `service_role` secret key

@@ -4,7 +4,7 @@
 > to the system (feature, rule, route, schema, env var, deployment fact).
 > Add a dated entry to the **Changelog** at the bottom. No secrets in this file.
 
-Last updated: 2026-07-11 · Version: v6
+Last updated: 2026-07-11 · Version: v7
 
 ---
 
@@ -28,7 +28,7 @@ the blueprint for future OGX/other-function modules.
 
 **Migrations** live in `supabase/migrations/` and are run **manually** in the
 Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v2`
-→ `0003_ops_v2` → `0004_pins_v2` → `0005_deals` → `0006_admin_label`.
+→ `0003_ops_v2` → `0004_pins_v2` → `0005_deals` → `0006_admin_label` → `0007_visit_scheduled_result`.
 
 ---
 
@@ -97,13 +97,17 @@ mutation through a `can*` predicate, **server-side**.
   sector, custom note, attachments note — product auto-detected iGV/iGTa/iGTe,
   company prefilled). It creates a ready-to-send DRAFT **in the member's own
   Gmail** via their `gmail.compose` grant; the UI reminds them to review,
-  attach files and hit send (email goes out from THEIR address). Sets
-  `proposal_sent` on the account. Members who signed in before the scope
-  change must re-login with Google once.
+  attach files and hit send (email goes out from THEIR address). An
+  **"Attach the official proposal"** switch adds the per-product PDF from
+  `proposals/<iGV|iGTa|iGTe>.pdf` (bundled via `outputFileTracingIncludes`;
+  missing file → clear error). Sets `proposal_sent` on the account. Members
+  who signed in before the scope change must re-login with Google once.
 - **Contact log results**: No Response / Responded / Interested / Not Interested
-  (archives) / Wrong Contact / **Call Scheduled** (requires date+time → becomes
-  the next step). Golden rule: every in-process account carries a next step
-  with a date or a pending visit; 3 unanswered attempts → OOP prompt.
+  (archives) / Wrong Contact / **Visit Scheduled** (requires date+time and
+  BOOKS the visit through the exact same path as the Schedule-visit button —
+  calendar reminders included; 'Call Scheduled' is a legacy value kept for old
+  rows only). Golden rule: every in-process account carries a next step with a
+  date or a pending visit; 3 unanswered attempts → OOP prompt.
 - **Visits**: calendar event on the responsible's Google Calendar (24h + 1h
   reminders), +2h follow-up email, report emails to VP + manager (never LCP).
 - **Bulk import** (`/accounts/import`): CSV/XLSX parsed client-side (sheetjs),
@@ -141,6 +145,12 @@ admin-owned accounts don't create an EB row in team drills/leaderboards, and
 the team goal/leaderboard cards only appear when the viewer's manager is an
 actual Team Leader.
 
+**Goals live per product lane** — set on IGV / IGTa / IGTe; the IGT goal is
+DERIVED: `goal(IGT) = goal(IGTa) + goal(IGTe)` (the All-IGT lane shows the sum
+and has no Set button). Filter bar sits on a single h-9 baseline (the date
+range is one inline "Added → →" group) and KPI cards have equal-height labels
+so the numbers align.
+
 **KPI row (this exact order, nothing else):** Market Research (total accounts) ·
 Contacted · Visits (scheduled) · Visits done · Deals (count of deals, not
 accounts) · Slots raised · Lead → Deal (% of accounts reaching a deal).
@@ -162,9 +172,10 @@ cards were removed on request; flags remain reachable via accounts filters.)
 
 ## 6. UX conventions
 
-**Loading = the walking AIESEC human** (`public/brand/walk.webp`, 68KB looping
-alpha WebP converted from the official brand `.mov`; component
-`WalkingLoader`, used inside `PageSkeleton`). Motion system (all
+**Loading = the walking AIESEC human** (`public/brand/walk.png`, looping alpha
+**APNG** converted from the official brand `.mov` — WebP was dropped because
+its frame disposal stacked frames over each other; component `WalkingLoader`,
+used inside `PageSkeleton`). Motion system (all
 `prefers-reduced-motion`-safe): `rise-in` entrances, KPI **count-up** numbers,
 card hover-lift, button press scale, nav-pending shimmer, and a **confetti
 burst** when a deal is recorded.
@@ -230,6 +241,14 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-07-11 · v7** — Walking-man loader re-encoded as **APNG** (WebP frame
+  disposal stacked frames); **"Visit Scheduled" contact result** replaces
+  "Call Scheduled" and books the visit like the dedicated button (migration
+  0007); **goal(IGT) = goal(IGTa) + goal(IGTe)** — goals set per product lane,
+  IGT lane derived; dashboard/accounts filter bars aligned on one baseline +
+  equal-height KPI cards; **official proposal PDF attachment** switch on the
+  Proposal email popup (proposals/<product>.pdf, awaiting the actual files).
 
 - **2026-07-11 · v6** — Account type vs industry lists de-overlapped (type =
   WHAT the business is; industry = its DOMAIN: Software/Marketing/Engineering/

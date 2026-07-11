@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { logContact, setOutOfProcess } from "@/server/actions";
-import type { ContactMethod, ContactStatus } from "@/lib/types";
+import type { ContactMethod } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -18,9 +18,11 @@ import { Mail, Phone } from "lucide-react";
 import { WhatsAppIcon } from "./icons";
 
 const METHODS: ContactMethod[] = ["Call", "WhatsApp", "Email"];
-const STATUSES: ContactStatus[] = [
-  "No Response", "Responded", "Interested", "Not Interested", "Wrong Contact", "Call Scheduled",
-];
+/** results offered in the UI ("Call Scheduled" is legacy-only) */
+const STATUSES = [
+  "No Response", "Responded", "Interested", "Not Interested", "Wrong Contact", "Visit Scheduled",
+] as const;
+type UiStatus = (typeof STATUSES)[number];
 
 export interface ContactTarget {
   id: string;
@@ -40,7 +42,7 @@ export function ContactDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const [method, setMethod] = useState<ContactMethod>("Call");
-  const [status, setStatus] = useState<ContactStatus>("No Response");
+  const [status, setStatus] = useState<UiStatus>("No Response");
   const [comment, setComment] = useState("");
   const [nextStep, setNextStep] = useState("");
   const [nextStepDate, setNextStepDate] = useState("");
@@ -53,12 +55,12 @@ export function ContactDialog({
 
   if (!target) return null;
 
-  const isCallScheduled = status === "Call Scheduled";
+  const isVisitScheduled = status === "Visit Scheduled";
   const isNotInterested = status === "Not Interested";
   const today = new Date().toISOString().slice(0, 10);
   const nextStepAlreadySet = !!target.nextStepDate && target.nextStepDate >= today;
   const nextStepRequired =
-    !isCallScheduled && !isNotInterested && !target.hasPendingVisit && !nextStepAlreadySet;
+    !isVisitScheduled && !isNotInterested && !target.hasPendingVisit && !nextStepAlreadySet;
 
   const reset = () => {
     setMethod("Call"); setStatus("No Response"); setComment("");
@@ -91,8 +93,8 @@ export function ContactDialog({
       toast.success(
         isNotInterested
           ? `"${target.name}" archived — not interested. Its name can't be added again.`
-          : isCallScheduled
-            ? `Contact #${res.data?.attempts ?? ""} logged — call set for ${scheduledDate} ${scheduledTime}`
+          : isVisitScheduled
+            ? `Visit booked for ${scheduledDate} ${scheduledTime} — calendar reminders set 🗓️`
             : `Contact #${res.data?.attempts ?? ""} logged`
       );
       reset();
@@ -155,12 +157,12 @@ export function ContactDialog({
                 </div>
                 <div className="grid gap-2">
                   <Label>Result</Label>
-                  <Select value={status} onValueChange={(v) => setStatus(v as ContactStatus)}>
+                  <Select value={status} onValueChange={(v) => setStatus(v as UiStatus)}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {STATUSES.map((s) => (
                         <SelectItem key={s} value={s}>
-                          {s === "Call Scheduled" ? "📅 " : ""}{s}
+                          {s === "Visit Scheduled" ? "🗓️ " : ""}{s}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -181,18 +183,18 @@ export function ContactDialog({
                 </div>
               ) : null}
 
-              {isCallScheduled ? (
+              {isVisitScheduled ? (
                 <div className="rounded-lg border border-primary/40 bg-primary/5 p-3">
                   <p className="mb-2 text-sm font-medium">
-                    Scheduled call <span className="text-destructive">*date & time required</span>
+                    Visit date &amp; time <span className="text-destructive">*required</span>
                   </p>
                   <div className="grid grid-cols-2 gap-2">
                     <Input type="date" min={today} value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} />
                     <Input type="time" value={scheduledTime} onChange={(e) => setScheduledTime(e.target.value)} />
                   </div>
                   <p className="mt-2 text-xs text-muted-foreground">
-                    The call becomes this account&apos;s next step. Planning an
-                    in-person meeting instead? Use the <b>Schedule visit</b> button.
+                    Books the visit exactly like the <b>Schedule visit</b> button —
+                    calendar reminders 24h &amp; 1h before included.
                   </p>
                 </div>
               ) : null}
@@ -207,7 +209,7 @@ export function ContactDialog({
                 />
               </div>
 
-              {!isCallScheduled && !isNotInterested ? (
+              {!isVisitScheduled && !isNotInterested ? (
                 <div className="rounded-lg border p-3">
                   <p className="mb-2 text-sm font-medium">
                     Next step{" "}
@@ -237,7 +239,7 @@ export function ContactDialog({
                 variant={isNotInterested ? "destructive" : "default"}
                 disabled={
                   pending ||
-                  (isCallScheduled && (!scheduledDate || !scheduledTime)) ||
+                  (isVisitScheduled && (!scheduledDate || !scheduledTime)) ||
                   (nextStepRequired && (!nextStepDate || !nextStep.trim()))
                 }
               >

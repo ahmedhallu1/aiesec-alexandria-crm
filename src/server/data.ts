@@ -347,7 +347,11 @@ export async function getActiveGoal(
   return data ?? null;
 }
 
-export async function getDashboard(viewer: Viewer, filters: AccountFilters = {}) {
+export async function getDashboard(
+  viewer: Viewer,
+  filters: AccountFilters = {},
+  laneKey?: string
+) {
   const dashViewer = dashboardViewer(viewer);
   const rows = await listAccounts(dashViewer, { ...filters, includeArchived: true });
   const members = await listVisibleMembers(dashViewer);
@@ -404,12 +408,37 @@ export async function getDashboard(viewer: Viewer, filters: AccountFilters = {})
     ? functionBoard.filter((g) => teamMemberIds.has(g.key))
     : [];
 
-  // ---- goals in effect (function goal for the lane, the viewer's team goal)
-  const laneFn = filters.fn ?? null;
-  const [funcGoal, teamGoal] = await Promise.all([
-    laneFn ? getActiveGoal("function", laneFn) : Promise.resolve(null),
-    teamLeadId ? getActiveGoal("team", teamLeadId) : Promise.resolve(null),
-  ]);
+  // ---- goals in effect. Lane goals live at IGV / IGTa / IGTe; the IGT goal
+  // is DERIVED: goal(IGT) = goal(IGTa) + goal(IGTe).
+  let funcGoal: PerformanceGoal | null = null;
+  if (laneKey === "IGV" || laneKey === "IGTa" || laneKey === "IGTe") {
+    funcGoal = await getActiveGoal("function", laneKey);
+  } else if (laneKey === "IGT") {
+    const [a, e] = await Promise.all([
+      getActiveGoal("function", "IGTa"),
+      getActiveGoal("function", "IGTe"),
+    ]);
+    if (a || e) {
+      const first = (a ?? e)!;
+      funcGoal = {
+        id: "igt-combined",
+        scope: "function",
+        function: "IGT",
+        team_leader_id: null,
+        metric: "Slots",
+        target: (a?.target ?? 0) + (e?.target ?? 0),
+        period_label:
+          a && e
+            ? a.period_label === e.period_label
+              ? `${a.period_label} · IGTa+IGTe`
+              : `${a.period_label} + ${e.period_label}`
+            : `${first.period_label} · ${a ? "IGTa only" : "IGTe only"}`,
+        period_start: first.period_start,
+        period_end: first.period_end,
+      };
+    }
+  }
+  const teamGoal = teamLeadId ? await getActiveGoal("team", teamLeadId) : null;
 
   return {
     total,
