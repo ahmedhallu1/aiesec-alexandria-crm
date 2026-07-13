@@ -22,7 +22,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         email: viewer.email,
         role: viewer.role,
         functions: viewer.functions,
-        photoUrl: viewer.photo_url,
+        photoUrl: viewer.avatar_url || viewer.photo_url,
         isAdmin: viewer.isAdmin,
       }}
       nav={{

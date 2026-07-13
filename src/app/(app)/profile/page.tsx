@@ -30,7 +30,9 @@ export default async function ProfilePage() {
         teamName: viewer.team_name,
         stakeholderName:
           stakeholder?.nickname || stakeholder?.name || viewer.stakeholder_name,
-        photoUrl: viewer.photo_url,
+        photoUrl: viewer.avatar_url || viewer.photo_url,
+        avatarUrl: viewer.avatar_url,
+        googlePhotoUrl: viewer.photo_url,
         isAdmin: viewer.isAdmin,
         hasPassword: !!viewer.password_hash,
       }}

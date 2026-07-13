@@ -70,13 +70,13 @@ export function LoginForm() {
           </div>
         ) : null}
         <div className="grid gap-1.5">
-          <Label htmlFor="email">AIESEC email</Label>
+          <Label htmlFor="email">AIESEC email or phone</Label>
           <Input
             id="email"
             name="email"
-            type="email"
-            autoComplete="email"
-            placeholder="you@aiesec.net"
+            type="text"
+            autoComplete="username"
+            placeholder="you@aiesec.net · or 01…"
             ref={emailRef}
             required
           />
@@ -111,10 +111,10 @@ export function LoginForm() {
       <Dialog open={resetOpen} onOpenChange={setResetOpen}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Request a password reset</DialogTitle>
+            <DialogTitle>Forgot your password?</DialogTitle>
             <DialogDescription>
-              The IM team gets notified instantly. Once they reset it, sign in
-              with <b>Google</b> and you&apos;ll set a new password.
+              No problem — we&apos;ll <b>email you a fresh password</b> right away.
+              Sign in with it, then change it from your Profile whenever you like.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-1.5">
@@ -128,7 +128,7 @@ export function LoginForm() {
           </div>
           <DialogFooter>
             <Button onClick={askReset} disabled={resetPending || !resetEmail.includes("@")}>
-              {resetPending ? "Sending…" : "Notify the IM team"}
+              {resetPending ? "Sending…" : "📬 Email me a new password"}
             </Button>
           </DialogFooter>
         </DialogContent>

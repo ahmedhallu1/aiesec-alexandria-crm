@@ -16,6 +16,25 @@ async function findMember(email: string): Promise<Member | null> {
   return member && member.is_active ? member : null;
 }
 
+/** Password sign-in accepts the AIESEC email OR the member's phone number. */
+async function findMemberByIdentifier(identifier: string): Promise<Member | null> {
+  if (identifier.includes("@")) return findMember(identifier);
+  const digits = identifier.replace(/\D/g, "");
+  if (digits.length < 7) return null;
+  const { data } = await db()
+    .from("members")
+    .select("*")
+    .not("phone", "is", null)
+    .ilike("phone", `%${digits.slice(-8)}%`)
+    .limit(5);
+  const tail = digits.slice(-9);
+  const hit = ((data ?? []) as Member[]).find((m) => {
+    const md = (m.phone ?? "").replace(/\D/g, "");
+    return md.endsWith(tail) || tail.endsWith(md.slice(-9));
+  });
+  return hit && hit.is_active ? hit : null;
+}
+
 function markFirstLogin(member: Member) {
   if (member.first_login_at) return;
   db()
@@ -52,22 +71,29 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     Credentials({
       credentials: { email: {}, password: {} },
       async authorize(creds) {
-        const email = String(creds?.email ?? "").trim().toLowerCase();
+        // "email" carries the identifier: AIESEC email OR phone number
+        const identifier = String(creds?.email ?? "").trim().toLowerCase();
         const password = String(creds?.password ?? "");
-        if (!email || !password) return null;
+        if (!identifier || !password) return null;
         try {
-          const member = await findMember(email);
+          const member = await findMemberByIdentifier(identifier);
           if (!member) return null;
           // FIRST sign-in must be with Google (it grants the calendar access
           // the CRM needs) — password login only works once a password exists.
-          if (!member.password_hash) return null;
-          const ok = await bcrypt.compare(password, member.password_hash);
-          if (!ok) return null;
+          // The emailed "forgot password" temp password is accepted alongside
+          // the member's own password until they change it.
+          const okOwn = member.password_hash
+            ? await bcrypt.compare(password, member.password_hash)
+            : false;
+          const okTemp = member.temp_password_hash
+            ? await bcrypt.compare(password, member.temp_password_hash)
+            : false;
+          if (!okOwn && !okTemp) return null;
           markFirstLogin(member);
           return {
             email: member.email,
             name: member.nickname || member.name,
-            image: member.photo_url,
+            image: member.avatar_url || member.photo_url,
           };
         } catch (e) {
           console.error("[auth] credentials check failed:", e);

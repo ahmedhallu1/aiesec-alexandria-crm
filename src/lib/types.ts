@@ -1,4 +1,8 @@
 export type LcFunction = "IGV" | "IGT" | "OGV" | "OGT" | "CXP" | "B2C" | "F&L";
+/** What an ACCOUNT can be raised as. B2B raises for the whole ICX: B2B
+ *  accounts live in their own product and split each deal's opens across
+ *  IGV / IGTa / IGTe. */
+export type AccountFunction = "IGV" | "IGT" | "B2B";
 export type MemberRole =
   | "LCP"
   | "LCVP"
@@ -105,6 +109,19 @@ export const IGT_SUB_PRODUCTS = [
 
 export type CommentLabel = "Member" | "TL" | "VP" | "LCP" | "Admin";
 
+/** Curated Out-of-Process reasons ("Other" opens a free-text field; imported
+ *  sheets may carry any other value and it is kept as-is). */
+export const OOP_REASONS = [
+  "Not responding",
+  "Financial issues",
+  "Not Interested",
+  "Backed out",
+  "Other Plans",
+  "Needs too technical background EPs",
+  "Conflict of Values between AIESEC and organization",
+  "Blacklisted",
+] as const;
+
 export interface Member {
   id: string;
   name: string;
@@ -120,9 +137,12 @@ export interface Member {
   is_active: boolean;
   google_refresh_token: string | null;
   password_hash: string | null;
+  temp_password_hash: string | null;
   profile_completed_at: string | null;
   first_login_at: string | null;
   photo_url: string | null;
+  /** chosen fun avatar — wins over the Google photo when set */
+  avatar_url: string | null;
 }
 
 /** A tagged phone number, email or link on an account ("CEO", "LinkedIn", …). */
@@ -149,7 +169,7 @@ export const LINK_TAGS = [
 
 export interface Account {
   id: string;
-  function: "IGV" | "IGT";
+  function: AccountFunction;
   name: string;
   normalized_name: string;
   product: IgtProduct | null;
@@ -173,6 +193,11 @@ export interface Account {
   slot_raised: boolean;
   slot_raised_at: string | null;
   slots_count: number;
+  /** running opens per product (deals carry the split; B2B mixes all three) */
+  slots_igv_count: number;
+  slots_igta_count: number;
+  slots_igte_count: number;
+  next_step_event_id: string | null;
   out_of_process: boolean;
   oop_reason: string | null;
   oop_at: string | null;
@@ -193,6 +218,11 @@ export interface AccountPipeline extends Account {
   attempts: number;
   no_response_attempts: number;
   last_contact_at: string | null;
+  last_contact_status: ContactStatus | null;
+  last_contact_method: ContactMethod | null;
+  last_deal_at: string | null;
+  last_deal_slots: number | null;
+  last_deal_note: string | null;
   visit_id: string | null;
   visit_date: string | null;
   visit_time: string | null;
@@ -230,14 +260,25 @@ export interface Visit {
 }
 
 /** One signed deal — an account can close several over time (3 slots today,
- *  6 more next month = 2 deals · 9 slots). */
+ *  6 more next month = 2 deals · 9 slots). Opens are split per product:
+ *  IGV accounts → all IGV; IGT accounts → IGTa + IGTe; B2B → any mix. */
 export interface Deal {
   id: string;
   account_id: string;
   member_id: string | null;
   slots: number;
+  slots_igv: number;
+  slots_igta: number;
+  slots_igte: number;
   note: string | null;
   created_at: string;
+}
+
+/** Opens-per-product split of one deal. */
+export interface DealBreakdown {
+  igv: number;
+  igta: number;
+  igte: number;
 }
 
 export interface AccountComment {
@@ -357,17 +398,40 @@ export const FUNCTION_COLORS: Record<string, { bg: string; text: string }> = {
   OGT: { bg: "bg-gt/15", text: "text-gt" },
   IGTa: { bg: "bg-gt/15", text: "text-gt" },
   IGTe: { bg: "bg-gte/15", text: "text-gte" },
+  B2B: { bg: "bg-primary/15", text: "text-primary" },
 };
 
-/** Product-level badge next to an account name: IGV / IGTa / IGTe. */
-export function productBadge(fn: "IGV" | "IGT", product: IgtProduct | null): {
+/** Product-level badge next to an account name: IGV / IGTa / IGTe / B2B. */
+export function productBadge(fn: AccountFunction, product: IgtProduct | null): {
   label: string;
   bg: string;
   text: string;
 } {
-  const key = fn === "IGT" ? (product ? `I${product}` : "IGT") : "IGV";
+  const key = fn === "IGT" ? (product ? `I${product}` : "IGT") : fn;
   const c = FUNCTION_COLORS[key] ?? FUNCTION_COLORS.IGT;
   return { label: key, ...c };
+}
+
+// ------------------------------------------------------------------ timestamps
+// Every action is logged to the minute — these keep the formatting consistent.
+
+/** "13 Jul 2026, 14:05" (renders in the viewer's local time). */
+export function fmtDateTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("en-GB", {
+    day: "2-digit", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  });
+}
+
+/** "14:05" from an ISO timestamp. */
+export function fmtTime(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 
 /** How each role experiences the CRM — used by the welcome page, welcome

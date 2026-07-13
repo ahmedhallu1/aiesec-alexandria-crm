@@ -16,7 +16,10 @@ import type { Member, MemberRole } from "@/lib/types";
  *  "CRM — IGT Accounts"    export mirror
  *  "CRM — Contact Log"     export mirror
  *  "CRM — Visits"          export mirror
- *  (no blacklist sheet — archived out-of-process accounts ARE the blacklist)
+ *  "CRM — Archived Accounts (DO NOT re-add)"
+ *                          export mirror — EVERY archived name: out-of-process
+ *                          accounts + manually archived names. These can never
+ *                          be added to the CRM again.
  */
 
 /** Final Membership sheet structure (column order is the contract):
@@ -345,22 +348,31 @@ export async function writeMemberToSheet(m: MemberWriteBack): Promise<void> {
 // ------------------------------------------------------------------ export
 
 export async function exportAllSheets(): Promise<void> {
-  const [{ data: accounts }, { data: contacts }, { data: visits }, { data: comments }] =
-    await Promise.all([
-      db().from("accounts_pipeline").select("*").order("created_at"),
-      db()
-        .from("contact_attempts")
-        .select("*, account:accounts(name), member:members(name)")
-        .order("created_at"),
-      db()
-        .from("visits")
-        .select("*, account:accounts(name), member:members(name)")
-        .order("visit_date"),
-      db()
-        .from("account_comments")
-        .select("*, member:members(name, nickname)")
-        .order("created_at"),
-    ]);
+  const [
+    { data: accounts },
+    { data: contacts },
+    { data: visits },
+    { data: comments },
+    { data: manualArchived },
+  ] = await Promise.all([
+    db().from("accounts_pipeline").select("*").order("created_at"),
+    db()
+      .from("contact_attempts")
+      .select("*, account:accounts(name), member:members(name)")
+      .order("created_at"),
+    db()
+      .from("visits")
+      .select("*, account:accounts(name), member:members(name)")
+      .order("visit_date"),
+    db()
+      .from("account_comments")
+      .select("*, member:members(name, nickname)")
+      .order("created_at"),
+    db()
+      .from("blacklist")
+      .select("*, added_by_member:members!blacklist_added_by_fkey(name, nickname)")
+      .order("created_at"),
+  ]);
 
   // numbered comments per account, flattened for the mirrors
   const commentText = new Map<string, string>();
@@ -394,7 +406,7 @@ export async function exportAllSheets(): Promise<void> {
       a.visit_date, a.visit_done == null ? "" : a.visit_done ? "Yes" : "No",
       a.slot_raised ? "Yes" : "No", a.slots_count, a.next_step, a.next_step_date,
       a.out_of_process ? "Yes" : "No", a.oop_reason, a.phone, a.email, a.social_link,
-      a.website, commentText.get(a.id) ?? "", a.created_at?.slice(0, 10),
+      a.website, commentText.get(a.id) ?? "", a.created_at?.slice(0, 16)?.replace("T", " "),
     ])
   );
 
@@ -410,7 +422,7 @@ export async function exportAllSheets(): Promise<void> {
       a.visit_date, a.visit_done == null ? "" : a.visit_done ? "Yes" : "No",
       a.slot_raised ? "Yes" : "No", a.slots_count, a.next_step, a.next_step_date,
       a.out_of_process ? "Yes" : "No", a.oop_reason, a.phone, a.email, a.social_link,
-      a.website, commentText.get(a.id) ?? "", a.created_at?.slice(0, 10),
+      a.website, commentText.get(a.id) ?? "", a.created_at?.slice(0, 16)?.replace("T", " "),
     ])
   );
 
@@ -434,6 +446,33 @@ export async function exportAllSheets(): Promise<void> {
     ])
   );
 
+  // EVERY archived name in one clearly-labeled sheet: out-of-process accounts
+  // (worked in the CRM, then closed) + manually archived names (burned before
+  // the CRM existed). None of these can ever be added again.
+  const oopRows = rows
+    .filter((a) => a.out_of_process)
+    .map((a) => [
+      a.name,
+      a.function === "IGT" ? (a.product ? `I${a.product}` : "IGT") : a.function,
+      a.oop_reason,
+      a.oop_at?.slice(0, 16)?.replace("T", " "),
+      a.responsible_nickname || a.responsible_name,
+      "Worked in the CRM, then archived",
+    ]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const manualRows = ((manualArchived ?? []) as any[]).map((b) => [
+    b.account_name,
+    "",
+    b.comments,
+    b.created_at?.slice(0, 16)?.replace("T", " "),
+    b.added_by_member?.nickname || b.added_by_member?.name || "",
+    "Added manually to the archive",
+  ]);
+  await overwriteSheet(
+    "CRM — Archived Accounts (DO NOT re-add)",
+    ["Account Name", "Product", "Archive Reason", "Archived At", "By / Was Responsible", "Source"],
+    [...oopRows, ...manualRows]
+  );
 }
 
 export type { Member };

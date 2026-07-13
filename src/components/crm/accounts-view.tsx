@@ -3,11 +3,19 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { toast } from "sonner";
 import {
-  AlertTriangle, Archive, CircleAlert, FileUp, Loader2, Phone, Plus, Search, X,
+  AlertTriangle, Archive, CheckCircle2, CircleAlert, FileUp,
+  Loader2, Phone, Plus, Search, Trash2, X, XCircle,
 } from "lucide-react";
 import type { PipelineRow } from "@/server/data";
-import { accountSlug, IGV_PROJECTS, productBadge, STAGES } from "@/lib/types";
+import {
+  addArchivedAccount, importArchivedBulk, removeArchivedEntry,
+} from "@/server/actions";
+import {
+  accountSlug, fmtDateTime, fmtTime, IGV_PROJECTS, OOP_REASONS, productBadge,
+  STAGES,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { StageBadge } from "./stage-badge";
 import { ContactDialog, type ContactTarget } from "./contact-dialog";
@@ -16,14 +24,21 @@ import { Hint } from "./hint";
 import { QuickActions } from "./quick-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import {
+  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface ViewerInfo {
   id: string;
@@ -31,22 +46,150 @@ interface ViewerInfo {
   isAdmin: boolean;
   canAssignOthers: boolean;
   canViewArchive: boolean;
-  allowedFns: ("IGV" | "IGT")[];
+  canRemoveArchived: boolean;
+  allowedFns: ("IGV" | "IGT" | "B2B")[];
   showFnFilter: boolean;
   seesOthers: boolean;
+}
+
+interface ManualEntry {
+  id: string;
+  name: string;
+  reason: string | null;
+  createdAt: string;
+  addedBy: string | null;
+}
+
+/** Rich hover: tooltip with detail rows (label → value). */
+function DetailHint({
+  rows, children, side = "bottom",
+}: {
+  rows: [string, string | null | undefined][];
+  children: React.ReactNode;
+  side?: "top" | "bottom" | "left" | "right";
+}) {
+  const filled = rows.filter(([, v]) => v);
+  if (filled.length === 0) return <>{children}</>;
+  return (
+    <TooltipProvider delayDuration={250}>
+      <Tooltip>
+        <TooltipTrigger asChild>{children}</TooltipTrigger>
+        <TooltipContent side={side} className="max-w-64">
+          <div className="grid gap-0.5 py-0.5 text-left">
+            {filled.map(([label, value]) => (
+              <p key={label} className="text-xs">
+                <span className="opacity-70">{label}: </span>
+                <span className="font-medium">{value}</span>
+              </p>
+            ))}
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 }
 
 function FnBadge({ row, className }: { row: PipelineRow; className?: string }) {
   const b = productBadge(row.function, row.product);
   return (
-    <span className={cn("inline-flex items-center gap-1.5", className)}>
-      <Badge className={cn("border-transparent text-[10px] font-bold", b.bg, b.text)}>
-        {b.label}
-      </Badge>
-      {row.function === "IGV" && row.project ? (
-        <span className="text-xs text-muted-foreground">{row.project}</span>
-      ) : null}
-    </span>
+    <DetailHint
+      rows={
+        row.function === "IGV"
+          ? [["Project", row.project], ["Type", row.account_type], ["Industry", row.industry]]
+          : row.function === "B2B"
+            ? [["Product", "B2B — raises for the whole ICX"], ["Type", row.account_type], ["Industry", row.industry]]
+            : [["Sub product", row.sub_product]]
+      }
+    >
+      <span className={cn("inline-flex items-center gap-1.5", className)}>
+        <Badge className={cn("border-transparent text-[10px] font-bold", b.bg, b.text)}>
+          {b.label}
+        </Badge>
+        {row.function === "IGV" && row.project ? (
+          <span className="text-xs text-muted-foreground">{row.project}</span>
+        ) : null}
+      </span>
+    </DetailHint>
+  );
+}
+
+/** Status badge with the CURRENT state's details on hover (deal totals, visit
+ *  date/result, last contact, archive reason…). */
+function StatusCell({ row }: { row: PipelineRow }) {
+  const rows: [string, string | null | undefined][] =
+    row.stage === "Deal Done"
+      ? [
+          ["Deals", `${row.deals_count}`],
+          ["Opens", `${row.slots_count}`],
+          ["Last deal", row.last_deal_at ? `${row.last_deal_slots ?? "?"} opens · ${fmtDateTime(row.last_deal_at)}` : null],
+          ["Note", row.last_deal_note],
+        ]
+      : row.stage === "Visit Done"
+        ? [
+            ["Visit", row.visit_date ? `${row.visit_date} ${row.visit_time?.slice(0, 5) ?? ""}` : null],
+            ["Result", row.visit_comment],
+          ]
+        : row.stage === "Visit Scheduled"
+          ? [
+              ["Visit on", row.visit_date ? `${row.visit_date} at ${row.visit_time?.slice(0, 5) ?? ""}` : null],
+            ]
+          : row.stage === "Out of Process"
+            ? [
+                ["Reason", row.oop_reason],
+                ["Archived", fmtDateTime(row.oop_at)],
+              ]
+            : row.stage === "Contacted"
+              ? [
+                  ["Attempts", `${row.attempts}`],
+                  ["Last result", row.last_contact_status],
+                  ["Last contact", fmtDateTime(row.last_contact_at)],
+                ]
+              : [["Added", fmtDateTime(row.created_at)], ["Contacts", "none yet"]];
+  return (
+    <DetailHint rows={rows}>
+      <span className="inline-flex">
+        <StageBadge stage={row.stage} />
+      </span>
+    </DetailHint>
+  );
+}
+
+/** Contacts count + the LAST contact result, details on hover. */
+function ContactsCell({ row }: { row: PipelineRow }) {
+  return (
+    <DetailHint
+      rows={[
+        ["Attempts", `${row.attempts}`],
+        ["Last result", row.last_contact_status],
+        ["Via", row.last_contact_method],
+        ["When", row.last_contact_at ? fmtDateTime(row.last_contact_at) : null],
+      ]}
+    >
+      <span className="inline-flex flex-col items-center gap-0.5 leading-none">
+        <span className="inline-flex items-center gap-1 text-sm">
+          {row.attempts}
+          {row.contact_limit_reached ? (
+            <AlertTriangle className="size-3.5 text-warning" />
+          ) : null}
+        </span>
+        {row.last_contact_status ? (
+          <span
+            className={cn(
+              "text-[10px]",
+              row.last_contact_status === "No Response"
+                ? "text-warning"
+                : row.last_contact_status === "Not Interested"
+                  ? "text-destructive"
+                  : row.last_contact_status === "Interested"
+                    ? "text-success"
+                    : "text-muted-foreground"
+            )}
+          >
+            {row.last_contact_status}
+          </span>
+        ) : null}
+      </span>
+    </DetailHint>
   );
 }
 
@@ -64,10 +207,12 @@ function PinSign({ text }: { text: string | null }) {
 }
 
 export function AccountsView({
-  rows, members, viewer, filters,
+  rows, manualArchived, members, respOptions, viewer, filters,
 }: {
   rows: PipelineRow[];
+  manualArchived: ManualEntry[];
   members: MemberOption[];
+  respOptions: { id: string; label: string }[];
   viewer: ViewerInfo;
   filters: Record<string, string>;
 }) {
@@ -76,6 +221,8 @@ export function AccountsView({
   const [q, setQ] = useState(filters.q);
   const [contactTarget, setContactTarget] = useState<ContactTarget | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [addArchivedOpen, setAddArchivedOpen] = useState(false);
+  const [importArchivedOpen, setImportArchivedOpen] = useState(false);
   const [navPending, startNav] = useTransition();
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -109,6 +256,25 @@ export function AccountsView({
     nextStepDate: row.next_step_date,
   });
 
+  // archive = OOP accounts + manually added names, newest first
+  const archivedItems: (
+    | { kind: "account"; date: string; row: PipelineRow }
+    | { kind: "manual"; date: string; entry: ManualEntry }
+  )[] = archived
+    ? [
+        ...rows.map((row) => ({
+          kind: "account" as const,
+          date: row.oop_at ?? row.updated_at ?? row.created_at,
+          row,
+        })),
+        ...manualArchived
+          .filter((e) => !q || e.name.toLowerCase().includes(q.trim().toLowerCase()))
+          .map((entry) => ({ kind: "manual" as const, date: entry.createdAt, entry })),
+      ].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""))
+    : [];
+
+  const archivedCount = archivedItems.length;
+
   return (
     <div className={cn("mx-auto max-w-7xl space-y-4", navPending && "nav-pending")}>
       <div className="flex flex-wrap items-center justify-between gap-3 rise-in">
@@ -119,7 +285,7 @@ export function AccountsView({
           </h1>
           <p className="text-sm text-muted-foreground">
             {archived
-              ? `${rows.length} out-of-process account${rows.length === 1 ? "" : "s"} — names here can never be re-added`
+              ? `${archivedCount} archived name${archivedCount === 1 ? "" : "s"} — none of them can ever be re-added`
               : `${rows.length} account${rows.length === 1 ? "" : "s"} in your scope`}
           </p>
         </div>
@@ -134,7 +300,20 @@ export function AccountsView({
               </Button>
             </Hint>
           ) : null}
-          {!archived ? (
+          {archived ? (
+            <>
+              <Hint label="Import a whole sheet of archived names (Name + Reason) — blocked from ever being added">
+                <Button variant="outline" onClick={() => setImportArchivedOpen(true)}>
+                  <FileUp className="size-4" /> Import archived
+                </Button>
+              </Hint>
+              <Hint label="Add one archived name by hand — for companies burned before the CRM existed">
+                <Button onClick={() => setAddArchivedOpen(true)}>
+                  <Plus className="size-4" /> Add archived
+                </Button>
+              </Hint>
+            </>
+          ) : (
             <>
               <Hint label="Got a sheet of market research? Import a whole CSV/Excel at once">
                 <Button variant="outline" asChild>
@@ -149,7 +328,7 @@ export function AccountsView({
                 </Button>
               </Hint>
             </>
-          ) : null}
+          )}
         </div>
       </div>
 
@@ -171,14 +350,14 @@ export function AccountsView({
             options={viewer.allowedFns.map((f) => [f, f])}
           />
         ) : null}
-        {filters.fn !== "IGV" && viewer.allowedFns.includes("IGT") ? (
+        {filters.fn !== "IGV" && filters.fn !== "B2B" && viewer.allowedFns.includes("IGT") ? (
           <FilterSelect
             value={filters.product} placeholder="Product"
             onChange={(v) => setParam("product", v)}
             options={[["GTa", "IGTa"], ["GTe", "IGTe"]]}
           />
         ) : null}
-        {filters.fn !== "IGT" && viewer.allowedFns.includes("IGV") ? (
+        {filters.fn !== "IGT" && filters.fn !== "B2B" && viewer.allowedFns.includes("IGV") ? (
           <FilterSelect
             value={filters.project} placeholder="Project"
             onChange={(v) => setParam("project", v)}
@@ -192,11 +371,13 @@ export function AccountsView({
             options={stageOptions.map((s) => [s, s])}
           />
         ) : null}
-        {viewer.seesOthers && members.length > 1 ? (
+        {viewer.seesOthers && respOptions.length > 0 ? (
+          // only members who HAVE accounts in the current view (any other
+          // filter applied first) — not the whole membership list
           <FilterSelect
             value={filters.resp} placeholder="Responsible"
             onChange={(v) => setParam("resp", v)}
-            options={members.map((m) => [m.id, m.label])}
+            options={respOptions.map((m) => [m.id, m.label])}
           />
         ) : null}
         {!archived ? (
@@ -237,170 +418,181 @@ export function AccountsView({
         ) : null}
       </div>
 
-      {/* Mobile: cards */}
-      <div className="space-y-2.5 md:hidden">
-        {rows.length === 0 ? (
-          <Card>
-            <CardContent className="py-10 text-center text-sm text-muted-foreground">
-              {archived ? "The archive is empty." : "No accounts here yet. Add your first one 🚀"}
-            </CardContent>
-          </Card>
-        ) : (
-          rows.map((row, i) => (
-            <Card
-              key={row.id}
-              className={cn("rise-in", i < 4 && `rise-in-${i + 1}`)}
-              onClick={() => router.push(hrefFor(row))}
-            >
-              <CardContent className="space-y-2 p-3.5">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="flex items-center gap-1.5 truncate font-semibold">
-                      {row.name} <PinSign text={row.pinned_comment} />
-                    </p>
-                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                      <FnBadge row={row} />
-                      <StageBadge stage={row.stage} className="text-[10px]" />
-                      {row.contact_limit_reached ? (
-                        <Badge className="border-transparent bg-warning/15 text-[10px] text-warning">⚠️ 3 contacts</Badge>
-                      ) : null}
-                      {row.next_step_missing ? (
-                        <Badge variant="destructive" className="text-[10px]">🚨 no next step</Badge>
+      {archived ? (
+        <ArchivedList
+          items={archivedItems}
+          canRemove={viewer.canRemoveArchived}
+          seesOthers={viewer.seesOthers}
+          onOpen={(row) => router.push(hrefFor(row))}
+        />
+      ) : (
+        <>
+          {/* Mobile: cards */}
+          <div className="space-y-2.5 md:hidden">
+            {rows.length === 0 ? (
+              <Card>
+                <CardContent className="py-10 text-center text-sm text-muted-foreground">
+                  No accounts here yet. Add your first one 🚀
+                </CardContent>
+              </Card>
+            ) : (
+              rows.map((row, i) => (
+                <Card
+                  key={row.id}
+                  className={cn("rise-in", i < 4 && `rise-in-${i + 1}`)}
+                  onClick={() => router.push(hrefFor(row))}
+                >
+                  <CardContent className="space-y-2 p-3.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="flex items-center gap-1.5 truncate font-semibold">
+                          {row.name} <PinSign text={row.pinned_comment} />
+                        </p>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <FnBadge row={row} />
+                          <StageBadge stage={row.stage} className="text-[10px]" />
+                          {row.contact_limit_reached ? (
+                            <Badge className="border-transparent bg-warning/15 text-[10px] text-warning">⚠️ 3 contacts</Badge>
+                          ) : null}
+                          {row.next_step_missing ? (
+                            <Badge variant="destructive" className="text-[10px]">🚨 no next step</Badge>
+                          ) : null}
+                        </div>
+                      </div>
+                      {!row.out_of_process ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="shrink-0"
+                          onClick={(e) => { e.stopPropagation(); setContactTarget(contactFor(row)); }}
+                        >
+                          <Phone className="size-3.5" /> Contact
+                        </Button>
                       ) : null}
                     </div>
-                  </div>
-                  {!row.out_of_process ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="shrink-0"
-                      onClick={(e) => { e.stopPropagation(); setContactTarget(contactFor(row)); }}
-                    >
-                      <Phone className="size-3.5" /> Contact
-                    </Button>
-                  ) : null}
-                </div>
-                {row.pinned_comment ? (
-                  <p className="rounded-md bg-warning/10 px-2 py-1 text-xs text-warning">
-                    ❗ {row.pinned_comment}
-                  </p>
-                ) : null}
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                  <span>🗓️ {row.created_at?.slice(0, 10)}</span>
-                  <span>📞 {row.attempts} contact{row.attempts === 1 ? "" : "s"}</span>
-                  {archived ? (
-                    <span className="text-destructive">🗄️ {row.oop_reason ?? "archived"}</span>
-                  ) : row.next_step_date ? (
-                    <span>⏭️ {row.next_step_date}</span>
-                  ) : null}
-                </div>
-                {!archived ? <QuickActions contacts={row.contacts} max={6} /> : null}
-              </CardContent>
-            </Card>
-          ))
-        )}
-      </div>
-
-      {/* Desktop: table — Date added · Account · Product · Status · Contacts · Next step · Quick actions */}
-      <div className="hidden overflow-hidden rounded-xl border bg-card md:block rise-in rise-in-2">
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date added</TableHead>
-                <TableHead>Account</TableHead>
-                <TableHead>Product</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-center">Contacts</TableHead>
-                {archived ? <TableHead>Reason</TableHead> : <TableHead>Next step</TableHead>}
-                <TableHead>{archived ? "" : "Quick actions"}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="py-12 text-center text-muted-foreground">
-                    {archived ? "The archive is empty." : "No accounts here yet. Add your first one 🚀"}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                rows.map((row) => (
-                  <TableRow
-                    key={row.id}
-                    className="cursor-pointer"
-                    onClick={() => router.push(hrefFor(row))}
-                  >
-                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                      {row.created_at?.slice(0, 10)}
-                    </TableCell>
-                    <TableCell>
-                      <span className="inline-flex items-center gap-1.5">
-                        <Link
-                          href={hrefFor(row)}
-                          className="font-medium hover:text-primary"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {row.name}
-                        </Link>
-                        <PinSign text={row.pinned_comment} />
+                    {row.pinned_comment ? (
+                      <p className="rounded-md bg-warning/10 px-2 py-1 text-xs text-warning">
+                        ❗ {row.pinned_comment}
+                      </p>
+                    ) : null}
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                      <span>🗓️ {fmtDateTime(row.created_at)}</span>
+                      <span>
+                        📞 {row.attempts} contact{row.attempts === 1 ? "" : "s"}
+                        {row.last_contact_status ? ` · ${row.last_contact_status}` : ""}
                       </span>
-                      {viewer.seesOthers ? (
-                        <p className="text-xs text-muted-foreground">
-                          {row.responsible_nickname || row.responsible_name}
-                        </p>
+                      {row.next_step_date ? (
+                        <span>
+                          ⏭️ {row.next_step_date}
+                          {row.next_step_time ? ` ${row.next_step_time.slice(0, 5)}` : ""}
+                        </span>
                       ) : null}
-                    </TableCell>
-                    <TableCell><FnBadge row={row} /></TableCell>
-                    <TableCell><StageBadge stage={row.stage} /></TableCell>
-                    <TableCell className="text-center">
-                      <span className="inline-flex items-center gap-1">
-                        {row.attempts}
-                        {row.contact_limit_reached ? (
-                          <AlertTriangle className="size-3.5 text-warning" />
-                        ) : null}
-                      </span>
-                    </TableCell>
-                    {archived ? (
-                      <TableCell className="max-w-56 truncate text-sm text-muted-foreground">
-                        {row.oop_reason ?? "—"}
-                      </TableCell>
-                    ) : (
-                      <TableCell className="max-w-44 text-sm">
-                        {row.next_step_missing ? (
-                          <Badge variant="destructive" className="font-normal">missing</Badge>
-                        ) : row.next_step_date ? (
-                          <span className="text-muted-foreground">
-                            {row.next_step_date}
-                            {row.next_step ? ` · ${row.next_step.slice(0, 24)}` : ""}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                    )}
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center gap-1.5">
-                        {!archived ? <QuickActions contacts={row.contacts} /> : null}
-                        {!row.out_of_process ? (
-                          <Hint label="Log a call / WhatsApp / email attempt on this account">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setContactTarget(contactFor(row))}
-                            >
-                              <Phone className="size-3.5" /> Log
-                            </Button>
-                          </Hint>
-                        ) : null}
-                      </div>
-                    </TableCell>
+                    </div>
+                    <QuickActions contacts={row.contacts} max={6} />
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </div>
+
+          {/* Desktop: table — Date added · Account · Product · Status · Contacts · Next step · Quick actions */}
+          <div className="hidden overflow-hidden rounded-xl border bg-card md:block rise-in rise-in-2">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date added</TableHead>
+                    <TableHead>Account</TableHead>
+                    <TableHead>Product</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-center">Contacts</TableHead>
+                    <TableHead>Next step</TableHead>
+                    <TableHead>Quick actions</TableHead>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      </div>
+                </TableHeader>
+                <TableBody>
+                  {rows.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="py-12 text-center text-muted-foreground">
+                        No accounts here yet. Add your first one 🚀
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    rows.map((row) => (
+                      <TableRow
+                        key={row.id}
+                        className="cursor-pointer"
+                        onClick={() => router.push(hrefFor(row))}
+                      >
+                        <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                          <span className="block leading-tight">{row.created_at?.slice(0, 10)}</span>
+                          <span className="block text-[10px] opacity-70">{fmtTime(row.created_at)}</span>
+                        </TableCell>
+                        <TableCell>
+                          <span className="inline-flex items-center gap-1.5">
+                            <Link
+                              href={hrefFor(row)}
+                              className="font-medium hover:text-primary"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {row.name}
+                            </Link>
+                            <PinSign text={row.pinned_comment} />
+                          </span>
+                          {viewer.seesOthers ? (
+                            <p className="text-xs text-muted-foreground">
+                              {row.responsible_nickname || row.responsible_name}
+                            </p>
+                          ) : null}
+                        </TableCell>
+                        <TableCell><FnBadge row={row} /></TableCell>
+                        <TableCell><StatusCell row={row} /></TableCell>
+                        <TableCell className="text-center"><ContactsCell row={row} /></TableCell>
+                        <TableCell className="max-w-44 text-sm">
+                          {row.next_step_missing ? (
+                            <Badge variant="destructive" className="font-normal">missing</Badge>
+                          ) : row.next_step_date ? (
+                            <DetailHint
+                              rows={[
+                                ["Next step", row.next_step],
+                                ["Date", row.next_step_date],
+                                ["Time", row.next_step_time?.slice(0, 5) ?? "11:00 (default reminder)"],
+                              ]}
+                            >
+                              <span className="text-muted-foreground">
+                                {row.next_step_date}
+                                {row.next_step ? ` · ${row.next_step.slice(0, 24)}` : ""}
+                              </span>
+                            </DetailHint>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center gap-1.5">
+                            <QuickActions contacts={row.contacts} />
+                            {!row.out_of_process ? (
+                              <Hint label="Log a call / WhatsApp / email attempt on this account">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setContactTarget(contactFor(row))}
+                                >
+                                  <Phone className="size-3.5" /> Log
+                                </Button>
+                              </Hint>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </>
+      )}
 
       <ContactDialog
         target={contactTarget}
@@ -417,7 +609,447 @@ export function AccountsView({
         }}
         members={members}
       />
+      <AddArchivedDialog open={addArchivedOpen} onOpenChange={setAddArchivedOpen} />
+      <ImportArchivedDialog open={importArchivedOpen} onOpenChange={setImportArchivedOpen} />
     </div>
+  );
+}
+
+// ------------------------------------------------------------------ archive
+
+function ArchivedList({
+  items, canRemove, seesOthers, onOpen,
+}: {
+  items: (
+    | { kind: "account"; date: string; row: PipelineRow }
+    | { kind: "manual"; date: string; entry: ManualEntry }
+  )[];
+  canRemove: boolean;
+  seesOthers: boolean;
+  onOpen: (row: PipelineRow) => void;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+
+  const remove = (id: string, name: string) =>
+    start(async () => {
+      const res = await removeArchivedEntry(id);
+      if (res.ok) { toast.success(`"${name}" removed from the archive`); router.refresh(); }
+      else toast.error(res.error);
+    });
+
+  return (
+    <>
+      {/* Mobile cards */}
+      <div className="space-y-2.5 md:hidden">
+        {items.length === 0 ? (
+          <Card>
+            <CardContent className="py-10 text-center text-sm text-muted-foreground">
+              The archive is empty.
+            </CardContent>
+          </Card>
+        ) : (
+          items.map((item) =>
+            item.kind === "account" ? (
+              <Card key={item.row.id} onClick={() => onOpen(item.row)}>
+                <CardContent className="space-y-1.5 p-3.5">
+                  <p className="flex items-center gap-1.5 font-semibold">{item.row.name}</p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <FnBadge row={item.row} />
+                    <span className="text-xs text-destructive">🗄️ {item.row.oop_reason ?? "archived"}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{fmtDateTime(item.date)}</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card key={item.entry.id}>
+                <CardContent className="space-y-1.5 p-3.5">
+                  <p className="flex items-center justify-between gap-2 font-semibold">
+                    {item.entry.name}
+                    {canRemove ? (
+                      <Button
+                        variant="ghost" size="icon" disabled={pending}
+                        className="size-7 text-muted-foreground hover:text-destructive"
+                        onClick={() => remove(item.entry.id, item.entry.name)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    ) : null}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge variant="outline" className="text-[10px]">added manually</Badge>
+                    <span className="text-xs text-destructive">🗄️ {item.entry.reason ?? "—"}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {fmtDateTime(item.date)}{item.entry.addedBy ? ` · by ${item.entry.addedBy}` : ""}
+                  </p>
+                </CardContent>
+              </Card>
+            )
+          )
+        )}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden overflow-hidden rounded-xl border bg-card md:block rise-in rise-in-2">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Archived</TableHead>
+                <TableHead>Account</TableHead>
+                <TableHead>Product</TableHead>
+                <TableHead>Reason</TableHead>
+                <TableHead>Source</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
+                    The archive is empty.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                items.map((item) =>
+                  item.kind === "account" ? (
+                    <TableRow
+                      key={item.row.id}
+                      className="cursor-pointer"
+                      onClick={() => onOpen(item.row)}
+                    >
+                      <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                        <span className="block leading-tight">{item.date?.slice(0, 10)}</span>
+                        <span className="block text-[10px] opacity-70">{fmtTime(item.date)}</span>
+                      </TableCell>
+                      <TableCell>
+                        <span className="font-medium">{item.row.name}</span>
+                        {seesOthers ? (
+                          <p className="text-xs text-muted-foreground">
+                            {item.row.responsible_nickname || item.row.responsible_name}
+                          </p>
+                        ) : null}
+                      </TableCell>
+                      <TableCell><FnBadge row={item.row} /></TableCell>
+                      <TableCell className="max-w-64 truncate text-sm text-muted-foreground">
+                        {item.row.oop_reason ?? "—"}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        worked, then archived
+                      </TableCell>
+                      <TableCell />
+                    </TableRow>
+                  ) : (
+                    <TableRow key={item.entry.id}>
+                      <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                        <span className="block leading-tight">{item.date?.slice(0, 10)}</span>
+                        <span className="block text-[10px] opacity-70">{fmtTime(item.date)}</span>
+                      </TableCell>
+                      <TableCell className="font-medium">{item.entry.name}</TableCell>
+                      <TableCell><span className="text-muted-foreground">—</span></TableCell>
+                      <TableCell className="max-w-64 truncate text-sm text-muted-foreground">
+                        {item.entry.reason ?? "—"}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        added manually{item.entry.addedBy ? ` · ${item.entry.addedBy}` : ""}
+                      </TableCell>
+                      <TableCell>
+                        {canRemove ? (
+                          <Hint label="Remove this manual entry (typo / wrong import)">
+                            <Button
+                              variant="ghost" size="icon" disabled={pending}
+                              className="size-7 text-muted-foreground hover:text-destructive"
+                              onClick={() => remove(item.entry.id, item.entry.name)}
+                            >
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          </Hint>
+                        ) : null}
+                      </TableCell>
+                    </TableRow>
+                  )
+                )
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/** Reason picker: the curated list, "Other" opens free text. */
+function ReasonField({
+  value, onChange, compact,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  compact?: boolean;
+}) {
+  const inList = (OOP_REASONS as readonly string[]).includes(value);
+  const [other, setOther] = useState(!!value && !inList);
+  return (
+    <div className="grid gap-1.5">
+      <Select
+        value={other ? "Other" : value || undefined}
+        onValueChange={(v) => {
+          if (v === "Other") { setOther(true); onChange(""); }
+          else { setOther(false); onChange(v); }
+        }}
+      >
+        <SelectTrigger className={compact ? "h-8" : undefined}>
+          <SelectValue placeholder="Why is it archived?" />
+        </SelectTrigger>
+        <SelectContent>
+          {OOP_REASONS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+          <SelectItem value="Other">Other…</SelectItem>
+        </SelectContent>
+      </Select>
+      {other ? (
+        <Input
+          className={compact ? "h-8" : undefined}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Type the reason…"
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function AddArchivedDialog({
+  open, onOpenChange,
+}: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const router = useRouter();
+  const [name, setName] = useState("");
+  const [reason, setReason] = useState("");
+  const [pending, start] = useTransition();
+
+  const submit = () =>
+    start(async () => {
+      const res = await addArchivedAccount({ name, reason });
+      if (res.ok) {
+        toast.success(`"${name.trim()}" is archived — it can never be added.`);
+        setName(""); setReason("");
+        onOpenChange(false);
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>🗄️ Add an archived account</DialogTitle>
+          <DialogDescription>
+            For companies that were burned before the CRM existed — the name
+            goes straight to the archive and can never be added as an account.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          <div className="grid gap-1.5">
+            <Label>Account name *</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Company / organization name" />
+          </div>
+          <div className="grid gap-1.5">
+            <Label>Reason *</Label>
+            <ReasonField value={reason} onChange={setReason} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button onClick={submit} disabled={pending || name.trim().length < 2 || !reason.trim()}>
+            {pending ? "Saving…" : "Archive it"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+interface ArchivedDraft { name: string; reason: string }
+
+function ImportArchivedDialog({
+  open, onOpenChange,
+}: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const router = useRouter();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [rows, setRows] = useState<ArchivedDraft[]>([]);
+  const [fileName, setFileName] = useState("");
+  const [parsing, setParsing] = useState(false);
+  const [results, setResults] = useState<{ name: string; ok: boolean; error?: string }[] | null>(null);
+  const [pending, start] = useTransition();
+
+  const parseFile = async (file: File) => {
+    setParsing(true);
+    setResults(null);
+    try {
+      const XLSX = await import("xlsx");
+      const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const grid = XLSX.utils.sheet_to_json<string[]>(sheet, {
+        header: 1, raw: false, defval: "",
+      }) as string[][];
+      if (grid.length < 2) {
+        toast.error("The file needs a header row + at least one name row.");
+        return;
+      }
+      const headers = grid[0].map((h) => String(h ?? "").trim().toLowerCase());
+      let nameCol = headers.findIndex((h) => /name|company|account/.test(h));
+      let reasonCol = headers.findIndex((h) => /reason|why|comment/.test(h));
+      if (nameCol < 0) nameCol = 0;
+      if (reasonCol < 0 || reasonCol === nameCol) reasonCol = nameCol === 0 ? 1 : 0;
+      const drafts: ArchivedDraft[] = grid
+        .slice(1)
+        .map((line) => ({
+          name: String(line[nameCol] ?? "").trim(),
+          // free-form reasons from old sheets are kept as-is
+          reason: String(line[reasonCol] ?? "").trim(),
+        }))
+        .filter((d) => d.name);
+      if (drafts.length === 0) {
+        toast.error("No rows with a name found.");
+        return;
+      }
+      if (drafts.length > 1000) {
+        toast.error("Max 1000 archived names per import — split the file.");
+        return;
+      }
+      setRows(drafts);
+      setFileName(file.name);
+      toast.success(`${drafts.length} name${drafts.length === 1 ? "" : "s"} read — review, edit, then import.`);
+    } catch (e) {
+      console.error(e);
+      toast.error("Couldn't read that file. Use .csv or .xlsx with a header row.");
+    } finally {
+      setParsing(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  const update = (i: number, patch: Partial<ArchivedDraft>) =>
+    setRows((r) => r.map((row, j) => (j === i ? { ...row, ...patch } : row)));
+  const removeRow = (i: number) => setRows((r) => r.filter((_, j) => j !== i));
+
+  const invalid = rows.filter((r) => r.name.trim().length < 2 || !r.reason.trim()).length;
+
+  const submit = () =>
+    start(async () => {
+      const res = await importArchivedBulk(rows.map((r) => ({ name: r.name.trim(), reason: r.reason.trim() })));
+      if (!res.ok) { toast.error(res.error); return; }
+      const { results: rr, created } = res.data!;
+      setResults(rr);
+      if (created === rows.length) toast.success(`All ${created} names archived 🗄️`);
+      else toast.warning(`${created} archived · ${rows.length - created} blocked — see the rows.`);
+      router.refresh();
+    });
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) { setRows([]); setResults(null); setFileName(""); } onOpenChange(o); }}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>🗄️ Import archived accounts</DialogTitle>
+          <DialogDescription>
+            A <b>.csv</b> / <b>.xlsx</b> with <b>Name</b> and <b>Reason</b> columns —
+            edit anything below before it enters the archive. Reasons outside the
+            standard list are kept as they are.
+          </DialogDescription>
+        </DialogHeader>
+
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".csv,.xlsx,.xls"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) parseFile(f);
+          }}
+        />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={parsing}>
+            {parsing ? <Loader2 className="size-4 animate-spin" /> : <FileUp className="size-4" />}
+            {rows.length > 0 ? "Choose another file" : "Choose file"}
+          </Button>
+          {rows.length > 0 ? (
+            <p className="text-sm text-muted-foreground">
+              <b>{fileName}</b> · {rows.length} name{rows.length === 1 ? "" : "s"}
+              {invalid > 0 ? <span className="ml-2 text-destructive">{invalid} need fixes</span> : null}
+            </p>
+          ) : null}
+        </div>
+
+        {rows.length > 0 ? (
+          <div className="max-h-80 overflow-y-auto rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="min-w-40">Name *</TableHead>
+                  <TableHead className="min-w-48">Reason *</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((r, i) => {
+                  const result = results?.[i];
+                  return (
+                    <TableRow key={i} className={cn(result && !result.ok && "bg-destructive/5")}>
+                      <TableCell>
+                        <Input className="h-8" value={r.name} onChange={(e) => update(i, { name: e.target.value })} />
+                      </TableCell>
+                      <TableCell>
+                        <ReasonField compact value={r.reason} onChange={(v) => update(i, { reason: v })} />
+                      </TableCell>
+                      <TableCell>
+                        {result ? (
+                          result.ok ? (
+                            <Badge className="border-transparent bg-success/15 text-success">
+                              <CheckCircle2 className="size-3" /> archived
+                            </Badge>
+                          ) : (
+                            <Badge variant="destructive" title={result.error}>
+                              <XCircle className="size-3" /> {result.error?.slice(0, 32)}
+                            </Badge>
+                          )
+                        ) : r.name.trim().length < 2 || !r.reason.trim() ? (
+                          <Badge className="border-transparent bg-warning/15 text-warning">incomplete</Badge>
+                        ) : (
+                          <Badge variant="outline">ready</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost" size="icon"
+                          className="size-7 text-muted-foreground hover:text-destructive"
+                          onClick={() => removeRow(i)}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        ) : (
+          <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            Expected columns: <b>Name</b> · <b>Reason</b> (any order, extra columns ignored)
+          </p>
+        )}
+
+        <DialogFooter>
+          <Button onClick={submit} disabled={pending || rows.length === 0 || invalid > 0}>
+            {pending ? (
+              <><Loader2 className="size-4 animate-spin" /> Importing…</>
+            ) : (
+              <>Archive {rows.length || ""} name{rows.length === 1 ? "" : "s"}</>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

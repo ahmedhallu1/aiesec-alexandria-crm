@@ -58,14 +58,18 @@ export default async function DashboardPage({
   ]);
 
   // Member filter: only people with access to the active lane — and never the
-  // LCP (they don't do market research or operations).
+  // LCP (they don't do market research or operations). B2B people raise for
+  // every lane, so they always show.
   const laneFn = filters.fn ?? null;
+  const isB2BMember = (m: (typeof members)[number]) =>
+    (m.functions ?? []).includes("B2B") || (m.sub_functions ?? []).includes("B2B");
   const memberOptions = members
     .filter((m) => m.role !== "LCP")
     .filter((m) =>
-      laneFn
+      isB2BMember(m) ||
+      (laneFn
         ? (m.functions ?? []).includes(laneFn)
-        : (m.functions ?? []).some((f) => f === "IGV" || f === "IGT")
+        : (m.functions ?? []).some((f) => f === "IGV" || f === "IGT"))
     )
     .map((m) => ({ id: m.id, label: m.nickname || m.name }));
 
@@ -100,6 +104,7 @@ export default async function DashboardPage({
       byTeam={data.byTeam}
       functionBoard={data.functionBoard}
       teamBoard={data.teamBoard}
+      teamAchieved={data.teamAchieved}
       funcGoal={data.funcGoal}
       teamGoal={data.teamGoal}
       views={views}

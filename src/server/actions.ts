@@ -11,6 +11,7 @@ import {
   canEditRequestState,
   canManageMembership,
   canReassignAccount,
+  canViewArchive,
   commentLabel,
   reassignTargetScope,
 } from "@/lib/rbac";
@@ -18,9 +19,12 @@ import { checkAccountName, getViewer, logAudit, type PipelineRow } from "./data"
 import { sendEmail } from "@/lib/google/gmail";
 import { visitReportEmail } from "@/lib/email/templates";
 import {
+  calendarErrorHint,
   createVisitEvent,
+  deleteFollowupEvent,
   deleteVisitEvent,
   updateVisitEvent,
+  upsertFollowupEvent,
 } from "@/lib/google/calendar";
 import {
   accountSlug,
@@ -65,6 +69,48 @@ function refresh(accountId?: string) {
   if (accountId) revalidatePath(`/accounts/${accountId}`);
 }
 
+/** Keeps the responsible's CALENDAR follow-up reminder in sync with the
+ *  account's next step: an event at the next step's time (11:00 when only a
+ *  date was set), updated on change, removed when the step is cleared, done
+ *  or the account leaves the process. Best-effort — never blocks the action. */
+async function syncNextStepReminder(accountId: string): Promise<void> {
+  try {
+    const account = await loadAccount(accountId);
+    if (!account) return;
+    const { data: owner } = await db()
+      .from("members")
+      .select("google_refresh_token")
+      .eq("id", account.responsible_id)
+      .maybeSingle<{ google_refresh_token: string | null }>();
+    const token = owner?.google_refresh_token ?? null;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const wanted =
+      !account.out_of_process && !!account.next_step_date && account.next_step_date >= today;
+
+    if (!wanted) {
+      if (account.next_step_event_id) {
+        await deleteFollowupEvent(token, account.next_step_event_id);
+        await db().from("accounts").update({ next_step_event_id: null }).eq("id", accountId);
+      }
+      return;
+    }
+
+    const eventId = await upsertFollowupEvent(token, account.next_step_event_id ?? null, {
+      accountName: account.name,
+      step: account.next_step,
+      date: account.next_step_date!,
+      time: account.next_step_time,
+      detailsUrl: `${env.appUrl}/accounts/${accountSlug(account.name)}`,
+    });
+    if (eventId !== account.next_step_event_id) {
+      await db().from("accounts").update({ next_step_event_id: eventId }).eq("id", accountId);
+    }
+  } catch (e) {
+    console.error("[calendar] next-step reminder sync failed:", e);
+  }
+}
+
 // ------------------------------------------------------------------ field validation
 
 const phoneField = z
@@ -92,7 +138,7 @@ const linkField = z
 // ================================================================== accounts
 
 const createAccountSchema = z.object({
-  function: z.enum(["IGV", "IGT"]),
+  function: z.enum(["IGV", "IGT", "B2B"]),
   name: z.string().trim().min(2, "Account name is required"),
   product: z.enum(["GTa", "GTe"]).nullish(),
   sub_product: z.string().trim().nullish(),
@@ -162,7 +208,8 @@ export async function createAccount(
   if (!parsed.success) return fail(parsed.error.issues[0].message);
   const data = parsed.data;
 
-  // FUNCTION GATE: IGV-only members can't add IGT accounts and vice versa.
+  // FUNCTION GATE: IGV-only members can't add IGT accounts and vice versa;
+  // B2B people add their accounts as B2B (raising for the whole ICX).
   if (!allowedAccountFunctions(viewer).includes(data.function))
     return fail(
       `You can only add ${allowedAccountFunctions(viewer).join(" / ") || "—"} accounts.`,
@@ -320,6 +367,14 @@ export async function updateAccount(
 
   const { error } = await db().from("accounts").update(update).eq("id", accountId);
   if (error) return fail(error.message);
+  // next step touched (or the account auto-archived) → keep the calendar
+  // follow-up reminder in sync
+  if (
+    "next_step" in update || "next_step_date" in update ||
+    "next_step_time" in update || "out_of_process" in update
+  ) {
+    await syncNextStepReminder(accountId);
+  }
   await logAudit(viewer.id, "update", "account", accountId, { fields: Object.keys(update) });
   refresh(accountId);
   return { ok: true };
@@ -398,6 +453,7 @@ export async function setOutOfProcess(
       .maybeSingle();
     await deleteVisitEvent(owner?.google_refresh_token ?? null, pending.calendar_event_id).catch(() => {});
   }
+  await syncNextStepReminder(accountId); // drop the follow-up reminder too
   await logAudit(viewer.id, "out_of_process", "account", accountId, { reason });
   refresh(accountId);
   return { ok: true };
@@ -414,16 +470,117 @@ export async function reviveAccount(accountId: string): Promise<ActionResult> {
     .update({ out_of_process: false, oop_reason: null, oop_at: null })
     .eq("id", accountId);
   if (error) return fail(error.message);
+  await syncNextStepReminder(accountId); // future next step? bring its reminder back
   await logAudit(viewer.id, "revive", "account", accountId);
   refresh(accountId);
   return { ok: true };
 }
 
+// ================================================================== manual archive
+
+/** Core insert for a manually archived name (an account that was never worked
+ *  in the CRM). Lives in the blacklist table — `checkAccountName` blocks the
+ *  name from ever being added, exactly like an OOP account. */
+async function insertArchivedName(
+  viewerId: string,
+  name: string,
+  reason: string
+): Promise<ActionResult> {
+  const cleanName = name?.trim();
+  const cleanReason = reason?.trim();
+  if (!cleanName || cleanName.length < 2) return fail("Account name is required.");
+  if (!cleanReason) return fail("Pick or type the archive reason.");
+
+  const { duplicate, blacklisted } = await checkAccountName(cleanName);
+  if (blacklisted)
+    return fail(`"${cleanName}" is already in the archive.`, "archived", {
+      reason: blacklisted.comments,
+    });
+  if (duplicate && duplicate.out_of_process)
+    return fail(`"${cleanName}" is already archived (Out of Process).`, "archived", {
+      reason: duplicate.oop_reason,
+    });
+  if (duplicate)
+    return fail(
+      `"${cleanName}" exists in the active accounts (${duplicate.function}, ${duplicate.responsible_nickname || duplicate.responsible_name}) — mark it Out of Process from its page instead.`,
+      "duplicate"
+    );
+
+  const { error } = await db().from("blacklist").insert({
+    account_name: cleanName,
+    comments: cleanReason,
+    added_by: viewerId,
+  });
+  if (error) {
+    if (error.code === "23505") return fail(`"${cleanName}" is already in the archive.`, "archived");
+    return fail(error.message);
+  }
+  return { ok: true };
+}
+
+/** Add one archived account by hand (name + reason) — for companies that were
+ *  burned before the CRM existed. TL+ (anyone who can open the archive). */
+export async function addArchivedAccount(input: {
+  name: string;
+  reason: string;
+}): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!canViewArchive(viewer))
+    return fail("Only TLs, VPs and the LCP manage the archive.", "forbidden");
+  const res = await insertArchivedName(viewer.id, input.name, input.reason);
+  if (!res.ok) return res;
+  await logAudit(viewer.id, "archive_add", "blacklist", null, { name: input.name });
+  refresh();
+  return { ok: true };
+}
+
+/** Bulk import of archived names (CSV/XLSX parsed client-side): Name + Reason.
+ *  Free-form reasons from old sheets are accepted as-is. */
+export async function importArchivedBulk(
+  rows: { name: string; reason: string }[]
+): Promise<ActionResult<{ results: ImportRowResult[]; created: number }>> {
+  const viewer = await getViewer();
+  if (!canViewArchive(viewer))
+    return fail("Only TLs, VPs and the LCP manage the archive.", "forbidden");
+  if (!rows?.length) return fail("Nothing to import.");
+  if (rows.length > 1000) return fail("Import at most 1000 archived names at a time.");
+
+  const results: ImportRowResult[] = [];
+  let created = 0;
+  for (const row of rows) {
+    const res = await insertArchivedName(viewer.id, row.name, row.reason);
+    if (res.ok) {
+      created += 1;
+      results.push({ name: row.name, ok: true });
+    } else {
+      results.push({ name: row.name, ok: false, error: res.error });
+    }
+  }
+  await logAudit(viewer.id, "archive_import", "blacklist", null, { created });
+  refresh();
+  return { ok: true, data: { results, created } };
+}
+
+/** Remove a manually added archive entry (typos / wrong imports) — VP+. */
+export async function removeArchivedEntry(id: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const allowed =
+    viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
+  if (!allowed) return fail("Only VPs, Directors or the LCP remove archive entries.", "forbidden");
+  const { error } = await db().from("blacklist").delete().eq("id", id);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "archive_remove", "blacklist", id);
+  refresh();
+  return { ok: true };
+}
+
 /** Records ONE deal — an account can close many over time (3 slots today, 6
- *  more next month = 2 deals · 9 slots). Totals live on the account row. */
+ *  more next month = 2 deals · 9 slots). Opens are recorded PER PRODUCT:
+ *  IGV accounts sign IGV opens; IGT accounts split IGTa + IGTe; B2B accounts
+ *  mix all three (e.g. 3 IGV + 2 IGTe + 1 IGTa). Totals live on the account. */
 export async function recordDeal(
   accountId: string,
-  slots: number,
+  breakdown: { igv?: number; igta?: number; igte?: number },
   note?: string
 ): Promise<ActionResult<{ deals: number; slots: number }>> {
   const viewer = await getViewer();
@@ -432,23 +589,47 @@ export async function recordDeal(
     return fail("You are not allowed to edit this account.", "forbidden");
   if (account.out_of_process)
     return fail("This account is archived — bring it back in process first.");
-  const cleanSlots = Math.max(1, Math.round(slots || 1));
 
-  // the deal is recorded for the account's RESPONSIBLE (opens roll up from
-  // the member to their Team Leader on the leaderboards)
+  const clamp = (n?: number) => Math.max(0, Math.round(n ?? 0));
+  let igv = clamp(breakdown.igv);
+  let igta = clamp(breakdown.igta);
+  let igte = clamp(breakdown.igte);
+  if (account.function === "IGV") {
+    igta = 0; igte = 0;
+    if (igv < 1) return fail("How many IGV opens were signed?");
+  } else if (account.function === "IGT") {
+    igv = 0;
+    if (igta + igte < 1) return fail("Split the opens across IGTa / IGTe (at least 1).");
+  } else if (igv + igta + igte < 1) {
+    return fail("Add the opens of this deal (IGV / IGTa / IGTe).");
+  }
+  const cleanSlots = igv + igta + igte;
+
+  // the deal is recorded for the account's RESPONSIBLE (whoever the opens
+  // were raised for), not the person clicking the button
   const { error } = await db().from("deals").insert({
     account_id: accountId,
     member_id: account.responsible_id,
     slots: cleanSlots,
+    slots_igv: igv,
+    slots_igta: igta,
+    slots_igte: igte,
     note: note?.trim() || null,
   });
-  if (error) return fail(error.message);
+  if (error) {
+    if (error.message.includes("slots_igv"))
+      return fail("Per-product deals need migration 0009 — run it in the Supabase SQL editor.");
+    return fail(error.message);
+  }
 
   const totals = {
     slot_raised: true,
     slot_raised_at: new Date().toISOString(),
     slots_count: (account.slots_count ?? 0) + cleanSlots,
     deals_count: (account.deals_count ?? 0) + 1,
+    slots_igv_count: (account.slots_igv_count ?? 0) + igv,
+    slots_igta_count: (account.slots_igta_count ?? 0) + igta,
+    slots_igte_count: (account.slots_igte_count ?? 0) + igte,
   };
   const { error: updateError } = await db()
     .from("accounts")
@@ -456,7 +637,9 @@ export async function recordDeal(
     .eq("id", accountId);
   if (updateError) return fail(updateError.message);
 
-  await logAudit(viewer.id, "deal", "account", accountId, { slots: cleanSlots });
+  await logAudit(viewer.id, "deal", "account", accountId, {
+    slots: cleanSlots, igv, igta, igte,
+  });
   refresh(accountId);
   return { ok: true, data: { deals: totals.deals_count, slots: totals.slots_count } };
 }
@@ -619,6 +802,7 @@ export async function logContact(
         next_step_time: nextStepTime || null,
       })
       .eq("id", accountId);
+    await syncNextStepReminder(accountId);
   }
 
   const { count } = await db()
@@ -648,7 +832,9 @@ const visitSchema = z.object({
 
 export async function scheduleVisit(
   input: z.infer<typeof visitSchema>
-): Promise<ActionResult<{ calendarLinked: boolean }>> {
+): Promise<
+  ActionResult<{ calendarLinked: boolean; calendarHint: "linked" | "no_grant" | "relogin" | "error" }>
+> {
   const viewer = await getViewer();
   const parsed = visitSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0].message);
@@ -663,6 +849,7 @@ export async function scheduleVisit(
     .select("*")
     .eq("id", account.responsible_id)
     .maybeSingle<Member>();
+  const token = responsible?.google_refresh_token ?? null;
 
   const eventInput = {
     accountName: account.name,
@@ -680,14 +867,16 @@ export async function scheduleVisit(
     .is("done", null)
     .maybeSingle<Visit>();
 
+  // why the calendar part failed (surfaced to the user instead of a silent log)
   let calendarLinked = false;
+  let calendarHint: "linked" | "no_grant" | "relogin" | "error" = token ? "error" : "no_grant";
   try {
     if (pending) {
       if (pending.calendar_event_id) {
-        await updateVisitEvent(responsible?.google_refresh_token ?? null, pending.calendar_event_id, eventInput);
-        calendarLinked = true;
+        await updateVisitEvent(token, pending.calendar_event_id, eventInput);
+        calendarLinked = !!token;
       } else {
-        const id = await createVisitEvent(responsible?.google_refresh_token ?? null, eventInput);
+        const id = await createVisitEvent(token, eventInput);
         calendarLinked = !!id;
         if (id) await db().from("visits").update({ calendar_event_id: id }).eq("id", pending.id);
       }
@@ -696,7 +885,7 @@ export async function scheduleVisit(
         .update({ visit_date: visitDate, visit_time: visitTime, followup_prompt_sent_at: null })
         .eq("id", pending.id);
     } else {
-      const eventId = await createVisitEvent(responsible?.google_refresh_token ?? null, eventInput);
+      const eventId = await createVisitEvent(token, eventInput);
       calendarLinked = !!eventId;
       const { error } = await db().from("visits").insert({
         account_id: accountId,
@@ -707,8 +896,10 @@ export async function scheduleVisit(
       });
       if (error) return fail(error.message);
     }
+    if (calendarLinked) calendarHint = "linked";
   } catch (e) {
     console.error("[visits] calendar sync failed:", e);
+    calendarHint = calendarErrorHint(e);
     if (!pending) {
       const { error } = await db().from("visits").insert({
         account_id: accountId,
@@ -728,9 +919,11 @@ export async function scheduleVisit(
     `${visitDate} at ${visitTime.slice(0, 5)}. Calendar reminders 24h & 1h before${calendarLinked ? "" : " (sign in with Google once to activate them)"}.`,
     viewer.id
   );
-  await logAudit(viewer.id, "schedule_visit", "account", accountId, { visitDate, visitTime });
+  await logAudit(viewer.id, "schedule_visit", "account", accountId, {
+    visitDate, visitTime, calendar: calendarHint,
+  });
   refresh(accountId);
-  return { ok: true, data: { calendarLinked } };
+  return { ok: true, data: { calendarLinked, calendarHint } };
 }
 
 const reportSchema = z.object({
@@ -772,6 +965,7 @@ export async function reportVisit(
       .from("accounts")
       .update({ next_step: nextStep || null, next_step_date: nextStepDate || null })
       .eq("id", visit.account_id);
+    await syncNextStepReminder(visit.account_id);
   }
 
   // notify: function VP(s) + the responsible's stakeholder (deduped)
@@ -895,17 +1089,22 @@ export async function completeOnboarding(input: {
     return fail("Your password needs at least 8 characters.");
 
   const password_hash = await bcrypt.hash(input.password, 10);
+  const patch = {
+    name: parsed.data.name,
+    nickname: parsed.data.nickname,
+    phone: parsed.data.phone,
+    password_hash,
+    profile_completed_at: new Date().toISOString(),
+  };
   const { error } = await db()
     .from("members")
-    .update({
-      name: parsed.data.name,
-      nickname: parsed.data.nickname,
-      phone: parsed.data.phone,
-      password_hash,
-      profile_completed_at: new Date().toISOString(),
-    })
+    .update({ ...patch, temp_password_hash: null })
     .eq("id", viewer.id);
-  if (error) return fail(error.message);
+  if (error) {
+    if (!error.message.includes("temp_password")) return fail(error.message);
+    const { error: e2 } = await db().from("members").update(patch).eq("id", viewer.id);
+    if (e2) return fail(e2.message);
+  }
 
   await writeProfileBackToSheet(viewer.id);
   await logAudit(viewer.id, "onboarding_complete", "member", viewer.id);
@@ -942,16 +1141,48 @@ export async function changePassword(input: {
   if (!input.next || input.next.length < 8)
     return fail("Your new password needs at least 8 characters.");
   if (viewer.password_hash) {
-    const ok = await bcrypt.compare(input.current ?? "", viewer.password_hash);
-    if (!ok) return fail("Your current password is wrong. Forgot it? Ask the IM team to reset it.");
+    // the emailed temp password counts as "current" too
+    const ok =
+      (await bcrypt.compare(input.current ?? "", viewer.password_hash)) ||
+      (viewer.temp_password_hash
+        ? await bcrypt.compare(input.current ?? "", viewer.temp_password_hash)
+        : false);
+    if (!ok)
+      return fail('Your current password is wrong. Forgot it? Use "Forgot password" on the login page — a new one lands in your inbox.');
   }
   const password_hash = await bcrypt.hash(input.next, 10);
   const { error } = await db()
     .from("members")
-    .update({ password_hash })
+    .update({ password_hash, temp_password_hash: null })
     .eq("id", viewer.id);
-  if (error) return fail(error.message);
+  if (error) {
+    if (error.message.includes("temp_password")) {
+      const { error: e2 } = await db().from("members").update({ password_hash }).eq("id", viewer.id);
+      if (e2) return fail(e2.message);
+    } else return fail(error.message);
+  }
   await logAudit(viewer.id, "password_change", "member", viewer.id);
+  return { ok: true };
+}
+
+/** Profile page: pick a fun avatar (or fall back to the Google photo). */
+export async function updateAvatar(url: string | null): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const clean = url?.trim() || null;
+  if (clean && !/^https:\/\/\S+$/i.test(clean))
+    return fail("The avatar must be an https:// image link.");
+  const { error } = await db()
+    .from("members")
+    .update({ avatar_url: clean })
+    .eq("id", viewer.id);
+  if (error)
+    return fail(
+      error.message.includes("avatar_url")
+        ? "Avatars need migration 0009 — ask the IM team to run it."
+        : error.message
+    );
+  await logAudit(viewer.id, "avatar_update", "member", viewer.id);
+  refresh();
   return { ok: true };
 }
 
@@ -1050,24 +1281,21 @@ export async function upsertMember(
   return { ok: true, data: { id: id! } };
 }
 
-/** Clears the password so the member signs in with Google and sets a new one. */
+/** EB reset: a fresh password is generated and EMAILED to the member (their
+ *  old one keeps working until they change it — no lockouts). */
 export async function resetMemberPassword(memberId: string): Promise<ActionResult> {
   const viewer = await getViewer();
   if (!canManageMembership(viewer))
     return fail("Only the EB and admins can reset passwords.", "forbidden");
-  const { error } = await db()
+  const { data: member } = await db()
     .from("members")
-    .update({ password_hash: null, profile_completed_at: null })
-    .eq("id", memberId);
-  if (error) return fail(error.message);
-  const { notifyMembers } = await import("./notify");
-  await notifyMembers(
-    [memberId],
-    "reset",
-    "Your password was reset 🔑",
-    "Sign in with Google and Sodio will walk you through setting a new password.",
-    viewer.id
-  );
+    .select("id, email, name, nickname")
+    .eq("id", memberId)
+    .maybeSingle<{ id: string; email: string; name: string; nickname: string | null }>();
+  if (!member) return fail("Member not found.");
+  const { issueTempPassword } = await import("./password");
+  const res = await issueTempPassword(member);
+  if (!res.ok) return fail(res.error ?? "Couldn't issue the password.");
   await logAudit(viewer.id, "password_reset", "member", memberId);
   return { ok: true };
 }
@@ -1202,7 +1430,7 @@ export async function setPerformanceGoal(
 // ================================================================== bulk import
 
 export interface ImportRowInput {
-  function: "IGV" | "IGT";
+  function: "IGV" | "IGT" | "B2B";
   name: string;
   product?: string | null;
   project?: string | null;
@@ -1243,9 +1471,9 @@ export async function importAccountsBulk(
           ? row.product
           : null,
       project: row.function === "IGV" ? row.project ?? null : null,
-      sub_product: row.sub_product ?? null,
-      account_type: row.account_type ?? null,
-      industry: row.industry ?? null,
+      sub_product: row.function === "IGT" ? row.sub_product ?? null : null,
+      account_type: row.function !== "IGT" ? row.account_type ?? null : null,
+      industry: row.function !== "IGT" ? row.industry ?? null : null,
       phone: row.phone ? cleanPhone(row.phone) : null,
       email: row.email ?? null,
       social_link: row.social_link ?? null,

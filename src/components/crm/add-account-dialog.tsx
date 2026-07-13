@@ -71,16 +71,18 @@ function ListOrOther({
   );
 }
 
+type Fn = "IGV" | "IGT" | "B2B";
+
 export function AddAccountDialog({
   open, onOpenChange, viewer, members,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  viewer: { id: string; canAssignOthers: boolean; allowedFns: ("IGV" | "IGT")[] };
+  viewer: { id: string; canAssignOthers: boolean; allowedFns: Fn[] };
   members: MemberOption[];
 }) {
   const router = useRouter();
-  const [fn, setFn] = useState<"IGV" | "IGT">(viewer.allowedFns[0] ?? "IGT");
+  const [fn, setFn] = useState<Fn>(viewer.allowedFns[0] ?? "IGT");
   const [form, setForm] = useState<Record<string, string>>({});
   const [contacts, setContacts] = useState<AccountContact[]>([
     { tag: "Contact", kind: "phone", value: "" },
@@ -105,8 +107,8 @@ export function AddAccountDialog({
         product: fn === "IGT" ? ((form.product as "GTa" | "GTe") || null) : null,
         sub_product: fn === "IGT" ? form.sub_product : null,
         project: fn === "IGV" ? form.project : null,
-        account_type: fn === "IGV" ? form.account_type : null,
-        industry: fn === "IGV" ? form.industry : null,
+        account_type: fn !== "IGT" ? form.account_type : null,
+        industry: fn !== "IGT" ? form.industry : null,
         contacts,
         requested_podio: requestedPodio,
         comment: form.comment,
@@ -190,7 +192,7 @@ export function AddAccountDialog({
                   </SelectContent>
                 </Select>
               </div>
-            ) : (
+            ) : fn === "IGV" ? (
               <div className="grid gap-2">
                 <Label>Project *</Label>
                 <Select
@@ -204,6 +206,11 @@ export function AddAccountDialog({
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-primary/40 bg-primary/5 p-2.5 text-xs text-muted-foreground">
+                <b className="text-primary">B2B</b> raises for the whole ICX —
+                each deal records its opens across IGV / IGTa / IGTe.
               </div>
             )}
           </div>

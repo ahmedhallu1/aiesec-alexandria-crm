@@ -7,15 +7,16 @@ export interface LoginState {
   error: string | null;
 }
 
-/** Email + password login. Members with no password yet are accepted with any
- *  password and routed to the first-login onboarding to set their own. */
+/** Password login — the identifier can be the AIESEC email OR the member's
+ *  phone number. First-ever sign-in stays Google-only. */
 export async function loginWithPassword(
   _prev: LoginState,
   formData: FormData
 ): Promise<LoginState> {
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
-  if (!email || !password) return { error: "Enter your email and a password." };
+  if (!email || !password)
+    return { error: "Enter your email (or phone) and a password." };
   try {
     await signIn("credentials", { email, password, redirectTo: "/" });
     return { error: null };
@@ -24,7 +25,7 @@ export async function loginWithPassword(
       return {
         error:
           e.type === "CredentialsSignin"
-            ? "Wrong password — or you haven't set one yet. Your FIRST sign-in must be with Google (it connects your calendar); after that you can use email + password."
+            ? "Wrong password — or you haven't set one yet. Your FIRST sign-in must be with Google (it connects your calendar); after that you can use your email or phone + password."
             : "Sign-in failed. Try again — if it keeps happening, contact the IM team.",
       };
     }
@@ -36,8 +37,9 @@ export async function loginWithGoogle(): Promise<void> {
   await signIn("google", { redirectTo: "/" });
 }
 
-/** "Forgot password" CTA: notifies the IM team (director + coach) that this
- *  member wants a reset. Public on purpose — it only ever emails the IM team. */
+/** "Forgot password": a fresh password is generated and EMAILED straight to
+ *  the member. Their old password keeps working until they change it, so
+ *  nobody can lock anyone out by spamming this. */
 export async function requestPasswordReset(
   email: string
 ): Promise<{ ok: boolean; message: string }> {
@@ -48,29 +50,21 @@ export async function requestPasswordReset(
     const { db } = await import("@/lib/supabase");
     const { data: member } = await db()
       .from("members")
-      .select("name, nickname, email, is_active")
+      .select("id, name, nickname, email, is_active")
       .ilike("email", clean)
-      .maybeSingle();
+      .maybeSingle<{
+        id: string; name: string; nickname: string | null; email: string; is_active: boolean;
+      }>();
     if (member?.is_active) {
-      const [{ sendEmail }, { passwordResetRequestEmail }, { FEEDBACK_INBOX_EMAILS }] =
-        await Promise.all([
-          import("@/lib/google/gmail"),
-          import("@/lib/email/templates"),
-          import("@/lib/types"),
-        ]);
-      const mail = passwordResetRequestEmail({
-        memberName: member.nickname || member.name,
-        memberEmail: member.email,
-      });
-      sendEmail({ to: [...FEEDBACK_INBOX_EMAILS], ...mail }).catch((e) =>
-        console.error("[auth] reset-request email failed:", e)
-      );
+      const { issueTempPassword } = await import("./password");
+      const res = await issueTempPassword(member);
+      if (!res.ok) return { ok: false, message: res.error ?? "Couldn't send the password." };
     }
     // same answer whether or not the email exists (no member-list probing)
     return {
       ok: true,
       message:
-        "The IM team was notified ✅ — once they reset it, sign in with GOOGLE and you'll set a new password.",
+        "Check your inbox 📬 — a fresh password is on its way. Sign in with it, then change it from your Profile.",
     };
   } catch (e) {
     console.error("[auth] reset request failed:", e);

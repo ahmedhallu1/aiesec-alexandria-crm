@@ -150,6 +150,39 @@
   }
 }
 
+/* Smooth light/dark theme swap.
+   1. A gentle color transition on every surface, so a plain class flip on
+      browsers without View Transitions still eases instead of snapping.
+   2. The View Transitions circular reveal (theme-toggle.tsx) rides on top. */
+@media (prefers-reduced-motion: no-preference) {
+  :root,
+  body,
+  [data-slot],
+  aside,
+  main,
+  header,
+  nav,
+  .bg-card,
+  .bg-sidebar {
+    transition: background-color 0.4s ease, border-color 0.4s ease,
+      color 0.4s ease, fill 0.4s ease;
+  }
+}
+
+/* View Transitions: the OLD theme stays put while the NEW theme is revealed by
+   the expanding circle animated in theme-toggle.tsx. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) {
+  z-index: 1;
+}
+::view-transition-new(root) {
+  z-index: 9999;
+}
+
 /* Subtle motion (respects prefers-reduced-motion) */
 @media (prefers-reduced-motion: no-preference) {
   .rise-in {

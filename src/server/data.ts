@@ -7,12 +7,14 @@ import {
   accountScope,
   canViewAccount,
   icxFunctions,
+  isB2B,
   reassignTargetScope,
   type Viewer,
   type AccountScope,
 } from "@/lib/rbac";
 import type {
   AccountComment,
+  AccountFunction,
   AccountPipeline,
   BlacklistEntry,
   Deal,
@@ -72,7 +74,7 @@ export function applyScope<T extends { eq: any; in: any }>(query: T, scope: Acco
 
 export interface AccountFilters {
   q?: string;
-  fn?: "IGV" | "IGT";
+  fn?: AccountFunction;
   project?: string;
   product?: "GTa" | "GTe";
   stage?: Stage;
@@ -229,19 +231,27 @@ export async function checkAccountName(name: string): Promise<NameCheckResult> {
 export async function listVisibleMembers(viewer: Viewer): Promise<Member[]> {
   let query = db().from("members").select("*").eq("is_active", true);
   const scope = accountScope(viewer);
-  if (scope.kind === "functions") query = query.overlaps("functions", scope.fns);
+  if (scope.kind === "functions") {
+    // B2B people may carry B2B as a sub-function only — match both columns
+    query = scope.fns.includes("B2B")
+      ? query.or(`functions.ov.{${scope.fns.join(",")}},sub_functions.cs.{B2B}`)
+      : query.overlaps("functions", scope.fns);
+  }
   if (scope.kind === "members") query = query.in("id", scope.ids);
   const { data } = await query.order("name");
   return (data ?? []) as Member[];
 }
 
-export async function listReassignTargets(viewer: Viewer, fn: "IGV" | "IGT"): Promise<Member[]> {
+export async function listReassignTargets(viewer: Viewer, fn: AccountFunction): Promise<Member[]> {
   const scope = reassignTargetScope(viewer);
   if (scope.kind === "members" && scope.ids.length === 0) return [];
   let query = db().from("members").select("*").eq("is_active", true);
   if (scope.kind === "all" || scope.kind === "functions") {
-    // reassignment stays inside the account's function
-    query = query.contains("functions", [fn]);
+    // reassignment stays inside the account's function (B2B = the B2B crew)
+    query =
+      fn === "B2B"
+        ? query.or("functions.cs.{B2B},sub_functions.cs.{B2B}")
+        : query.contains("functions", [fn]);
   } else {
     query = query.in("id", scope.ids);
   }
@@ -289,19 +299,53 @@ const emptyStats = (): FunnelStats => ({
   nextStepMissingFlags: 0,
 });
 
-function addRow(s: FunnelStats, r: PipelineRow) {
-  s.mr += 1;
-  if (r.attempts > 0) s.contacted += 1;
-  if (r.visit_id) s.visitScheduled += 1;
-  if (r.visit_done) s.visitDone += 1;
-  if (r.slot_raised) {
-    s.dealAccounts += 1;
-    s.deals += r.deals_count || 1;
-    s.slots += r.slots_count || 1;
+/** Which dashboard lane an account belongs to for FUNNEL metrics (MR,
+ *  contacted, visits…). B2B accounts live in the All-ICX lane (and the B2B
+ *  drill row); their opens still feed the product lanes via deal breakdowns. */
+function rowInLane(r: PipelineRow, lane: string): boolean {
+  if (lane === "all") return true;
+  if (lane === "IGV") return r.function === "IGV";
+  if (lane === "IGT") return r.function === "IGT";
+  if (lane === "IGTa") return r.function === "IGT" && r.product === "GTa";
+  if (lane === "IGTe") return r.function === "IGT" && r.product === "GTe";
+  if (lane === "B2B") return r.function === "B2B";
+  return true;
+}
+
+/** Opens this account contributes to a lane. Deals carry a per-product split
+ *  (B2B mixes all three; IGT deals split IGTa/IGTe), so a lane's slots include
+ *  every account's contribution — B2B included. */
+function laneSlots(r: PipelineRow, lane: string): number {
+  if (lane === "all") return r.slots_count ?? 0;
+  // pre-0009 fallback: attribute the account's total to its own product
+  if (r.slots_igv_count == null)
+    return rowInLane(r, lane) ? r.slots_count ?? 0 : 0;
+  if (lane === "IGV") return r.slots_igv_count ?? 0;
+  if (lane === "IGTa") return r.slots_igta_count ?? 0;
+  if (lane === "IGTe") return r.slots_igte_count ?? 0;
+  if (lane === "IGT") return (r.slots_igta_count ?? 0) + (r.slots_igte_count ?? 0);
+  if (lane === "B2B") return r.function === "B2B" ? r.slots_count ?? 0 : 0;
+  return r.slots_count ?? 0;
+}
+
+/** Funnel metrics come from the lane's own accounts; slots/deals count every
+ *  account contributing opens to the lane (B2B feeding IGV/IGTa/IGTe). */
+function addRowLane(s: FunnelStats, r: PipelineRow, lane: string) {
+  if (rowInLane(r, lane)) {
+    s.mr += 1;
+    if (r.attempts > 0) s.contacted += 1;
+    if (r.visit_id) s.visitScheduled += 1;
+    if (r.visit_done) s.visitDone += 1;
+    if (r.out_of_process) s.outOfProcess += 1;
+    if (r.contact_limit_reached) s.contactLimitFlags += 1;
+    if (r.next_step_missing) s.nextStepMissingFlags += 1;
   }
-  if (r.out_of_process) s.outOfProcess += 1;
-  if (r.contact_limit_reached) s.contactLimitFlags += 1;
-  if (r.next_step_missing) s.nextStepMissingFlags += 1;
+  const ls = laneSlots(r, lane);
+  if (ls > 0) {
+    s.slots += ls;
+    s.deals += r.deals_count || 1;
+    s.dealAccounts += 1;
+  }
 }
 
 /** Dashboard visibility is FUNCTION-wide for everyone in the module (the goal
@@ -309,7 +353,15 @@ function addRow(s: FunnelStats, r: PipelineRow) {
  *  accounts; this affects aggregates only. */
 function dashboardViewer(viewer: Viewer): Viewer {
   const scope = accountScope(viewer);
-  if (scope.kind === "all" || scope.kind === "functions") return viewer;
+  if (scope.kind === "all") return viewer;
+  // B2B raises for the whole ICX — their dashboard aggregates span all of it
+  if (isB2B(viewer))
+    return {
+      ...viewer,
+      role: "Director",
+      functions: [...new Set([...viewer.functions, "IGV", "IGT", "B2B"])],
+    };
+  if (scope.kind === "functions") return viewer;
   const fns = icxFunctions(viewer);
   if (fns.length === 0) return viewer;
   // widen the scope to the member's function(s) by impersonating a Director-like view
@@ -352,74 +404,18 @@ export async function getDashboard(
   filters: AccountFilters = {},
   laneKey?: string
 ) {
+  const lane = laneKey && laneKey !== "all" ? laneKey : "all";
   const dashViewer = dashboardViewer(viewer);
-  const rows = await listAccounts(dashViewer, { ...filters, includeArchived: true });
+  // lane filtering happens HERE in JS — a DB fn/product filter would drop the
+  // B2B (and cross-product IGT) accounts whose opens feed this lane
+  const rows = await listAccounts(dashViewer, {
+    ...filters,
+    fn: undefined,
+    product: undefined,
+    includeArchived: true,
+  });
   const members = await listVisibleMembers(dashViewer);
   const byId = new Map(members.map((m) => [m.id, m]));
-
-  const total = emptyStats();
-  const byFunction = new Map<string, DrillGroup>();
-  const byTeam = new Map<string, DrillGroup>();
-  const byMember = new Map<string, DrillGroup>();
-
-  for (const r of rows) {
-    addRow(total, r);
-
-    // IGT splits into its products (IGTa / IGTe); IGV stays one lane
-    const fnKey =
-      r.function === "IGT" ? (r.product ? `I${r.product}` : "IGT") : r.function;
-    addRow(getOrInit(byFunction, fnKey, fnKey), r);
-
-    // team = a REAL Team Leader's group only — the EB (IRIS) is not a team,
-    // so accounts owned by VPs/admins don't create a fake EB leaderboard row
-    const teamKey =
-      r.responsible_role === "Team Leader"
-        ? r.responsible_id
-        : r.responsible_stakeholder_id ?? null;
-    const teamLead = teamKey ? byId.get(teamKey) : undefined;
-    if (teamLead && teamLead.role === "Team Leader") {
-      const teamLabel = teamLead.team_name || `Team ${teamLead.nickname || teamLead.name}`;
-      addRow(getOrInit(byTeam, teamLead.id, teamLabel), r);
-    }
-
-    const respLabel = r.responsible_nickname || r.responsible_name;
-    addRow(getOrInit(byMember, r.responsible_id, respLabel), r);
-  }
-
-  // ---- leaderboards (never across functions: they live inside the lane filter)
-  // HIERARCHICAL opens: a member's deals/slots also count for their Team
-  // Leader (member 3 + TL's own 3 = TL shows 6; the function total stays 6).
-  // VPs / the LCP never appear in the by-member board.
-  const rollup = new Map<string, DrillGroup>();
-  for (const g of byMember.values()) {
-    const m = byId.get(g.key);
-    if (m && (m.role === "LCVP" || m.role === "LCP")) continue; // no VPs here
-    rollup.set(g.key, { ...g });
-  }
-  for (const g of byMember.values()) {
-    const m = byId.get(g.key);
-    const tlId = m?.stakeholder_id;
-    if (!tlId || m?.role === "Team Leader") continue;
-    const tl = byId.get(tlId);
-    if (tl?.role !== "Team Leader") continue;
-    let tlGroup = rollup.get(tlId);
-    if (!tlGroup) {
-      tlGroup = {
-        key: tlId,
-        label: tl.nickname || tl.name,
-        mr: 0, contacted: 0, visitScheduled: 0, visitDone: 0, deals: 0,
-        dealAccounts: 0, slots: 0, outOfProcess: 0, contactLimitFlags: 0,
-        nextStepMissingFlags: 0,
-      };
-      rollup.set(tlId, tlGroup);
-    }
-    tlGroup.slots += g.slots;
-    tlGroup.deals += g.deals;
-    tlGroup.dealAccounts += g.dealAccounts;
-  }
-  const rank = (a: DrillGroup, b: DrillGroup) =>
-    b.slots - a.slots || b.deals - a.deals || b.visitDone - a.visitDone || b.contacted - a.contacted;
-  const functionBoard = [...rollup.values()].sort(rank);
 
   // the viewer's team: themself (TL) or their manager — but ONLY if that
   // manager is a real Team Leader (the EB is not a team)
@@ -434,6 +430,53 @@ export async function getDashboard(
         ...members.filter((m) => m.stakeholder_id === teamLeadId).map((m) => m.id),
       ])
     : null;
+
+  const total = emptyStats();
+  const byFunction = new Map<string, DrillGroup>();
+  const byTeam = new Map<string, DrillGroup>();
+  const byMember = new Map<string, DrillGroup>();
+  let teamAchieved = 0;
+
+  for (const r of rows) {
+    const inLane = rowInLane(r, lane);
+    const contributes = laneSlots(r, lane) > 0;
+    if (!inLane && !contributes) continue; // nothing for this lane
+
+    addRowLane(total, r, lane);
+
+    // product drill: IGV / IGTa / IGTe / B2B rows (account-level numbers)
+    if (inLane) {
+      const fnKey =
+        r.function === "IGT" ? (r.product ? `I${r.product}` : "IGT") : r.function;
+      addRowLane(getOrInit(byFunction, fnKey, fnKey), r, lane);
+    }
+
+    // team = a REAL Team Leader's group only — the EB (IRIS) is not a team,
+    // so accounts owned by VPs/admins don't create a fake EB leaderboard row
+    const teamKey =
+      r.responsible_role === "Team Leader"
+        ? r.responsible_id
+        : r.responsible_stakeholder_id ?? null;
+    const teamLead = teamKey ? byId.get(teamKey) : undefined;
+    if (teamLead && teamLead.role === "Team Leader") {
+      const teamLabel = teamLead.team_name || `Team ${teamLead.nickname || teamLead.name}`;
+      addRowLane(getOrInit(byTeam, teamLead.id, teamLabel), r, lane);
+    }
+
+    // leaderboard entries: MEMBERS & COORDINATORS ONLY — no Team Leaders,
+    // VPs, Directors or the LCP (leaders steer, members compete)
+    if (r.responsible_role === "Member" || r.responsible_role === "Coordinator") {
+      const respLabel = r.responsible_nickname || r.responsible_name;
+      addRowLane(getOrInit(byMember, r.responsible_id, respLabel), r, lane);
+    }
+
+    // team goal progress counts the WHOLE team (TL's own accounts included)
+    if (teamMemberIds?.has(r.responsible_id)) teamAchieved += laneSlots(r, lane);
+  }
+
+  const rank = (a: DrillGroup, b: DrillGroup) =>
+    b.slots - a.slots || b.deals - a.deals || b.visitDone - a.visitDone || b.contacted - a.contacted;
+  const functionBoard = [...byMember.values()].sort(rank);
   const teamBoard = teamMemberIds
     ? functionBoard.filter((g) => teamMemberIds.has(g.key))
     : [];
@@ -477,10 +520,28 @@ export async function getDashboard(
     byMember: functionBoard,
     functionBoard,
     teamBoard,
+    teamAchieved,
     funcGoal,
     teamGoal,
     teamLeadId,
   };
+}
+
+// ------------------------------------------------------------------ manual archive
+
+export interface ManualArchivedRow extends BlacklistEntry {
+  added_by_member: { name: string; nickname: string | null } | null;
+}
+
+/** Manually archived account names (never worked in the CRM) — they live in
+ *  the blacklist table and block re-adding exactly like OOP accounts. */
+export async function listManualArchived(): Promise<ManualArchivedRow[]> {
+  const { data } = await db()
+    .from("blacklist")
+    .select("*, added_by_member:members!blacklist_added_by_fkey(name, nickname)")
+    .order("created_at", { ascending: false })
+    .limit(2000);
+  return (data ?? []) as ManualArchivedRow[];
 }
 
 function getOrInit(map: Map<string, DrillGroup>, key: string, label: string): DrillGroup {

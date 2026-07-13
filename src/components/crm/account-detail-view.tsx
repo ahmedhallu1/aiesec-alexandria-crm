@@ -15,7 +15,8 @@ import {
 import type { CommentWithMember, DealWithMember, PipelineRow } from "@/server/data";
 import type { ContactAttempt, Visit } from "@/lib/types";
 import {
-  ACCOUNT_TYPES, IGT_SUB_PRODUCTS, IGV_PROJECTS, INDUSTRIES, productBadge,
+  ACCOUNT_TYPES, fmtDateTime, IGT_SUB_PRODUCTS, IGV_PROJECTS, INDUSTRIES,
+  OOP_REASONS, productBadge,
 } from "@/lib/types";
 import type { AccountContact } from "@/lib/types";
 import { Hint } from "./hint";
@@ -111,9 +112,17 @@ export function AccountDetailView({
             ) : null}
             <StageBadge stage={account.stage} />
             {account.deals_count > 0 ? (
-              <Badge className="border-transparent bg-success/15 text-success">
-                🏆 {account.deals_count} deal{account.deals_count === 1 ? "" : "s"} · {account.slots_count} slot{account.slots_count === 1 ? "" : "s"}
-              </Badge>
+              <Hint
+                label={[
+                  account.slots_igv_count ? `${account.slots_igv_count} IGV` : null,
+                  account.slots_igta_count ? `${account.slots_igta_count} IGTa` : null,
+                  account.slots_igte_count ? `${account.slots_igte_count} IGTe` : null,
+                ].filter(Boolean).join(" · ") || "opens"}
+              >
+                <Badge className="border-transparent bg-success/15 text-success">
+                  🏆 {account.deals_count} deal{account.deals_count === 1 ? "" : "s"} · {account.slots_count} open{account.slots_count === 1 ? "" : "s"}
+                </Badge>
+              </Hint>
             ) : null}
             {account.contact_limit_reached ? (
               <Badge className="border-transparent bg-warning/15 text-warning">⚠️ 3-contact limit</Badge>
@@ -210,6 +219,7 @@ export function AccountDetailView({
       <ProposalDialog account={account} open={proposalOpen} onOpenChange={setProposalOpen} />
       <DealDialog
         accountId={account.id}
+        fn={account.function}
         dealNumber={account.deals_count + 1}
         open={dealOpen}
         onOpenChange={setDealOpen}
@@ -334,24 +344,26 @@ function DetailsCard({ account, canEdit }: { account: PipelineRow; canEdit: bool
     <Card>
       <CardHeader><CardTitle className="text-base">Details</CardTitle></CardHeader>
       <CardContent className="space-y-3">
-        {account.function === "IGV" ? (
+        {account.function === "IGV" || account.function === "B2B" ? (
           <>
-            <div className="grid gap-1 sm:grid-cols-[110px_1fr] sm:items-center sm:gap-2">
-              <Label className="text-xs text-muted-foreground">Project</Label>
-              {canEdit ? (
-                <Select
-                  value={form.project || undefined}
-                  onValueChange={(v) => set("project")(v)}
-                >
-                  <SelectTrigger className="h-8"><SelectValue placeholder="Choose…" /></SelectTrigger>
-                  <SelectContent>
-                    {IGV_PROJECTS.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <p className="truncate text-sm">{form.project || "—"}</p>
-              )}
-            </div>
+            {account.function === "IGV" ? (
+              <div className="grid gap-1 sm:grid-cols-[110px_1fr] sm:items-center sm:gap-2">
+                <Label className="text-xs text-muted-foreground">Project</Label>
+                {canEdit ? (
+                  <Select
+                    value={form.project || undefined}
+                    onValueChange={(v) => set("project")(v)}
+                  >
+                    <SelectTrigger className="h-8"><SelectValue placeholder="Choose…" /></SelectTrigger>
+                    <SelectContent>
+                      {IGV_PROJECTS.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <p className="truncate text-sm">{form.project || "—"}</p>
+                )}
+              </div>
+            ) : null}
             {listRow("Account type", "account_type")}
             {canEdit ? (
               <MultiPick
@@ -673,7 +685,7 @@ function CommentsCard({
                   </Badge>
                   <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
                     {c.member?.nickname || c.member?.name || "—"} ·{" "}
-                    {new Date(c.created_at).toLocaleString()}
+                    {fmtDateTime(c.created_at)}
                   </span>
                   {canComment ? (
                     <Hint label={c.pinned ? "Unpin this comment" : "Pin — highlights it AND shows a 📌 on the accounts list"}>
@@ -725,20 +737,30 @@ function TimelineCard({
       <CardContent>
         {deals.length > 0 ? (
           <div className="mb-4 space-y-2">
-            {deals.map((d, i) => (
-              <div key={d.id} className="flex items-start gap-3 rounded-lg border border-success/40 bg-success/5 p-3 text-sm">
-                <Trophy className="mt-0.5 size-4 text-success" />
-                <div>
-                  <p className="font-medium">
-                    Deal #{deals.length - i} · {d.slots} slot{d.slots === 1 ? "" : "s"}
-                  </p>
-                  {d.note ? <p className="text-muted-foreground">{d.note}</p> : null}
-                  <p className="text-xs text-muted-foreground">
-                    {d.member?.nickname || d.member?.name || "—"} · {new Date(d.created_at).toLocaleDateString()}
-                  </p>
+            {deals.map((d, i) => {
+              const split = [
+                d.slots_igv ? `${d.slots_igv} IGV` : null,
+                d.slots_igta ? `${d.slots_igta} IGTa` : null,
+                d.slots_igte ? `${d.slots_igte} IGTe` : null,
+              ].filter(Boolean);
+              return (
+                <div key={d.id} className="flex items-start gap-3 rounded-lg border border-success/40 bg-success/5 p-3 text-sm">
+                  <Trophy className="mt-0.5 size-4 text-success" />
+                  <div>
+                    <p className="font-medium">
+                      Deal #{deals.length - i} · {d.slots} open{d.slots === 1 ? "" : "s"}
+                      {split.length > 0 ? (
+                        <span className="font-normal text-muted-foreground"> ({split.join(" · ")})</span>
+                      ) : null}
+                    </p>
+                    {d.note ? <p className="text-muted-foreground">{d.note}</p> : null}
+                    <p className="text-xs text-muted-foreground">
+                      {d.member?.nickname || d.member?.name || "—"} · {fmtDateTime(d.created_at)}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : null}
         {visits.length > 0 ? (
@@ -788,7 +810,7 @@ function TimelineCard({
                   </p>
                   {a.comment ? <p className="text-muted-foreground">{a.comment}</p> : null}
                   <p className="text-xs text-muted-foreground">
-                    {a.member?.nickname || a.member?.name} · {new Date(a.created_at).toLocaleString()}
+                    {a.member?.nickname || a.member?.name} · {fmtDateTime(a.created_at)}
                   </p>
                 </div>
               </div>
@@ -819,11 +841,25 @@ function VisitDialog({
     start(async () => {
       const res = await scheduleVisit({ accountId: account.id, visitDate: date, visitTime: time, notes });
       if (!res.ok) { toast.error(res.error); return; }
-      toast.success(
-        res.data?.calendarLinked
-          ? "Visit scheduled — reminders set on the responsible's calendar (24h & 1h before)"
-          : "Visit scheduled. Calendar reminder could not be created — the responsible should sign in once with Google to grant calendar access."
-      );
+      const hint = res.data?.calendarHint;
+      if (hint === "linked") {
+        toast.success("Visit scheduled — reminders set on the responsible's calendar (24h & 1h before) 🗓️");
+      } else if (hint === "no_grant") {
+        toast.warning(
+          "Visit saved, but no calendar reminder — the responsible hasn't connected Google yet. They should sign in once with Google.",
+          { duration: 8000 }
+        );
+      } else if (hint === "relogin") {
+        toast.warning(
+          "Visit saved, but Google rejected the calendar event — the responsible's Google access expired. They need to sign out and sign in with Google again.",
+          { duration: 8000 }
+        );
+      } else {
+        toast.warning(
+          "Visit saved, but the calendar event couldn't be created right now. It'll still show in the app; try rescheduling to retry the reminder.",
+          { duration: 8000 }
+        );
+      }
       onOpenChange(false);
     });
 
@@ -927,6 +963,7 @@ function OopDialog({
   accountId, open, onOpenChange,
 }: { accountId: string; open: boolean; onOpenChange: (o: boolean) => void }) {
   const [reason, setReason] = useState("");
+  const [other, setOther] = useState(false);
   const [pending, start] = useTransition();
 
   const submit = () =>
@@ -948,7 +985,22 @@ function OopDialog({
         </DialogHeader>
         <div className="grid gap-1.5">
           <Label>Reason *</Label>
-          <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why is it out?" />
+          <Select
+            value={other ? "Other" : reason || undefined}
+            onValueChange={(v) => {
+              if (v === "Other") { setOther(true); setReason(""); }
+              else { setOther(false); setReason(v); }
+            }}
+          >
+            <SelectTrigger><SelectValue placeholder="Why is it out?" /></SelectTrigger>
+            <SelectContent>
+              {OOP_REASONS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+              <SelectItem value="Other">Other…</SelectItem>
+            </SelectContent>
+          </Select>
+          {other ? (
+            <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Type the reason…" />
+          ) : null}
         </div>
         <DialogFooter>
           <Button variant="destructive" onClick={submit} disabled={pending || reason.trim().length < 2}>
@@ -960,58 +1012,95 @@ function OopDialog({
   );
 }
 
+/** Records a deal's opens PER PRODUCT. IGV accounts sign IGV opens; IGT accounts
+ *  split IGTa + IGTe; B2B accounts mix all three (e.g. 3 IGV + 2 IGTe + 1 IGTa). */
 function DealDialog({
-  accountId, dealNumber, open, onOpenChange,
+  accountId, fn, dealNumber, open, onOpenChange,
 }: {
   accountId: string;
+  fn: "IGV" | "IGT" | "B2B";
   dealNumber: number;
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
   const router = useRouter();
-  const [slots, setSlots] = useState("1");
+  const [igv, setIgv] = useState(fn === "IGV" ? "1" : "0");
+  const [igta, setIgta] = useState("0");
+  const [igte, setIgte] = useState("0");
   const [note, setNote] = useState("");
   const [celebrate, setCelebrate] = useState(false);
   const [pending, start] = useTransition();
 
+  // which product fields to show for this account
+  const showIgv = fn === "IGV" || fn === "B2B";
+  const showIgta = fn === "IGT" || fn === "B2B";
+  const showIgte = fn === "IGT" || fn === "B2B";
+  const total =
+    (showIgv ? Number(igv) || 0 : 0) +
+    (showIgta ? Number(igta) || 0 : 0) +
+    (showIgte ? Number(igte) || 0 : 0);
+
   const submit = () =>
     start(async () => {
-      const res = await recordDeal(accountId, Number(slots), note);
+      const res = await recordDeal(
+        accountId,
+        {
+          igv: showIgv ? Number(igv) || 0 : 0,
+          igta: showIgta ? Number(igta) || 0 : 0,
+          igte: showIgte ? Number(igte) || 0 : 0,
+        },
+        note
+      );
       if (res.ok) {
         toast.success(
-          `🎉 Deal #${res.data?.deals} recorded — ${res.data?.slots} total slot${(res.data?.slots ?? 0) === 1 ? "" : "s"} with this account!`
+          `🎉 Deal #${res.data?.deals} recorded — ${res.data?.slots} total open${(res.data?.slots ?? 0) === 1 ? "" : "s"} with this account!`
         );
         setCelebrate(true);
-        setSlots("1"); setNote("");
+        setIgv(fn === "IGV" ? "1" : "0"); setIgta("0"); setIgte("0"); setNote("");
         onOpenChange(false);
         router.refresh();
       } else toast.error(res.error);
     });
 
+  const numField = (label: string, colorClass: string, value: string, onChange: (v: string) => void) => (
+    <div className="grid gap-1.5">
+      <Label className={colorClass}>{label} opens</Label>
+      <Input type="number" min={0} value={value} onChange={(e) => onChange(e.target.value)} />
+    </div>
+  );
+
   return (
     <>
     {celebrate ? <ConfettiBurst onDone={() => setCelebrate(false)} /> : null}
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>🏆 Deal #{dealNumber}</DialogTitle>
           <DialogDescription>
-            How many slots/opens were signed in THIS deal? Accounts can close
-            more deals later — every one is counted.
+            {fn === "B2B"
+              ? "How many opens were signed in THIS deal, per product? e.g. 3 IGV · 2 IGTe · 1 IGTa."
+              : fn === "IGT"
+                ? "Split this deal's opens across IGTa and IGTe."
+                : "How many IGV opens were signed in THIS deal?"}
+            {" "}Accounts can close more deals later — every one is counted.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
-          <div className="grid gap-1.5">
-            <Label>Slots in this deal *</Label>
-            <Input type="number" min={1} value={slots} onChange={(e) => setSlots(e.target.value)} />
+          <div className={cn("grid gap-3", fn === "B2B" ? "grid-cols-3" : showIgta ? "grid-cols-2" : "grid-cols-1")}>
+            {showIgv ? numField("IGV", "text-gv", igv, setIgv) : null}
+            {showIgta ? numField("IGTa", "text-gt", igta, setIgta) : null}
+            {showIgte ? numField("IGTe", "text-gte", igte, setIgte) : null}
           </div>
+          <p className="text-sm text-muted-foreground">
+            Total this deal: <b className="text-foreground">{total} open{total === 1 ? "" : "s"}</b>
+          </p>
           <div className="grid gap-1.5">
             <Label>Note (optional)</Label>
-            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. 3 GTa slots for summer" />
+            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. summer peak bulk deal" />
           </div>
         </div>
         <DialogFooter>
-          <Button onClick={submit} disabled={pending || Number(slots) < 1}>
+          <Button onClick={submit} disabled={pending || total < 1}>
             {pending ? "Saving…" : "Record deal"}
           </Button>
         </DialogFooter>

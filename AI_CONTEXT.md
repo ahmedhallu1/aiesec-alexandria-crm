@@ -4,7 +4,7 @@
 > to the system (feature, rule, route, schema, env var, deployment fact).
 > Add a dated entry to the **Changelog** at the bottom. No secrets in this file.
 
-Last updated: 2026-07-11 · Version: v8
+Last updated: 2026-07-14 · Version: v9
 
 ---
 
@@ -23,14 +23,14 @@ the blueprint for future OGX/other-function modules.
 | Repo | github.com/ahmedhallu1/aiesec-alexandria-crm (private) |
 | Vercel project | `aiesec-alexandria-crm` (scope `ahmedhallu1s-projects`) — deploy with `vercel deploy --prod` |
 | Stack | Next.js 16 (App Router, Turbopack) · React 19 · Tailwind v4 · shadcn/ui · Supabase (Postgres, project `iesrpuuoduxtihuaqfic`) |
-| Auth | Auth.js v5: **FIRST sign-in is Google-only** (grants `calendar` + `gmail.compose`) → onboarding sets a password → afterwards email+password OR Google both work. Password reset = IM clears the hash → member signs in with Google again |
+| Auth | Auth.js v5: **FIRST sign-in is Google-only** (grants `calendar` + `gmail.compose`) → onboarding sets a password → afterwards **email OR phone + password**, or Google, all work. **Forgot password emails a fresh password** (`issueTempPassword` in `server/password.ts`); the old password still works until the member changes it (no lockouts) |
 | Google | Service account (Sheets sync) · Gmail API from `ahmedhallul@aiesec.net` · Calendar events on each member's own calendar |
 | Cron | Supabase `pg_cron` + `pg_net` → `/api/cron/*` (visit-followups 15 min · membership-import 30 min · sheets-export hourly) |
 | Admin | `ADMIN_EMAILS` env (= IM director, treated as LCP) |
 
 **Migrations** live in `supabase/migrations/` and are run **manually** in the
 Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v2`
-→ `0003_ops_v2` → `0004_pins_v2` → `0005_deals` → `0006_admin_label` → `0007_visit_scheduled_result` → `0008_notifications_feedback`.
+→ `0003_ops_v2` → `0004_pins_v2` → `0005_deals` → `0006_admin_label` → `0007_visit_scheduled_result` → `0008_notifications_feedback` → `0009_b2b_deals_v9`.
 
 ---
 
@@ -56,9 +56,23 @@ member profile/onboarding confirmations). Columns A→J:
 | Coordinator / Member | Own accounts only |
 
 **B2B** (function or sub-function contains "B2B") raises **for the whole ICX**:
-they get BOTH IGV & IGT lanes (create/see/filter accounts in either product,
-usually bulk deals of 3+ opens). Detected by `isB2B` in `rbac.ts`; feeds
-`icxFunctions`, `hasRaisingAccess`, `allowedAccountFunctions`.
+they add accounts as **product "B2B"** (not IGV/IGT), and every deal records its
+opens **split across IGV / IGTa / IGTe** (e.g. 3 IGV · 2 IGTe · 1 IGTa). Those
+per-product opens feed the IGV / IGTa / IGTe dashboard lanes (a B2B account's
+IGV opens count in the IGV lane, etc.), while the account itself lives in the
+All-ICX + B2B drill. Detected by `isB2B` in `rbac.ts`; feeds `scopeFunctions`,
+`hasRaisingAccess`, `allowedAccountFunctions`.
+
+**Account visibility** (`accountScope` in `rbac.ts`):
+- Member / Coordinator → own accounts only.
+- Team Leader → own + their team members' accounts.
+- VP (LCVP) → all accounts of their function(s) **+ B2B** (B2B raises for them).
+- Director → all accounts of their function(s) **+ B2B** (e.g. Yara, Director of
+  B2B → every B2B account; an IGV/IGT Director also sees B2B).
+- LCP / admin → everything.
+`scopeFunctions(v)` returns a leader's `AccountFunction[]` — always appends
+`"B2B"` when the leader owns IGV/IGT or is B2B, so IGV & IGT VPs/Directors see
+B2B accounts.
 
 **OGX ↔ ICX isolation**: neither side sees the other's operations. IGV-only
 members can't create IGT accounts and vice versa (both = dual-function, LCVP, LCP).
@@ -86,6 +100,15 @@ mutation through a `can*` predicate, **server-side**.
   revivable by TL+. No blacklist tab/sheet.
 - **Auto-archive rules**: contact result **"Not Interested"** and Podio request
   state **"Rejected"** both archive the account (with warning confirmations).
+- **Out-of-Process reasons** (`OOP_REASONS` in `types.ts`) are a fixed pick-list
+  — Not responding · Financial issues · Not Interested · Backed out · Other Plans
+  · Needs too technical background EPs · Conflict of Values between AIESEC and
+  organization · Blacklisted — plus **Other** (free text).
+- **Manual archive** (Archived tab, TL+): **Add archived** (name + reason) and
+  **Import archived** (CSV/XLSX with Name + Reason, editable preview, ≤1000 rows,
+  free-form reasons kept as-is) blacklist names that were burned before the CRM
+  existed — no active account needed. Entries live in the `blacklist` table and
+  block re-adding exactly like an OOP account; VP+ can remove an entry.
 - **Tagged contacts** (`accounts.contacts` jsonb): phones with tags
   `[Contact, Whatsapp, Manager, HR, CEO, Owner, Other]`, emails with the same
   list **minus Whatsapp**, links with `[Website, LinkedIn, Instagram, Facebook,
@@ -117,6 +140,14 @@ mutation through a `can*` predicate, **server-side**.
   date or a pending visit; 3 unanswered attempts → OOP prompt.
 - **Visits**: calendar event on the responsible's Google Calendar (24h + 1h
   reminders), +2h follow-up email, report emails to VP + manager (never LCP).
+  `scheduleVisit` returns a `calendarHint` (`linked`/`no_grant`/`relogin`/
+  `error`) so the UI says exactly why a reminder wasn't created (dead Google
+  grant → re-login) instead of failing silently.
+- **Next-step reminders**: whenever an account's next step gets a date, a
+  calendar follow-up event is upserted on the responsible's calendar (at the
+  step's time, or **11:00** when date-only) — kept in sync on change and removed
+  when the step clears / the account is archived. `syncNextStepReminder` +
+  `upsertFollowupEvent`; stored in `accounts.next_step_event_id`.
 - **Bulk import** (`/accounts/import`): CSV/XLSX parsed client-side (sheetjs),
   editable preview, owner select per reassign rules, ≤500 rows, every row passes
   the exact same checks as a manual add.
@@ -171,20 +202,29 @@ cards were removed on request; flags remain reachable via accounts filters.)
   stays scoped); member filter shows only lane members (never the LCP).
 - **Goals** (`performance_goals`): VP/Director sets the function goal, TL the
   team goal (month or peak period) — progress bars on everyone's dashboard.
-- **Leaderboards**: function + team, medals for slots — never IGV vs IGT.
+- **Leaderboards**: ONE board per scope (function + team) listing **Members &
+Coordinators only** (never Team Leaders, VPs, Directors or the LCP). A row of
+metric buttons switches what it ranks — **Opens (default) · MR · Contacted
+(count of accounts with ≥1 contact, not contact-log count) · Visits · Visits
+done · Deals**, in funnel order. Deals belong to the account's **Responsible**.
+The old By-member drill table and the Flags column were removed. Product/team
+drills remain.
 - Filters: This month chip · team · member · date range (labeled inputs,
   `max=today`, server-side clamp — future dates are impossible).
 
 ---
 
-### Deal attribution & hierarchical rollup
+### Deal attribution & per-product opens
 
 - A recorded deal belongs to the **account's Responsible** (whoever the opens
   were raised for), NOT the person clicking the button.
-- **Leaderboard rollup is hierarchical**: a member's slots/deals also count for
-  their **Team Leader** (member 3 + TL's own 3 → TL shows 6, member shows 3,
-  the function total stays 6 — no double count at function level).
-- **VPs / the LCP never appear in the by-member board**.
+- **Opens are recorded per product** (`deals.slots_igv/igta/igte`, mirrored to
+  `accounts.slots_igv_count/igta_count/igte_count`): IGV accounts sign IGV opens;
+  IGT accounts split IGTa + IGTe; B2B accounts mix all three. `slots_count` is
+  their sum. The dashboard lane attributes each lane's slots from these splits,
+  so a B2B account's IGV opens land in the IGV lane.
+- **Leaderboards list Members & Coordinators only** — no TL rollup, no VPs/LCP.
+  Each member's row is their own accounts' numbers for the active lane.
 
 ## 6. UX conventions
 
@@ -213,19 +253,22 @@ burst** when a deal is recorded.
 ## 7. Repository map
 
 ```
-supabase/migrations/          0001..0004 (run manually in SQL editor)
+supabase/migrations/          0001..0009 (run manually in SQL editor)
 supabase/cron.sql             pg_cron schedules
-src/lib/types.ts              domain types, pick-lists, phone/slug/quick-action helpers
-src/lib/rbac.ts               THE RBAC engine
-src/lib/auth.ts|auth.config.ts  Auth.js (credentials + Google), welcome email
-src/lib/google/{sheets,gmail,calendar}.ts  sheet import/write-back/export · mail · calendar
-src/lib/email/templates.ts    branded emails (welcome/visit/feedback/reset/module-ready)
-src/server/data.ts            scoped reads, dashboard aggregates, goals, slug lookup
-src/server/actions.ts         ALL mutations + business rules
+src/lib/types.ts              domain types, pick-lists (OOP_REASONS), phone/slug, fmtDateTime
+src/lib/rbac.ts               THE RBAC engine (scopeFunctions = leader visibility, B2B-aware)
+src/lib/auth.ts|auth.config.ts  Auth.js (credentials email/phone + Google)
+src/lib/google/{sheets,gmail,calendar}.ts  sheets (+archived mirror) · mail · calendar (visit + next-step events)
+src/lib/avatars.ts            fun DiceBear avatar choices
+src/lib/core-analytics.ts     CORE live digest (national rankings + Alexandria funnel)
+src/lib/email/templates.ts    branded emails (welcome/visit/feedback/newPassword/module-ready)
+src/server/data.ts            scoped reads, dashboard per-lane aggregates, goals, slug, manual-archive list
+src/server/actions.ts         ALL mutations (deals per product, manual archive, avatars…)
+src/server/password.ts        forgot-password: generate + email a fresh password
 src/server/notify.ts          in-app notifications helper (best-effort inserts)
-src/lib/assistant.ts          The Blue Man: RBAC-scoped context + system prompt
+src/lib/assistant.ts          The Blue Man: RBAC-scoped context + CORE digest + prompt
 src/app/api/assistant/        POST → Gemini 2.5 Flash + Google Search grounding
-src/server/auth-actions.ts    login, Google, password-reset request
+src/server/auth-actions.ts    login (email/phone), Google, forgot-password (emails a password)
 src/app/(app)/                dashboard, accounts (+import, [id]=slug), membership,
                               feedback(+inbox), profile; loading.tsx everywhere
 src/app/welcome/              first-login onboarding
@@ -247,16 +290,29 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | Tour steps / role blurbs | `src/components/crm/tour.tsx`, `ROLE_BLURBS` in types |
 | DB schema | new file in `supabase/migrations/` (+ run in SQL editor + note here) |
 | The Blue Man (prompt / data scope) | `src/lib/assistant.ts` (+ `/api/assistant/route.ts`) |
+| CORE digest (scraping / entity ids) | `src/lib/core-analytics.ts` |
 | Notifications kinds / broadcast | `src/server/notify.ts`, bell UI in `notifications-bell.tsx` |
+| Avatars (styles / seeds) | `src/lib/avatars.ts`; picker in `profile-view.tsx` |
+| Leader visibility (who sees which accounts) | `scopeFunctions` in `src/lib/rbac.ts` |
 
 ---
 
 ## 9. Pending / operational notes
 
-- **Pending user action:** run `0007_visit_scheduled_result.sql` and
-  `0008_notifications_feedback.sql` in the Supabase SQL editor — 0007 fixes the
-  "invalid input value for enum contact_status: Visit Scheduled" error; 0008
-  creates `notifications` + feedback `anonymous`/`status` columns.
+- **Pending user action:** run `0007_visit_scheduled_result.sql`,
+  `0008_notifications_feedback.sql` and **`0009_b2b_deals_v9.sql`** in the
+  Supabase SQL editor — 0007 fixes the "Visit Scheduled" enum error; 0008
+  creates `notifications` + feedback columns; **0009** adds the `B2B` account
+  function, per-product deal columns (`slots_igv/igta/igte` + account totals),
+  member `avatar_url`/`temp_password_hash`, `accounts.next_step_event_id`, and
+  rebuilds `accounts_pipeline` with last-contact result + latest-deal columns.
+  Until 0009 runs, deals/avatars/temp-passwords surface a "run migration 0009"
+  message and the accounts list falls back to date-only stage details.
+- **CORE data (The Blue Man):** `src/lib/core-analytics.ts` fetches
+  core.aiesec.org.eg's public national dashboard + Alexandria's LC page
+  (id 899, cached 15 min) and injects the top-10 national rankings per product
+  and Alexandria's funnel into the assistant context. No key needed. If CORE's
+  HTML structure changes, adjust `extractMainText`'s `main-container` marker.
 - `GEMINI_API_KEY` must exist in `.env.local` AND Vercel env (The Blue Man).
 - **Module-ready announcement email**: template `moduleReadyEmail` is ready;
   send ONLY when Ahmed says go.
@@ -266,6 +322,31 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-07-14 · v9** — **B2B accounts** are their own product: B2B people add
+  accounts as B2B and each deal records **opens per product** (IGV/IGTa/IGTe —
+  migration 0009 `deals.slots_igv/igta/igte` + account totals), those splits
+  feeding the product dashboard lanes; **visibility** clarified — Member/
+  Coordinator=own, TL=own+team, VP=whole function **+ B2B**, Director=their
+  function(s) **+ B2B**, LCP=all (`scopeFunctions`); **one leaderboard** listing
+  **Members & Coordinators only** with metric buttons (Opens default · MR ·
+  Contacted · Visits · Visits done · Deals) — the by-member drill and Flags
+  column removed; **OOP reasons** are a fixed pick-list + Other; **manual
+  archive** on the Archived tab (Add archived · Import archived CSV/XLSX with
+  editable preview) writing to `blacklist`, mirrored to a **"CRM — Archived
+  Accounts (DO NOT re-add)"** sheet (all OOP + manual names); **forgot password
+  emails a fresh password** (old one still valid until changed) and **login
+  accepts email OR phone**; **profile avatars** (fun DiceBear characters or the
+  Google photo, shown in sidebar); **calendar fixed** — `scheduleVisit` reports
+  why a reminder failed (dead grant → re-login) and **next-step follow-up events**
+  land on the calendar at the step's time (or 11:00 if date-only), synced/removed
+  with the step; **The Blue Man reads CORE** (core.aiesec.org.eg national
+  rankings + Alexandria funnel, cached 15 min); **timestamps show HH:mm** in the
+  timeline/history/comments; accounts list gains a **last-contact-result column**
+  and **hover details** on every field (status → deal/visit/contact specifics),
+  and its **Responsible filter lists only members with accounts in the current
+  view**; **smoother theme switch** (View Transitions circular reveal + eased
+  color transitions).
 
 - **2026-07-11 · v8** — **Sodio** branding everywhere (sidebar, tab titles,
   manifest/PWA, login, emails, tour, onboarding); **The Blue Man** AI assistant

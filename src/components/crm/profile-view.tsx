@@ -3,14 +3,18 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { KeyRound, Lock, Mail } from "lucide-react";
-import { changePassword, updateProfile } from "@/server/actions";
+import { Check, KeyRound, Lock, Mail, Sparkles } from "lucide-react";
+import { changePassword, updateAvatar, updateProfile } from "@/server/actions";
 import { ADMIN_EMAIL, cleanPhone, FUNCTION_COLORS, PHONE_RE } from "@/lib/types";
+import { avatarChoices } from "@/lib/avatars";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -26,6 +30,8 @@ interface ProfileInfo {
   teamName: string | null;
   stakeholderName: string | null;
   photoUrl: string | null;
+  avatarUrl: string | null;
+  googlePhotoUrl: string | null;
   isAdmin: boolean;
   hasPassword: boolean;
 }
@@ -38,6 +44,7 @@ export function ProfileView({ member }: { member: ProfileInfo }) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [avatarOpen, setAvatarOpen] = useState(false);
   const [pending, start] = useTransition();
 
   const phoneOk = PHONE_RE.test(cleanPhone(phone));
@@ -71,12 +78,22 @@ export function ProfileView({ member }: { member: ProfileInfo }) {
     <div className="mx-auto max-w-3xl space-y-5">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <Avatar className="size-16">
-          {member.photoUrl ? <AvatarImage src={member.photoUrl} alt="" /> : null}
-          <AvatarFallback className="bg-primary text-lg font-bold text-primary-foreground">
-            {(member.nickname || member.name).slice(0, 2).toUpperCase()}
-          </AvatarFallback>
-        </Avatar>
+        <button
+          type="button"
+          onClick={() => setAvatarOpen(true)}
+          className="group relative shrink-0 rounded-full outline-none"
+          title="Change your avatar"
+        >
+          <Avatar className="size-16 ring-2 ring-transparent transition group-hover:ring-primary/40">
+            {member.photoUrl ? <AvatarImage src={member.photoUrl} alt="" /> : null}
+            <AvatarFallback className="bg-primary text-lg font-bold text-primary-foreground">
+              {(member.nickname || member.name).slice(0, 2).toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
+          <span className="absolute -bottom-1 -right-1 flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md transition group-hover:scale-110">
+            <Sparkles className="size-3.5" />
+          </span>
+        </button>
         <div>
           <h1 className="text-2xl font-bold">{member.name}</h1>
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -94,8 +111,23 @@ export function ProfileView({ member }: { member: ProfileInfo }) {
               </Badge>
             ))}
           </div>
+          <button
+            type="button"
+            onClick={() => setAvatarOpen(true)}
+            className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+          >
+            <Sparkles className="size-3" /> Change avatar
+          </button>
         </div>
       </div>
+
+      <AvatarDialog
+        open={avatarOpen}
+        onOpenChange={setAvatarOpen}
+        current={member.avatarUrl}
+        googlePhoto={member.googlePhotoUrl}
+        fallback={(member.nickname || member.name).slice(0, 2).toUpperCase()}
+      />
 
       <div className="grid gap-4 md:grid-cols-2">
         {/* Editable */}
@@ -244,5 +276,101 @@ function ReadRow({ label, value }: { label: string; value: string }) {
       <span className="text-muted-foreground">{label}</span>
       <span className="font-medium">{value}</span>
     </div>
+  );
+}
+
+/** Pick a fun character avatar (or go back to the Google photo). */
+function AvatarDialog({
+  open, onOpenChange, current, googlePhoto, fallback,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  current: string | null;
+  googlePhoto: string | null;
+  fallback: string;
+}) {
+  const router = useRouter();
+  const [choices] = useState(() => avatarChoices());
+  const [selected, setSelected] = useState<string | null>(current);
+  const [pending, start] = useTransition();
+
+  const save = () =>
+    start(async () => {
+      const res = await updateAvatar(selected);
+      if (res.ok) {
+        toast.success("Avatar updated 🎉");
+        onOpenChange(false);
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Sparkles className="size-4 text-primary" /> Pick your avatar
+          </DialogTitle>
+          <DialogDescription>
+            Choose a fun character — or use your Google photo. It shows on your
+            profile and in the sidebar.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid max-h-[50vh] grid-cols-4 gap-3 overflow-y-auto p-1 sm:grid-cols-6">
+          {/* Google photo / initials fallback */}
+          <button
+            type="button"
+            onClick={() => setSelected(null)}
+            className={cn(
+              "relative flex aspect-square items-center justify-center rounded-full ring-2 transition hover:scale-105",
+              selected === null ? "ring-primary" : "ring-transparent"
+            )}
+            title="Use your Google photo"
+          >
+            <Avatar className="size-full">
+              {googlePhoto ? <AvatarImage src={googlePhoto} alt="" /> : null}
+              <AvatarFallback className="bg-primary text-sm font-bold text-primary-foreground">
+                {fallback}
+              </AvatarFallback>
+            </Avatar>
+            {selected === null ? (
+              <span className="absolute -right-0.5 -top-0.5 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                <Check className="size-3" />
+              </span>
+            ) : null}
+          </button>
+
+          {choices.map((c) => (
+            <button
+              key={c.url}
+              type="button"
+              onClick={() => setSelected(c.url)}
+              className={cn(
+                "relative aspect-square rounded-full ring-2 transition hover:scale-105",
+                selected === c.url ? "ring-primary" : "ring-transparent"
+              )}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={c.url} alt="" className="size-full rounded-full bg-muted" loading="lazy" />
+              {selected === c.url ? (
+                <span className="absolute -right-0.5 -top-0.5 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                  <Check className="size-3" />
+                </span>
+              ) : null}
+            </button>
+          ))}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
+            Cancel
+          </Button>
+          <Button onClick={save} disabled={pending}>
+            {pending ? "Saving…" : "Use this avatar"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

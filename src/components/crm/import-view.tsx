@@ -20,10 +20,13 @@ import {
 } from "@/components/ui/table";
 
 interface MemberOption { id: string; label: string; functions: string[] }
+type ImportFn = "IGV" | "IGT" | "B2B";
+
+type Fn = "IGV" | "IGT" | "B2B";
 
 interface DraftRow {
   name: string;
-  function: "IGV" | "IGT";
+  function: Fn;
   product: "" | "GTa" | "GTe";
   project: string;
   sub_product: string;
@@ -57,7 +60,7 @@ const HEADER_MAP: [RegExp, keyof DraftRow][] = [
 export function ImportView({
   viewer, members,
 }: {
-  viewer: { id: string; canAssignOthers: boolean; allowedFns: ("IGV" | "IGT")[] };
+  viewer: { id: string; canAssignOthers: boolean; allowedFns: ImportFn[] };
   members: MemberOption[];
 }) {
   const router = useRouter();
@@ -117,8 +120,9 @@ export function ImportView({
           const value = String(line[i] ?? "").trim();
           if (!value) return;
           if (key === "function") {
-            const fn = value.toUpperCase().includes("IGV") ? "IGV" : value.toUpperCase().includes("IGT") ? "IGT" : "";
-            if (fn && viewer.allowedFns.includes(fn as "IGV" | "IGT")) draft.function = fn as "IGV" | "IGT";
+            const up = value.toUpperCase();
+            const fn = up.includes("B2B") ? "B2B" : up.includes("IGV") ? "IGV" : up.includes("IGT") ? "IGT" : "";
+            if (fn && viewer.allowedFns.includes(fn as ImportFn)) draft.function = fn as ImportFn;
           } else if (key === "product") {
             const v = value.toLowerCase();
             draft.product = v.includes("gta") || v.includes("talent") ? "GTa"
@@ -164,6 +168,7 @@ export function ImportView({
     if (r.name.trim().length < 2) return "Name required";
     if (r.function === "IGT" && !r.product) return "Pick GTa/GTe";
     if (r.function === "IGV" && !r.project) return "Pick a project";
+    // B2B needs neither product nor project
     if (r.phone && !PHONE_RE.test(cleanPhone(r.phone))) return "Bad phone";
     if (r.email && !EMAIL_RE.test(r.email.trim())) return "Bad email";
     return null;
@@ -179,8 +184,8 @@ export function ImportView({
           product: r.product || null,
           project: r.function === "IGV" ? r.project || null : null,
           sub_product: r.function === "IGT" ? r.sub_product || null : null,
-          account_type: r.function === "IGV" ? r.account_type || null : null,
-          industry: r.function === "IGV" ? r.industry || null : null,
+          account_type: r.function !== "IGT" ? r.account_type || null : null,
+          industry: r.function !== "IGT" ? r.industry || null : null,
           phone: r.phone || null,
           email: r.email || null,
           social_link: r.social_link || null,
@@ -203,8 +208,12 @@ export function ImportView({
       router.refresh();
     });
 
-  const memberOptionsFor = (fn: "IGV" | "IGT") =>
-    members.filter((m) => m.functions.includes(fn) || m.id === viewer.id);
+  const memberOptionsFor = (fn: ImportFn) =>
+    members.filter(
+      (m) =>
+        m.id === viewer.id ||
+        (fn === "B2B" ? m.functions.includes("B2B") : m.functions.includes(fn))
+    );
 
   return (
     <div className="mx-auto max-w-7xl space-y-4">
@@ -303,7 +312,7 @@ export function ImportView({
                         <TableCell>
                           <Select
                             value={r.function}
-                            onValueChange={(v) => update(i, { function: v as "IGV" | "IGT" })}
+                            onValueChange={(v) => update(i, { function: v as ImportFn })}
                             disabled={viewer.allowedFns.length < 2}
                           >
                             <SelectTrigger className="h-8 w-20"><SelectValue /></SelectTrigger>
@@ -326,7 +335,7 @@ export function ImportView({
                                 <SelectItem value="GTe">GTe</SelectItem>
                               </SelectContent>
                             </Select>
-                          ) : (
+                          ) : r.function === "IGV" ? (
                             <Select
                               value={r.project || undefined}
                               onValueChange={(v) => update(i, { project: v })}
@@ -338,6 +347,8 @@ export function ImportView({
                                 ))}
                               </SelectContent>
                             </Select>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">whole ICX</span>
                           )}
                         </TableCell>
                         <TableCell>

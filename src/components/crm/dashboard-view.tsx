@@ -44,6 +44,7 @@ interface Props {
   byTeam: DrillGroup[];
   functionBoard: DrillGroup[];
   teamBoard: DrillGroup[];
+  teamAchieved: number;
   funcGoal: PerformanceGoal | null;
   teamGoal: PerformanceGoal | null;
   views: DashboardScopeView[];
@@ -74,8 +75,8 @@ function monthRange(): { from: string; to: string; label: string } {
 }
 
 export function DashboardView({
-  total, byFunction, byTeam, functionBoard, teamBoard, funcGoal, teamGoal,
-  views, activeFn, laneLabel, scopeLabel, showTeamDrill, teamOptions,
+  total, byFunction, byTeam, functionBoard, teamBoard, teamAchieved, funcGoal,
+  teamGoal, views, activeFn, laneLabel, scopeLabel, showTeamDrill, teamOptions,
   memberOptions, filters, goalCaps,
 }: Props) {
   const router = useRouter();
@@ -250,9 +251,7 @@ export function DashboardView({
             <GoalCard
               title={`${goalCaps.teamLabel ?? "Team"} goal`}
               goal={teamGoal}
-              achieved={
-                teamBoard.reduce((s, g) => s + g.slots, 0)
-              }
+              achieved={teamAchieved}
               canSet={goalCaps.teamGoal}
               onSet={() => setGoalOpen(true)}
             />
@@ -284,9 +283,9 @@ export function DashboardView({
         </CardContent>
       </Card>
 
-      {/* Leaderboards */}
+      {/* Leaderboards — Members & Coordinators only, metric switchable */}
       <div className="grid gap-4 lg:grid-cols-2 rise-in rise-in-3">
-        {activeFn !== "all" && functionBoard.length > 0 ? (
+        {functionBoard.length > 0 ? (
           <Leaderboard title={`${laneLabel} leaderboard`} groups={functionBoard} />
         ) : null}
         {teamBoard.length > 1 ? (
@@ -298,27 +297,27 @@ export function DashboardView({
       </div>
 
       {/* Drill-down */}
-      <Card className="rise-in rise-in-4">
-        <CardHeader>
-          <CardTitle className="text-base">Drill-down</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Tabs defaultValue={byFunction.length > 1 ? "function" : showTeamDrill ? "team" : "member"}>
-            <TabsList className="flex-wrap">
-              {byFunction.length > 1 ? <TabsTrigger value="function">By product</TabsTrigger> : null}
-              {showTeamDrill ? <TabsTrigger value="team">By team</TabsTrigger> : null}
-              <TabsTrigger value="member">By member</TabsTrigger>
-            </TabsList>
-            {byFunction.length > 1 ? (
-              <TabsContent value="function"><DrillTable groups={byFunction} colorKeys /></TabsContent>
-            ) : null}
-            {showTeamDrill ? (
-              <TabsContent value="team"><DrillTable groups={byTeam} /></TabsContent>
-            ) : null}
-            <TabsContent value="member"><DrillTable groups={functionBoard} /></TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
+      {(byFunction.length > 1 || showTeamDrill) ? (
+        <Card className="rise-in rise-in-4">
+          <CardHeader>
+            <CardTitle className="text-base">Drill-down</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Tabs defaultValue={byFunction.length > 1 ? "function" : "team"}>
+              <TabsList className="flex-wrap">
+                {byFunction.length > 1 ? <TabsTrigger value="function">By product</TabsTrigger> : null}
+                {showTeamDrill ? <TabsTrigger value="team">By team</TabsTrigger> : null}
+              </TabsList>
+              {byFunction.length > 1 ? (
+                <TabsContent value="function"><DrillTable groups={byFunction} colorKeys /></TabsContent>
+              ) : null}
+              {showTeamDrill ? (
+                <TabsContent value="team"><DrillTable groups={byTeam} /></TabsContent>
+              ) : null}
+            </Tabs>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <GoalDialog
         open={goalOpen}
@@ -389,38 +388,85 @@ function GoalCard({
 
 const MEDALS = ["🥇", "🥈", "🥉"];
 
+/** Leaderboard metrics, in funnel order — Opens (slots) is the default. */
+const BOARD_METRICS: { key: keyof FunnelStats; label: string; unit: string }[] = [
+  { key: "mr", label: "MR", unit: "MR" },
+  { key: "contacted", label: "Contacted", unit: "contacted" },
+  { key: "visitScheduled", label: "Visits", unit: "visits" },
+  { key: "visitDone", label: "Visits done", unit: "done" },
+  { key: "deals", label: "Deals", unit: "deals" },
+  { key: "slots", label: "Opens", unit: "opens" },
+];
+
+/** One board, every number: Members & Coordinators ranked by the picked
+ *  metric (MR → Contacted → Visits → Visits done → Deals → Opens). */
 function Leaderboard({ title, groups }: { title: string; groups: DrillGroup[] }) {
+  const [metricKey, setMetricKey] = useState<keyof FunnelStats>("slots");
+  const metric = BOARD_METRICS.find((m) => m.key === metricKey) ?? BOARD_METRICS[5];
+  const ranked = [...groups].sort(
+    (a, b) =>
+      (b[metricKey] as number) - (a[metricKey] as number) ||
+      b.slots - a.slots ||
+      b.deals - a.deals ||
+      b.contacted - a.contacted
+  );
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="space-y-2">
         <CardTitle className="flex items-center gap-2 text-base">
           <Trophy className="size-4 text-warning" /> {title}
         </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-1">
-        {groups.slice(0, 8).map((g, i) => (
-          <div
-            key={g.key}
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm",
-              i === 0 && g.slots > 0 ? "bg-warning/10" : i % 2 ? "bg-muted/40" : ""
-            )}
-          >
-            <span className="w-6 text-center text-base">
-              {g.slots > 0 && MEDALS[i] ? MEDALS[i] : <span className="text-xs text-muted-foreground">#{i + 1}</span>}
-            </span>
-            <span className="min-w-0 flex-1 truncate font-medium">{g.label}</span>
-            <span className="text-xs text-muted-foreground">{g.contacted} contacted</span>
-            <Badge
+        <div className="flex flex-wrap gap-1 rounded-lg bg-muted p-1">
+          {BOARD_METRICS.map((m) => (
+            <button
+              key={m.key}
+              onClick={() => setMetricKey(m.key)}
               className={cn(
-                "border-transparent font-bold",
-                g.slots > 0 ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"
+                "rounded-md px-2 py-1 text-[11px] font-medium transition-all",
+                metricKey === m.key
+                  ? "bg-card text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
               )}
             >
-              {g.slots} slot{g.slots === 1 ? "" : "s"}
-            </Badge>
-          </div>
-        ))}
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-1">
+        {ranked.length === 0 ? (
+          <p className="py-4 text-center text-sm text-muted-foreground">No members yet.</p>
+        ) : null}
+        {ranked.slice(0, 8).map((g, i) => {
+          const value = g[metricKey] as number;
+          return (
+            <div
+              key={g.key}
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm",
+                i === 0 && value > 0 ? "bg-warning/10" : i % 2 ? "bg-muted/40" : ""
+              )}
+            >
+              <span className="w-6 text-center text-base">
+                {value > 0 && MEDALS[i] ? MEDALS[i] : <span className="text-xs text-muted-foreground">#{i + 1}</span>}
+              </span>
+              <span className="min-w-0 flex-1 truncate font-medium">{g.label}</span>
+              {metricKey !== "slots" ? (
+                <span className="text-xs text-muted-foreground">{g.slots} opens</span>
+              ) : (
+                <span className="text-xs text-muted-foreground">{g.contacted} contacted</span>
+              )}
+              <Badge
+                className={cn(
+                  "border-transparent font-bold",
+                  value > 0 ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"
+                )}
+              >
+                {value} {metric.unit}
+              </Badge>
+            </div>
+          );
+        })}
       </CardContent>
     </Card>
   );
@@ -585,7 +631,6 @@ function DrillTable({ groups, colorKeys }: { groups: DrillGroup[]; colorKeys?: b
             <TableHead className="text-right">Deals</TableHead>
             <TableHead className="text-right">Slots</TableHead>
             <TableHead className="text-right">Lead → Deal</TableHead>
-            <TableHead className="text-right">Flags</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -609,13 +654,6 @@ function DrillTable({ groups, colorKeys }: { groups: DrillGroup[]; colorKeys?: b
                 <TableCell className="text-right">{g.deals}</TableCell>
                 <TableCell className="text-right font-semibold">{g.slots}</TableCell>
                 <TableCell className="text-right text-muted-foreground">{pct(g.dealAccounts, g.mr)}</TableCell>
-                <TableCell className="text-right">
-                  {g.contactLimitFlags + g.nextStepMissingFlags > 0 ? (
-                    <Badge variant="destructive">{g.contactLimitFlags + g.nextStepMissingFlags}</Badge>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </TableCell>
               </TableRow>
             );
           })}

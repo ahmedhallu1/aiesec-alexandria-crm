@@ -179,6 +179,30 @@ export function feedbackEmail(opts: {
   };
 }
 
+/** "Forgot password": the fresh password lands straight in the member's inbox. */
+export function newPasswordEmail(opts: {
+  memberFirstName: string;
+  password: string;
+}) {
+  return {
+    subject: "🔑 Your new Sodio password",
+    html: emailLayout({
+      preheader: "Sign in with this password — you can change it anytime",
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Here you go, ${escapeHtml(opts.memberFirstName)} 🔑</h1>
+        <p>You asked for a new Sodio password. Use this one to sign in:</p>
+        <p style="margin:20px 0;text-align:center;">
+          <span style="display:inline-block;background:#f0f7ff;border:2px dashed #037EF3;border-radius:12px;padding:14px 26px;font-family:Consolas,Menlo,monospace;font-size:20px;font-weight:bold;letter-spacing:1px;color:#0A2540;">${escapeHtml(opts.password)}</span>
+        </p>
+        <p>Your old password (if you had one) still works too — nothing breaks
+        until <i>you</i> change it. You can set a password you'll remember from
+        <b>Profile → Change password</b>.</p>
+        ${button("Sign in to Sodio", `${env.appUrl}/login`)}
+        <p style="color:#5c6b80;font-size:13px;">Didn't request this? You can ignore it — your old password keeps working.</p>`,
+    }),
+  };
+}
+
 export function passwordResetRequestEmail(opts: {
   memberName: string;
   memberEmail: string;

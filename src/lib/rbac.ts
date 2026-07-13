@@ -1,4 +1,4 @@
-import { FEEDBACK_INBOX_EMAILS, type Member } from "./types";
+import { FEEDBACK_INBOX_EMAILS, type AccountFunction, type Member } from "./types";
 
 /** The RBAC engine. Every read is filtered through `accountScope` and every
  *  mutation is checked with a `can*` predicate — server-side, before any query.
@@ -22,7 +22,7 @@ export interface Viewer extends Member {
 
 export type AccountScope =
   | { kind: "all" }
-  | { kind: "functions"; fns: ("IGV" | "IGT")[] }
+  | { kind: "functions"; fns: AccountFunction[] }
   | { kind: "members"; ids: string[] };
 
 const master = (v: Viewer) => v.isAdmin || v.role === "LCP";
@@ -30,24 +30,38 @@ const master = (v: Viewer) => v.isAdmin || v.role === "LCP";
 /** EB = LCP + LCVPs (Directors are explicitly NOT EB). */
 export const isEb = (v: Viewer) => master(v) || v.role === "LCVP";
 
-/** B2B raises for the WHOLE ICX (usually bulk deals of 3+ opens across both
- *  products) — unlike other functions who raise for themselves only. */
+/** B2B raises for the WHOLE ICX (usually bulk deals of 3+ opens): B2B members
+ *  add accounts as product "B2B" and each deal splits its opens across
+ *  IGV / IGTa / IGTe. */
 export function isB2B(v: Viewer): boolean {
   return v.functions.includes("B2B") || v.sub_functions.includes("B2B");
 }
 
+/** Dashboard-lane functions: B2B feeds the whole ICX, so B2B people follow
+ *  both product families' numbers. */
 export function icxFunctions(v: Viewer): ("IGV" | "IGT")[] {
   if (isB2B(v)) return ["IGV", "IGT"];
   return v.functions.filter((f): f is "IGV" | "IGT" => f === "IGV" || f === "IGT");
 }
 
+/** ACCOUNT visibility for VPs/Directors:
+ *  - a leader sees their own function's accounts (Director of B2B → B2B only)
+ *  - IGV/IGT VPs & Directors ALSO see B2B accounts (B2B raises for them). */
+export function scopeFunctions(v: Viewer): AccountFunction[] {
+  const fns: AccountFunction[] = v.functions.filter(
+    (f): f is "IGV" | "IGT" => f === "IGV" || f === "IGT"
+  );
+  if (fns.length > 0 || isB2B(v)) fns.push("B2B");
+  return [...new Set(fns)];
+}
+
 /** LCVPs and Directors carry function-level authority over their function(s). */
 const isIcxLead = (v: Viewer) =>
-  (v.role === "LCVP" || v.role === "Director") && icxFunctions(v).length > 0;
+  (v.role === "LCVP" || v.role === "Director") && scopeFunctions(v).length > 0;
 
 export function accountScope(v: Viewer): AccountScope {
   if (master(v)) return { kind: "all" };
-  if (isIcxLead(v)) return { kind: "functions", fns: icxFunctions(v) };
+  if (isIcxLead(v)) return { kind: "functions", fns: scopeFunctions(v) };
   if (v.role === "Team Leader")
     return { kind: "members", ids: [v.id, ...v.teamMemberIds] };
   return { kind: "members", ids: [v.id] };
@@ -63,11 +77,13 @@ export function hasRaisingAccess(v: Viewer): boolean {
 }
 
 /** Which functions this viewer may CREATE accounts for.
- *  IGV-only members cannot add IGT accounts and vice versa; both are allowed
- *  only for members holding both functions, LCVPs and the LCP. */
-export function allowedAccountFunctions(v: Viewer): ("IGV" | "IGT")[] {
-  if (master(v) || v.role === "LCVP" || isB2B(v)) return ["IGV", "IGT"];
-  return icxFunctions(v);
+ *  B2B people add accounts as B2B (not IGV/IGT); IGV-only members cannot add
+ *  IGT accounts and vice versa. Leaders create inside their visibility scope. */
+export function allowedAccountFunctions(v: Viewer): AccountFunction[] {
+  if (master(v)) return ["IGV", "IGT", "B2B"];
+  if (v.role === "LCVP" || v.role === "Director") return scopeFunctions(v);
+  if (isB2B(v)) return ["B2B"];
+  return v.functions.filter((f): f is "IGV" | "IGT" => f === "IGV" || f === "IGT");
 }
 
 type AccountLike = { function: string; responsible_id: string };
@@ -75,7 +91,7 @@ type AccountLike = { function: string; responsible_id: string };
 export function canViewAccount(v: Viewer, a: AccountLike): boolean {
   const scope = accountScope(v);
   if (scope.kind === "all") return true;
-  if (scope.kind === "functions") return scope.fns.includes(a.function as "IGV" | "IGT");
+  if (scope.kind === "functions") return scope.fns.includes(a.function as AccountFunction);
   return scope.ids.includes(a.responsible_id);
 }
 
@@ -87,7 +103,7 @@ export const canEditAccount = canViewAccount;
  *  LCVPs/Directors inside their function; LCP anywhere. Plain members never. */
 export function canReassignAccount(v: Viewer, a: AccountLike): boolean {
   if (master(v)) return true;
-  if (isIcxLead(v)) return icxFunctions(v).includes(a.function as "IGV" | "IGT");
+  if (isIcxLead(v)) return scopeFunctions(v).includes(a.function as AccountFunction);
   if (v.role === "Team Leader")
     return [v.id, ...v.teamMemberIds].includes(a.responsible_id);
   return false;
@@ -96,7 +112,7 @@ export function canReassignAccount(v: Viewer, a: AccountLike): boolean {
 /** Who a given viewer may reassign an account to. */
 export function reassignTargetScope(v: Viewer): AccountScope {
   if (master(v)) return { kind: "all" };
-  if (isIcxLead(v)) return { kind: "functions", fns: icxFunctions(v) };
+  if (isIcxLead(v)) return { kind: "functions", fns: scopeFunctions(v) };
   if (v.role === "Team Leader")
     return { kind: "members", ids: [v.id, ...v.teamMemberIds] };
   return { kind: "members", ids: [] };
@@ -109,7 +125,7 @@ export function canViewArchive(v: Viewer): boolean {
 
 /** Request State (Podio) is filled by TL / Coordinator / VP — not plain members. */
 export function canEditRequestState(v: Viewer, a: AccountLike): boolean {
-  if (master(v) || (isIcxLead(v) && icxFunctions(v).includes(a.function as "IGV" | "IGT")))
+  if (master(v) || (isIcxLead(v) && scopeFunctions(v).includes(a.function as AccountFunction)))
     return true;
   if (v.role === "Team Leader")
     return [v.id, ...v.teamMemberIds].includes(a.responsible_id);
