@@ -21,26 +21,21 @@ export function avatarUrl(style: AvatarStyle, seed: string): string {
   return `${DICEBEAR}/${style}/svg?seed=${encodeURIComponent(seed)}&radius=50&backgroundType=gradientLinear`;
 }
 
-/** Guaranteed-bearded characters (avataaars forces facial hair on). The first
- *  is the classic full beard — Ahmed's pick 🙂. */
-export function beardedChoices(): { url: string }[] {
-  const beards = ["BeardMajestic", "BeardMedium", "BeardLight", "MoustacheFancy"];
-  const seeds = ["Ahmed", "Hallul", "Omar", "Ziad", "Karim", "Hassan"];
-  return seeds.map((seed, i) => ({
-    url:
-      `${DICEBEAR}/avataaars/svg?seed=${encodeURIComponent(seed)}` +
-      `&radius=50&backgroundType=gradientLinear` +
-      `&facialHairProbability=100&facialHair=${beards[i % beards.length]}`,
-  }));
-}
+/** One classic full-beard character (DiceBear avataaars forces facial hair on).
+ *  NOTE: avataaars enum values are camelCase — "beardMajestic", NOT
+ *  "BeardMajestic" (PascalCase 400s and the image never loads). Ahmed's pick 🙂 */
+const BEARDED_URL =
+  `${DICEBEAR}/avataaars/svg?seed=Ahmed&radius=50&backgroundType=gradientLinear` +
+  `&facialHairProbability=100&facialHair=beardMajestic&facialHairColor=2c1b18`;
 
-/** A grid of fun options for the picker (style × a couple of seeds). */
-export function avatarChoices(): { style: AvatarStyle; url: string }[] {
-  const out: { style: AvatarStyle; url: string }[] = [];
+/** A grid of fun options for the picker (a bearded one first, then style ×
+ *  a couple of seeds). */
+export function avatarChoices(): { url: string }[] {
+  const out: { url: string }[] = [{ url: BEARDED_URL }];
   AVATAR_STYLES.forEach((style, i) => {
     // two seeds per style keeps the grid varied without being huge
-    out.push({ style, url: avatarUrl(style, SEEDS[i % SEEDS.length]) });
-    out.push({ style, url: avatarUrl(style, SEEDS[(i + 5) % SEEDS.length]) });
+    out.push({ url: avatarUrl(style, SEEDS[i % SEEDS.length]) });
+    out.push({ url: avatarUrl(style, SEEDS[(i + 5) % SEEDS.length]) });
   });
   return out;
 }

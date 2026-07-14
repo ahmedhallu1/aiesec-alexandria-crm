@@ -74,6 +74,7 @@ export default async function AccountPage({
         label: m.nickname || m.name,
       }))}
       autoReportVisitId={report ?? null}
+      viewerId={viewer.id}
     />
   );
 }

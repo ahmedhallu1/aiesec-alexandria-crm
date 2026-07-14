@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Check, KeyRound, Lock, Mail, Sparkles, Upload } from "lucide-react";
 import { changePassword, updateAvatar, updateProfile } from "@/server/actions";
 import { ADMIN_EMAIL, cleanPhone, FUNCTION_COLORS, PHONE_RE } from "@/lib/types";
-import { avatarChoices, beardedChoices } from "@/lib/avatars";
+import { avatarChoices } from "@/lib/avatars";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -307,7 +307,6 @@ function AvatarDialog({
 }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [bearded] = useState(() => beardedChoices());
   const [choices] = useState(() => avatarChoices());
   const [selected, setSelected] = useState<string | null>(current);
   const [uploaded, setUploaded] = useState<string | null>(
@@ -417,15 +416,7 @@ function AvatarDialog({
             </div>
           </div>
 
-          {/* Bearded characters */}
-          <div>
-            <p className="mb-2 text-xs font-semibold text-muted-foreground">Bearded 🧔</p>
-            <div className="grid grid-cols-4 gap-3 sm:grid-cols-6">
-              {bearded.map((c, i) => optionBtn(c.url, `beard-${i}`))}
-            </div>
-          </div>
-
-          {/* Fun characters */}
+          {/* Fun characters (the first is a classic bearded one) */}
           <div>
             <p className="mb-2 text-xs font-semibold text-muted-foreground">Fun characters</p>
             <div className="grid grid-cols-4 gap-3 sm:grid-cols-6">
