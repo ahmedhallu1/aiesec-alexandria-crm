@@ -83,12 +83,17 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
 
   const credit = (
     <a
-      href="https://wa.me/201099019374?text=Hi%20Ahmed!%20I%27m%20reaching%20out%20about%20Sodio%20%F0%9F%91%8B"
+      href="http://elevate2point0.com/"
       target="_blank"
       rel="noreferrer"
-      className="block px-5 pb-4 text-center text-[11px] text-sidebar-foreground/50 transition-colors hover:text-sidebar-foreground"
+      className="flex items-center justify-center gap-1.5 px-5 pb-4 text-[11px] text-sidebar-foreground/55 transition-opacity hover:opacity-80"
+      title="Created by 2.0 — elevate2point0.com"
     >
-      System made by <span className="font-semibold">Ahmed Hallul</span>
+      <span>Created by</span>
+      {/* the sidebar is dark in BOTH themes → the white-on-dark 2.0 mark reads
+          correctly here (the black light-mode variant ships for light surfaces) */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/brand/2.0-dark.png" alt="2.0" className="h-4 w-auto" />
     </a>
   );
 

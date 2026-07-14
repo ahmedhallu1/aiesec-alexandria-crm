@@ -3,8 +3,8 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Check, KeyRound, Lock, Mail, Sparkles, Upload } from "lucide-react";
-import { changePassword, updateAvatar, updateProfile } from "@/server/actions";
+import { CalendarCheck, Check, KeyRound, Loader2, Lock, Mail, Sparkles, Upload } from "lucide-react";
+import { changePassword, diagnoseCalendar, updateAvatar, updateProfile } from "@/server/actions";
 import { ADMIN_EMAIL, cleanPhone, FUNCTION_COLORS, PHONE_RE } from "@/lib/types";
 import { avatarChoices } from "@/lib/avatars";
 import { cn } from "@/lib/utils";
@@ -244,7 +244,48 @@ export function ProfileView({ member }: { member: ProfileInfo }) {
           </div>
         </CardContent>
       </Card>
+
+      {member.isAdmin ? <CalendarHealthCard /> : null}
     </div>
+  );
+}
+
+/** Admin-only calendar diagnostics — tells you exactly which visit-calendar
+ *  tiers are working (and how to fix Tier 2 if the mailbox token needs scope). */
+function CalendarHealthCard() {
+  const [lines, setLines] = useState<string[] | null>(null);
+  const [pending, start] = useTransition();
+  const run = () =>
+    start(async () => {
+      const res = await diagnoseCalendar();
+      if (res.ok) setLines(res.data?.lines ?? []);
+      else toast.error(res.error);
+    });
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <CalendarCheck className="size-4 text-muted-foreground" /> Calendar health (admin)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          Checks how visit invites reach calendars. Run it after scheduling a test
+          visit if events aren&apos;t showing up.
+        </p>
+        <Button size="sm" variant="outline" onClick={run} disabled={pending}>
+          {pending ? <Loader2 className="size-4 animate-spin" /> : <CalendarCheck className="size-4" />}
+          {pending ? "Checking…" : "Run calendar check"}
+        </Button>
+        {lines ? (
+          <ul className="space-y-1.5 rounded-lg border bg-muted/40 p-3 text-sm">
+            {lines.map((l, i) => (
+              <li key={i} className="leading-snug">{l}</li>
+            ))}
+          </ul>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }
 

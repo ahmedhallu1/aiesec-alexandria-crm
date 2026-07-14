@@ -20,9 +20,12 @@ import { sendEmail } from "@/lib/google/gmail";
 import { visitReportEmail } from "@/lib/email/templates";
 import {
   buildVisitIcs,
+  createVisitEvent,
   deleteFollowupEvent,
   deleteMailboxVisitEvent,
+  deleteVisitEvent,
   getVisitsCalendarId,
+  updateVisitEvent,
   upsertFollowupEvent,
   upsertMailboxVisitEvent,
 } from "@/lib/google/calendar";
@@ -446,7 +449,14 @@ export async function setOutOfProcess(
     .is("done", null)
     .maybeSingle<Visit>();
   if (pending?.calendar_event_id) {
-    // the visit event lives on the shared "Sodio — LC Visits" calendar
+    // the event may live on the responsible's own calendar (tier 1) OR the
+    // shared "Sodio — LC Visits" calendar (tier 2) — try both
+    const { data: owner } = await db()
+      .from("members")
+      .select("google_refresh_token")
+      .eq("id", pending.member_id)
+      .maybeSingle<{ google_refresh_token: string | null }>();
+    await deleteVisitEvent(owner?.google_refresh_token ?? null, pending.calendar_event_id).catch(() => {});
     await deleteMailboxVisitEvent(pending.calendar_event_id).catch(() => {});
   }
   await syncNextStepReminder(accountId); // drop the follow-up reminder too
@@ -845,11 +855,14 @@ function productLabel(fn: string, product: string | null): string {
   return fn;
 }
 
-/** The functions a visit announcement fans out to. B2B spans the whole ICX. */
+/** The functions a visit announcement fans out to:
+ *  - IGV visit → the IGV raising crew + B2B
+ *  - IGT visit → the IGT raising crew + B2B
+ *  - B2B visit → the B2B crew ONLY (not the rest of ICX) */
 function announceFunctions(fn: string): ("IGV" | "IGT" | "B2B")[] {
   if (fn === "IGV") return ["IGV", "B2B"];
   if (fn === "IGT") return ["IGT", "B2B"];
-  return ["IGV", "IGT", "B2B"]; // B2B account
+  return ["B2B"]; // B2B account → B2B crew only
 }
 
 /** Works out who the visit is shared with:
@@ -972,40 +985,65 @@ export async function scheduleVisit(
     visitId = created.id;
   }
 
+  const token = responsible?.google_refresh_token ?? null;
   const inviteTo = [
     ...(responsible?.email ? [responsible.email] : []),
     ...recipients.attendeeEmails,
   ];
+  const eventWithAttendees = { ...eventInput, attendees: inviteTo };
 
-  // (a) PRIMARY — create a REAL Google Calendar event via the IM mailbox on the
-  // shared "Sodio — LC Visits" calendar, with the responsible + TL/VP as
-  // attendees and sendUpdates:"all". Google natively pushes it onto everyone's
-  // calendar (auto-added for same-domain Workspace) and sends the invite. No
-  // per-member OAuth grant needed. Requires the IM token's calendar scope.
+  // The event is created through the first mechanism that works, so it reaches
+  // the calendar no matter how the member signed in:
   let calendarLinked = false;
   let inviteSent = false;
-  const eventWithAttendees = { ...eventInput, attendees: inviteTo };
-  try {
-    const calId = await getVisitsCalendarId();
-    if (calId) {
-      const eventId = await upsertMailboxVisitEvent(
-        calId,
-        pending?.calendar_event_id ?? null,
-        eventWithAttendees
-      );
+
+  // TIER 1 — the responsible's OWN Google Calendar (they signed in with Google,
+  // which grants calendar scope). Instant, on their real calendar, TL/VP invited.
+  if (token) {
+    try {
+      let eventId: string | null = null;
+      if (pending?.calendar_event_id) {
+        await updateVisitEvent(token, pending.calendar_event_id, eventWithAttendees);
+        eventId = pending.calendar_event_id;
+      } else {
+        eventId = await createVisitEvent(token, eventWithAttendees);
+      }
       if (eventId) {
         calendarLinked = true;
-        inviteSent = true; // Google emailed the invites itself
+        inviteSent = true; // Google invited the attendees
         if (eventId !== pending?.calendar_event_id)
           await db().from("visits").update({ calendar_event_id: eventId }).eq("id", visitId);
       }
+    } catch (e) {
+      console.error("[visits] responsible-calendar insert failed, trying mailbox:", e);
     }
-  } catch (e) {
-    console.error("[visits] mailbox calendar event failed, will email .ics:", e);
   }
 
-  // (b) FALLBACK — if the mailbox calendar path isn't available (token missing
-  // calendar scope), email a real .ics invite (canonical multipart/alternative,
+  // TIER 2 — the IM mailbox's shared "Sodio — LC Visits" calendar (covers members
+  // who signed in with a password / have no personal Google grant). Requires the
+  // IM token's calendar scope.
+  if (!calendarLinked) {
+    try {
+      const calId = await getVisitsCalendarId();
+      if (calId) {
+        const eventId = await upsertMailboxVisitEvent(
+          calId,
+          pending?.calendar_event_id ?? null,
+          eventWithAttendees
+        );
+        if (eventId) {
+          calendarLinked = true;
+          inviteSent = true; // Google emailed the invites itself
+          if (eventId !== pending?.calendar_event_id)
+            await db().from("visits").update({ calendar_event_id: eventId }).eq("id", visitId);
+        }
+      }
+    } catch (e) {
+      console.error("[visits] mailbox calendar event failed, will email .ics:", e);
+    }
+  }
+
+  // TIER 3 — email a real .ics invite (canonical multipart/alternative,
   // METHOD:REQUEST, 24h & 1h alarms) so the event still reaches everyone.
   if (!calendarLinked && inviteTo.length > 0) {
     try {
@@ -1323,6 +1361,28 @@ export async function changePassword(input: {
   }
   await logAudit(viewer.id, "password_change", "member", viewer.id);
   return { ok: true };
+}
+
+/** Admin-only: reports exactly which calendar tiers are working, so we can tell
+ *  at a glance why (or whether) visit events land. */
+export async function diagnoseCalendar(): Promise<ActionResult<{ lines: string[] }>> {
+  const viewer = await getViewer();
+  if (!viewer.isAdmin) return fail("Admins only.", "forbidden");
+  const lines: string[] = [];
+  lines.push(
+    viewer.google_refresh_token
+      ? "✅ Tier 1 (your own Google Calendar): you have a Google grant — your own visits land instantly."
+      : "⚠️ Tier 1: you have no personal Google grant (you'd rely on Tier 2/3)."
+  );
+  const { diagnoseMailboxCalendar } = await import("@/lib/google/calendar");
+  const m = await diagnoseMailboxCalendar();
+  lines.push(
+    `${m.ok ? "✅" : "❌"} Tier 2 (shared “Sodio — LC Visits” calendar): ${m.detail}`
+  );
+  lines.push(
+    "✅ Tier 3 (emailed .ics invite): always available as a fallback — the event arrives in the inbox for one-tap add."
+  );
+  return { ok: true, data: { lines } };
 }
 
 /** Profile page: pick a fun avatar, upload your own, or fall back to the Google

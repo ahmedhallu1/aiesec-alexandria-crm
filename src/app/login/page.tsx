@@ -45,12 +45,18 @@ export default async function LoginPage({
           calendar) — then you set a password and can use either.
         </p>
         <a
-          href="https://wa.me/201099019374?text=Hi%20Ahmed!%20I%27m%20reaching%20out%20about%20the%20AIESEC%20Alexandria%20CRM%20%F0%9F%91%8B"
+          href="http://elevate2point0.com/"
           target="_blank"
           rel="noreferrer"
-          className="mt-4 block text-center text-xs text-muted-foreground transition-colors hover:text-primary"
+          className="mt-4 flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground transition-opacity hover:opacity-80"
+          title="Created by 2.0 — elevate2point0.com"
         >
-          System made by <span className="font-semibold">Ahmed Hallul</span>
+          <span>Created by</span>
+          {/* theme-swap: black mark on light bg, white mark on dark bg */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/2.0-light.png" alt="2.0" className="block h-4 w-auto dark:hidden" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/2.0-dark.png" alt="2.0" className="hidden h-4 w-auto dark:block" />
         </a>
       </div>
     </main>

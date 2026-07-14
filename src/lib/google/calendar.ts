@@ -88,6 +88,31 @@ export async function upsertMailboxVisitEvent(
   return res.data.id ?? null;
 }
 
+/** Admin diagnostic: is the IM mailbox token able to use the Calendar API?
+ *  Surfaces the exact reason so we know whether Tier 2 works. */
+export async function diagnoseMailboxCalendar(): Promise<{ ok: boolean; detail: string }> {
+  if (!env.gmailRefreshToken)
+    return { ok: false, detail: "GMAIL_REFRESH_TOKEN is not set in the environment." };
+  if (!env.googleClientId)
+    return { ok: false, detail: "AUTH_GOOGLE_ID / AUTH_GOOGLE_SECRET are not set." };
+  try {
+    const list = await mailboxCalendar().calendarList.list({ maxResults: 1 });
+    return {
+      ok: true,
+      detail: `Calendar API reachable — ${list.data.items?.length ?? 0}+ calendars visible. Events will be created directly.`,
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const scopeIssue = /insufficient|scope|forbidden|permission|ACCESS_TOKEN_SCOPE/i.test(msg);
+    return {
+      ok: false,
+      detail: scopeIssue
+        ? "The IM mailbox token is MISSING the Calendar scope. Re-mint GMAIL_REFRESH_TOKEN including https://www.googleapis.com/auth/calendar (keep gmail.send)."
+        : `Calendar API error: ${msg.slice(0, 200)}`,
+    };
+  }
+}
+
 /** Cancels a visit event on the shared calendar (notifies attendees). */
 export async function deleteMailboxVisitEvent(eventId: string): Promise<void> {
   const calendarId = await getVisitsCalendarId();
