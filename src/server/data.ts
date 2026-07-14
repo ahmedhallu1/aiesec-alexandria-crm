@@ -79,6 +79,8 @@ export interface AccountFilters {
   product?: "GTa" | "GTe";
   stage?: Stage;
   responsibleId?: string;
+  /** filter by the account's LAST contact result (No Response, Interested…) */
+  lastStatus?: string;
   /** a Team Leader's id — their own accounts + their members' accounts */
   teamId?: string;
   flag?: "contact_limit" | "next_step_missing";
@@ -105,6 +107,7 @@ export async function listAccounts(
   if (filters.project) query = query.eq("project", filters.project);
   if (filters.product) query = query.eq("product", filters.product);
   if (filters.stage) query = query.eq("stage", filters.stage);
+  if (filters.lastStatus) query = query.eq("last_contact_status", filters.lastStatus);
   if (filters.responsibleId) query = query.eq("responsible_id", filters.responsibleId);
   if (filters.teamId) {
     const { data: team } = await db()

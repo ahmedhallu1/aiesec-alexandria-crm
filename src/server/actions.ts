@@ -830,6 +830,90 @@ const visitSchema = z.object({
   notes: z.string().trim().optional(),
 });
 
+/** Whether a member is on the RAISING side (not consideration-only). B2B and
+ *  members with no sub-function set count as raising; anyone whose ONLY
+ *  sub-function is Consideration is excluded. */
+function isRaisingMember(m: { functions: string[] | null; sub_functions: string[] | null }): boolean {
+  const subs = m.sub_functions ?? [];
+  if (subs.length === 0) return true;
+  if (subs.some((s) => ["Raising", "ICX", "B2B"].includes(s))) return true;
+  return !subs.includes("Consideration");
+}
+
+const memberIsB2B = (m: { functions: string[] | null; sub_functions: string[] | null }) =>
+  (m.functions ?? []).includes("B2B") || (m.sub_functions ?? []).includes("B2B");
+
+/** Product label for emails/notifications: IGV / IGTa / IGTe / B2B. */
+function productLabel(fn: string, product: string | null): string {
+  if (fn === "IGT") return product === "GTe" ? "IGTe" : product === "GTa" ? "IGTa" : "IGT";
+  return fn;
+}
+
+/** The functions a visit announcement fans out to. B2B spans the whole ICX. */
+function announceFunctions(fn: string): ("IGV" | "IGT" | "B2B")[] {
+  if (fn === "IGV") return ["IGV", "B2B"];
+  if (fn === "IGT") return ["IGT", "B2B"];
+  return ["IGV", "IGT", "B2B"]; // B2B account
+}
+
+/** Works out who the visit is shared with:
+ *  - calendar attendees (Google invite): the responsible's TL (if a Member) and
+ *    the function VP(s); TL/Coordinator → just the VP(s). Raising only.
+ *  - announcement crew: the whole product-function raising team + B2B (email +
+ *    in-app notification), minus the responsible & the scheduler.
+ *  All best-effort — never blocks the booking. */
+async function resolveVisitRecipients(
+  account: PipelineRow,
+  responsible: Member | null,
+  viewerId: string
+): Promise<{ attendeeEmails: string[]; announceIds: string[]; announceEmails: string[] }> {
+  const empty = { attendeeEmails: [], announceIds: [], announceEmails: [] };
+  if (!responsible || !isRaisingMember(responsible)) return empty;
+
+  type Row = {
+    id: string; email: string; role: MemberRole;
+    functions: string[] | null; sub_functions: string[] | null;
+    stakeholder_id: string | null;
+  };
+  const { data: all } = await db()
+    .from("members")
+    .select("id, email, role, functions, sub_functions, stakeholder_id, is_active")
+    .eq("is_active", true);
+  const members = (all ?? []) as Row[];
+  const byId = new Map(members.map((m) => [m.id, m]));
+
+  const fns = announceFunctions(account.function);
+  const inFunction = (m: Row) =>
+    (m.functions ?? []).some((f) => (fns as string[]).includes(f)) || memberIsB2B(m);
+
+  // ---- calendar attendees (TL + VP as the spec describes) ----
+  const attendees = new Set<string>();
+  const vps = members.filter(
+    (m) => m.role === "LCVP" && (m.functions ?? []).some((f) => (fns as string[]).includes(f))
+  );
+  if (responsible.role === "Member") {
+    const tl = responsible.stakeholder_id ? byId.get(responsible.stakeholder_id) : null;
+    if (tl?.role === "Team Leader" && tl.email) attendees.add(tl.email);
+    for (const vp of vps) if (vp.email) attendees.add(vp.email);
+  } else if (responsible.role === "Team Leader" || responsible.role === "Coordinator") {
+    for (const vp of vps) if (vp.email) attendees.add(vp.email);
+  }
+  attendees.delete(responsible.email);
+
+  // ---- announcement crew: whole raising function + B2B ----
+  const announceIds: string[] = [];
+  const announceEmails: string[] = [];
+  for (const m of members) {
+    if (m.role === "LCP") continue; // the LCP never gets operational mail
+    if (m.id === responsible.id || m.id === viewerId) continue; // they get the direct notice
+    if (!inFunction(m) || !isRaisingMember(m)) continue;
+    announceIds.push(m.id);
+    if (m.email) announceEmails.push(m.email);
+  }
+
+  return { attendeeEmails: [...attendees], announceIds, announceEmails };
+}
+
 export async function scheduleVisit(
   input: z.infer<typeof visitSchema>
 ): Promise<
@@ -851,12 +935,15 @@ export async function scheduleVisit(
     .maybeSingle<Member>();
   const token = responsible?.google_refresh_token ?? null;
 
+  const recipients = await resolveVisitRecipients(account, responsible, viewer.id);
+
   const eventInput = {
     accountName: account.name,
     visitDate,
     visitTime,
     notes,
     detailsUrl: `${env.appUrl}/accounts/${accountId}`,
+    attendees: recipients.attendeeEmails,
   };
 
   // reschedule if a pending visit exists, otherwise create
@@ -911,16 +998,50 @@ export async function scheduleVisit(
     }
   }
 
+  const slug = accountSlug(account.name);
+  const product = productLabel(account.function, account.product);
   const { notifyMembers } = await import("./notify");
+  // the responsible: a clickable "your visit is booked" notice
   await notifyMembers(
     [account.responsible_id],
     "visit",
     `Visit booked — ${account.name} 🗓️`,
     `${visitDate} at ${visitTime.slice(0, 5)}. Calendar reminders 24h & 1h before${calendarLinked ? "" : " (sign in with Google once to activate them)"}.`,
-    viewer.id
+    viewer.id,
+    `/accounts/${slug}`
   );
+
+  // function-wide fan-out: the whole product's raising crew + B2B get an FYI
+  // email AND an in-app notification (no calendar reminder for them)
+  if (recipients.announceIds.length > 0) {
+    const responsibleName =
+      responsible?.nickname || responsible?.name || account.responsible_nickname || account.responsible_name;
+    await notifyMembers(
+      recipients.announceIds,
+      "visit_announcement",
+      `📢 New ${product} visit — ${account.name}`,
+      `${responsibleName} booked a visit with ${account.name} on ${visitDate} at ${visitTime.slice(0, 5)}.`,
+      viewer.id
+    );
+    if (recipients.announceEmails.length > 0) {
+      const { visitAnnouncementEmail } = await import("@/lib/email/templates");
+      const mail = visitAnnouncementEmail({
+        responsibleName,
+        accountName: account.name,
+        product,
+        visitDate,
+        visitTime,
+        notes: notes || null,
+        accountUrl: `${env.appUrl}/accounts/${slug}`,
+      });
+      sendEmail({ to: [env.gmailSender || viewer.email], bcc: recipients.announceEmails, ...mail }).catch(
+        (e) => console.error("[visits] announcement email failed:", e)
+      );
+    }
+  }
+
   await logAudit(viewer.id, "schedule_visit", "account", accountId, {
-    visitDate, visitTime, calendar: calendarHint,
+    visitDate, visitTime, calendar: calendarHint, announced: recipients.announceIds.length,
   });
   refresh(accountId);
   return { ok: true, data: { calendarLinked, calendarHint } };
@@ -1165,12 +1286,21 @@ export async function changePassword(input: {
   return { ok: true };
 }
 
-/** Profile page: pick a fun avatar (or fall back to the Google photo). */
+/** Profile page: pick a fun avatar, upload your own, or fall back to the Google
+ *  photo (null). Accepts an https image URL or a resized data:image/... upload
+ *  (client-compressed to keep the row small). */
 export async function updateAvatar(url: string | null): Promise<ActionResult> {
   const viewer = await getViewer();
   const clean = url?.trim() || null;
-  if (clean && !/^https:\/\/\S+$/i.test(clean))
-    return fail("The avatar must be an https:// image link.");
+  if (clean) {
+    const isHttps = /^https:\/\/\S+$/i.test(clean);
+    const isDataImage = /^data:image\/(png|jpe?g|webp);base64,/i.test(clean);
+    if (!isHttps && !isDataImage)
+      return fail("The avatar must be an image link or an uploaded picture.");
+    // ~400KB cap on uploaded images (the client already downscales to ~256px)
+    if (isDataImage && clean.length > 550_000)
+      return fail("That image is too large — pick a smaller one (it's downscaled automatically, so try again).");
+  }
   const { error } = await db()
     .from("members")
     .update({ avatar_url: clean })
@@ -1601,6 +1731,7 @@ export interface NotificationRow {
   kind: string;
   title: string;
   body: string | null;
+  link: string | null;
   read_at: string | null;
   created_at: string;
 }
@@ -1610,14 +1741,23 @@ export async function getMyNotifications(): Promise<
   ActionResult<{ items: NotificationRow[]; unread: number }>
 > {
   const viewer = await getViewer();
-  const { data, error } = await db()
-    .from("notifications")
-    .select("id, kind, title, body, read_at, created_at")
-    .eq("member_id", viewer.id)
-    .order("created_at", { ascending: false })
-    .limit(30);
-  if (error) return fail("Notifications need migration 0008 — ask the IM team.");
-  const items = (data ?? []) as NotificationRow[];
+  const run = (cols: string) =>
+    db()
+      .from("notifications")
+      .select(cols)
+      .eq("member_id", viewer.id)
+      .order("created_at", { ascending: false })
+      .limit(30);
+  let res = await run("id, kind, title, body, link, read_at, created_at");
+  // pre-0010 the `link` column doesn't exist — retry without it
+  if (res.error && res.error.message.includes("link")) {
+    res = await run("id, kind, title, body, read_at, created_at");
+  }
+  if (res.error) return fail("Notifications need migration 0008 — ask the IM team.");
+  const items = ((res.data ?? []) as unknown as Partial<NotificationRow>[]).map((n) => ({
+    id: n.id!, kind: n.kind!, title: n.title!, body: n.body ?? null,
+    link: n.link ?? null, read_at: n.read_at ?? null, created_at: n.created_at!,
+  })) as NotificationRow[];
   return {
     ok: true,
     data: { items, unread: items.filter((n) => !n.read_at).length },

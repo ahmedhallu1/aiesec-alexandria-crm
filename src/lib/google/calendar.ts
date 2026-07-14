@@ -15,6 +15,8 @@ export interface VisitEventInput {
   visitTime: string; // HH:MM[:SS]
   detailsUrl: string;
   notes?: string | null;
+  /** emails to share the event with (TL / VP) — they get a Google invite */
+  attendees?: string[];
 }
 
 function eventBody(input: VisitEventInput) {
@@ -23,11 +25,13 @@ function eventBody(input: VisitEventInput) {
   const endDate = new Date(Date.UTC(2000, 0, 1, h, m));
   endDate.setUTCHours(endDate.getUTCHours() + 1);
   const end = `${input.visitDate}T${String(endDate.getUTCHours()).padStart(2, "0")}:${String(endDate.getUTCMinutes()).padStart(2, "0")}:00`;
+  const attendees = [...new Set((input.attendees ?? []).filter(Boolean))];
   return {
     summary: `AIESEC visit — ${input.accountName}`,
     description: `Company visit for ${input.accountName}.\n${input.notes ? input.notes + "\n" : ""}Account: ${input.detailsUrl}`,
     start: { dateTime: start, timeZone: LC_TIMEZONE },
     end: { dateTime: end, timeZone: LC_TIMEZONE },
+    ...(attendees.length ? { attendees: attendees.map((email) => ({ email })) } : {}),
     reminders: {
       useDefault: false,
       overrides: [
@@ -41,8 +45,9 @@ function eventBody(input: VisitEventInput) {
   };
 }
 
-/** Creates the visit event on the responsible member's own calendar.
- *  Returns the event id, or null when the member has no stored Google grant. */
+/** Creates the visit event on the responsible member's own calendar (and emails
+ *  a Google invite to any attendees). Returns the event id, or null when the
+ *  member has no stored Google grant. */
 export async function createVisitEvent(
   refreshToken: string | null,
   input: VisitEventInput
@@ -51,6 +56,7 @@ export async function createVisitEvent(
   const res = await calendarFor(refreshToken).events.insert({
     calendarId: "primary",
     requestBody: eventBody(input),
+    sendUpdates: (input.attendees ?? []).length ? "all" : "none",
   });
   return res.data.id ?? null;
 }
@@ -65,6 +71,7 @@ export async function updateVisitEvent(
     calendarId: "primary",
     eventId,
     requestBody: eventBody(input),
+    sendUpdates: (input.attendees ?? []).length ? "all" : "none",
   });
 }
 

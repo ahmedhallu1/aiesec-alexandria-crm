@@ -4,7 +4,7 @@
 > to the system (feature, rule, route, schema, env var, deployment fact).
 > Add a dated entry to the **Changelog** at the bottom. No secrets in this file.
 
-Last updated: 2026-07-14 · Version: v9
+Last updated: 2026-07-14 · Version: v10
 
 ---
 
@@ -30,7 +30,7 @@ the blueprint for future OGX/other-function modules.
 
 **Migrations** live in `supabase/migrations/` and are run **manually** in the
 Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v2`
-→ `0003_ops_v2` → `0004_pins_v2` → `0005_deals` → `0006_admin_label` → `0007_visit_scheduled_result` → `0008_notifications_feedback` → `0009_b2b_deals_v9`.
+→ `0003_ops_v2` → `0004_pins_v2` → `0005_deals` → `0006_admin_label` → `0007_visit_scheduled_result` → `0008_notifications_feedback` → `0009_b2b_deals_v9` → `0010_notif_link`.
 
 ---
 
@@ -143,6 +143,14 @@ mutation through a `can*` predicate, **server-side**.
   `scheduleVisit` returns a `calendarHint` (`linked`/`no_grant`/`relogin`/
   `error`) so the UI says exactly why a reminder wasn't created (dead Google
   grant → re-login) instead of failing silently.
+  - **Shared with leaders** (calendar attendees, Google invite): a **Member's**
+    visit is shared with their **Team Leader + function VP(s)**; a **Team Leader
+    or Coordinator's** with the **VP(s)**. Raising only (not consideration).
+  - **Function-wide announcement**: booking a visit **emails + in-app notifies
+    the whole product's raising crew + B2B** (IGV visit → IGV raising + B2B;
+    IGT → IGT raising + B2B; B2B → IGV + IGT raising + B2B) — an FYI, no
+    calendar reminder for them. `resolveVisitRecipients` + `visitAnnouncementEmail`;
+    notification kind `visit_announcement`.
 - **Next-step reminders**: whenever an account's next step gets a date, a
   calendar follow-up event is upserted on the responsible's calendar (at the
   step's time, or **11:00** when date-only) — kept in sync on change and removed
@@ -202,13 +210,14 @@ cards were removed on request; flags remain reachable via accounts filters.)
   stays scoped); member filter shows only lane members (never the LCP).
 - **Goals** (`performance_goals`): VP/Director sets the function goal, TL the
   team goal (month or peak period) — progress bars on everyone's dashboard.
-- **Leaderboards**: ONE board per scope (function + team) listing **Members &
-Coordinators only** (never Team Leaders, VPs, Directors or the LCP). A row of
-metric buttons switches what it ranks — **Opens (default) · MR · Contacted
-(count of accounts with ≥1 contact, not contact-log count) · Visits · Visits
-done · Deals**, in funnel order. Deals belong to the account's **Responsible**.
-The old By-member drill table and the Flags column were removed. Product/team
-drills remain.
+- **Leaderboards**: ONE **wide** board per scope (function + team) listing
+**Members & Coordinators only** (never Team Leaders, VPs, Directors or the LCP),
+full-width, showing **every** funnel number per member at once — **MR ·
+Contacted (count of accounts with ≥1 contact, not contact-log count) · Visits ·
+Visits done · Deals · Opens**, in funnel order. **Clicking any KPI header
+re-sorts** with a **FLIP glide animation** (`useFlipReorder`); default sort is
+**Opens**. Deals belong to the account's **Responsible**. The old By-member drill
+table and the Flags column were removed. Product/team drills remain.
 - Filters: This month chip · team · member · date range (labeled inputs,
   `max=today`, server-side clamp — future dates are impossible).
 
@@ -299,15 +308,11 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 
 ## 9. Pending / operational notes
 
-- **Pending user action:** run `0007_visit_scheduled_result.sql`,
-  `0008_notifications_feedback.sql` and **`0009_b2b_deals_v9.sql`** in the
-  Supabase SQL editor — 0007 fixes the "Visit Scheduled" enum error; 0008
-  creates `notifications` + feedback columns; **0009** adds the `B2B` account
-  function, per-product deal columns (`slots_igv/igta/igte` + account totals),
-  member `avatar_url`/`temp_password_hash`, `accounts.next_step_event_id`, and
-  rebuilds `accounts_pipeline` with last-contact result + latest-deal columns.
-  Until 0009 runs, deals/avatars/temp-passwords surface a "run migration 0009"
-  message and the accounts list falls back to date-only stage details.
+- **Pending user action:** 0007–0009 are already run. **Run
+  `0010_notif_link.sql`** in the Supabase SQL editor — it adds
+  `notifications.link` so notification clicks can open the related account.
+  Until it runs, notifications simply aren't clickable (the code retries the
+  insert/select without the column, so nothing breaks).
 - **CORE data (The Blue Man):** `src/lib/core-analytics.ts` fetches
   core.aiesec.org.eg's public national dashboard + Alexandria's LC page
   (id 899, cached 15 min) and injects the top-10 national rankings per product
@@ -322,6 +327,20 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-07-14 · v10** — Visit **shared with leaders** (calendar attendees: Member
+  → TL+VP, TL/Coordinator → VP; raising only) and a **function-wide visit
+  announcement** (email + in-app notification to the product's raising crew +
+  B2B; `visit_announcement` kind); **leaderboard reworked** into ONE wide board
+  showing all funnel numbers with **click-to-sort FLIP animation** (default
+  Opens); **notifications are actionable** — visit/follow-up notices carry a
+  `link` (migration 0010) and open the account on click; **profile forgot-
+  password** now emails a fresh password (was still saying "ask IM team");
+  **12-hour AM/PM** timestamps everywhere; **last-contact-result filter** on the
+  accounts list; **avatar upload** (client-downscaled to a ~256px data URL) + a
+  **bearded** avatar set; removed the B2B blurb from the add-account dialog;
+  **fixed invisible mobile date inputs** (pinned `color-scheme` to the active
+  theme so native date placeholders show).
 
 - **2026-07-14 · v9** — **B2B accounts** are their own product: B2B people add
   accounts as B2B and each deal records **opens per product** (IGV/IGTa/IGTe —

@@ -208,10 +208,7 @@ export function AddAccountDialog({
                 </Select>
               </div>
             ) : (
-              <div className="rounded-lg border border-primary/40 bg-primary/5 p-2.5 text-xs text-muted-foreground">
-                <b className="text-primary">B2B</b> raises for the whole ICX —
-                each deal records its opens across IGV / IGTa / IGTe.
-              </div>
+              <div />
             )}
           </div>
 

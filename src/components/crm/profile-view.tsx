@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Check, KeyRound, Lock, Mail, Sparkles } from "lucide-react";
+import { Check, KeyRound, Lock, Mail, Sparkles, Upload } from "lucide-react";
 import { changePassword, updateAvatar, updateProfile } from "@/server/actions";
 import { ADMIN_EMAIL, cleanPhone, FUNCTION_COLORS, PHONE_RE } from "@/lib/types";
-import { avatarChoices } from "@/lib/avatars";
+import { avatarChoices, beardedChoices } from "@/lib/avatars";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -237,8 +237,8 @@ export function ProfileView({ member }: { member: ProfileInfo }) {
               {pending ? "Saving…" : "Update password"}
             </Button>
             <p className="mt-2 text-xs text-muted-foreground">
-              Forgot your current password? Request a reset — then sign in with
-              Google and set a new one.
+              Forgot your current password? We&apos;ll email you a fresh one —
+              your current password keeps working until you change it.
             </p>
             <RequestResetButton email={member.email} />
           </div>
@@ -265,7 +265,7 @@ function RequestResetButton({ email }: { email: string }) {
         })
       }
     >
-      {pending ? "Sending…" : "🔑 Ask the IM team for a reset"}
+      {pending ? "Sending…" : "📬 Email me a new password"}
     </Button>
   );
 }
@@ -279,7 +279,23 @@ function ReadRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** Pick a fun character avatar (or go back to the Google photo). */
+/** Downscale an uploaded image to a ~256px square JPEG data URL (keeps the DB
+ *  row small and strips EXIF). Center-crops to a circle-friendly square. */
+async function fileToAvatarDataUrl(file: File): Promise<string> {
+  const bitmap = await createImageBitmap(file);
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const side = Math.min(bitmap.width, bitmap.height);
+  const sx = (bitmap.width - side) / 2;
+  const sy = (bitmap.height - side) / 2;
+  ctx.drawImage(bitmap, sx, sy, side, side, 0, 0, size, size);
+  return canvas.toDataURL("image/jpeg", 0.82);
+}
+
+/** Pick a fun character avatar, upload your own, or go back to the Google photo. */
 function AvatarDialog({
   open, onOpenChange, current, googlePhoto, fallback,
 }: {
@@ -290,9 +306,33 @@ function AvatarDialog({
   fallback: string;
 }) {
   const router = useRouter();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [bearded] = useState(() => beardedChoices());
   const [choices] = useState(() => avatarChoices());
   const [selected, setSelected] = useState<string | null>(current);
+  const [uploaded, setUploaded] = useState<string | null>(
+    current?.startsWith("data:") ? current : null
+  );
+  const [busy, setBusy] = useState(false);
   const [pending, start] = useTransition();
+
+  const onUpload = async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      toast.error("Pick an image file (png, jpg, webp).");
+      return;
+    }
+    setBusy(true);
+    try {
+      const dataUrl = await fileToAvatarDataUrl(file);
+      setUploaded(dataUrl);
+      setSelected(dataUrl);
+    } catch {
+      toast.error("Couldn't read that image — try another one.");
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
 
   const save = () =>
     start(async () => {
@@ -304,6 +344,36 @@ function AvatarDialog({
       } else toast.error(res.error);
     });
 
+  const optionBtn = (url: string | null, key: string, title?: string) => (
+    <button
+      key={key}
+      type="button"
+      title={title}
+      onClick={() => setSelected(url)}
+      className={cn(
+        "relative aspect-square rounded-full ring-2 transition hover:scale-105",
+        selected === url ? "ring-primary" : "ring-transparent"
+      )}
+    >
+      {url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={url} alt="" className="size-full rounded-full bg-muted object-cover" loading="lazy" />
+      ) : (
+        <Avatar className="size-full">
+          {googlePhoto ? <AvatarImage src={googlePhoto} alt="" /> : null}
+          <AvatarFallback className="bg-primary text-sm font-bold text-primary-foreground">
+            {fallback}
+          </AvatarFallback>
+        </Avatar>
+      )}
+      {selected === url ? (
+        <span className="absolute -right-0.5 -top-0.5 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+          <Check className="size-3" />
+        </span>
+      ) : null}
+    </button>
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
@@ -312,61 +382,63 @@ function AvatarDialog({
             <Sparkles className="size-4 text-primary" /> Pick your avatar
           </DialogTitle>
           <DialogDescription>
-            Choose a fun character — or use your Google photo. It shows on your
-            profile and in the sidebar.
+            Upload your own photo, choose a fun character, or use your Google
+            photo. It shows on your profile and in the sidebar.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid max-h-[50vh] grid-cols-4 gap-3 overflow-y-auto p-1 sm:grid-cols-6">
-          {/* Google photo / initials fallback */}
-          <button
-            type="button"
-            onClick={() => setSelected(null)}
-            className={cn(
-              "relative flex aspect-square items-center justify-center rounded-full ring-2 transition hover:scale-105",
-              selected === null ? "ring-primary" : "ring-transparent"
-            )}
-            title="Use your Google photo"
-          >
-            <Avatar className="size-full">
-              {googlePhoto ? <AvatarImage src={googlePhoto} alt="" /> : null}
-              <AvatarFallback className="bg-primary text-sm font-bold text-primary-foreground">
-                {fallback}
-              </AvatarFallback>
-            </Avatar>
-            {selected === null ? (
-              <span className="absolute -right-0.5 -top-0.5 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                <Check className="size-3" />
-              </span>
-            ) : null}
-          </button>
+        <div className="max-h-[55vh] space-y-4 overflow-y-auto p-1">
+          {/* Upload + Google photo */}
+          <div>
+            <p className="mb-2 text-xs font-semibold text-muted-foreground">Yours</p>
+            <div className="grid grid-cols-4 gap-3 sm:grid-cols-6">
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) onUpload(f);
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                disabled={busy}
+                className="flex aspect-square flex-col items-center justify-center gap-1 rounded-full border-2 border-dashed border-primary/40 text-primary transition hover:scale-105 hover:border-primary"
+                title="Upload your own picture"
+              >
+                <Upload className="size-4" />
+                <span className="text-[9px] font-semibold">{busy ? "…" : "Upload"}</span>
+              </button>
+              {uploaded ? optionBtn(uploaded, "uploaded", "Your uploaded picture") : null}
+              {optionBtn(null, "google", "Your Google photo / initials")}
+            </div>
+          </div>
 
-          {choices.map((c) => (
-            <button
-              key={c.url}
-              type="button"
-              onClick={() => setSelected(c.url)}
-              className={cn(
-                "relative aspect-square rounded-full ring-2 transition hover:scale-105",
-                selected === c.url ? "ring-primary" : "ring-transparent"
-              )}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={c.url} alt="" className="size-full rounded-full bg-muted" loading="lazy" />
-              {selected === c.url ? (
-                <span className="absolute -right-0.5 -top-0.5 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                  <Check className="size-3" />
-                </span>
-              ) : null}
-            </button>
-          ))}
+          {/* Bearded characters */}
+          <div>
+            <p className="mb-2 text-xs font-semibold text-muted-foreground">Bearded 🧔</p>
+            <div className="grid grid-cols-4 gap-3 sm:grid-cols-6">
+              {bearded.map((c, i) => optionBtn(c.url, `beard-${i}`))}
+            </div>
+          </div>
+
+          {/* Fun characters */}
+          <div>
+            <p className="mb-2 text-xs font-semibold text-muted-foreground">Fun characters</p>
+            <div className="grid grid-cols-4 gap-3 sm:grid-cols-6">
+              {choices.map((c, i) => optionBtn(c.url, `fun-${i}`))}
+            </div>
+          </div>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
             Cancel
           </Button>
-          <Button onClick={save} disabled={pending}>
+          <Button onClick={save} disabled={pending || busy}>
             {pending ? "Saving…" : "Use this avatar"}
           </Button>
         </DialogFooter>

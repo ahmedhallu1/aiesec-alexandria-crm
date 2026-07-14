@@ -148,6 +148,25 @@
   body {
     @apply bg-background text-foreground antialiased;
   }
+  /* Pin native controls (date pickers, scrollbars) to the ACTIVE theme.
+     next-themes toggles a .dark class, not the OS setting, so without this the
+     browser renders date-input placeholders ("dd/mm/yyyy") in its default dark
+     color — invisible on our dark cards (looked like empty boxes on mobile). */
+  :root {
+    color-scheme: light;
+  }
+  .dark {
+    color-scheme: dark;
+  }
+  /* keep the empty-state placeholder legible and muted in both themes */
+  input[type="date"],
+  input[type="time"] {
+    @apply text-foreground;
+  }
+  input[type="date"]::-webkit-datetime-edit,
+  input[type="time"]::-webkit-datetime-edit {
+    color: var(--muted-foreground);
+  }
 }
 
 /* Smooth light/dark theme swap.

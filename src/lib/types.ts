@@ -415,23 +415,23 @@ export function productBadge(fn: AccountFunction, product: IgtProduct | null): {
 // ------------------------------------------------------------------ timestamps
 // Every action is logged to the minute — these keep the formatting consistent.
 
-/** "13 Jul 2026, 14:05" (renders in the viewer's local time). */
+/** "13 Jul 2026, 2:05 PM" (12-hour, in the viewer's local time). */
 export function fmtDateTime(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString("en-GB", {
+  return d.toLocaleString("en-US", {
     day: "2-digit", month: "short", year: "numeric",
-    hour: "2-digit", minute: "2-digit",
+    hour: "numeric", minute: "2-digit", hour12: true,
   });
 }
 
-/** "14:05" from an ISO timestamp. */
+/** "2:05 PM" from an ISO timestamp (12-hour). */
 export function fmtTime(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
 }
 
 /** How each role experiences the CRM — used by the welcome page, welcome

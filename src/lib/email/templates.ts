@@ -155,6 +155,41 @@ export function visitFollowupEmail(opts: {
   };
 }
 
+/** Function-wide "a visit was booked" announcement — fans out to everyone in
+ *  the product's raising crew + B2B (so the whole function sees the momentum).
+ *  Purely informational; the responsible + their leaders get the calendar
+ *  invite separately. */
+export function visitAnnouncementEmail(opts: {
+  responsibleName: string;
+  accountName: string;
+  product: string;
+  visitDate: string;
+  visitTime: string;
+  notes: string | null;
+  accountUrl: string;
+}) {
+  return {
+    subject: `📢 New visit booked — ${opts.accountName} (${opts.product})`,
+    html: emailLayout({
+      preheader: `${opts.responsibleName} booked a visit with ${opts.accountName}`,
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">A visit just got booked! 🗓️</h1>
+        <p><b>${escapeHtml(opts.responsibleName)}</b> scheduled a company visit — sharing it
+        with the whole function to keep everyone in the loop.</p>
+        ${detailsTable([
+          ["Account", opts.accountName],
+          ["Product", opts.product],
+          ["Responsible", opts.responsibleName],
+          ["When", `${opts.visitDate} at ${opts.visitTime.slice(0, 5)}`],
+          ["Notes", opts.notes],
+        ])}
+        <p style="color:#5c6b80;font-size:13px;">You're getting this because you're part of this
+        product's raising team. It's an FYI — no action needed.</p>
+        ${button("Open the account", opts.accountUrl)}`,
+    }),
+  };
+}
+
 export function feedbackEmail(opts: {
   memberName: string;
   memberEmail: string;

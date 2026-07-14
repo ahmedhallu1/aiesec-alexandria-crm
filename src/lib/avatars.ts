@@ -21,6 +21,19 @@ export function avatarUrl(style: AvatarStyle, seed: string): string {
   return `${DICEBEAR}/${style}/svg?seed=${encodeURIComponent(seed)}&radius=50&backgroundType=gradientLinear`;
 }
 
+/** Guaranteed-bearded characters (avataaars forces facial hair on). The first
+ *  is the classic full beard — Ahmed's pick 🙂. */
+export function beardedChoices(): { url: string }[] {
+  const beards = ["BeardMajestic", "BeardMedium", "BeardLight", "MoustacheFancy"];
+  const seeds = ["Ahmed", "Hallul", "Omar", "Ziad", "Karim", "Hassan"];
+  return seeds.map((seed, i) => ({
+    url:
+      `${DICEBEAR}/avataaars/svg?seed=${encodeURIComponent(seed)}` +
+      `&radius=50&backgroundType=gradientLinear` +
+      `&facialHairProbability=100&facialHair=${beards[i % beards.length]}`,
+  }));
+}
+
 /** A grid of fun options for the picker (style × a couple of seeds). */
 export function avatarChoices(): { style: AvatarStyle; url: string }[] {
   const out: { style: AvatarStyle; url: string }[] = [];

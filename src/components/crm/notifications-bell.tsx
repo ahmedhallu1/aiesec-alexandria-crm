@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { Bell, Loader2, Megaphone, Send } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Bell, ChevronRight, Loader2, Megaphone, Send } from "lucide-react";
 import { toast } from "sonner";
 import {
   getMyNotifications,
@@ -10,7 +11,7 @@ import {
   sendBroadcast,
   type NotificationRow,
 } from "@/server/actions";
-import { LC_FUNCTIONS, MEMBER_ROLES } from "@/lib/types";
+import { fmtDateTime, LC_FUNCTIONS, MEMBER_ROLES } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,6 +29,7 @@ const KIND_ICON: Record<string, string> = {
   welcome: "🎉",
   reset: "🔑",
   visit: "🗓️",
+  visit_announcement: "📢",
   followup: "📝",
   thanks: "💙",
   broadcast: "📣",
@@ -36,6 +38,7 @@ const KIND_ICON: Record<string, string> = {
 
 /** The bell: latest notifications in a popup; EB members can broadcast. */
 export function NotificationsBell({ canBroadcast }: { canBroadcast: boolean }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [items, setItems] = useState<NotificationRow[] | null>(null);
@@ -110,25 +113,39 @@ export function NotificationsBell({ canBroadcast }: { canBroadcast: boolean }) {
             </p>
           ) : (
             <div className="space-y-2">
-              {items.map((n) => (
-                <div
-                  key={n.id}
-                  className={cn(
-                    "rounded-lg border p-2.5 text-sm",
-                    !n.read_at && "border-primary/40 bg-primary/5"
-                  )}
-                >
-                  <p className="font-medium">
-                    {KIND_ICON[n.kind] ?? "🔔"} {n.title}
-                  </p>
-                  {n.body ? (
-                    <p className="mt-0.5 whitespace-pre-wrap text-muted-foreground">{n.body}</p>
-                  ) : null}
-                  <p className="mt-1 text-xs text-muted-foreground/70">
-                    {new Date(n.created_at).toLocaleString()}
-                  </p>
-                </div>
-              ))}
+              {items.map((n) => {
+                const go = n.link
+                  ? () => { setOpen(false); router.push(n.link!); }
+                  : undefined;
+                return (
+                  <div
+                    key={n.id}
+                    role={go ? "button" : undefined}
+                    tabIndex={go ? 0 : undefined}
+                    onClick={go}
+                    onKeyDown={go ? (e) => { if (e.key === "Enter") go(); } : undefined}
+                    className={cn(
+                      "rounded-lg border p-2.5 text-sm",
+                      !n.read_at && "border-primary/40 bg-primary/5",
+                      go && "cursor-pointer transition-colors hover:border-primary hover:bg-primary/10"
+                    )}
+                  >
+                    <p className="flex items-center gap-1 font-medium">
+                      <span className="min-w-0 flex-1">
+                        {KIND_ICON[n.kind] ?? "🔔"} {n.title}
+                      </span>
+                      {go ? <ChevronRight className="size-4 shrink-0 text-primary" /> : null}
+                    </p>
+                    {n.body ? (
+                      <p className="mt-0.5 whitespace-pre-wrap text-muted-foreground">{n.body}</p>
+                    ) : null}
+                    <p className="mt-1 flex items-center justify-between text-xs text-muted-foreground/70">
+                      <span>{fmtDateTime(n.created_at)}</span>
+                      {go ? <span className="font-medium text-primary">Open →</span> : null}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
           )}
 

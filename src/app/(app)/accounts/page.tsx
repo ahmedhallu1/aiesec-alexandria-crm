@@ -31,6 +31,7 @@ export default async function AccountsPage({
     product: params.product === "GTa" || params.product === "GTe" ? params.product : undefined,
     project: params.project || undefined,
     stage: params.stage && params.stage !== "Out of Process" ? (params.stage as Stage) : undefined,
+    lastStatus: params.lastStatus || undefined,
     flag:
       params.flag === "contact_limit" || params.flag === "next_step_missing"
         ? params.flag
@@ -98,6 +99,7 @@ export default async function AccountsPage({
         product: params.product ?? "",
         project: params.project ?? "",
         stage: params.stage ?? "",
+        lastStatus: params.lastStatus ?? "",
         resp: params.resp ?? "",
         flag: params.flag ?? "",
         from: params.from ?? "",

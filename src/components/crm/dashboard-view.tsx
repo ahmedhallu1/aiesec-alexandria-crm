@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, useTransition } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -283,8 +283,8 @@ export function DashboardView({
         </CardContent>
       </Card>
 
-      {/* Leaderboards — Members & Coordinators only, metric switchable */}
-      <div className="grid gap-4 lg:grid-cols-2 rise-in rise-in-3">
+      {/* Leaderboards — one wide board, all numbers, click a KPI to re-rank */}
+      <div className="space-y-4 rise-in rise-in-3">
         {functionBoard.length > 0 ? (
           <Leaderboard title={`${laneLabel} leaderboard`} groups={functionBoard} />
         ) : null}
@@ -388,21 +388,52 @@ function GoalCard({
 
 const MEDALS = ["🥇", "🥈", "🥉"];
 
-/** Leaderboard metrics, in funnel order — Opens (slots) is the default. */
-const BOARD_METRICS: { key: keyof FunnelStats; label: string; unit: string }[] = [
-  { key: "mr", label: "MR", unit: "MR" },
-  { key: "contacted", label: "Contacted", unit: "contacted" },
-  { key: "visitScheduled", label: "Visits", unit: "visits" },
-  { key: "visitDone", label: "Visits done", unit: "done" },
-  { key: "deals", label: "Deals", unit: "deals" },
-  { key: "slots", label: "Opens", unit: "opens" },
+/** Leaderboard metrics, in funnel order — Opens (slots) is the default sort. */
+const BOARD_METRICS: { key: keyof FunnelStats; label: string; short: string }[] = [
+  { key: "mr", label: "MR", short: "MR" },
+  { key: "contacted", label: "Contacted", short: "Cont." },
+  { key: "visitScheduled", label: "Visits", short: "Vis." },
+  { key: "visitDone", label: "Visits done", short: "Done" },
+  { key: "deals", label: "Deals", short: "Deals" },
+  { key: "slots", label: "Opens", short: "Opens" },
 ];
 
-/** One board, every number: Members & Coordinators ranked by the picked
- *  metric (MR → Contacted → Visits → Visits done → Deals → Opens). */
+/** FLIP reorder: animate rows sliding to their new spot when the sort changes.
+ *  Captures each row's position, and on the next layout inverts + plays the
+ *  delta. Respects prefers-reduced-motion. */
+function useFlipReorder<T>(dep: T) {
+  const ref = useRef<HTMLDivElement>(null);
+  const prev = useRef<Map<string, number>>(new Map());
+  useLayoutEffect(() => {
+    const container = ref.current;
+    if (!container) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const rows = container.querySelectorAll<HTMLElement>("[data-flip-key]");
+    const next = new Map<string, number>();
+    rows.forEach((row) => next.set(row.dataset.flipKey!, row.getBoundingClientRect().top));
+    if (!reduce) {
+      rows.forEach((row) => {
+        const key = row.dataset.flipKey!;
+        const before = prev.current.get(key);
+        const after = next.get(key)!;
+        if (before != null && Math.abs(before - after) > 1) {
+          row.animate(
+            [{ transform: `translateY(${before - after}px)` }, { transform: "translateY(0)" }],
+            { duration: 420, easing: "cubic-bezier(0.34, 1.2, 0.64, 1)" }
+          );
+        }
+      });
+    }
+    prev.current = next;
+  }, [dep]);
+  return ref;
+}
+
+/** ONE wide board showing every funnel number per member. Click any KPI header
+ *  to re-sort — rows glide to their new places. Members & Coordinators only,
+ *  default sorted by Opens. */
 function Leaderboard({ title, groups }: { title: string; groups: DrillGroup[] }) {
   const [metricKey, setMetricKey] = useState<keyof FunnelStats>("slots");
-  const metric = BOARD_METRICS.find((m) => m.key === metricKey) ?? BOARD_METRICS[5];
   const ranked = [...groups].sort(
     (a, b) =>
       (b[metricKey] as number) - (a[metricKey] as number) ||
@@ -410,63 +441,87 @@ function Leaderboard({ title, groups }: { title: string; groups: DrillGroup[] })
       b.deals - a.deals ||
       b.contacted - a.contacted
   );
+  const flipRef = useFlipReorder(metricKey + ":" + groups.map((g) => g.key).join(","));
+
   return (
     <Card>
-      <CardHeader className="space-y-2">
+      <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <Trophy className="size-4 text-warning" /> {title}
+          <span className="text-xs font-normal text-muted-foreground">· tap a metric to rank by it</span>
         </CardTitle>
-        <div className="flex flex-wrap gap-1 rounded-lg bg-muted p-1">
-          {BOARD_METRICS.map((m) => (
-            <button
-              key={m.key}
-              onClick={() => setMetricKey(m.key)}
-              className={cn(
-                "rounded-md px-2 py-1 text-[11px] font-medium transition-all",
-                metricKey === m.key
-                  ? "bg-card text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
       </CardHeader>
-      <CardContent className="space-y-1">
-        {ranked.length === 0 ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">No members yet.</p>
-        ) : null}
-        {ranked.slice(0, 8).map((g, i) => {
-          const value = g[metricKey] as number;
-          return (
-            <div
-              key={g.key}
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm",
-                i === 0 && value > 0 ? "bg-warning/10" : i % 2 ? "bg-muted/40" : ""
-              )}
-            >
-              <span className="w-6 text-center text-base">
-                {value > 0 && MEDALS[i] ? MEDALS[i] : <span className="text-xs text-muted-foreground">#{i + 1}</span>}
-              </span>
-              <span className="min-w-0 flex-1 truncate font-medium">{g.label}</span>
-              {metricKey !== "slots" ? (
-                <span className="text-xs text-muted-foreground">{g.slots} opens</span>
-              ) : (
-                <span className="text-xs text-muted-foreground">{g.contacted} contacted</span>
-              )}
-              <Badge
-                className={cn(
-                  "border-transparent font-bold",
-                  value > 0 ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"
-                )}
-              >
-                {value} {metric.unit}
-              </Badge>
+      <CardContent className="px-2 sm:px-4">
+        <div className="overflow-x-auto">
+          <div className="min-w-[34rem]">
+            {/* header row of clickable KPIs */}
+            <div className="flex items-center gap-2 border-b px-2 pb-2 text-xs font-semibold text-muted-foreground">
+              <span className="w-7 shrink-0" />
+              <span className="min-w-0 flex-1">Member</span>
+              {BOARD_METRICS.map((m) => (
+                <button
+                  key={m.key}
+                  onClick={() => setMetricKey(m.key)}
+                  className={cn(
+                    "w-14 shrink-0 rounded-md py-1 text-center transition-colors",
+                    metricKey === m.key
+                      ? "bg-primary/10 font-bold text-primary"
+                      : "hover:bg-muted hover:text-foreground"
+                  )}
+                  title={`Rank by ${m.label}`}
+                >
+                  {m.short}
+                  <span className={cn("mx-auto mt-0.5 block h-0.5 w-4 rounded-full transition-all", metricKey === m.key ? "bg-primary" : "bg-transparent")} />
+                </button>
+              ))}
             </div>
-          );
-        })}
+
+            {/* animated rows */}
+            <div ref={flipRef} className="pt-1">
+              {ranked.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">No members yet.</p>
+              ) : (
+                ranked.slice(0, 12).map((g, i) => {
+                  const active = g[metricKey] as number;
+                  return (
+                    <div
+                      key={g.key}
+                      data-flip-key={g.key}
+                      className={cn(
+                        "flex items-center gap-2 rounded-lg px-2 py-2 text-sm",
+                        i === 0 && active > 0 ? "bg-warning/10" : i % 2 ? "bg-muted/30" : ""
+                      )}
+                    >
+                      <span className="w-7 shrink-0 text-center text-base">
+                        {active > 0 && MEDALS[i] ? MEDALS[i] : <span className="text-xs text-muted-foreground">#{i + 1}</span>}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate font-medium">{g.label}</span>
+                      {BOARD_METRICS.map((m) => {
+                        const v = g[m.key] as number;
+                        const isActive = m.key === metricKey;
+                        return (
+                          <span
+                            key={m.key}
+                            className={cn(
+                              "w-14 shrink-0 text-center tabular-nums transition-colors",
+                              isActive
+                                ? "font-bold text-primary"
+                                : v > 0
+                                  ? "text-foreground"
+                                  : "text-muted-foreground/50"
+                            )}
+                          >
+                            {v}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
       </CardContent>
     </Card>
   );

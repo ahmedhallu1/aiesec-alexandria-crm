@@ -40,6 +40,13 @@ import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+/** Contact results offered in the "Last result" filter (matches the log
+ *  dialog; "Call Scheduled" is legacy and kept only for old rows). */
+const LAST_STATUS_OPTIONS = [
+  "No Response", "Responded", "Interested", "Not Interested",
+  "Wrong Contact", "Visit Scheduled",
+] as const;
+
 interface ViewerInfo {
   id: string;
   role: string;
@@ -369,6 +376,13 @@ export function AccountsView({
             value={filters.stage} placeholder="Status"
             onChange={(v) => setParam("stage", v)}
             options={stageOptions.map((s) => [s, s])}
+          />
+        ) : null}
+        {!archived ? (
+          <FilterSelect
+            value={filters.lastStatus} placeholder="Last result"
+            onChange={(v) => setParam("lastStatus", v)}
+            options={LAST_STATUS_OPTIONS.map((s) => [s, s])}
           />
         ) : null}
         {viewer.seesOthers && respOptions.length > 0 ? (
