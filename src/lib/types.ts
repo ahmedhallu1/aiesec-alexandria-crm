@@ -449,17 +449,15 @@ export const ROLE_BLURBS: Record<string, string> = {
 export const ADMIN_EMAIL = "ahmedhallul@aiesec.net";
 
 /** The national Podio "partners" web-form ("Check if your company exists?").
- *  Set NEXT_PUBLIC_PODIO_FORM_URL to the real form link; the Add-account flow
- *  links here so members verify the name isn't already taken by another LC.
- *  `{name}` in the URL is replaced with the typed company name (URL-encoded). */
-export const PODIO_FORM_URL = process.env.NEXT_PUBLIC_PODIO_FORM_URL ?? "";
+ *  The Add-account flow links here so members verify the name isn't already
+ *  taken by another LC before adding it. Overridable via NEXT_PUBLIC_PODIO_FORM_URL. */
+export const PODIO_FORM_URL =
+  process.env.NEXT_PUBLIC_PODIO_FORM_URL ?? "https://podio.com/webforms/25879454/1936053";
 
-/** Builds the Podio check link with the company name substituted/appended. */
-export function podioCheckUrl(name: string): string | null {
-  if (!PODIO_FORM_URL) return null;
-  const n = encodeURIComponent(name.trim());
-  if (PODIO_FORM_URL.includes("{name}")) return PODIO_FORM_URL.replace("{name}", n);
-  return n ? `${PODIO_FORM_URL}${PODIO_FORM_URL.includes("?") ? "&" : "?"}q=${n}` : PODIO_FORM_URL;
+/** The Podio check link. Podio web-forms have their OWN live "does this company
+ *  exist?" search field, so we just open the form (no query prefill). */
+export function podioCheckUrl(_name: string): string | null {
+  return PODIO_FORM_URL || null;
 }
 
 /** Feedback goes ONLY to the IM director (admin) and the IM coach — every
