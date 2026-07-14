@@ -20,11 +20,11 @@ import { sendEmail } from "@/lib/google/gmail";
 import { visitReportEmail } from "@/lib/email/templates";
 import {
   buildVisitIcs,
-  createVisitEvent,
   deleteFollowupEvent,
-  deleteVisitEvent,
-  updateVisitEvent,
+  deleteMailboxVisitEvent,
+  getVisitsCalendarId,
   upsertFollowupEvent,
+  upsertMailboxVisitEvent,
 } from "@/lib/google/calendar";
 import {
   accountSlug,
@@ -446,12 +446,8 @@ export async function setOutOfProcess(
     .is("done", null)
     .maybeSingle<Visit>();
   if (pending?.calendar_event_id) {
-    const { data: owner } = await db()
-      .from("members")
-      .select("google_refresh_token")
-      .eq("id", pending.member_id)
-      .maybeSingle();
-    await deleteVisitEvent(owner?.google_refresh_token ?? null, pending.calendar_event_id).catch(() => {});
+    // the visit event lives on the shared "Sodio — LC Visits" calendar
+    await deleteMailboxVisitEvent(pending.calendar_event_id).catch(() => {});
   }
   await syncNextStepReminder(accountId); // drop the follow-up reminder too
   await logAudit(viewer.id, "out_of_process", "account", accountId, { reason });
@@ -933,7 +929,6 @@ export async function scheduleVisit(
     .select("*")
     .eq("id", account.responsible_id)
     .maybeSingle<Member>();
-  const token = responsible?.google_refresh_token ?? null;
 
   const recipients = await resolveVisitRecipients(account, responsible, viewer.id);
 
@@ -977,16 +972,42 @@ export async function scheduleVisit(
     visitId = created.id;
   }
 
-  // (a) RELIABLE PATH — email a real calendar invite (.ics, METHOD:REQUEST with
-  // 24h & 1h alarms) to the responsible + the shared leaders (TL/VP) through the
-  // working IM mailbox. Google Calendar / Outlook / Apple Mail auto-add it; no
-  // per-member OAuth grant is needed, so this always works.
   const inviteTo = [
     ...(responsible?.email ? [responsible.email] : []),
     ...recipients.attendeeEmails,
   ];
+
+  // (a) PRIMARY — create a REAL Google Calendar event via the IM mailbox on the
+  // shared "Sodio — LC Visits" calendar, with the responsible + TL/VP as
+  // attendees and sendUpdates:"all". Google natively pushes it onto everyone's
+  // calendar (auto-added for same-domain Workspace) and sends the invite. No
+  // per-member OAuth grant needed. Requires the IM token's calendar scope.
+  let calendarLinked = false;
   let inviteSent = false;
-  if (inviteTo.length > 0) {
+  const eventWithAttendees = { ...eventInput, attendees: inviteTo };
+  try {
+    const calId = await getVisitsCalendarId();
+    if (calId) {
+      const eventId = await upsertMailboxVisitEvent(
+        calId,
+        pending?.calendar_event_id ?? null,
+        eventWithAttendees
+      );
+      if (eventId) {
+        calendarLinked = true;
+        inviteSent = true; // Google emailed the invites itself
+        if (eventId !== pending?.calendar_event_id)
+          await db().from("visits").update({ calendar_event_id: eventId }).eq("id", visitId);
+      }
+    }
+  } catch (e) {
+    console.error("[visits] mailbox calendar event failed, will email .ics:", e);
+  }
+
+  // (b) FALLBACK — if the mailbox calendar path isn't available (token missing
+  // calendar scope), email a real .ics invite (canonical multipart/alternative,
+  // METHOD:REQUEST, 24h & 1h alarms) so the event still reaches everyone.
+  if (!calendarLinked && inviteTo.length > 0) {
     try {
       const ics = buildVisitIcs({
         uid: `visit-${visitId}@sodio.aiesec.alexandria`,
@@ -1014,26 +1035,6 @@ export async function scheduleVisit(
     } catch (e) {
       console.error("[visits] invite email failed:", e);
     }
-  }
-
-  // (b) BONUS — also drop it straight onto the responsible's Google Calendar when
-  // they have a valid OAuth grant (instant, silent). Never blocks the invite.
-  let calendarLinked = false;
-  try {
-    if (token) {
-      if (pending?.calendar_event_id) {
-        await updateVisitEvent(token, pending.calendar_event_id, eventInput);
-        calendarLinked = true;
-      } else {
-        const id = await createVisitEvent(token, eventInput);
-        if (id) {
-          calendarLinked = true;
-          await db().from("visits").update({ calendar_event_id: id }).eq("id", visitId);
-        }
-      }
-    }
-  } catch (e) {
-    console.error("[visits] direct calendar insert failed (invite still sent):", e);
   }
 
   const slug = accountSlug(account.name);

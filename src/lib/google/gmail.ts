@@ -34,18 +34,16 @@ export async function sendEmail(opts: {
 
   let message: string;
   if (opts.ics) {
-    // multipart/mixed → [ multipart/alternative(html + text/calendar), invite.ics ]
-    // The text/calendar part triggers Gmail's calendar card; the attachment
-    // covers every other client.
-    const mixed = `mix_${Date.now().toString(36)}`;
+    // CANONICAL invite: multipart/alternative with text/html + text/calendar
+    // (method=REQUEST). Gmail renders this as an RSVP invite card and Google
+    // Workspace auto-adds it to same-domain calendars. (A multipart/mixed
+    // wrapper or a separate .ics attachment makes Gmail show it as a plain
+    // file instead — so we deliberately DON'T do that.)
     const alt = `alt_${Date.now().toString(36)}`;
     const method = opts.ics.method ?? "REQUEST";
     const icsB64 = Buffer.from(opts.ics.content).toString("base64");
     message = [
       ...addrHeaders,
-      `Content-Type: multipart/mixed; boundary="${mixed}"`,
-      "",
-      `--${mixed}`,
       `Content-Type: multipart/alternative; boundary="${alt}"`,
       "",
       `--${alt}`,
@@ -61,15 +59,6 @@ export async function sendEmail(opts: {
       icsB64,
       "",
       `--${alt}--`,
-      "",
-      `--${mixed}`,
-      'Content-Type: application/ics; name="invite.ics"',
-      'Content-Disposition: attachment; filename="invite.ics"',
-      "Content-Transfer-Encoding: base64",
-      "",
-      icsB64,
-      "",
-      `--${mixed}--`,
     ].join("\r\n");
   } else {
     message =

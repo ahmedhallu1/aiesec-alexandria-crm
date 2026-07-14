@@ -284,17 +284,14 @@ export function DashboardView({
         </CardContent>
       </Card>
 
-      {/* Leaderboards — wide boards, all numbers, click a KPI header to re-rank.
-          One for Members, one for MMs (Team Leaders + Coordinators). */}
-      <div className="space-y-4 rise-in rise-in-3">
+      {/* Leaderboards — compact boards side by side on wide screens (Members /
+          MMs), each with all numbers + click-a-KPI-header-to-re-rank. */}
+      <div className="grid gap-4 rise-in rise-in-3 xl:grid-cols-2">
         {memberBoard.length > 0 ? (
-          <Leaderboard title={`${laneLabel} — Members leaderboard`} groups={memberBoard} />
+          <Leaderboard title={`${laneLabel} — Members`} groups={memberBoard} />
         ) : null}
         {mmBoard.length > 0 ? (
-          <Leaderboard
-            title={`${laneLabel} — Team Leaders & Coordinators`}
-            groups={mmBoard}
-          />
+          <Leaderboard title={`${laneLabel} — TLs & Coordinators`} groups={mmBoard} />
         ) : null}
         {teamBoard.length > 1 ? (
           <Leaderboard

@@ -1,8 +1,103 @@
 import { google } from "googleapis";
 import { env } from "@/lib/env";
+import { db } from "@/lib/supabase";
 import { cairoToUtc } from "@/lib/time";
 
 export const LC_TIMEZONE = "Africa/Cairo";
+
+// ------------------------------------------------------------------ mailbox calendar
+// The RELIABLE path: create the visit as a real Google Calendar event via the
+// IM mailbox (GMAIL_REFRESH_TOKEN) with attendees + sendUpdates:"all". Google
+// then natively pushes the event onto every attendee's calendar (auto-added for
+// same-domain Workspace users) and sends the invite — no per-member OAuth grant
+// needed. Events live on a dedicated "Sodio — LC Visits" calendar so they don't
+// clutter anyone's personal calendar. Requires the IM token to carry the
+// calendar scope; if it doesn't, callers fall back to emailing the .ics.
+
+function mailboxCalendar() {
+  const oauth2 = new google.auth.OAuth2(env.googleClientId, env.googleClientSecret);
+  oauth2.setCredentials({ refresh_token: env.gmailRefreshToken });
+  return google.calendar({ version: "v3", auth: oauth2 });
+}
+
+const VISITS_CAL_NAME = "Sodio — LC Visits";
+
+/** Finds (or creates) the shared "Sodio — LC Visits" calendar on the IM mailbox
+ *  and caches its id. Returns null if the mailbox token lacks calendar scope. */
+export async function getVisitsCalendarId(): Promise<string | null> {
+  if (!env.gmailRefreshToken || !env.googleClientId) return null;
+  const { data: cached } = await db()
+    .from("app_settings")
+    .select("value")
+    .eq("key", "calendar:visits")
+    .maybeSingle();
+  if (cached?.value && typeof cached.value === "object" && "id" in cached.value) {
+    return (cached.value as { id: string }).id;
+  }
+  try {
+    const cal = mailboxCalendar();
+    const list = await cal.calendarList.list({ maxResults: 250 });
+    let id =
+      (list.data.items ?? []).find((c) => c.summary === VISITS_CAL_NAME)?.id ?? null;
+    if (!id) {
+      const created = await cal.calendars.insert({
+        requestBody: { summary: VISITS_CAL_NAME, timeZone: LC_TIMEZONE },
+      });
+      id = created.data.id ?? null;
+    }
+    if (id) {
+      await db()
+        .from("app_settings")
+        .upsert({ key: "calendar:visits", value: { id }, updated_at: new Date().toISOString() });
+    }
+    return id;
+  } catch (e) {
+    console.error("[calendar] mailbox calendar unavailable (token needs calendar scope):", e);
+    return null;
+  }
+}
+
+/** Creates or updates a visit event on the shared calendar with attendees. On
+ *  success Google emails invites and auto-adds it to same-domain calendars.
+ *  Returns the event id, or throws (caller falls back to the .ics email). */
+export async function upsertMailboxVisitEvent(
+  calendarId: string,
+  existingEventId: string | null,
+  input: VisitEventInput
+): Promise<string | null> {
+  const cal = mailboxCalendar();
+  const requestBody = eventBody(input);
+  if (existingEventId) {
+    try {
+      const res = await cal.events.patch({
+        calendarId,
+        eventId: existingEventId,
+        requestBody,
+        sendUpdates: "all",
+      });
+      return res.data.id ?? existingEventId;
+    } catch {
+      // event was on a different (old) calendar or deleted — create a fresh one
+    }
+  }
+  const res = await cal.events.insert({
+    calendarId,
+    requestBody,
+    sendUpdates: "all",
+  });
+  return res.data.id ?? null;
+}
+
+/** Cancels a visit event on the shared calendar (notifies attendees). */
+export async function deleteMailboxVisitEvent(eventId: string): Promise<void> {
+  const calendarId = await getVisitsCalendarId();
+  if (!calendarId) return;
+  try {
+    await mailboxCalendar().events.delete({ calendarId, eventId, sendUpdates: "all" });
+  } catch {
+    // already gone — nothing to do
+  }
+}
 
 // ------------------------------------------------------------------ ICS invites
 // The RELIABLE calendar path: a real iCalendar (.ics) invite emailed through the
