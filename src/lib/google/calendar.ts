@@ -1,7 +1,85 @@
 import { google } from "googleapis";
 import { env } from "@/lib/env";
+import { cairoToUtc } from "@/lib/time";
 
 export const LC_TIMEZONE = "Africa/Cairo";
+
+// ------------------------------------------------------------------ ICS invites
+// The RELIABLE calendar path: a real iCalendar (.ics) invite emailed through the
+// working IM mailbox. Every member gets it in their @aiesec.net inbox and Google
+// Calendar / Outlook / Apple Mail auto-add it with the 24h & 1h reminders — no
+// per-member OAuth grant required. TL/VP ride along as real ATTENDEEs.
+
+function icsStamp(d: Date): string {
+  return d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+}
+
+function icsEscape(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+}
+
+export interface VisitInvite {
+  /** stable id so a reschedule UPDATES the same event (same UID, higher SEQ) */
+  uid: string;
+  accountName: string;
+  visitDate: string; // YYYY-MM-DD (Cairo local)
+  visitTime: string; // HH:MM (Cairo local)
+  notes?: string | null;
+  detailsUrl: string;
+  organizerEmail: string;
+  organizerName: string;
+  /** everyone the event is shared with (responsible + TL/VP) */
+  attendeeEmails: string[];
+  /** REQUEST to add/update, CANCEL to remove */
+  method?: "REQUEST" | "CANCEL";
+}
+
+/** Builds an RFC 5545 VEVENT (as a REQUEST) with 24h + 1h alarms. Times are
+ *  emitted in UTC (computed from Cairo local, DST-aware) so every client shows
+ *  the exact same moment. */
+export function buildVisitIcs(input: VisitInvite): string {
+  const method = input.method ?? "REQUEST";
+  const start = cairoToUtc(input.visitDate, input.visitTime);
+  const end = new Date(start.getTime() + 60 * 60 * 1000); // 1h visit
+  const seq = Math.floor(Date.now() / 1000); // monotonic → reschedules update
+  const attendees = [...new Set(input.attendeeEmails.filter(Boolean))];
+
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Sodio//AIESEC in Alexandria//EN",
+    "CALSCALE:GREGORIAN",
+    `METHOD:${method}`,
+    "BEGIN:VEVENT",
+    `UID:${input.uid}`,
+    `SEQUENCE:${seq}`,
+    `DTSTAMP:${icsStamp(new Date())}`,
+    `DTSTART:${icsStamp(start)}`,
+    `DTEND:${icsStamp(end)}`,
+    `SUMMARY:${icsEscape(`AIESEC visit — ${input.accountName}`)}`,
+    `DESCRIPTION:${icsEscape(`${input.notes ? input.notes + "\n" : ""}Account: ${input.detailsUrl}`)}`,
+    `ORGANIZER;CN=${icsEscape(input.organizerName)}:mailto:${input.organizerEmail}`,
+    ...attendees.map(
+      (email) =>
+        `ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${email}`
+    ),
+    `STATUS:${method === "CANCEL" ? "CANCELLED" : "CONFIRMED"}`,
+    "BEGIN:VALARM",
+    "ACTION:DISPLAY",
+    "DESCRIPTION:Visit in 24 hours",
+    "TRIGGER:-PT24H",
+    "END:VALARM",
+    "BEGIN:VALARM",
+    "ACTION:DISPLAY",
+    "DESCRIPTION:Visit in 1 hour",
+    "TRIGGER:-PT1H",
+    "END:VALARM",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ];
+  // CRLF line endings per the spec
+  return lines.join("\r\n");
+}
 
 function calendarFor(refreshToken: string) {
   const oauth2 = new google.auth.OAuth2(env.googleClientId, env.googleClientSecret);

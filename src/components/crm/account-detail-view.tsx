@@ -12,7 +12,6 @@ import {
   addComment, reassignAccount, recordDeal, reportVisit, reviveAccount,
   scheduleVisit, setOutOfProcess, toggleCommentPin, updateAccount, updateAccountContacts,
 } from "@/server/actions";
-import { loginWithGoogle } from "@/server/auth-actions";
 import type { CommentWithMember, DealWithMember, PipelineRow } from "@/server/data";
 import type { ContactAttempt, Visit } from "@/lib/types";
 import {
@@ -59,7 +58,6 @@ const methodIcon = {
 
 export function AccountDetailView({
   account, attempts, visits, comments, deals, caps, reassignTargets, autoReportVisitId,
-  viewerId,
 }: {
   account: PipelineRow;
   attempts: AttemptWithMember[];
@@ -69,7 +67,6 @@ export function AccountDetailView({
   caps: Caps;
   reassignTargets: { id: string; label: string }[];
   autoReportVisitId: string | null;
-  viewerId: string;
 }) {
   const pendingVisit = visits.find((v) => v.done === null) ?? null;
   const reportableVisit =
@@ -212,7 +209,6 @@ export function AccountDetailView({
       <VisitDialog
         account={account}
         pendingVisit={pendingVisit}
-        viewerIsResponsible={viewerId === account.responsible_id}
         open={visitOpen}
         onOpenChange={setVisitOpen}
       />
@@ -829,56 +825,45 @@ function TimelineCard({
 // ------------------------------------------------------------------ dialogs
 
 function VisitDialog({
-  account, pendingVisit, viewerIsResponsible, open, onOpenChange,
+  account, pendingVisit, open, onOpenChange,
 }: {
   account: PipelineRow;
   pendingVisit: Visit | null;
-  viewerIsResponsible: boolean;
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
   const [date, setDate] = useState(pendingVisit?.visit_date ?? "");
   const [time, setTime] = useState(pendingVisit?.visit_time?.slice(0, 5) ?? "");
   const [notes, setNotes] = useState("");
-  // when the calendar part fails we KEEP the dialog open and explain why +
-  // offer a one-click Google reconnect (instead of a toast that's easy to miss)
-  const [calWarn, setCalWarn] = useState<"no_grant" | "relogin" | "error" | null>(null);
+  const [failed, setFailed] = useState(false);
   const [pending, start] = useTransition();
 
   const submit = () =>
     start(async () => {
-      setCalWarn(null);
+      setFailed(false);
       const res = await scheduleVisit({ accountId: account.id, visitDate: date, visitTime: time, notes });
       if (!res.ok) { toast.error(res.error); return; }
-      const hint = res.data?.calendarHint;
-      if (hint === "linked") {
-        toast.success("Visit scheduled — reminders set on the responsible's calendar (24h & 1h before) 🗓️");
+      if (res.data?.inviteSent) {
+        const shared = res.data.sharedCount;
+        toast.success(
+          `Visit scheduled — a calendar invite is in the responsible's inbox${shared ? ` and shared with ${shared} leader${shared === 1 ? "" : "s"}` : ""}. Reminders 24h & 1h before 🗓️`
+        );
         onOpenChange(false);
       } else {
-        // visit is saved either way; surface the calendar problem inline
-        toast.message("Visit saved ✅ — but the calendar reminder didn't attach (see the note).");
-        setCalWarn(hint ?? "error");
+        // the invite email couldn't go out (mail pipeline) — visit is still saved
+        toast.message("Visit saved ✅ — but the calendar invite couldn't be emailed. Check with the IM team.");
+        setFailed(true);
       }
     });
 
-  const warnCopy =
-    calWarn === "no_grant"
-      ? viewerIsResponsible
-        ? "Your Google Calendar isn't connected, so no reminder was created. Connect Google once and reschedule."
-        : "The responsible member hasn't connected Google, so no reminder was created. Ask them to sign in with Google once."
-      : calWarn === "relogin"
-        ? viewerIsResponsible
-          ? "Your Google access expired or is missing calendar permission. Reconnect Google and reschedule."
-          : "The responsible's Google access expired. Ask them to sign out and sign in with Google again."
-        : "The calendar event couldn't be created right now — the visit is saved; try rescheduling to retry the reminder.";
-
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) setCalWarn(null); onOpenChange(o); }}>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) setFailed(false); onOpenChange(o); }}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>{pendingVisit ? "Reschedule visit" : "Schedule visit"} — {account.name}</DialogTitle>
           <DialogDescription>
-            The responsible member gets calendar reminders exactly 24 hours and 1 hour before.
+            A calendar invite is emailed to the responsible and shared with their
+            Team Leader &amp; VP — with reminders 24 hours and 1 hour before.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
@@ -893,30 +878,23 @@ function VisitDialog({
             </div>
           </div>
           <div className="grid gap-1.5">
-            <Label>Notes (go on the calendar event)</Label>
+            <Label>Notes (go on the calendar invite)</Label>
             <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Address, who to meet…" />
           </div>
 
-          {calWarn ? (
+          {failed ? (
             <div className="rounded-lg border border-warning/50 bg-warning/10 p-3 text-sm">
-              <p className="font-medium text-warning">⚠️ Reminder not added to the calendar</p>
-              <p className="mt-1 text-muted-foreground">{warnCopy}</p>
-              {viewerIsResponsible && (calWarn === "no_grant" || calWarn === "relogin") ? (
-                <form action={loginWithGoogle} className="mt-2">
-                  <Button type="submit" size="sm" variant="outline" className="w-full">
-                    <svg viewBox="0 0 24 24" className="mr-1 size-4" aria-hidden>
-                      <path fill="currentColor" d="M21.35 11.1H12v2.9h5.35c-.5 2.5-2.6 4.3-5.35 4.3a6.3 6.3 0 1 1 0-12.6c1.6 0 3 .6 4.1 1.6l2.1-2.1A9.3 9.3 0 1 0 12 21.3c5.35 0 8.9-3.75 8.9-9 0-.4-.05-.8-.1-1.2Z" />
-                    </svg>
-                    Connect Google &amp; enable reminders
-                  </Button>
-                </form>
-              ) : null}
+              <p className="font-medium text-warning">⚠️ Invite email didn&apos;t send</p>
+              <p className="mt-1 text-muted-foreground">
+                The visit is saved, but the calendar invite couldn&apos;t be emailed
+                right now — the IM mailbox may be rate-limited. Try again in a minute.
+              </p>
             </div>
           ) : null}
         </div>
         <DialogFooter>
           <Button onClick={submit} disabled={pending || !date || !time}>
-            {pending ? "Scheduling…" : calWarn ? "Try again" : pendingVisit ? "Reschedule" : "Schedule"}
+            {pending ? "Scheduling…" : failed ? "Try again" : pendingVisit ? "Reschedule" : "Schedule"}
           </Button>
         </DialogFooter>
       </DialogContent>

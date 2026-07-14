@@ -9,8 +9,11 @@ import {
   IGT_SUB_PRODUCTS,
   IGV_PROJECTS,
   INDUSTRIES,
+  PODIO_FORM_URL,
+  podioCheckUrl,
 } from "@/lib/types";
 import type { AccountContact } from "@/lib/types";
+import { ExternalLink, ShieldQuestion } from "lucide-react";
 import { MultiPick } from "./multi-pick";
 import { ContactsEditor, contactsValid } from "./contacts-editor";
 import { Button } from "@/components/ui/button";
@@ -72,6 +75,33 @@ function ListOrOther({
 }
 
 type Fn = "IGV" | "IGT" | "B2B";
+
+/** National duplicate check: Sodio already blocks names taken inside our LC,
+ *  but a company may already be registered with ANOTHER LC on the national
+ *  Podio partners form. This opens that form (name prefilled) so the member
+ *  verifies before submitting — "if you find the partner in the list, don't
+ *  submit it to avoid duplicates". */
+function PodioCheck({ name }: { name: string }) {
+  const url = podioCheckUrl(name);
+  if (!PODIO_FORM_URL) return null;
+  return (
+    <div className="flex items-start gap-2 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-2 text-xs">
+      <ShieldQuestion className="mt-0.5 size-3.5 shrink-0 text-primary" />
+      <p className="text-muted-foreground">
+        Not sure it&apos;s free nationally?{" "}
+        <a
+          href={url ?? PODIO_FORM_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-0.5 font-semibold text-primary hover:underline"
+        >
+          Check on Podio <ExternalLink className="size-3" />
+        </a>{" "}
+        first — if the company is already in another LC&apos;s list, don&apos;t add it here.
+      </p>
+    </div>
+  );
+}
 
 export function AddAccountDialog({
   open, onOpenChange, viewer, members,
@@ -215,6 +245,7 @@ export function AddAccountDialog({
           <div className="grid gap-2">
             <Label>Account name *</Label>
             <Input value={form.name ?? ""} onChange={set("name")} placeholder="Company / organization name" />
+            <PodioCheck name={form.name ?? ""} />
           </div>
 
           {fn === "IGT" ? (

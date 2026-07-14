@@ -42,7 +42,8 @@ interface Props {
   total: FunnelStats;
   byFunction: DrillGroup[];
   byTeam: DrillGroup[];
-  functionBoard: DrillGroup[];
+  memberBoard: DrillGroup[];
+  mmBoard: DrillGroup[];
   teamBoard: DrillGroup[];
   teamAchieved: number;
   funcGoal: PerformanceGoal | null;
@@ -75,7 +76,7 @@ function monthRange(): { from: string; to: string; label: string } {
 }
 
 export function DashboardView({
-  total, byFunction, byTeam, functionBoard, teamBoard, teamAchieved, funcGoal,
+  total, byFunction, byTeam, memberBoard, mmBoard, teamBoard, teamAchieved, funcGoal,
   teamGoal, views, activeFn, laneLabel, scopeLabel, showTeamDrill, teamOptions,
   memberOptions, filters, goalCaps,
 }: Props) {
@@ -283,10 +284,17 @@ export function DashboardView({
         </CardContent>
       </Card>
 
-      {/* Leaderboards — one wide board, all numbers, click a KPI to re-rank */}
+      {/* Leaderboards — wide boards, all numbers, click a KPI header to re-rank.
+          One for Members, one for MMs (Team Leaders + Coordinators). */}
       <div className="space-y-4 rise-in rise-in-3">
-        {functionBoard.length > 0 ? (
-          <Leaderboard title={`${laneLabel} leaderboard`} groups={functionBoard} />
+        {memberBoard.length > 0 ? (
+          <Leaderboard title={`${laneLabel} — Members leaderboard`} groups={memberBoard} />
+        ) : null}
+        {mmBoard.length > 0 ? (
+          <Leaderboard
+            title={`${laneLabel} — Team Leaders & Coordinators`}
+            groups={mmBoard}
+          />
         ) : null}
         {teamBoard.length > 1 ? (
           <Leaderboard

@@ -9,6 +9,9 @@ export async function sendEmail(opts: {
   bcc?: string[];
   subject: string;
   html: string;
+  /** an iCalendar invite — Gmail shows an "add to calendar" card and Outlook/
+   *  Apple Mail add the event automatically (used for visit reminders). */
+  ics?: { content: string; method?: "REQUEST" | "CANCEL" };
 }): Promise<void> {
   const missing = requireEnv("googleClientId", "googleClientSecret", "gmailRefreshToken", "gmailSender");
   if (missing) {
@@ -20,17 +23,60 @@ export async function sendEmail(opts: {
   oauth2.setCredentials({ refresh_token: env.gmailRefreshToken });
   const gmail = google.gmail({ version: "v1", auth: oauth2 });
 
-  const headers = [
+  const addrHeaders = [
     `From: ${encodeHeader(env.gmailSenderName)} <${env.gmailSender}>`,
     `To: ${opts.to.join(", ")}`,
     ...(opts.cc?.length ? [`Cc: ${opts.cc.join(", ")}`] : []),
     ...(opts.bcc?.length ? [`Bcc: ${opts.bcc.join(", ")}`] : []),
     `Subject: ${encodeHeader(opts.subject)}`,
     "MIME-Version: 1.0",
-    'Content-Type: text/html; charset="UTF-8"',
-    "Content-Transfer-Encoding: base64",
   ];
-  const message = headers.join("\r\n") + "\r\n\r\n" + Buffer.from(opts.html).toString("base64");
+
+  let message: string;
+  if (opts.ics) {
+    // multipart/mixed → [ multipart/alternative(html + text/calendar), invite.ics ]
+    // The text/calendar part triggers Gmail's calendar card; the attachment
+    // covers every other client.
+    const mixed = `mix_${Date.now().toString(36)}`;
+    const alt = `alt_${Date.now().toString(36)}`;
+    const method = opts.ics.method ?? "REQUEST";
+    const icsB64 = Buffer.from(opts.ics.content).toString("base64");
+    message = [
+      ...addrHeaders,
+      `Content-Type: multipart/mixed; boundary="${mixed}"`,
+      "",
+      `--${mixed}`,
+      `Content-Type: multipart/alternative; boundary="${alt}"`,
+      "",
+      `--${alt}`,
+      'Content-Type: text/html; charset="UTF-8"',
+      "Content-Transfer-Encoding: base64",
+      "",
+      Buffer.from(opts.html).toString("base64"),
+      "",
+      `--${alt}`,
+      `Content-Type: text/calendar; charset="UTF-8"; method=${method}`,
+      "Content-Transfer-Encoding: base64",
+      "",
+      icsB64,
+      "",
+      `--${alt}--`,
+      "",
+      `--${mixed}`,
+      'Content-Type: application/ics; name="invite.ics"',
+      'Content-Disposition: attachment; filename="invite.ics"',
+      "Content-Transfer-Encoding: base64",
+      "",
+      icsB64,
+      "",
+      `--${mixed}--`,
+    ].join("\r\n");
+  } else {
+    message =
+      [...addrHeaders, 'Content-Type: text/html; charset="UTF-8"', "Content-Transfer-Encoding: base64"].join("\r\n") +
+      "\r\n\r\n" +
+      Buffer.from(opts.html).toString("base64");
+  }
 
   await gmail.users.messages.send({
     userId: "me",

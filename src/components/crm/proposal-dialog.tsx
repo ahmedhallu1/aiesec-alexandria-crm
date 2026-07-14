@@ -13,9 +13,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import { cn } from "@/lib/utils";
+
+type ProdCode = "iGV" | "iGTa" | "iGTe";
+const B2B_PRODUCTS: ProdCode[] = ["iGV", "iGTa", "iGTe"];
 
 /** ICX Proposal Email — one popup, prefilled from the account; the generated
- *  draft lands in the MEMBER's own Gmail so they review, attach and send. */
+ *  draft lands in the MEMBER's own Gmail so they review, attach and send.
+ *  B2B accounts pick which product the email targets + which PDFs to attach. */
 export function ProposalDialog({
   account, open, onOpenChange,
 }: {
@@ -23,7 +31,8 @@ export function ProposalDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
-  const product =
+  const isB2B = account.function === "B2B";
+  const fixedProduct: ProdCode =
     account.function === "IGV" ? "iGV" : account.product === "GTe" ? "iGTe" : "iGTa";
   const firstEmail =
     (account.contacts ?? []).find((c) => c.kind === "email")?.value ?? account.email ?? "";
@@ -33,9 +42,16 @@ export function ProposalDialog({
   const [sector, setSector] = useState(account.industry ?? account.sub_product ?? "");
   const [customNote, setCustomNote] = useState("");
   const [attachProposal, setAttachProposal] = useState(true);
+  // B2B: the product the email body is written for + which PDFs to attach
+  const [bodyProduct, setBodyProduct] = useState<ProdCode>("iGV");
+  const [attachProducts, setAttachProducts] = useState<ProdCode[]>(["iGV"]);
   const [attachmentsNote, setAttachmentsNote] = useState("");
   const [done, setDone] = useState(false);
   const [pending, start] = useTransition();
+
+  const product = isB2B ? bodyProduct : fixedProduct;
+  const toggleAttach = (p: ProdCode) =>
+    setAttachProducts((list) => (list.includes(p) ? list.filter((x) => x !== p) : [...list, p]));
 
   const submit = () =>
     start(async () => {
@@ -46,7 +62,9 @@ export function ProposalDialog({
         sector: sector || null,
         customNote: customNote || null,
         attachmentsNote: attachmentsNote || null,
-        attachProposal,
+        attachProposal: isB2B ? false : attachProposal,
+        bodyProduct: isB2B ? bodyProduct : null,
+        attachProducts: isB2B ? attachProducts : null,
       });
       if (res.ok) {
         setDone(true);
@@ -70,7 +88,11 @@ export function ProposalDialog({
               <DialogTitle className="text-center">Draft ready in YOUR Gmail</DialogTitle>
               <DialogDescription className="text-center leading-relaxed">
                 The {product} proposal for <b>{account.name}</b> is waiting in
-                your drafts{attachProposal ? " with the official PDF attached" : ""}.{" "}
+                your drafts{(isB2B ? attachProducts.length > 0 : attachProposal)
+                  ? isB2B
+                    ? ` with the ${attachProducts.join(", ")} PDF${attachProducts.length === 1 ? "" : "s"} attached`
+                    : " with the official PDF attached"
+                  : ""}.{" "}
                 <b>Open it, review every line{attachmentsNote ? ", add your extra file(s)" : ""},
                 and hit send</b> — it goes out from your own address.
               </DialogDescription>
@@ -139,15 +161,60 @@ export function ProposalDialog({
                   placeholder="Anything specific to this company…"
                 />
               </div>
-              <div className="flex items-center justify-between rounded-lg border p-3">
-                <div>
-                  <p className="text-sm font-medium">Attach the official {product} proposal</p>
-                  <p className="text-xs text-muted-foreground">
-                    The PDF is added to the draft automatically
-                  </p>
+
+              {isB2B ? (
+                <>
+                  {/* B2B raises for the whole ICX — pick the product the email
+                      is written for + which official PDFs to attach */}
+                  <div className="grid gap-1.5">
+                    <Label>Proposal written for</Label>
+                    <Select value={bodyProduct} onValueChange={(v) => setBodyProduct(v as ProdCode)}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="iGV">iGV — Global Volunteer</SelectItem>
+                        <SelectItem value="iGTa">iGTa — Global Talent</SelectItem>
+                        <SelectItem value="iGTe">iGTe — Global Teacher</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-sm font-medium">Attach official proposal PDFs</p>
+                    <p className="mb-2 text-xs text-muted-foreground">
+                      Pick any of the three — all selected PDFs ride along in the draft.
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {B2B_PRODUCTS.map((p) => {
+                        const active = attachProducts.includes(p);
+                        return (
+                          <button
+                            key={p}
+                            type="button"
+                            onClick={() => toggleAttach(p)}
+                            className={cn(
+                              "rounded-full border px-3 py-1 text-xs font-semibold transition-colors",
+                              active
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "border-border bg-muted text-muted-foreground hover:border-primary/50"
+                            )}
+                          >
+                            {active ? "✓ " : ""}{p}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center justify-between rounded-lg border p-3">
+                  <div>
+                    <p className="text-sm font-medium">Attach the official {product} proposal</p>
+                    <p className="text-xs text-muted-foreground">
+                      The PDF is added to the draft automatically
+                    </p>
+                  </div>
+                  <Switch checked={attachProposal} onCheckedChange={setAttachProposal} />
                 </div>
-                <Switch checked={attachProposal} onCheckedChange={setAttachProposal} />
-              </div>
+              )}
               <div className="grid gap-1.5">
                 <Label>Extra attachments you plan to add yourself</Label>
                 <Input

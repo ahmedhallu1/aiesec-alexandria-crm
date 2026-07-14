@@ -437,7 +437,10 @@ export async function getDashboard(
   const total = emptyStats();
   const byFunction = new Map<string, DrillGroup>();
   const byTeam = new Map<string, DrillGroup>();
-  const byMember = new Map<string, DrillGroup>();
+  // two boards: Members, and MMs (Team Leaders + Coordinators)
+  const byMemberRole = new Map<string, DrillGroup>();
+  const byMM = new Map<string, DrillGroup>();
+  const byPerson = new Map<string, DrillGroup>(); // union, for the team board
   let teamAchieved = 0;
 
   for (const r of rows) {
@@ -466,11 +469,17 @@ export async function getDashboard(
       addRowLane(getOrInit(byTeam, teamLead.id, teamLabel), r, lane);
     }
 
-    // leaderboard entries: MEMBERS & COORDINATORS ONLY — no Team Leaders,
-    // VPs, Directors or the LCP (leaders steer, members compete)
-    if (r.responsible_role === "Member" || r.responsible_role === "Coordinator") {
-      const respLabel = r.responsible_nickname || r.responsible_name;
-      addRowLane(getOrInit(byMember, r.responsible_id, respLabel), r, lane);
+    // leaderboards (VPs/Directors/LCP never appear — leaders steer):
+    //  • Members board  → role Member
+    //  • MMs board      → Team Leaders + Coordinators
+    // each row is that person's OWN accounts (no team rollup)
+    const respLabel = r.responsible_nickname || r.responsible_name;
+    if (r.responsible_role === "Member") {
+      addRowLane(getOrInit(byMemberRole, r.responsible_id, respLabel), r, lane);
+      addRowLane(getOrInit(byPerson, r.responsible_id, respLabel), r, lane);
+    } else if (r.responsible_role === "Team Leader" || r.responsible_role === "Coordinator") {
+      addRowLane(getOrInit(byMM, r.responsible_id, respLabel), r, lane);
+      addRowLane(getOrInit(byPerson, r.responsible_id, respLabel), r, lane);
     }
 
     // team goal progress counts the WHOLE team (TL's own accounts included)
@@ -479,9 +488,10 @@ export async function getDashboard(
 
   const rank = (a: DrillGroup, b: DrillGroup) =>
     b.slots - a.slots || b.deals - a.deals || b.visitDone - a.visitDone || b.contacted - a.contacted;
-  const functionBoard = [...byMember.values()].sort(rank);
+  const memberBoard = [...byMemberRole.values()].sort(rank);
+  const mmBoard = [...byMM.values()].sort(rank);
   const teamBoard = teamMemberIds
-    ? functionBoard.filter((g) => teamMemberIds.has(g.key))
+    ? [...byPerson.values()].filter((g) => teamMemberIds.has(g.key)).sort(rank)
     : [];
 
   // ---- goals in effect. Lane goals live at IGV / IGTa / IGTe; the IGT goal
@@ -520,8 +530,8 @@ export async function getDashboard(
     total,
     byFunction: [...byFunction.values()],
     byTeam: [...byTeam.values()].sort((a, b) => b.mr - a.mr),
-    byMember: functionBoard,
-    functionBoard,
+    memberBoard,
+    mmBoard,
     teamBoard,
     teamAchieved,
     funcGoal,

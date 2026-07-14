@@ -102,7 +102,8 @@ export default async function DashboardPage({
       total={data.total}
       byFunction={data.byFunction}
       byTeam={data.byTeam}
-      functionBoard={data.functionBoard}
+      memberBoard={data.memberBoard}
+      mmBoard={data.mmBoard}
       teamBoard={data.teamBoard}
       teamAchieved={data.teamAchieved}
       funcGoal={data.funcGoal}

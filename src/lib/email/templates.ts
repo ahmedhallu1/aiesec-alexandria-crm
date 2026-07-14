@@ -159,6 +159,36 @@ export function visitFollowupEmail(opts: {
  *  the product's raising crew + B2B (so the whole function sees the momentum).
  *  Purely informational; the responsible + their leaders get the calendar
  *  invite separately. */
+/** The calendar INVITE email (carries the .ics) sent to the responsible + the
+ *  leaders it's shared with. Their mail client adds the event + reminders. */
+export function visitInviteEmail(opts: {
+  accountName: string;
+  visitDate: string;
+  visitTime: string;
+  notes: string | null;
+  sharedWith: string[];
+  accountUrl: string;
+}) {
+  return {
+    subject: `🗓️ Visit invite — ${opts.accountName} (${opts.visitDate} ${opts.visitTime.slice(0, 5)})`,
+    html: emailLayout({
+      preheader: `Calendar invite for your visit to ${opts.accountName}`,
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Your visit is on the calendar 🗓️</h1>
+        <p>Accept the attached invite and it lands on your calendar with reminders
+        <b>24 hours</b> and <b>1 hour</b> before.</p>
+        ${detailsTable([
+          ["Account", opts.accountName],
+          ["When", `${opts.visitDate} at ${opts.visitTime.slice(0, 5)}`],
+          ["Notes", opts.notes],
+          ["Shared with", opts.sharedWith.length ? opts.sharedWith.join(", ") : "just you"],
+        ])}
+        <p style="color:#5c6b80;font-size:13px;">Your Team Leader and VP are on this invite too, so everyone's in sync.</p>
+        ${button("Open the account", opts.accountUrl)}`,
+    }),
+  };
+}
+
 export function visitAnnouncementEmail(opts: {
   responsibleName: string;
   accountName: string;

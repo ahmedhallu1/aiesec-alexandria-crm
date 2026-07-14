@@ -448,6 +448,20 @@ export const ROLE_BLURBS: Record<string, string> = {
 /** The IM director — receives "fix my info" requests from members. */
 export const ADMIN_EMAIL = "ahmedhallul@aiesec.net";
 
+/** The national Podio "partners" web-form ("Check if your company exists?").
+ *  Set NEXT_PUBLIC_PODIO_FORM_URL to the real form link; the Add-account flow
+ *  links here so members verify the name isn't already taken by another LC.
+ *  `{name}` in the URL is replaced with the typed company name (URL-encoded). */
+export const PODIO_FORM_URL = process.env.NEXT_PUBLIC_PODIO_FORM_URL ?? "";
+
+/** Builds the Podio check link with the company name substituted/appended. */
+export function podioCheckUrl(name: string): string | null {
+  if (!PODIO_FORM_URL) return null;
+  const n = encodeURIComponent(name.trim());
+  if (PODIO_FORM_URL.includes("{name}")) return PODIO_FORM_URL.replace("{name}", n);
+  return n ? `${PODIO_FORM_URL}${PODIO_FORM_URL.includes("?") ? "&" : "?"}q=${n}` : PODIO_FORM_URL;
+}
+
 /** Feedback goes ONLY to the IM director (admin) and the IM coach — every
  *  submission is emailed to them and only they can open the inbox. */
 export const FEEDBACK_INBOX_EMAILS = [

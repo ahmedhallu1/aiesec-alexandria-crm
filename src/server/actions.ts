@@ -19,7 +19,7 @@ import { checkAccountName, getViewer, logAudit, type PipelineRow } from "./data"
 import { sendEmail } from "@/lib/google/gmail";
 import { visitReportEmail } from "@/lib/email/templates";
 import {
-  calendarErrorHint,
+  buildVisitIcs,
   createVisitEvent,
   deleteFollowupEvent,
   deleteVisitEvent,
@@ -917,7 +917,7 @@ async function resolveVisitRecipients(
 export async function scheduleVisit(
   input: z.infer<typeof visitSchema>
 ): Promise<
-  ActionResult<{ calendarLinked: boolean; calendarHint: "linked" | "no_grant" | "relogin" | "error" }>
+  ActionResult<{ inviteSent: boolean; calendarLinked: boolean; sharedCount: number }>
 > {
   const viewer = await getViewer();
   const parsed = visitSchema.safeParse(input);
@@ -937,16 +937,18 @@ export async function scheduleVisit(
 
   const recipients = await resolveVisitRecipients(account, responsible, viewer.id);
 
+  const detailsUrl = `${env.appUrl}/accounts/${accountId}`;
   const eventInput = {
     accountName: account.name,
     visitDate,
     visitTime,
     notes,
-    detailsUrl: `${env.appUrl}/accounts/${accountId}`,
+    detailsUrl,
     attendees: recipients.attendeeEmails,
   };
 
-  // reschedule if a pending visit exists, otherwise create
+  // reschedule if a pending visit exists, otherwise create — keep the row id so
+  // the calendar invite has a stable UID (a reschedule updates the same event)
   const { data: pending } = await db()
     .from("visits")
     .select("*")
@@ -954,48 +956,84 @@ export async function scheduleVisit(
     .is("done", null)
     .maybeSingle<Visit>();
 
-  // why the calendar part failed (surfaced to the user instead of a silent log)
+  let visitId = pending?.id ?? null;
+  if (pending) {
+    await db()
+      .from("visits")
+      .update({ visit_date: visitDate, visit_time: visitTime, followup_prompt_sent_at: null })
+      .eq("id", pending.id);
+  } else {
+    const { data: created, error } = await db()
+      .from("visits")
+      .insert({
+        account_id: accountId,
+        member_id: account.responsible_id,
+        visit_date: visitDate,
+        visit_time: visitTime,
+      })
+      .select("id")
+      .single();
+    if (error) return fail(error.message);
+    visitId = created.id;
+  }
+
+  // (a) RELIABLE PATH — email a real calendar invite (.ics, METHOD:REQUEST with
+  // 24h & 1h alarms) to the responsible + the shared leaders (TL/VP) through the
+  // working IM mailbox. Google Calendar / Outlook / Apple Mail auto-add it; no
+  // per-member OAuth grant is needed, so this always works.
+  const inviteTo = [
+    ...(responsible?.email ? [responsible.email] : []),
+    ...recipients.attendeeEmails,
+  ];
+  let inviteSent = false;
+  if (inviteTo.length > 0) {
+    try {
+      const ics = buildVisitIcs({
+        uid: `visit-${visitId}@sodio.aiesec.alexandria`,
+        accountName: account.name,
+        visitDate,
+        visitTime,
+        notes,
+        detailsUrl,
+        organizerEmail: env.gmailSender || viewer.email,
+        organizerName: "Sodio · AIESEC in Alexandria",
+        attendeeEmails: inviteTo,
+        method: "REQUEST",
+      });
+      const { visitInviteEmail } = await import("@/lib/email/templates");
+      const mail = visitInviteEmail({
+        accountName: account.name,
+        visitDate,
+        visitTime,
+        notes: notes || null,
+        sharedWith: recipients.attendeeEmails,
+        accountUrl: detailsUrl,
+      });
+      await sendEmail({ to: inviteTo, ...mail, ics: { content: ics, method: "REQUEST" } });
+      inviteSent = true;
+    } catch (e) {
+      console.error("[visits] invite email failed:", e);
+    }
+  }
+
+  // (b) BONUS — also drop it straight onto the responsible's Google Calendar when
+  // they have a valid OAuth grant (instant, silent). Never blocks the invite.
   let calendarLinked = false;
-  let calendarHint: "linked" | "no_grant" | "relogin" | "error" = token ? "error" : "no_grant";
   try {
-    if (pending) {
-      if (pending.calendar_event_id) {
+    if (token) {
+      if (pending?.calendar_event_id) {
         await updateVisitEvent(token, pending.calendar_event_id, eventInput);
-        calendarLinked = !!token;
+        calendarLinked = true;
       } else {
         const id = await createVisitEvent(token, eventInput);
-        calendarLinked = !!id;
-        if (id) await db().from("visits").update({ calendar_event_id: id }).eq("id", pending.id);
+        if (id) {
+          calendarLinked = true;
+          await db().from("visits").update({ calendar_event_id: id }).eq("id", visitId);
+        }
       }
-      await db()
-        .from("visits")
-        .update({ visit_date: visitDate, visit_time: visitTime, followup_prompt_sent_at: null })
-        .eq("id", pending.id);
-    } else {
-      const eventId = await createVisitEvent(token, eventInput);
-      calendarLinked = !!eventId;
-      const { error } = await db().from("visits").insert({
-        account_id: accountId,
-        member_id: account.responsible_id,
-        visit_date: visitDate,
-        visit_time: visitTime,
-        calendar_event_id: eventId,
-      });
-      if (error) return fail(error.message);
     }
-    if (calendarLinked) calendarHint = "linked";
   } catch (e) {
-    console.error("[visits] calendar sync failed:", e);
-    calendarHint = calendarErrorHint(e);
-    if (!pending) {
-      const { error } = await db().from("visits").insert({
-        account_id: accountId,
-        member_id: account.responsible_id,
-        visit_date: visitDate,
-        visit_time: visitTime,
-      });
-      if (error) return fail(error.message);
-    }
+    console.error("[visits] direct calendar insert failed (invite still sent):", e);
   }
 
   const slug = accountSlug(account.name);
@@ -1006,7 +1044,7 @@ export async function scheduleVisit(
     [account.responsible_id],
     "visit",
     `Visit booked — ${account.name} 🗓️`,
-    `${visitDate} at ${visitTime.slice(0, 5)}. Calendar reminders 24h & 1h before${calendarLinked ? "" : " (sign in with Google once to activate them)"}.`,
+    `${visitDate} at ${visitTime.slice(0, 5)}.${inviteSent ? " A calendar invite is in your inbox — accept it for the 24h & 1h reminders." : " (Calendar invite couldn't be emailed — check with the IM team.)"}`,
     viewer.id,
     `/accounts/${slug}`
   );
@@ -1041,10 +1079,10 @@ export async function scheduleVisit(
   }
 
   await logAudit(viewer.id, "schedule_visit", "account", accountId, {
-    visitDate, visitTime, calendar: calendarHint, announced: recipients.announceIds.length,
+    visitDate, visitTime, inviteSent, calendarLinked, announced: recipients.announceIds.length,
   });
   refresh(accountId);
-  return { ok: true, data: { calendarLinked, calendarHint } };
+  return { ok: true, data: { inviteSent, calendarLinked, sharedCount: recipients.attendeeEmails.length } };
 }
 
 const reportSchema = z.object({
@@ -1636,6 +1674,10 @@ const proposalSchema = z.object({
   attachmentsNote: z.string().trim().nullish(),
   /** attach the official per-product proposal PDF (proposals/<product>.pdf) */
   attachProposal: z.boolean().nullish(),
+  /** B2B raises for the whole ICX — the email body is written for THIS product */
+  bodyProduct: z.enum(["iGV", "iGTa", "iGTe"]).nullish(),
+  /** B2B: which official product PDFs to attach (any of the three) */
+  attachProducts: z.array(z.enum(["iGV", "iGTa", "iGTe"])).nullish(),
 });
 
 /** ICX Proposal Email: builds the product-specific outreach draft and places
@@ -1650,7 +1692,7 @@ export async function createProposalDraft(
   if (!parsed.success) return fail(parsed.error.issues[0].message);
   const {
     accountId, recipientName, recipientEmail, sector, customNote,
-    attachmentsNote, attachProposal,
+    attachmentsNote, attachProposal, bodyProduct, attachProducts,
   } = parsed.data;
 
   const account = await loadAccount(accountId);
@@ -1662,8 +1704,14 @@ export async function createProposalDraft(
       "Your Google access is missing — sign out, then sign in with Google once to grant it (it also powers your calendar reminders)."
     );
 
-  const product =
-    account.function === "IGV" ? "iGV" : account.product === "GTe" ? "iGTe" : "iGTa";
+  // the email body is written for one product. B2B accounts raise for the whole
+  // ICX, so the member picks which product the body targets.
+  const product: "iGV" | "iGTa" | "iGTe" =
+    account.function === "IGV"
+      ? "iGV"
+      : account.function === "IGT"
+        ? account.product === "GTe" ? "iGTe" : "iGTa"
+        : (bodyProduct ?? "iGV"); // B2B
 
   const { proposalDraft } = await import("@/lib/email/proposal");
   const draft = proposalDraft({
@@ -1679,22 +1727,32 @@ export async function createProposalDraft(
     memberEmail: viewer.email,
   });
 
-  // official proposal PDF (proposals/iGV.pdf / iGTa.pdf / iGTe.pdf)
+  // which official PDFs to attach: B2B picks any of the three; others attach
+  // just their own product's PDF when the switch is on
+  const wanted: ("iGV" | "iGTa" | "iGTe")[] =
+    account.function === "B2B"
+      ? [...new Set(attachProducts ?? [])]
+      : attachProposal
+        ? [product]
+        : [];
+
   const attachments: { filename: string; mimeType: string; contentBase64: string }[] = [];
-  if (attachProposal) {
-    try {
-      const { readFile } = await import("node:fs/promises");
-      const { join } = await import("node:path");
-      const pdf = await readFile(join(process.cwd(), "proposals", `${product}.pdf`));
-      attachments.push({
-        filename: `AIESEC Alexandria — ${product} Proposal.pdf`,
-        mimeType: "application/pdf",
-        contentBase64: pdf.toString("base64"),
-      });
-    } catch {
-      return fail(
-        `The official ${product} proposal PDF isn't uploaded to the system yet — ask the IM team, or continue without attaching it.`
-      );
+  if (wanted.length > 0) {
+    const { readFile } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    for (const p of wanted) {
+      try {
+        const pdf = await readFile(join(process.cwd(), "proposals", `${p}.pdf`));
+        attachments.push({
+          filename: `AIESEC Alexandria — ${p} Proposal.pdf`,
+          mimeType: "application/pdf",
+          contentBase64: pdf.toString("base64"),
+        });
+      } catch {
+        return fail(
+          `The official ${p} proposal PDF isn't uploaded to the system yet — ask the IM team, or uncheck it and continue.`
+        );
+      }
     }
   }
 

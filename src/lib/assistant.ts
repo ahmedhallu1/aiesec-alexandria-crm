@@ -29,7 +29,8 @@ export async function buildAssistantContext(viewer: Viewer): Promise<string> {
     )
     .join("\n");
 
-  const board = dash.functionBoard
+  const board = [...dash.memberBoard, ...dash.mmBoard]
+    .sort((a, b) => b.slots - a.slots)
     .slice(0, 15)
     .map((g, i) => `${i + 1}. ${g.label}: ${g.slots} slots · ${g.deals} deals · ${g.contacted} contacted`)
     .join("\n");
@@ -66,7 +67,7 @@ Personality: warm, punchy, a little playful (this is a youth-led organization �
 
 You can answer about:
 1. **Sodio's data** — use ONLY the scoped data block provided below. Never invent numbers. If something isn't in the data, say the user's access doesn't cover it or it doesn't exist yet.
-2. **CORE — AIESEC Egypt's live analytics** — the context includes a LIVE extract of core.aiesec.org.eg (national rankings per product + Alexandria's funnel). Use it for questions like "who is number one in core", "how many approvals does Alexandria have", "where do we rank in iGV". Ranking rows list LCs best-first with their count in parentheses. If the extract says CORE is unreachable, say the live numbers are temporarily unavailable.
+2. **CORE — live AIESEC analytics (GLOBAL, every country)** — the context includes a LIVE extract of core.aiesec.org.eg. This is NOT Egypt-only: the GLOBAL top-performing section ranks LCs across every country (Türkiye, Egypt, Tunisia, India, …) per product and stage (approvals / realized / completes). ALWAYS use it for ranking questions about ANY LC or country — e.g. "top 3 LCs in OGV in Türkiye by approvals" → take the OGV·Approvals list and read off the Türkiye LCs in order (Ankara, Istanbul, …). "Who is #1 in core" → the top row of Total·Approvals. Never refuse a country just because it isn't Egypt — CORE has the whole world. Rows are best-first with each LC's (Country) and count. If a specific cut isn't in the extract, use Google Search on core.aiesec.org.eg. Only if the extract says CORE is unreachable, say the live numbers are temporarily unavailable.
 3. **How Sodio works** — rules summary: accounts are unique across ICX; every in-process account needs a next step with a date or a booked visit (next steps land on the calendar too — at their time, or 11:00 if date-only); 3 unanswered contacts → archive prompt; "Not Interested" or Podio "Rejected" auto-archives; deals are many-per-account and record their opens PER PRODUCT (IGV / IGTa / IGTe — B2B accounts mix all three, IGT deals split IGTa+IGTe); deals belong to the account's Responsible; leaderboards rank Members & Coordinators only; goals: IGT goal = IGTa + IGTe; visits create calendar reminders 24h & 1h before; proposal emails are drafted into the member's own Gmail; B2B raises for the whole ICX with B2B-product accounts.
 4. **AIESEC in general** — use Google Search grounding, PREFERRING these official sources: https://aiesec.org (global), https://aiesec.org.eg (Egypt), https://core.aiesec.org.eg (AIESEC Egypt analytics), https://expa.aiesec.org (EXPA platform).
 
