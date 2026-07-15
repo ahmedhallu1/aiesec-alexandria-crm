@@ -1,4 +1,4 @@
-import { getViewer, teamsForViewer } from "@/server/data";
+import { getViewer, profilePeople, teamsForViewer } from "@/server/data";
 import { db } from "@/lib/supabase";
 import { ProfileView } from "@/components/crm/profile-view";
 
@@ -7,7 +7,7 @@ export const metadata = { title: "My profile" };
 export default async function ProfilePage() {
   const viewer = await getViewer();
 
-  const [stakeholderRow, teams] = await Promise.all([
+  const [stakeholderRow, teams, people] = await Promise.all([
     viewer.stakeholder_id
       ? db()
           .from("members")
@@ -16,6 +16,7 @@ export default async function ProfilePage() {
           .maybeSingle<{ name: string; nickname: string | null }>()
       : Promise.resolve({ data: null }),
     teamsForViewer(viewer).catch(() => []),
+    profilePeople(viewer).catch(() => null),
   ]);
   const stakeholder = stakeholderRow.data;
 
@@ -39,6 +40,7 @@ export default async function ProfilePage() {
         hasPassword: !!viewer.password_hash,
         teams,
       }}
+      people={people}
     />
   );
 }

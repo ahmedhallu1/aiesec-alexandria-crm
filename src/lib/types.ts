@@ -1,8 +1,9 @@
-export type LcFunction = "IGV" | "IGT" | "OGV" | "OGT" | "CXP" | "B2C" | "F&L";
+export type LcFunction =
+  | "IGV" | "IGT" | "OGV" | "OGT" | "CXP" | "B2C" | "F&L" | "B2B" | "BD" | "TM";
 /** What an ACCOUNT can be raised as. B2B raises for the whole ICX: B2B
  *  accounts live in their own product and split each deal's opens across
  *  IGV / IGTa / IGTe. */
-export type AccountFunction = "IGV" | "IGT" | "B2B";
+export type AccountFunction = "IGV" | "IGT" | "B2B" | "BD";
 export type MemberRole =
   | "LCP"
   | "LCVP"
@@ -44,7 +45,7 @@ export const MEMBER_ROLES: MemberRole[] = [
   "LCP", "LCVP", "Team Leader", "Coordinator", "Member", "Director",
 ];
 export const LC_FUNCTIONS: LcFunction[] = [
-  "IGT", "IGV", "OGV", "OGT", "CXP", "B2C", "F&L",
+  "IGT", "IGV", "OGV", "OGT", "CXP", "B2C", "F&L", "B2B", "BD", "TM",
 ];
 export const SUB_FUNCTIONS = [
   "Raising", "Consideration", "ICX", "OGX", "CXP", "B2C", "Finance", "BD", "B2B",
@@ -53,6 +54,18 @@ export type SubFunction = (typeof SUB_FUNCTIONS)[number];
 
 /** The functions whose CRM modules exist today. */
 export const ICX_FUNCTIONS = ["IGV", "IGT"] as const;
+
+/** B2B & BD are ONE function (same membership today, may split in future
+ *  peaks) — EITHER name in functions or sub-functions grants the whole-ICX
+ *  raising access. Use this everywhere instead of inline "B2B" checks. */
+export function memberIsB2B(m: {
+  functions?: string[] | null;
+  sub_functions?: string[] | null;
+}): boolean {
+  return ["B2B", "BD"].some(
+    (f) => (m.functions ?? []).includes(f) || (m.sub_functions ?? []).includes(f)
+  );
+}
 
 export const IGV_PROJECTS = [
   "Skill Up!",
@@ -107,7 +120,7 @@ export const IGT_SUB_PRODUCTS = [
   "Other",
 ] as const;
 
-export type CommentLabel = "Member" | "TL" | "VP" | "LCP" | "Admin";
+export type CommentLabel = "Member" | "TL" | "VP" | "Director" | "LCP" | "Admin";
 
 /** Curated Out-of-Process reasons ("Other" opens a free-text field; imported
  *  sheets may carry any other value and it is kept as-is). */
@@ -198,6 +211,9 @@ export interface Account {
   slots_igta_count: number;
   slots_igte_count: number;
   next_step_event_id: string | null;
+  /** a B2B/BD leader asked the owner to submit this account on Podio — the
+   *  account pins to the top of the owner's list until requested/stated */
+  podio_submit_requested_at: string | null;
   out_of_process: boolean;
   oop_reason: string | null;
   oop_at: string | null;
@@ -410,6 +426,7 @@ export const FUNCTION_COLORS: Record<string, { bg: string; text: string }> = {
   IGTa: { bg: "bg-gt/15", text: "text-gt" },
   IGTe: { bg: "bg-gte/15", text: "text-gte" },
   B2B: { bg: "bg-primary/15", text: "text-primary" },
+  BD: { bg: "bg-chart-4/15", text: "text-chart-4" },
 };
 
 /** Product-level badge next to an account name: IGV / IGTa / IGTe / B2B. */

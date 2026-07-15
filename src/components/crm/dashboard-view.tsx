@@ -46,6 +46,8 @@ interface Props {
   mmBoard: DrillGroup[];
   teamBoard: DrillGroup[];
   teamAchieved: number;
+  /** function-wide slots for the lane — NEVER scoped by the member filter */
+  funcAchieved: number;
   funcGoal: PerformanceGoal | null;
   teamGoal: PerformanceGoal | null;
   views: DashboardScopeView[];
@@ -78,8 +80,8 @@ function monthRange(): { from: string; to: string; label: string } {
 }
 
 export function DashboardView({
-  total, byFunction, byTeam, memberBoard, mmBoard, teamBoard, teamAchieved, funcGoal,
-  teamGoal, views, activeFn, laneLabel, scopeLabel, showTeamDrill, teamOptions,
+  total, byFunction, byTeam, memberBoard, mmBoard, teamBoard, teamAchieved, funcAchieved,
+  funcGoal, teamGoal, views, activeFn, laneLabel, scopeLabel, showTeamDrill, teamOptions,
   memberOptions, filters, goalCaps, viewerId,
 }: Props) {
   const router = useRouter();
@@ -116,7 +118,7 @@ export function DashboardView({
     { label: "MR → Contacted", value: pct(total.contacted, total.mr) },
     { label: "Contacted → Visits", value: pct(total.visitScheduled, total.contacted) },
     { label: "Visits → Done", value: pct(total.visitDone, total.visitScheduled) },
-    { label: "Done → Deals", value: pct(total.dealAccounts, total.visitDone) },
+    { label: "Lead Done → Open", value: pct(total.dealAccounts, total.visitDone) },
   ];
   const month = monthRange();
   const today = new Date().toISOString().slice(0, 10);
@@ -252,7 +254,7 @@ export function DashboardView({
           <GoalCard
             title={`${laneLabel} goal${activeFn === "IGT" ? " (= IGTa + IGTe)" : ""}`}
             goal={funcGoal}
-            achieved={total.slots}
+            achieved={funcAchieved}
             canSet={!!goalCaps.functionGoalFn}
             emptyHint={
               activeFn === "IGT"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -76,7 +76,13 @@ export function AccountDetailView({
 
   const [contactOpen, setContactOpen] = useState(false);
   const [visitOpen, setVisitOpen] = useState(false);
-  const [reportOpen, setReportOpen] = useState(!!autoReportVisitId && !!reportableVisit);
+  // which visit the report dialog is open FOR — openable from the top button
+  // or from any pending visit row in History
+  const [reportVisitId, setReportVisitId] = useState<string | null>(
+    autoReportVisitId && reportableVisit ? reportableVisit.id : null
+  );
+  const reportVisit = visits.find((v) => v.id === reportVisitId && v.done === null) ?? null;
+  const [contractsOpen, setContractsOpen] = useState(false);
   const [oopOpen, setOopOpen] = useState(false);
   const [dealOpen, setDealOpen] = useState(false);
   const [proposalOpen, setProposalOpen] = useState(false);
@@ -139,8 +145,16 @@ export function AccountDetailView({
           />
         </div>
 
+        <div className="flex flex-wrap gap-2">
+          {deals.some((d) => (d.contracts ?? []).length > 0) ? (
+            <Hint label="View the signed contract(s) of this account's deals — preview & download">
+              <Button variant="outline" onClick={() => setContractsOpen(true)}>
+                <Paperclip className="size-4" /> Contracts
+              </Button>
+            </Hint>
+          ) : null}
         {caps.edit ? (
-          <div className="flex flex-wrap gap-2">
+          <>
             {active ? (
               <>
                 <Hint label="Log a call / WhatsApp / email attempt — every attempt counts">
@@ -161,7 +175,7 @@ export function AccountDetailView({
                 </Hint>
                 {reportableVisit ? (
                   <Hint label="Tell your leaders how the visit went — they're notified instantly">
-                    <Button variant="outline" onClick={() => setReportOpen(true)}>
+                    <Button variant="outline" onClick={() => setReportVisitId(reportableVisit.id)}>
                       <CheckCircle2 className="size-4" /> Report visit
                     </Button>
                   </Hint>
@@ -191,8 +205,9 @@ export function AccountDetailView({
             ) : caps.reassign ? (
               <ReviveButton accountId={account.id} />
             ) : null}
-          </div>
+          </>
         ) : null}
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -203,7 +218,13 @@ export function AccountDetailView({
         <CommentsCard accountId={account.id} comments={comments} canComment={caps.edit} />
       </div>
 
-      <TimelineCard attempts={attempts} visits={visits} deals={deals} canEdit={caps.edit} />
+      <TimelineCard
+        attempts={attempts}
+        visits={visits}
+        deals={deals}
+        canEdit={caps.edit}
+        onReportVisit={caps.edit && active ? setReportVisitId : undefined}
+      />
 
       {/* dialogs */}
       <ContactDialog target={contactTarget} open={contactOpen} onOpenChange={setContactOpen} />
@@ -213,9 +234,17 @@ export function AccountDetailView({
         open={visitOpen}
         onOpenChange={setVisitOpen}
       />
-      {reportableVisit ? (
-        <ReportVisitDialog visit={reportableVisit} open={reportOpen} onOpenChange={setReportOpen} />
+      {reportVisit ? (
+        <ReportVisitDialog
+          key={reportVisit.id}
+          visit={reportVisit}
+          open
+          onOpenChange={(o) => {
+            if (!o) setReportVisitId(null);
+          }}
+        />
       ) : null}
+      <ContractsDialog deals={deals} open={contractsOpen} onOpenChange={setContractsOpen} />
       <OopDialog accountId={account.id} open={oopOpen} onOpenChange={setOopOpen} />
       <ProposalDialog account={account} open={proposalOpen} onOpenChange={setProposalOpen} />
       <DealDialog
@@ -345,7 +374,7 @@ function DetailsCard({ account, canEdit }: { account: PipelineRow; canEdit: bool
     <Card>
       <CardHeader><CardTitle className="text-base">Details</CardTitle></CardHeader>
       <CardContent className="space-y-3">
-        {account.function === "IGV" || account.function === "B2B" ? (
+        {account.function !== "IGT" ? (
           <>
             {account.function === "IGV" ? (
               <div className="grid gap-1 sm:grid-cols-[110px_1fr] sm:items-center sm:gap-2">
@@ -760,6 +789,116 @@ async function uploadContracts(
   return { ok: true, uploaded: done.length };
 }
 
+/** All contracts of the account's deals in one popup: pick a file, preview it
+ *  inline (PDFs/images render right in the dialog) and download the original. */
+function ContractsDialog({
+  deals, open, onOpenChange,
+}: {
+  deals: DealWithMember[];
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+}) {
+  const files = deals.flatMap((d, i) =>
+    (d.contracts ?? []).map((c) => ({ ...c, dealId: d.id, dealNo: deals.length - i }))
+  );
+  const [selected, setSelected] = useState<string | null>(null);
+  const [url, setUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  // guards against a slower earlier request overwriting a newer selection
+  const seqRef = useRef(0);
+  const current = files.find((f) => f.path === selected) ?? files[0] ?? null;
+
+  const load = async (dealId: string, path: string) => {
+    const seq = ++seqRef.current;
+    setSelected(path);
+    setLoading(true);
+    setUrl(null);
+    const res = await getContractUrl(dealId, path);
+    if (seq !== seqRef.current) return; // a newer selection took over
+    setLoading(false);
+    if (res.ok && res.data) setUrl(res.data.url);
+    else toast.error(res.ok ? "Could not open the contract." : res.error);
+  };
+
+  // auto-load the first file whenever the popup opens (the open prop is
+  // controlled — Radix never calls onOpenChange for programmatic opens)
+  const firstDealId = files[0]?.dealId ?? null;
+  const firstPath = files[0]?.path ?? null;
+  useEffect(() => {
+    if (open && firstPath && firstDealId) void load(firstDealId, firstPath);
+    if (!open) {
+      seqRef.current += 1;
+      setSelected(null);
+      setUrl(null);
+      setLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, firstDealId, firstPath]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Paperclip className="size-5 text-primary" /> Deal contracts
+          </DialogTitle>
+          <DialogDescription>
+            Every contract uploaded on this account&apos;s deals — click one to preview, then download.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-wrap gap-1.5">
+          {files.map((f) => (
+            <button
+              key={f.path}
+              type="button"
+              onClick={() => load(f.dealId, f.path)}
+              className={cn(
+                "inline-flex max-w-[240px] items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                current?.path === f.path
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "hover:border-primary/50"
+              )}
+            >
+              <Paperclip className="size-3 shrink-0" />
+              <span className="truncate">{f.name}</span>
+              <span className={cn("shrink-0", current?.path === f.path ? "opacity-80" : "text-muted-foreground")}>
+                · Deal #{f.dealNo}
+              </span>
+            </button>
+          ))}
+        </div>
+        <div className="overflow-hidden rounded-lg border bg-muted/30">
+          {loading ? (
+            <div className="flex h-[55vh] items-center justify-center">
+              <Loader2 className="size-6 animate-spin text-primary" />
+            </div>
+          ) : url ? (
+            <iframe src={url} title={current?.name ?? "Contract"} className="h-[55vh] w-full bg-white" />
+          ) : (
+            <div className="flex h-[55vh] items-center justify-center text-sm text-muted-foreground">
+              Pick a contract above to preview it.
+            </div>
+          )}
+        </div>
+        <DialogFooter className="gap-2">
+          <p className="mr-auto self-center text-xs text-muted-foreground">
+            {current ? `${current.name} · ${(current.size / 1024 / 1024).toFixed(1)} MB` : ""}
+          </p>
+          <Button
+            disabled={!url || !current}
+            onClick={() =>
+              url && current &&
+              window.open(`${url}&download=${encodeURIComponent(current.name)}`, "_blank", "noopener")
+            }
+          >
+            <FileText className="size-4" /> Download
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /** Contract chips on a deal + the (optional, any-time) upload button. */
 function DealContracts({ deal, canEdit }: { deal: DealWithMember; canEdit: boolean }) {
   const router = useRouter();
@@ -835,12 +974,14 @@ function DealContracts({ deal, canEdit }: { deal: DealWithMember; canEdit: boole
 }
 
 function TimelineCard({
-  attempts, visits, deals, canEdit,
+  attempts, visits, deals, canEdit, onReportVisit,
 }: {
   attempts: AttemptWithMember[];
   visits: Visit[];
   deals: DealWithMember[];
   canEdit: boolean;
+  /** present when the viewer may report pending visits — makes their rows clickable */
+  onReportVisit?: (visitId: string) => void;
 }) {
   return (
     <Card>
@@ -877,25 +1018,47 @@ function TimelineCard({
         ) : null}
         {visits.length > 0 ? (
           <div className="mb-4 space-y-2">
-            {visits.map((v) => (
-              <div key={v.id} className="flex items-start gap-3 rounded-lg border p-3 text-sm">
-                <CalendarPlus className="mt-0.5 size-4 text-primary" />
-                <div>
-                  <p className="font-medium">
-                    Visit · {v.visit_date} at {v.visit_time?.slice(0, 5)}{" "}
-                    {v.done === null ? (
-                      <Badge variant="outline" className="ml-1">pending</Badge>
-                    ) : v.done ? (
-                      <Badge className="ml-1 border-transparent bg-success/15 text-success">done</Badge>
-                    ) : (
-                      <Badge variant="destructive" className="ml-1">not completed</Badge>
-                    )}
-                  </p>
-                  {v.visit_comment ? <p className="text-muted-foreground">{v.visit_comment}</p> : null}
-                  {v.next_step ? <p className="text-muted-foreground">Next: {v.next_step}</p> : null}
+            {visits.map((v) => {
+              const reportable = v.done === null && !!onReportVisit;
+              return (
+                <div
+                  key={v.id}
+                  role={reportable ? "button" : undefined}
+                  tabIndex={reportable ? 0 : undefined}
+                  onClick={reportable ? () => onReportVisit!(v.id) : undefined}
+                  onKeyDown={
+                    reportable
+                      ? (e) => { if (e.key === "Enter" || e.key === " ") onReportVisit!(v.id); }
+                      : undefined
+                  }
+                  className={cn(
+                    "flex items-start gap-3 rounded-lg border p-3 text-sm",
+                    reportable && "cursor-pointer transition-colors hover:border-primary/60 hover:bg-primary/5"
+                  )}
+                >
+                  <CalendarPlus className="mt-0.5 size-4 text-primary" />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium">
+                      Visit · {v.visit_date} at {v.visit_time?.slice(0, 5)}{" "}
+                      {v.done === null ? (
+                        <Badge variant="outline" className="ml-1">pending</Badge>
+                      ) : v.done ? (
+                        <Badge className="ml-1 border-transparent bg-success/15 text-success">done</Badge>
+                      ) : (
+                        <Badge variant="destructive" className="ml-1">not completed</Badge>
+                      )}
+                    </p>
+                    {v.visit_comment ? <p className="text-muted-foreground">{v.visit_comment}</p> : null}
+                    {v.next_step ? <p className="text-muted-foreground">Next: {v.next_step}</p> : null}
+                  </div>
+                  {reportable ? (
+                    <span className="mt-0.5 inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-primary">
+                      <CheckCircle2 className="size-3.5" /> Report it
+                    </span>
+                  ) : null}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : null}
         {attempts.length === 0 ? (
@@ -1134,7 +1297,7 @@ function DealDialog({
   accountId, fn, dealNumber, open, onOpenChange,
 }: {
   accountId: string;
-  fn: "IGV" | "IGT" | "B2B";
+  fn: "IGV" | "IGT" | "B2B" | "BD";
   dealNumber: number;
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -1149,9 +1312,10 @@ function DealDialog({
   const [pending, start] = useTransition();
 
   // which product fields to show for this account
-  const showIgv = fn === "IGV" || fn === "B2B";
-  const showIgta = fn === "IGT" || fn === "B2B";
-  const showIgte = fn === "IGT" || fn === "B2B";
+  const mixed = fn === "B2B" || fn === "BD"; // both raise for the whole ICX
+  const showIgv = fn === "IGV" || mixed;
+  const showIgta = fn === "IGT" || mixed;
+  const showIgte = fn === "IGT" || mixed;
   const total =
     (showIgv ? Number(igv) || 0 : 0) +
     (showIgta ? Number(igta) || 0 : 0) +
@@ -1201,7 +1365,7 @@ function DealDialog({
         <DialogHeader>
           <DialogTitle>🏆 Deal #{dealNumber}</DialogTitle>
           <DialogDescription>
-            {fn === "B2B"
+            {mixed
               ? "How many opens were signed in THIS deal, per product? e.g. 3 IGV · 2 IGTe · 1 IGTa."
               : fn === "IGT"
                 ? "Split this deal's opens across IGTa and IGTe."
@@ -1210,7 +1374,7 @@ function DealDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
-          <div className={cn("grid gap-3", fn === "B2B" ? "grid-cols-3" : showIgta ? "grid-cols-2" : "grid-cols-1")}>
+          <div className={cn("grid gap-3", mixed ? "grid-cols-3" : showIgta ? "grid-cols-2" : "grid-cols-1")}>
             {showIgv ? numField("IGV", "text-gv", igv, setIgv) : null}
             {showIgta ? numField("IGTa", "text-gt", igta, setIgta) : null}
             {showIgte ? numField("IGTe", "text-gte", igte, setIgte) : null}

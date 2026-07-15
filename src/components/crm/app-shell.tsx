@@ -6,7 +6,9 @@ import { useState } from "react";
 import {
   LayoutDashboard,
   Building2,
+  CalendarDays,
   Users,
+  UsersRound,
   Menu,
   LogOut,
   Inbox,
@@ -30,7 +32,7 @@ interface ShellProps {
     photoUrl: string | null;
     isAdmin: boolean;
   };
-  nav: { raising: boolean; membership: boolean; feedbackInbox: boolean };
+  nav: { raising: boolean; tm: boolean; membership: boolean; feedbackInbox: boolean };
   signOutAction: () => Promise<void>;
   children: React.ReactNode;
 }
@@ -46,8 +48,10 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
       ? [
           { href: "/", label: "Dashboard", icon: LayoutDashboard },
           { href: "/accounts", label: "Accounts", icon: Building2 },
+          { href: "/calendar", label: "Calendar", icon: CalendarDays },
         ]
       : []),
+    ...(nav.tm ? [{ href: "/members", label: "Members", icon: UsersRound }] : []),
     ...(nav.membership ? [{ href: "/membership", label: "Membership", icon: Users }] : []),
     { href: "/playbook", label: "Playbook", icon: BookOpen },
     { href: "/feedback", label: "Feedback", icon: MessageSquareHeart },

@@ -6,12 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v11";
+export const PLAYBOOK_VERSION = "v13";
 
 interface Props {
   role: string;
   isAdmin: boolean;
   isB2B: boolean;
+  isTm: boolean;
 }
 
 interface Section {
@@ -24,12 +25,15 @@ interface Section {
 }
 
 /** Which section ids matter most for a role — powers the "That's you" badges. */
-function sectionsForRole(role: string, isAdmin: boolean, isB2B: boolean): Set<string> {
+function sectionsForRole(
+  role: string, isAdmin: boolean, isB2B: boolean, isTm: boolean
+): Set<string> {
   const mine = new Set(["what", "start", "rules"]);
   if (role === "Member" || role === "Coordinator") mine.add("raising");
   if (role === "Team Leader") { mine.add("raising"); mine.add("leaders"); mine.add("data"); }
   if (role === "LCVP" || role === "Director" || role === "LCP") { mine.add("eb"); mine.add("data"); }
   if (isB2B) mine.add("b2b");
+  if (isTm) mine.add("tm");
   if (isAdmin) { mine.add("im"); mine.add("data"); }
   return mine;
 }
@@ -73,8 +77,9 @@ const SECTIONS: Section[] = [
       <><b>Log every contact attempt</b> with its result. Picking <b>&quot;Visit Scheduled&quot;</b> books the visit — calendar invite and reminders included.</>,
       <>Every in-process account carries a <b>next step with a date</b> or a pending visit. Three no-responses → the CRM suggests archiving.</>,
       <>The <b>Proposal email</b> button builds a branded, AIESEC-blue outreach draft in <b>your own Gmail</b> — review, attach, send.</>,
-      <>Two hours after a visit, you (and your TL) get the <b>report-it email</b>. Ignore it a week and the reminder comes back firmer — report it or archive the account.</>,
-      <>Deal signed → <b>Record deal</b> 🏆: opens per product, optional <b>contract upload</b> (any file format — you can also add it later from History).</>,
+      <>Two hours after a visit, you (and your TL) get the <b>report-it email</b> — report from it, the top button, or by clicking the pending visit in History. Ignore it a week and the reminder comes back firmer — report it or archive the account.</>,
+      <>The <b>Calendar</b> page (sidebar) shows your whole function&apos;s visits, one color per member — see the rhythm, plan around it.</>,
+      <>Deal signed → <b>Record deal</b> 🏆: opens per product, optional <b>contract upload</b> (any file format — add later from History; the account grows a <b>Contracts</b> button to preview & download them).</>,
       <>&quot;Not interested&quot; is a valid result: mark the account <b>Out of Process</b> with its reason. The archive IS the blacklist — those names never come back.</>,
     ],
   },
@@ -109,13 +114,27 @@ const SECTIONS: Section[] = [
   {
     id: "b2b",
     emoji: "🤝",
-    title: "B2B — raising for the whole ICX",
-    audience: "B2B crew",
+    title: "B2B & BD — raising for the whole ICX",
+    audience: "B2B & BD crew",
     color: "#0CB9C1",
     points: [
-      <>Your accounts are product <b>B2B</b>; every deal splits its opens across <b>IGV / IGTa / IGTe</b> — each lane&apos;s dashboard picks up its share.</>,
-      <>You see and feed <b>every lane</b>; your slots count where the opens land.</>,
-      <>The Proposal email has a <b>general all-programs variant</b> for you (with aiesec.org/partners), or write it for one specific product.</>,
+      <>One function, two names (<b>B2B & BD</b> — may split in future peaks): either grants the same whole-ICX raising access.</>,
+      <>When adding an account you <b>choose its label: B2B or BD</b>. Both split every deal&apos;s opens across <b>IGV / IGTa / IGTe</b> — each lane&apos;s dashboard picks up its share.</>,
+      <>You see and feed <b>every lane</b>; IGV/IGT VPs & Directors see all your data too and can filter their dashboard by the <b>B2B lane</b>.</>,
+      <><b>Podio worklist</b> (MMs & Director/VP): the &quot;Podio pending&quot; filter lists accounts not yet requested — copy names for the form, set the request state inline, or <b>Ask to submit</b>: the owner gets an in-app notification and the account pins to the top of their list until they act.</>,
+      <>Proposal emails: B2B accounts get the <b>all-programs variant</b> (aiesec.org/partners); <b>BD accounts get the Talent-Solutions pitch</b> (aiesec.org.eg/partner.html) with no ready-made attachments.</>,
+    ],
+  },
+  {
+    id: "tm",
+    emoji: "🧠",
+    title: "Talent Management",
+    audience: "TM crew",
+    color: "#8E44AD",
+    points: [
+      <>The <b>Members</b> page (sidebar) is your module: the whole LC in one view — role, functions, team, manager, and every member&apos;s <b>MOS/KPIs</b> (MR · Contacted · Visits · Done · Deals · Opens).</>,
+      <>Search and filter by function or role; reach anyone instantly with the <b>email / call / WhatsApp</b> buttons.</>,
+      <>More TM tools are on the roadmap — this is v1.</>,
     ],
   },
   {
@@ -164,8 +183,8 @@ const SECTIONS: Section[] = [
   },
 ];
 
-export function PlaybookView({ role, isAdmin, isB2B }: Props) {
-  const mine = sectionsForRole(role, isAdmin, isB2B);
+export function PlaybookView({ role, isAdmin, isB2B, isTm }: Props) {
+  const mine = sectionsForRole(role, isAdmin, isB2B, isTm);
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">

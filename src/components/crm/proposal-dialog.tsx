@@ -19,8 +19,9 @@ import {
 import { cn } from "@/lib/utils";
 
 type ProdCode = "iGV" | "iGTa" | "iGTe";
-/** what the email BODY is written for — B2B = the general all-programs email */
-type BodyCode = ProdCode | "B2B";
+/** what the email BODY is written for — B2B = the general all-programs email,
+ *  BD = the talent-solutions pitch (no ready attachments) */
+type BodyCode = ProdCode | "B2B" | "BD";
 const B2B_PRODUCTS: ProdCode[] = ["iGV", "iGTa", "iGTe"];
 
 /** ICX Proposal Email — one popup, prefilled from the account; the generated
@@ -33,27 +34,30 @@ export function ProposalDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
-  const isB2B = account.function === "B2B";
+  const isBD = account.function === "BD";
+  const isB2B = account.function === "B2B" || isBD;
   const fixedProduct: ProdCode =
     account.function === "IGV" ? "iGV" : account.product === "GTe" ? "iGTe" : "iGTa";
   const firstEmail =
     (account.contacts ?? []).find((c) => c.kind === "email")?.value ?? account.email ?? "";
 
-  const [recipientName, setRecipientName] = useState("");
   const [recipientEmail, setRecipientEmail] = useState(firstEmail);
   const [sector, setSector] = useState(account.industry ?? account.sub_product ?? "");
   const [customNote, setCustomNote] = useState("");
   const [attachProposal, setAttachProposal] = useState(true);
-  // B2B: the product the email body is written for (default = the general
-  // all-programs partnership email) + which PDFs to attach
-  const [bodyProduct, setBodyProduct] = useState<BodyCode>("B2B");
+  // B2B/BD: the product the email body is written for (default = their
+  // general variant) + which PDFs to attach (never offered for BD)
+  const [bodyProduct, setBodyProduct] = useState<BodyCode>(isBD ? "BD" : "B2B");
   const [attachProducts, setAttachProducts] = useState<ProdCode[]>(["iGV"]);
   const [attachmentsNote, setAttachmentsNote] = useState("");
   const [done, setDone] = useState(false);
   const [pending, start] = useTransition();
 
   const product: BodyCode = isB2B ? bodyProduct : fixedProduct;
-  const productLabel = product === "B2B" ? "general (all-programs)" : product;
+  const productLabel =
+    product === "B2B" ? "general (all-programs)"
+    : product === "BD" ? "BD (talent solutions)"
+    : product;
   const toggleAttach = (p: ProdCode) =>
     setAttachProducts((list) => (list.includes(p) ? list.filter((x) => x !== p) : [...list, p]));
 
@@ -61,14 +65,13 @@ export function ProposalDialog({
     start(async () => {
       const res = await createProposalDraft({
         accountId: account.id,
-        recipientName,
         recipientEmail,
         sector: sector || null,
         customNote: customNote || null,
         attachmentsNote: attachmentsNote || null,
         attachProposal: isB2B ? false : attachProposal,
         bodyProduct: isB2B ? bodyProduct : null,
-        attachProducts: isB2B ? attachProducts : null,
+        attachProducts: isB2B && !isBD ? attachProducts : null,
       });
       if (res.ok) {
         setDone(true);
@@ -92,7 +95,7 @@ export function ProposalDialog({
               <DialogTitle className="text-center">Draft ready in YOUR Gmail</DialogTitle>
               <DialogDescription className="text-center leading-relaxed">
                 The {productLabel} proposal for <b>{account.name}</b> is waiting in
-                your drafts{(isB2B ? attachProducts.length > 0 : attachProposal)
+                your drafts{(isBD ? false : isB2B ? attachProducts.length > 0 : attachProposal)
                   ? isB2B
                     ? ` with the ${attachProducts.join(", ")} PDF${attachProducts.length === 1 ? "" : "s"} attached`
                     : " with the official PDF attached"
@@ -129,24 +132,14 @@ export function ProposalDialog({
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-3">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="grid gap-1.5">
-                  <Label>Recipient name *</Label>
-                  <Input
-                    value={recipientName}
-                    onChange={(e) => setRecipientName(e.target.value)}
-                    placeholder="e.g. Mr. Ahmed / HR team"
-                  />
-                </div>
-                <div className="grid gap-1.5">
-                  <Label>Recipient email *</Label>
-                  <Input
-                    value={recipientEmail}
-                    inputMode="email"
-                    onChange={(e) => setRecipientEmail(e.target.value)}
-                    placeholder="name@company.com"
-                  />
-                </div>
+              <div className="grid gap-1.5">
+                <Label>Recipient email *</Label>
+                <Input
+                  value={recipientEmail}
+                  inputMode="email"
+                  onChange={(e) => setRecipientEmail(e.target.value)}
+                  placeholder="name@company.com"
+                />
               </div>
               <div className="grid gap-1.5">
                 <Label>Sector</Label>
@@ -175,39 +168,45 @@ export function ProposalDialog({
                     <Select value={bodyProduct} onValueChange={(v) => setBodyProduct(v as BodyCode)}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="B2B">General — all ICX programs</SelectItem>
+                        {isBD ? (
+                          <SelectItem value="BD">BD — Talent Solutions (general)</SelectItem>
+                        ) : (
+                          <SelectItem value="B2B">General — all ICX programs</SelectItem>
+                        )}
                         <SelectItem value="iGV">iGV — Global Volunteer</SelectItem>
                         <SelectItem value="iGTa">iGTa — Global Talent</SelectItem>
                         <SelectItem value="iGTe">iGTe — Global Teacher</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="rounded-lg border p-3">
-                    <p className="text-sm font-medium">Attach official proposal PDFs</p>
-                    <p className="mb-2 text-xs text-muted-foreground">
-                      Pick any of the three — all selected PDFs ride along in the draft.
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {B2B_PRODUCTS.map((p) => {
-                        const active = attachProducts.includes(p);
-                        return (
-                          <button
-                            key={p}
-                            type="button"
-                            onClick={() => toggleAttach(p)}
-                            className={cn(
-                              "rounded-full border px-3 py-1 text-xs font-semibold transition-colors",
-                              active
-                                ? "border-primary bg-primary text-primary-foreground"
-                                : "border-border bg-muted text-muted-foreground hover:border-primary/50"
-                            )}
-                          >
-                            {active ? "✓ " : ""}{p}
-                          </button>
-                        );
-                      })}
+                  {!isBD ? (
+                    <div className="rounded-lg border p-3">
+                      <p className="text-sm font-medium">Attach official proposal PDFs</p>
+                      <p className="mb-2 text-xs text-muted-foreground">
+                        Pick any of the three — all selected PDFs ride along in the draft.
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {B2B_PRODUCTS.map((p) => {
+                          const active = attachProducts.includes(p);
+                          return (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() => toggleAttach(p)}
+                              className={cn(
+                                "rounded-full border px-3 py-1 text-xs font-semibold transition-colors",
+                                active
+                                  ? "border-primary bg-primary text-primary-foreground"
+                                  : "border-border bg-muted text-muted-foreground hover:border-primary/50"
+                              )}
+                            >
+                              {active ? "✓ " : ""}{p}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
+                  ) : null}
                 </>
               ) : (
                 <div className="flex items-center justify-between rounded-lg border p-3">
@@ -232,7 +231,7 @@ export function ProposalDialog({
             <DialogFooter>
               <Button
                 onClick={submit}
-                disabled={pending || recipientName.trim().length < 2 || !recipientEmail.includes("@")}
+                disabled={pending || !recipientEmail.includes("@")}
               >
                 {pending ? (
                   <><Loader2 className="size-4 animate-spin" /> Creating draft…</>

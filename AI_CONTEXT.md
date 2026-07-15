@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-07-15 · Version: v11
+Last updated: 2026-07-15 · Version: v13
 
 ---
 
@@ -36,11 +36,15 @@ the blueprint for future OGX/other-function modules.
 
 **Migrations** live in `supabase/migrations/` and are run **manually** in the
 Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v2`
-→ `0003_ops_v2` → `0004_pins_v2` → `0005_deals` → `0006_admin_label` → `0007_visit_scheduled_result` → `0008_notifications_feedback` → `0009_b2b_deals_v9` → `0010_notif_link` → `0011_teams` → `0012_contracts_reminders`.
+→ `0003_ops_v2` → `0004_pins_v2` → `0005_deals` → `0006_admin_label` → `0007_visit_scheduled_result` → `0008_notifications_feedback` → `0009_b2b_deals_v9` → `0010_notif_link` → `0011_teams` → `0012_contracts_reminders` → `0013_director_label` → `0014_bd_podio`.
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
-EB/LB/Function/MM teams, imported into the `teams` table) ·
+teams — sheet types `EB / LB / Function / Function leaders / Team`;
+"Function leaders" is stored as **MM**, "Team" rows are skipped (TL team names
+live in the Membership tab); the Function cell may hold SEVERAL functions
+("B2B, BD") → one `teams` row per function; imported into the `teams` table.
+The whole Drive folder is shared with **every EB member as commenter**) ·
 `CRM — Raising Accounts` (ALL accounts in ONE mirror — IGV + IGT + B2B, active
 AND archived — with `Function / Product / Archived?` flag columns for
 filtering) · `CRM — Archived Accounts` (the focused blacklist view: OOP +
@@ -72,7 +76,38 @@ member profile/onboarding confirmations). Columns A→J:
 | Team Leader | Team accounts, picks Responsible (self/member), sets the team goal |
 | Coordinator / Member | Own accounts only |
 
-**B2B** (function or sub-function contains "B2B") raises **for the whole ICX**:
+**B2B & BD are ONE function** (same membership today — may split in future
+peaks): `isB2B` in `rbac.ts` (and `memberIsB2B` in `types.ts` for plain member
+rows) matches **either** "B2B" or "BD" in functions or sub-functions, and
+everything below applies to both names. **Accounts carry either label** —
+the crew picks B2B or BD when adding (both behave identically: whole-ICX
+opens mix; migration 0014 adds the `BD` account function). The dashboard's
+B2B lane shows both; BD gets its own drill row and badge color.
+
+**Podio submission worklist** (B2B/BD only): the "Podio pending" filter on
+the accounts list — visible to `canRequestPodioSubmit` (the function's MMs +
+Director/VP + LCP/admin) — shows B2B/BD accounts with `requested_podio=false`
+and no request state. Each row gets a **copy-name button** (for the national
+Podio form), an **inline request-state select** (Checking/Approved — also
+marks requested; Rejected stays on the account page behind its confirm), and
+**"Ask to submit"** (`requestPodioSubmit`): in-app notification ONLY to the
+owner + `accounts.podio_submit_requested_at` — the account then **pins to the
+top of the owner's accounts list** with a "Submit on Podio" badge until they
+mark it requested / set a state (auto-cleared in `updateAccount`).
+
+**TM module** (`/members`, `hasTmAccess` = TM function + LCP/admin — v1, more
+later): the whole-LC members directory — info, team, manager, per-member
+MOS/KPIs (own accounts: MR·Contacted·Visits·Done·Deals·Opens) and
+email/call/WhatsApp shortcuts. TM users without raising access enter the
+shell for `/members` + `/playbook` (GateClient `extra` prefixes) — the page
+ALSO gates server-side (`redirect` + `listMembersDirectory` returns `[]`).
+
+**Profile "my people" card** (`profilePeople` in data.ts): Team Leader → their
+direct team · VP/Director → their whole function · LCP/admin → the EB
+(LCVPs) · Members/Coordinators → nothing. Each person row has
+email/call/WhatsApp buttons.
+
+**B2B** (function or sub-function contains "B2B"/"BD") raises **for the whole ICX**:
 they add accounts as **product "B2B"** (not IGV/IGT), and every deal records its
 opens **split across IGV / IGTa / IGTe** (e.g. 3 IGV · 2 IGTe · 1 IGTa). Those
 per-product opens feed the IGV / IGTa / IGTe dashboard lanes (a B2B account's
@@ -127,11 +162,12 @@ mutation through a `can*` predicate, **server-side**.
   — Not responding · Financial issues · Not Interested · Backed out · Other Plans
   · Needs too technical background EPs · Conflict of Values between AIESEC and
   organization · Blacklisted — plus **Other** (free text).
-- **Manual archive** (Archived tab, TL+): **Add archived** (name + reason) and
-  **Import archived** (CSV/XLSX with Name + Reason, editable preview, ≤1000 rows,
-  free-form reasons kept as-is) blacklist names that were burned before the CRM
-  existed — no active account needed. Entries live in the `blacklist` table and
-  block re-adding exactly like an OOP account; VP+ can remove an entry.
+- **Manual archive** (Archived tab, TL+): **Add archived** (name — the reason
+  is OPTIONAL) and **Import archived** (CSV/XLSX with Name + optional Reason,
+  editable preview, ≤1000 rows, free-form reasons kept as-is) blacklist names
+  that were burned before the CRM existed — no active account needed. Entries
+  live in the `blacklist` table and block re-adding exactly like an OOP
+  account; VP+ can remove an entry.
 - **Tagged contacts** (`accounts.contacts` jsonb): phones with tags
   `[Contact, Whatsapp, Manager, HR, CEO, Owner, Other]`, emails with the same
   list **minus Whatsapp**, links with `[Website, LinkedIn, Instagram, Facebook,
@@ -142,7 +178,8 @@ mutation through a `can*` predicate, **server-side**.
   canonical `+201[0/1/2/5]XXXXXXXX`; landline → `+203XXXXXXX` (Alexandria) /
   `+202…` (Cairo); anything else must be full international `+<7–15 digits>`.
 - **Comments**: unlimited, auto-numbered per author class (`Comment #n`,
-  `TL/VP/LCP/Admin Comment #n` — the IM director's label is **Admin**, not LCP).
+  `TL/VP/Director/LCP/Admin Comment #n` — a Director is labeled **Director**,
+  NOT VP (migration 0013); the IM director's label is **Admin**, not LCP).
   Any comment can be **pinned** → highlighted in the card AND shown as a ❗
   (CircleAlert) on the accounts list; hover reveals the text.
 - **ICX Proposal Email** (`src/lib/email/proposal.ts` + `createProposalDraft`):
@@ -156,13 +193,16 @@ mutation through a `can*` predicate, **server-side**.
   missing file → clear error). Sets `proposal_sent` on the account. Members
   who signed in before the scope change must re-login with Google once.
   **Design = the LC's original proposal tool** (card layout: AIESEC logo +
-  program badge header, "Dear {Company} Team", headline, intro, "Why this
-  could be a strong fit" callout, Opportunity-snapshot + About-AIESEC cards,
-  meeting-request callout, "More about {program}" link, member signature) —
-  **ONE brand color for all products (AIESEC blue `#037EF3`)**, only the
-  CONTENT is per-function; **NO company-logo section** (by request). B2B
-  accounts default to a **general all-programs variant** linking to
-  `aiesec.org/partners` (can still pick a specific product's body).
+  program badge header, headline, intro, "Why this could be a strong fit"
+  callout, Opportunity-snapshot + About-AIESEC cards, meeting-request callout,
+  "More about {program}" link, member signature) — **ONE brand color for all
+  products (AIESEC blue `#037EF3`)**, only the CONTENT is per-function;
+  **NO company-logo section and NO "Dear …" greeting** (both by request — the
+  recipient-name field was removed from the popup too). The signature title is
+  product-based, NOT the CRM role (`Global Volunteer/Talent/Teacher Manager`,
+  B2B → `Business Development Manager`) and the phone links to
+  `wa.me/<number>`. B2B accounts default to a **general all-programs variant**
+  linking to `aiesec.org/partners` (can still pick a specific product's body).
 - **Contact log results**: No Response / Responded / Interested / Not Interested
   (archives) / Wrong Contact / **Visit Scheduled** (requires date+time and
   BOOKS the visit through the exact same path as the Schedule-visit button —
@@ -258,7 +298,19 @@ cards were removed on request; flags remain reachable via accounts filters.)
   via `newGoalEmail` — updates to an existing period stay quiet.
 - **"My numbers" chip** in the dashboard filter bar: any member can toggle the
   KPIs + conversion strip to just their own accounts (`member=<their id>` URL
-  param — the personal KPIs/MOS tracker).
+  param — the personal KPIs/MOS tracker). **The member filter scopes the KPI
+  totals + conversions ONLY** — leaderboards, product/team drills and goal
+  progress always show the full picture (`responsibleId` is stripped from the
+  DB query and applied in JS to `total` alone).
+- **B2B lane** on the dashboard for the LCP/admin, VPs & Directors (B2B
+  affects their functions) and the B2B crew — `rowInLane`/`laneSlots` already
+  spoke B2B; v12 exposes the `views` chip + `parseFnParam` case.
+- The last conversion is labeled **"Lead Done → Open"** (accounts whose visit
+  is done that raised opens).
+- **Visits calendar** (`/calendar`, sidebar for every raiser): month view of
+  the WHOLE function's visits (B2B included), one stable color per member,
+  legend with counts, Saturday-first weeks, agenda cards on phones, click-through
+  to the account. `listFunctionVisits` in `data.ts`; `?m=YYYY-MM` picks the month.
 - **Leaderboards**: ONE **wide** board per scope (function + team) listing
 **Members & Coordinators only** (never Team Leaders, VPs, Directors or the LCP),
 full-width, showing **every** funnel number per member at once — **MR ·
@@ -363,13 +415,16 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 
 ## 9. Pending / operational notes
 
-- **Pending user action:** 0007–0009 are already run. **Run `0010_notif_link.sql`,
-  `0011_teams.sql` and `0012_contracts_reminders.sql`** in the Supabase SQL
-  editor (in that order) — 0010 makes notifications clickable, 0011 creates the
-  `teams` table (named EB/LB/Function/MM teams), 0012 adds deal contracts +
-  the `contracts` Storage bucket + forgotten-visit nags + goal reminders.
-- **Pending user action:** add the `goal-reminders` schedule from
-  `supabase/cron.sql` in the SQL editor (daily 06:00 UTC).
+- **Pending user action:** 0007–0012 are run (verified live 2026-07-15). **Run
+  `0013_director_label.sql` and `0014_bd_podio.sql`** in the Supabase SQL
+  editor — until 0013, a Director's comments fail to save; until 0014, BD
+  accounts and the Podio worklist error out (BD enum value + pin column +
+  view v5 are all in 0014).
+- **CRON_SECRET mismatch:** the value in local `.env.local` differs from the
+  one in Vercel/pg_cron (Vercel marks it sensitive — unreadable). The
+  production crons work; only manual local triggering fails with 401. To sync:
+  run `select substring(command from 'key=([^']+)') from cron.job limit 1;` in
+  the Supabase SQL editor and paste the value into `.env.local`.
 - **Drive is already renamed** (done by Ahmed by hand): the old IGT sheet is
   now `CRM — Raising Accounts`, the blacklist sheet is `CRM — Archived
   Accounts`, the IGV sheet is deleted. The code finds them by (loose) title,
@@ -389,6 +444,48 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-07-15 · v13** — **TM module v1** (`/members`, TM function + LCP/admin):
+  whole-LC members directory with per-member MOS/KPIs + email/call/WhatsApp
+  buttons; TM users enter the shell (GateClient `extra`) with server-side
+  gates. **Profile "my people" card**: TL → team, VP/Director → function,
+  LCP → EB, with contact buttons. **BD accounts** (migration 0014): B2B/BD
+  crew picks the label per account, BD behaves like B2B (whole-ICX opens),
+  own badge/drill; **Podio worklist**: "Podio pending" filter (B2B/BD MMs +
+  Director/VP + LCP/admin) with copy-name, inline request-state, and "Ask to
+  submit" → inbox-only notification + the account pins on top of the owner's
+  list (`podio_submit_requested_at`, auto-cleared on action). **BD proposal
+  variant** — Talent-Solutions pitch from aiesec.org.eg/partner.html, NO
+  ready attachments; proposal signature now links to https://aiesec.org.eg/.
+  **v12 review fixes**: ContractsDialog auto-load (effect) + stale-response
+  guard; `/calendar` server-side gate + `listFunctionVisits` raising-access
+  guard (no more B2B leak to non-ICX viewers); calendar chips only link to
+  accounts the viewer can open; Cairo-timezone month default; function-goal
+  progress unscoped from "My numbers" (`funcAchieved`); BD alias propagated
+  to every inline B2B check (`memberIsB2B`). Playbook v13 (+ TM section);
+  Blue Man knows all of it.
+
+- **2026-07-15 · v12** — **B2B & BD are one function** (`isB2B` matches either
+  name; membership sheet uses "BD, B2B"); **Teams tab logic applied from the
+  sheet Ahmed set up**: types EB/LB/Function/**Function leaders**(→MM)/Team
+  (skipped), multi-function cells ("B2B, BD") stored one row per function,
+  VPs/Directors now see their "≤fn> leaders" team on the profile; **Director
+  comment label** (not VP — migration 0013); **archive reason optional** (name
+  alone blacklists); **My-numbers/member filter scopes KPIs + conversions
+  ONLY** (boards & drills stay full); **B2B dashboard lane** for LCP/VPs/
+  Directors/B2B; conversion renamed **"Lead Done → Open"**; **/calendar** —
+  function-wide month calendar of visits, color-coded per member (legend,
+  Saturday-first, agenda on phones, account click-through); **History pending
+  visits are clickable** to report (same dialog as the top button, deep-link
+  still works); **Contracts button** on accounts with uploaded contracts —
+  popup with inline preview (iframe over a signed URL) + download; **proposal
+  email v2 edits**: no "Dear …" line, recipient-name field removed,
+  product-based signature title (Global Volunteer/Talent/Teacher Manager,
+  B2B → Business Development Manager), phone → wa.me link; **The Blue Man**
+  got playbook-grade system knowledge + fluent Egyptian-Arabic instructions;
+  **EB shared on the Drive folder as commenters** (all 7, done via API);
+  account "hadana" renamed **"Hadana Moves"** (data fix). Playbook bumped to
+  v12.
 
 - **2026-07-15 · v11** — **Drive sheets consolidated**: ONE `CRM — Raising
   Accounts` mirror for ALL accounts (IGV+IGT+B2B, active AND archived) with

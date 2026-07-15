@@ -3,9 +3,12 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CalendarCheck, Check, KeyRound, Loader2, Lock, Mail, Sparkles, Upload, Users } from "lucide-react";
+import { CalendarCheck, Check, KeyRound, Loader2, Lock, Mail, Phone, Sparkles, Upload, Users, UsersRound } from "lucide-react";
 import { changePassword, diagnoseCalendar, updateAvatar, updateProfile } from "@/server/actions";
 import { ADMIN_EMAIL, cleanPhone, FUNCTION_COLORS, PHONE_RE } from "@/lib/types";
+import type { PersonCard } from "@/server/data";
+import { WhatsAppIcon } from "./icons";
+import { Hint } from "./hint";
 import { avatarChoices } from "@/lib/avatars";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -37,7 +40,14 @@ interface ProfileInfo {
   teams: { label: string; name: string }[];
 }
 
-export function ProfileView({ member }: { member: ProfileInfo }) {
+export function ProfileView({
+  member,
+  people,
+}: {
+  member: ProfileInfo;
+  /** the viewer's people (TL → team · VP/Director → function · LCP → EB) */
+  people: { title: string; people: PersonCard[] } | null;
+}) {
   const router = useRouter();
   const [nickname, setNickname] = useState(member.nickname);
   const [phone, setPhone] = useState(member.phone);
@@ -263,6 +273,72 @@ export function ProfileView({ member }: { member: ProfileInfo }) {
                 <span className="text-xs text-muted-foreground">· {t.label}</span>
               </div>
             ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {people && people.people.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <UsersRound className="size-4 text-muted-foreground" /> {people.title}
+              <Badge variant="outline" className="ml-auto font-normal">
+                {people.people.length} {people.people.length === 1 ? "person" : "people"}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1.5">
+            {people.people.map((p) => {
+              const wa = p.phone?.replace(/\D/g, "") ?? "";
+              const btn =
+                "inline-flex size-7 items-center justify-center rounded-md border text-muted-foreground transition-colors hover:border-primary hover:text-primary";
+              return (
+                <div
+                  key={p.id}
+                  className="flex items-center gap-3 rounded-lg border p-2.5"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">
+                      {p.nickname || p.name}
+                      <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                        {p.role}
+                        {p.functions.length ? ` · ${p.functions.join(", ")}` : ""}
+                      </span>
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {p.team_name ? `${p.team_name} · ` : ""}{p.email}
+                    </p>
+                  </div>
+                  <span className="flex shrink-0 items-center gap-1">
+                    <Hint label={`Email ${p.nickname || p.name}`}>
+                      <a className={btn} href={`mailto:${p.email}`} aria-label="Email">
+                        <Mail className="size-3.5" />
+                      </a>
+                    </Hint>
+                    {p.phone ? (
+                      <>
+                        <Hint label={`Call ${p.phone}`}>
+                          <a className={btn} href={`tel:${p.phone}`} aria-label="Call">
+                            <Phone className="size-3.5" />
+                          </a>
+                        </Hint>
+                        <Hint label="WhatsApp">
+                          <a
+                            className={btn}
+                            href={`https://wa.me/${wa}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            aria-label="WhatsApp"
+                          >
+                            <WhatsAppIcon className="size-3.5" />
+                          </a>
+                        </Hint>
+                      </>
+                    ) : null}
+                  </span>
+                </div>
+              );
+            })}
           </CardContent>
         </Card>
       ) : null}

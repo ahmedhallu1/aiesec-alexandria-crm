@@ -73,7 +73,7 @@ function ListOrOther({
   );
 }
 
-type Fn = "IGV" | "IGT" | "B2B";
+type Fn = "IGV" | "IGT" | "B2B" | "BD";
 
 export function AddAccountDialog({
   open, onOpenChange, viewer, members,
@@ -169,7 +169,7 @@ export function AddAccountDialog({
               <Label>Function</Label>
               <Select
                 value={fn}
-                onValueChange={(v) => setFn(v as "IGV" | "IGT")}
+                onValueChange={(v) => setFn(v as Fn)}
                 disabled={viewer.allowedFns.length < 2}
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>

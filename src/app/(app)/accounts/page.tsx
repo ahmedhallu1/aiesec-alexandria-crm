@@ -2,9 +2,11 @@ import {
   getViewer, listAccounts, listManualArchived, listVisibleMembers,
 } from "@/server/data";
 import type { AccountFilters } from "@/server/data";
-import { accountScope, allowedAccountFunctions, canViewArchive } from "@/lib/rbac";
+import {
+  accountScope, allowedAccountFunctions, canRequestPodioSubmit, canViewArchive,
+} from "@/lib/rbac";
 import { AccountsView } from "@/components/crm/accounts-view";
-import type { Stage } from "@/lib/types";
+import { memberIsB2B, type Stage } from "@/lib/types";
 
 export const metadata = { title: "Accounts" };
 
@@ -21,11 +23,14 @@ export default async function AccountsPage({
   const archived = params.archived === "1" && archiveAllowed;
   const scope = accountScope(viewer);
   const seesOthers = !(scope.kind === "members" && scope.ids.length <= 1);
+  // the B2B/BD leaders' Podio submission worklist
+  const podioAllowed = canRequestPodioSubmit(viewer);
+  const podioPending = params.podio === "1" && podioAllowed && !archived;
 
   const filters: AccountFilters = {
     q: params.q || undefined,
     fn:
-      params.fn === "IGV" || params.fn === "IGT" || params.fn === "B2B"
+      params.fn === "IGV" || params.fn === "IGT" || params.fn === "B2B" || params.fn === "BD"
         ? params.fn
         : undefined,
     product: params.product === "GTa" || params.product === "GTe" ? params.product : undefined,
@@ -39,6 +44,7 @@ export default async function AccountsPage({
     from: params.from || undefined,
     to: params.to || undefined,
     archived,
+    podioPending,
   };
 
   // the Responsible filter is applied AFTER the query so its dropdown only
@@ -75,8 +81,10 @@ export default async function AccountsPage({
         label: m.nickname || m.name,
         functions: [
           ...(m.functions ?? []),
-          // B2B may live in sub-functions only
-          ...((m.sub_functions ?? []).includes("B2B") ? ["B2B"] : []),
+          // B2B/BD may live in sub-functions only (one function, two names)
+          ...(!["B2B", "BD"].some((f) => (m.functions ?? []).includes(f)) && memberIsB2B(m)
+            ? ["B2B"]
+            : []),
         ],
       }))}
       respOptions={respOptions}
@@ -92,6 +100,7 @@ export default async function AccountsPage({
         allowedFns,
         showFnFilter: allowedFns.length > 1,
         seesOthers,
+        canPodioSubmit: podioAllowed,
       }}
       filters={{
         q: params.q ?? "",
@@ -105,6 +114,7 @@ export default async function AccountsPage({
         from: params.from ?? "",
         to: params.to ?? "",
         archived: archived ? "1" : "",
+        podio: podioPending ? "1" : "",
       }}
     />
   );

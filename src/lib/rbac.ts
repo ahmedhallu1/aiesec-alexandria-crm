@@ -34,7 +34,10 @@ export const isEb = (v: Viewer) => master(v) || v.role === "LCVP";
  *  add accounts as product "B2B" and each deal splits its opens across
  *  IGV / IGTa / IGTe. */
 export function isB2B(v: Viewer): boolean {
-  return v.functions.includes("B2B") || v.sub_functions.includes("B2B");
+  // the function is "B2B & BD" — one membership today, may split in future
+  // peaks; either name grants the whole-ICX raising access
+  const hit = (list: string[]) => list.includes("B2B") || list.includes("BD");
+  return hit(v.functions) || hit(v.sub_functions);
 }
 
 /** Dashboard-lane functions: B2B feeds the whole ICX, so B2B people follow
@@ -51,7 +54,8 @@ export function scopeFunctions(v: Viewer): AccountFunction[] {
   const fns: AccountFunction[] = v.functions.filter(
     (f): f is "IGV" | "IGT" => f === "IGV" || f === "IGT"
   );
-  if (fns.length > 0 || isB2B(v)) fns.push("B2B");
+  // B2B & BD accounts raise for every leader's function — both labels visible
+  if (fns.length > 0 || isB2B(v)) fns.push("B2B", "BD");
   return [...new Set(fns)];
 }
 
@@ -80,9 +84,10 @@ export function hasRaisingAccess(v: Viewer): boolean {
  *  B2B people add accounts as B2B (not IGV/IGT); IGV-only members cannot add
  *  IGT accounts and vice versa. Leaders create inside their visibility scope. */
 export function allowedAccountFunctions(v: Viewer): AccountFunction[] {
-  if (master(v)) return ["IGV", "IGT", "B2B"];
+  if (master(v)) return ["IGV", "IGT", "B2B", "BD"];
   if (v.role === "LCVP" || v.role === "Director") return scopeFunctions(v);
-  if (isB2B(v)) return ["B2B"];
+  // B2B & BD crew pick per account which label it carries
+  if (isB2B(v)) return ["B2B", "BD"];
   return v.functions.filter((f): f is "IGV" | "IGT" => f === "IGV" || f === "IGT");
 }
 
@@ -123,6 +128,21 @@ export function canViewArchive(v: Viewer): boolean {
   return master(v) || isIcxLead(v) || v.role === "Team Leader";
 }
 
+/** The TM (Talent Management) module: the whole-LC members directory with
+ *  per-member KPIs/MOS and contact shortcuts. TM function + LCP + admin. */
+export function hasTmAccess(v: Viewer): boolean {
+  return (
+    master(v) || v.functions.includes("TM") || v.sub_functions.includes("TM")
+  );
+}
+
+/** The Podio-submission worklist ("Podio pending" filter + "Ask to submit"):
+ *  the B2B/BD function's MMs (Team Leaders), its Director/VP, LCP and admins. */
+export function canRequestPodioSubmit(v: Viewer): boolean {
+  if (master(v)) return true;
+  return isB2B(v) && ["Team Leader", "LCVP", "Director"].includes(v.role);
+}
+
 /** Request State (Podio) is filled by TL / Coordinator / VP — not plain members. */
 export function canEditRequestState(v: Viewer, a: AccountLike): boolean {
   if (master(v) || (isIcxLead(v) && scopeFunctions(v).includes(a.function as AccountFunction)))
@@ -133,10 +153,11 @@ export function canEditRequestState(v: Viewer, a: AccountLike): boolean {
 }
 
 /** Numbered comments carry the author's label at the time of writing. */
-export function commentLabel(v: Viewer): "Member" | "TL" | "VP" | "LCP" | "Admin" {
+export function commentLabel(v: Viewer): "Member" | "TL" | "VP" | "Director" | "LCP" | "Admin" {
   if (v.role === "LCP") return "LCP";
   if (v.isAdmin) return "Admin"; // the IM director is Admin, not the LCP
-  if (v.role === "LCVP" || v.role === "Director") return "VP";
+  if (v.role === "LCVP") return "VP";
+  if (v.role === "Director") return "Director"; // a Director is NOT a VP
   if (v.role === "Team Leader") return "TL";
   return "Member";
 }

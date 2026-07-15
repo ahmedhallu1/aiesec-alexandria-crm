@@ -11,6 +11,7 @@ import {
   canEditRequestState,
   canManageMembership,
   canReassignAccount,
+  canRequestPodioSubmit,
   canViewAccount,
   canViewArchive,
   commentLabel,
@@ -142,7 +143,7 @@ const linkField = z
 // ================================================================== accounts
 
 const createAccountSchema = z.object({
-  function: z.enum(["IGV", "IGT", "B2B"]),
+  function: z.enum(["IGV", "IGT", "B2B", "BD"]),
   name: z.string().trim().min(2, "Account name is required"),
   product: z.enum(["GTa", "GTe"]).nullish(),
   sub_product: z.string().trim().nullish(),
@@ -369,6 +370,14 @@ export async function updateAccount(
     update.oop_at = new Date().toISOString();
   }
 
+  // the "submit it on Podio" pin clears itself once the owner acts
+  if (
+    account.podio_submit_requested_at &&
+    (update.requested_podio === true || update.request_state)
+  ) {
+    update.podio_submit_requested_at = null;
+  }
+
   const { error } = await db().from("accounts").update(update).eq("id", accountId);
   if (error) return fail(error.message);
   // next step touched (or the account auto-archived) → keep the calendar
@@ -494,9 +503,9 @@ async function insertArchivedName(
   reason: string
 ): Promise<ActionResult> {
   const cleanName = name?.trim();
-  const cleanReason = reason?.trim();
+  // the reason is OPTIONAL — the name alone is enough to blacklist it
+  const cleanReason = reason?.trim() || null;
   if (!cleanName || cleanName.length < 2) return fail("Account name is required.");
-  if (!cleanReason) return fail("Pick or type the archive reason.");
 
   const { duplicate, blacklisted } = await checkAccountName(cleanName);
   if (blacklisted)
@@ -777,6 +786,50 @@ export async function getContractUrl(
   return { ok: true, data: { url: data.signedUrl } };
 }
 
+// ================================================================== podio submit requests
+
+/** "Ask to submit": tells the account's owner to submit it on Podio —
+ *  IN-APP notification only (no email) + pins the account at the top of the
+ *  owner's accounts list until it's requested / gets a request state. */
+export async function requestPodioSubmit(accountId: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!canRequestPodioSubmit(viewer))
+    return fail("Only the B2B/BD leaders ask for Podio submissions.", "forbidden");
+
+  const account = await loadAccount(accountId);
+  if (!account || !canViewAccount(viewer, account))
+    return fail("You are not allowed to work on this account.", "forbidden");
+  if (account.function !== "B2B" && account.function !== "BD")
+    return fail("Podio submissions are tracked for B2B/BD accounts.");
+  if (account.out_of_process)
+    return fail("This account is archived — nothing to submit.");
+  if (account.requested_podio || account.request_state)
+    return fail("This account is already requested on Podio.");
+
+  const { error } = await db()
+    .from("accounts")
+    .update({ podio_submit_requested_at: new Date().toISOString() })
+    .eq("id", accountId);
+  if (error) {
+    if (error.message.includes("podio_submit_requested_at"))
+      return fail("This needs migration 0014 — run it in the Supabase SQL editor.");
+    return fail(error.message);
+  }
+
+  const { notifyMembers } = await import("./notify");
+  await notifyMembers(
+    [account.responsible_id],
+    "info",
+    `📌 Submit "${account.name}" on Podio`,
+    `${viewer.nickname || viewer.name} asked you to submit this account on the national Podio form — it stays pinned on top of your accounts until you do.`,
+    viewer.id,
+    `/accounts/${accountSlug(account.name)}`
+  );
+  await logAudit(viewer.id, "podio_submit_request", "account", accountId);
+  refresh(accountId);
+  return { ok: true };
+}
+
 // ================================================================== comments
 
 /** Numbered comments: members log as many as they need; TL/VP/LCP comments
@@ -974,7 +1027,9 @@ function isRaisingMember(m: { functions: string[] | null; sub_functions: string[
 }
 
 const memberIsB2B = (m: { functions: string[] | null; sub_functions: string[] | null }) =>
-  (m.functions ?? []).includes("B2B") || (m.sub_functions ?? []).includes("B2B");
+  ["B2B", "BD"].some(
+    (f) => (m.functions ?? []).includes(f) || (m.sub_functions ?? []).includes(f)
+  );
 
 /** Product label for emails/notifications: IGV / IGTa / IGTe / B2B. */
 function productLabel(fn: string, product: string | null): string {
@@ -989,7 +1044,7 @@ function productLabel(fn: string, product: string | null): string {
 function announceFunctions(fn: string): ("IGV" | "IGT" | "B2B")[] {
   if (fn === "IGV") return ["IGV", "B2B"];
   if (fn === "IGT") return ["IGT", "B2B"];
-  return ["B2B"]; // B2B account → B2B crew only
+  return ["B2B"]; // B2B/BD account → B2B crew only (memberIsB2B matches both)
 }
 
 /** Works out who the visit is shared with:
@@ -1797,7 +1852,9 @@ export async function setPerformanceGoal(
       if (g.scope === "function" && g.function) {
         const parentFn = g.function === "IGV" ? "IGV" : "IGT";
         const isB2BMember = (m: (typeof all)[number]) =>
-          (m.functions ?? []).includes("B2B") || (m.sub_functions ?? []).includes("B2B");
+          ["B2B", "BD"].some(
+            (f) => (m.functions ?? []).includes(f) || (m.sub_functions ?? []).includes(f)
+          );
         audience = all.filter(
           (m) =>
             m.role !== "LCP" &&
@@ -1854,7 +1911,7 @@ export async function setPerformanceGoal(
 // ================================================================== bulk import
 
 export interface ImportRowInput {
-  function: "IGV" | "IGT" | "B2B";
+  function: "IGV" | "IGT" | "B2B" | "BD";
   name: string;
   product?: string | null;
   project?: string | null;
@@ -1920,7 +1977,6 @@ export async function importAccountsBulk(
 
 const proposalSchema = z.object({
   accountId: z.string().uuid(),
-  recipientName: z.string().trim().min(2, "Who is this proposal addressed to?"),
   recipientEmail: z
     .string()
     .trim()
@@ -1930,9 +1986,10 @@ const proposalSchema = z.object({
   attachmentsNote: z.string().trim().nullish(),
   /** attach the official per-product proposal PDF (proposals/<product>.pdf) */
   attachProposal: z.boolean().nullish(),
-  /** B2B raises for the whole ICX — the email body is written for THIS product
-   *  ("B2B" = the general all-programs partnership email) */
-  bodyProduct: z.enum(["iGV", "iGTa", "iGTe", "B2B"]).nullish(),
+  /** B2B/BD raise for the whole ICX — the email body is written for THIS
+   *  product ("B2B" = the general all-programs partnership email, "BD" = the
+   *  talent-solutions pitch of aiesec.org.eg/partner.html) */
+  bodyProduct: z.enum(["iGV", "iGTa", "iGTe", "B2B", "BD"]).nullish(),
   /** B2B: which official product PDFs to attach (any of the three) */
   attachProducts: z.array(z.enum(["iGV", "iGTa", "iGTe"])).nullish(),
 });
@@ -1948,7 +2005,7 @@ export async function createProposalDraft(
   const parsed = proposalSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0].message);
   const {
-    accountId, recipientName, recipientEmail, sector, customNote,
+    accountId, recipientEmail, sector, customNote,
     attachmentsNote, attachProposal, bodyProduct, attachProducts,
   } = parsed.data;
 
@@ -1961,38 +2018,39 @@ export async function createProposalDraft(
       "Your Google access is missing — sign out, then sign in with Google once to grant it (it also powers your calendar reminders)."
     );
 
-  // the email body is written for one product. B2B accounts raise for the whole
-  // ICX, so the member picks the product — or keeps the general "B2B" variant
-  // that presents all programs and links to aiesec.org/partners.
-  const product: "iGV" | "iGTa" | "iGTe" | "B2B" =
+  // the email body is written for one product. B2B/BD accounts raise for the
+  // whole ICX, so the member picks the product — or keeps their general
+  // variant (B2B → all-programs @ aiesec.org/partners; BD → talent solutions
+  // @ aiesec.org.eg/partner.html).
+  const product: "iGV" | "iGTa" | "iGTe" | "B2B" | "BD" =
     account.function === "IGV"
       ? "iGV"
       : account.function === "IGT"
         ? account.product === "GTe" ? "iGTe" : "iGTa"
-        : (bodyProduct ?? "B2B"); // B2B
+        : (bodyProduct ?? (account.function === "BD" ? "BD" : "B2B"));
 
   const { proposalDraft } = await import("@/lib/email/proposal");
   const draft = proposalDraft({
     product,
     companyName: account.name,
-    recipientName,
     sector: sector || account.industry || account.sub_product || null,
     customNote: customNote || null,
     attachmentsNote: attachmentsNote || null,
     memberName: viewer.name,
-    memberRole: `${viewer.role}${viewer.functions.length ? ` — ${viewer.functions.join(" & ")}` : ""}`,
     memberPhone: viewer.phone,
     memberEmail: viewer.email,
   });
 
-  // which official PDFs to attach: B2B picks any of the three; others attach
-  // just their own product's PDF when the switch is on
+  // which official PDFs to attach: B2B picks any of the three; BD sends NO
+  // ready attachments; others attach their own product's PDF when switched on
   const wanted: ("iGV" | "iGTa" | "iGTe")[] =
-    account.function === "B2B"
-      ? [...new Set(attachProducts ?? [])]
-      : attachProposal && product !== "B2B"
-        ? [product]
-        : [];
+    account.function === "BD"
+      ? []
+      : account.function === "B2B"
+        ? [...new Set(attachProducts ?? [])]
+        : attachProposal && product !== "B2B" && product !== "BD"
+          ? [product]
+          : [];
 
   const attachments: { filename: string; mimeType: string; contentBase64: string }[] = [];
   if (wanted.length > 0) {

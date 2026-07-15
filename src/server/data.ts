@@ -6,6 +6,8 @@ import { env } from "@/lib/env";
 import {
   accountScope,
   canViewAccount,
+  hasRaisingAccess,
+  hasTmAccess,
   icxFunctions,
   isB2B,
   reassignTargetScope,
@@ -91,6 +93,9 @@ export interface AccountFilters {
   archived?: boolean;
   /** dashboards need the full picture including archived accounts */
   includeArchived?: boolean;
+  /** B2B/BD accounts not yet requested on Podio (no request, no state) —
+   *  the leaders' submission worklist */
+  podioPending?: boolean;
 }
 
 export async function listAccounts(
@@ -103,6 +108,11 @@ export async function listAccounts(
   );
   if (filters.archived) query = query.eq("out_of_process", true);
   else if (!filters.includeArchived) query = query.eq("out_of_process", false);
+  if (filters.podioPending)
+    query = query
+      .in("function", ["B2B", "BD"])
+      .eq("requested_podio", false)
+      .is("request_state", null);
   if (filters.fn) query = query.eq("function", filters.fn);
   if (filters.project) query = query.eq("project", filters.project);
   if (filters.product) query = query.eq("product", filters.product);
@@ -235,9 +245,9 @@ export async function listVisibleMembers(viewer: Viewer): Promise<Member[]> {
   let query = db().from("members").select("*").eq("is_active", true);
   const scope = accountScope(viewer);
   if (scope.kind === "functions") {
-    // B2B people may carry B2B as a sub-function only — match both columns
+    // B2B/BD people may carry those names as sub-functions only — match both columns
     query = scope.fns.includes("B2B")
-      ? query.or(`functions.ov.{${scope.fns.join(",")}},sub_functions.cs.{B2B}`)
+      ? query.or(`functions.ov.{${scope.fns.join(",")}},sub_functions.ov.{B2B,BD}`)
       : query.overlaps("functions", scope.fns);
   }
   if (scope.kind === "members") query = query.in("id", scope.ids);
@@ -250,10 +260,10 @@ export async function listReassignTargets(viewer: Viewer, fn: AccountFunction): 
   if (scope.kind === "members" && scope.ids.length === 0) return [];
   let query = db().from("members").select("*").eq("is_active", true);
   if (scope.kind === "all" || scope.kind === "functions") {
-    // reassignment stays inside the account's function (B2B = the B2B crew)
+    // reassignment stays inside the account's function (B2B/BD = the B2B crew)
     query =
-      fn === "B2B"
-        ? query.or("functions.cs.{B2B},sub_functions.cs.{B2B}")
+      fn === "B2B" || fn === "BD"
+        ? query.or("functions.ov.{B2B,BD},sub_functions.ov.{B2B,BD}")
         : query.contains("functions", [fn]);
   } else {
     query = query.in("id", scope.ids);
@@ -311,7 +321,8 @@ function rowInLane(r: PipelineRow, lane: string): boolean {
   if (lane === "IGT") return r.function === "IGT";
   if (lane === "IGTa") return r.function === "IGT" && r.product === "GTa";
   if (lane === "IGTe") return r.function === "IGT" && r.product === "GTe";
-  if (lane === "B2B") return r.function === "B2B";
+  // B2B & BD are one function — the B2B lane shows both labels
+  if (lane === "B2B") return r.function === "B2B" || r.function === "BD";
   return true;
 }
 
@@ -327,7 +338,8 @@ function laneSlots(r: PipelineRow, lane: string): number {
   if (lane === "IGTa") return r.slots_igta_count ?? 0;
   if (lane === "IGTe") return r.slots_igte_count ?? 0;
   if (lane === "IGT") return (r.slots_igta_count ?? 0) + (r.slots_igte_count ?? 0);
-  if (lane === "B2B") return r.function === "B2B" ? r.slots_count ?? 0 : 0;
+  if (lane === "B2B")
+    return r.function === "B2B" || r.function === "BD" ? r.slots_count ?? 0 : 0;
   return r.slots_count ?? 0;
 }
 
@@ -410,13 +422,19 @@ export async function getDashboard(
   const lane = laneKey && laneKey !== "all" ? laneKey : "all";
   const dashViewer = dashboardViewer(viewer);
   // lane filtering happens HERE in JS — a DB fn/product filter would drop the
-  // B2B (and cross-product IGT) accounts whose opens feed this lane
+  // B2B (and cross-product IGT) accounts whose opens feed this lane.
+  // responsibleId ("My numbers" / the member select) is ALSO applied in JS:
+  // it scopes the KPI + conversion totals ONLY — leaderboards, drills and
+  // goal progress always show the full picture.
   const rows = await listAccounts(dashViewer, {
     ...filters,
     fn: undefined,
     product: undefined,
+    responsibleId: undefined,
     includeArchived: true,
   });
+  const inKpiScope = (r: PipelineRow) =>
+    !filters.responsibleId || r.responsible_id === filters.responsibleId;
   const members = await listVisibleMembers(dashViewer);
   const byId = new Map(members.map((m) => [m.id, m]));
 
@@ -442,13 +460,16 @@ export async function getDashboard(
   const byMM = new Map<string, DrillGroup>();
   const byPerson = new Map<string, DrillGroup>(); // union, for the team board
   let teamAchieved = 0;
+  // function-goal progress is NEVER scoped by the member filter
+  let funcAchieved = 0;
 
   for (const r of rows) {
     const inLane = rowInLane(r, lane);
     const contributes = laneSlots(r, lane) > 0;
     if (!inLane && !contributes) continue; // nothing for this lane
 
-    addRowLane(total, r, lane);
+    if (inKpiScope(r)) addRowLane(total, r, lane);
+    funcAchieved += laneSlots(r, lane);
 
     // product drill: IGV / IGTa / IGTe / B2B rows (account-level numbers)
     if (inLane) {
@@ -534,6 +555,7 @@ export async function getDashboard(
     mmBoard,
     teamBoard,
     teamAchieved,
+    funcAchieved,
     funcGoal,
     teamGoal,
     teamLeadId,
@@ -594,7 +616,7 @@ export async function teamsForViewer(viewer: Viewer): Promise<{ label: string; n
     viewer.isAdmin || ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(viewer.role);
   const fns = [
     ...new Set([
-      ...viewer.functions.filter((f) => f === "IGV" || f === "IGT" || f === "B2B"),
+      ...viewer.functions.filter((f) => ["IGV", "IGT", "B2B", "BD"].includes(f)),
       ...(isB2B(viewer) ? ["B2B"] : []),
     ]),
   ];
@@ -602,8 +624,9 @@ export async function teamsForViewer(viewer: Viewer): Promise<{ label: string; n
   if (onEb) push("Executive Board", byKey.get("EB:"));
   if (isManager) push("Leadership Body", byKey.get("LB:"));
   for (const fn of fns) push(`${fn} function`, byKey.get(`Function:${fn}`));
-  if (viewer.role === "Team Leader" || viewer.role === "Coordinator")
-    for (const fn of fns) push(`${fn} management`, byKey.get(`MM:${fn}`));
+  // the MM ("Function leaders") team: the function's VP/Director + their TLs
+  if (["Team Leader", "Coordinator", "Director", "LCVP"].includes(viewer.role))
+    for (const fn of fns) push(`${fn} leaders`, byKey.get(`MM:${fn}`));
 
   // Team-Leader team (from members.team_name): their own if TL, else their manager's
   if (viewer.role === "Team Leader") push("My team", viewer.team_name);
@@ -630,6 +653,202 @@ export async function functionTeamName(fn: string): Promise<string | null> {
     .eq("function_key", fn)
     .maybeSingle<{ name: string }>();
   return data?.name ?? null;
+}
+
+// ------------------------------------------------------------------ TM module
+
+export interface MemberDirectoryEntry {
+  id: string;
+  name: string;
+  nickname: string | null;
+  email: string;
+  phone: string | null;
+  role: string;
+  functions: string[];
+  sub_functions: string[];
+  team_name: string | null;
+  manager: string | null;
+  /** the member's MOS/KPIs — their own accounts' funnel numbers */
+  kpis: {
+    mr: number;
+    contacted: number;
+    visits: number;
+    visitsDone: number;
+    deals: number;
+    slots: number;
+  };
+}
+
+/** The TM module's whole-LC members directory: every active member with their
+ *  info + personal KPIs (MOS) + contact shortcuts. TM function, LCP, admin. */
+export async function listMembersDirectory(
+  viewer: Viewer
+): Promise<MemberDirectoryEntry[]> {
+  if (!hasTmAccess(viewer)) return [];
+
+  const [{ data: membersData }, { data: accountsData }] = await Promise.all([
+    db()
+      .from("members")
+      .select(
+        "id, name, nickname, email, phone, role, functions, sub_functions, team_name, stakeholder_id"
+      )
+      .eq("is_active", true)
+      .order("name"),
+    db()
+      .from("accounts_pipeline")
+      .select("responsible_id, attempts, visit_id, visit_done, deals_count, slots_count")
+      .limit(5000),
+  ]);
+
+  type Agg = MemberDirectoryEntry["kpis"];
+  const kpisById = new Map<string, Agg>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const a of (accountsData ?? []) as any[]) {
+    const k = kpisById.get(a.responsible_id) ?? {
+      mr: 0, contacted: 0, visits: 0, visitsDone: 0, deals: 0, slots: 0,
+    };
+    k.mr += 1;
+    if (a.attempts > 0) k.contacted += 1;
+    if (a.visit_id) k.visits += 1;
+    if (a.visit_done) k.visitsDone += 1;
+    k.deals += a.deals_count ?? 0;
+    k.slots += a.slots_count ?? 0;
+    kpisById.set(a.responsible_id, k);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const members = (membersData ?? []) as any[];
+  const nameById = new Map(members.map((m) => [m.id, m.nickname || m.name]));
+  return members.map((m) => ({
+    id: m.id,
+    name: m.name,
+    nickname: m.nickname,
+    email: m.email,
+    phone: m.phone,
+    role: m.role,
+    functions: m.functions ?? [],
+    sub_functions: m.sub_functions ?? [],
+    team_name: m.team_name,
+    manager: m.stakeholder_id ? nameById.get(m.stakeholder_id) ?? null : null,
+    kpis: kpisById.get(m.id) ?? {
+      mr: 0, contacted: 0, visits: 0, visitsDone: 0, deals: 0, slots: 0,
+    },
+  }));
+}
+
+// ------------------------------------------------------------------ my people
+
+export interface PersonCard {
+  id: string;
+  name: string;
+  nickname: string | null;
+  role: string;
+  email: string;
+  phone: string | null;
+  team_name: string | null;
+  functions: string[];
+}
+
+/** The people a leader looks after, for the profile card:
+ *  Team Leader → their direct team · VP/Director → their whole function ·
+ *  LCP/admin → the EB (the LCVPs) · Members/Coordinators → nothing. */
+export async function profilePeople(
+  viewer: Viewer
+): Promise<{ title: string; people: PersonCard[] } | null> {
+  const strip = (m: Member): PersonCard => ({
+    id: m.id,
+    name: m.name,
+    nickname: m.nickname,
+    role: m.role,
+    email: m.email,
+    phone: m.phone,
+    team_name: m.team_name,
+    functions: m.functions ?? [],
+  });
+
+  if (viewer.isAdmin || viewer.role === "LCP") {
+    const { data } = await db()
+      .from("members")
+      .select("*")
+      .eq("is_active", true)
+      .eq("role", "LCVP")
+      .order("name");
+    const people = ((data ?? []) as Member[]).map(strip);
+    return people.length > 0 ? { title: "The Executive Board", people } : null;
+  }
+
+  if (viewer.role === "LCVP" || viewer.role === "Director") {
+    // match by the VP's OWN functions (works for TM/OGX/… too, not only ICX)
+    const fns = (viewer.functions ?? []).filter(Boolean);
+    if (fns.length === 0) return null;
+    const list = `{${fns.join(",")}}`;
+    const { data } = await db()
+      .from("members")
+      .select("*")
+      .eq("is_active", true)
+      .or(`functions.ov.${list},sub_functions.ov.${list}`)
+      .order("name");
+    const people = ((data ?? []) as Member[])
+      .filter((m) => m.id !== viewer.id && m.role !== "LCP")
+      .map(strip);
+    return people.length > 0 ? { title: "My function", people } : null;
+  }
+
+  if (viewer.role === "Team Leader") {
+    const { data } = await db()
+      .from("members")
+      .select("*")
+      .eq("is_active", true)
+      .eq("stakeholder_id", viewer.id)
+      .order("name");
+    const people = ((data ?? []) as Member[]).map(strip);
+    return people.length > 0 ? { title: "My team", people } : null;
+  }
+
+  return null; // Coordinators & Members steer themselves
+}
+
+// ------------------------------------------------------------------ calendar
+
+export interface CalendarVisit {
+  id: string;
+  visit_date: string;
+  visit_time: string;
+  done: boolean | null;
+  account: { id: string; name: string; function: string };
+  member: { id: string; name: string; nickname: string | null };
+}
+
+/** Every visit of the viewer's function(s) in a date range. The calendar is
+ *  FUNCTION-wide, like the dashboard aggregates: everyone sees their whole
+ *  function's visits (B2B visits show for everyone — B2B raises for all).
+ *  Archived accounts' visits are hidden. */
+export async function listFunctionVisits(
+  viewer: Viewer,
+  from: string,
+  to: string
+): Promise<CalendarVisit[]> {
+  // hard server-side gate: no raising access → no visit data, ever (the
+  // layout's ComingSoon overlay is cosmetic — RSC payloads still ship)
+  if (!hasRaisingAccess(viewer)) return [];
+  const { data } = await db()
+    .from("visits")
+    .select(
+      "id, visit_date, visit_time, done, " +
+        "account:accounts(id, name, function, out_of_process), " +
+        "member:members(id, name, nickname)"
+    )
+    .gte("visit_date", from)
+    .lte("visit_date", to)
+    .order("visit_date")
+    .order("visit_time");
+
+  const master = accountScope(viewer).kind === "all";
+  const fns = new Set<string>([...icxFunctions(viewer), "B2B", "BD"]);
+  type Row = CalendarVisit & { account: CalendarVisit["account"] & { out_of_process: boolean } };
+  return ((data ?? []) as unknown as Row[])
+    .filter((v) => v.account && !v.account.out_of_process && v.member)
+    .filter((v) => master || fns.has(v.account.function));
 }
 
 // ------------------------------------------------------------------ audit

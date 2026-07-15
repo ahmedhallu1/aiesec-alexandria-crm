@@ -1,6 +1,6 @@
 import { getViewer, getDashboard, listTeamLeaders, listVisibleMembers } from "@/server/data";
 import type { AccountFilters } from "@/server/data";
-import { accountScope, icxFunctions } from "@/lib/rbac"; // icxFunctions is B2B-aware
+import { accountScope, icxFunctions, isB2B } from "@/lib/rbac"; // icxFunctions is B2B-aware
 import { DashboardView, type DashboardScopeView } from "@/components/crm/dashboard-view";
 
 export const metadata = { title: "Dashboard" };
@@ -11,6 +11,7 @@ function parseFnParam(fn?: string): Pick<AccountFilters, "fn" | "product"> {
   if (fn === "IGT") return { fn: "IGT" };
   if (fn === "IGTa") return { fn: "IGT", product: "GTa" };
   if (fn === "IGTe") return { fn: "IGT", product: "GTe" };
+  if (fn === "B2B") return { fn: "B2B" };
   return {};
 }
 
@@ -38,6 +39,16 @@ export default async function DashboardPage({
       { key: "IGTe", label: "IGTe" }
     );
   }
+  // B2B lane: B2B raises for the whole ICX, so its accounts affect every
+  // leader — VPs/Directors (and the LCP/admin, and B2B people themselves)
+  // can filter the dashboard down to just the B2B accounts.
+  if (
+    master ||
+    isB2B(viewer) ||
+    ((viewer.role === "LCVP" || viewer.role === "Director") && fns.length > 0)
+  ) {
+    views.push({ key: "B2B", label: "B2B" });
+  }
 
   const defaultView = views[0]?.key ?? "all";
   const requestedFn =
@@ -62,7 +73,9 @@ export default async function DashboardPage({
   // every lane, so they always show.
   const laneFn = filters.fn ?? null;
   const isB2BMember = (m: (typeof members)[number]) =>
-    (m.functions ?? []).includes("B2B") || (m.sub_functions ?? []).includes("B2B");
+    ["B2B", "BD"].some(
+      (f) => (m.functions ?? []).includes(f) || (m.sub_functions ?? []).includes(f)
+    );
   const memberOptions = members
     .filter((m) => m.role !== "LCP")
     .filter((m) =>
@@ -106,6 +119,7 @@ export default async function DashboardPage({
       mmBoard={data.mmBoard}
       teamBoard={data.teamBoard}
       teamAchieved={data.teamAchieved}
+      funcAchieved={data.funcAchieved}
       funcGoal={data.funcGoal}
       teamGoal={data.teamGoal}
       views={views}

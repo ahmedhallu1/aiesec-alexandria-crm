@@ -20,9 +20,9 @@ import {
 } from "@/components/ui/table";
 
 interface MemberOption { id: string; label: string; functions: string[] }
-type ImportFn = "IGV" | "IGT" | "B2B";
+type ImportFn = "IGV" | "IGT" | "B2B" | "BD";
 
-type Fn = "IGV" | "IGT" | "B2B";
+type Fn = "IGV" | "IGT" | "B2B" | "BD";
 
 interface DraftRow {
   name: string;
@@ -121,7 +121,7 @@ export function ImportView({
           if (!value) return;
           if (key === "function") {
             const up = value.toUpperCase();
-            const fn = up.includes("B2B") ? "B2B" : up.includes("IGV") ? "IGV" : up.includes("IGT") ? "IGT" : "";
+            const fn = up.includes("B2B") ? "B2B" : up.includes("BD") ? "BD" : up.includes("IGV") ? "IGV" : up.includes("IGT") ? "IGT" : "";
             if (fn && viewer.allowedFns.includes(fn as ImportFn)) draft.function = fn as ImportFn;
           } else if (key === "product") {
             const v = value.toLowerCase();
@@ -212,7 +212,9 @@ export function ImportView({
     members.filter(
       (m) =>
         m.id === viewer.id ||
-        (fn === "B2B" ? m.functions.includes("B2B") : m.functions.includes(fn))
+        (fn === "B2B" || fn === "BD"
+          ? ["B2B", "BD"].some((f) => m.functions.includes(f))
+          : m.functions.includes(fn))
     );
 
   return (

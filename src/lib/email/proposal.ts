@@ -9,17 +9,15 @@ import { env } from "@/lib/env";
  *  variant pointing at aiesec.org/partners. The draft lands in the MEMBER's
  *  own Gmail, they review and send. No company-logo section by design. */
 
-export type ProposalProduct = "iGTa" | "iGTe" | "iGV" | "B2B";
+export type ProposalProduct = "iGTa" | "iGTe" | "iGV" | "B2B" | "BD";
 
 export interface ProposalInput {
   product: ProposalProduct;
   companyName: string;
-  recipientName: string;
   sector: string | null;
   customNote: string | null;
   attachmentsNote: string | null;
   memberName: string;
-  memberRole: string;
   memberPhone: string | null;
   memberEmail: string;
 }
@@ -29,6 +27,8 @@ const NAVY = "#0A2540";
 
 interface Pitch {
   programName: string;
+  /** the sender's title in the signature (product-based, not the CRM role) */
+  signatureTitle: string;
   /** program logo in /public/brand (absolute URL at render time) — text badge when missing */
   logo: string | null;
   subject: (company: string) => string;
@@ -45,6 +45,7 @@ interface Pitch {
 const PITCHES: Record<ProposalProduct, Pitch> = {
   iGV: {
     programName: "Global Volunteer",
+    signatureTitle: "Global Volunteer Manager",
     logo: "gv-logo.png",
     subject: (c) => `Collaborate on Social Impact Initiatives with Global Volunteers — ${c}`,
     headline: (c) => `Exploring Global Volunteer collaboration with ${c}`,
@@ -73,6 +74,7 @@ const PITCHES: Record<ProposalProduct, Pitch> = {
   },
   iGTa: {
     programName: "Global Talent",
+    signatureTitle: "Global Talent Manager",
     logo: "gta-logo.png",
     subject: (c) => `Exploring International Talent for ${c}'s Growth`,
     headline: (c) => `Exploring Global Talent collaboration with ${c}`,
@@ -101,6 +103,7 @@ const PITCHES: Record<ProposalProduct, Pitch> = {
   },
   iGTe: {
     programName: "Global Teacher",
+    signatureTitle: "Global Teacher Manager",
     logo: null,
     subject: (c) => `Enhancing ${c}'s Programs with International Teaching Talent`,
     headline: (c) => `Exploring Global Teacher collaboration with ${c}`,
@@ -129,6 +132,7 @@ const PITCHES: Record<ProposalProduct, Pitch> = {
   },
   B2B: {
     programName: "Global Programs",
+    signatureTitle: "Business Development Manager",
     logo: null,
     subject: (c) => `Exploring a Partnership between AIESEC in Alexandria and ${c}`,
     headline: (c) => `Exploring a partnership with ${c}`,
@@ -154,6 +158,36 @@ const PITCHES: Record<ProposalProduct, Pitch> = {
     moreLabel: "To know more about partnering with AIESEC",
     moreUrl: "https://aiesec.org/partners",
   },
+  // BD accounts: the talent-solutions pitch of aiesec.org.eg/partner.html —
+  // NO ready-made PDF attachments ride with this one.
+  BD: {
+    programName: "Talent Solutions",
+    signatureTitle: "Business Development Manager",
+    logo: null,
+    subject: (c) => `Talent Solutions for ${c} — Partnering with AIESEC in Alexandria`,
+    headline: (c) => `Exploring a partnership with ${c}`,
+    intro1: (c) =>
+      `We are reaching out from AIESEC in Alexandria. AIESEC offers talent solutions to a variety of organizations — companies, start-ups and NGOs — helping them find the right candidate for the job from our pool of global talents, and we believe ${c} could benefit directly.`,
+    intro2: (c, s) =>
+      s
+        ? `Given ${c}'s work in ${s}, we see concrete ways our programs could support your team, your projects and your growth.`
+        : `We see concrete ways our programs could support ${c}'s team, projects and growth.`,
+    bullets: [
+      "Find the right candidate from a global pool of skilled young talents — volunteers, professionals and teachers.",
+      "Build a strong employer brand and gain recognition with our partners group on our website, annual report and media channels.",
+      "Expand your organization's impact and drive growth through innovative, purpose-driven collaborations with youth.",
+    ],
+    snapshot: [
+      "Volunteer hiring: Global Volunteer — youth for social-impact, SDG-aligned projects",
+      "Intern hiring: Global Talent — skilled young professionals for your HR needs",
+      "Teacher hiring: Global Teacher — young educators for educational institutions",
+      "Partner branding: special branding options + media exposure across our channels",
+    ],
+    meeting: (c) =>
+      `Would you be open to a brief 20-minute meeting next week to discuss which talent solution fits ${c} best?`,
+    moreLabel: "To know more about partnering with AIESEC in Egypt",
+    moreUrl: "https://aiesec.org.eg/partner.html",
+  },
 };
 
 /** Left-accent callout box (same style as the original proposal tool). */
@@ -169,9 +203,8 @@ export function proposalDraft(input: ProposalInput): { subject: string; html: st
   const sector = input.sector ? escapeHtml(input.sector) : null;
   const subject = p.subject(input.companyName);
 
-  const greeting = input.recipientName.trim()
-    ? `Dear ${escapeHtml(input.recipientName)},`
-    : `Dear ${company} Team,`;
+  // the phone in the signature opens a WhatsApp chat directly
+  const waDigits = input.memberPhone?.replace(/\D/g, "") ?? "";
 
   const programBadge = p.logo
     ? `<img src="${env.appUrl}/brand/${p.logo}" alt="${p.programName}" height="40" style="height:40px;display:block;border:0;">`
@@ -192,8 +225,6 @@ export function proposalDraft(input: ProposalInput): { subject: string; html: st
   </td></tr>
 
   <tr><td style="padding:30px 32px 36px;font-size:15px;line-height:1.75;">
-    <p style="margin:0 0 18px;">${greeting}</p>
-
     <h1 style="margin:0 0 18px;font-size:25px;line-height:1.3;color:${NAVY};font-weight:800;">${p.headline(company)}</h1>
 
     <p style="margin:0 0 16px;">${p.intro1(company)}</p>
@@ -247,9 +278,9 @@ export function proposalDraft(input: ProposalInput): { subject: string; html: st
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:24px;"><tr>
       <td style="border-top:1px solid #e8eef6;padding-top:18px;font-size:14px;line-height:1.7;">
         <b style="color:${NAVY};">${escapeHtml(input.memberName)}</b><br>
-        ${escapeHtml(input.memberRole)}<br>
-        <a href="https://aiesec.org" style="color:${BLUE};font-weight:bold;text-decoration:underline;">AIESEC in Alexandria</a>
-        ${input.memberPhone ? `<br>${escapeHtml(input.memberPhone)}` : ""}
+        ${p.signatureTitle}<br>
+        <a href="https://aiesec.org.eg/" style="color:${BLUE};font-weight:bold;text-decoration:underline;">AIESEC in Alexandria</a>
+        ${input.memberPhone && waDigits ? `<br><a href="https://wa.me/${waDigits}" style="color:${BLUE};text-decoration:underline;">${escapeHtml(input.memberPhone)}</a>` : ""}
         <br>${escapeHtml(input.memberEmail)}
       </td>
     </tr></table>

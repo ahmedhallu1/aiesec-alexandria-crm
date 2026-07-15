@@ -37,8 +37,12 @@ const MEMBERSHIP_HEADERS = [
 ];
 
 /** "Teams" TAB on the Membership spreadsheet: names the standing teams (the
- *  structure is derived from the membership). Type = EB / LB / Function / MM;
- *  Function = IGV/IGT/B2B (blank for EB & LB). */
+ *  structure is derived from the membership). Types in the sheet:
+ *  EB · LB · Function · "Function leaders" (stored as MM — the function's
+ *  VP/Director + their TLs) · Team ("Team" rows are skipped: TL team names
+ *  already live in the Membership tab's Team Name column). The Function cell
+ *  may hold SEVERAL functions ("B2B, BD") — one teams row is stored per
+ *  function so every member matches. */
 const TEAMS_TAB = "Teams";
 const TEAMS_HEADERS = ["Type (EB/LB/Function/MM)", "Function (IGV/IGT/B2B)", "Team Name"];
 const TEAMS_SEED = [
@@ -352,19 +356,33 @@ export async function importTeams(): Promise<number> {
   });
   const rows = (res.data.values ?? []) as string[][];
 
-  const TYPES = ["EB", "LB", "Function", "MM"];
+  // sheet wording → stored type ("Function leaders" = the MM team)
+  const TYPE_ALIASES: Record<string, string> = {
+    eb: "EB",
+    lb: "LB",
+    function: "Function",
+    mm: "MM",
+    functionleaders: "MM",
+  };
   let count = 0;
   for (const raw of rows) {
     const [typeRaw, fnRaw, nameRaw] = raw;
     const name = (nameRaw ?? "").trim();
-    const type = TYPES.find((t) => t.toLowerCase() === (typeRaw ?? "").trim().toLowerCase());
+    const type = TYPE_ALIASES[(typeRaw ?? "").trim().toLowerCase().replace(/[^a-z]/g, "")];
+    // "Team" rows are intentionally skipped — TL teams are named in the
+    // Membership tab's Team Name column
     if (!name || !type) continue;
     const needsFn = type === "Function" || type === "MM";
-    const fnKey = needsFn ? (fnRaw ?? "").trim().toUpperCase() : "";
-    await db()
-      .from("teams")
-      .upsert({ type, function_key: fnKey, name }, { onConflict: "type,function_key" });
-    count += 1;
+    // multi-select cells arrive as "B2B, BD" — store one row per function
+    const fnKeys = needsFn
+      ? [...new Set((fnRaw ?? "").split(/[,;]+/).map((f) => f.trim().toUpperCase()).filter(Boolean))]
+      : [""];
+    for (const fnKey of fnKeys.length > 0 ? fnKeys : [""]) {
+      await db()
+        .from("teams")
+        .upsert({ type, function_key: fnKey, name }, { onConflict: "type,function_key" });
+      count += 1;
+    }
   }
   return count;
 }
@@ -490,9 +508,7 @@ export async function exportAllSheets(): Promise<void> {
   // Function / Product / Archived? columns are the filter flags.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const productLabel = (a: any): string =>
-    a.function === "IGV" ? "IGV"
-    : a.function === "B2B" ? "B2B"
-    : a.product ? `I${a.product}` : "IGT";
+    a.function === "IGT" ? (a.product ? `I${a.product}` : "IGT") : a.function;
 
   await safe("CRM — Raising Accounts", () => overwriteSheet(
     "CRM — Raising Accounts",
