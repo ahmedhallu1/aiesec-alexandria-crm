@@ -1,4 +1,4 @@
-import { getViewer } from "@/server/data";
+import { getViewer, teamsForViewer } from "@/server/data";
 import { db } from "@/lib/supabase";
 import { ProfileView } from "@/components/crm/profile-view";
 
@@ -7,15 +7,17 @@ export const metadata = { title: "My profile" };
 export default async function ProfilePage() {
   const viewer = await getViewer();
 
-  const stakeholder = viewer.stakeholder_id
-    ? (
-        await db()
+  const [stakeholderRow, teams] = await Promise.all([
+    viewer.stakeholder_id
+      ? db()
           .from("members")
           .select("name, nickname")
           .eq("id", viewer.stakeholder_id)
           .maybeSingle<{ name: string; nickname: string | null }>()
-      ).data
-    : null;
+      : Promise.resolve({ data: null }),
+    teamsForViewer(viewer).catch(() => []),
+  ]);
+  const stakeholder = stakeholderRow.data;
 
   return (
     <ProfileView
@@ -35,6 +37,7 @@ export default async function ProfilePage() {
         googlePhotoUrl: viewer.photo_url,
         isAdmin: viewer.isAdmin,
         hasPassword: !!viewer.password_hash,
+        teams,
       }}
     />
   );

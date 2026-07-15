@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CalendarCheck, Check, KeyRound, Loader2, Lock, Mail, Sparkles, Upload } from "lucide-react";
+import { CalendarCheck, Check, KeyRound, Loader2, Lock, Mail, Sparkles, Upload, Users } from "lucide-react";
 import { changePassword, diagnoseCalendar, updateAvatar, updateProfile } from "@/server/actions";
 import { ADMIN_EMAIL, cleanPhone, FUNCTION_COLORS, PHONE_RE } from "@/lib/types";
 import { avatarChoices } from "@/lib/avatars";
@@ -34,6 +34,7 @@ interface ProfileInfo {
   googlePhotoUrl: string | null;
   isAdmin: boolean;
   hasPassword: boolean;
+  teams: { label: string; name: string }[];
 }
 
 export function ProfileView({ member }: { member: ProfileInfo }) {
@@ -244,6 +245,27 @@ export function ProfileView({ member }: { member: ProfileInfo }) {
           </div>
         </CardContent>
       </Card>
+
+      {member.teams.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Users className="size-4 text-muted-foreground" /> My teams
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            {member.teams.map((t) => (
+              <div
+                key={`${t.label}:${t.name}`}
+                className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-1.5"
+              >
+                <span className="font-semibold">{t.name}</span>
+                <span className="text-xs text-muted-foreground">· {t.label}</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {member.isAdmin ? <CalendarHealthCard /> : null}
     </div>

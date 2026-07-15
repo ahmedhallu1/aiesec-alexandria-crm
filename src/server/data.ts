@@ -566,6 +566,72 @@ function getOrInit(map: Map<string, DrillGroup>, key: string, label: string): Dr
   return g;
 }
 
+// ------------------------------------------------------------------ teams
+
+export interface Team {
+  type: "EB" | "LB" | "Function" | "MM";
+  function_key: string; // "" | IGV | IGT | B2B
+  name: string;
+}
+
+export async function listTeams(): Promise<Team[]> {
+  const { data } = await db().from("teams").select("type, function_key, name");
+  return (data ?? []) as Team[];
+}
+
+/** The named teams a member belongs to, derived from their role + functions +
+ *  stakeholder link. Everyone is in AIESEC teams at several levels. */
+export async function teamsForViewer(viewer: Viewer): Promise<{ label: string; name: string }[]> {
+  const teams = await listTeams();
+  const byKey = new Map(teams.map((t) => [`${t.type}:${t.function_key}`, t.name]));
+  const out: { label: string; name: string }[] = [];
+  const push = (label: string, name?: string | null) => {
+    if (name) out.push({ label, name });
+  };
+
+  const onEb = viewer.isAdmin || viewer.role === "LCP" || viewer.role === "LCVP";
+  const isManager =
+    viewer.isAdmin || ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(viewer.role);
+  const fns = [
+    ...new Set([
+      ...viewer.functions.filter((f) => f === "IGV" || f === "IGT" || f === "B2B"),
+      ...(isB2B(viewer) ? ["B2B"] : []),
+    ]),
+  ];
+
+  if (onEb) push("Executive Board", byKey.get("EB:"));
+  if (isManager) push("Leadership Body", byKey.get("LB:"));
+  for (const fn of fns) push(`${fn} function`, byKey.get(`Function:${fn}`));
+  if (viewer.role === "Team Leader" || viewer.role === "Coordinator")
+    for (const fn of fns) push(`${fn} management`, byKey.get(`MM:${fn}`));
+
+  // Team-Leader team (from members.team_name): their own if TL, else their manager's
+  if (viewer.role === "Team Leader") push("My team", viewer.team_name);
+  else if (viewer.stakeholder_id) {
+    const { data: tl } = await db()
+      .from("members")
+      .select("role, team_name")
+      .eq("id", viewer.stakeholder_id)
+      .maybeSingle<{ role: string; team_name: string | null }>();
+    if (tl?.role === "Team Leader") push("My team", tl.team_name);
+  }
+
+  // de-dupe by name
+  const seen = new Set<string>();
+  return out.filter((t) => (seen.has(t.name) ? false : seen.add(t.name)));
+}
+
+/** The display name of a function's team (e.g. "فرقة ناجي عطالله" for IGT). */
+export async function functionTeamName(fn: string): Promise<string | null> {
+  const { data } = await db()
+    .from("teams")
+    .select("name")
+    .eq("type", "Function")
+    .eq("function_key", fn)
+    .maybeSingle<{ name: string }>();
+  return data?.name ?? null;
+}
+
 // ------------------------------------------------------------------ audit
 
 export async function logAudit(

@@ -33,6 +33,16 @@ const MEMBERSHIP_HEADERS = [
   "Stakeholder", "Team Name", "Active (Yes/No)",
 ];
 
+/** "CRM — Teams" tab: names the standing teams (structure is derived from the
+ *  membership). Type = EB / LB / Function / MM; Function = IGV/IGT/B2B (blank
+ *  for EB & LB). */
+const TEAMS_HEADERS = ["Type (EB/LB/Function/MM)", "Function (IGV/IGT/B2B)", "Team Name"];
+const TEAMS_SEED = [
+  ["EB", "", "IRIS"],
+  ["Function", "IGT", "فرقة ناجي عطالله"],
+  ["Function", "B2B", "Suits"],
+];
+
 function clients(): { sheets: sheets_v4.Sheets; drive: drive_v3.Drive } {
   const missing = requireEnv("serviceAccountKeyBase64", "driveFolderId");
   if (missing) throw new Error(missing);
@@ -272,6 +282,7 @@ export async function importMembership(): Promise<number> {
   }
 
   await relinkStakeholders();
+  await importTeams().catch((e) => console.error("[sheets] teams import failed:", e));
 
   // deactivate anyone removed from the sheet (admins stay)
   if (seen.length > 0) {
@@ -284,6 +295,33 @@ export async function importMembership(): Promise<number> {
     }
   }
   return seen.length;
+}
+
+// ------------------------------------------------------------------ teams
+
+/** Reads the "CRM — Teams" sheet and upserts the teams table (names only — the
+ *  membership derives who's in each team). Best-effort. */
+export async function importTeams(): Promise<number> {
+  const id = await ensureSpreadsheet("CRM — Teams", TEAMS_HEADERS, TEAMS_SEED);
+  const { sheets } = clients();
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId: id, range: "A2:C200" });
+  const rows = (res.data.values ?? []) as string[][];
+
+  const TYPES = ["EB", "LB", "Function", "MM"];
+  let count = 0;
+  for (const raw of rows) {
+    const [typeRaw, fnRaw, nameRaw] = raw;
+    const name = (nameRaw ?? "").trim();
+    const type = TYPES.find((t) => t.toLowerCase() === (typeRaw ?? "").trim().toLowerCase());
+    if (!name || !type) continue;
+    const needsFn = type === "Function" || type === "MM";
+    const fnKey = needsFn ? (fnRaw ?? "").trim().toUpperCase() : "";
+    await db()
+      .from("teams")
+      .upsert({ type, function_key: fnKey, name }, { onConflict: "type,function_key" });
+    count += 1;
+  }
+  return count;
 }
 
 // ------------------------------------------------------------------ write-back
