@@ -118,6 +118,7 @@ export default async function DashboardPage({
         label: t.team_name || `Team ${t.nickname || t.name}`,
       }))}
       memberOptions={memberOptions}
+      viewerId={viewer.id}
       filters={{
         team: params.team ?? "",
         member: params.member ?? "",

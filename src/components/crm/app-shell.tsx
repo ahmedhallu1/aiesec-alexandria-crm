@@ -11,6 +11,7 @@ import {
   LogOut,
   Inbox,
   MessageSquareHeart,
+  BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -48,6 +49,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
         ]
       : []),
     ...(nav.membership ? [{ href: "/membership", label: "Membership", icon: Users }] : []),
+    { href: "/playbook", label: "Playbook", icon: BookOpen },
     { href: "/feedback", label: "Feedback", icon: MessageSquareHeart },
     ...(nav.feedbackInbox ? [{ href: "/feedback/inbox", label: "Feedback inbox", icon: Inbox }] : []),
   ];

@@ -1,16 +1,17 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  ArrowLeft, CalendarPlus, CheckCircle2, FileText, Mail, MessageSquareText,
-  Phone, Pin, PinOff, RotateCcw, Trophy, XCircle,
+  ArrowLeft, CalendarPlus, CheckCircle2, FileText, Loader2, Mail, MessageSquareText,
+  Paperclip, Phone, Pin, PinOff, RotateCcw, Trophy, Upload, XCircle,
 } from "lucide-react";
 import {
-  addComment, reassignAccount, recordDeal, reportVisit, reviveAccount,
-  scheduleVisit, setOutOfProcess, toggleCommentPin, updateAccount, updateAccountContacts,
+  addComment, confirmContractUploads, getContractUrl, reassignAccount, recordDeal,
+  reportVisit, requestContractUploads, reviveAccount, scheduleVisit, setOutOfProcess,
+  toggleCommentPin, updateAccount, updateAccountContacts,
 } from "@/server/actions";
 import type { CommentWithMember, DealWithMember, PipelineRow } from "@/server/data";
 import type { ContactAttempt, Visit } from "@/lib/types";
@@ -27,7 +28,6 @@ import { ProposalDialog } from "./proposal-dialog";
 import { ConfettiBurst } from "./confetti";
 import { cn } from "@/lib/utils";
 import { StageBadge } from "./stage-badge";
-import { ProjectSdgs } from "./sdg-badge";
 import { ContactDialog, type ContactTarget } from "./contact-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -110,9 +110,6 @@ export function AccountDetailView({
             </Badge>
             {account.function === "IGV" && account.project ? (
               <Badge variant="outline">{account.project}</Badge>
-            ) : null}
-            {account.function === "IGV" ? (
-              <ProjectSdgs project={account.project} size="sm" />
             ) : null}
             <StageBadge stage={account.stage} />
             {account.deals_count > 0 ? (
@@ -206,7 +203,7 @@ export function AccountDetailView({
         <CommentsCard accountId={account.id} comments={comments} canComment={caps.edit} />
       </div>
 
-      <TimelineCard attempts={attempts} visits={visits} deals={deals} />
+      <TimelineCard attempts={attempts} visits={visits} deals={deals} canEdit={caps.edit} />
 
       {/* dialogs */}
       <ContactDialog target={contactTarget} open={contactOpen} onOpenChange={setContactOpen} />
@@ -366,12 +363,6 @@ function DetailsCard({ account, canEdit }: { account: PipelineRow; canEdit: bool
                 ) : (
                   <p className="truncate text-sm">{form.project || "—"}</p>
                 )}
-              </div>
-            ) : null}
-            {account.function === "IGV" && form.project ? (
-              <div className="grid gap-1 sm:grid-cols-[110px_1fr] sm:items-center sm:gap-2">
-                <Label className="text-xs text-muted-foreground">SDG</Label>
-                <ProjectSdgs project={form.project} size="md" />
               </div>
             ) : null}
             {listRow("Account type", "account_type")}
@@ -734,12 +725,122 @@ function CommentsCard({
   );
 }
 
+/** Uploads contract files straight to the private Storage bucket via signed
+ *  URLs (the bytes never pass through a server action), then records them. */
+async function uploadContracts(
+  dealId: string,
+  files: File[]
+): Promise<{ ok: boolean; error?: string; uploaded?: number }> {
+  const metas = files.map((f) => ({
+    name: f.name,
+    type: f.type || "application/octet-stream",
+    size: f.size,
+  }));
+  const req = await requestContractUploads(dealId, metas);
+  if (!req.ok) return { ok: false, error: req.error };
+
+  const done: { path: string; name: string; type: string; size: number }[] = [];
+  for (let i = 0; i < (req.data?.uploads.length ?? 0); i++) {
+    const u = req.data!.uploads[i];
+    const f = files[i];
+    try {
+      const put = await fetch(u.signedUrl, {
+        method: "PUT",
+        headers: { "content-type": f.type || "application/octet-stream" },
+        body: f,
+      });
+      if (put.ok) done.push({ path: u.path, name: f.name, type: f.type || "application/octet-stream", size: f.size });
+    } catch {
+      // fall through — reported below
+    }
+  }
+  if (done.length === 0) return { ok: false, error: "The file upload failed — check your connection and try again." };
+  const confirm = await confirmContractUploads(dealId, done);
+  if (!confirm.ok) return { ok: false, error: confirm.error };
+  return { ok: true, uploaded: done.length };
+}
+
+/** Contract chips on a deal + the (optional, any-time) upload button. */
+function DealContracts({ deal, canEdit }: { deal: DealWithMember; canEdit: boolean }) {
+  const router = useRouter();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [opening, setOpening] = useState<string | null>(null);
+  const contracts = deal.contracts ?? [];
+
+  const openContract = async (path: string) => {
+    setOpening(path);
+    const res = await getContractUrl(deal.id, path);
+    setOpening(null);
+    if (res.ok && res.data) window.open(res.data.url, "_blank", "noopener");
+    else toast.error(res.ok ? "Could not open the contract." : res.error);
+  };
+
+  const onPick = async (list: FileList | null) => {
+    const files = Array.from(list ?? []);
+    if (files.length === 0) return;
+    setBusy(true);
+    const res = await uploadContracts(deal.id, files);
+    setBusy(false);
+    if (res.ok) {
+      toast.success(`📎 ${res.uploaded} contract file${res.uploaded === 1 ? "" : "s"} uploaded.`);
+      router.refresh();
+    } else toast.error(res.error);
+    if (fileRef.current) fileRef.current.value = "";
+  };
+
+  if (contracts.length === 0 && !canEdit) return null;
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+      {contracts.map((c) => (
+        <button
+          key={c.path}
+          type="button"
+          onClick={() => openContract(c.path)}
+          className="inline-flex max-w-[220px] items-center gap-1 rounded-full border border-success/40 bg-background px-2.5 py-0.5 text-xs font-medium hover:border-success hover:bg-success/10"
+          title={`Open ${c.name}`}
+        >
+          {opening === c.path ? (
+            <Loader2 className="size-3 shrink-0 animate-spin" />
+          ) : (
+            <Paperclip className="size-3 shrink-0" />
+          )}
+          <span className="truncate">{c.name}</span>
+        </button>
+      ))}
+      {canEdit ? (
+        <>
+          <input
+            ref={fileRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => onPick(e.target.files)}
+          />
+          <Hint label={contracts.length > 0 ? "Add more contract files" : "Upload the signed contract(s) — any file format"}>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => fileRef.current?.click()}
+              className="inline-flex items-center gap-1 rounded-full border border-dashed px-2.5 py-0.5 text-xs text-muted-foreground hover:border-primary hover:text-primary disabled:opacity-60"
+            >
+              {busy ? <Loader2 className="size-3 animate-spin" /> : <Upload className="size-3" />}
+              {contracts.length > 0 ? "Add contract" : "Upload contract"}
+            </button>
+          </Hint>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 function TimelineCard({
-  attempts, visits, deals,
+  attempts, visits, deals, canEdit,
 }: {
   attempts: AttemptWithMember[];
   visits: Visit[];
   deals: DealWithMember[];
+  canEdit: boolean;
 }) {
   return (
     <Card>
@@ -756,7 +857,7 @@ function TimelineCard({
               return (
                 <div key={d.id} className="flex items-start gap-3 rounded-lg border border-success/40 bg-success/5 p-3 text-sm">
                   <Trophy className="mt-0.5 size-4 text-success" />
-                  <div>
+                  <div className="min-w-0 flex-1">
                     <p className="font-medium">
                       Deal #{deals.length - i} · {d.slots} open{d.slots === 1 ? "" : "s"}
                       {split.length > 0 ? (
@@ -767,6 +868,7 @@ function TimelineCard({
                     <p className="text-xs text-muted-foreground">
                       {d.member?.nickname || d.member?.name || "—"} · {fmtDateTime(d.created_at)}
                     </p>
+                    <DealContracts deal={d} canEdit={canEdit} />
                   </div>
                 </div>
               );
@@ -1042,6 +1144,7 @@ function DealDialog({
   const [igta, setIgta] = useState("0");
   const [igte, setIgte] = useState("0");
   const [note, setNote] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
   const [celebrate, setCelebrate] = useState(false);
   const [pending, start] = useTransition();
 
@@ -1069,8 +1172,15 @@ function DealDialog({
         toast.success(
           `🎉 Deal #${res.data?.deals} recorded — ${res.data?.slots} total open${(res.data?.slots ?? 0) === 1 ? "" : "s"} with this account!`
         );
+        // contracts are optional — the deal is already saved even if this fails,
+        // and files can always be added later from the deal's history entry
+        if (files.length > 0 && res.data?.dealId) {
+          const up = await uploadContracts(res.data.dealId, files);
+          if (up.ok) toast.success(`📎 ${up.uploaded} contract file${up.uploaded === 1 ? "" : "s"} attached to the deal.`);
+          else toast.error(`The deal is saved, but the contract upload failed: ${up.error} You can upload it any time from the deal in History.`);
+        }
         setCelebrate(true);
-        setIgv(fn === "IGV" ? "1" : "0"); setIgta("0"); setIgte("0"); setNote("");
+        setIgv(fn === "IGV" ? "1" : "0"); setIgta("0"); setIgte("0"); setNote(""); setFiles([]);
         onOpenChange(false);
         router.refresh();
       } else toast.error(res.error);
@@ -1112,10 +1222,23 @@ function DealDialog({
             <Label>Note (optional)</Label>
             <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. summer peak bulk deal" />
           </div>
+          <div className="grid gap-1.5">
+            <Label className="flex items-center gap-1.5">
+              <Paperclip className="size-3.5" /> Contract file(s) — optional
+            </Label>
+            <Input
+              type="file"
+              multiple
+              onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+            />
+            <p className="text-xs text-muted-foreground">
+              Any format works (PDF, photo, scan, doc…). You can also add them later from the deal in History.
+            </p>
+          </div>
         </div>
         <DialogFooter>
           <Button onClick={submit} disabled={pending || total < 1}>
-            {pending ? "Saving…" : "Record deal"}
+            {pending ? "Saving…" : files.length > 0 ? `Record deal + upload ${files.length} file${files.length === 1 ? "" : "s"}` : "Record deal"}
           </Button>
         </DialogFooter>
       </DialogContent>

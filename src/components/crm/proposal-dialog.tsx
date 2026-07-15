@@ -19,6 +19,8 @@ import {
 import { cn } from "@/lib/utils";
 
 type ProdCode = "iGV" | "iGTa" | "iGTe";
+/** what the email BODY is written for — B2B = the general all-programs email */
+type BodyCode = ProdCode | "B2B";
 const B2B_PRODUCTS: ProdCode[] = ["iGV", "iGTa", "iGTe"];
 
 /** ICX Proposal Email — one popup, prefilled from the account; the generated
@@ -42,14 +44,16 @@ export function ProposalDialog({
   const [sector, setSector] = useState(account.industry ?? account.sub_product ?? "");
   const [customNote, setCustomNote] = useState("");
   const [attachProposal, setAttachProposal] = useState(true);
-  // B2B: the product the email body is written for + which PDFs to attach
-  const [bodyProduct, setBodyProduct] = useState<ProdCode>("iGV");
+  // B2B: the product the email body is written for (default = the general
+  // all-programs partnership email) + which PDFs to attach
+  const [bodyProduct, setBodyProduct] = useState<BodyCode>("B2B");
   const [attachProducts, setAttachProducts] = useState<ProdCode[]>(["iGV"]);
   const [attachmentsNote, setAttachmentsNote] = useState("");
   const [done, setDone] = useState(false);
   const [pending, start] = useTransition();
 
-  const product = isB2B ? bodyProduct : fixedProduct;
+  const product: BodyCode = isB2B ? bodyProduct : fixedProduct;
+  const productLabel = product === "B2B" ? "general (all-programs)" : product;
   const toggleAttach = (p: ProdCode) =>
     setAttachProducts((list) => (list.includes(p) ? list.filter((x) => x !== p) : [...list, p]));
 
@@ -87,7 +91,7 @@ export function ProposalDialog({
               <div className="mx-auto mb-1 text-5xl">📬</div>
               <DialogTitle className="text-center">Draft ready in YOUR Gmail</DialogTitle>
               <DialogDescription className="text-center leading-relaxed">
-                The {product} proposal for <b>{account.name}</b> is waiting in
+                The {productLabel} proposal for <b>{account.name}</b> is waiting in
                 your drafts{(isB2B ? attachProducts.length > 0 : attachProposal)
                   ? isB2B
                     ? ` with the ${attachProducts.join(", ")} PDF${attachProducts.length === 1 ? "" : "s"} attached`
@@ -116,10 +120,10 @@ export function ProposalDialog({
           <>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
-                <FileText className="size-5 text-primary" /> Proposal email · {product}
+                <FileText className="size-5 text-primary" /> Proposal email · {productLabel}
               </DialogTitle>
               <DialogDescription>
-                Generates the ready-to-send <b>{product}</b> outreach draft for{" "}
+                Generates the ready-to-send <b>{productLabel}</b> outreach draft for{" "}
                 <b>{account.name}</b> in <b>your own Gmail</b> — you review and
                 send it yourself.
               </DialogDescription>
@@ -168,9 +172,10 @@ export function ProposalDialog({
                       is written for + which official PDFs to attach */}
                   <div className="grid gap-1.5">
                     <Label>Proposal written for</Label>
-                    <Select value={bodyProduct} onValueChange={(v) => setBodyProduct(v as ProdCode)}>
+                    <Select value={bodyProduct} onValueChange={(v) => setBodyProduct(v as BodyCode)}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="B2B">General — all ICX programs</SelectItem>
                         <SelectItem value="iGV">iGV — Global Volunteer</SelectItem>
                         <SelectItem value="iGTa">iGTa — Global Talent</SelectItem>
                         <SelectItem value="iGTe">iGTe — Global Teacher</SelectItem>

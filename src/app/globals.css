@@ -254,29 +254,6 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Animated SDG tiles — a slow diagonal shine sweep + hover lift */
-.sdg-tile {
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.18);
-  transition: transform 0.2s cubic-bezier(0.21, 1.02, 0.73, 1), box-shadow 0.2s ease;
-}
-.sdg-tile:hover {
-  transform: translateY(-2px) scale(1.05);
-  box-shadow: 0 6px 16px -6px rgb(0 0 0 / 0.4);
-}
-.sdg-shine {
-  background: linear-gradient(115deg, transparent 30%, rgb(255 255 255 / 0.55) 48%, transparent 66%);
-  transform: translateX(-120%);
-}
-@media (prefers-reduced-motion: no-preference) {
-  .sdg-shine {
-    animation: sdg-shine 3.6s ease-in-out infinite;
-  }
-}
-@keyframes sdg-shine {
-  0%, 60% { transform: translateX(-120%); }
-  85%, 100% { transform: translateX(120%); }
-}
-
 /* Route-transition shimmer for pending navigations */
 .nav-pending {
   opacity: 0.55;

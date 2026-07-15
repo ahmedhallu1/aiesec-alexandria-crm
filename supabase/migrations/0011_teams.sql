@@ -1,6 +1,6 @@
 -- Sodio v11 — named AIESEC teams. The team STRUCTURE already lives in the
 -- membership (roles / functions / stakeholder links); this table just gives
--- each team a NAME, imported from a "CRM — Teams" sheet tab.
+-- each team a NAME, imported from the "Teams" tab of the "CRM — Membership" sheet.
 --   EB       the Executive Board (LCP + VPs)            e.g. IRIS
 --   LB       Leadership Body (EB + MMs)
 --   Function a whole function (VP + MMs + members)       e.g. IGT = فرقة ناجي عطالله, B2B = Suits

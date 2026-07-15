@@ -4,7 +4,7 @@ import { useCallback, useLayoutEffect, useRef, useState, useTransition } from "r
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { CalendarRange, Loader2, Target, Trophy, X } from "lucide-react";
+import { CalendarRange, Loader2, Target, Trophy, UserRound, X } from "lucide-react";
 import { setPerformanceGoal } from "@/server/actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -57,6 +57,8 @@ interface Props {
   memberOptions: { id: string; label: string }[];
   filters: { team: string; member: string; from: string; to: string };
   goalCaps: GoalCaps;
+  /** the signed-in member — powers the "My numbers" personal KPI toggle */
+  viewerId: string;
 }
 
 const pct = (num: number, den: number) =>
@@ -78,7 +80,7 @@ function monthRange(): { from: string; to: string; label: string } {
 export function DashboardView({
   total, byFunction, byTeam, memberBoard, mmBoard, teamBoard, teamAchieved, funcGoal,
   teamGoal, views, activeFn, laneLabel, scopeLabel, showTeamDrill, teamOptions,
-  memberOptions, filters, goalCaps,
+  memberOptions, filters, goalCaps, viewerId,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -119,6 +121,7 @@ export function DashboardView({
   const month = monthRange();
   const today = new Date().toISOString().slice(0, 10);
   const thisMonthActive = filters.from === month.from && filters.to === month.to;
+  const myNumbersActive = filters.member === viewerId;
   const anyFilter = Object.values(filters).some(Boolean);
   const canSetAnyGoal = !!goalCaps.functionGoalFn || goalCaps.teamGoal;
 
@@ -167,6 +170,16 @@ export function DashboardView({
             }
           >
             <CalendarRange className="size-4" /> This month
+          </Button>
+        </Hint>
+        <Hint label="Track your own KPIs & MOS — every number counts only the accounts you're responsible for">
+          <Button
+            variant={myNumbersActive ? "default" : "outline"}
+            className="h-9"
+            size="sm"
+            onClick={() => setParam("member", myNumbersActive ? "" : viewerId)}
+          >
+            <UserRound className="size-4" /> My numbers
           </Button>
         </Hint>
         {teamOptions.length > 0 ? (

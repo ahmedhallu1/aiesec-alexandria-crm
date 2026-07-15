@@ -11,6 +11,7 @@ import {
   canEditRequestState,
   canManageMembership,
   canReassignAccount,
+  canViewAccount,
   canViewArchive,
   commentLabel,
   reassignTargetScope,
@@ -588,7 +589,7 @@ export async function recordDeal(
   accountId: string,
   breakdown: { igv?: number; igta?: number; igte?: number },
   note?: string
-): Promise<ActionResult<{ deals: number; slots: number }>> {
+): Promise<ActionResult<{ deals: number; slots: number; dealId: string }>> {
   const viewer = await getViewer();
   const account = await loadAccount(accountId);
   if (!account || !canEditAccount(viewer, account))
@@ -613,19 +614,23 @@ export async function recordDeal(
 
   // the deal is recorded for the account's RESPONSIBLE (whoever the opens
   // were raised for), not the person clicking the button
-  const { error } = await db().from("deals").insert({
-    account_id: accountId,
-    member_id: account.responsible_id,
-    slots: cleanSlots,
-    slots_igv: igv,
-    slots_igta: igta,
-    slots_igte: igte,
-    note: note?.trim() || null,
-  });
-  if (error) {
-    if (error.message.includes("slots_igv"))
+  const { data: inserted, error } = await db()
+    .from("deals")
+    .insert({
+      account_id: accountId,
+      member_id: account.responsible_id,
+      slots: cleanSlots,
+      slots_igv: igv,
+      slots_igta: igta,
+      slots_igte: igte,
+      note: note?.trim() || null,
+    })
+    .select("id")
+    .single();
+  if (error || !inserted) {
+    if (error?.message.includes("slots_igv"))
       return fail("Per-product deals need migration 0009 — run it in the Supabase SQL editor.");
-    return fail(error.message);
+    return fail(error?.message ?? "The deal could not be saved — try again.");
   }
 
   const totals = {
@@ -647,7 +652,129 @@ export async function recordDeal(
     slots: cleanSlots, igv, igta, igte,
   });
   refresh(accountId);
-  return { ok: true, data: { deals: totals.deals_count, slots: totals.slots_count } };
+  return {
+    ok: true,
+    data: { deals: totals.deals_count, slots: totals.slots_count, dealId: inserted.id },
+  };
+}
+
+// ================================================================== deal contracts
+
+/** Contract uploads are OPTIONAL and can happen at record time or any time
+ *  later. Files go STRAIGHT from the browser to the private "contracts"
+ *  Storage bucket via short-lived signed upload URLs (Vercel caps action
+ *  bodies at ~4.5 MB, so the file bytes never touch the server). */
+
+const CONTRACT_MAX_FILES = 10;
+const CONTRACT_MAX_SIZE = 25 * 1024 * 1024; // 25 MB per file, any format
+
+interface DealRow {
+  id: string;
+  account_id: string;
+  contracts: { path: string; name: string; type: string; size: number }[];
+}
+
+async function loadDeal(dealId: string): Promise<{ deal: DealRow; account: PipelineRow } | null> {
+  const { data: deal } = await db()
+    .from("deals")
+    .select("id, account_id, contracts")
+    .eq("id", dealId)
+    .maybeSingle<DealRow>();
+  if (!deal) return null;
+  const account = await loadAccount(deal.account_id);
+  if (!account) return null;
+  return { deal, account };
+}
+
+/** Step 1 — issue signed upload URLs for the picked files (RBAC-checked). */
+export async function requestContractUploads(
+  dealId: string,
+  files: { name: string; type: string; size: number }[]
+): Promise<ActionResult<{ uploads: { path: string; signedUrl: string }[] }>> {
+  const viewer = await getViewer();
+  const loaded = await loadDeal(dealId);
+  if (!loaded || !canEditAccount(viewer, loaded.account))
+    return fail("You are not allowed to work on this account.", "forbidden");
+
+  if (files.length === 0) return fail("Pick the contract file(s) first.");
+  if ((loaded.deal.contracts?.length ?? 0) + files.length > CONTRACT_MAX_FILES)
+    return fail(`A deal holds at most ${CONTRACT_MAX_FILES} contract files.`);
+  for (const f of files) {
+    if (f.size > CONTRACT_MAX_SIZE)
+      return fail(`"${f.name}" is over 25 MB — compress it or upload a smaller scan.`);
+  }
+
+  const uploads: { path: string; signedUrl: string }[] = [];
+  for (const f of files) {
+    const safeName = f.name.replace(/[^\w.\- ()]+/g, "_").slice(-80);
+    const path = `${loaded.deal.account_id}/${dealId}/${Date.now()}-${safeName}`;
+    const { data, error } = await db().storage.from("contracts").createSignedUploadUrl(path);
+    if (error || !data) {
+      if (error?.message?.toLowerCase().includes("bucket"))
+        return fail("The contracts storage isn't set up yet — run migration 0012 in the Supabase SQL editor.");
+      return fail(error?.message ?? "Could not prepare the upload — try again.");
+    }
+    uploads.push({ path: data.path, signedUrl: data.signedUrl });
+  }
+  return { ok: true, data: { uploads } };
+}
+
+/** Step 2 — after the browser PUT the files, record them on the deal. */
+export async function confirmContractUploads(
+  dealId: string,
+  uploaded: { path: string; name: string; type: string; size: number }[]
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const loaded = await loadDeal(dealId);
+  if (!loaded || !canEditAccount(viewer, loaded.account))
+    return fail("You are not allowed to work on this account.", "forbidden");
+
+  // only paths issued for THIS deal can be recorded on it
+  const prefix = `${loaded.deal.account_id}/${dealId}/`;
+  const clean = uploaded
+    .filter((u) => u.path.startsWith(prefix))
+    .map((u) => ({
+      path: u.path,
+      name: u.name.slice(0, 120),
+      type: u.type || "application/octet-stream",
+      size: u.size,
+      uploaded_at: new Date().toISOString(),
+      uploaded_by: viewer.id,
+    }));
+  if (clean.length === 0) return fail("Nothing was uploaded.");
+
+  const { error } = await db()
+    .from("deals")
+    .update({ contracts: [...(loaded.deal.contracts ?? []), ...clean] })
+    .eq("id", dealId);
+  if (error) {
+    if (error.message.includes("contracts"))
+      return fail("Contract uploads need migration 0012 — run it in the Supabase SQL editor.");
+    return fail(error.message);
+  }
+  await logAudit(viewer.id, "deal_contracts", "account", loaded.deal.account_id, {
+    dealId, files: clean.map((c) => c.name),
+  });
+  refresh(loaded.deal.account_id);
+  return { ok: true };
+}
+
+/** Short-lived signed link so anyone who can SEE the account can open the
+ *  contract (view/download) — the bucket itself stays private. */
+export async function getContractUrl(
+  dealId: string,
+  path: string
+): Promise<ActionResult<{ url: string }>> {
+  const viewer = await getViewer();
+  const loaded = await loadDeal(dealId);
+  if (!loaded || !canViewAccount(viewer, loaded.account))
+    return fail("You are not allowed to view this account.", "forbidden");
+  if (!path.startsWith(`${loaded.deal.account_id}/${dealId}/`))
+    return fail("That file does not belong to this deal.");
+
+  const { data, error } = await db().storage.from("contracts").createSignedUrl(path, 600);
+  if (error || !data) return fail(error?.message ?? "Could not open the contract — try again.");
+  return { ok: true, data: { url: data.signedUrl } };
 }
 
 // ================================================================== comments
@@ -1652,6 +1779,74 @@ export async function setPerformanceGoal(
     : await db().from("performance_goals").insert(row);
   if (error) return fail(error.message);
   await logAudit(viewer.id, "set_goal", "goal", null, { ...row });
+
+  // a NEW goal is announced to everyone it applies to (email + bell) — updates
+  // to an existing period stay quiet to avoid noise. Best-effort.
+  if (!found) {
+    try {
+      const { data: membersData } = await db()
+        .from("members")
+        .select("id, name, nickname, email, role, functions, sub_functions, stakeholder_id, team_name")
+        .eq("is_active", true);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const all = (membersData ?? []) as any[];
+
+      let audience: typeof all = [];
+      let scopeLabel = "";
+      let dashboardUrl = env.appUrl;
+      if (g.scope === "function" && g.function) {
+        const parentFn = g.function === "IGV" ? "IGV" : "IGT";
+        const isB2BMember = (m: (typeof all)[number]) =>
+          (m.functions ?? []).includes("B2B") || (m.sub_functions ?? []).includes("B2B");
+        audience = all.filter(
+          (m) =>
+            m.role !== "LCP" &&
+            ((m.functions ?? []).includes(parentFn) || isB2BMember(m))
+        );
+        scopeLabel = `the ${g.function} lane`;
+        dashboardUrl = `${env.appUrl}/?fn=${g.function}`;
+      } else if (g.scope === "team" && g.teamLeaderId) {
+        const tl = all.find((m) => m.id === g.teamLeaderId);
+        audience = all.filter(
+          (m) => m.id === g.teamLeaderId || m.stakeholder_id === g.teamLeaderId
+        );
+        scopeLabel = tl?.team_name
+          ? `Team ${tl.team_name}`
+          : `Team ${tl?.nickname || tl?.name || ""}`.trim();
+      }
+      audience = audience.filter((m) => m.id !== viewer.id && m.email);
+
+      if (audience.length > 0) {
+        const { newGoalEmail } = await import("@/lib/email/templates");
+        const mail = newGoalEmail({
+          scopeLabel,
+          periodLabel: g.periodLabel,
+          periodStart: g.periodStart,
+          periodEnd: g.periodEnd,
+          target: g.target,
+          setByName: viewer.nickname || viewer.name,
+          dashboardUrl,
+        });
+        await sendEmail({
+          to: [viewer.email],
+          bcc: audience.map((m) => m.email),
+          ...mail,
+        });
+        const { notifyMembers } = await import("./notify");
+        await notifyMembers(
+          audience.map((m) => m.id),
+          "info",
+          `🎯 New goal for ${scopeLabel}: ${g.target} slots`,
+          `${g.periodLabel} (${g.periodStart} → ${g.periodEnd}) — the dashboard tracks it live.`,
+          viewer.id,
+          g.scope === "function" ? `/?fn=${g.function}` : "/"
+        );
+      }
+    } catch (e) {
+      console.error("[goal] announcement failed:", e);
+    }
+  }
+
   refresh();
   return { ok: true };
 }
@@ -1735,8 +1930,9 @@ const proposalSchema = z.object({
   attachmentsNote: z.string().trim().nullish(),
   /** attach the official per-product proposal PDF (proposals/<product>.pdf) */
   attachProposal: z.boolean().nullish(),
-  /** B2B raises for the whole ICX — the email body is written for THIS product */
-  bodyProduct: z.enum(["iGV", "iGTa", "iGTe"]).nullish(),
+  /** B2B raises for the whole ICX — the email body is written for THIS product
+   *  ("B2B" = the general all-programs partnership email) */
+  bodyProduct: z.enum(["iGV", "iGTa", "iGTe", "B2B"]).nullish(),
   /** B2B: which official product PDFs to attach (any of the three) */
   attachProducts: z.array(z.enum(["iGV", "iGTa", "iGTe"])).nullish(),
 });
@@ -1766,13 +1962,14 @@ export async function createProposalDraft(
     );
 
   // the email body is written for one product. B2B accounts raise for the whole
-  // ICX, so the member picks which product the body targets.
-  const product: "iGV" | "iGTa" | "iGTe" =
+  // ICX, so the member picks the product — or keeps the general "B2B" variant
+  // that presents all programs and links to aiesec.org/partners.
+  const product: "iGV" | "iGTa" | "iGTe" | "B2B" =
     account.function === "IGV"
       ? "iGV"
       : account.function === "IGT"
         ? account.product === "GTe" ? "iGTe" : "iGTa"
-        : (bodyProduct ?? "iGV"); // B2B
+        : (bodyProduct ?? "B2B"); // B2B
 
   const { proposalDraft } = await import("@/lib/email/proposal");
   const draft = proposalDraft({
@@ -1793,7 +1990,7 @@ export async function createProposalDraft(
   const wanted: ("iGV" | "iGTa" | "iGTe")[] =
     account.function === "B2B"
       ? [...new Set(attachProducts ?? [])]
-      : attachProposal
+      : attachProposal && product !== "B2B"
         ? [product]
         : [];
 

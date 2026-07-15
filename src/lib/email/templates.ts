@@ -133,11 +133,17 @@ export function visitReportEmail(opts: {
   };
 }
 
+/** The +2h "was it completed?" prompt. Goes to the responsible member AND
+ *  their team leader (when the responsible is a Member/Coordinator) so the
+ *  team stays accountable together; leaders get it for themselves only. */
 export function visitFollowupEmail(opts: {
   memberFirstName: string;
+  responsibleName: string;
   accountName: string;
   visitDate: string;
   visitTime: string;
+  nextStep: string | null;
+  leaderName: string | null;
   reportUrl: string;
 }) {
   return {
@@ -146,11 +152,57 @@ export function visitFollowupEmail(opts: {
       preheader: "2-minute visit report",
       body: `
         <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Hey ${escapeHtml(opts.memberFirstName)} 👋</h1>
-        <p>Your visit to <b>${escapeHtml(opts.accountName)}</b> was scheduled for
-        <b>${opts.visitDate} at ${opts.visitTime.slice(0, 5)}</b>. Was it completed?</p>
+        <p>This visit was scheduled — was it completed?</p>
+        ${detailsTable([
+          ["Account", opts.accountName],
+          ["When", `${opts.visitDate} at ${opts.visitTime.slice(0, 5)}`],
+          ["Responsible", opts.responsibleName],
+          ["Planned next step", opts.nextStep],
+        ])}
         <p>Report it now — it takes less than 2 minutes, and your TL & VP get notified automatically.</p>
         ${button("Report the visit", opts.reportUrl)}
-        <p style="color:#5c6b80;font-size:13px;">Didn't happen? Report it as not completed and set the next step so the account keeps moving.</p>`,
+        <p style="color:#5c6b80;font-size:13px;">Didn't happen? Report it as not completed and set the next step so the account keeps moving.${
+          opts.leaderName ? ` ${escapeHtml(opts.leaderName)} is on this email too, so you're covered as a team.` : ""
+        }</p>`,
+    }),
+  };
+}
+
+/** One week after the follow-up prompt with still no report: a firmer nudge to
+ *  the same people — log the result, or archive the account if the company
+ *  isn't interested, so no resources sit wasted. */
+export function visitForgottenEmail(opts: {
+  memberFirstName: string;
+  responsibleName: string;
+  accountName: string;
+  visitDate: string;
+  visitTime: string;
+  leaderName: string | null;
+  reportUrl: string;
+}) {
+  return {
+    subject: `⏰ Still no report on ${opts.accountName} — don't let it slip`,
+    html: emailLayout({
+      preheader: "A visit from last week was never reported",
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">${escapeHtml(opts.memberFirstName)}, this one got forgotten 👀</h1>
+        <p>A week ago we asked how the visit to <b>${escapeHtml(opts.accountName)}</b> went —
+        it's still unreported, and the account is frozen in the pipeline in the meantime.</p>
+        ${detailsTable([
+          ["Account", opts.accountName],
+          ["Visit was", `${opts.visitDate} at ${opts.visitTime.slice(0, 5)}`],
+          ["Responsible", opts.responsibleName],
+          ["Waiting since", "1 week+"],
+        ])}
+        <p style="margin-bottom:6px;"><b>Two minutes now keeps us organized:</b></p>
+        <ul style="margin-top:0;">
+          <li><b>Visit happened?</b> Report the result and set the next step.</li>
+          <li><b>Company not interested?</b> Mark the account <b>Out of Process</b> — no shame in it, it frees your time for accounts that will close.</li>
+        </ul>
+        ${button("Open the account & report", opts.reportUrl)}
+        <p style="color:#5c6b80;font-size:13px;">Unreported visits waste the LC's resources — this is the last automatic reminder for this visit.${
+          opts.leaderName ? ` ${escapeHtml(opts.leaderName)} is on this email too.` : ""
+        }</p>`,
     }),
   };
 }
@@ -330,6 +382,70 @@ export function feedbackThanksEmail(opts: {
         </p>
         <p>Sodio is built for you, by you — keep it coming. 💙</p>
         ${button("Open Sodio", env.appUrl)}`,
+    }),
+  };
+}
+
+/** Sent to the goal's owners (VP/Director for lane goals, the TL for team
+ *  goals) once the goal period has ENDED, with the achieved-vs-target recap
+ *  and a button to set the next period's goal. */
+export function goalPeriodEndedEmail(opts: {
+  scopeLabel: string; // e.g. "IGTa lane" or "Team فرقة ناجي عطالله"
+  periodLabel: string;
+  target: number;
+  achieved: number;
+  setGoalUrl: string;
+}) {
+  const hit = opts.achieved >= opts.target;
+  const pctNum = opts.target > 0 ? Math.round((opts.achieved / opts.target) * 100) : 0;
+  return {
+    subject: `🎯 ${opts.periodLabel} is over — set the new ${opts.scopeLabel} goal`,
+    html: emailLayout({
+      preheader: `${opts.achieved}/${opts.target} achieved — time to set the next goal`,
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">The ${escapeHtml(opts.periodLabel)} period just ended ${hit ? "🎉" : "⏱️"}</h1>
+        <p>Here's how the <b>${escapeHtml(opts.scopeLabel)}</b> closed it:</p>
+        ${detailsTable([
+          ["Period", opts.periodLabel],
+          ["Goal", `${opts.target} slots`],
+          ["Achieved", `${opts.achieved} slots (${pctNum}%)`],
+          ["Result", hit ? "Goal reached — congratulations! 🏆" : "Goal not reached — new period, new push 💪"],
+        ])}
+        <p>There's <b>no goal set for the new period yet</b> — your people can't chase a
+        number that doesn't exist. Set it now so every dashboard shows the target from day one:</p>
+        ${button("Set the new goal", opts.setGoalUrl)}
+        <p style="color:#5c6b80;font-size:13px;">Once you set it, everyone it applies to gets notified automatically.</p>`,
+    }),
+  };
+}
+
+/** Announces a freshly set goal to everyone it applies to. */
+export function newGoalEmail(opts: {
+  scopeLabel: string;
+  periodLabel: string;
+  periodStart: string;
+  periodEnd: string;
+  target: number;
+  setByName: string;
+  dashboardUrl: string;
+}) {
+  return {
+    subject: `🎯 New goal for ${opts.scopeLabel}: ${opts.target} slots (${opts.periodLabel})`,
+    html: emailLayout({
+      preheader: `${opts.target} slots by ${opts.periodEnd} — let's go`,
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Your new goal is live 🎯</h1>
+        <p><b>${escapeHtml(opts.setByName)}</b> just set the ${escapeHtml(opts.scopeLabel)} goal
+        for <b>${escapeHtml(opts.periodLabel)}</b>:</p>
+        <p style="margin:20px 0;text-align:center;">
+          <span style="display:inline-block;background:#f0f7ff;border:2px solid #037EF3;border-radius:14px;padding:16px 30px;font-size:26px;font-weight:800;color:#0A2540;">${opts.target} slots</span>
+        </p>
+        ${detailsTable([
+          ["Applies to", opts.scopeLabel],
+          ["Period", `${opts.periodLabel} (${opts.periodStart} → ${opts.periodEnd})`],
+        ])}
+        <p>Your dashboard now tracks the progress bar live — every deal you close moves it.</p>
+        ${button("Open the dashboard", opts.dashboardUrl)}`,
     }),
   };
 }

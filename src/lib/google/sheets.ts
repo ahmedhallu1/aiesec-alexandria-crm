@@ -8,18 +8,21 @@ import type { Member, MemberRole } from "@/lib/types";
  *
  *  A service account owns the API access; all spreadsheets live in one Drive
  *  folder (DRIVE_FOLDER_ID) inside Ahmed's Drive, shared with the service
- *  account as Editor. The CRM creates each sheet on first use:
+ *  account as Editor. Kept deliberately SMALL — few spreadsheets, flag columns
+ *  instead of per-product sheets:
  *
- *  "CRM — Membership"      TWO-WAY — filled by hand AND updated by the in-app
- *                          membership editor; imported into the members table
- *  "CRM — IGV Accounts"    export mirror
- *  "CRM — IGT Accounts"    export mirror
- *  "CRM — Contact Log"     export mirror
- *  "CRM — Visits"          export mirror
- *  "CRM — Archived Accounts (DO NOT re-add)"
- *                          export mirror — EVERY archived name: out-of-process
- *                          accounts + manually archived names. These can never
- *                          be added to the CRM again.
+ *  "CRM — Membership"        TWO-WAY — filled by hand AND updated by the in-app
+ *                            membership editor; imported into the members table.
+ *                            Has a second TAB "Teams" naming the standing AIESEC
+ *                            teams (EB/LB/Function/MM) — also imported.
+ *  "CRM — Raising Accounts"  export mirror — ALL accounts in ONE sheet (IGV +
+ *                            IGT + B2B, even archived ones) with Function /
+ *                            Product / Archived? flag columns for filtering.
+ *  "CRM — Archived Accounts" export mirror — archived-only view: out-of-process
+ *                            accounts + manually archived names. These can never
+ *                            be added to the CRM again.
+ *  "CRM — Contact Log"       export mirror
+ *  "CRM — Visits"            export mirror
  */
 
 /** Final Membership sheet structure (column order is the contract):
@@ -33,9 +36,10 @@ const MEMBERSHIP_HEADERS = [
   "Stakeholder", "Team Name", "Active (Yes/No)",
 ];
 
-/** "CRM — Teams" tab: names the standing teams (structure is derived from the
- *  membership). Type = EB / LB / Function / MM; Function = IGV/IGT/B2B (blank
- *  for EB & LB). */
+/** "Teams" TAB on the Membership spreadsheet: names the standing teams (the
+ *  structure is derived from the membership). Type = EB / LB / Function / MM;
+ *  Function = IGV/IGT/B2B (blank for EB & LB). */
+const TEAMS_TAB = "Teams";
 const TEAMS_HEADERS = ["Type (EB/LB/Function/MM)", "Function (IGV/IGT/B2B)", "Team Name"];
 const TEAMS_SEED = [
   ["EB", "", "IRIS"],
@@ -130,6 +134,43 @@ async function ensureSpreadsheet(
     .from("app_settings")
     .upsert({ key: cacheKey, value: { id }, updated_at: new Date().toISOString() });
   return id;
+}
+
+/** Ensures a named TAB exists on a spreadsheet (creates it + writes headers and
+ *  seed rows when blank). Returns the tab's actual title for range building. */
+async function ensureTab(
+  spreadsheetId: string,
+  title: string,
+  headers: string[],
+  seedRows: string[][] = []
+): Promise<string> {
+  const { sheets } = clients();
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: "sheets(properties(title))",
+  });
+  const existing = (meta.data.sheets ?? []).find(
+    (s) => normTitle(s.properties?.title ?? "") === normTitle(title)
+  )?.properties?.title;
+  if (!existing) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [{ addSheet: { properties: { title } } }] },
+    });
+  }
+  const tab = existing ?? title;
+  const firstCell = await sheets.spreadsheets.values
+    .get({ spreadsheetId, range: `'${tab}'!A1:B1` })
+    .catch(() => null);
+  if (!firstCell?.data.values?.[0]?.[0]) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `'${tab}'!A1`,
+      valueInputOption: "RAW",
+      requestBody: { values: [headers, ...seedRows] },
+    });
+  }
+  return tab;
 }
 
 async function overwriteSheet(title: string, headers: string[], rows: (string | number | boolean | null)[][]) {
@@ -299,12 +340,16 @@ export async function importMembership(): Promise<number> {
 
 // ------------------------------------------------------------------ teams
 
-/** Reads the "CRM — Teams" sheet and upserts the teams table (names only — the
- *  membership derives who's in each team). Best-effort. */
+/** Reads the "Teams" TAB of the Membership spreadsheet and upserts the teams
+ *  table (names only — the membership derives who's in each team). Best-effort. */
 export async function importTeams(): Promise<number> {
-  const id = await ensureSpreadsheet("CRM — Teams", TEAMS_HEADERS, TEAMS_SEED);
+  const id = await ensureSpreadsheet("CRM — Membership", MEMBERSHIP_HEADERS);
+  const tab = await ensureTab(id, TEAMS_TAB, TEAMS_HEADERS, TEAMS_SEED);
   const { sheets } = clients();
-  const res = await sheets.spreadsheets.values.get({ spreadsheetId: id, range: "A2:C200" });
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: id,
+    range: `'${tab}'!A2:C200`,
+  });
   const rows = (res.data.values ?? []) as string[][];
 
   const TYPES = ["EB", "LB", "Function", "MM"];
@@ -428,8 +473,6 @@ export async function exportAllSheets(): Promise<void> {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rows = (accounts ?? []) as any[];
-  const igv = rows.filter((a) => a.function === "IGV");
-  const igt = rows.filter((a) => a.function === "IGT");
 
   // one failing sheet (e.g. a transient Sheets API error) must NOT abort the
   // whole export — collect failures and keep going
@@ -443,35 +486,32 @@ export async function exportAllSheets(): Promise<void> {
     }
   };
 
-  await safe("CRM — IGV Accounts", () => overwriteSheet(
-    "CRM — IGV Accounts",
-    ["Account Name", "Project", "Account Type", "Industry", "Responsible",
-     "Stage", "Contacts", "Requested? (Podio)", "Request State", "Proposal Sent?", "Visit Date",
-     "Visit Done?", "Slot Raised?", "Slots", "Next Step", "Next Step Date", "Out of Process?",
-     "OOP Reason", "Phone", "Email", "Social Link", "Website", "Comments", "Created At"],
-    igv.map((a) => [
-      a.name, a.project, a.account_type, a.industry,
-      a.responsible_nickname || a.responsible_name, a.stage, a.attempts,
-      a.requested_podio ? "Yes" : "No", a.request_state, a.proposal_sent ? "Yes" : "No",
-      a.visit_date, a.visit_done == null ? "" : a.visit_done ? "Yes" : "No",
-      a.slot_raised ? "Yes" : "No", a.slots_count, a.next_step, a.next_step_date,
-      a.out_of_process ? "Yes" : "No", a.oop_reason, a.phone, a.email, a.social_link,
-      a.website, commentText.get(a.id) ?? "", a.created_at?.slice(0, 16)?.replace("T", " "),
-    ])
-  ));
+  // ONE sheet for every account (IGV + IGT + B2B, active AND archived) — the
+  // Function / Product / Archived? columns are the filter flags.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const productLabel = (a: any): string =>
+    a.function === "IGV" ? "IGV"
+    : a.function === "B2B" ? "B2B"
+    : a.product ? `I${a.product}` : "IGT";
 
-  await safe("CRM — IGT Accounts", () => overwriteSheet(
-    "CRM — IGT Accounts",
-    ["Account Name", "Product", "Sub Product", "Responsible", "Stage", "Contacts",
-     "Requested? (Podio)", "Request State", "Visit Date", "Visit Done?", "Slot Raised?",
-     "Slots", "Next Step", "Next Step Date", "Out of Process?", "OOP Reason", "Phone",
-     "Email", "Social Link", "Website", "Comments", "Created At"],
-    igt.map((a) => [
-      a.name, a.product, a.sub_product, a.responsible_nickname || a.responsible_name,
-      a.stage, a.attempts, a.requested_podio ? "Yes" : "No", a.request_state,
-      a.visit_date, a.visit_done == null ? "" : a.visit_done ? "Yes" : "No",
-      a.slot_raised ? "Yes" : "No", a.slots_count, a.next_step, a.next_step_date,
-      a.out_of_process ? "Yes" : "No", a.oop_reason, a.phone, a.email, a.social_link,
+  await safe("CRM — Raising Accounts", () => overwriteSheet(
+    "CRM — Raising Accounts",
+    ["Account Name", "Function (IGV/IGT/B2B)", "Product", "Sub Product", "Project (IGV)",
+     "Account Type", "Industry", "Responsible", "Team", "Stage", "Archived?", "Archive Reason",
+     "Contacts", "Requested? (Podio)", "Request State", "Proposal Sent?", "Visit Date",
+     "Visit Done?", "Deals", "Total Slots", "IGV Slots", "IGTa Slots", "IGTe Slots",
+     "Next Step", "Next Step Date", "Phone", "Email", "Social Link", "Website",
+     "Comments", "Created At"],
+    rows.map((a) => [
+      a.name, a.function, productLabel(a), a.sub_product, a.project,
+      a.account_type, a.industry, a.responsible_nickname || a.responsible_name,
+      a.responsible_team_name, a.stage,
+      a.out_of_process ? "Yes" : "No", a.oop_reason,
+      a.attempts, a.requested_podio ? "Yes" : "No", a.request_state,
+      a.proposal_sent ? "Yes" : "No", a.visit_date,
+      a.visit_done == null ? "" : a.visit_done ? "Yes" : "No",
+      a.deals_count, a.slots_count, a.slots_igv_count, a.slots_igta_count, a.slots_igte_count,
+      a.next_step, a.next_step_date, a.phone, a.email, a.social_link,
       a.website, commentText.get(a.id) ?? "", a.created_at?.slice(0, 16)?.replace("T", " "),
     ])
   ));
@@ -498,12 +538,14 @@ export async function exportAllSheets(): Promise<void> {
 
   // EVERY archived name in one clearly-labeled sheet: out-of-process accounts
   // (worked in the CRM, then closed) + manually archived names (burned before
-  // the CRM existed). None of these can ever be added again.
+  // the CRM existed). None of these can ever be added again. The archived
+  // accounts ALSO appear in "CRM — Raising Accounts" flagged Archived = Yes —
+  // this sheet is the focused blacklist view.
   const oopRows = rows
     .filter((a) => a.out_of_process)
     .map((a) => [
       a.name,
-      a.function === "IGT" ? (a.product ? `I${a.product}` : "IGT") : a.function,
+      productLabel(a),
       a.oop_reason,
       a.oop_at?.slice(0, 16)?.replace("T", " "),
       a.responsible_nickname || a.responsible_name,
@@ -518,8 +560,8 @@ export async function exportAllSheets(): Promise<void> {
     b.added_by_member?.nickname || b.added_by_member?.name || "",
     "Added manually to the archive",
   ]);
-  await safe("CRM — Archived Accounts (DO NOT re-add)", () => overwriteSheet(
-    "CRM — Archived Accounts (DO NOT re-add)",
+  await safe("CRM — Archived Accounts", () => overwriteSheet(
+    "CRM — Archived Accounts",
     ["Account Name", "Product", "Archive Reason", "Archived At", "By / Was Responsible", "Source"],
     [...oopRows, ...manualRows]
   ));

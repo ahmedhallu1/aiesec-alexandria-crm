@@ -18,7 +18,6 @@ import {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { StageBadge } from "./stage-badge";
-import { ProjectSdgs } from "./sdg-badge";
 import { ContactDialog, type ContactTarget } from "./contact-dialog";
 import { AddAccountDialog, type MemberOption } from "./add-account-dialog";
 import { Hint } from "./hint";
@@ -116,7 +115,6 @@ function FnBadge({ row, className }: { row: PipelineRow; className?: string }) {
         {row.function === "IGV" && row.project ? (
           <span className="text-xs text-muted-foreground">{row.project}</span>
         ) : null}
-        {row.function === "IGV" ? <ProjectSdgs project={row.project} size="sm" /> : null}
       </span>
     </DetailHint>
   );

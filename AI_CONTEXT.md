@@ -3,8 +3,14 @@
 > **⚠️ LIVING DOCUMENT.** Update this file **in the same commit** as any change
 > to the system (feature, rule, route, schema, env var, deployment fact).
 > Add a dated entry to the **Changelog** at the bottom. No secrets in this file.
+>
+> **⚠️ SHIP RULE (every session, no exceptions):** finished work goes
+> **commit → merge to `main` → push to GitHub → `vercel deploy --prod`**.
+> Never leave features on a side branch — that's how `0011_teams.sql` "went
+> missing" once. Also update the in-app **Playbook**
+> (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-07-14 · Version: v10
+Last updated: 2026-07-15 · Version: v11
 
 ---
 
@@ -25,12 +31,23 @@ the blueprint for future OGX/other-function modules.
 | Stack | Next.js 16 (App Router, Turbopack) · React 19 · Tailwind v4 · shadcn/ui · Supabase (Postgres, project `iesrpuuoduxtihuaqfic`) |
 | Auth | Auth.js v5: **FIRST sign-in is Google-only** (grants `calendar` + `gmail.compose`) → onboarding sets a password → afterwards **email OR phone + password**, or Google, all work. **Forgot password emails a fresh password** (`issueTempPassword` in `server/password.ts`); the old password still works until the member changes it (no lockouts) |
 | Google | Service account (Sheets sync) · Gmail API from `ahmedhallul@aiesec.net` · Calendar events on each member's own calendar |
-| Cron | Supabase `pg_cron` + `pg_net` → `/api/cron/*` (visit-followups 15 min · membership-import 30 min · sheets-export hourly) |
+| Cron | Supabase `pg_cron` + `pg_net` → `/api/cron/*` (visit-followups 15 min · membership-import 30 min · sheets-export hourly · goal-reminders daily 06:00 UTC) |
 | Admin | `ADMIN_EMAILS` env (= IM director, treated as LCP) |
 
 **Migrations** live in `supabase/migrations/` and are run **manually** in the
 Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v2`
-→ `0003_ops_v2` → `0004_pins_v2` → `0005_deals` → `0006_admin_label` → `0007_visit_scheduled_result` → `0008_notifications_feedback` → `0009_b2b_deals_v9` → `0010_notif_link`.
+→ `0003_ops_v2` → `0004_pins_v2` → `0005_deals` → `0006_admin_label` → `0007_visit_scheduled_result` → `0008_notifications_feedback` → `0009_b2b_deals_v9` → `0010_notif_link` → `0011_teams` → `0012_contracts_reminders`.
+
+**Google Drive sheets (deliberately FEW — flag columns instead of per-product
+sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
+EB/LB/Function/MM teams, imported into the `teams` table) ·
+`CRM — Raising Accounts` (ALL accounts in ONE mirror — IGV + IGT + B2B, active
+AND archived — with `Function / Product / Archived?` flag columns for
+filtering) · `CRM — Archived Accounts` (the focused blacklist view: OOP +
+manual names) · `CRM — Contact Log` · `CRM — Visits`. Spreadsheets are found
+BY TITLE in the Drive folder; ids are cached in `app_settings`
+(`sheet:<title>`). The old per-product sheets (`CRM — IGV Accounts`,
+`CRM — IGT Accounts`) and the separate `CRM — Teams` spreadsheet are GONE.
 
 ---
 
@@ -91,6 +108,12 @@ mutation through a `can*` predicate, **server-side**.
   `slots_count` totals): 3 slots today + 6 next month = 2 deals · 9 slots.
   `recordDeal` appends; the account stays workable after a deal (more deals,
   more contacts, more visits). Deal history shows in the account timeline.
+- **Deal contracts (optional)**: any file format, uploaded at record time or
+  later from the deal's History entry (`deals.contracts` jsonb, migration
+  0012). Files go browser → private Supabase Storage bucket `contracts` via
+  **signed upload URLs** (`requestContractUploads` → PUT → `confirmContractUploads`
+  — Vercel caps action bodies ~4.5 MB, so bytes never touch the server); viewing
+  uses 10-min signed links (`getContractUrl`, anyone who can view the account).
 - **IGV accounts always carry a Project** (Skill Up!, Rooted, …) — required at
   creation/import, shown on the accounts list next to the IGV badge, editable
   in Details, filterable.
@@ -132,6 +155,14 @@ mutation through a `can*` predicate, **server-side**.
   `proposals/<iGV|iGTa|iGTe>.pdf` (bundled via `outputFileTracingIncludes`;
   missing file → clear error). Sets `proposal_sent` on the account. Members
   who signed in before the scope change must re-login with Google once.
+  **Design = the LC's original proposal tool** (card layout: AIESEC logo +
+  program badge header, "Dear {Company} Team", headline, intro, "Why this
+  could be a strong fit" callout, Opportunity-snapshot + About-AIESEC cards,
+  meeting-request callout, "More about {program}" link, member signature) —
+  **ONE brand color for all products (AIESEC blue `#037EF3`)**, only the
+  CONTENT is per-function; **NO company-logo section** (by request). B2B
+  accounts default to a **general all-programs variant** linking to
+  `aiesec.org/partners` (can still pick a specific product's body).
 - **Contact log results**: No Response / Responded / Interested / Not Interested
   (archives) / Wrong Contact / **Visit Scheduled** (requires date+time and
   BOOKS the visit through the exact same path as the Schedule-visit button —
@@ -143,6 +174,14 @@ mutation through a `can*` predicate, **server-side**.
   `scheduleVisit` returns a `calendarHint` (`linked`/`no_grant`/`relogin`/
   `error`) so the UI says exactly why a reminder wasn't created (dead Google
   grant → re-login) instead of failing silently.
+  - **Follow-up reminders (v11)**: the +2h "was it completed?" email goes to
+    the responsible **AND their team leader/manager** when the responsible is
+    a Member/Coordinator (details table included); TL-and-above get it alone;
+    the LCP never. **One week later with still no report** → a firmer
+    "you forgot about it" email to the same people (report the result, or
+    mark the account Out of Process if not interested — no wasted resources).
+    Tracked by `visits.followup_prompt_sent_at` + `forgotten_nag_sent_at`
+    (migration 0012), both passes in `/api/cron/visit-followups`.
   - **Shared with leaders** (calendar attendees, Google invite): a **Member's**
     visit is shared with their **Team Leader + function VP(s)**; a **Team Leader
     or Coordinator's** with the **VP(s)**. Raising only (not consideration).
@@ -210,6 +249,16 @@ cards were removed on request; flags remain reachable via accounts filters.)
   stays scoped); member filter shows only lane members (never the LCP).
 - **Goals** (`performance_goals`): VP/Director sets the function goal, TL the
   team goal (month or peak period) — progress bars on everyone's dashboard.
+  **Goal reminder cycle (v11)**: when a period ends with no successor goal,
+  the daily `goal-reminders` cron emails the owners (lane → its VPs/Directors,
+  team → the TL) last period's **goal vs achieved** + a set-the-new-goal
+  button (once per goal — `ended_reminder_sent_at`, migration 0012; goals
+  ended >14 days ago are marked silently). Setting a NEW goal emails +
+  notifies everyone it applies to (lane members incl. B2B, or the TL's team)
+  via `newGoalEmail` — updates to an existing period stay quiet.
+- **"My numbers" chip** in the dashboard filter bar: any member can toggle the
+  KPIs + conversion strip to just their own accounts (`member=<their id>` URL
+  param — the personal KPIs/MOS tracker).
 - **Leaderboards**: ONE **wide** board per scope (function + team) listing
 **Members & Coordinators only** (never Team Leaders, VPs, Directors or the LCP),
 full-width, showing **every** funnel number per member at once — **MR ·
@@ -262,7 +311,7 @@ burst** when a deal is recorded.
 ## 7. Repository map
 
 ```
-supabase/migrations/          0001..0009 (run manually in SQL editor)
+supabase/migrations/          0001..0012 (run manually in SQL editor)
 supabase/cron.sql             pg_cron schedules
 src/lib/types.ts              domain types, pick-lists (OOP_REASONS), phone/slug, fmtDateTime
 src/lib/rbac.ts               THE RBAC engine (scopeFunctions = leader visibility, B2B-aware)
@@ -279,7 +328,9 @@ src/lib/assistant.ts          The Blue Man: RBAC-scoped context + CORE digest + 
 src/app/api/assistant/        POST → Gemini 2.5 Flash + Google Search grounding
 src/server/auth-actions.ts    login (email/phone), Google, forgot-password (emails a password)
 src/app/(app)/                dashboard, accounts (+import, [id]=slug), membership,
-                              feedback(+inbox), profile; loading.tsx everywhere
+                              playbook, feedback(+inbox), profile; loading.tsx everywhere
+src/components/crm/playbook-view.tsx  THE PLAYBOOK (role-organized manual — bump
+                              PLAYBOOK_VERSION + content with every release)
 src/app/welcome/              first-login onboarding
 src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour, Hint,
                               NotificationsBell (+Broadcast), BlueManChat, FeedbackInboxView…
@@ -303,16 +354,27 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | Notifications kinds / broadcast | `src/server/notify.ts`, bell UI in `notifications-bell.tsx` |
 | Avatars (styles / seeds) | `src/lib/avatars.ts`; picker in `profile-view.tsx` |
 | Leader visibility (who sees which accounts) | `scopeFunctions` in `src/lib/rbac.ts` |
+| The Playbook (member manual) | `src/components/crm/playbook-view.tsx` (+ bump `PLAYBOOK_VERSION`) |
+| Goal reminder emails / cadence | `/api/cron/goal-reminders/route.ts`, announce in `setPerformanceGoal` |
+| Follow-up / forgotten-visit reminders | `/api/cron/visit-followups/route.ts`, templates in `email/templates.ts` |
+| Deal contract uploads | `requestContractUploads`/`confirmContractUploads`/`getContractUrl` in `actions.ts` |
 
 ---
 
 ## 9. Pending / operational notes
 
-- **Pending user action:** 0007–0009 are already run. **Run
-  `0010_notif_link.sql`** in the Supabase SQL editor — it adds
-  `notifications.link` so notification clicks can open the related account.
-  Until it runs, notifications simply aren't clickable (the code retries the
-  insert/select without the column, so nothing breaks).
+- **Pending user action:** 0007–0009 are already run. **Run `0010_notif_link.sql`,
+  `0011_teams.sql` and `0012_contracts_reminders.sql`** in the Supabase SQL
+  editor (in that order) — 0010 makes notifications clickable, 0011 creates the
+  `teams` table (named EB/LB/Function/MM teams), 0012 adds deal contracts +
+  the `contracts` Storage bucket + forgotten-visit nags + goal reminders.
+- **Pending user action:** add the `goal-reminders` schedule from
+  `supabase/cron.sql` in the SQL editor (daily 06:00 UTC).
+- **Drive is already renamed** (done by Ahmed by hand): the old IGT sheet is
+  now `CRM — Raising Accounts`, the blacklist sheet is `CRM — Archived
+  Accounts`, the IGV sheet is deleted. The code finds them by (loose) title,
+  so nothing else is needed; the Teams TAB on the Membership sheet is created
+  and seeded automatically on the next membership import.
 - **CORE data (The Blue Man):** `src/lib/core-analytics.ts` fetches
   core.aiesec.org.eg's public national dashboard + Alexandria's LC page
   (id 899, cached 15 min) and injects the top-10 national rankings per product
@@ -327,6 +389,29 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-07-15 · v11** — **Drive sheets consolidated**: ONE `CRM — Raising
+  Accounts` mirror for ALL accounts (IGV+IGT+B2B, active AND archived) with
+  Function/Product/Archived? filter flags; archived-only view renamed
+  `CRM — Archived Accounts`; the Teams sheet became a **"Teams" TAB on
+  CRM — Membership** (auto-created + seeded); per-product sheets deleted.
+  **Follow-up reminders v2**: +2h report prompt now emails the responsible
+  **+ their TL** (Member/Coordinator only; leaders get it alone; details
+  table included), and a **1-week "you forgot" nag** (same recipients) asks
+  to report or archive — `forgotten_nag_sent_at`. **Deal contracts**: optional
+  any-format uploads on Record-deal or later from History (private `contracts`
+  bucket, signed-URL direct uploads, 10 files ≤25 MB each, RBAC-checked signed
+  view links). **Proposal email rebuilt to the LC's original design** — ONE
+  AIESEC blue for all products, per-function content, general B2B variant →
+  aiesec.org/partners, NO company-logo section. **"My numbers" dashboard chip**
+  (personal KPIs/MOS). **Goal reminder cycle**: daily cron emails goal owners
+  when a period ends (goal vs achieved + set-new button, once per goal), and
+  new goals are announced by email + bell to everyone they apply to.
+  **The Playbook** (`/playbook`, sidebar for everyone): AIESEC-branded,
+  role-organized manual with index + "That's you" badges — MUST be updated
+  with every release (`PLAYBOOK_VERSION`). **SDG badges removed** (mapping,
+  tiles, CSS). Migration **0012**; ship-rule (merge to main + deploy every
+  session) added at the top of this file.
 
 - **2026-07-14 · v10** — Visit **shared with leaders** (calendar attendees: Member
   → TL+VP, TL/Coordinator → VP; raising only) and a **function-wide visit

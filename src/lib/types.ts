@@ -65,46 +65,6 @@ export const IGV_PROJECTS = [
   "Youth 4 Impact",
 ] as const;
 
-/** The 17 UN Sustainable Development Goals — official short name + brand color. */
-export const SDGS: Record<number, { name: string; color: string }> = {
-  1: { name: "No Poverty", color: "#E5243B" },
-  2: { name: "Zero Hunger", color: "#DDA63A" },
-  3: { name: "Good Health & Well-being", color: "#4C9F38" },
-  4: { name: "Quality Education", color: "#C5192D" },
-  5: { name: "Gender Equality", color: "#FF3A21" },
-  6: { name: "Clean Water & Sanitation", color: "#26BDE2" },
-  7: { name: "Affordable & Clean Energy", color: "#FCC30B" },
-  8: { name: "Decent Work & Economic Growth", color: "#A21942" },
-  9: { name: "Industry, Innovation & Infrastructure", color: "#FD6925" },
-  10: { name: "Reduced Inequalities", color: "#DD1367" },
-  11: { name: "Sustainable Cities & Communities", color: "#FD9D24" },
-  12: { name: "Responsible Consumption & Production", color: "#BF8B2E" },
-  13: { name: "Climate Action", color: "#3F7E44" },
-  14: { name: "Life Below Water", color: "#0A97D9" },
-  15: { name: "Life on Land", color: "#56C02B" },
-  16: { name: "Peace, Justice & Strong Institutions", color: "#00689D" },
-  17: { name: "Partnerships for the Goals", color: "#19486A" },
-};
-
-/** Which SDG each IGV project raises for. ⚠️ BEST-GUESS defaults — confirm/edit
- *  with the LC's real project→SDG mapping. A project may target several goals. */
-export const IGV_PROJECT_SDG: Record<string, number[]> = {
-  "Skill Up!": [4],          // Quality Education (skills)
-  "Scale Up": [8],           // Decent Work & Economic Growth
-  "Rooted": [15],            // Life on Land
-  "Heartbeat": [3],          // Good Health & Well-being
-  "Fingerprint": [16],       // Peace, Justice & Strong Institutions
-  "Global Classroom": [4],   // Quality Education
-  "Greenleaders": [13],      // Climate Action
-  "Youth 4 Impact": [17],    // Partnerships for the Goals
-};
-
-/** The SDG numbers a given IGV project maps to (empty when unknown). */
-export function sdgsForProject(project: string | null | undefined): number[] {
-  if (!project) return [];
-  return IGV_PROJECT_SDG[project] ?? [];
-}
-
 // Curated pick-lists (from the LC raising sheets) — "Other" allows free text.
 export const ACCOUNT_TYPES = [
   "Startup",
@@ -302,6 +262,16 @@ export interface Visit {
 /** One signed deal — an account can close several over time (3 slots today,
  *  6 more next month = 2 deals · 9 slots). Opens are split per product:
  *  IGV accounts → all IGV; IGT accounts → IGTa + IGTe; B2B → any mix. */
+/** One uploaded contract file on a deal (private "contracts" Storage bucket). */
+export interface DealContract {
+  path: string;
+  name: string;
+  type: string;
+  size: number;
+  uploaded_at: string;
+  uploaded_by: string | null;
+}
+
 export interface Deal {
   id: string;
   account_id: string;
@@ -311,6 +281,7 @@ export interface Deal {
   slots_igta: number;
   slots_igte: number;
   note: string | null;
+  contracts: DealContract[] | null;
   created_at: string;
 }
 
