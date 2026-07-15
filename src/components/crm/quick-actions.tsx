@@ -75,7 +75,7 @@ export function QuickActions({
     <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
       {visible.map((a) => (
         <Hint key={a.key} label={a.label}>
-          <Button asChild variant="outline" size="icon" className="size-7">
+          <Button asChild variant="outline" size="icon" className="size-9 sm:size-7">
             <a
               href={a.href}
               target={a.href.startsWith("http") ? "_blank" : undefined}
@@ -89,7 +89,7 @@ export function QuickActions({
       {overflow.length > 0 ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="icon" className="size-7" title="More contact options">
+            <Button variant="outline" size="icon" className="size-9 sm:size-7" title="More contact options">
               <MoreHorizontal className="size-3.5" />
             </Button>
           </DropdownMenuTrigger>

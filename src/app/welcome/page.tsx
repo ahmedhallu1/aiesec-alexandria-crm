@@ -9,6 +9,8 @@ export const metadata = { title: "Welcome" };
 export default async function WelcomePage() {
   const viewer = await getViewer();
   if (viewer.profile_completed_at) redirect("/");
+  // the admin test view never onboards on someone's behalf
+  if (viewer.impersonated) redirect("/");
 
   return (
     <main className="relative flex min-h-screen items-center justify-center bg-sidebar p-4">

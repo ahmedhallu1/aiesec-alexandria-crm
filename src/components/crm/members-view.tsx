@@ -31,7 +31,7 @@ function ContactButtons({ m }: { m: MemberDirectoryEntry }) {
   const wa = m.phone?.replace(/\D/g, "") ?? "";
   const stop = (e: React.MouseEvent) => e.stopPropagation();
   const btn =
-    "inline-flex size-7 items-center justify-center rounded-md border text-muted-foreground transition-colors hover:border-primary hover:text-primary";
+    "inline-flex size-9 items-center justify-center rounded-md border text-muted-foreground transition-colors hover:border-primary hover:text-primary sm:size-7";
   return (
     <span className="inline-flex items-center gap-1">
       <Hint label={`Email ${m.nickname || m.name}`}>

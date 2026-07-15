@@ -127,7 +127,15 @@ export function AccountDetailView({
                 ].filter(Boolean).join(" · ") || "opens"}
               >
                 <Badge className="border-transparent bg-success/15 text-success">
-                  🏆 {account.deals_count} deal{account.deals_count === 1 ? "" : "s"} · {account.slots_count} open{account.slots_count === 1 ? "" : "s"}
+                  🏆 {account.deals_count} deal{account.deals_count === 1 ? "" : "s"}
+                  {account.slots_count > 0
+                    ? ` · ${account.slots_count} open${account.slots_count === 1 ? "" : "s"}`
+                    : ""}
+                  {(() => {
+                    // BD deals' MOS: total money across this account's deals
+                    const egp = deals.reduce((s, d) => s + (d.amount ?? 0), 0);
+                    return egp > 0 ? ` · EGP ${egp.toLocaleString()}` : "";
+                  })()}
                 </Badge>
               </Hint>
             ) : null}
@@ -1000,11 +1008,20 @@ function TimelineCard({
                   <Trophy className="mt-0.5 size-4 text-success" />
                   <div className="min-w-0 flex-1">
                     <p className="font-medium">
-                      Deal #{deals.length - i} · {d.slots} open{d.slots === 1 ? "" : "s"}
+                      Deal #{deals.length - i}
+                      {(d.amount ?? 0) > 0 ? (
+                        <span className="text-success"> · EGP {(d.amount ?? 0).toLocaleString()}</span>
+                      ) : null}
+                      {d.slots > 0 || (d.amount ?? 0) === 0
+                        ? ` · ${d.slots} open${d.slots === 1 ? "" : "s"}`
+                        : ""}
                       {split.length > 0 ? (
                         <span className="font-normal text-muted-foreground"> ({split.join(" · ")})</span>
                       ) : null}
                     </p>
+                    {d.benefits ? (
+                      <p className="text-muted-foreground">+ {d.benefits}</p>
+                    ) : null}
                     {d.note ? <p className="text-muted-foreground">{d.note}</p> : null}
                     <p className="text-xs text-muted-foreground">
                       {d.member?.nickname || d.member?.name || "—"} · {fmtDateTime(d.created_at)}
@@ -1306,6 +1323,8 @@ function DealDialog({
   const [igv, setIgv] = useState(fn === "IGV" ? "1" : "0");
   const [igta, setIgta] = useState("0");
   const [igte, setIgte] = useState("0");
+  const [amount, setAmount] = useState(""); // BD: the deal's EGP amount (their MOS)
+  const [benefits, setBenefits] = useState("");
   const [note, setNote] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [celebrate, setCelebrate] = useState(false);
@@ -1313,6 +1332,7 @@ function DealDialog({
 
   // which product fields to show for this account
   const mixed = fn === "B2B" || fn === "BD"; // both raise for the whole ICX
+  const isBD = fn === "BD"; // BD's MOS is money — opens are optional extras
   const showIgv = fn === "IGV" || mixed;
   const showIgta = fn === "IGT" || mixed;
   const showIgte = fn === "IGT" || mixed;
@@ -1320,6 +1340,7 @@ function DealDialog({
     (showIgv ? Number(igv) || 0 : 0) +
     (showIgta ? Number(igta) || 0 : 0) +
     (showIgte ? Number(igte) || 0 : 0);
+  const amountOk = (Number(amount) || 0) >= 1;
 
   const submit = () =>
     start(async () => {
@@ -1330,7 +1351,8 @@ function DealDialog({
           igta: showIgta ? Number(igta) || 0 : 0,
           igte: showIgte ? Number(igte) || 0 : 0,
         },
-        note
+        note,
+        isBD ? { amount: Number(amount) || 0, benefits: benefits.trim() || undefined } : undefined
       );
       if (res.ok) {
         toast.success(
@@ -1345,6 +1367,7 @@ function DealDialog({
         }
         setCelebrate(true);
         setIgv(fn === "IGV" ? "1" : "0"); setIgta("0"); setIgte("0"); setNote(""); setFiles([]);
+        setAmount(""); setBenefits("");
         onOpenChange(false);
         router.refresh();
       } else toast.error(res.error);
@@ -1365,22 +1388,55 @@ function DealDialog({
         <DialogHeader>
           <DialogTitle>🏆 Deal #{dealNumber}</DialogTitle>
           <DialogDescription>
-            {mixed
-              ? "How many opens were signed in THIS deal, per product? e.g. 3 IGV · 2 IGTe · 1 IGTa."
-              : fn === "IGT"
-                ? "Split this deal's opens across IGTa and IGTe."
-                : "How many IGV opens were signed in THIS deal?"}
+            {isBD
+              ? "BD deals are measured in MONEY: enter the deal's amount (EGP) and any other benefits. Opens are optional extras."
+              : mixed
+                ? "How many opens were signed in THIS deal, per product? e.g. 3 IGV · 2 IGTe · 1 IGTa."
+                : fn === "IGT"
+                  ? "Split this deal's opens across IGTa and IGTe."
+                  : "How many IGV opens were signed in THIS deal?"}
             {" "}Accounts can close more deals later — every one is counted.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
+          {isBD ? (
+            <>
+              <div className="grid gap-1.5">
+                <Label className="text-success">Deal amount (EGP) *</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  inputMode="numeric"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="e.g. 15000"
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label>Other benefits (optional)</Label>
+                <Input
+                  value={benefits}
+                  onChange={(e) => setBenefits(e.target.value)}
+                  placeholder="e.g. venue for events, media exposure…"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Did this deal also include opens? Add them below (optional).
+              </p>
+            </>
+          ) : null}
           <div className={cn("grid gap-3", mixed ? "grid-cols-3" : showIgta ? "grid-cols-2" : "grid-cols-1")}>
-            {showIgv ? numField("IGV", "text-gv", igv, setIgv) : null}
-            {showIgta ? numField("IGTa", "text-gt", igta, setIgta) : null}
-            {showIgte ? numField("IGTe", "text-gte", igte, setIgte) : null}
+            {showIgv ? numField(isBD ? "IGV (optional)" : "IGV", "text-gv", igv, setIgv) : null}
+            {showIgta ? numField(isBD ? "IGTa (optional)" : "IGTa", "text-gt", igta, setIgta) : null}
+            {showIgte ? numField(isBD ? "IGTe (optional)" : "IGTe", "text-gte", igte, setIgte) : null}
           </div>
           <p className="text-sm text-muted-foreground">
-            Total this deal: <b className="text-foreground">{total} open{total === 1 ? "" : "s"}</b>
+            Total this deal:{" "}
+            <b className="text-foreground">
+              {isBD && amountOk ? `EGP ${(Number(amount) || 0).toLocaleString()}` : null}
+              {isBD && amountOk && total > 0 ? " + " : null}
+              {!isBD || total > 0 ? `${total} open${total === 1 ? "" : "s"}` : null}
+            </b>
           </p>
           <div className="grid gap-1.5">
             <Label>Note (optional)</Label>
@@ -1401,7 +1457,7 @@ function DealDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button onClick={submit} disabled={pending || total < 1}>
+          <Button onClick={submit} disabled={pending || (isBD ? !amountOk : total < 1)}>
             {pending ? "Saving…" : files.length > 0 ? `Record deal + upload ${files.length} file${files.length === 1 ? "" : "s"}` : "Record deal"}
           </Button>
         </DialogFooter>

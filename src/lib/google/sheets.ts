@@ -510,14 +510,24 @@ export async function exportAllSheets(): Promise<void> {
   const productLabel = (a: any): string =>
     a.function === "IGT" ? (a.product ? `I${a.product}` : "IGT") : a.function;
 
+  // BD deals' MOS is money — total EGP per account. Pre-migration-0015 the
+  // select returns an error (never throws) and the column just stays empty.
+  const amountByAccount = new Map<string, number>();
+  const { data: dealAmounts } = await db().from("deals").select("account_id, amount");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const d of (dealAmounts ?? []) as any[]) {
+    if (d.amount > 0)
+      amountByAccount.set(d.account_id, (amountByAccount.get(d.account_id) ?? 0) + d.amount);
+  }
+
   await safe("CRM — Raising Accounts", () => overwriteSheet(
     "CRM — Raising Accounts",
     ["Account Name", "Function (IGV/IGT/B2B)", "Product", "Sub Product", "Project (IGV)",
      "Account Type", "Industry", "Responsible", "Team", "Stage", "Archived?", "Archive Reason",
      "Contacts", "Requested? (Podio)", "Request State", "Proposal Sent?", "Visit Date",
      "Visit Done?", "Deals", "Total Slots", "IGV Slots", "IGTa Slots", "IGTe Slots",
-     "Next Step", "Next Step Date", "Phone", "Email", "Social Link", "Website",
-     "Comments", "Created At"],
+     "Deal Amount (EGP)", "Next Step", "Next Step Date", "Phone", "Email", "Social Link",
+     "Website", "Comments", "Created At"],
     rows.map((a) => [
       a.name, a.function, productLabel(a), a.sub_product, a.project,
       a.account_type, a.industry, a.responsible_nickname || a.responsible_name,
@@ -527,6 +537,7 @@ export async function exportAllSheets(): Promise<void> {
       a.proposal_sent ? "Yes" : "No", a.visit_date,
       a.visit_done == null ? "" : a.visit_done ? "Yes" : "No",
       a.deals_count, a.slots_count, a.slots_igv_count, a.slots_igta_count, a.slots_igte_count,
+      amountByAccount.get(a.id) || "",
       a.next_step, a.next_step_date, a.phone, a.email, a.social_link,
       a.website, commentText.get(a.id) ?? "", a.created_at?.slice(0, 16)?.replace("T", " "),
     ])

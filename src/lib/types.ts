@@ -296,6 +296,10 @@ export interface Deal {
   slots_igv: number;
   slots_igta: number;
   slots_igte: number;
+  /** BD deals' MOS: the deal's money amount in EGP (0 for open-based deals) */
+  amount: number;
+  /** BD deals: other non-monetary benefits of the deal */
+  benefits: string | null;
   note: string | null;
   contracts: DealContract[] | null;
   created_at: string;

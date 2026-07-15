@@ -18,6 +18,8 @@ export interface Viewer extends Member {
   isAdmin: boolean;
   /** ids of members whose stakeholder is this viewer (their direct team) */
   teamMemberIds: string[];
+  /** set when an admin is test-viewing as this member ("View as" on profile) */
+  impersonated?: boolean;
 }
 
 export type AccountScope =

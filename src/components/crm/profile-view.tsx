@@ -3,8 +3,11 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CalendarCheck, Check, KeyRound, Loader2, Lock, Mail, Phone, Sparkles, Upload, Users, UsersRound } from "lucide-react";
-import { changePassword, diagnoseCalendar, updateAvatar, updateProfile } from "@/server/actions";
+import { CalendarCheck, Check, Eye, KeyRound, Loader2, Lock, Mail, Phone, Sparkles, Upload, Users, UsersRound } from "lucide-react";
+import { changePassword, diagnoseCalendar, startViewAs, stopViewAs, updateAvatar, updateProfile } from "@/server/actions";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { ADMIN_EMAIL, cleanPhone, FUNCTION_COLORS, PHONE_RE } from "@/lib/types";
 import type { PersonCard } from "@/server/data";
 import { WhatsAppIcon } from "./icons";
@@ -43,10 +46,13 @@ interface ProfileInfo {
 export function ProfileView({
   member,
   people,
+  viewAs,
 }: {
   member: ProfileInfo;
   /** the viewer's people (TL → team · VP/Director → function · LCP → EB) */
   people: { title: string; people: PersonCard[] } | null;
+  /** REAL-admin only: the test-view picker (survives an active test view) */
+  viewAs: { activeId: string | null; members: { id: string; label: string; role: string }[] } | null;
 }) {
   const router = useRouter();
   const [nickname, setNickname] = useState(member.nickname);
@@ -291,7 +297,7 @@ export function ProfileView({
             {people.people.map((p) => {
               const wa = p.phone?.replace(/\D/g, "") ?? "";
               const btn =
-                "inline-flex size-7 items-center justify-center rounded-md border text-muted-foreground transition-colors hover:border-primary hover:text-primary";
+                "inline-flex size-9 items-center justify-center rounded-md border text-muted-foreground transition-colors hover:border-primary hover:text-primary sm:size-7";
               return (
                 <div
                   key={p.id}
@@ -343,8 +349,89 @@ export function ProfileView({
         </Card>
       ) : null}
 
+      {viewAs ? <ViewAsCard viewAs={viewAs} /> : null}
       {member.isAdmin ? <CalendarHealthCard /> : null}
     </div>
+  );
+}
+
+/** Admin test view: experience the whole app as any member — invaluable for
+ *  verifying what each role/function actually sees. */
+function ViewAsCard({
+  viewAs,
+}: {
+  viewAs: { activeId: string | null; members: { id: string; label: string; role: string }[] };
+}) {
+  const router = useRouter();
+  const [target, setTarget] = useState(viewAs.activeId ?? "");
+  const [pending, start] = useTransition();
+  const active = viewAs.members.find((m) => m.id === viewAs.activeId) ?? null;
+
+  const begin = () =>
+    start(async () => {
+      const res = await startViewAs(target);
+      if (res.ok) {
+        toast.success(`👁 Now viewing as ${res.data?.name} — hit Exit on the banner to come back.`);
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
+  const end = () =>
+    start(async () => {
+      const res = await stopViewAs();
+      if (res.ok) {
+        toast.success("Back to yourself 👋");
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
+  return (
+    <Card className="border-warning/40">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Eye className="size-4 text-warning" /> Test view (admin)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          See and use the whole system exactly as another member — dashboard,
+          accounts, permissions, everything. Actions you take while testing are
+          <b> real and recorded as them</b>, so look, don&apos;t touch. 😉
+        </p>
+        {active ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge className="border-transparent bg-warning/15 text-warning">
+              Active: {active.label} · {active.role}
+            </Badge>
+            <Button size="sm" variant="outline" onClick={end} disabled={pending}>
+              {pending ? <Loader2 className="size-3.5 animate-spin" /> : null} Exit test view
+            </Button>
+          </div>
+        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={target || undefined} onValueChange={setTarget}>
+            <SelectTrigger className="h-9 w-64 max-w-full">
+              <SelectValue placeholder="Pick a member…" />
+            </SelectTrigger>
+            <SelectContent>
+              {viewAs.members.map((m) => (
+                <SelectItem key={m.id} value={m.id}>
+                  {m.label} · {m.role}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            size="sm"
+            onClick={begin}
+            disabled={pending || !target || target === viewAs.activeId}
+          >
+            {pending ? <Loader2 className="size-3.5 animate-spin" /> : <Eye className="size-3.5" />}
+            View as
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

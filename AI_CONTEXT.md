@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-07-15 · Version: v13
+Last updated: 2026-07-16 · Version: v14
 
 ---
 
@@ -36,7 +36,7 @@ the blueprint for future OGX/other-function modules.
 
 **Migrations** live in `supabase/migrations/` and are run **manually** in the
 Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v2`
-→ `0003_ops_v2` → `0004_pins_v2` → `0005_deals` → `0006_admin_label` → `0007_visit_scheduled_result` → `0008_notifications_feedback` → `0009_b2b_deals_v9` → `0010_notif_link` → `0011_teams` → `0012_contracts_reminders` → `0013_director_label` → `0014_bd_podio`.
+→ `0003_ops_v2` → `0004_pins_v2` → `0005_deals` → `0006_admin_label` → `0007_visit_scheduled_result` → `0008_notifications_feedback` → `0009_b2b_deals_v9` → `0010_notif_link` → `0011_teams` → `0012_contracts_reminders` → `0013_director_label` → `0014_bd_podio` → `0015_bd_deal_amount`.
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
@@ -106,6 +106,23 @@ ALSO gates server-side (`redirect` + `listMembersDirectory` returns `[]`).
 direct team · VP/Director → their whole function · LCP/admin → the EB
 (LCVPs) · Members/Coordinators → nothing. Each person row has
 email/call/WhatsApp buttons.
+
+**Admin "Test view" (View-As)**: the admin's profile has a member picker —
+`startViewAs` sets an httpOnly cookie (`sodio-view-as`, 4h expiry) and
+`getViewer()` then returns the impersonated member (`viewer.impersonated`)
+so THE WHOLE APP behaves as them; the real session is never touched
+(`getRealViewer` powers the admin checks + the picker itself, so it works
+mid-test-view). A fixed bottom banner shows "Test view: X — Exit". The
+/welcome redirect is skipped while impersonating. ⚠️ Actions taken in a test
+view are REAL and attributed to the target member (by design — it's a test
+tool; audit_log records view_as_start/stop by the real admin).
+
+**BD deals' MOS = MONEY** (migration 0015: `deals.amount` EGP +
+`deals.benefits`): recording a deal on a BD account requires the amount
+(opens optional); deal history shows `EGP X` + benefits, the account header
+badge sums EGP across deals, and "CRM — Raising Accounts" gains a
+"Deal Amount (EGP)" column. Dashboards/leaderboards still rank opens —
+money is per-account/sheet for now (a money KPI can come later).
 
 **B2B** (function or sub-function contains "B2B"/"BD") raises **for the whole ICX**:
 they add accounts as **product "B2B"** (not IGV/IGT), and every deal records its
@@ -416,10 +433,13 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ## 9. Pending / operational notes
 
 - **Pending user action:** 0007–0012 are run (verified live 2026-07-15). **Run
-  `0013_director_label.sql` and `0014_bd_podio.sql`** in the Supabase SQL
-  editor — until 0013, a Director's comments fail to save; until 0014, BD
-  accounts and the Podio worklist error out (BD enum value + pin column +
-  view v5 are all in 0014).
+  `0013_director_label.sql`, `0014_bd_podio.sql` and `0015_bd_deal_amount.sql`**
+  in the Supabase SQL editor — until 0013, a Director's comments fail to save;
+  until 0014, BD accounts/Podio worklist politely refuse (listAccounts has a
+  BD grace path so nothing 500s); until 0015, BD money deals refuse with a
+  pointer to the migration.
+- **CRON_SECRET sync SQL** (escaped correctly this time):
+  `select substring(command from 'key=([^'']+)') from cron.job limit 1;`
 - **CRON_SECRET mismatch:** the value in local `.env.local` differs from the
   one in Vercel/pg_cron (Vercel marks it sensitive — unreadable). The
   production crons work; only manual local triggering fails with 401. To sync:
@@ -444,6 +464,19 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-07-16 · v14** — **Admin Test view (View-As)**: profile picker + cookie
+  impersonation through `getViewer` + exit banner; real session drives the
+  admin checks. **BD deals' MOS = money** (migration 0015): amount (EGP)
+  required on BD deals (+ optional benefits, opens optional), shown in
+  history/header and a new sheet column. **ui-ux-pro-max skill reinstalled
+  properly** (the ~/.claude/skills copies had dangling symlinks — data
+  materialized for all 7 design skills) and the **21st.dev MCP server**
+  registered user-scope; applied the skill's conservative recommendations:
+  mobile touch targets enlarged to 36px (contact shortcuts + quick actions,
+  desktop unchanged) — heavier items (style overhauls, GSAP, generated
+  components) deliberately skipped to protect smoothness/reliability/
+  responsiveness. Playbook v14.
 
 - **2026-07-15 · v13** — **TM module v1** (`/members`, TM function + LCP/admin):
   whole-LC members directory with per-member MOS/KPIs + email/call/WhatsApp

@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/supabase";
@@ -33,13 +34,54 @@ export interface PipelineRow extends AccountPipeline {
 
 // ------------------------------------------------------------------ viewer
 
-export async function getViewer(): Promise<Viewer> {
+/** Cookie carrying the admin's "view as" test target (member id). */
+export const VIEW_AS_COOKIE = "sodio-view-as";
+
+/** The REAL signed-in member — never impersonated. Use for admin checks.
+ *  cache(): layouts, pages and actions in one request share one lookup. */
+export const getRealViewer = cache(async (): Promise<Viewer> => {
   const session = await auth();
   const email = session?.user?.email?.toLowerCase();
   if (!email) redirect("/login");
   const viewer = await getViewerByEmail(email);
   if (!viewer) redirect("/login");
   return viewer;
+});
+
+/** The effective viewer. When the REAL user is an admin and the view-as
+ *  cookie is set, this becomes the impersonated member (marked
+ *  `impersonated`) — the whole app then behaves exactly as it would for
+ *  them, which is the point of the test view. */
+export const getViewer = cache(async (): Promise<Viewer> => {
+  const real = await getRealViewer();
+  if (!real.isAdmin) return real;
+  const { cookies } = await import("next/headers");
+  const targetId = (await cookies()).get(VIEW_AS_COOKIE)?.value;
+  if (!targetId || targetId === real.id) return real;
+  const target = await getViewerById(targetId);
+  if (!target) return real;
+  return { ...target, impersonated: true };
+});
+
+async function getViewerById(id: string): Promise<Viewer | null> {
+  const { data: member } = await db()
+    .from("members")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle<Member>();
+  if (!member || !member.is_active) return null;
+  const { data: team } = await db()
+    .from("members")
+    .select("id")
+    .eq("stakeholder_id", member.id)
+    .eq("is_active", true);
+  return {
+    ...member,
+    functions: member.functions ?? [],
+    sub_functions: member.sub_functions ?? [],
+    isAdmin: env.adminEmails.includes(member.email.toLowerCase()),
+    teamMemberIds: (team ?? []).map((t) => t.id),
+  };
 }
 
 export async function getViewerByEmail(email: string): Promise<Viewer | null> {

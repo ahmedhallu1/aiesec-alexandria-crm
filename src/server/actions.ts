@@ -593,11 +593,14 @@ export async function removeArchivedEntry(id: string): Promise<ActionResult> {
 /** Records ONE deal — an account can close many over time (3 slots today, 6
  *  more next month = 2 deals · 9 slots). Opens are recorded PER PRODUCT:
  *  IGV accounts sign IGV opens; IGT accounts split IGTa + IGTe; B2B accounts
- *  mix all three (e.g. 3 IGV + 2 IGTe + 1 IGTa). Totals live on the account. */
+ *  mix all three (e.g. 3 IGV + 2 IGTe + 1 IGTa). Totals live on the account.
+ *  BD deals' MOS is MONEY: the amount (EGP) is required (+ optional other
+ *  benefits) and opens are optional extras. */
 export async function recordDeal(
   accountId: string,
   breakdown: { igv?: number; igta?: number; igte?: number },
-  note?: string
+  note?: string,
+  extras?: { amount?: number; benefits?: string }
 ): Promise<ActionResult<{ deals: number; slots: number; dealId: string }>> {
   const viewer = await getViewer();
   const account = await loadAccount(accountId);
@@ -610,12 +613,16 @@ export async function recordDeal(
   let igv = clamp(breakdown.igv);
   let igta = clamp(breakdown.igta);
   let igte = clamp(breakdown.igte);
+  const amount = Math.max(0, Math.round(extras?.amount ?? 0));
   if (account.function === "IGV") {
     igta = 0; igte = 0;
     if (igv < 1) return fail("How many IGV opens were signed?");
   } else if (account.function === "IGT") {
     igv = 0;
     if (igta + igte < 1) return fail("Split the opens across IGTa / IGTe (at least 1).");
+  } else if (account.function === "BD") {
+    // BD's MOS is the money — opens are a bonus, not a requirement
+    if (amount < 1) return fail("What's this deal's amount (EGP)?");
   } else if (igv + igta + igte < 1) {
     return fail("Add the opens of this deal (IGV / IGTa / IGTe).");
   }
@@ -632,6 +639,9 @@ export async function recordDeal(
       slots_igv: igv,
       slots_igta: igta,
       slots_igte: igte,
+      ...(amount > 0 || extras?.benefits?.trim()
+        ? { amount, benefits: extras?.benefits?.trim() || null }
+        : {}),
       note: note?.trim() || null,
     })
     .select("id")
@@ -639,6 +649,12 @@ export async function recordDeal(
   if (error || !inserted) {
     if (error?.message.includes("slots_igv"))
       return fail("Per-product deals need migration 0009 — run it in the Supabase SQL editor.");
+    if (
+      error?.message.includes("amount") ||
+      error?.message.includes("benefits") ||
+      error?.message.includes("deals_slots_check")
+    )
+      return fail("BD money deals need migration 0015 — run it in the Supabase SQL editor.");
     return fail(error?.message ?? "The deal could not be saved — try again.");
   }
 
@@ -784,6 +800,46 @@ export async function getContractUrl(
   const { data, error } = await db().storage.from("contracts").createSignedUrl(path, 600);
   if (error || !data) return fail(error?.message ?? "Could not open the contract — try again.");
   return { ok: true, data: { url: data.signedUrl } };
+}
+
+// ================================================================== view as (admin test view)
+
+/** Admin-only: see & use the whole app exactly as another member would.
+ *  The check runs against the REAL session (never the impersonated viewer),
+ *  so the admin can always start/stop regardless of the current test view. */
+export async function startViewAs(memberId: string): Promise<ActionResult<{ name: string }>> {
+  const { getRealViewer, VIEW_AS_COOKIE } = await import("./data");
+  const real = await getRealViewer();
+  if (!real.isAdmin) return fail("Only the admin can use the test view.", "forbidden");
+
+  const { data: target } = await db()
+    .from("members")
+    .select("id, name, nickname, is_active")
+    .eq("id", memberId)
+    .maybeSingle<{ id: string; name: string; nickname: string | null; is_active: boolean }>();
+  if (!target || !target.is_active) return fail("That member doesn't exist (or is inactive).");
+
+  const { cookies } = await import("next/headers");
+  (await cookies()).set(VIEW_AS_COOKIE, target.id, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 4, // auto-expires after 4h so a test view can't linger
+  });
+  await logAudit(real.id, "view_as_start", "member", target.id);
+  refresh();
+  return { ok: true, data: { name: target.nickname || target.name } };
+}
+
+export async function stopViewAs(): Promise<ActionResult> {
+  const { getRealViewer, VIEW_AS_COOKIE } = await import("./data");
+  const real = await getRealViewer(); // any signed-in user may clear their own cookie
+  const { cookies } = await import("next/headers");
+  (await cookies()).delete(VIEW_AS_COOKIE);
+  await logAudit(real.id, "view_as_stop", "member", null);
+  refresh();
+  return { ok: true };
 }
 
 // ================================================================== podio submit requests
@@ -1467,6 +1523,9 @@ export async function completeOnboarding(input: {
   password: string;
 }): Promise<ActionResult> {
   const viewer = await getViewer();
+  // never complete someone ELSE's onboarding from the admin test view
+  if (viewer.impersonated)
+    return fail("You're in a test view — exit it before onboarding actions.", "forbidden");
   const parsed = profileSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0].message);
   if (!input.password || input.password.length < 8)

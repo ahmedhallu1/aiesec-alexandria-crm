@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v13";
+export const PLAYBOOK_VERSION = "v14";
 
 interface Props {
   role: string;
@@ -122,6 +122,7 @@ const SECTIONS: Section[] = [
       <>When adding an account you <b>choose its label: B2B or BD</b>. Both split every deal&apos;s opens across <b>IGV / IGTa / IGTe</b> — each lane&apos;s dashboard picks up its share.</>,
       <>You see and feed <b>every lane</b>; IGV/IGT VPs & Directors see all your data too and can filter their dashboard by the <b>B2B lane</b>.</>,
       <><b>Podio worklist</b> (MMs & Director/VP): the &quot;Podio pending&quot; filter lists accounts not yet requested — copy names for the form, set the request state inline, or <b>Ask to submit</b>: the owner gets an in-app notification and the account pins to the top of their list until they act.</>,
+      <><b>BD deals are measured in MONEY</b>: recording a deal on a BD account asks for the <b>amount (EGP)</b> + other benefits — opens are optional extras. The account header and Drive sheet show the EGP totals.</>,
       <>Proposal emails: B2B accounts get the <b>all-programs variant</b> (aiesec.org/partners); <b>BD accounts get the Talent-Solutions pitch</b> (aiesec.org.eg/partner.html) with no ready-made attachments.</>,
     ],
   },
@@ -158,6 +159,7 @@ const SECTIONS: Section[] = [
     color: "#F85A40",
     points: [
       <><b>Ship rule:</b> every change goes <b>commit → merge to main → push to GitHub → <code>vercel deploy --prod</code></b>. Never leave finished work on a side branch.</>,
+      <><b>Test view</b>: from your Profile, view & use the whole app as ANY member (banner at the bottom exits). Actions taken in a test view are real — look, don&apos;t touch.</>,
       <>DB migrations run <b>manually, in order</b> in the Supabase SQL editor (<code>supabase/migrations/0001 → 0012</code>). Cron schedules live in <code>supabase/cron.sql</code>.</>,
       <><code>AI_CONTEXT.md</code> in the repo is the technical single source of truth — update it (and <b>this playbook + its version</b>) in the same commit as any change.</>,
       <>Secrets live in <code>.env.local</code> + Vercel env — never in the repo. The feedback inbox is restricted to the IM director + coach.</>,
