@@ -291,7 +291,7 @@ export function DashboardView({
           <Leaderboard title={`${laneLabel} — Members`} groups={memberBoard} />
         ) : null}
         {mmBoard.length > 0 ? (
-          <Leaderboard title={`${laneLabel} — TLs & Coordinators`} groups={mmBoard} />
+          <Leaderboard title={`${laneLabel} — MMs`} groups={mmBoard} />
         ) : null}
         {teamBoard.length > 1 ? (
           <Leaderboard

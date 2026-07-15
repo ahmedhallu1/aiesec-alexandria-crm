@@ -18,16 +18,22 @@ const ALEXANDRIA_LC_ID = 899;
 const REVALIDATE_SECONDS = 900;
 
 async function fetchCore(path: string): Promise<string | null> {
+  // hard timeout so a slow/hanging CORE never stalls the request that needs it
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
   try {
     const res = await fetch(`${CORE_URL}${path}`, {
       next: { revalidate: REVALIDATE_SECONDS },
       headers: { "User-Agent": "Sodio-CRM (AIESEC in Alexandria)" },
+      signal: controller.signal,
     });
     if (!res.ok) return null;
     return await res.text();
   } catch (e) {
-    console.error(`[core] fetch ${path} failed:`, e);
+    console.error(`[core] fetch ${path} failed:`, e instanceof Error ? e.message : e);
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

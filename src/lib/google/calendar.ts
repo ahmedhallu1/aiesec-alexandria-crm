@@ -22,10 +22,16 @@ function mailboxCalendar() {
 
 const VISITS_CAL_NAME = "Sodio — LC Visits";
 
+/** In-process negative cache: once we learn the mailbox token can't use the
+ *  Calendar API, skip the (slow, retrying) Google call for a while so every
+ *  scheduleVisit stays fast and never blocks on a call we know will 403. */
+let calendarDisabledUntil = 0;
+
 /** Finds (or creates) the shared "Sodio — LC Visits" calendar on the IM mailbox
  *  and caches its id. Returns null if the mailbox token lacks calendar scope. */
 export async function getVisitsCalendarId(): Promise<string | null> {
   if (!env.gmailRefreshToken || !env.googleClientId) return null;
+  if (Date.now() < calendarDisabledUntil) return null; // known-unavailable, skip
   const { data: cached } = await db()
     .from("app_settings")
     .select("value")
@@ -52,7 +58,13 @@ export async function getVisitsCalendarId(): Promise<string | null> {
     }
     return id;
   } catch (e) {
-    console.error("[calendar] mailbox calendar unavailable (token needs calendar scope):", e);
+    // most likely the token lacks calendar scope — back off for 30 min so we
+    // don't re-hit (and retry) Google on every visit; Tier 1/3 still cover it
+    calendarDisabledUntil = Date.now() + 30 * 60 * 1000;
+    console.error(
+      "[calendar] mailbox calendar unavailable (token needs calendar scope), backing off 30m:",
+      e instanceof Error ? e.message : e
+    );
     return null;
   }
 }

@@ -27,6 +27,7 @@ import { ProposalDialog } from "./proposal-dialog";
 import { ConfettiBurst } from "./confetti";
 import { cn } from "@/lib/utils";
 import { StageBadge } from "./stage-badge";
+import { ProjectSdgs } from "./sdg-badge";
 import { ContactDialog, type ContactTarget } from "./contact-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -109,6 +110,9 @@ export function AccountDetailView({
             </Badge>
             {account.function === "IGV" && account.project ? (
               <Badge variant="outline">{account.project}</Badge>
+            ) : null}
+            {account.function === "IGV" ? (
+              <ProjectSdgs project={account.project} size="sm" />
             ) : null}
             <StageBadge stage={account.stage} />
             {account.deals_count > 0 ? (
@@ -362,6 +366,12 @@ function DetailsCard({ account, canEdit }: { account: PipelineRow; canEdit: bool
                 ) : (
                   <p className="truncate text-sm">{form.project || "—"}</p>
                 )}
+              </div>
+            ) : null}
+            {account.function === "IGV" && form.project ? (
+              <div className="grid gap-1 sm:grid-cols-[110px_1fr] sm:items-center sm:gap-2">
+                <Label className="text-xs text-muted-foreground">SDG</Label>
+                <ProjectSdgs project={form.project} size="md" />
               </div>
             ) : null}
             {listRow("Account type", "account_type")}

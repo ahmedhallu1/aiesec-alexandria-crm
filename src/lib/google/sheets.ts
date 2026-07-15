@@ -393,7 +393,19 @@ export async function exportAllSheets(): Promise<void> {
   const igv = rows.filter((a) => a.function === "IGV");
   const igt = rows.filter((a) => a.function === "IGT");
 
-  await overwriteSheet(
+  // one failing sheet (e.g. a transient Sheets API error) must NOT abort the
+  // whole export — collect failures and keep going
+  const failures: string[] = [];
+  const safe = async (title: string, fn: () => Promise<void>) => {
+    try {
+      await fn();
+    } catch (e) {
+      failures.push(title);
+      console.error(`[sheets] export of "${title}" failed:`, e instanceof Error ? e.message : e);
+    }
+  };
+
+  await safe("CRM — IGV Accounts", () => overwriteSheet(
     "CRM — IGV Accounts",
     ["Account Name", "Project", "Account Type", "Industry", "Responsible",
      "Stage", "Contacts", "Requested? (Podio)", "Request State", "Proposal Sent?", "Visit Date",
@@ -408,9 +420,9 @@ export async function exportAllSheets(): Promise<void> {
       a.out_of_process ? "Yes" : "No", a.oop_reason, a.phone, a.email, a.social_link,
       a.website, commentText.get(a.id) ?? "", a.created_at?.slice(0, 16)?.replace("T", " "),
     ])
-  );
+  ));
 
-  await overwriteSheet(
+  await safe("CRM — IGT Accounts", () => overwriteSheet(
     "CRM — IGT Accounts",
     ["Account Name", "Product", "Sub Product", "Responsible", "Stage", "Contacts",
      "Requested? (Podio)", "Request State", "Visit Date", "Visit Done?", "Slot Raised?",
@@ -424,9 +436,9 @@ export async function exportAllSheets(): Promise<void> {
       a.out_of_process ? "Yes" : "No", a.oop_reason, a.phone, a.email, a.social_link,
       a.website, commentText.get(a.id) ?? "", a.created_at?.slice(0, 16)?.replace("T", " "),
     ])
-  );
+  ));
 
-  await overwriteSheet(
+  await safe("CRM — Contact Log", () => overwriteSheet(
     "CRM — Contact Log",
     ["Date", "Account", "Member", "Method", "Status", "Comment"],
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -434,9 +446,9 @@ export async function exportAllSheets(): Promise<void> {
       c.created_at?.slice(0, 16).replace("T", " "), c.account?.name, c.member?.name,
       c.method, c.status, c.comment,
     ])
-  );
+  ));
 
-  await overwriteSheet(
+  await safe("CRM — Visits", () => overwriteSheet(
     "CRM — Visits",
     ["Visit Date", "Time", "Account", "Member", "Done?", "Comment", "Next Step"],
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -444,7 +456,7 @@ export async function exportAllSheets(): Promise<void> {
       v.visit_date, v.visit_time?.slice(0, 5), v.account?.name, v.member?.name,
       v.done == null ? "Pending" : v.done ? "Yes" : "No", v.visit_comment, v.next_step,
     ])
-  );
+  ));
 
   // EVERY archived name in one clearly-labeled sheet: out-of-process accounts
   // (worked in the CRM, then closed) + manually archived names (burned before
@@ -468,11 +480,14 @@ export async function exportAllSheets(): Promise<void> {
     b.added_by_member?.nickname || b.added_by_member?.name || "",
     "Added manually to the archive",
   ]);
-  await overwriteSheet(
+  await safe("CRM — Archived Accounts (DO NOT re-add)", () => overwriteSheet(
     "CRM — Archived Accounts (DO NOT re-add)",
     ["Account Name", "Product", "Archive Reason", "Archived At", "By / Was Responsible", "Source"],
     [...oopRows, ...manualRows]
-  );
+  ));
+
+  if (failures.length > 0)
+    console.error(`[sheets] export finished with ${failures.length} failed sheet(s): ${failures.join(", ")}`);
 }
 
 export type { Member };
