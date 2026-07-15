@@ -81,9 +81,10 @@ export default async function AccountsPage({
         label: m.nickname || m.name,
         functions: [
           ...(m.functions ?? []),
-          // B2B/BD may live in sub-functions only (one function, two names)
-          ...(!["B2B", "BD"].some((f) => (m.functions ?? []).includes(f)) && memberIsB2B(m)
-            ? ["B2B"]
+          // B2B/BD may live in sub-functions only (one function, two names) —
+          // synthesize BOTH labels so either account kind finds the crew
+          ...(memberIsB2B(m)
+            ? ["B2B", "BD"].filter((f) => !(m.functions ?? []).includes(f))
             : []),
         ],
       }))}

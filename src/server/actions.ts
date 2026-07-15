@@ -1022,7 +1022,7 @@ const visitSchema = z.object({
 function isRaisingMember(m: { functions: string[] | null; sub_functions: string[] | null }): boolean {
   const subs = m.sub_functions ?? [];
   if (subs.length === 0) return true;
-  if (subs.some((s) => ["Raising", "ICX", "B2B"].includes(s))) return true;
+  if (subs.some((s) => ["Raising", "ICX", "B2B", "BD"].includes(s))) return true;
   return !subs.includes("Consideration");
 }
 
@@ -1080,7 +1080,11 @@ async function resolveVisitRecipients(
   // ---- calendar attendees (TL + VP as the spec describes) ----
   const attendees = new Set<string>();
   const vps = members.filter(
-    (m) => m.role === "LCVP" && (m.functions ?? []).some((f) => (fns as string[]).includes(f))
+    (m) =>
+      m.role === "LCVP" &&
+      ((m.functions ?? []).some((f) => (fns as string[]).includes(f)) ||
+        // B2B/BD VPs may carry either label (or sub-functions only)
+        ((fns as string[]).includes("B2B") && memberIsB2B(m)))
   );
   if (responsible.role === "Member") {
     const tl = responsible.stakeholder_id ? byId.get(responsible.stakeholder_id) : null;

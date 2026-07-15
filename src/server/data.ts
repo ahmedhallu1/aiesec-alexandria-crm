@@ -102,15 +102,35 @@ export async function listAccounts(
   viewer: Viewer,
   filters: AccountFilters = {}
 ): Promise<PipelineRow[]> {
-  let query = applyScope(
-    db().from("accounts_pipeline").select("*"),
-    accountScope(viewer)
-  );
+  const attempt = (bdSafe: boolean) => buildAccountsQuery(viewer, filters, bdSafe);
+  let { data, error } = await attempt(false);
+  // MIGRATION-0014 GRACE: before the migration runs, Postgres rejects the
+  // "BD" enum value (22P02 on lc_function). Retry without BD so a deploy can
+  // never break the dashboard/accounts while the SQL editor lags behind.
+  if (error && `${error.message}`.includes("lc_function")) {
+    if (filters.fn === "BD") return [];
+    ({ data, error } = await attempt(true));
+  }
+  if (error) throw error;
+  return (data ?? []) as PipelineRow[];
+}
+
+async function buildAccountsQuery(
+  viewer: Viewer,
+  filters: AccountFilters,
+  bdSafe: boolean
+) {
+  const scope = accountScope(viewer);
+  const effScope: AccountScope =
+    bdSafe && scope.kind === "functions"
+      ? { kind: "functions", fns: scope.fns.filter((f) => f !== "BD") }
+      : scope;
+  let query = applyScope(db().from("accounts_pipeline").select("*"), effScope);
   if (filters.archived) query = query.eq("out_of_process", true);
   else if (!filters.includeArchived) query = query.eq("out_of_process", false);
   if (filters.podioPending)
     query = query
-      .in("function", ["B2B", "BD"])
+      .in("function", bdSafe ? ["B2B"] : ["B2B", "BD"])
       .eq("requested_podio", false)
       .is("request_state", null);
   if (filters.fn) query = query.eq("function", filters.fn);
@@ -135,9 +155,7 @@ export async function listAccounts(
   if (filters.flag === "contact_limit") query = query.eq("contact_limit_reached", true);
   if (filters.flag === "next_step_missing") query = query.eq("next_step_missing", true);
   if (filters.q) query = query.ilike("normalized_name", `%${normalizeName(filters.q)}%`);
-  const { data, error } = await query.order("updated_at", { ascending: false }).limit(1000);
-  if (error) throw error;
-  return (data ?? []) as PipelineRow[];
+  return query.order("updated_at", { ascending: false }).limit(1000);
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

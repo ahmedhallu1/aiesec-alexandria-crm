@@ -131,8 +131,13 @@ export function AddAccountDialog({
       router.push(`/accounts/${res.data!.slug}`);
     });
 
+  // B2B & BD are one crew — either label qualifies for either account kind
   const fnMembers = members.filter(
-    (m) => m.functions.includes(fn) || m.id === viewer.id
+    (m) =>
+      m.id === viewer.id ||
+      (fn === "B2B" || fn === "BD"
+        ? ["B2B", "BD"].some((f) => m.functions.includes(f))
+        : m.functions.includes(fn))
   );
 
   return (

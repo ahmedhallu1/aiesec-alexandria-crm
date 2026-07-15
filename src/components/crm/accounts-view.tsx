@@ -480,14 +480,14 @@ export function AccountsView({
             options={viewer.allowedFns.map((f) => [f, f])}
           />
         ) : null}
-        {filters.fn !== "IGV" && filters.fn !== "B2B" && viewer.allowedFns.includes("IGT") ? (
+        {(!filters.fn || filters.fn === "IGT") && viewer.allowedFns.includes("IGT") ? (
           <FilterSelect
             value={filters.product} placeholder="Product"
             onChange={(v) => setParam("product", v)}
             options={[["GTa", "IGTa"], ["GTe", "IGTe"]]}
           />
         ) : null}
-        {filters.fn !== "IGT" && filters.fn !== "B2B" && viewer.allowedFns.includes("IGV") ? (
+        {(!filters.fn || filters.fn === "IGV") && viewer.allowedFns.includes("IGV") ? (
           <FilterSelect
             value={filters.project} placeholder="Project"
             onChange={(v) => setParam("project", v)}
