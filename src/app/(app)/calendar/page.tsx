@@ -38,6 +38,7 @@ export default async function CalendarPage({
       month={month}
       viewerId={viewer.id}
       openableMemberIds={scope.kind === "members" ? scope.ids : null}
+      showFunction={scope.kind === "all"}
     />
   );
 }

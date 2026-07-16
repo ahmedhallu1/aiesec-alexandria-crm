@@ -395,6 +395,8 @@ export function goalPeriodEndedEmail(opts: {
   target: number;
   achieved: number;
   setGoalUrl: string;
+  /** "slots" (default) — the BD money goal passes "EGP" */
+  unit?: string;
 }) {
   const hit = opts.achieved >= opts.target;
   const pctNum = opts.target > 0 ? Math.round((opts.achieved / opts.target) * 100) : 0;
@@ -407,8 +409,8 @@ export function goalPeriodEndedEmail(opts: {
         <p>Here's how the <b>${escapeHtml(opts.scopeLabel)}</b> closed it:</p>
         ${detailsTable([
           ["Period", opts.periodLabel],
-          ["Goal", `${opts.target} slots`],
-          ["Achieved", `${opts.achieved} slots (${pctNum}%)`],
+          ["Goal", `${opts.target} ${opts.unit ?? "slots"}`],
+          ["Achieved", `${opts.achieved} ${opts.unit ?? "slots"} (${pctNum}%)`],
           ["Result", hit ? "Goal reached — congratulations! 🏆" : "Goal not reached — new period, new push 💪"],
         ])}
         <p>There's <b>no goal set for the new period yet</b> — your people can't chase a
@@ -428,17 +430,19 @@ export function newGoalEmail(opts: {
   target: number;
   setByName: string;
   dashboardUrl: string;
+  /** "slots" (default) — the BD money goal passes "EGP" */
+  unit?: string;
 }) {
   return {
-    subject: `🎯 New goal for ${opts.scopeLabel}: ${opts.target} slots (${opts.periodLabel})`,
+    subject: `🎯 New goal for ${opts.scopeLabel}: ${opts.target} ${opts.unit ?? "slots"} (${opts.periodLabel})`,
     html: emailLayout({
-      preheader: `${opts.target} slots by ${opts.periodEnd} — let's go`,
+      preheader: `${opts.target} ${opts.unit ?? "slots"} by ${opts.periodEnd} — let's go`,
       body: `
         <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Your new goal is live 🎯</h1>
         <p><b>${escapeHtml(opts.setByName)}</b> just set the ${escapeHtml(opts.scopeLabel)} goal
         for <b>${escapeHtml(opts.periodLabel)}</b>:</p>
         <p style="margin:20px 0;text-align:center;">
-          <span style="display:inline-block;background:#f0f7ff;border:2px solid #037EF3;border-radius:14px;padding:16px 30px;font-size:26px;font-weight:800;color:#0A2540;">${opts.target} slots</span>
+          <span style="display:inline-block;background:#f0f7ff;border:2px solid #037EF3;border-radius:14px;padding:16px 30px;font-size:26px;font-weight:800;color:#0A2540;">${opts.target} ${opts.unit ?? "slots"}</span>
         </p>
         ${detailsTable([
           ["Applies to", opts.scopeLabel],

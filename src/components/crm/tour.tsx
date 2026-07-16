@@ -17,9 +17,27 @@ interface TourStep {
 /** Builds the first-run walkthrough dynamically from the member's role and
  *  function(s) — an MM sees their duties, a leader sees their powers. */
 function buildSteps(role: string, functions: string[], hasModule: boolean): TourStep[] {
-  const fnLabel = functions.filter((f) => f === "IGV" || f === "IGT").join(" & ") || "ICX";
+  const icx = functions.filter((f) => f === "IGV" || f === "IGT");
+  const isB2BCrew = functions.some((f) => f === "B2B" || f === "BD");
+  const fnLabel = icx.length > 0 ? icx.join(" & ") : isB2BCrew ? "B2B" : "ICX";
   const isLeader = role === "LCVP" || role === "Director" || role === "LCP";
   const isTl = role === "Team Leader";
+
+  // no live module → a short, honest welcome (never the ICX workspace pitch)
+  if (!hasModule) {
+    return [
+      {
+        icon: "👋",
+        title: "Welcome to Sodio",
+        body: "Sodio is AIESEC in Alexandria's CRM. Your function's workspace isn't live yet — but your Profile, the Playbook and the Feedback page are already yours.",
+      },
+      {
+        icon: "✨",
+        title: "Your module is on the way",
+        body: "Sodio currently covers ICX Raising (IGV · IGT · B2B & BD) and Talent Management. You'll get an email the moment your workspace opens. 💙",
+      },
+    ];
+  }
 
   const steps: TourStep[] = [
     {
@@ -30,15 +48,6 @@ function buildSteps(role: string, functions: string[], hasModule: boolean): Tour
         "Your accounts, contacts and visits live here — log everything and keep next steps set.",
     },
   ];
-
-  if (!hasModule) {
-    steps.push({
-      icon: "✨",
-      title: "Your module is on the way",
-      body: "Sodio currently covers the ICX Raising process. You'll get an email the moment your workspace opens — meanwhile your Profile and Feedback pages are already yours.",
-    });
-    return steps;
-  }
 
   steps.push(
     {

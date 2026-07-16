@@ -31,13 +31,15 @@ function shiftMonth(month: string, by: number): string {
 }
 
 export function CalendarView({
-  visits, month, viewerId, openableMemberIds,
+  visits, month, viewerId, openableMemberIds, showFunction = false,
 }: {
   visits: CalendarVisit[];
   month: string;
   viewerId: string;
   /** member ids whose accounts the viewer may open — null = everyone shown */
   openableMemberIds: string[] | null;
+  /** LCP/admin see the whole LC — hovering a visit also names its function */
+  showFunction?: boolean;
 }) {
   const router = useRouter();
   const [navPending, startNav] = useTransition();
@@ -114,7 +116,9 @@ export function CalendarView({
     return (
       <Hint
         key={v.id}
-        label={`${v.account.name} — ${who} · ${v.visit_time?.slice(0, 5)} · ${status}`}
+        label={`${v.account.name} — ${who} · ${v.visit_time?.slice(0, 5)} · ${status}${
+          showFunction ? ` · ${v.account.function}` : ""
+        }`}
       >
         {openable ? (
           <Link href={`/accounts/${v.account.id}`} className={className} style={style}>
@@ -158,7 +162,7 @@ export function CalendarView({
 
       {/* legend */}
       {legend.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5 rise-in rise-in-1">
+        <div className="stagger flex flex-wrap gap-1.5">
           {legend.map((l) => (
             <span
               key={l.id}

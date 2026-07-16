@@ -35,16 +35,21 @@ interface MemberLite {
  *  period (B2B and cross-product deals count toward their lanes, exactly like
  *  the dashboard). */
 async function laneAchieved(lane: string, from: string, to: string): Promise<number> {
-  // the B2B lane counts every open its accounts signed (all products mixed)
-  if (lane === "B2B") {
+  // the B2B lane counts every open its accounts signed (all products mixed);
+  // the BD goal counts MONEY (EGP) from deals on BD-labeled accounts
+  if (lane === "B2B" || lane === "BD") {
+    const money = lane === "BD";
     const { data } = await db()
       .from("deals")
-      .select("slots, account:accounts!inner(function)")
-      .in("account.function", ["B2B", "BD"])
+      .select(`${money ? "amount" : "slots"}, account:accounts!inner(function)`)
+      .in("account.function", money ? ["BD"] : ["B2B", "BD"])
       .gte("created_at", `${from}T00:00:00Z`)
       .lte("created_at", `${to}T23:59:59Z`);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return ((data ?? []) as any[]).reduce((sum, d) => sum + (d.slots ?? 0), 0);
+    return ((data ?? []) as any[]).reduce(
+      (sum, d) => sum + (Number(money ? d.amount : d.slots) || 0),
+      0
+    );
   }
   const col = lane === "IGV" ? "slots_igv" : lane === "IGTa" ? "slots_igta" : "slots_igte";
   const { data } = await db()
@@ -156,7 +161,7 @@ export async function GET(req: NextRequest) {
         owners = members.filter(
           (m) =>
             (m.role === "LCVP" || m.role === "Director") &&
-            (goal.function === "B2B"
+            (goal.function === "B2B" || goal.function === "BD"
               ? ["B2B", "BD"].some(
                   (f) =>
                     (m.functions ?? []).includes(f) ||
@@ -164,9 +169,9 @@ export async function GET(req: NextRequest) {
                 )
               : (m.functions ?? []).includes(goal.function === "IGV" ? "IGV" : "IGT"))
         );
-        scopeLabel = `${goal.function} lane`;
+        scopeLabel = goal.function === "BD" ? "BD money goal" : `${goal.function} lane`;
         achieved = await laneAchieved(goal.function, goal.period_start, goal.period_end);
-        setGoalUrl = `${env.appUrl}/dashboard?fn=${goal.function}`;
+        setGoalUrl = `${env.appUrl}/dashboard?fn=${goal.function === "BD" ? "B2B" : goal.function}`;
       } else if (goal.scope === "team" && goal.team_leader_id) {
         setGoalUrl = `${env.appUrl}/dashboard`;
         const tl = members.find((m) => m.id === goal.team_leader_id);
@@ -192,15 +197,19 @@ export async function GET(req: NextRequest) {
         target: goal.target,
         achieved,
         setGoalUrl,
+        unit: goal.scope === "function" && goal.function === "BD" ? "EGP" : undefined,
       });
       await sendEmail({ to: owners.map((o) => o.email), ...mail });
+      const isBdGoal = goal.scope === "function" && goal.function === "BD";
       await notifyMembers(
         owners.map((o) => o.id),
         "info",
         `🎯 ${goal.period_label} ended — set the new ${scopeLabel} goal`,
-        `Last period: ${achieved}/${goal.target} slots. Set the new goal so the dashboards show it.`,
+        `Last period: ${achieved}/${goal.target} ${isBdGoal ? "EGP" : "slots"}. Set the new goal so the dashboards show it.`,
         null,
-        goal.scope === "function" ? `/dashboard?fn=${goal.function}` : "/dashboard"
+        goal.scope === "function"
+          ? `/dashboard?fn=${isBdGoal ? "B2B" : goal.function}`
+          : "/dashboard"
       );
       await markSent(goal.id);
       sent += 1;

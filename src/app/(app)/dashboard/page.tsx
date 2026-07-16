@@ -85,16 +85,16 @@ export default async function DashboardPage({
     )
     .map((m) => ({ id: m.id, label: m.nickname || m.name }));
 
-  const fnPicture = [...icxFunctions(viewer), ...(isB2B(viewer) ? ["B2B & BD"] : [])]
-    .join(" & ");
+  // BD & B2B are one function shown under ONE name: "B2B"
+  const fnNames = [...icxFunctions(viewer), ...(isB2B(viewer) ? ["B2B"] : [])];
   const scopeLabel =
     viewer.isAdmin || viewer.role === "LCP"
       ? "Whole LC"
       : viewer.role === "LCVP" || viewer.role === "Director"
-        ? `${viewer.functions.join(" & ")} function`
+        ? `${fnNames.join(" & ") || viewer.functions.join(" & ")} function`
         : viewer.role === "Team Leader"
           ? viewer.team_name || "Your team"
-          : `${fnPicture} — your function's picture`;
+          : `${fnNames.join(" & ")} — your function's picture`;
 
   // goal-setting powers: goals live on the IGV / IGTa / IGTe / B2B lanes —
   // the IGT lane shows the derived sum (IGTa + IGTe). The B2B goal belongs to
@@ -130,6 +130,8 @@ export default async function DashboardPage({
       teamAchieved={data.teamAchieved}
       funcAchieved={data.funcAchieved}
       funcGoal={data.funcGoal}
+      bdGoal={data.bdGoal}
+      bdMoneyAchieved={data.bdMoneyAchieved}
       teamGoal={data.teamGoal}
       views={views}
       activeFn={activeFn}
@@ -150,6 +152,7 @@ export default async function DashboardPage({
       }}
       goalCaps={{
         functionGoalFn: canSetFunctionGoal ? laneForGoal : null,
+        bdMoneyGoal: canSetFunctionGoal && activeFn === "B2B",
         teamGoal: leadsTeam,
         teamLeaderId: leadsTeam
           ? viewer.id

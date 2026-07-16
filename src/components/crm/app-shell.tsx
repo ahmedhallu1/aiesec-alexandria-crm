@@ -74,11 +74,12 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
             href={item.href}
             onClick={() => setOpen(false)}
             className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-              active && "bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary"
+              "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground/80 transition-all hover:translate-x-0.5 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground motion-reduce:hover:translate-x-0",
+              active &&
+                "bg-sidebar-primary text-sidebar-primary-foreground shadow-[0_0_18px_-6px_rgb(3_126_243/0.8)] hover:translate-x-0 hover:bg-sidebar-primary"
             )}
           >
-            <item.icon className="size-4.5" />
+            <item.icon className="size-4.5 transition-transform group-hover:scale-110 motion-reduce:group-hover:scale-100" />
             {item.label}
           </Link>
         );
@@ -129,7 +130,6 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
             </p>
           </div>
         </Link>
-        <RefreshButton />
         <NotificationsBell canBroadcast={canBroadcast} />
         <ThemeToggle className="text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
         <form action={signOutAction}>
@@ -167,6 +167,10 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
     <div className="flex min-h-screen w-full">
       {/* shared-sheet freshness: refetch on focus + every 30s while visible */}
       <AutoRefresh />
+      {/* manual refresh — pinned top-right over the content, always reachable */}
+      <div className="fixed right-4 top-3 z-40 hidden md:block">
+        <RefreshButton className="rounded-full border bg-card/85 text-muted-foreground shadow-sm backdrop-blur hover:bg-muted hover:text-foreground" />
+      </div>
       {/* Desktop sidebar */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col bg-sidebar md:flex">
         {brand}
@@ -196,6 +200,9 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
           <img src="/brand/aiesec-white.png" alt="AIESEC" className="h-6 w-auto" />
           <p className="text-sm font-black tracking-tight text-sidebar-foreground">Sodio</p>
         </Link>
+        <div className="ml-auto">
+          <RefreshButton />
+        </div>
       </div>
 
       <main className="min-w-0 flex-1 px-4 pb-24 pt-16 md:ml-60 md:px-8 md:pt-8">{children}</main>

@@ -32,6 +32,8 @@ export interface DashboardScopeView { key: string; label: string }
 interface GoalCaps {
   /** the lane goal the viewer may set (IGV / IGTa / IGTe / B2B — IGT is derived) */
   functionGoalFn: "IGV" | "IGTa" | "IGTe" | "B2B" | null;
+  /** B2B lane only: may also set the BD MONEY goal (EGP) */
+  bdMoneyGoal: boolean;
   /** the team whose goal the viewer may set (their own team) */
   teamGoal: boolean;
   teamLeaderId: string | null;
@@ -49,6 +51,9 @@ interface Props {
   /** function-wide slots for the lane — NEVER scoped by the member filter */
   funcAchieved: number;
   funcGoal: PerformanceGoal | null;
+  /** B2B lane only: the BD money goal + EGP achieved (from BD deals) */
+  bdGoal: PerformanceGoal | null;
+  bdMoneyAchieved: number;
   teamGoal: PerformanceGoal | null;
   views: DashboardScopeView[];
   activeFn: string;
@@ -81,8 +86,8 @@ function monthRange(): { from: string; to: string; label: string } {
 
 export function DashboardView({
   total, byFunction, byTeam, memberBoard, mmBoard, teamBoard, teamAchieved, funcAchieved,
-  funcGoal, teamGoal, views, activeFn, laneLabel, scopeLabel, showTeamDrill, teamOptions,
-  memberOptions, filters, goalCaps, viewerId,
+  funcGoal, bdGoal, bdMoneyAchieved, teamGoal, views, activeFn, laneLabel, scopeLabel,
+  showTeamDrill, teamOptions, memberOptions, filters, goalCaps, viewerId,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -125,7 +130,8 @@ export function DashboardView({
   const thisMonthActive = filters.from === month.from && filters.to === month.to;
   const myNumbersActive = filters.member === viewerId;
   const anyFilter = Object.values(filters).some(Boolean);
-  const canSetAnyGoal = !!goalCaps.functionGoalFn || goalCaps.teamGoal;
+  const canSetAnyGoal =
+    !!goalCaps.functionGoalFn || goalCaps.bdMoneyGoal || goalCaps.teamGoal;
 
   return (
     <div className={cn("mx-auto max-w-6xl space-y-5", navPending && "nav-pending")}>
@@ -249,10 +255,10 @@ export function DashboardView({
       </div>
 
       {/* Goals */}
-      {(funcGoal || teamGoal || canSetAnyGoal) ? (
+      {(funcGoal || bdGoal || teamGoal || canSetAnyGoal) ? (
         <div className="grid gap-3 sm:grid-cols-2 rise-in rise-in-2">
           <GoalCard
-            title={`${laneLabel} goal${activeFn === "IGT" ? " (= IGTa + IGTe)" : ""}`}
+            title={`${laneLabel} goal${activeFn === "IGT" ? " (= IGTa + IGTe)" : ""}${activeFn === "B2B" ? " (opens)" : ""}`}
             goal={funcGoal}
             achieved={funcAchieved}
             canSet={!!goalCaps.functionGoalFn}
@@ -263,6 +269,17 @@ export function DashboardView({
             }
             onSet={() => setGoalOpen(true)}
           />
+          {activeFn === "B2B" ? (
+            <GoalCard
+              title="BD goal (money)"
+              goal={bdGoal}
+              achieved={bdMoneyAchieved}
+              unit="EGP"
+              canSet={goalCaps.bdMoneyGoal}
+              emptyHint="No BD money goal for this period yet."
+              onSet={() => setGoalOpen(true)}
+            />
+          ) : null}
           {(teamGoal || goalCaps.teamGoal || goalCaps.teamLeaderId) ? (
             <GoalCard
               title={`${goalCaps.teamLabel ?? "Team"} goal`}
@@ -276,7 +293,7 @@ export function DashboardView({
       ) : null}
 
       {/* KPI row — MR · Contacted · Visits · Visits done · Deals · Slots · Lead→Deal */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7 rise-in rise-in-2">
+      <div className="stagger grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
         {kpis.map((k) => (
           <KpiCard key={k.label} label={k.label} value={k.value} sub={k.hint} />
         ))}
@@ -352,7 +369,7 @@ export function DashboardView({
 // ------------------------------------------------------------------ pieces
 
 function GoalCard({
-  title, goal, achieved, canSet, onSet, emptyHint,
+  title, goal, achieved, canSet, onSet, emptyHint, unit = "slots",
 }: {
   title: string;
   goal: PerformanceGoal | null;
@@ -360,6 +377,8 @@ function GoalCard({
   canSet: boolean;
   onSet: () => void;
   emptyHint?: string;
+  /** "slots" (default) — the BD money goal shows "EGP" */
+  unit?: string;
 }) {
   const progress = goal ? Math.min(1, achieved / goal.target) : 0;
   return (
@@ -373,8 +392,10 @@ function GoalCard({
             </p>
             {goal ? (
               <p className="mt-1 text-2xl font-bold">
-                {achieved}
-                <span className="text-base font-semibold text-muted-foreground"> / {goal.target} slots</span>
+                {achieved.toLocaleString("en")}
+                <span className="text-base font-semibold text-muted-foreground">
+                  {" "}/ {goal.target.toLocaleString("en")} {unit}
+                </span>
               </p>
             ) : (
               <p className="mt-1 text-sm text-muted-foreground">
@@ -383,7 +404,7 @@ function GoalCard({
             )}
           </div>
           {canSet ? (
-            <Hint label="Set or update the slots goal your people rally around">
+            <Hint label={`Set or update the ${unit} goal your people rally around`}>
               <Button size="sm" variant="outline" onClick={onSet}>
                 <Target className="size-4" /> Set goal
               </Button>
@@ -395,7 +416,8 @@ function GoalCard({
             <div
               className={cn(
                 "h-full rounded-full transition-all duration-700",
-                progress >= 1 ? "bg-success" : "bg-primary"
+                progress >= 1 ? "bg-success" : "bg-primary",
+                progress > 0 && "goal-fill goal-striped"
               )}
               style={{ width: `${progress * 100}%` }}
             />
@@ -556,11 +578,18 @@ function GoalDialog({
   monthDefault: { from: string; to: string; label: string };
 }) {
   const router = useRouter();
-  const scopes: ("function" | "team")[] = [
+  const scopes: ("function" | "bd" | "team")[] = [
     ...(caps.functionGoalFn ? (["function"] as const) : []),
+    ...(caps.bdMoneyGoal ? (["bd"] as const) : []),
     ...(caps.teamGoal ? (["team"] as const) : []),
   ];
-  const [scope, setScope] = useState<"function" | "team">(scopes[0] ?? "team");
+  const [scope, setScope] = useState<"function" | "bd" | "team">(scopes[0] ?? "team");
+  // lane switches change the available scopes — never keep a stale selection
+  const scopeKey = scopes.join(",");
+  useLayoutEffect(() => {
+    if (open && !scopes.includes(scope)) setScope(scopes[0] ?? "team");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, scopeKey]);
   const [target, setTarget] = useState("");
   const [label, setLabel] = useState(monthDefault.label);
   const [start, setStart] = useState(monthDefault.from);
@@ -570,8 +599,8 @@ function GoalDialog({
   const save = () =>
     startSave(async () => {
       const res = await setPerformanceGoal({
-        scope,
-        function: scope === "function" ? caps.functionGoalFn : null,
+        scope: scope === "bd" ? "function" : scope,
+        function: scope === "function" ? caps.functionGoalFn : scope === "bd" ? "BD" : null,
         teamLeaderId: scope === "team" ? caps.teamLeaderId : null,
         target: Number(target),
         periodLabel: label.trim(),
@@ -589,7 +618,7 @@ function GoalDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>🎯 Set the slots goal</DialogTitle>
+          <DialogTitle>🎯 Set the {scope === "bd" ? "BD money (EGP)" : "slots"} goal</DialogTitle>
           <DialogDescription>
             The goal shows on the dashboard of everyone it covers — the shared
             target for the month or the peak.
@@ -599,11 +628,16 @@ function GoalDialog({
           {scopes.length > 1 ? (
             <div className="grid gap-1.5">
               <Label>Goal for</Label>
-              <Select value={scope} onValueChange={(v) => setScope(v as "function" | "team")}>
+              <Select value={scope} onValueChange={(v) => setScope(v as "function" | "bd" | "team")}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {caps.functionGoalFn ? (
-                    <SelectItem value="function">{caps.functionGoalFn} (whole function)</SelectItem>
+                    <SelectItem value="function">
+                      {caps.functionGoalFn} (whole function{caps.functionGoalFn === "B2B" ? " — opens" : ""})
+                    </SelectItem>
+                  ) : null}
+                  {caps.bdMoneyGoal ? (
+                    <SelectItem value="bd">BD — money goal (EGP)</SelectItem>
                   ) : null}
                   {caps.teamGoal ? (
                     <SelectItem value="team">{caps.teamLabel ?? "My team"}</SelectItem>
@@ -614,13 +648,13 @@ function GoalDialog({
           ) : null}
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
-              <Label>Slots target *</Label>
+              <Label>{scope === "bd" ? "Money target (EGP) *" : "Slots target *"}</Label>
               <Input
                 type="number"
                 min={1}
                 value={target}
                 onChange={(e) => setTarget(e.target.value)}
-                placeholder="e.g. 25"
+                placeholder={scope === "bd" ? "e.g. 50000" : "e.g. 25"}
               />
             </div>
             <div className="grid gap-1.5">

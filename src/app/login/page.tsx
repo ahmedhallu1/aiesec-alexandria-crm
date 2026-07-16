@@ -15,9 +15,9 @@ export default async function LoginPage({
   const { error } = await searchParams;
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center bg-sidebar p-4">
-      <ThemeToggle className="absolute right-4 top-4 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
-      <div className="w-full max-w-md rounded-2xl bg-card p-8 shadow-2xl">
+    <main className="aurora relative flex min-h-screen items-center justify-center overflow-hidden bg-sidebar p-4">
+      <ThemeToggle className="absolute right-4 top-4 z-10 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
+      <div className="rise-in relative z-10 w-full max-w-md rounded-2xl bg-card p-8 shadow-2xl">
         <div className="mb-8 text-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/aiesec-blue.png" alt="AIESEC" className="mx-auto mb-4 h-10 w-auto dark:hidden" />

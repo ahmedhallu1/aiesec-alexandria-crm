@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-07-16 · Version: v15
+Last updated: 2026-07-16 · Version: v16
 
 ---
 
@@ -471,6 +471,29 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-07-16 · v16** — **BD money goal**: the B2B lane now carries TWO
+  function goals — `B2B` (opens) and `BD` (MONEY, `performance_goals.metric =
+  'EGP'`) — both set by the B2B/BD VP/Director from the same dialog (new
+  "BD — money goal (EGP)" scope); second GoalCard on the B2B lane (achieved =
+  Σ `deals.amount` on BD accounts, date-filter aware); unit-aware goal emails
+  + goal-reminders (`laneAchieved('BD')` sums EGP; owners match B2B or BD in
+  functions OR sub-functions). **Fixes**: scope label reads "B2B function"
+  (one name); refresh button moved to the TOP (fixed top-right on desktop,
+  mobile top bar); the first-run tour never pitches "Your ICX workspace" to
+  members without a live module (Barthinya) and says "Your B2B workspace" for
+  the B2B crew; LCP/admin calendar hovers show each visit's function; the
+  Podio worklist's inline state select gained **Rejected (archives)** behind
+  the same confirm as the account page. **Motion wave (CSS-only,
+  reduced-motion-safe)**: aurora login background, animated striped goal
+  fills, staggered KPI/calendar/playbook entrances, sidebar hover slide +
+  active glow, breathing playbook hero. **Mirror-sheet guardrail**: every
+  mirror sheet's last header cell now reads "⚠ MIRROR — Sodio overwrites this
+  sheet hourly. Edit/delete IN SODIO, not here" (a sheet-side deletion was
+  expected to sync back — it never does; only Membership is two-way). All
+  TEST DATA was wiped on request (10 accounts + deals/visits/contacts/
+  comments + 2 blacklist rows — full JSON backup in `backups/` (gitignored)
+  in the main folder). Playbook v16.
 
 - **2026-07-16 · v15** — **B2B/BD dashboard isolation**: the crew sees ONLY
   their B2B lane (no ICX aggregates — `icxFunctions` stopped widening,

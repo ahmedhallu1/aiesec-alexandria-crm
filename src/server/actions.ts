@@ -1831,9 +1831,9 @@ export async function updateAccountContacts(
 
 const goalSchema = z.object({
   scope: z.enum(["function", "team"]),
-  // goals are set per lane — the IGT goal is DERIVED (IGTa + IGTe); the B2B
-  // lane's goal covers the whole B2B & BD function
-  function: z.enum(["IGV", "IGTa", "IGTe", "B2B"]).nullish(),
+  // goals are set per lane — the IGT goal is DERIVED (IGTa + IGTe). The B2B
+  // lane carries TWO goals: "B2B" (opens) and "BD" (MONEY, EGP — the BD MOS)
+  function: z.enum(["IGV", "IGTa", "IGTe", "B2B", "BD"]).nullish(),
   teamLeaderId: z.string().uuid().nullish(),
   target: z.number().int().min(1, "The goal must be at least 1 slot."),
   periodLabel: z.string().trim().min(2, "Name the period (e.g. July 2026 or Summer Peak 26)."),
@@ -1859,7 +1859,7 @@ export async function setPerformanceGoal(
     // team's leader (e.g. Suits) — never to its Team Leaders
     const ownsFunction =
       (viewer.role === "LCVP" || viewer.role === "Director") &&
-      (g.function === "B2B"
+      (g.function === "B2B" || g.function === "BD"
         ? memberIsB2B(viewer)
         : viewer.functions.includes(g.function === "IGV" ? "IGV" : "IGT"));
     if (!master && !ownsFunction)
@@ -1899,6 +1899,8 @@ export async function setPerformanceGoal(
     scope: g.scope,
     function: g.scope === "function" ? g.function : null,
     team_leader_id: g.scope === "team" ? g.teamLeaderId : null,
+    // the BD goal is measured in MONEY — everything else counts opens
+    metric: g.scope === "function" && g.function === "BD" ? "EGP" : "Slots",
     target: g.target,
     period_label: g.periodLabel,
     period_start: g.periodStart,
@@ -1931,17 +1933,24 @@ export async function setPerformanceGoal(
             (f) => (m.functions ?? []).includes(f) || (m.sub_functions ?? []).includes(f)
           );
         // v15 isolation: each lane's goal is announced to ITS crew only —
-        // the B2B goal to the B2B/BD crew, product goals to their function
+        // the B2B/BD goals to the B2B crew, product goals to their function
         audience =
-          g.function === "B2B"
+          g.function === "B2B" || g.function === "BD"
             ? all.filter((m) => m.role !== "LCP" && isB2BMember(m))
             : all.filter(
                 (m) =>
                   m.role !== "LCP" &&
                   (m.functions ?? []).includes(g.function === "IGV" ? "IGV" : "IGT")
               );
-        scopeLabel = g.function === "B2B" ? "the B2B & BD lane" : `the ${g.function} lane`;
-        dashboardUrl = `${env.appUrl}/dashboard?fn=${g.function}`;
+        scopeLabel =
+          g.function === "BD"
+            ? "the BD money goal"
+            : g.function === "B2B"
+              ? "the B2B lane"
+              : `the ${g.function} lane`;
+        dashboardUrl = `${env.appUrl}/dashboard?fn=B2B`;
+        if (g.function !== "B2B" && g.function !== "BD")
+          dashboardUrl = `${env.appUrl}/dashboard?fn=${g.function}`;
       } else if (g.scope === "team" && g.teamLeaderId) {
         dashboardUrl = `${env.appUrl}/dashboard`;
         const tl = all.find((m) => m.id === g.teamLeaderId);
@@ -1964,6 +1973,7 @@ export async function setPerformanceGoal(
           target: g.target,
           setByName: viewer.nickname || viewer.name,
           dashboardUrl,
+          unit: g.scope === "function" && g.function === "BD" ? "EGP" : undefined,
         });
         await sendEmail({
           to: [viewer.email],
@@ -1971,13 +1981,16 @@ export async function setPerformanceGoal(
           ...mail,
         });
         const { notifyMembers } = await import("./notify");
+        const isBdGoal = g.scope === "function" && g.function === "BD";
         await notifyMembers(
           audience.map((m) => m.id),
           "info",
-          `🎯 New goal for ${scopeLabel}: ${g.target} slots`,
+          `🎯 New goal for ${scopeLabel}: ${g.target} ${isBdGoal ? "EGP" : "slots"}`,
           `${g.periodLabel} (${g.periodStart} → ${g.periodEnd}) — the dashboard tracks it live.`,
           viewer.id,
-          g.scope === "function" ? `/dashboard?fn=${g.function}` : "/dashboard"
+          g.scope === "function"
+            ? `/dashboard?fn=${isBdGoal ? "B2B" : g.function}`
+            : "/dashboard"
         );
       }
     } catch (e) {

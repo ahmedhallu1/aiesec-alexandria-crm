@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v15";
+export const PLAYBOOK_VERSION = "v16";
 
 interface Props {
   role: string;
@@ -121,7 +121,7 @@ const SECTIONS: Section[] = [
     points: [
       <>One function, two names (<b>B2B & BD</b> — may split in future peaks): either grants the same raising access.</>,
       <>When adding an account you <b>choose its label: B2B or BD</b>. Both split every deal&apos;s opens across <b>IGV / IGTa / IGTe</b> — each product lane picks up its share.</>,
-      <>Your dashboard is <b>your own B2B lane</b> (your accounts, your goal — set by your VP/Director). IGV/IGT VPs & Directors also see the B2B lane, because you raise for them.</>,
+      <>Your dashboard is <b>your own B2B lane</b> with <b>two goals</b>, both set by your VP/Director: the <b>B2B goal (opens)</b> and the <b>BD goal (money, EGP)</b>. IGV/IGT VPs & Directors also see the B2B lane, because you raise for them.</>,
       <><b>Podio worklist</b> (MMs & Director/VP): the &quot;Podio pending&quot; filter lists accounts not yet requested — copy names for the form, set the request state inline, or <b>Ask to submit</b>: the owner gets an in-app notification and the account pins to the top of their list until they act.</>,
       <><b>BD deals are measured in MONEY</b>: recording a deal on a BD account asks for the <b>amount (EGP)</b> + other benefits — opens are optional extras. The account header and Drive sheet show the EGP totals.</>,
       <>Proposal emails: B2B accounts get the <b>all-programs variant</b> (aiesec.org/partners); <b>BD accounts get the Talent-Solutions pitch</b> (aiesec.org.eg/partner.html) with no ready-made attachments.</>,
@@ -147,7 +147,7 @@ const SECTIONS: Section[] = [
     color: "#F48924",
     points: [
       <>Google Drive mirrors (hourly): <b>CRM — Raising Accounts</b> = ALL accounts in one sheet — filter by the <b>Function / Product / Archived?</b> flag columns; <b>CRM — Archived Accounts</b> = the blacklist view; plus Contact Log and Visits.</>,
-      <><b>CRM — Membership</b> is the only two-way sheet (with its <b>Teams</b> tab naming EB/LB/Function/MM teams). Everything else is a read-only mirror — <b>the CRM is the truth</b>.</>,
+      <><b>CRM — Membership</b> is the only two-way sheet (with its <b>Teams</b> tab naming the standing teams). Everything else is a read-only mirror — <b>the CRM is the truth</b>: deleting or editing rows in a mirror sheet changes NOTHING in Sodio, and the hourly export rewrites the sheet. All edits happen inside Sodio.</>,
       <>Automatic emails: welcome, passwords, visit invites/reports/follow-ups/nags, goal reminders & announcements, broadcasts. All AIESEC-branded.</>,
       <>In-app 🔔 notifications mirror the important ones and open the related page on click.</>,
     ],
@@ -194,7 +194,7 @@ export function PlaybookView({ role, isAdmin, isB2B, isTm }: Props) {
   return (
     <div className="mx-auto max-w-3xl space-y-5">
       {/* Hero */}
-      <div className="rise-in overflow-hidden rounded-2xl border bg-gradient-to-br from-[#037EF3] via-[#0a5fd0] to-[#0A2540] p-6 text-white sm:p-8">
+      <div className="rise-in hero-animate overflow-hidden rounded-2xl border bg-gradient-to-br from-[#037EF3] via-[#0a5fd0] to-[#0A2540] p-6 text-white sm:p-8">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">
             The Sodio Playbook
@@ -219,7 +219,7 @@ export function PlaybookView({ role, isAdmin, isB2B, isTm }: Props) {
       </div>
 
       {/* Index */}
-      <nav className="rise-in rise-in-1 flex flex-wrap gap-1.5" aria-label="Playbook index">
+      <nav className="stagger flex flex-wrap gap-1.5" aria-label="Playbook index">
         {sections.map((s) => (
           <a
             key={s.id}

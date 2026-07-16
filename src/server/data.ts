@@ -599,6 +599,25 @@ export async function getDashboard(
 
   // ---- goals in effect. Lane goals live at IGV / IGTa / IGTe; the IGT goal
   // is DERIVED: goal(IGT) = goal(IGTa) + goal(IGTe).
+  // the B2B lane carries a SECOND goal: BD money (EGP) — the BD deals' MOS
+  let bdGoal: PerformanceGoal | null = null;
+  let bdMoneyAchieved = 0;
+  if (lane === "B2B") {
+    bdGoal = await getActiveGoal("function", "BD");
+    let q = db()
+      .from("deals")
+      .select("amount, account:accounts!inner(function)")
+      .eq("account.function", "BD");
+    if (filters.from) q = q.gte("created_at", `${filters.from}T00:00:00Z`);
+    if (filters.to) q = q.lte("created_at", `${filters.to}T23:59:59Z`);
+    const { data: bdDeals } = await q;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    bdMoneyAchieved = ((bdDeals ?? []) as any[]).reduce(
+      (sum, d) => sum + (Number(d.amount) || 0),
+      0
+    );
+  }
+
   let funcGoal: PerformanceGoal | null = null;
   if (laneKey === "IGV" || laneKey === "IGTa" || laneKey === "IGTe" || laneKey === "B2B") {
     funcGoal = await getActiveGoal("function", laneKey);
@@ -639,6 +658,8 @@ export async function getDashboard(
     teamAchieved,
     funcAchieved,
     funcGoal,
+    bdGoal,
+    bdMoneyAchieved,
     teamGoal,
     teamLeadId,
   };

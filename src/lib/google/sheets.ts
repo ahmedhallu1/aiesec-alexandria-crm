@@ -177,6 +177,12 @@ async function ensureTab(
   return tab;
 }
 
+/** Every mirror sheet carries this in its LAST header cell — the sheets are
+ *  write-only exports: deleting/editing rows there never touches Sodio.
+ *  (A user once cleared the accounts sheet expecting Sodio to empty itself.) */
+const MIRROR_NOTE =
+  "⚠ MIRROR — Sodio overwrites this sheet hourly. Edit/delete IN SODIO, not here.";
+
 async function overwriteSheet(title: string, headers: string[], rows: (string | number | boolean | null)[][]) {
   const id = await ensureSpreadsheet(title, headers);
   const { sheets } = clients();
@@ -527,7 +533,7 @@ export async function exportAllSheets(): Promise<void> {
      "Contacts", "Requested? (Podio)", "Request State", "Proposal Sent?", "Visit Date",
      "Visit Done?", "Deals", "Total Slots", "IGV Slots", "IGTa Slots", "IGTe Slots",
      "Deal Amount (EGP)", "Next Step", "Next Step Date", "Phone", "Email", "Social Link",
-     "Website", "Comments", "Created At"],
+     "Website", "Comments", "Created At", MIRROR_NOTE],
     rows.map((a) => [
       a.name, a.function, productLabel(a), a.sub_product, a.project,
       a.account_type, a.industry, a.responsible_nickname || a.responsible_name,
@@ -545,7 +551,7 @@ export async function exportAllSheets(): Promise<void> {
 
   await safe("CRM — Contact Log", () => overwriteSheet(
     "CRM — Contact Log",
-    ["Date", "Account", "Member", "Method", "Status", "Comment"],
+    ["Date", "Account", "Member", "Method", "Status", "Comment", MIRROR_NOTE],
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ((contacts ?? []) as any[]).map((c) => [
       c.created_at?.slice(0, 16).replace("T", " "), c.account?.name, c.member?.name,
@@ -555,7 +561,7 @@ export async function exportAllSheets(): Promise<void> {
 
   await safe("CRM — Visits", () => overwriteSheet(
     "CRM — Visits",
-    ["Visit Date", "Time", "Account", "Member", "Done?", "Comment", "Next Step"],
+    ["Visit Date", "Time", "Account", "Member", "Done?", "Comment", "Next Step", MIRROR_NOTE],
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ((visits ?? []) as any[]).map((v) => [
       v.visit_date, v.visit_time?.slice(0, 5), v.account?.name, v.member?.name,
@@ -589,7 +595,7 @@ export async function exportAllSheets(): Promise<void> {
   ]);
   await safe("CRM — Archived Accounts", () => overwriteSheet(
     "CRM — Archived Accounts",
-    ["Account Name", "Product", "Archive Reason", "Archived At", "By / Was Responsible", "Source"],
+    ["Account Name", "Product", "Archive Reason", "Archived At", "By / Was Responsible", "Source", MIRROR_NOTE],
     [...oopRows, ...manualRows]
   ));
 

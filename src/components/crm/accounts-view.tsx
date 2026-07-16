@@ -254,18 +254,29 @@ function PodioRowTools({ row }: { row: PipelineRow }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [asked, setAsked] = useState(!!row.podio_submit_requested_at);
+  // Rejected archives the account — never without a confirmation
+  const [confirmReject, setConfirmReject] = useState(false);
 
-  const setState = (v: string) =>
+  const save = (v: "Checking" | "Approved" | "Rejected") =>
     start(async () => {
       const res = await updateAccount(row.id, {
         requested_podio: true,
-        request_state: v as "Checking" | "Approved",
+        request_state: v,
       });
       if (res.ok) {
-        toast.success(`"${row.name}" → ${v}.`);
+        toast.success(
+          v === "Rejected"
+            ? `"${row.name}" archived — Podio request rejected.`
+            : `"${row.name}" → ${v}.`
+        );
         router.refresh();
       } else toast.error(res.error);
     });
+
+  const setState = (v: string) => {
+    if (v === "Rejected") setConfirmReject(true);
+    else save(v as "Checking" | "Approved");
+  };
 
   const ask = () =>
     start(async () => {
@@ -291,8 +302,36 @@ function PodioRowTools({ row }: { row: PipelineRow }) {
           <SelectItem value="__set" disabled>Set request state…</SelectItem>
           <SelectItem value="Checking">Checking</SelectItem>
           <SelectItem value="Approved">Approved</SelectItem>
+          <SelectItem value="Rejected">Rejected (archives)</SelectItem>
         </SelectContent>
       </Select>
+      <Dialog open={confirmReject} onOpenChange={setConfirmReject}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>⚠️ Reject the Podio request?</DialogTitle>
+            <DialogDescription>
+              A rejected Podio request closes the account: <b>{row.name}</b> moves
+              to the archive (Out of Process) and its name can never be added
+              again — exactly like &quot;Not Interested&quot;.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setConfirmReject(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={pending}
+              onClick={() => {
+                setConfirmReject(false);
+                save("Rejected");
+              }}
+            >
+              Reject &amp; archive
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Hint
         label={
           asked
