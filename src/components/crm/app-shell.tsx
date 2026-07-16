@@ -21,6 +21,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ThemeToggle } from "./theme-toggle";
 import { NotificationsBell } from "./notifications-bell";
+import { AutoRefresh, RefreshButton } from "./auto-refresh";
 import { BlueManChat } from "./blue-man-chat";
 
 interface ShellProps {
@@ -43,15 +44,16 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
   // admin + the EB (LCP / LCVPs) can broadcast messages to members
   const canBroadcast = user.isAdmin || user.role === "LCP" || user.role === "LCVP";
 
+  // Accounts is the daily workspace — it leads, and "/" lands on it
   const items = [
     ...(nav.raising
       ? [
-          { href: "/", label: "Dashboard", icon: LayoutDashboard },
           { href: "/accounts", label: "Accounts", icon: Building2 },
+          { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
           { href: "/calendar", label: "Calendar", icon: CalendarDays },
         ]
       : []),
-    ...(nav.tm ? [{ href: "/members", label: "Members", icon: UsersRound }] : []),
+    ...(nav.tm ? [{ href: "/members", label: "Talent Management", icon: UsersRound }] : []),
     ...(nav.membership ? [{ href: "/membership", label: "Membership", icon: Users }] : []),
     { href: "/playbook", label: "Playbook", icon: BookOpen },
     { href: "/feedback", label: "Feedback", icon: MessageSquareHeart },
@@ -62,7 +64,8 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
     <nav className="flex flex-1 flex-col gap-1 p-3">
       {items.map((item) => {
         const active =
-          item.href === "/" ? pathname === "/" : pathname === item.href ||
+          pathname === item.href ||
+          (item.href === "/accounts" && pathname === "/") ||
           (item.href !== "/feedback" && pathname.startsWith(item.href + "/")) ||
           (item.href === "/feedback" && pathname === "/feedback");
         return (
@@ -126,6 +129,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
             </p>
           </div>
         </Link>
+        <RefreshButton />
         <NotificationsBell canBroadcast={canBroadcast} />
         <ThemeToggle className="text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
         <form action={signOutAction}>
@@ -147,20 +151,22 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
     <Link
       href="/"
       onClick={() => setOpen(false)}
-      title="Back to the dashboard"
+      title="Home — your accounts"
       className="flex items-center gap-2.5 px-5 py-5 transition-opacity hover:opacity-80"
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/brand/aiesec-white.png" alt="AIESEC" className="h-7 w-auto" />
       <div className="leading-tight">
         <p className="text-sm font-black tracking-tight text-sidebar-foreground">Sodio</p>
-        <p className="text-[10px] text-sidebar-foreground/60">in Alexandria · ICX</p>
+        <p className="text-[10px] text-sidebar-foreground/60">AIESEC in Alexandria</p>
       </div>
     </Link>
   );
 
   return (
     <div className="flex min-h-screen w-full">
+      {/* shared-sheet freshness: refetch on focus + every 30s while visible */}
+      <AutoRefresh />
       {/* Desktop sidebar */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col bg-sidebar md:flex">
         {brand}
@@ -185,7 +191,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
             {credit}
           </SheetContent>
         </Sheet>
-        <Link href="/" className="flex items-center gap-2" title="Back to the dashboard">
+        <Link href="/" className="flex items-center gap-2" title="Home — your accounts">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/aiesec-white.png" alt="AIESEC" className="h-6 w-auto" />
           <p className="text-sm font-black tracking-tight text-sidebar-foreground">Sodio</p>

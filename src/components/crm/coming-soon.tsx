@@ -68,7 +68,7 @@ export function ComingSoon({ functions }: { functions: string[] }) {
           {LINES[idx]}
         </p>
         <p className="max-w-md text-xs text-muted-foreground">
-          {`Sodio currently covers the ICX Raising process (IGV & IGT). The ${label} workspace is on the roadmap — you'll get an email the moment it opens. 💙`}
+          {`Sodio currently covers ICX Raising (IGV · IGT · B2B & BD) and Talent Management. The ${label} workspace is on the roadmap — you'll get an email the moment it opens. 💙`}
         </p>
       </div>
     </div>

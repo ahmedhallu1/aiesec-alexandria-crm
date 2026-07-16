@@ -30,8 +30,8 @@ import type { DrillGroup, FunnelStats, PerformanceGoal } from "@/server/data";
 export interface DashboardScopeView { key: string; label: string }
 
 interface GoalCaps {
-  /** the lane goal the viewer may set (IGV / IGTa / IGTe — IGT is derived) */
-  functionGoalFn: "IGV" | "IGTa" | "IGTe" | null;
+  /** the lane goal the viewer may set (IGV / IGTa / IGTe / B2B — IGT is derived) */
+  functionGoalFn: "IGV" | "IGTa" | "IGTe" | "B2B" | null;
   /** the team whose goal the viewer may set (their own team) */
   teamGoal: boolean;
   teamLeaderId: string | null;
@@ -94,7 +94,7 @@ export function DashboardView({
       const params = new URLSearchParams(searchParams.toString());
       mutate(params);
       startNav(() => {
-        router.replace(params.size > 0 ? `/?${params.toString()}` : "/");
+        router.replace(params.size > 0 ? `/dashboard?${params.toString()}` : "/dashboard");
       });
     },
     [router, searchParams]

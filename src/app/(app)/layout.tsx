@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getViewer } from "@/server/data";
+import { getViewer, listViewAsTargets } from "@/server/data";
 import {
   hasRaisingAccess, hasTmAccess, canManageMembership, canSeeFeedbackInbox,
 } from "@/lib/rbac";
@@ -19,6 +19,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const raising = hasRaisingAccess(viewer);
   const tm = hasTmAccess(viewer);
+  const membership = canManageMembership(viewer);
+  // routes a non-raising member still gets: their TM module, and the
+  // membership editor for EB members of other functions (e.g. an OGX LCVP)
+  const extraRoutes = [
+    ...(tm ? ["/members"] : []),
+    ...(membership ? ["/membership"] : []),
+  ];
 
   return (
     <AppShell
@@ -33,7 +40,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       nav={{
         raising,
         tm,
-        membership: canManageMembership(viewer),
+        membership,
         feedbackInbox: canSeeFeedbackInbox(viewer),
       }}
       signOutAction={async () => {
@@ -49,11 +56,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         children
       ) : (
         <>
-          {/* TM people get their module (+playbook) even without raising */}
-          <GateClient mode="allowed" extra={tm ? ["/members", "/playbook"] : []}>
+          <GateClient mode="allowed" extra={extraRoutes}>
             {children}
           </GateClient>
-          <GateClient mode="soon" extra={tm ? ["/members", "/playbook"] : []}>
+          <GateClient mode="soon" extra={extraRoutes}>
             <ComingSoon functions={viewer.functions} />
           </GateClient>
         </>
@@ -65,7 +71,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         hasModule={raising || tm}
       />
       {viewer.impersonated ? (
-        <ViewAsBanner name={viewer.nickname || viewer.name} role={viewer.role} />
+        <ViewAsBanner activeId={viewer.id} targets={await listViewAsTargets()} />
       ) : null}
     </AppShell>
   );

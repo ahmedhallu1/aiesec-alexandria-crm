@@ -1,4 +1,6 @@
-import { getRealViewer, getViewer, profilePeople, teamsForViewer } from "@/server/data";
+import {
+  getRealViewer, getViewer, listViewAsTargets, profilePeople, teamsForViewer,
+} from "@/server/data";
 import { db } from "@/lib/supabase";
 import { ProfileView } from "@/components/crm/profile-view";
 
@@ -10,21 +12,14 @@ export default async function ProfilePage() {
   // the View-As card belongs to the REAL admin, even mid-test-view —
   // that's how they switch member or find their way back
   const real = await getRealViewer();
-  let viewAs: { activeId: string | null; members: { id: string; label: string; role: string }[] } | null = null;
+  let viewAs: {
+    activeId: string | null;
+    members: { id: string; label: string; role: string; functions: string }[];
+  } | null = null;
   if (real.isAdmin) {
-    const { data } = await db()
-      .from("members")
-      .select("id, name, nickname, role")
-      .eq("is_active", true)
-      .neq("id", real.id)
-      .order("name");
     viewAs = {
       activeId: viewer.impersonated ? viewer.id : null,
-      members: (data ?? []).map((m) => ({
-        id: m.id,
-        label: m.nickname || m.name,
-        role: m.role,
-      })),
+      members: (await listViewAsTargets()).filter((m) => m.id !== real.id),
     };
   }
 

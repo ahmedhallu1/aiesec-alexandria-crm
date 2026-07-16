@@ -1,9 +1,8 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { auth } from "@/lib/auth";
 import { canViewAccount } from "@/lib/rbac";
 import {
-  findAccountRow, getAccount, getViewerByEmail, getViewer, listReassignTargets,
+  findAccountRow, getAccount, getViewer, listReassignTargets,
 } from "@/server/data";
 import {
   canEditAccount, canEditRequestState, canReassignAccount,
@@ -18,10 +17,9 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }): Promise<Metadata> {
   const { id } = await params;
-  const session = await auth();
-  const email = session?.user?.email?.toLowerCase();
-  if (!email) return { title: "Account" };
-  const viewer = await getViewerByEmail(email);
+  // getViewer (not the raw session) so the admin test view is honored here
+  // too — the tab title obeys the impersonated member's scope
+  const viewer = await getViewer().catch(() => null);
   if (!viewer) return { title: "Account" };
   const account = await findAccountRow(id);
   if (!account || !canViewAccount(viewer, account)) return { title: "Account" };

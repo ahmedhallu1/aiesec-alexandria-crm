@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-07-16 · Version: v14
+Last updated: 2026-07-16 · Version: v15
 
 ---
 
@@ -125,12 +125,19 @@ badge sums EGP across deals, and "CRM — Raising Accounts" gains a
 money is per-account/sheet for now (a money KPI can come later).
 
 **B2B** (function or sub-function contains "B2B"/"BD") raises **for the whole ICX**:
-they add accounts as **product "B2B"** (not IGV/IGT), and every deal records its
-opens **split across IGV / IGTa / IGTe** (e.g. 3 IGV · 2 IGTe · 1 IGTa). Those
-per-product opens feed the IGV / IGTa / IGTe dashboard lanes (a B2B account's
-IGV opens count in the IGV lane, etc.), while the account itself lives in the
-All-ICX + B2B drill. Detected by `isB2B` in `rbac.ts`; feeds `scopeFunctions`,
-`hasRaisingAccess`, `allowedAccountFunctions`.
+they add accounts as **product "B2B" or "BD"** (not IGV/IGT), and every deal
+records its opens **split across IGV / IGTa / IGTe** (e.g. 3 IGV · 2 IGTe ·
+1 IGTa). Those per-product opens feed the IGV / IGTa / IGTe dashboard lanes,
+while the accounts live in the B2B lane/drill. Detected by `isB2B` in
+`rbac.ts`; feeds `scopeFunctions`, `hasRaisingAccess`, `allowedAccountFunctions`.
+**v15 isolation: the B2B/BD crew's own dashboard shows ONLY their B2B lane**
+(their accounts + the B2B lane goal) — `icxFunctions` no longer widens them to
+IGV/IGT and `dashboardViewer` scopes them to B2B+BD. The **B2B lane has its
+own function goal** (`performance_goals.function = 'B2B'`), set by the B2B/BD
+**VP or Director** (the "function leaders" team's leader — e.g. Suits → Yara),
+never by its TLs; **team goals require an actual team** (a TL with zero
+members can't set one — server-checked). The calendar (`/calendar`) is also
+**own-function only** (LCP/admin see all).
 
 **Account visibility** (`accountScope` in `rbac.ts`):
 - Member / Coordinator → own accounts only.
@@ -464,6 +471,27 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-07-16 · v15** — **B2B/BD dashboard isolation**: the crew sees ONLY
+  their B2B lane (no ICX aggregates — `icxFunctions` stopped widening,
+  `dashboardViewer` scopes to B2B+BD); **B2B lane goal** (function='B2B') set
+  by the B2B VP/Director (Suits = function-leaders team → its leader sets it),
+  covered by goal-reminders (`laneAchieved` B2B branch) and announced to the
+  B2B crew only (product-lane goals no longer spam B2B); **team goals require
+  team members** (server-checked). **Calendar = own function only** (LCP/admin
+  all). **Accounts is the home view** ("/" → /accounts; dashboard → /dashboard,
+  all emails/notifications updated). **Add-account success popup** (open it /
+  add another). **Test view v2**: the floating banner's name is a live SWITCHER
+  (pick anyone; role + functions shown in both lists); tab-title metadata now
+  honors the test view (was the raw session). **Freshness**: refresh button in
+  the sidebar + auto `router.refresh()` on tab focus and every 30s while
+  visible (`AutoRefresh`, 10s floor). **Playbook v15 is DYNAMIC** — renders
+  only the viewer's sections + a "ask The Blue Man" callout. **Profile "my
+  people"** now also shows a Member/Coordinator their own team (TL +
+  teammates). **/membership un-blocked for non-raising EB** (GateClient extra;
+  Hawash), /playbook ALWAYS_ALLOWED; TM tab renamed **"Talent Management"**;
+  login shows just "Sodio"; sidebar brand "AIESEC in Alexandria"; ComingSoon
+  copy updated (covers IGV·IGT·B2B&BD + TM).
 
 - **2026-07-16 · v14** — **Admin Test view (View-As)**: profile picker + cookie
   impersonation through `getViewer` + exit banner; real session drives the

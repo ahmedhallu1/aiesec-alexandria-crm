@@ -4,14 +4,42 @@ import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Eye, Loader2, X } from "lucide-react";
-import { stopViewAs } from "@/server/actions";
+import { startViewAs, stopViewAs } from "@/server/actions";
 import { Button } from "@/components/ui/button";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+
+export interface ViewAsTargetLite {
+  id: string;
+  label: string;
+  role: string;
+  functions: string;
+}
 
 /** Always-visible pill while the admin is test-viewing as another member —
- *  one click gets them back to themselves from anywhere in the app. */
-export function ViewAsBanner({ name, role }: { name: string; role: string }) {
+ *  the name is a live SWITCHER (pick anyone to jump straight to their view)
+ *  and Exit gets the admin back to themselves from anywhere. */
+export function ViewAsBanner({
+  activeId,
+  targets,
+}: {
+  activeId: string;
+  targets: ViewAsTargetLite[];
+}) {
   const router = useRouter();
   const [pending, start] = useTransition();
+
+  const switchTo = (id: string) => {
+    if (id === activeId) return;
+    start(async () => {
+      const res = await startViewAs(id);
+      if (res.ok) {
+        toast.success(`👁 Now viewing as ${res.data?.name}.`);
+        router.refresh();
+      } else toast.error(res.error);
+    });
+  };
 
   const exit = () =>
     start(async () => {
@@ -24,12 +52,26 @@ export function ViewAsBanner({ name, role }: { name: string; role: string }) {
 
   return (
     <div className="fixed inset-x-0 bottom-3 z-50 flex justify-center px-3">
-      <div className="flex max-w-full items-center gap-2 rounded-full border border-warning/50 bg-warning/15 px-4 py-2 text-sm font-medium shadow-lg backdrop-blur">
-        <Eye className="size-4 shrink-0 text-warning" />
-        <span className="truncate">
-          Test view: <b>{name}</b>
-          <span className="text-muted-foreground"> · {role} — the whole app behaves as them</span>
-        </span>
+      <div className="flex max-w-full items-center gap-2 rounded-full border border-warning/50 bg-warning/15 px-3 py-1.5 text-sm font-medium shadow-lg backdrop-blur">
+        {pending ? (
+          <Loader2 className="size-4 shrink-0 animate-spin text-warning" />
+        ) : (
+          <Eye className="size-4 shrink-0 text-warning" />
+        )}
+        <span className="hidden shrink-0 text-muted-foreground sm:inline">Test view:</span>
+        <Select value={activeId} onValueChange={switchTo} disabled={pending}>
+          <SelectTrigger className="h-7 w-auto max-w-56 gap-1.5 rounded-full border-warning/40 bg-transparent px-2.5 text-sm font-semibold shadow-none">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="max-h-72">
+            {targets.map((t) => (
+              <SelectItem key={t.id} value={t.id}>
+                {t.label} · {t.role}
+                {t.functions ? ` · ${t.functions}` : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Button
           size="sm"
           variant="outline"
@@ -37,7 +79,7 @@ export function ViewAsBanner({ name, role }: { name: string; role: string }) {
           onClick={exit}
           disabled={pending}
         >
-          {pending ? <Loader2 className="size-3.5 animate-spin" /> : <X className="size-3.5" />}
+          <X className="size-3.5" />
           Exit
         </Button>
       </div>

@@ -1831,8 +1831,9 @@ export async function updateAccountContacts(
 
 const goalSchema = z.object({
   scope: z.enum(["function", "team"]),
-  // goals are set per product lane — the IGT goal is DERIVED (IGTa + IGTe)
-  function: z.enum(["IGV", "IGTa", "IGTe"]).nullish(),
+  // goals are set per lane — the IGT goal is DERIVED (IGTa + IGTe); the B2B
+  // lane's goal covers the whole B2B & BD function
+  function: z.enum(["IGV", "IGTa", "IGTe", "B2B"]).nullish(),
   teamLeaderId: z.string().uuid().nullish(),
   target: z.number().int().min(1, "The goal must be at least 1 slot."),
   periodLabel: z.string().trim().min(2, "Name the period (e.g. July 2026 or Summer Peak 26)."),
@@ -1854,12 +1855,15 @@ export async function setPerformanceGoal(
   const master = viewer.isAdmin || viewer.role === "LCP";
   if (g.scope === "function") {
     if (!g.function) return fail("Pick the lane for this goal.");
-    const parentFn = g.function === "IGV" ? "IGV" : "IGT";
+    // the B2B goal belongs to the B2B/BD VP or Director — the function-leaders
+    // team's leader (e.g. Suits) — never to its Team Leaders
     const ownsFunction =
       (viewer.role === "LCVP" || viewer.role === "Director") &&
-      viewer.functions.includes(parentFn);
+      (g.function === "B2B"
+        ? memberIsB2B(viewer)
+        : viewer.functions.includes(g.function === "IGV" ? "IGV" : "IGT"));
     if (!master && !ownsFunction)
-      return fail("Only the function's VP (or the LCP) sets the function goal.", "forbidden");
+      return fail("Only the function's VP/Director (or the LCP) sets the function goal.", "forbidden");
   } else {
     const teamLeaderId = g.teamLeaderId ?? viewer.id;
     const isOwnTeam = viewer.role === "Team Leader" && teamLeaderId === viewer.id;
@@ -1867,6 +1871,15 @@ export async function setPerformanceGoal(
       (viewer.role === "LCVP" || viewer.role === "Director") || master;
     if (!isOwnTeam && !isLeadOver)
       return fail("Only the Team Leader (or their VP/LCP) sets the team goal.", "forbidden");
+    // team goals need an actual team — a TL with no members steers via the
+    // function goal instead
+    const { count } = await db()
+      .from("members")
+      .select("id", { count: "exact", head: true })
+      .eq("stakeholder_id", teamLeaderId)
+      .eq("is_active", true);
+    if (!count)
+      return fail("This team has no members yet — its numbers live in the function goal.");
     g.teamLeaderId = teamLeaderId;
   }
 
@@ -1913,19 +1926,24 @@ export async function setPerformanceGoal(
       let scopeLabel = "";
       let dashboardUrl = env.appUrl;
       if (g.scope === "function" && g.function) {
-        const parentFn = g.function === "IGV" ? "IGV" : "IGT";
         const isB2BMember = (m: (typeof all)[number]) =>
           ["B2B", "BD"].some(
             (f) => (m.functions ?? []).includes(f) || (m.sub_functions ?? []).includes(f)
           );
-        audience = all.filter(
-          (m) =>
-            m.role !== "LCP" &&
-            ((m.functions ?? []).includes(parentFn) || isB2BMember(m))
-        );
-        scopeLabel = `the ${g.function} lane`;
-        dashboardUrl = `${env.appUrl}/?fn=${g.function}`;
+        // v15 isolation: each lane's goal is announced to ITS crew only —
+        // the B2B goal to the B2B/BD crew, product goals to their function
+        audience =
+          g.function === "B2B"
+            ? all.filter((m) => m.role !== "LCP" && isB2BMember(m))
+            : all.filter(
+                (m) =>
+                  m.role !== "LCP" &&
+                  (m.functions ?? []).includes(g.function === "IGV" ? "IGV" : "IGT")
+              );
+        scopeLabel = g.function === "B2B" ? "the B2B & BD lane" : `the ${g.function} lane`;
+        dashboardUrl = `${env.appUrl}/dashboard?fn=${g.function}`;
       } else if (g.scope === "team" && g.teamLeaderId) {
+        dashboardUrl = `${env.appUrl}/dashboard`;
         const tl = all.find((m) => m.id === g.teamLeaderId);
         audience = all.filter(
           (m) => m.id === g.teamLeaderId || m.stakeholder_id === g.teamLeaderId
@@ -1959,7 +1977,7 @@ export async function setPerformanceGoal(
           `🎯 New goal for ${scopeLabel}: ${g.target} slots`,
           `${g.periodLabel} (${g.periodStart} → ${g.periodEnd}) — the dashboard tracks it live.`,
           viewer.id,
-          g.scope === "function" ? `/?fn=${g.function}` : "/"
+          g.scope === "function" ? `/dashboard?fn=${g.function}` : "/dashboard"
         );
       }
     } catch (e) {

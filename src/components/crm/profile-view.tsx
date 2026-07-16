@@ -52,7 +52,10 @@ export function ProfileView({
   /** the viewer's people (TL → team · VP/Director → function · LCP → EB) */
   people: { title: string; people: PersonCard[] } | null;
   /** REAL-admin only: the test-view picker (survives an active test view) */
-  viewAs: { activeId: string | null; members: { id: string; label: string; role: string }[] } | null;
+  viewAs: {
+    activeId: string | null;
+    members: { id: string; label: string; role: string; functions: string }[];
+  } | null;
 }) {
   const router = useRouter();
   const [nickname, setNickname] = useState(member.nickname);
@@ -360,7 +363,10 @@ export function ProfileView({
 function ViewAsCard({
   viewAs,
 }: {
-  viewAs: { activeId: string | null; members: { id: string; label: string; role: string }[] };
+  viewAs: {
+    activeId: string | null;
+    members: { id: string; label: string; role: string; functions: string }[];
+  };
 }) {
   const router = useRouter();
   const [target, setTarget] = useState(viewAs.activeId ?? "");
@@ -417,6 +423,7 @@ function ViewAsCard({
               {viewAs.members.map((m) => (
                 <SelectItem key={m.id} value={m.id}>
                   {m.label} · {m.role}
+                  {m.functions ? ` · ${m.functions}` : ""}
                 </SelectItem>
               ))}
             </SelectContent>

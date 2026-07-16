@@ -48,6 +48,32 @@ export const getRealViewer = cache(async (): Promise<Viewer> => {
   return viewer;
 });
 
+/** The members an admin can test-view as — [] for everyone else. Powers the
+ *  profile picker AND the switch-list on the floating test-view banner. */
+export interface ViewAsTarget {
+  id: string;
+  label: string;
+  role: string;
+  functions: string;
+}
+export async function listViewAsTargets(): Promise<ViewAsTarget[]> {
+  const real = await getRealViewer();
+  if (!real.isAdmin) return [];
+  const { data } = await db()
+    .from("members")
+    .select("id, name, nickname, role, functions")
+    .eq("is_active", true)
+    .neq("id", real.id) // you can't test-view yourself
+    .order("name");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[]).map((m) => ({
+    id: m.id,
+    label: m.nickname || m.name,
+    role: m.role,
+    functions: (m.functions ?? []).join(", "),
+  }));
+}
+
 /** The effective viewer. When the REAL user is an admin and the view-as
  *  cookie is set, this becomes the impersonated member (marked
  *  `impersonated`) — the whole app then behaves exactly as it would for
@@ -429,13 +455,9 @@ function addRowLane(s: FunnelStats, r: PipelineRow, lane: string) {
 function dashboardViewer(viewer: Viewer): Viewer {
   const scope = accountScope(viewer);
   if (scope.kind === "all") return viewer;
-  // B2B raises for the whole ICX — their dashboard aggregates span all of it
-  if (isB2B(viewer))
-    return {
-      ...viewer,
-      role: "Director",
-      functions: [...new Set([...viewer.functions, "IGV", "IGT", "B2B"])],
-    };
+  // B2B/BD crew: whole-FUNCTION aggregates (their B2B/BD accounts) — but NOT
+  // the rest of the ICX (v15 isolation); scopeFunctions gives them B2B + BD
+  if (isB2B(viewer)) return { ...viewer, role: "Director" };
   if (scope.kind === "functions") return viewer;
   const fns = icxFunctions(viewer);
   if (fns.length === 0) return viewer;
@@ -578,7 +600,7 @@ export async function getDashboard(
   // ---- goals in effect. Lane goals live at IGV / IGTa / IGTe; the IGT goal
   // is DERIVED: goal(IGT) = goal(IGTa) + goal(IGTe).
   let funcGoal: PerformanceGoal | null = null;
-  if (laneKey === "IGV" || laneKey === "IGTa" || laneKey === "IGTe") {
+  if (laneKey === "IGV" || laneKey === "IGTa" || laneKey === "IGTe" || laneKey === "B2B") {
     funcGoal = await getActiveGoal("function", laneKey);
   } else if (laneKey === "IGT") {
     const [a, e] = await Promise.all([
@@ -865,7 +887,29 @@ export async function profilePeople(
     return people.length > 0 ? { title: "My team", people } : null;
   }
 
-  return null; // Coordinators & Members steer themselves
+  // Members & Coordinators see their own team: their Team Leader + teammates
+  if (viewer.stakeholder_id) {
+    const { data: tl } = await db()
+      .from("members")
+      .select("*")
+      .eq("id", viewer.stakeholder_id)
+      .eq("is_active", true)
+      .maybeSingle<Member>();
+    if (tl?.role !== "Team Leader") return null;
+    const { data: mates } = await db()
+      .from("members")
+      .select("*")
+      .eq("is_active", true)
+      .eq("stakeholder_id", tl.id)
+      .order("name");
+    const people = [
+      strip(tl),
+      ...((mates ?? []) as Member[]).filter((m) => m.id !== viewer.id).map(strip),
+    ];
+    return { title: `My team${tl.team_name ? ` — ${tl.team_name}` : ""}`, people };
+  }
+
+  return null;
 }
 
 // ------------------------------------------------------------------ calendar
@@ -879,10 +923,9 @@ export interface CalendarVisit {
   member: { id: string; name: string; nickname: string | null };
 }
 
-/** Every visit of the viewer's function(s) in a date range. The calendar is
- *  FUNCTION-wide, like the dashboard aggregates: everyone sees their whole
- *  function's visits (B2B visits show for everyone — B2B raises for all).
- *  Archived accounts' visits are hidden. */
+/** Every visit of the viewer's OWN function(s) in a date range: IGV people
+ *  see IGV visits, IGT people IGT, the B2B/BD crew theirs — only the LCP and
+ *  admins see the whole LC's calendar. Archived accounts' visits are hidden. */
 export async function listFunctionVisits(
   viewer: Viewer,
   from: string,
@@ -904,7 +947,13 @@ export async function listFunctionVisits(
     .order("visit_time");
 
   const master = accountScope(viewer).kind === "all";
-  const fns = new Set<string>([...icxFunctions(viewer), "B2B", "BD"]);
+  const fns = new Set<string>(
+    viewer.functions.filter((f) => f === "IGV" || f === "IGT")
+  );
+  if (isB2B(viewer)) {
+    fns.add("B2B");
+    fns.add("BD");
+  }
   type Row = CalendarVisit & { account: CalendarVisit["account"] & { out_of_process: boolean } };
   return ((data ?? []) as unknown as Row[])
     .filter((v) => v.account && !v.account.out_of_process && v.member)

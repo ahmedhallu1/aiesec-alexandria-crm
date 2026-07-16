@@ -42,10 +42,9 @@ export function isB2B(v: Viewer): boolean {
   return hit(v.functions) || hit(v.sub_functions);
 }
 
-/** Dashboard-lane functions: B2B feeds the whole ICX, so B2B people follow
- *  both product families' numbers. */
+/** The viewer's OWN ICX product families. B2B/BD people live in their own
+ *  B2B lane — they do NOT follow the whole ICX (v15 isolation). */
 export function icxFunctions(v: Viewer): ("IGV" | "IGT")[] {
-  if (isB2B(v)) return ["IGV", "IGT"];
   return v.functions.filter((f): f is "IGV" | "IGT" => f === "IGV" || f === "IGT");
 }
 

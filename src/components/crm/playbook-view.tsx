@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v14";
+export const PLAYBOOK_VERSION = "v15";
 
 interface Props {
   role: string;
@@ -24,7 +24,7 @@ interface Section {
   points: React.ReactNode[];
 }
 
-/** Which section ids matter most for a role — powers the "That's you" badges. */
+/** Which sections THIS member needs — the playbook renders only these. */
 function sectionsForRole(
   role: string, isAdmin: boolean, isB2B: boolean, isTm: boolean
 ): Set<string> {
@@ -62,6 +62,7 @@ const SECTIONS: Section[] = [
       <>First sign-in is <b>Google only</b> (it grants your calendar reminders + Gmail drafts). Onboarding then sets your password.</>,
       <>After that, sign in with <b>email or phone + password</b>, or Google — whatever you like.</>,
       <>Forgot the password? The login page emails you a fresh one instantly. Your old one keeps working until you change it.</>,
+      <>Signing in lands you on <b>Accounts</b> — your daily workspace; the Dashboard, Calendar and the rest live in the sidebar.</>,
       <>Meet <b>The Blue Man</b> 🚶 (bottom-right) — he answers questions using your real CRM data and AIESEC sources.</>,
       <>The first-run <b>tour</b> walks you through your workspace. Rewatch it any time from your Profile.</>,
     ],
@@ -118,9 +119,9 @@ const SECTIONS: Section[] = [
     audience: "B2B & BD crew",
     color: "#0CB9C1",
     points: [
-      <>One function, two names (<b>B2B & BD</b> — may split in future peaks): either grants the same whole-ICX raising access.</>,
-      <>When adding an account you <b>choose its label: B2B or BD</b>. Both split every deal&apos;s opens across <b>IGV / IGTa / IGTe</b> — each lane&apos;s dashboard picks up its share.</>,
-      <>You see and feed <b>every lane</b>; IGV/IGT VPs & Directors see all your data too and can filter their dashboard by the <b>B2B lane</b>.</>,
+      <>One function, two names (<b>B2B & BD</b> — may split in future peaks): either grants the same raising access.</>,
+      <>When adding an account you <b>choose its label: B2B or BD</b>. Both split every deal&apos;s opens across <b>IGV / IGTa / IGTe</b> — each product lane picks up its share.</>,
+      <>Your dashboard is <b>your own B2B lane</b> (your accounts, your goal — set by your VP/Director). IGV/IGT VPs & Directors also see the B2B lane, because you raise for them.</>,
       <><b>Podio worklist</b> (MMs & Director/VP): the &quot;Podio pending&quot; filter lists accounts not yet requested — copy names for the form, set the request state inline, or <b>Ask to submit</b>: the owner gets an in-app notification and the account pins to the top of their list until they act.</>,
       <><b>BD deals are measured in MONEY</b>: recording a deal on a BD account asks for the <b>amount (EGP)</b> + other benefits — opens are optional extras. The account header and Drive sheet show the EGP totals.</>,
       <>Proposal emails: B2B accounts get the <b>all-programs variant</b> (aiesec.org/partners); <b>BD accounts get the Talent-Solutions pitch</b> (aiesec.org.eg/partner.html) with no ready-made attachments.</>,
@@ -187,6 +188,8 @@ const SECTIONS: Section[] = [
 
 export function PlaybookView({ role, isAdmin, isB2B, isTm }: Props) {
   const mine = sectionsForRole(role, isAdmin, isB2B, isTm);
+  // the playbook is DYNAMIC: it renders only what THIS member needs to know
+  const sections = SECTIONS.filter((s) => mine.has(s.id));
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">
@@ -199,27 +202,30 @@ export function PlaybookView({ role, isAdmin, isB2B, isTm }: Props) {
           <Badge className="border-white/30 bg-white/15 text-white">{PLAYBOOK_VERSION}</Badge>
         </div>
         <p className="mt-2 max-w-xl text-sm leading-relaxed text-white/85">
-          Everything you need to work with Sodio — organized by role, so you
-          only read what&apos;s yours. This playbook lives with the system, is
-          updated with <b>every release</b>, and is written to be handed to the
-          next generations of AIESEC in Alexandria. 💙
+          Your manual, tailored to <b>your role</b> — only what you need, nothing
+          else. It lives with the system, is updated with <b>every release</b>,
+          and is written to be handed to the next generations of AIESEC in
+          Alexandria. 💙
         </p>
-        <p className="mt-3 text-xs font-semibold uppercase tracking-wider text-white/60">
-          Sections marked “That&apos;s you” are the ones to read first.
-        </p>
+        <div className="mt-4 flex items-start gap-2.5 rounded-xl bg-white/10 p-3 text-sm leading-relaxed text-white/90">
+          <span className="text-lg">🚶</span>
+          <p>
+            Anything unclear, ever? Ask <b>The Blue Man</b> — the walking blue
+            button at the bottom-right corner. He knows the whole system, sees
+            your own numbers, and answers in Arabic too. Don&apos;t be shy, he
+            never sleeps.
+          </p>
+        </div>
       </div>
 
       {/* Index */}
       <nav className="rise-in rise-in-1 flex flex-wrap gap-1.5" aria-label="Playbook index">
-        {SECTIONS.map((s) => (
+        {sections.map((s) => (
           <a
             key={s.id}
             href={`#${s.id}`}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-muted",
-              mine.has(s.id) && "border-transparent text-white"
-            )}
-            style={mine.has(s.id) ? { backgroundColor: s.color } : undefined}
+            className="inline-flex items-center gap-1.5 rounded-full border border-transparent px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-85"
+            style={{ backgroundColor: s.color }}
           >
             <span>{s.emoji}</span> {s.title}
           </a>
@@ -227,7 +233,7 @@ export function PlaybookView({ role, isAdmin, isB2B, isTm }: Props) {
       </nav>
 
       {/* Sections */}
-      {SECTIONS.map((s, i) => (
+      {sections.map((s, i) => (
         <Card
           key={s.id}
           id={s.id}
@@ -244,11 +250,6 @@ export function PlaybookView({ role, isAdmin, isB2B, isTm }: Props) {
               >
                 For: {s.audience}
               </Badge>
-              {mine.has(s.id) ? (
-                <Badge className="border-transparent text-white" style={{ backgroundColor: s.color }}>
-                  That&apos;s you
-                </Badge>
-              ) : null}
             </CardTitle>
           </CardHeader>
           <CardContent>

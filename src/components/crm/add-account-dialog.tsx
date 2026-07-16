@@ -12,7 +12,7 @@ import {
   PODIO_FORM_URL,
 } from "@/lib/types";
 import type { AccountContact } from "@/lib/types";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Plus } from "lucide-react";
 import { MultiPick } from "./multi-pick";
 import { ContactsEditor, contactsValid } from "./contacts-editor";
 import { Button } from "@/components/ui/button";
@@ -92,6 +92,8 @@ export function AddAccountDialog({
   const [requestedPodio, setRequestedPodio] = useState(false);
   const [responsible, setResponsible] = useState(viewer.id);
   const [block, setBlock] = useState<BlockInfo | null>(null);
+  // freshly-created account → the "open it or add another?" popup
+  const [added, setAdded] = useState<{ name: string; slug: string } | null>(null);
   const [pending, startTransition] = useTransition();
 
   const set = (key: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -124,11 +126,12 @@ export function AddAccountDialog({
         }
         return;
       }
-      toast.success("Account added 🎉");
+      // reset the form and let the member choose: open it, or keep adding
       setForm({});
       setContacts([{ tag: "Contact", kind: "phone", value: "" }]);
-      onOpenChange(false);
-      router.push(`/accounts/${res.data!.slug}`);
+      setRequestedPodio(false);
+      setResponsible(viewer.id);
+      setAdded({ name: form.name ?? "", slug: res.data!.slug });
     });
 
   // B2B & BD are one crew — either label qualifies for either account kind
@@ -141,6 +144,7 @@ export function AddAccountDialog({
   );
 
   return (
+    <>
     <Dialog open={open} onOpenChange={(o) => { if (!o) setBlock(null); onOpenChange(o); }}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
@@ -316,5 +320,46 @@ export function AddAccountDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {/* success: open the fresh account, or keep the flow and add another */}
+    <Dialog
+      open={!!added}
+      onOpenChange={(o) => {
+        if (!o) {
+          setAdded(null);
+          onOpenChange(false);
+          router.refresh();
+        }
+      }}
+    >
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>🎉 &quot;{added?.name}&quot; is in!</DialogTitle>
+          <DialogDescription>
+            The account was added — jump into it now, or keep the form open and
+            add the next one.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="gap-2 sm:justify-between">
+          <Button
+            variant="outline"
+            onClick={() => setAdded(null)}
+          >
+            <Plus className="size-4" /> Add another
+          </Button>
+          <Button
+            onClick={() => {
+              const slug = added!.slug;
+              setAdded(null);
+              onOpenChange(false);
+              router.push(`/accounts/${slug}`);
+            }}
+          >
+            Open the account →
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
