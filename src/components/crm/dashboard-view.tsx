@@ -93,6 +93,12 @@ export function DashboardView({
   const searchParams = useSearchParams();
   const [navPending, startNav] = useTransition();
   const [goalOpen, setGoalOpen] = useState(false);
+  // which card opened the dialog — its scope is preselected
+  const [goalScope, setGoalScope] = useState<"function" | "bd" | "team">("function");
+  const openGoal = (sc: "function" | "bd" | "team") => {
+    setGoalScope(sc);
+    setGoalOpen(true);
+  };
 
   const go = useCallback(
     (mutate: (p: URLSearchParams) => void) => {
@@ -267,7 +273,7 @@ export function DashboardView({
                 ? "Set the IGTa and IGTe goals — this lane shows their sum."
                 : undefined
             }
-            onSet={() => setGoalOpen(true)}
+            onSet={() => openGoal("function")}
           />
           {activeFn === "B2B" ? (
             <GoalCard
@@ -277,7 +283,7 @@ export function DashboardView({
               unit="EGP"
               canSet={goalCaps.bdMoneyGoal}
               emptyHint="No BD money goal for this period yet."
-              onSet={() => setGoalOpen(true)}
+              onSet={() => openGoal("bd")}
             />
           ) : null}
           {(teamGoal || goalCaps.teamGoal || goalCaps.teamLeaderId) ? (
@@ -286,7 +292,7 @@ export function DashboardView({
               goal={teamGoal}
               achieved={teamAchieved}
               canSet={goalCaps.teamGoal}
-              onSet={() => setGoalOpen(true)}
+              onSet={() => openGoal("team")}
             />
           ) : null}
         </div>
@@ -361,6 +367,7 @@ export function DashboardView({
         onOpenChange={setGoalOpen}
         caps={goalCaps}
         monthDefault={month}
+        initialScope={goalScope}
       />
     </div>
   );
@@ -570,12 +577,14 @@ function Leaderboard({ title, groups }: { title: string; groups: DrillGroup[] })
 }
 
 function GoalDialog({
-  open, onOpenChange, caps, monthDefault,
+  open, onOpenChange, caps, monthDefault, initialScope,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   caps: GoalCaps;
   monthDefault: { from: string; to: string; label: string };
+  /** the scope of the card that opened the dialog — preselected when valid */
+  initialScope?: "function" | "bd" | "team";
 }) {
   const router = useRouter();
   const scopes: ("function" | "bd" | "team")[] = [
@@ -584,12 +593,15 @@ function GoalDialog({
     ...(caps.teamGoal ? (["team"] as const) : []),
   ];
   const [scope, setScope] = useState<"function" | "bd" | "team">(scopes[0] ?? "team");
-  // lane switches change the available scopes — never keep a stale selection
+  // on open: preselect the opener card's scope; and never keep a selection
+  // that a lane switch made invalid
   const scopeKey = scopes.join(",");
   useLayoutEffect(() => {
-    if (open && !scopes.includes(scope)) setScope(scopes[0] ?? "team");
+    if (!open) return;
+    if (initialScope && scopes.includes(initialScope)) setScope(initialScope);
+    else if (!scopes.includes(scope)) setScope(scopes[0] ?? "team");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, scopeKey]);
+  }, [open, scopeKey, initialScope]);
   const [target, setTarget] = useState("");
   const [label, setLabel] = useState(monthDefault.label);
   const [start, setStart] = useState(monthDefault.from);
