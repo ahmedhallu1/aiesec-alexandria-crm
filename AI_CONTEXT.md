@@ -432,14 +432,14 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 
 ## 9. Pending / operational notes
 
-- **Pending user action:** 0007–0012 are run (verified live 2026-07-15). **Run
-  `0013_director_label.sql`, `0014_bd_podio.sql` and `0015_bd_deal_amount.sql`**
-  in the Supabase SQL editor — until 0013, a Director's comments fail to save;
-  until 0014, BD accounts/Podio worklist politely refuse (listAccounts has a
-  BD grace path so nothing 500s); until 0015, BD money deals refuse with a
-  pointer to the migration.
-- **CRON_SECRET sync SQL** (escaped correctly this time):
-  `select substring(command from 'key=([^'']+)') from cron.job limit 1;`
+- **All migrations 0001–0015 are RUN** (verified live 2026-07-16).
+- **CRON_SECRET was rotated 2026-07-16**: the old pg_cron jobs had been
+  scheduled with the literal `<CRON_SECRET>` placeholder (silent 401s — the
+  production crons had likely never fired successfully). New 48-hex secret
+  lives in Vercel prod env + `.env.local` (in sync); the four cron jobs were
+  rebuilt with it via one SQL script. If the secret ever rotates again:
+  update BOTH env locations, redeploy, and re-run the four `cron.schedule`
+  calls from `supabase/cron.sql` with the value substituted.
 - **CRON_SECRET mismatch:** the value in local `.env.local` differs from the
   one in Vercel/pg_cron (Vercel marks it sensitive — unreadable). The
   production crons work; only manual local triggering fails with 401. To sync:
