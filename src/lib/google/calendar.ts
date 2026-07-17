@@ -119,7 +119,7 @@ export async function diagnoseMailboxCalendar(): Promise<{ ok: boolean; detail: 
     return {
       ok: false,
       detail: scopeIssue
-        ? "The IM mailbox token is MISSING the Calendar scope. Re-mint GMAIL_REFRESH_TOKEN including https://www.googleapis.com/auth/calendar (keep gmail.send)."
+        ? "The IM mailbox token can't use Calendar. Re-mint GMAIL_REFRESH_TOKEN with BOTH scopes: https://mail.google.com/ AND https://www.googleapis.com/auth/calendar (see SETUP.md §5). Tier-1 personal-calendar reminders + the .ics email still work meanwhile."
         : `Calendar API error: ${msg.slice(0, 200)}`,
     };
   }
