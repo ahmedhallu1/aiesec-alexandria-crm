@@ -112,18 +112,33 @@ Rows removed from the sheet are deactivated automatically at the next sync.
 The sheet is **two-way**: in-app membership edits (EB) and member profile
 confirmations are written back to it, so imports never revert them.
 
-## 5. Gmail refresh token (transactional email)
+## 5. Mailbox refresh token (transactional email + shared visits calendar)
 
-Sent from `ahmedhallul@aiesec.net` (IM director). One-time:
+Sent from `ahmedhallul@aiesec.net` (IM director). This one token powers BOTH
+the transactional emails AND the shared "Sodio — LC Visits" calendar, so it
+MUST carry both scopes. One-time (re-run this exact flow to re-mint):
 
 1. Open [OAuth Playground](https://developers.google.com/oauthplayground).
 2. ⚙️ → check **Use your own OAuth credentials** → paste the Web client ID +
    secret.
-3. In Step 1 enter scope `https://mail.google.com/` → Authorize while signed
-   in as **ahmedhallul@aiesec.net** → Step 2 → **Exchange authorization code
-   for tokens**.
-4. `GMAIL_REFRESH_TOKEN` = the refresh token shown.
+3. In Step 1, enter **BOTH** scopes (space- or line-separated in the input):
+   `https://mail.google.com/` **and**
+   `https://www.googleapis.com/auth/calendar`
+   → Authorize while signed in as **ahmedhallul@aiesec.net** → tick every
+   requested permission on the consent screen → Step 2 → **Exchange
+   authorization code for tokens**.
+4. `GMAIL_REFRESH_TOKEN` = the refresh token shown. Update it in Vercel prod
+   env **and** `.env.local`, then redeploy.
 5. You can now remove the playground redirect URI from the client.
+
+> **Shortcut:** instead of the Playground, run
+> **`node scripts/mint-mailbox-token.mjs`** from the repo root — it opens the
+> consent screen with both scopes, catches the redirect, and prints the
+> refresh token. (Stop `npm run dev` first so port 3000 is free.)
+
+> Verify on the admin **Health & Logs** page (`/admin`): the "Shared visits
+> calendar" check turns green. Missing the calendar scope only disables the
+> shared calendar — personal-calendar reminders and the .ics email still work.
 
 `GMAIL_SENDER=ahmedhallul@aiesec.net`, `GMAIL_SENDER_NAME=AIESEC in Alexandria CRM`.
 
