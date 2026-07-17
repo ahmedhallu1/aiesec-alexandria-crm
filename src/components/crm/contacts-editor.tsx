@@ -114,6 +114,12 @@ export function ContactsEditor({
                 inputMode={meta.inputMode}
                 placeholder={meta.placeholder}
                 onChange={(e) => update(i, { value: e.target.value })}
+                onBlur={() => {
+                  // pasted numbers auto-clean to the canonical format
+                  if (c.kind !== "phone" || !c.value.trim()) return;
+                  const check = normalizePhone(c.value);
+                  if (check.ok && check.value !== c.value) update(i, { value: check.value });
+                }}
               />
               {issue ? <p className="mt-0.5 text-xs text-destructive">{issue}</p> : null}
             </div>

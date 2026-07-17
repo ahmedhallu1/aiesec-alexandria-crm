@@ -8,7 +8,7 @@ import { changePassword, diagnoseCalendar, startViewAs, stopViewAs, updateAvatar
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { ADMIN_EMAIL, cleanPhone, FUNCTION_COLORS, PHONE_RE } from "@/lib/types";
+import { ADMIN_EMAIL, cleanPhone, FUNCTION_COLORS, normalizePhone, PHONE_RE } from "@/lib/types";
 import type { PersonCard } from "@/server/data";
 import { WhatsAppIcon } from "./icons";
 import { Hint } from "./hint";
@@ -169,6 +169,10 @@ export function ProfileView({
                 value={phone}
                 inputMode="tel"
                 onChange={(e) => { setPhone(e.target.value); setDirty(true); }}
+                onBlur={() => {
+                  const check = normalizePhone(phone);
+                  if (check.ok && check.value !== phone) setPhone(check.value);
+                }}
               />
               {phone && !phoneOk ? (
                 <p className="text-xs text-destructive">Numbers only, 7–15 digits.</p>

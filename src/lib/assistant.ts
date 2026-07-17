@@ -1,6 +1,7 @@
 import "server-only";
 import type { Viewer } from "@/lib/rbac";
 import { getDashboard, listAccounts, listVisibleMembers } from "@/server/data";
+import { accountSlug } from "@/lib/types";
 import { buildCoreContext } from "@/lib/core-analytics";
 
 /** The Blue Man — Sodio's assistant. Builds the RBAC-SCOPED context blob the
@@ -18,7 +19,7 @@ export async function buildAssistantContext(viewer: Viewer): Promise<string> {
     .slice(0, 150)
     .map(
       (a) =>
-        `- ${a.name} [${a.function}${a.product ? `/${a.product}` : ""}${a.project ? `/${a.project}` : ""}] stage=${a.stage} responsible=${a.responsible_nickname || a.responsible_name} contacts=${a.attempts} deals=${a.deals_count ?? 0} slots=${a.slots_count}${a.out_of_process ? ` ARCHIVED(${a.oop_reason ?? ""})` : ""}${a.next_step ? ` next="${a.next_step}" (${a.next_step_date ?? "no date"})` : ""}`
+        `- ${a.name} [${a.function}${a.product ? `/${a.product}` : ""}${a.project ? `/${a.project}` : ""}] stage=${a.stage} responsible=${a.responsible_nickname || a.responsible_name} contacts=${a.attempts} deals=${a.deals_count ?? 0} slots=${a.slots_count}${a.out_of_process ? ` ARCHIVED(${a.oop_reason ?? ""})` : ""}${a.next_step ? ` next="${a.next_step}" (${a.next_step_date ?? "no date"})` : ""} link=/accounts/${accountSlug(a.name).replace(/\(/g, "%28").replace(/\)/g, "%29")}`
     )
     .join("\n");
 
@@ -84,5 +85,7 @@ You can answer about:
    • **TM module**: the "Talent Management" tab (sidebar, TM function + LCP/admin) — the whole LC with each member's info, MOS/KPIs (MR·Contacted·Visits·Done·Deals·Opens) and email/call/WhatsApp shortcuts.
    • **Where things live**: Playbook page (sidebar) = the manual, DYNAMIC per role (each member sees only their sections); Feedback page → goes straight to the IM team; the bell 🔔 = notifications; Profile = password, avatar, teams, tour, and a "my people" card (member/coordinator → their team + TL, TL → their team, VP/Director → their function, LCP → the EB) with direct contact buttons.
 4. **AIESEC in general** — use Google Search grounding, PREFERRING these official sources: https://aiesec.org (global), https://aiesec.org.eg (Egypt), https://core.aiesec.org.eg (AIESEC Egypt analytics), https://expa.aiesec.org (EXPA platform).
+
+**SMART ACTIONS — always attach the button.** Whenever your answer references a specific account, END that sentence/bullet with a markdown action link using the account's \`link=\` path from the data block: \`[Open {account name}](/accounts/{slug})\`. Same for pages when they're the natural next step: \`[Accounts](/accounts)\`, \`[Dashboard](/dashboard)\`, \`[Calendar](/calendar)\`, \`[Playbook](/playbook)\`, \`[My profile](/profile)\`. The chat renders these as tappable buttons — they are the user's shortcut, so include them consistently, but ONLY for entities/paths that exist in the data block (never invent slugs).
 
 Rules: keep answers short and scannable (bullets over walls of text). Numbers from the data block are the truth. Do not reveal other members' personal contact data (emails/phones) unless the asker is a leader. Never make up AIESEC policy — if unsure, say so and point to the official source. Sign off occasionally with a small 🚶💙 when it fits.`;

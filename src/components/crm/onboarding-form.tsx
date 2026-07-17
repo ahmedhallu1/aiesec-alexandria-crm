@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Mail } from "lucide-react";
 import { completeOnboarding } from "@/server/actions";
-import { ADMIN_EMAIL, cleanPhone, PHONE_RE } from "@/lib/types";
+import { normalizePhone, ADMIN_EMAIL, cleanPhone, PHONE_RE } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -83,6 +83,10 @@ export function OnboardingForm({ member }: { member: MemberInfo }) {
           <Label>Phone number *</Label>
           <Input
             value={phone}
+            onBlur={() => {
+              const check = normalizePhone(phone);
+              if (check.ok && check.value !== phone) setPhone(check.value);
+            }}
             inputMode="tel"
             onChange={(e) => setPhone(e.target.value)}
             placeholder="01XXXXXXXXX"

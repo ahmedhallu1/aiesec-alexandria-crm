@@ -125,7 +125,9 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
     </a>
   );
 
-  const userBlock = (
+  // the DRAWER omits the bell + theme toggle: on phones both already live in
+  // the top bar — no duplicated controls
+  const userBlock = (inDrawer: boolean) => (
     <div className="border-t border-sidebar-border p-3">
       <div className="flex items-center gap-2 rounded-lg px-2 py-2">
         <Link
@@ -148,8 +150,12 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
             </p>
           </div>
         </Link>
-        <NotificationsBell canBroadcast={canBroadcast} />
-        <ThemeToggle className="text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
+        {!inDrawer ? (
+          <>
+            <NotificationsBell canBroadcast={canBroadcast} />
+            <ThemeToggle className="text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
+          </>
+        ) : null}
         <form action={signOutAction}>
           <Button
             type="submit"
@@ -201,7 +207,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col bg-sidebar md:flex">
         {brand}
         {navList}
-        {userBlock}
+        {userBlock(false)}
         {credit}
       </aside>
 
@@ -217,7 +223,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
             <SheetTitle className="sr-only">Navigation</SheetTitle>
             {brand}
             {navList}
-            {userBlock}
+            {userBlock(true)}
             {credit}
           </SheetContent>
         </Sheet>
@@ -228,6 +234,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
         </Link>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <NotificationsBell canBroadcast={canBroadcast} />
+          <ThemeToggle className="text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
           <RefreshButton />
         </div>
       </div>

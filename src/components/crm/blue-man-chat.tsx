@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { Loader2, Send, X } from "lucide-react";
+import Link from "next/link";
+import { ArrowUpRight, Loader2, Send, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -24,16 +25,52 @@ const SUGGESTIONS = [
   "How do deals & slots count?",
 ];
 
-/** Very small markdown-ish renderer: **bold**, bullet lines, line breaks. */
+/** Very small markdown-ish renderer: **bold**, bullets, line breaks, and
+ *  [label](url) links — internal ones render as tappable ACTION CHIPS (the
+ *  Blue Man's smart actions), external ones as normal links. */
 function renderLite(text: string) {
   return text.split("\n").map((line, i) => {
-    const parts = line.split(/(\*\*[^*]+\*\*)/g).map((chunk, j) =>
-      chunk.startsWith("**") && chunk.endsWith("**") ? (
-        <b key={j}>{chunk.slice(2, -2)}</b>
-      ) : (
-        <span key={j}>{chunk}</span>
-      )
-    );
+    const parts = line
+      // the URL part tolerates ONE level of parentheses (slugs like
+      // /accounts/abc-(egypt) survive) — matched non-greedily to the final )
+      .split(/(\*\*[^*]+\*\*|\[[^\]]+\]\((?:[^()\s]|\([^()\s]*\))+\))/g)
+      .map((chunk, j) => {
+        if (chunk.startsWith("**") && chunk.endsWith("**")) {
+          return <b key={j}>{chunk.slice(2, -2)}</b>;
+        }
+        const link = /^\[([^\]]+)\]\(((?:[^()\s]|\([^()\s]*\))+)\)$/.exec(chunk);
+        if (link) {
+          const [, label, url] = link;
+          // "/x" only — "//host" and "/\host" are protocol-relative EXTERNAL
+          // urls in disguise (open-redirect vector via prompt injection)
+          if (url.startsWith("/") && !/^\/[\\/]/.test(url)) {
+            return (
+              <Link
+                key={j}
+                href={url}
+                className="mx-0.5 my-0.5 inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary transition-colors hover:bg-primary hover:text-primary-foreground"
+              >
+                {label} <ArrowUpRight className="size-3" />
+              </Link>
+            );
+          }
+          if (/^https?:\/\//.test(url)) {
+            return (
+              <a
+                key={j}
+                href={url}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-primary underline underline-offset-2"
+              >
+                {label}
+              </a>
+            );
+          }
+          return <span key={j}>{label}</span>;
+        }
+        return <span key={j}>{chunk}</span>;
+      });
     const isBullet = /^\s*[-•*]\s+/.test(line);
     return (
       <p key={i} className={cn("min-h-[1em]", isBullet && "pl-3")}>

@@ -10,7 +10,7 @@ import {
   runSheetsExport,
   upsertMember,
 } from "@/server/actions";
-import {
+import { normalizePhone,
   cleanPhone,
   EMAIL_RE,
   FUNCTION_COLORS,
@@ -372,6 +372,11 @@ function MemberDialog({
                 value={form.phone}
                 inputMode="tel"
                 onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                onBlur={() => {
+                  const check = normalizePhone(form.phone ?? "");
+                  if (check.ok && check.value !== form.phone)
+                    setForm((f) => ({ ...f, phone: check.value }));
+                }}
               />
               {!phoneOk ? <p className="text-xs text-destructive">Numbers only.</p> : null}
             </div>

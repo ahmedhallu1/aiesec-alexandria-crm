@@ -501,7 +501,56 @@ function Leaderboard({ title, groups }: { title: string; groups: DrillGroup[] })
         </CardTitle>
       </CardHeader>
       <CardContent className="px-2 sm:px-4">
-        <div className="overflow-x-auto">
+        {/* phones: compact board — metric chips + rank/name/value, no wide table */}
+        <div className="md:hidden">
+          <div className="mb-2 flex flex-wrap gap-1">
+            {BOARD_METRICS.map((m) => (
+              <button
+                key={m.key}
+                onClick={() => setMetricKey(m.key)}
+                className={cn(
+                  "rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors",
+                  metricKey === m.key
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:border-primary/50"
+                )}
+              >
+                {m.short}
+              </button>
+            ))}
+          </div>
+          <div className="space-y-1">
+            {ranked.length === 0 ? (
+              <p className="py-4 text-center text-sm text-muted-foreground">No members yet.</p>
+            ) : (
+              ranked.slice(0, 8).map((g, i) => {
+                const active = g[metricKey] as number;
+                return (
+                  <div
+                    key={g.key}
+                    className={cn(
+                      "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm",
+                      i === 0 && active > 0 ? "bg-warning/10" : i % 2 ? "bg-muted/30" : ""
+                    )}
+                  >
+                    <span className="w-7 shrink-0 text-center text-base">
+                      {active > 0 && MEDALS[i] ? MEDALS[i] : (
+                        <span className="text-xs text-muted-foreground">#{i + 1}</span>
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate font-medium">{g.label}</span>
+                    <span className="shrink-0 font-bold tabular-nums text-primary">{active}</span>
+                    <span className="w-16 shrink-0 text-right text-[10px] text-muted-foreground">
+                      {BOARD_METRICS.find((m) => m.key === metricKey)?.label}
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+        {/* ≥md: the full wide board */}
+        <div className="hidden overflow-x-auto md:block">
           <div className="min-w-[34rem]">
             {/* header row of clickable KPIs */}
             <div className="flex items-center gap-2 border-b px-2 pb-2 text-xs font-semibold text-muted-foreground">

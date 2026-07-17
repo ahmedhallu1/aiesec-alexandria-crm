@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-07-17 · Version: v17
+Last updated: 2026-07-17 · Version: v18
 
 ---
 
@@ -471,6 +471,19 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-07-17 · v18** — **Mobile chrome consolidated**: the drawer's user
+  block drops the bell + theme toggle (both live in the mobile top bar now,
+  theme toggle added there); desktop sidebar unchanged. **Compact mobile
+  leaderboard**: phones get metric chips + rank/name/value rows (top 8)
+  instead of the wide 7-column table (which stays ≥md). **Phone
+  auto-normalization**: every phone input (contacts editor, profile,
+  membership dialog, onboarding) cleans pasted/typed numbers to the
+  canonical +20… format on blur via `normalizePhone`. **Blue Man smart
+  actions**: the context now carries each account's `/accounts/<slug>` link,
+  the prompt instructs attaching `[Open X](/accounts/x)` markdown actions,
+  and the chat renders internal links as tappable action chips (external
+  links open in a new tab).
 
 - **2026-07-17 · v17** — **Mobile QA pass**: drawer slide is transform-only
   (dropped the double-driving `transition`, 300ms, `will-change`), the
