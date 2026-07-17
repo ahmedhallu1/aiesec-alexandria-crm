@@ -94,6 +94,9 @@ export function AddAccountDialog({
   const [block, setBlock] = useState<BlockInfo | null>(null);
   // freshly-created account → the "open it or add another?" popup
   const [added, setAdded] = useState<{ name: string; slug: string } | null>(null);
+  // bump to hard-remount the form — child pickers hold internal state that a
+  // plain setForm({}) cannot clear
+  const [epoch, setEpoch] = useState(0);
   const [pending, startTransition] = useTransition();
 
   const set = (key: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -132,6 +135,7 @@ export function AddAccountDialog({
       setRequestedPodio(false);
       setResponsible(viewer.id);
       setAdded({ name: form.name ?? "", slug: res.data!.slug });
+      onOpenChange(false);
     });
 
   // B2B & BD are one crew — either label qualifies for either account kind
@@ -146,7 +150,7 @@ export function AddAccountDialog({
   return (
     <>
     <Dialog open={open} onOpenChange={(o) => { if (!o) setBlock(null); onOpenChange(o); }}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent key={epoch} className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Add account</DialogTitle>
           <DialogDescription>
@@ -343,7 +347,14 @@ export function AddAccountDialog({
         <DialogFooter className="gap-2 sm:justify-between">
           <Button
             variant="outline"
-            onClick={() => setAdded(null)}
+            onClick={() => {
+              // fresh form: clear the popup, hard-remount the form (epoch key
+              // resets the pickers' internal state) and REOPEN the dialog
+              setAdded(null);
+              setEpoch((e) => e + 1);
+              setFn(viewer.allowedFns[0] ?? "IGT");
+              onOpenChange(true);
+            }}
           >
             <Plus className="size-4" /> Add another
           </Button>

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { KeyRound, Pencil, Plus, RefreshCw, Table2 } from "lucide-react";
+import { KeyRound, Pencil, Plus, RefreshCw, Search, Table2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   resetMemberPassword,
@@ -58,6 +58,23 @@ export function MembershipView({ members }: { members: MemberRow[] }) {
   const [pending, start] = useTransition();
   const [editing, setEditing] = useState<MemberRow | null>(null);
   const [adding, setAdding] = useState(false);
+  const [q, setQ] = useState("");
+
+  const needle = q.trim().toLowerCase();
+  const shown = needle
+    ? members.filter((m) =>
+        [
+          m.name,
+          m.nickname ?? "",
+          m.email,
+          m.phone ?? "",
+          m.role,
+          m.team_name ?? "",
+          (m.functions ?? []).join(" "),
+          (m.sub_functions ?? []).join(" "),
+        ].some((v) => v.toLowerCase().includes(needle))
+      )
+    : members;
 
   const importNow = () =>
     start(async () => {
@@ -98,9 +115,19 @@ export function MembershipView({ members }: { members: MemberRow[] }) {
         </div>
       </div>
 
+      <div className="relative max-w-xs">
+        <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search name, email, team, function…"
+          className="h-9 pl-8"
+        />
+      </div>
+
       {/* Mobile: cards */}
       <div className="space-y-2.5 md:hidden">
-        {members.map((m) => (
+        {shown.map((m) => (
           <Card key={m.id} className={!m.is_active ? "opacity-50" : undefined}>
             <CardContent className="space-y-1.5 p-3.5" onClick={() => setEditing(m)}>
               <div className="flex items-start justify-between gap-2">
@@ -158,7 +185,7 @@ export function MembershipView({ members }: { members: MemberRow[] }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {members.map((m) => (
+                {shown.map((m) => (
                   <TableRow key={m.id} className={!m.is_active ? "opacity-50" : undefined}>
                     <TableCell className="font-medium">
                       {m.nickname || m.name}

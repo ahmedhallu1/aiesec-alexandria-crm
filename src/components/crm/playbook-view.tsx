@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v16";
+export const PLAYBOOK_VERSION = "v17";
 
 interface Props {
   role: string;
@@ -81,7 +81,7 @@ const SECTIONS: Section[] = [
       <>Two hours after a visit, you (and your TL) get the <b>report-it email</b> — report from it, the top button, or by clicking the pending visit in History. Ignore it a week and the reminder comes back firmer — report it or archive the account.</>,
       <>The <b>Calendar</b> page (sidebar) shows your whole function&apos;s visits, one color per member — see the rhythm, plan around it.</>,
       <>Deal signed → <b>Record deal</b> 🏆: opens per product, optional <b>contract upload</b> (any file format — add later from History; the account grows a <b>Contracts</b> button to preview & download them).</>,
-      <>&quot;Not interested&quot; is a valid result: mark the account <b>Out of Process</b> with its reason. The archive IS the blacklist — those names never come back.</>,
+      <>&quot;Not interested&quot; is a valid result: mark the account <b>Out of Process</b> with its reason — from the account page or the ✕ right on the list. Leaders can <b>Select</b> many accounts and archive or reassign them in one go. The archive IS the blacklist — those names never come back.</>,
     ],
   },
   {

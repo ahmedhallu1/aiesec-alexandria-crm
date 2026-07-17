@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
   Building2,
@@ -22,6 +22,7 @@ import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/s
 import { ThemeToggle } from "./theme-toggle";
 import { NotificationsBell } from "./notifications-bell";
 import { AutoRefresh, RefreshButton } from "./auto-refresh";
+import { WalkingLoader } from "./walking-loader";
 import { BlueManChat } from "./blue-man-chat";
 
 interface ShellProps {
@@ -41,6 +42,17 @@ interface ShellProps {
 export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  // slow route changes get the walking man after a beat — fast ones never
+  // see it (the overlay fades in with a 250ms delay)
+  const [navTarget, setNavTarget] = useState<string | null>(null);
+  useEffect(() => {
+    setNavTarget(null);
+  }, [pathname]);
+  useEffect(() => {
+    if (!navTarget) return;
+    const safety = setTimeout(() => setNavTarget(null), 8000);
+    return () => clearTimeout(safety);
+  }, [navTarget]);
   // admin + the EB (LCP / LCVPs) can broadcast messages to members
   const canBroadcast = user.isAdmin || user.role === "LCP" || user.role === "LCVP";
 
@@ -72,7 +84,13 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
           <Link
             key={item.href}
             href={item.href}
-            onClick={() => setOpen(false)}
+            onClick={(e) => {
+              setOpen(false);
+              // modified clicks open a new tab — this tab never navigates
+              const modified =
+                e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0;
+              if (!active && !modified) setNavTarget(item.href);
+            }}
             className={cn(
               "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground/80 transition-all hover:translate-x-0.5 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground motion-reduce:hover:translate-x-0",
               active &&
@@ -167,6 +185,14 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
     <div className="flex min-h-screen w-full">
       {/* shared-sheet freshness: refetch on focus + every 30s while visible */}
       <AutoRefresh />
+      {/* slow-navigation feedback: the walking man appears after 250ms */}
+      {navTarget ? (
+        // pointer-events-none: purely informational — it must never swallow
+        // clicks (especially while still invisible during its 250ms delay)
+        <div className="nav-overlay pointer-events-none fixed inset-0 z-[70] flex items-center justify-center bg-background/70">
+          <WalkingLoader label="Taking you there…" />
+        </div>
+      ) : null}
       {/* manual refresh — pinned top-right over the content, always reachable */}
       <div className="fixed right-4 top-3 z-40 hidden md:block">
         <RefreshButton className="rounded-full border bg-card/85 text-muted-foreground shadow-sm backdrop-blur hover:bg-muted hover:text-foreground" />
@@ -180,14 +206,14 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
       </aside>
 
       {/* Mobile top bar */}
-      <div className="fixed inset-x-0 top-0 z-30 flex items-center gap-2 border-b bg-sidebar px-3 py-2.5 md:hidden">
+      <div className="fixed inset-x-0 top-0 z-30 flex items-center gap-2 border-b bg-sidebar px-3 py-2.5 pt-[calc(0.625rem+env(safe-area-inset-top))] md:hidden">
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetTrigger asChild>
             <Button variant="ghost" size="icon" className="text-sidebar-foreground">
               <Menu className="size-5" />
             </Button>
           </SheetTrigger>
-          <SheetContent side="left" className="flex w-64 flex-col bg-sidebar p-0 border-sidebar-border">
+          <SheetContent side="left" className="flex w-64 flex-col overflow-y-auto bg-sidebar p-0 border-sidebar-border">
             <SheetTitle className="sr-only">Navigation</SheetTitle>
             {brand}
             {navList}
@@ -200,12 +226,13 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
           <img src="/brand/aiesec-white.png" alt="AIESEC" className="h-6 w-auto" />
           <p className="text-sm font-black tracking-tight text-sidebar-foreground">Sodio</p>
         </Link>
-        <div className="ml-auto">
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <NotificationsBell canBroadcast={canBroadcast} />
           <RefreshButton />
         </div>
       </div>
 
-      <main className="min-w-0 flex-1 px-4 pb-24 pt-16 md:ml-60 md:px-8 md:pt-8">{children}</main>
+      <main className="min-w-0 flex-1 px-4 pb-24 pt-[calc(4rem+env(safe-area-inset-top))] md:ml-60 md:px-8 md:pt-14">{children}</main>
 
       {/* The Blue Man — Sodio's assistant */}
       <BlueManChat />

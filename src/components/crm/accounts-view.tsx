@@ -5,13 +5,13 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
-  AlertTriangle, Archive, CheckCircle2, CircleAlert, ClipboardList, Copy, FileUp,
-  Loader2, Phone, Pin, Plus, Search, Send, Trash2, X, XCircle,
+  AlertTriangle, Archive, Check, CheckCircle2, CheckSquare, CircleAlert, ClipboardList,
+  Copy, FileUp, Loader2, Phone, Pin, Plus, Search, Send, Trash2, Users2, X, XCircle,
 } from "lucide-react";
 import type { PipelineRow } from "@/server/data";
 import {
-  addArchivedAccount, importArchivedBulk, removeArchivedEntry,
-  requestPodioSubmit, updateAccount,
+  addArchivedAccount, bulkArchiveAccounts, bulkReassignAccounts, importArchivedBulk,
+  removeArchivedEntry, requestPodioSubmit, updateAccount,
 } from "@/server/actions";
 import {
   accountSlug, fmtDateTime, fmtTime, IGV_PROJECTS, OOP_REASONS, productBadge,
@@ -354,6 +354,28 @@ function PodioRowTools({ row }: { row: PipelineRow }) {
   );
 }
 
+/** Minimal round checkbox for the bulk-selection mode. */
+function SelectDot({ checked, onToggle }: { checked: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={checked}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      className={cn(
+        "inline-flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors",
+        checked
+          ? "border-primary bg-primary text-primary-foreground"
+          : "border-input bg-background hover:border-primary/60"
+      )}
+    >
+      {checked ? <Check className="size-3.5" /> : null}
+    </button>
+  );
+}
+
 export function AccountsView({
   rows, manualArchived, members, respOptions, viewer, filters,
 }: {
@@ -393,6 +415,29 @@ export function AccountsView({
 
   const archived = filters.archived === "1";
   const podioMode = filters.podio === "1";
+  // bulk selection: pick accounts → archive or reassign them in one go
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkArchiveOpen, setBulkArchiveOpen] = useState(false);
+  const [bulkReassignOpen, setBulkReassignOpen] = useState(false);
+  const [rowArchive, setRowArchive] = useState<PipelineRow | null>(null);
+  const toggleSelected = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const exitSelect = () => {
+    setSelectMode(false);
+    setSelected(new Set());
+  };
+  // a filter/tab switch changes what "selected" would even mean — always reset
+  const filterKey = JSON.stringify(filters);
+  useEffect(() => {
+    setSelectMode(false);
+    setSelected(new Set());
+  }, [filterKey]);
   const anyFilter = Object.values(filters).some(Boolean);
   const stageOptions = STAGES.filter((s) => s !== "Out of Process");
   const today = new Date().toISOString().slice(0, 10);
@@ -449,6 +494,16 @@ export function AccountsView({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {!archived && rows.length > 0 ? (
+            <Hint label="Select several accounts, then archive or reassign them in one go">
+              <Button
+                variant={selectMode ? "default" : "outline"}
+                onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
+              >
+                <CheckSquare className="size-4" /> {selectMode ? "Done" : "Select"}
+              </Button>
+            </Hint>
+          ) : null}
           {viewer.canPodioSubmit && !archived ? (
             <Hint label="B2B/BD accounts not yet requested on Podio — copy names, set the request state, or ask the owner to submit">
               <Button
@@ -568,11 +623,11 @@ export function AccountsView({
         ) : null}
         {/* Date added range — one h-9 group, aligned with the other filters */}
         <div className="flex h-9 items-center gap-1.5 rounded-md border border-input bg-transparent px-2.5 dark:bg-input/30">
-          <span className="text-xs font-medium text-muted-foreground">Added</span>
+          <span className="hidden text-xs font-medium text-muted-foreground min-[400px]:inline">Added</span>
           <Input
             type="date"
             max={today}
-            className="h-7 w-[7.9rem] border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
+            className="h-7 w-[6.6rem] min-[400px]:w-[7.9rem] border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
             aria-label="Added from"
             value={filters.from}
             onChange={(e) => setParam("from", e.target.value)}
@@ -581,7 +636,7 @@ export function AccountsView({
           <Input
             type="date"
             max={today}
-            className="h-7 w-[7.9rem] border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
+            className="h-7 w-[6.6rem] min-[400px]:w-[7.9rem] border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
             aria-label="Added to"
             value={filters.to}
             onChange={(e) => setParam("to", e.target.value)}
@@ -615,15 +670,24 @@ export function AccountsView({
               orderedRows.map((row, i) => (
                 <Card
                   key={row.id}
-                  className={cn("rise-in", i < 4 && `rise-in-${i + 1}`)}
-                  onClick={() => router.push(hrefFor(row))}
+                  className={cn(
+                    "rise-in",
+                    i < 4 && `rise-in-${i + 1}`,
+                    selected.has(row.id) && "border-primary bg-primary/5"
+                  )}
+                  onClick={() =>
+                    selectMode ? toggleSelected(row.id) : router.push(hrefFor(row))
+                  }
                 >
                   <CardContent className="space-y-2 p-3.5">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="flex items-center gap-1.5 truncate font-semibold">
-                          {row.name} <PinSign text={row.pinned_comment} />
-                          {podioMode ? <CopyNameButton name={row.name} /> : null}
+                        <p className="flex min-w-0 items-center gap-1.5 font-semibold">
+                          <span className="min-w-0 truncate">{row.name}</span>
+                          <span className="flex shrink-0 items-center gap-1.5">
+                            <PinSign text={row.pinned_comment} />
+                            {podioMode ? <CopyNameButton name={row.name} /> : null}
+                          </span>
                         </p>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
                           <FnBadge row={row} />
@@ -638,16 +702,35 @@ export function AccountsView({
                         </div>
                         {podioMode ? <PodioRowTools row={row} /> : null}
                       </div>
-                      {!row.out_of_process ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="shrink-0"
-                          onClick={(e) => { e.stopPropagation(); setContactTarget(contactFor(row)); }}
-                        >
-                          <Phone className="size-3.5" /> Contact
-                        </Button>
-                      ) : null}
+                      <span className="flex shrink-0 items-center gap-1.5">
+                        {selectMode ? (
+                          <SelectDot
+                            checked={selected.has(row.id)}
+                            onToggle={() => toggleSelected(row.id)}
+                          />
+                        ) : null}
+                        {!row.out_of_process && !selectMode ? (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="shrink-0"
+                              onClick={(e) => { e.stopPropagation(); setContactTarget(contactFor(row)); }}
+                            >
+                              <Phone className="size-3.5" /> Contact
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="shrink-0 text-destructive hover:text-destructive"
+                              aria-label="Archive"
+                              onClick={(e) => { e.stopPropagation(); setRowArchive(row); }}
+                            >
+                              <XCircle className="size-3.5" />
+                            </Button>
+                          </>
+                        ) : null}
+                      </span>
                     </div>
                     {row.pinned_comment ? (
                       <p className="rounded-md bg-warning/10 px-2 py-1 text-xs text-warning">
@@ -680,6 +763,7 @@ export function AccountsView({
               <Table>
                 <TableHeader>
                   <TableRow>
+                    {selectMode ? <TableHead className="w-10" /> : null}
                     <TableHead>Date added</TableHead>
                     <TableHead>Account</TableHead>
                     <TableHead>Product</TableHead>
@@ -692,7 +776,7 @@ export function AccountsView({
                 <TableBody>
                   {rows.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="py-12 text-center text-muted-foreground">
+                      <TableCell colSpan={selectMode ? 8 : 7} className="py-12 text-center text-muted-foreground">
                         No accounts here yet. Add your first one 🚀
                       </TableCell>
                     </TableRow>
@@ -700,9 +784,19 @@ export function AccountsView({
                     orderedRows.map((row) => (
                       <TableRow
                         key={row.id}
-                        className="cursor-pointer"
-                        onClick={() => router.push(hrefFor(row))}
+                        className={cn("cursor-pointer", selected.has(row.id) && "bg-primary/5")}
+                        onClick={() =>
+                          selectMode ? toggleSelected(row.id) : router.push(hrefFor(row))
+                        }
                       >
+                        {selectMode ? (
+                          <TableCell onClick={(e) => e.stopPropagation()}>
+                            <SelectDot
+                              checked={selected.has(row.id)}
+                              onToggle={() => toggleSelected(row.id)}
+                            />
+                          </TableCell>
+                        ) : null}
                         <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                           <span className="block leading-tight">{row.created_at?.slice(0, 10)}</span>
                           <span className="block text-[10px] opacity-70">{fmtTime(row.created_at)}</span>
@@ -754,15 +848,27 @@ export function AccountsView({
                           <div className="flex items-center gap-1.5">
                             <QuickActions contacts={row.contacts} />
                             {!row.out_of_process ? (
-                              <Hint label="Log a call / WhatsApp / email attempt on this account">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => setContactTarget(contactFor(row))}
-                                >
-                                  <Phone className="size-3.5" /> Log
-                                </Button>
-                              </Hint>
+                              <>
+                                <Hint label="Log a call / WhatsApp / email attempt on this account">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setContactTarget(contactFor(row))}
+                                  >
+                                    <Phone className="size-3.5" /> Log
+                                  </Button>
+                                </Hint>
+                                <Hint label="Archive this account (Out of Process) — right from the list">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-destructive hover:text-destructive"
+                                    onClick={() => setRowArchive(row)}
+                                  >
+                                    <XCircle className="size-3.5" />
+                                  </Button>
+                                </Hint>
+                              </>
                             ) : null}
                           </div>
                         </TableCell>
@@ -776,6 +882,69 @@ export function AccountsView({
         </>
       )}
 
+      {/* bulk-selection action bar */}
+      {selectMode ? (
+        <div className="pointer-events-none fixed inset-x-0 bottom-[calc(1.25rem+env(safe-area-inset-bottom))] z-40 flex justify-center px-3">
+          <div className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-2 rounded-full border bg-card px-4 py-2 shadow-xl">
+            <span className="text-sm font-semibold">{selected.size} selected</span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setSelected(new Set(rows.map((r) => r.id)))}
+            >
+              All ({rows.length})
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-destructive hover:text-destructive"
+              disabled={selected.size === 0}
+              onClick={() => setBulkArchiveOpen(true)}
+            >
+              <Archive className="size-3.5" /> Archive
+            </Button>
+            {viewer.canAssignOthers ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={selected.size === 0}
+                onClick={() => setBulkReassignOpen(true)}
+              >
+                <Users2 className="size-3.5" /> Reassign
+              </Button>
+            ) : null}
+            <Button size="sm" variant="ghost" onClick={exitSelect} aria-label="Exit selection">
+              <X className="size-3.5" />
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      <BulkArchiveDialog
+        ids={rowArchive ? [rowArchive.id] : [...selected]}
+        label={rowArchive ? `"${rowArchive.name}"` : `${selected.size} account${selected.size === 1 ? "" : "s"}`}
+        open={bulkArchiveOpen || !!rowArchive}
+        onOpenChange={(o) => {
+          if (!o) {
+            setBulkArchiveOpen(false);
+            setRowArchive(null);
+          }
+        }}
+        onDone={() => {
+          setBulkArchiveOpen(false);
+          setRowArchive(null);
+          exitSelect();
+        }}
+      />
+      <BulkReassignDialog
+        ids={[...selected]}
+        members={members}
+        open={bulkReassignOpen}
+        onOpenChange={setBulkReassignOpen}
+        onDone={() => {
+          setBulkReassignOpen(false);
+          exitSelect();
+        }}
+      />
       <ContactDialog
         target={contactTarget}
         open={!!contactTarget}
@@ -997,6 +1166,127 @@ function ReasonField({
         />
       ) : null}
     </div>
+  );
+}
+
+/** Archive one or many accounts with a single reason — the reason applies to
+ *  every selected account; RBAC runs per account on the server. */
+function BulkArchiveDialog({
+  ids, label, open, onOpenChange, onDone,
+}: {
+  ids: string[];
+  label: string;
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  onDone: () => void;
+}) {
+  const router = useRouter();
+  const [reason, setReason] = useState("");
+  const [pending, start] = useTransition();
+
+  const submit = () =>
+    start(async () => {
+      const res = await bulkArchiveAccounts(ids, reason);
+      if (res.ok) {
+        const { done, failed } = res.data!;
+        toast.success(
+          `Archived ${done} account${done === 1 ? "" : "s"}${failed ? ` · ${failed} skipped (no access / already archived)` : ""}.`
+        );
+        setReason("");
+        onDone();
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>🗄️ Archive {label}?</DialogTitle>
+          <DialogDescription>
+            Out of Process closes the account{ids.length === 1 ? "" : "s"} — the
+            name{ids.length === 1 ? " goes" : "s go"} to the archive and can
+            never be added again.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-1.5">
+          <Label>Reason *</Label>
+          <ReasonField value={reason} onChange={setReason} />
+        </div>
+        <DialogFooter>
+          <Button
+            variant="destructive"
+            onClick={submit}
+            disabled={pending || ids.length === 0 || reason.trim().length < 2}
+          >
+            {pending ? <Loader2 className="size-4 animate-spin" /> : <Archive className="size-4" />}
+            Archive {ids.length === 1 ? "it" : `${ids.length} accounts`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Move many accounts to one member — RBAC + function rules run per account. */
+function BulkReassignDialog({
+  ids, members, open, onOpenChange, onDone,
+}: {
+  ids: string[];
+  members: MemberOption[];
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  onDone: () => void;
+}) {
+  const router = useRouter();
+  const [target, setTarget] = useState("");
+  const [pending, start] = useTransition();
+
+  const submit = () =>
+    start(async () => {
+      const res = await bulkReassignAccounts(ids, target);
+      if (res.ok) {
+        const { done, failed } = res.data!;
+        toast.success(
+          `Reassigned ${done} account${done === 1 ? "" : "s"}${failed ? ` · ${failed} skipped (no access / wrong function)` : ""}.`
+        );
+        onDone();
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>👥 Reassign {ids.length} account{ids.length === 1 ? "" : "s"}</DialogTitle>
+          <DialogDescription>
+            The chosen member becomes the Responsible — deals, visits and
+            leaderboard numbers follow them from here on.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-1.5">
+          <Label>New responsible *</Label>
+          <Select value={target || undefined} onValueChange={setTarget}>
+            <SelectTrigger><SelectValue placeholder="Pick a member…" /></SelectTrigger>
+            <SelectContent>
+              {members.map((m) => (
+                <SelectItem key={m.id} value={m.id}>
+                  {m.label}
+                  {m.functions.length ? ` · ${m.functions.join(", ")}` : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <DialogFooter>
+          <Button onClick={submit} disabled={pending || ids.length === 0 || !target}>
+            {pending ? <Loader2 className="size-4 animate-spin" /> : <Users2 className="size-4" />}
+            Reassign
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

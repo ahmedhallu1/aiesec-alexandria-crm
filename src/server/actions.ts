@@ -441,6 +441,8 @@ export async function setOutOfProcess(
   const account = await loadAccount(accountId);
   if (!account || !canEditAccount(viewer, account))
     return fail("You are not allowed to edit this account.", "forbidden");
+  // never re-archive: it would overwrite the ORIGINAL reason/date
+  if (account.out_of_process) return fail("This account is already archived.");
   const { error } = await db()
     .from("accounts")
     .update({
@@ -840,6 +842,48 @@ export async function stopViewAs(): Promise<ActionResult> {
   await logAudit(real.id, "view_as_stop", "member", null);
   refresh();
   return { ok: true };
+}
+
+// ================================================================== bulk operations
+
+/** Archive many accounts at once (same rules as one-by-one: RBAC + business
+ *  logic run PER ACCOUNT via setOutOfProcess — a row the viewer can't edit
+ *  just counts as failed, it never blocks the rest). */
+export async function bulkArchiveAccounts(
+  ids: string[],
+  reason: string
+): Promise<ActionResult<{ done: number; failed: number }>> {
+  if (!Array.isArray(ids) || ids.length === 0) return fail("Select at least one account.");
+  // 50 keeps the slowest case (calendar-event cleanup per account) inside the
+  // serverless time budget — bigger sweeps run in batches
+  if (ids.length > 50) return fail("Max 50 accounts per bulk archive — run it in batches.");
+  let done = 0;
+  let failed = 0;
+  for (const id of ids) {
+    const res = await setOutOfProcess(id, reason);
+    if (res.ok) done += 1;
+    else failed += 1;
+  }
+  refresh();
+  return { ok: true, data: { done, failed } };
+}
+
+/** Reassign many accounts to one member — per-account RBAC via reassignAccount. */
+export async function bulkReassignAccounts(
+  ids: string[],
+  responsibleId: string
+): Promise<ActionResult<{ done: number; failed: number }>> {
+  if (!Array.isArray(ids) || ids.length === 0) return fail("Select at least one account.");
+  if (ids.length > 50) return fail("Max 50 accounts per bulk reassign — run it in batches.");
+  let done = 0;
+  let failed = 0;
+  for (const id of ids) {
+    const res = await reassignAccount(id, responsibleId);
+    if (res.ok) done += 1;
+    else failed += 1;
+  }
+  refresh();
+  return { ok: true, data: { done, failed } };
 }
 
 // ================================================================== podio submit requests

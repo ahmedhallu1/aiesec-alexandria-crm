@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-07-16 · Version: v16
+Last updated: 2026-07-17 · Version: v17
 
 ---
 
@@ -471,6 +471,25 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-07-17 · v17** — **Mobile QA pass**: drawer slide is transform-only
+  (dropped the double-driving `transition`, 300ms, `will-change`), the
+  background no longer shifts on open (`scrollbar-gutter: stable` +
+  neutralized react-remove-scroll body compensation), notifications bell now
+  lives in the MOBILE top bar, drawer scrolls on short screens, notch-safe
+  paddings, date-range filters fit 360px, mobile card names truncate
+  properly, profile emails wrap, `<main>` clears the fixed refresh pill
+  (md:pt-14). **Slow-nav feedback**: sidebar clicks show the walking man
+  after 250ms until the route commits (8s safety). **Bulk operations**:
+  Select mode on the accounts list (checkbox per row, All, fixed action bar)
+  → `bulkArchiveAccounts` / `bulkReassignAccounts` loop the single-account
+  actions so RBAC runs per row; plus a per-row quick-archive ✕ on desktop
+  and mobile. **Fixes**: the test-view banner strip no longer swallows
+  clicks (pointer-events — the "2.0 credit not clickable" report), "Add
+  another" hard-remounts the add-account form via an epoch key (stale
+  ListOrOther/MultiPick state was silently reinjecting old custom values),
+  membership editor gained a search box (name/email/team/function/role).
+  Playbook v17.
 
 - **2026-07-16 · v16** — **BD money goal**: the B2B lane now carries TWO
   function goals — `B2B` (opens) and `BD` (MONEY, `performance_goals.metric =

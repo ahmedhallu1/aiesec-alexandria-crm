@@ -28,6 +28,9 @@ export const viewport: Viewport = {
     { media: "(prefers-color-scheme: light)", color: "#0A2540" },
     { media: "(prefers-color-scheme: dark)", color: "#061524" },
   ],
+  // without "cover", env(safe-area-inset-*) is always 0 on iOS — the app's
+  // notch-safe paddings depend on it
+  viewportFit: "cover",
 };
 
 const GA_ID = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID;

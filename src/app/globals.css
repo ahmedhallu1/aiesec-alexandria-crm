@@ -310,6 +310,31 @@
   to { background-position: 100% 70%; }
 }
 
+/* Drawer/dialog scroll-lock must NEVER shift the page behind it:
+   react-remove-scroll compensates for a disappearing scrollbar with
+   margin/padding on <body>, which visibly nudged the background on phones.
+   A stable scrollbar gutter (desktop) + neutralized compensation = no shift. */
+html {
+  scrollbar-gutter: stable;
+}
+/* html-prefixed for HIGHER specificity than react-remove-scroll's injected
+   `body[data-scroll-locked]{margin-right:...!important}` (equal-importance
+   conflicts are decided by specificity, then order) */
+html body[data-scroll-locked] {
+  margin-right: 0 !important;
+  padding-right: 0 !important;
+}
+
+/* Slow-navigation overlay: invisible for the first 250ms so fast route
+   changes never flash it — only genuinely slow loads show the walking man */
+.nav-overlay {
+  opacity: 0;
+  animation: nav-overlay-in 0.2s ease 0.25s forwards;
+}
+@keyframes nav-overlay-in {
+  to { opacity: 1; }
+}
+
 /* KPI cards — lift + glow + value lights up on hover */
 @media (prefers-reduced-motion: no-preference) {
   .kpi-card {

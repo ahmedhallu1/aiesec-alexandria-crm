@@ -230,11 +230,11 @@ export function DashboardView({
         ) : null}
         {/* one h-9 group so the whole bar sits on a single baseline */}
         <div className="flex h-9 items-center gap-1.5 rounded-md border border-input bg-transparent px-2.5 dark:bg-input/30">
-          <span className="text-xs font-medium text-muted-foreground">Added</span>
+          <span className="hidden text-xs font-medium text-muted-foreground min-[400px]:inline">Added</span>
           <Input
             type="date"
             max={today}
-            className="h-7 w-[7.9rem] border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
+            className="h-7 w-[6.6rem] min-[400px]:w-[7.9rem] border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
             aria-label="Added from"
             value={filters.from}
             onChange={(e) => setParam("from", e.target.value)}
@@ -243,7 +243,7 @@ export function DashboardView({
           <Input
             type="date"
             max={today}
-            className="h-7 w-[7.9rem] border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
+            className="h-7 w-[6.6rem] min-[400px]:w-[7.9rem] border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
             aria-label="Added to"
             value={filters.to}
             onChange={(e) => setParam("to", e.target.value)}

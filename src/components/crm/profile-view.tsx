@@ -505,9 +505,9 @@ function RequestResetButton({ email }: { email: string }) {
 
 function ReadRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid grid-cols-[110px_1fr] gap-2">
+    <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-2">
       <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium">{value}</span>
+      <span className="break-words font-medium">{value}</span>
     </div>
   );
 }

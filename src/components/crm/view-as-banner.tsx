@@ -51,8 +51,10 @@ export function ViewAsBanner({
     });
 
   return (
-    <div className="fixed inset-x-0 bottom-3 z-50 flex justify-center px-3">
-      <div className="flex max-w-full items-center gap-2 rounded-full border border-warning/50 bg-warning/15 px-3 py-1.5 text-sm font-medium shadow-lg backdrop-blur">
+    // pointer-events-none on the full-width strip: only the pill itself may
+    // swallow clicks — everything beneath (e.g. the sidebar credit) stays live
+    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-50 flex justify-center px-3">
+      <div className="pointer-events-auto flex max-w-full items-center gap-2 rounded-full border border-warning/50 bg-warning/15 px-3 py-1.5 text-sm font-medium shadow-lg backdrop-blur">
         {pending ? (
           <Loader2 className="size-4 shrink-0 animate-spin text-warning" />
         ) : (
