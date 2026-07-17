@@ -998,3 +998,174 @@ export async function logAudit(
     details: details ?? null,
   });
 }
+
+// ------------------------------------------------------------------ cron run tracking
+
+/** Stamp a cron's last successful run (app_settings key `cron:<name>`), so the
+ *  admin health page can show real last-run times. Best-effort. */
+export async function markCronRun(name: string): Promise<void> {
+  try {
+    await db()
+      .from("app_settings")
+      .upsert(
+        { key: `cron:${name}`, value: {}, updated_at: new Date().toISOString() },
+        { onConflict: "key" }
+      );
+  } catch {
+    /* never let tracking break a cron */
+  }
+}
+
+// ------------------------------------------------------------------ admin: health & logs
+
+export interface SystemHealth {
+  checks: { label: string; ok: boolean; detail: string }[];
+  counts: { label: string; value: number }[];
+  crons: { label: string; lastRun: string | null; note: string }[];
+}
+
+export interface AuditEntry {
+  id: number;
+  action: string;
+  entity: string;
+  actor: string | null;
+  details: string | null;
+  createdAt: string;
+}
+
+/** Head-only count of a table, optionally filtered on one boolean column. */
+async function countOf(
+  table: string,
+  eq?: [string, boolean]
+): Promise<number> {
+  try {
+    const base = db().from(table).select("*", { count: "exact", head: true });
+    const { count } = await (eq ? base.eq(eq[0], eq[1]) : base);
+    return count ?? 0;
+  } catch {
+    return -1;
+  }
+}
+
+/** The Google Calendar health probe is the one EXPENSIVE external call in the
+ *  health snapshot; cache it 5 min so the admin page's 30s auto-refresh (and
+ *  many admins) can't burn Calendar quota or add token-refresh latency. */
+let calHealthCache: { at: number; result: { ok: boolean; detail: string } } | null = null;
+async function cachedCalendarHealth(): Promise<{ ok: boolean; detail: string }> {
+  if (calHealthCache && Date.now() - calHealthCache.at < 5 * 60_000)
+    return calHealthCache.result;
+  const { diagnoseMailboxCalendar } = await import("@/lib/google/calendar");
+  const result = await diagnoseMailboxCalendar();
+  calHealthCache = { at: Date.now(), result };
+  return result;
+}
+
+/** Live health snapshot for the admin page — DB, storage, Google calendar,
+ *  key env vars, table counts, and cron last-run proxies. Admin-gated by the
+ *  caller. Every probe is defensive: one failure never breaks the page. */
+export async function getSystemHealth(): Promise<SystemHealth> {
+  const checks: SystemHealth["checks"] = [];
+
+  // DB reachability (a trivial head query)
+  let dbOk = false;
+  try {
+    const { error } = await db().from("members").select("id", { head: true, count: "exact" });
+    dbOk = !error;
+    checks.push({ label: "Database (Supabase)", ok: dbOk, detail: dbOk ? "Reachable" : (error?.message ?? "Unreachable") });
+  } catch (e) {
+    checks.push({ label: "Database (Supabase)", ok: false, detail: `${e}` });
+  }
+
+  // contracts storage bucket
+  try {
+    const { error } = await db().storage.from("contracts").list("", { limit: 1 });
+    checks.push({
+      label: "Storage bucket (contracts)",
+      ok: !error,
+      detail: error ? error.message : "Available",
+    });
+  } catch (e) {
+    checks.push({ label: "Storage bucket (contracts)", ok: false, detail: `${e}` });
+  }
+
+  // shared visits calendar (Tier 2) — cached 5 min so the admin page's 30s
+  // auto-refresh never hammers the Google Calendar API (quota + latency)
+  try {
+    const cal = await cachedCalendarHealth();
+    checks.push({ label: "Shared visits calendar", ok: cal.ok, detail: cal.detail });
+  } catch (e) {
+    checks.push({ label: "Shared visits calendar", ok: false, detail: `${e}` });
+  }
+
+  // env vars (presence only — never the values)
+  checks.push({
+    label: "The Blue Man (GEMINI_API_KEY)",
+    ok: !!process.env.GEMINI_API_KEY,
+    detail: process.env.GEMINI_API_KEY ? "Configured" : "Missing",
+  });
+  checks.push({
+    label: "Cron secret (CRON_SECRET)",
+    ok: !!env.cronSecret,
+    detail: env.cronSecret ? "Configured" : "Missing",
+  });
+  checks.push({
+    label: "Admin emails (ADMIN_EMAILS)",
+    ok: env.adminEmails.length > 0,
+    detail: `${env.adminEmails.length} configured`,
+  });
+
+  // counts — defensive per table
+  const counts: SystemHealth["counts"] = [
+    { label: "Active members", value: await countOf("members", ["is_active", true]) },
+    { label: "Active accounts", value: await countOf("accounts", ["out_of_process", false]) },
+    { label: "Archived accounts", value: await countOf("accounts", ["out_of_process", true]) },
+    { label: "Deals", value: await countOf("deals") },
+    { label: "Visits", value: await countOf("visits") },
+    { label: "Contact attempts", value: await countOf("contact_attempts") },
+    { label: "Blacklist", value: await countOf("blacklist") },
+    { label: "Feedback", value: await countOf("feedback") },
+  ];
+
+  // cron last-run — real timestamps stamped by markCronRun (app_settings)
+  const CRON_META: { key: string; label: string; note: string }[] = [
+    { key: "visit-followups", label: "Visit follow-ups", note: "every 15 min" },
+    { key: "membership-import", label: "Membership import", note: "every 30 min" },
+    { key: "sheets-export", label: "Sheets export", note: "hourly" },
+    { key: "goal-reminders", label: "Goal reminders", note: "daily 06:00 UTC" },
+  ];
+  const crons: SystemHealth["crons"] = [];
+  try {
+    const { data } = await db()
+      .from("app_settings")
+      .select("key, updated_at")
+      .like("key", "cron:%");
+    const byKey = new Map(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ((data ?? []) as any[]).map((r) => [String(r.key).replace("cron:", ""), r.updated_at as string])
+    );
+    for (const c of CRON_META)
+      crons.push({ label: c.label, lastRun: byKey.get(c.key) ?? null, note: c.note });
+  } catch {
+    for (const c of CRON_META) crons.push({ label: c.label, lastRun: null, note: c.note });
+  }
+
+  return { checks, counts, crons };
+}
+
+/** Recent audit-log rows (admin page). Actor joined for a readable name. */
+export async function listRecentAudit(limit = 60): Promise<AuditEntry[]> {
+  const { data } = await db()
+    .from("audit_log")
+    .select("id, action, entity, entity_id, details, created_at, actor:members!actor_id(name, nickname)")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[]).map((r) => ({
+    id: r.id,
+    action: r.action,
+    entity: r.entity,
+    actor: r.actor ? r.actor.nickname || r.actor.name : null,
+    details: r.details ? JSON.stringify(r.details) : null,
+    createdAt: r.created_at,
+  }));
+}

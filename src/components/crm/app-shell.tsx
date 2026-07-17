@@ -14,6 +14,7 @@ import {
   Inbox,
   MessageSquareHeart,
   BookOpen,
+  Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -70,6 +71,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
     { href: "/playbook", label: "Playbook", icon: BookOpen },
     { href: "/feedback", label: "Feedback", icon: MessageSquareHeart },
     ...(nav.feedbackInbox ? [{ href: "/feedback/inbox", label: "Feedback inbox", icon: Inbox }] : []),
+    ...(user.isAdmin ? [{ href: "/admin", label: "Health & Logs", icon: Activity }] : []),
   ];
 
   const navList = (

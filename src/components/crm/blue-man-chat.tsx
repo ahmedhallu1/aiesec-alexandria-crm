@@ -73,7 +73,10 @@ function renderLite(text: string) {
       });
     const isBullet = /^\s*[-•*]\s+/.test(line);
     return (
-      <p key={i} className={cn("min-h-[1em]", isBullet && "pl-3")}>
+      // dir="auto": each line's base direction follows its first strong
+      // character, so Arabic reads RTL and English LTR — even mixed in one
+      // reply — instead of one direction breaking the other
+      <p key={i} dir="auto" className={cn("min-h-[1em] text-start", isBullet && "ps-3")}>
         {parts}
       </p>
     );
@@ -186,7 +189,7 @@ export function BlueManChat() {
 
         {/* messages */}
         <div className="flex-1 space-y-2.5 overflow-y-auto p-3 text-sm">
-          <div className="max-w-[85%] rounded-2xl rounded-tl-sm bg-muted px-3 py-2">
+          <div dir="auto" className="max-w-[85%] rounded-2xl rounded-tl-sm bg-muted px-3 py-2 text-start">
             {opener}
           </div>
           {messages.length === 0 ? (
@@ -205,8 +208,9 @@ export function BlueManChat() {
           {messages.map((m, i) => (
             <div
               key={i}
+              dir="auto"
               className={cn(
-                "max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2",
+                "max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-start",
                 m.role === "user"
                   ? "ml-auto rounded-tr-sm bg-primary text-primary-foreground"
                   : "rounded-tl-sm bg-muted"
@@ -234,6 +238,7 @@ export function BlueManChat() {
           <textarea
             ref={inputRef}
             rows={1}
+            dir="auto"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {

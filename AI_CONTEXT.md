@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-07-17 · Version: v18
+Last updated: 2026-07-17 · Version: v19
 
 ---
 
@@ -471,6 +471,24 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-07-17 · v19** — **Bidi/RTL fixed everywhere**: the base `Input` &
+  `Textarea` default to `dir="auto"` (Arabic → RTL, Latin → LTR, per field),
+  the Blue Man chat annotates each rendered line + the input + bubbles with
+  `dir="auto"` + `text-start`, and key free-text displays (account name,
+  comment body, feedback message, audit details) do too — mixed Arabic/
+  English no longer reverses. **Mobile notifications** animate out of the
+  bell: the panel's `DialogContent` gets `.notif-panel`, and a `max-width:639`
+  CSS rule (doubled-class specificity) anchors it top-right with
+  `transform-origin: top right` so the base zoom-in/out reads as growing from
+  and shrinking back to the bell; desktop keeps the centered dialog.
+  **Admin Health & Logs page** (`/admin`, `viewer.isAdmin` server-gated,
+  sidebar entry for admins): `getSystemHealth` (DB, contracts bucket, shared
+  visits calendar, GEMINI/CRON/ADMIN env presence, table counts) +
+  `listRecentAudit` (audit_log with actor join, searchable). **Real cron
+  run-tracking**: `markCronRun(name)` upserts `app_settings` key `cron:<name>`
+  at the end of all four cron routes; the admin page reads them for genuine
+  last-run times (green/amber freshness) — no more inferring from data stamps.
 
 - **2026-07-17 · v18** — **Mobile chrome consolidated**: the drawer's user
   block drops the bell + theme toggle (both live in the mobile top bar now,

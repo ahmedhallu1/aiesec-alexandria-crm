@@ -93,7 +93,7 @@ export function NotificationsBell({ canBroadcast }: { canBroadcast: boolean }) {
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
+        <DialogContent className="notif-panel max-h-[85vh] overflow-y-auto sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Bell className="size-5 text-primary" /> Notifications

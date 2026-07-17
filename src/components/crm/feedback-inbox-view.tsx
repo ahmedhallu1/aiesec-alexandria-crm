@@ -132,7 +132,7 @@ export function FeedbackInboxView({ items }: { items: FeedbackItem[] }) {
                   ) : null}
                 </div>
 
-                <p className="whitespace-pre-wrap text-sm">{f.message}</p>
+                <p dir="auto" className="whitespace-pre-wrap text-start text-sm">{f.message}</p>
 
                 <div className="flex flex-wrap gap-1.5 pt-1">
                   {!f.anonymous && f.member ? (

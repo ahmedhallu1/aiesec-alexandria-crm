@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { importMembership } from "@/lib/google/sheets";
+import { markCronRun } from "@/server/data";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,7 @@ export async function GET(req: NextRequest) {
   }
   try {
     const imported = await importMembership();
+    await markCronRun("membership-import");
     return NextResponse.json({ imported });
   } catch (e) {
     return NextResponse.json(

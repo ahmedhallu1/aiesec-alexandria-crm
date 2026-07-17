@@ -109,7 +109,7 @@ export function AccountDetailView({
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1.5">
-          <h1 className="text-2xl font-bold">{account.name}</h1>
+          <h1 dir="auto" className="text-2xl font-bold">{account.name}</h1>
           <div className="flex flex-wrap items-center gap-2">
             <Badge className={cn("border-transparent font-semibold", fnBadge.bg, fnBadge.text)}>
               {fnBadge.label}
@@ -739,7 +739,7 @@ function CommentsCard({
                     </Hint>
                   ) : null}
                 </div>
-                <p className="whitespace-pre-wrap">{c.body}</p>
+                <p dir="auto" className="whitespace-pre-wrap text-start">{c.body}</p>
               </div>
             ))}
           </div>

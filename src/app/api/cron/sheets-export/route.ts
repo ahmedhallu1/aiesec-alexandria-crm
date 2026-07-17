@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { exportAllSheets } from "@/lib/google/sheets";
+import { markCronRun } from "@/server/data";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,7 @@ export async function GET(req: NextRequest) {
   }
   try {
     await exportAllSheets();
+    await markCronRun("sheets-export");
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json(

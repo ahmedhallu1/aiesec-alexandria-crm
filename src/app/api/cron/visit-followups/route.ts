@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { notifyMembers } from "@/server/notify";
+import { markCronRun } from "@/server/data";
 import { db } from "@/lib/supabase";
 import { env } from "@/lib/env";
 import { cairoToUtc } from "@/lib/time";
@@ -160,6 +161,7 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  await markCronRun("visit-followups");
   return NextResponse.json({
     checked: pending?.length ?? 0,
     sent,

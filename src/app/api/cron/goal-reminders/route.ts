@@ -4,6 +4,7 @@ import { env } from "@/lib/env";
 import { sendEmail } from "@/lib/google/gmail";
 import { goalPeriodEndedEmail } from "@/lib/email/templates";
 import { notifyMembers } from "@/server/notify";
+import { markCronRun } from "@/server/data";
 
 export const dynamic = "force-dynamic";
 
@@ -102,7 +103,10 @@ export async function GET(req: NextRequest) {
       : error.message;
     return NextResponse.json({ error: friendly }, { status: 500 });
   }
-  if (!ended?.length) return NextResponse.json({ checked: 0, sent: 0 });
+  if (!ended?.length) {
+    await markCronRun("goal-reminders");
+    return NextResponse.json({ checked: 0, sent: 0 });
+  }
 
   const { data: membersData } = await db()
     .from("members")
@@ -218,5 +222,6 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  await markCronRun("goal-reminders");
   return NextResponse.json({ checked: ended.length, sent });
 }

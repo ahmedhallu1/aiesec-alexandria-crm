@@ -325,6 +325,31 @@ html body[data-scroll-locked] {
   padding-right: 0 !important;
 }
 
+/* Mobile notifications: the panel emanates from the bell (top-right of the
+   mobile bar) instead of the centered-modal default. Doubled-class selector
+   wins the specificity tie against the base DialogContent utilities; the
+   base zoom-in-95/zoom-out-95 animation + top-right origin makes it grow out
+   of and shrink back to the bell. Desktop (≥sm) keeps the centered dialog. */
+@media (max-width: 639px) {
+  .notif-panel.notif-panel {
+    inset: auto;
+    top: calc(3.25rem + env(safe-area-inset-top));
+    right: 0.5rem;
+    left: auto;
+    bottom: auto;
+    /* Tailwind v4 centers DialogContent via the independent `translate`
+       property (translate-x/y-[-50%]) — neutralize THAT, not `transform`,
+       or the panel stays shifted by half its size off the anchor */
+    translate: none;
+    --tw-translate-x: 0;
+    --tw-translate-y: 0;
+    transform: none;
+    transform-origin: top right;
+    width: min(22rem, calc(100vw - 1rem));
+    max-width: calc(100vw - 1rem);
+  }
+}
+
 /* Slow-navigation overlay: invisible for the first 250ms so fast route
    changes never flash it — only genuinely slow loads show the walking man */
 .nav-overlay {
