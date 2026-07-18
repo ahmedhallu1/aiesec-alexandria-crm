@@ -129,7 +129,7 @@ export function DashboardView({
     { label: "MR → Contacted", value: pct(total.contacted, total.mr) },
     { label: "Contacted → Visits", value: pct(total.visitScheduled, total.contacted) },
     { label: "Visits → Done", value: pct(total.visitDone, total.visitScheduled) },
-    { label: "Lead Done → Open", value: pct(total.dealAccounts, total.visitDone) },
+    { label: "Visit Done → Deal", value: pct(total.dealAccounts, total.visitDone) },
   ];
   const month = monthRange();
   const today = new Date().toISOString().slice(0, 10);
@@ -304,9 +304,9 @@ export function DashboardView({
           <KpiCard key={k.label} label={k.label} value={k.value} sub={k.hint} />
         ))}
         <KpiCard
-          label="Lead → Deal"
+          label="Lead → Open"
           valueText={pct(total.dealAccounts, total.mr)}
-          sub="accounts that reached a deal"
+          sub="accounts that raised opens"
         />
       </div>
 
@@ -800,7 +800,7 @@ function DrillTable({ groups, colorKeys }: { groups: DrillGroup[]; colorKeys?: b
             <TableHead className="text-right">Visits done</TableHead>
             <TableHead className="text-right">Deals</TableHead>
             <TableHead className="text-right">Slots</TableHead>
-            <TableHead className="text-right">Lead → Deal</TableHead>
+            <TableHead className="text-right">Lead → Open</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

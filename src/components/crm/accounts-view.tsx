@@ -377,11 +377,13 @@ function SelectDot({ checked, onToggle }: { checked: boolean; onToggle: () => vo
 }
 
 export function AccountsView({
-  rows, manualArchived, members, respOptions, viewer, filters,
+  rows, manualArchived, members, reassignTargets, respOptions, viewer, filters,
 }: {
   rows: PipelineRow[];
   manualArchived: ManualEntry[];
   members: MemberOption[];
+  /** members the viewer may reassign accounts TO (RBAC-correct, list-level) */
+  reassignTargets: MemberOption[];
   respOptions: { id: string; label: string }[];
   viewer: ViewerInfo;
   filters: Record<string, string>;
@@ -415,7 +417,19 @@ export function AccountsView({
 
   const archived = filters.archived === "1";
   const podioMode = filters.podio === "1";
-  // bulk selection: pick accounts → archive or reassign them in one go
+  // mobile render style (persisted): cards (default) · compact list · table
+  const [mobileView, setMobileView] = useState<"cards" | "compact" | "table">("cards");
+  useEffect(() => {
+    const saved = localStorage.getItem("sodio-accounts-mobile-view");
+    if (saved === "cards" || saved === "compact" || saved === "table") setMobileView(saved);
+  }, []);
+  const pickMobileView = (v: "cards" | "compact" | "table") => {
+    setMobileView(v);
+    localStorage.setItem("sodio-accounts-mobile-view", v);
+  };
+  // bulk selection: pick accounts → archive or reassign them in one go.
+  // Desktop shows the checkboxes ALWAYS (direct select); mobile enters
+  // selection via the Select button.
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkArchiveOpen, setBulkArchiveOpen] = useState(false);
@@ -494,9 +508,12 @@ export function AccountsView({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {/* desktop selects directly via the always-on row checkboxes; the
+              Select toggle is the mobile way into selection */}
           {!archived && rows.length > 0 ? (
             <Hint label="Select several accounts, then archive or reassign them in one go">
               <Button
+                className="md:hidden"
                 variant={selectMode ? "default" : "outline"}
                 onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
               >
@@ -658,8 +675,30 @@ export function AccountsView({
         />
       ) : (
         <>
+          {/* Mobile: view switcher (cards / compact / table) */}
+          <div className="flex items-center gap-1 rounded-lg bg-muted p-1 md:hidden">
+            {([
+              ["cards", "Cards"],
+              ["compact", "Compact"],
+              ["table", "Table"],
+            ] as const).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => pickMobileView(key)}
+                className={cn(
+                  "flex-1 rounded-md py-1.5 text-xs font-medium transition-colors",
+                  mobileView === key
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground"
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           {/* Mobile: cards */}
-          <div className="space-y-2.5 md:hidden">
+          <div className={cn("space-y-2.5 md:hidden", mobileView !== "cards" && "hidden")}>
             {rows.length === 0 ? (
               <Card>
                 <CardContent className="py-10 text-center text-sm text-muted-foreground">
@@ -757,13 +796,66 @@ export function AccountsView({
             )}
           </div>
 
-          {/* Desktop: table — Date added · Account · Product · Status · Contacts · Next step · Quick actions */}
-          <div className="hidden overflow-hidden rounded-xl border bg-card md:block rise-in rise-in-2">
+          {/* Mobile: compact list */}
+          <div className={cn("md:hidden", mobileView !== "compact" && "hidden")}>
+            {rows.length === 0 ? (
+              <Card>
+                <CardContent className="py-10 text-center text-sm text-muted-foreground">
+                  No accounts here yet. Add your first one 🚀
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="divide-y rounded-xl border bg-card">
+                {orderedRows.map((row) => (
+                  <div
+                    key={row.id}
+                    className={cn(
+                      "flex items-center gap-2 px-3 py-2.5",
+                      selected.has(row.id) && "bg-primary/5"
+                    )}
+                    onClick={() =>
+                      selectMode ? toggleSelected(row.id) : router.push(hrefFor(row))
+                    }
+                  >
+                    {selectMode ? (
+                      <SelectDot
+                        checked={selected.has(row.id)}
+                        onToggle={() => toggleSelected(row.id)}
+                      />
+                    ) : null}
+                    <div className="min-w-0 flex-1">
+                      <p className="flex items-center gap-1.5 truncate text-sm font-semibold">
+                        <span className="min-w-0 truncate">{row.name}</span>
+                        <PinSign text={row.pinned_comment} />
+                      </p>
+                      {row.next_step_date ? (
+                        <p className="truncate text-xs text-muted-foreground">
+                          ⏭️ {row.next_step_date}
+                          {row.next_step ? ` · ${row.next_step}` : ""}
+                        </p>
+                      ) : null}
+                    </div>
+                    <FnBadge row={row} />
+                    <StageBadge stage={row.stage} className="text-[10px]" />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Table — desktop always; mobile only in "table" view. Checkboxes are
+              ALWAYS present in the table (desktop direct-select). */}
+          <div
+            className={cn(
+              "overflow-hidden rounded-xl border bg-card md:block rise-in rise-in-2",
+              mobileView === "table" ? "block" : "hidden md:block"
+            )}
+          >
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    {selectMode ? <TableHead className="w-10" /> : null}
+                    <TableHead className="w-10" />
                     <TableHead>Date added</TableHead>
                     <TableHead>Account</TableHead>
                     <TableHead>Product</TableHead>
@@ -776,7 +868,7 @@ export function AccountsView({
                 <TableBody>
                   {rows.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={selectMode ? 8 : 7} className="py-12 text-center text-muted-foreground">
+                      <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
                         No accounts here yet. Add your first one 🚀
                       </TableCell>
                     </TableRow>
@@ -785,18 +877,14 @@ export function AccountsView({
                       <TableRow
                         key={row.id}
                         className={cn("cursor-pointer", selected.has(row.id) && "bg-primary/5")}
-                        onClick={() =>
-                          selectMode ? toggleSelected(row.id) : router.push(hrefFor(row))
-                        }
+                        onClick={() => router.push(hrefFor(row))}
                       >
-                        {selectMode ? (
-                          <TableCell onClick={(e) => e.stopPropagation()}>
-                            <SelectDot
-                              checked={selected.has(row.id)}
-                              onToggle={() => toggleSelected(row.id)}
-                            />
-                          </TableCell>
-                        ) : null}
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <SelectDot
+                            checked={selected.has(row.id)}
+                            onToggle={() => toggleSelected(row.id)}
+                          />
+                        </TableCell>
                         <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                           <span className="block leading-tight">{row.created_at?.slice(0, 10)}</span>
                           <span className="block text-[10px] opacity-70">{fmtTime(row.created_at)}</span>
@@ -882,17 +970,24 @@ export function AccountsView({
         </>
       )}
 
-      {/* bulk-selection action bar */}
-      {selectMode ? (
+      {/* bulk-selection action bar — shows once anything is selected (or in
+          the mobile Select mode) */}
+      {selectMode || selected.size > 0 ? (
         <div className="pointer-events-none fixed inset-x-0 bottom-[calc(1.25rem+env(safe-area-inset-bottom))] z-40 flex justify-center px-3">
           <div className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-2 rounded-full border bg-card px-4 py-2 shadow-xl">
             <span className="text-sm font-semibold">{selected.size} selected</span>
             <Button
               size="sm"
               variant="outline"
-              onClick={() => setSelected(new Set(rows.map((r) => r.id)))}
+              onClick={() =>
+                setSelected(
+                  selected.size >= rows.length ? new Set() : new Set(rows.map((r) => r.id))
+                )
+              }
             >
-              All ({rows.length})
+              {selected.size >= rows.length && rows.length > 0
+                ? "Clear"
+                : `All (${rows.length})`}
             </Button>
             <Button
               size="sm"
@@ -903,7 +998,7 @@ export function AccountsView({
             >
               <Archive className="size-3.5" /> Archive
             </Button>
-            {viewer.canAssignOthers ? (
+            {viewer.canAssignOthers && reassignTargets.length > 0 ? (
               <Button
                 size="sm"
                 variant="outline"
@@ -937,7 +1032,7 @@ export function AccountsView({
       />
       <BulkReassignDialog
         ids={[...selected]}
-        members={members}
+        members={reassignTargets}
         open={bulkReassignOpen}
         onOpenChange={setBulkReassignOpen}
         onDone={() => {

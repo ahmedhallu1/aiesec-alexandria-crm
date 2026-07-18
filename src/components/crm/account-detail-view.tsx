@@ -5,13 +5,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  ArrowLeft, CalendarPlus, CheckCircle2, FileText, Loader2, Mail, MessageSquareText,
-  Paperclip, Phone, Pin, PinOff, RotateCcw, Trophy, Upload, XCircle,
+  Archive, ArchiveRestore, ArrowLeft, CalendarPlus, CheckCircle2, FileText, Loader2, Mail,
+  MessageSquareText, Paperclip, Phone, Pin, PinOff, RotateCcw, Trophy, Upload, XCircle,
 } from "lucide-react";
 import {
   addComment, confirmContractUploads, getContractUrl, reassignAccount, recordDeal,
   reportVisit, requestContractUploads, reviveAccount, scheduleVisit, setOutOfProcess,
-  toggleCommentPin, updateAccount, updateAccountContacts,
+  toggleCommentPin, toggleCommentArchive, updateAccount, updateAccountContacts,
 } from "@/server/actions";
 import type { CommentWithMember, DealWithMember, PipelineRow } from "@/server/data";
 import type { ContactAttempt, Visit } from "@/lib/types";
@@ -639,9 +639,10 @@ function CommentsCard({
 }) {
   const router = useRouter();
   const [body, setBody] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
   const [pending, start] = useTransition();
 
-  // chronological numbering per label class
+  // number over the FULL list (so #n never shifts when archived ones hide)
   const counters: Record<string, number> = {};
   const numbered = comments.map((c) => {
     counters[c.author_label] = (counters[c.author_label] ?? 0) + 1;
@@ -651,14 +652,17 @@ function CommentsCard({
       title: c.author_label === "Member" ? `Comment #${n}` : `${c.author_label} Comment #${n}`,
     };
   });
-  // pinned first, then newest
-  const ordered = [...numbered].sort((a, b) =>
-    a.pinned === b.pinned
-      ? b.created_at.localeCompare(a.created_at)
-      : a.pinned
-        ? -1
-        : 1
-  );
+  const archivedCount = numbered.filter((c) => c.archived).length;
+  // hide archived by default; pinned first, then newest
+  const ordered = [...numbered]
+    .filter((c) => showArchived || !c.archived)
+    .sort((a, b) =>
+      a.pinned === b.pinned
+        ? b.created_at.localeCompare(a.created_at)
+        : a.pinned
+          ? -1
+          : 1
+    );
 
   const submit = () =>
     start(async () => {
@@ -679,14 +683,34 @@ function CommentsCard({
       } else toast.error(res.error);
     });
 
+  const toggleArchive = (id: string, archived: boolean) =>
+    start(async () => {
+      const res = await toggleCommentArchive(id, archived);
+      if (res.ok) {
+        toast.success(archived ? "Comment archived" : "Comment restored");
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <MessageSquareText className="size-4 text-muted-foreground" />
           Comments
-          {numbered.length > 0 ? (
-            <Badge variant="outline" className="ml-1">{numbered.length}</Badge>
+          {numbered.length - archivedCount > 0 ? (
+            <Badge variant="outline" className="ml-1">{numbered.length - archivedCount}</Badge>
+          ) : null}
+          {archivedCount > 0 ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto h-7 px-2 text-xs text-muted-foreground"
+              onClick={() => setShowArchived((s) => !s)}
+            >
+              <Archive className="size-3.5" />
+              {showArchived ? "Hide archived" : `Archived (${archivedCount})`}
+            </Button>
           ) : null}
         </CardTitle>
       </CardHeader>
@@ -702,7 +726,8 @@ function CommentsCard({
                 key={c.id}
                 className={cn(
                   "rounded-lg border p-2.5 text-sm",
-                  c.pinned && "border-warning/60 bg-warning/10"
+                  c.pinned && "border-warning/60 bg-warning/10",
+                  c.archived && "border-dashed opacity-60"
                 )}
               >
                 <div className="mb-1 flex flex-wrap items-center gap-2">
@@ -726,17 +751,32 @@ function CommentsCard({
                     {fmtDateTime(c.created_at)}
                   </span>
                   {canComment ? (
-                    <Hint label={c.pinned ? "Unpin this comment" : "Pin — highlights it AND shows a 📌 on the accounts list"}>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-6 text-muted-foreground hover:text-warning"
-                        disabled={pending}
-                        onClick={() => togglePin(c.id, !c.pinned)}
-                      >
-                        {c.pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
-                      </Button>
-                    </Hint>
+                    <span className="flex shrink-0 items-center">
+                      {c.archived ? null : (
+                        <Hint label={c.pinned ? "Unpin this comment" : "Pin — highlights it AND shows a 📌 on the accounts list"}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-6 text-muted-foreground hover:text-warning"
+                            disabled={pending}
+                            onClick={() => togglePin(c.id, !c.pinned)}
+                          >
+                            {c.pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+                          </Button>
+                        </Hint>
+                      )}
+                      <Hint label={c.archived ? "Restore this comment" : "Archive — hides it from the default view (kept for the record)"}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-6 text-muted-foreground hover:text-foreground"
+                          disabled={pending}
+                          onClick={() => toggleArchive(c.id, !c.archived)}
+                        >
+                          {c.archived ? <ArchiveRestore className="size-3.5" /> : <Archive className="size-3.5" />}
+                        </Button>
+                      </Hint>
+                    </span>
                   ) : null}
                 </div>
                 <p dir="auto" className="whitespace-pre-wrap text-start">{c.body}</p>

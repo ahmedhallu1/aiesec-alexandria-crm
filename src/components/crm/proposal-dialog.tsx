@@ -48,7 +48,9 @@ export function ProposalDialog({
   // B2B/BD: the product the email body is written for (default = their
   // general variant) + which PDFs to attach (never offered for BD)
   const [bodyProduct, setBodyProduct] = useState<BodyCode>(isBD ? "BD" : "B2B");
-  const [attachProducts, setAttachProducts] = useState<ProdCode[]>(["iGV"]);
+  // default = attach NOTHING (B2B/BD start with no ready PDFs; the member
+  // opts in per product)
+  const [attachProducts, setAttachProducts] = useState<ProdCode[]>([]);
   const [attachmentsNote, setAttachmentsNote] = useState("");
   const [done, setDone] = useState(false);
   const [pending, start] = useTransition();

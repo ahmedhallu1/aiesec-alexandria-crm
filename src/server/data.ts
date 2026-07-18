@@ -341,6 +341,28 @@ export async function listVisibleMembers(viewer: Viewer): Promise<Member[]> {
   return (data ?? []) as Member[];
 }
 
+/** The members a viewer may reassign accounts TO at the list level (bulk
+ *  reassign) — the viewer-wide reassign scope, NOT the wider view scope.
+ *  Mirrors reassignTargetScope so the bulk dialog can't offer people the
+ *  per-account rule would reject. */
+export async function listReassignTargetsForViewer(viewer: Viewer): Promise<Member[]> {
+  const scope = reassignTargetScope(viewer);
+  if (scope.kind === "members" && scope.ids.length === 0) return [];
+  let query = db().from("members").select("*").eq("is_active", true);
+  if (scope.kind === "functions") {
+    // any of the viewer's functions — B2B/BD folks may sit in sub-functions
+    const fns = scope.fns;
+    query = fns.includes("B2B")
+      ? query.or(`functions.ov.{${fns.join(",")}},sub_functions.ov.{B2B,BD}`)
+      : query.overlaps("functions", fns);
+  } else if (scope.kind === "members") {
+    query = query.in("id", scope.ids);
+  }
+  // scope.kind === "all" → no filter (every active member)
+  const { data } = await query.order("name");
+  return (data ?? []) as Member[];
+}
+
 export async function listReassignTargets(viewer: Viewer, fn: AccountFunction): Promise<Member[]> {
   const scope = reassignTargetScope(viewer);
   if (scope.kind === "members" && scope.ids.length === 0) return [];

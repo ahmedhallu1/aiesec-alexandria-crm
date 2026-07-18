@@ -319,6 +319,7 @@ export interface AccountComment {
   author_label: CommentLabel;
   body: string;
   pinned: boolean;
+  archived: boolean;
   created_at: string;
 }
 

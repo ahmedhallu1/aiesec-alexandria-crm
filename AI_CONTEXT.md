@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-07-17 · Version: v19
+Last updated: 2026-07-18 · Version: v20
 
 ---
 
@@ -36,7 +36,8 @@ the blueprint for future OGX/other-function modules.
 
 **Migrations** live in `supabase/migrations/` and are run **manually** in the
 Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v2`
-→ `0003_ops_v2` → `0004_pins_v2` → `0005_deals` → `0006_admin_label` → `0007_visit_scheduled_result` → `0008_notifications_feedback` → `0009_b2b_deals_v9` → `0010_notif_link` → `0011_teams` → `0012_contracts_reminders` → `0013_director_label` → `0014_bd_podio` → `0015_bd_deal_amount`.
+→ `0003_ops_v2` → `0004_pins_v2` → `0005_deals` → `0006_admin_label` → `0007_visit_scheduled_result` → `0008_notifications_feedback` → `0009_b2b_deals_v9` → `0010_notif_link` → `0011_teams` → `0012_contracts_reminders` → `0013_director_label` → `0014_bd_podio` → `0015_bd_deal_amount` →
+`0016_comment_archive`.
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
@@ -205,7 +206,11 @@ mutation through a `can*` predicate, **server-side**.
   `TL/VP/Director/LCP/Admin Comment #n` — a Director is labeled **Director**,
   NOT VP (migration 0013); the IM director's label is **Admin**, not LCP).
   Any comment can be **pinned** → highlighted in the card AND shown as a ❗
-  (CircleAlert) on the accounts list; hover reveals the text.
+  (CircleAlert) on the accounts list; hover reveals the text. Any comment can
+  also be **archived** (migration 0016 `account_comments.archived`;
+  `toggleCommentArchive`, RBAC = `canEditAccount`) — archiving unpins it and
+  hides it behind an **"Archived (n)"** toggle on the comments card; numbering
+  runs over the FULL list so `#n` never shifts.
 - **ICX Proposal Email** (`src/lib/email/proposal.ts` + `createProposalDraft`):
   the "Proposal email" button on every account opens a popup (recipient,
   sector, custom note, attachments note — product auto-detected iGV/iGTa/iGTe,
@@ -227,6 +232,9 @@ mutation through a `can*` predicate, **server-side**.
   B2B → `Business Development Manager`) and the phone links to
   `wa.me/<number>`. B2B accounts default to a **general all-programs variant**
   linking to `aiesec.org/partners` (can still pick a specific product's body).
+  **B2B/BD accounts attach NOTHING by default** (v20 — the attach set starts
+  empty; the member opts in per product), whereas IGV/IGT prefill their own
+  product PDF.
 - **Contact log results**: No Response / Responded / Interested / Not Interested
   (archives) / Wrong Contact / **Visit Scheduled** (requires date+time and
   BOOKS the visit through the exact same path as the Schedule-visit button —
@@ -302,9 +310,9 @@ so the numbers align.
 
 **KPI row (this exact order, nothing else):** Market Research (total accounts) ·
 Contacted · Visits (scheduled) · Visits done · Deals (count of deals, not
-accounts) · Slots raised · Lead → Deal (% of accounts reaching a deal).
+accounts) · Slots raised · **Lead → Open** (% of accounts that raised opens).
 Directly below: the step-to-step **conversion strip** — MR→Contacted,
-Contacted→Visits, Visits→Done, Done→Deals. (The old funnel bars and flag KPI
+Contacted→Visits, Visits→Done, and **Visit Done → Deal**. (The old funnel bars and flag KPI
 cards were removed on request; flags remain reachable via accounts filters.)
 
 - Lanes gated by the member's functions: `All ICX / IGV / All IGT / IGTa / IGTe`
@@ -329,8 +337,8 @@ cards were removed on request; flags remain reachable via accounts filters.)
 - **B2B lane** on the dashboard for the LCP/admin, VPs & Directors (B2B
   affects their functions) and the B2B crew — `rowInLane`/`laneSlots` already
   spoke B2B; v12 exposes the `views` chip + `parseFnParam` case.
-- The last conversion is labeled **"Lead Done → Open"** (accounts whose visit
-  is done that raised opens).
+- The last conversion is labeled **"Visit Done → Deal"** (v20 — the share of
+  visit-done accounts that reached a deal; `pct(dealAccounts, visitDone)`).
 - **Visits calendar** (`/calendar`, sidebar for every raiser): month view of
   the WHOLE function's visits (B2B included), one stable color per member,
   legend with counts, Saturday-first weeks, agenda cards on phones, click-through
@@ -439,7 +447,9 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 
 ## 9. Pending / operational notes
 
-- **All migrations 0001–0015 are RUN** (verified live 2026-07-16).
+- **All migrations 0001–0016 are RUN** (0001–0015 verified live 2026-07-16;
+  **0016_comment_archive applied 2026-07-18 via the Supabase MCP** — adds
+  `account_comments.archived boolean default false`).
 - **CRON_SECRET was rotated 2026-07-16**: the old pg_cron jobs had been
   scheduled with the literal `<CRON_SECRET>` placeholder (silent 401s — the
   production crons had likely never fired successfully). New 48-hex secret
@@ -471,6 +481,42 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-07-18 · v20** — **Comment archiving** (migration `0016_comment_archive`,
+  applied via the Supabase MCP): every comment gets an **Archive** button
+  (archiving also unpins it); the comments card counts only live comments and
+  reveals archived ones behind an **"Archived (n)"** toggle. Numbering runs over
+  the FULL list so `#n` never shifts when archived comments hide.
+  `toggleCommentArchive` in `actions.ts`, `AccountComment.archived` in types,
+  RBAC via `canEditAccount`. **Proposal default attachments** on **B2B/BD**
+  accounts are now **nothing** (was IGV) — `proposal-dialog.tsx` starts with an
+  empty attach set. **Desktop direct-select**: the accounts table shows the
+  select checkbox **always** (no "Select" click needed on desktop; the Select
+  button is mobile-only) — rows still open on click, the checkbox cell swallows
+  it. **Mobile accounts view switcher**: a **Cards / Compact / Table** segmented
+  control (localStorage `sodio-accounts-mobile-view`) — Cards is the roomy
+  default, Compact is a one-line-per-account list, Table reuses the desktop grid.
+  **Bulk reassign RBAC fix**: the bulk-reassign picker now offers ONLY the
+  viewer's allowed targets (`listReassignTargetsForViewer` in `data.ts`, mirrors
+  `reassignTargetScope`) instead of every member — the server already re-checked
+  per row, but the client had been offering everyone (a bug). Also fixed a
+  latent server bug the new picker surfaced: `reassignAccount`'s per-account
+  scope check now matches B2B/BD targets by `memberIsB2B` (BOTH `functions` and
+  `sub_functions`) so a B2B crew member whose "B2B" lives only in the Sub
+  Function column can actually receive a B2B/BD account (was always rejected).
+  The **"All"**
+  button in the bulk bar is now **select/unselect-all** for the current view
+  ("All (N)" ↔ "Clear"). **Relabels** (dashboard): the 4th conversion is
+  **"Visit Done → Deal"** (was "Lead Done → Open"); the KPI card is **"Lead →
+  Open"** measured by **accounts that raised opens** (was "Lead → Deal"). **The
+  Blue Man** now knows leaders can bulk-edit (Select → archive/reassign many) +
+  the mobile view switcher. **Launch announcement drafts**
+  (`scripts/draft-announcements.mjs`): one personalized Gmail **DRAFT** per
+  active member in the IM mailbox (nothing sent) — a funny, role/function/level-
+  tailored launch tour for everyone whose module is live (uses the app's own
+  `hasRaisingAccess` gate: IGV/IGT raising, B2B/BD, LCP) and a "stay-tuned"
+  teaser for everyone else (TM, OGX, F&L, B2C, CXP, consideration-only, no-
+  module). `--dry` previews, `--emit=<dir>` dumps HTML. Playbook v20.
 
 - **2026-07-17 · v19** — **Bidi/RTL fixed everywhere**: the base `Input` &
   `Textarea` default to `dir="auto"` (Arabic → RTL, Latin → LTR, per field),

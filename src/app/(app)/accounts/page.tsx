@@ -1,5 +1,6 @@
 import {
   getViewer, listAccounts, listManualArchived, listVisibleMembers,
+  listReassignTargetsForViewer,
 } from "@/server/data";
 import type { AccountFilters } from "@/server/data";
 import {
@@ -49,9 +50,10 @@ export default async function AccountsPage({
 
   // the Responsible filter is applied AFTER the query so its dropdown only
   // offers members who actually have accounts in the current view
-  const [allRows, members, manualArchived] = await Promise.all([
+  const [allRows, members, reassignTo, manualArchived] = await Promise.all([
     listAccounts(viewer, filters),
     listVisibleMembers(viewer),
+    listReassignTargetsForViewer(viewer),
     archived ? listManualArchived() : Promise.resolve([]),
   ]);
   const rows = params.resp
@@ -83,6 +85,16 @@ export default async function AccountsPage({
           ...(m.functions ?? []),
           // B2B/BD may live in sub-functions only (one function, two names) —
           // synthesize BOTH labels so either account kind finds the crew
+          ...(memberIsB2B(m)
+            ? ["B2B", "BD"].filter((f) => !(m.functions ?? []).includes(f))
+            : []),
+        ],
+      }))}
+      reassignTargets={reassignTo.map((m) => ({
+        id: m.id,
+        label: m.nickname || m.name,
+        functions: [
+          ...(m.functions ?? []),
           ...(memberIsB2B(m)
             ? ["B2B", "BD"].filter((f) => !(m.functions ?? []).includes(f))
             : []),

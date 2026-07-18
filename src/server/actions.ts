@@ -413,10 +413,17 @@ export async function reassignAccount(
     .eq("is_active", true)
     .maybeSingle<Member>();
   if (!target) return fail("Target member not found.");
+  // reassignment stays inside the account's function; B2B/BD is one function
+  // with two names that may live in EITHER column, so match memberIsB2B (both
+  // functions and sub_functions) — mirrors listReassignTargets in data.ts so
+  // the dialog can never offer a valid B2B/BD target the check would reject.
+  const targetInFunction =
+    account.function === "B2B" || account.function === "BD"
+      ? memberIsB2B(target)
+      : (target.functions ?? []).includes(account.function);
   const inScope =
     scope.kind === "all" ||
-    (scope.kind === "functions" &&
-      (target.functions ?? []).includes(account.function)) ||
+    (scope.kind === "functions" && targetInFunction) ||
     (scope.kind === "members" && scope.ids.includes(target.id));
   if (!inScope) return fail("You can only reassign to members in your scope.", "forbidden");
 
@@ -979,6 +986,37 @@ export async function toggleCommentPin(
     .eq("id", commentId);
   if (error) return fail(error.message);
   await logAudit(viewer.id, pinned ? "pin_comment" : "unpin_comment", "account", comment.account_id);
+  refresh(comment.account_id);
+  return { ok: true };
+}
+
+/** Archive/unarchive a comment — archived comments drop out of the default
+ *  view (kept for the record). Archiving also unpins it so it can't linger as
+ *  a 📌 on the accounts list. */
+export async function toggleCommentArchive(
+  commentId: string,
+  archived: boolean
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const { data: comment } = await db()
+    .from("account_comments")
+    .select("id, account_id")
+    .eq("id", commentId)
+    .maybeSingle<{ id: string; account_id: string }>();
+  if (!comment) return fail("Comment not found.");
+  const account = await loadAccount(comment.account_id);
+  if (!account || !canEditAccount(viewer, account))
+    return fail("You are not allowed to archive comments on this account.", "forbidden");
+  const { error } = await db()
+    .from("account_comments")
+    .update(archived ? { archived: true, pinned: false } : { archived: false })
+    .eq("id", commentId);
+  if (error) {
+    if (error.message.includes("archived"))
+      return fail("Comment archiving needs migration 0016 — run it in the Supabase SQL editor.");
+    return fail(error.message);
+  }
+  await logAudit(viewer.id, archived ? "archive_comment" : "unarchive_comment", "account", comment.account_id);
   refresh(comment.account_id);
   return { ok: true };
 }
