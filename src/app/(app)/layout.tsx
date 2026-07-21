@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
-import { getViewer, listViewAsTargets } from "@/server/data";
+import { getViewer, listViewAsTargets, needsMmPlan } from "@/server/data";
 import {
   hasRaisingAccess, hasTmAccess, canManageMembership, canSeeFeedbackInbox,
+  canSeePlanning,
 } from "@/lib/rbac";
 import { signOut } from "@/lib/auth";
 import { AppShell } from "@/components/crm/app-shell";
@@ -17,14 +18,22 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // (skipped in the admin's test view — never onboard on someone's behalf)
   if (!viewer.profile_completed_at && !viewer.impersonated) redirect("/welcome");
 
+  // OGX & Consideration MMs must file their 6-month plan right after
+  // onboarding — the numbers ARE their period goals
+  if (viewer.profile_completed_at && !viewer.impersonated && (await needsMmPlan(viewer)))
+    redirect("/welcome/plan");
+
   const raising = hasRaisingAccess(viewer);
   const tm = hasTmAccess(viewer);
   const membership = canManageMembership(viewer);
-  // routes a non-raising member still gets: their TM module, and the
-  // membership editor for EB members of other functions (e.g. an OGX LCVP)
+  const planning = canSeePlanning(viewer);
+  // routes a non-raising member still gets: their TM module, the membership
+  // editor for EB members of other functions (e.g. an OGX LCVP), and the
+  // planning board for OGX VPs/Directors
   const extraRoutes = [
     ...(tm ? ["/members"] : []),
     ...(membership ? ["/membership"] : []),
+    ...(planning ? ["/planning"] : []),
   ];
 
   return (
@@ -41,6 +50,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         raising,
         tm,
         membership,
+        planning,
         feedbackInbox: canSeeFeedbackInbox(viewer),
       }}
       signOutAction={async () => {
@@ -71,7 +81,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         hasModule={raising || tm}
       />
       {viewer.impersonated ? (
-        <ViewAsBanner activeId={viewer.id} targets={await listViewAsTargets()} />
+        <ViewAsBanner
+          activeId={viewer.id}
+          targets={await listViewAsTargets()}
+          mode={viewer.sandbox ? "sandbox" : "real"}
+        />
       ) : null}
     </AppShell>
   );

@@ -54,7 +54,7 @@ async function resolveLeader(member: VisitRow["member"]): Promise<Leader | null>
 
 const VISIT_SELECT =
   "id, visit_date, visit_time, next_step, followup_prompt_sent_at, " +
-  "account:accounts(id, name, out_of_process), " +
+  "account:accounts!inner(id, name, out_of_process, is_test), " +
   "member:members(id, name, nickname, email, role, stakeholder_id)";
 
 /** Runs every 15 min (Supabase pg_cron). Two passes:
@@ -77,6 +77,7 @@ export async function GET(req: NextRequest) {
   const { data: pending, error } = await db()
     .from("visits")
     .select(VISIT_SELECT)
+    .eq("account.is_test", false) // test visits never trigger real reminders
     .is("done", null)
     .is("followup_prompt_sent_at", null)
     .limit(50);
@@ -123,6 +124,7 @@ export async function GET(req: NextRequest) {
   const { data: forgotten } = await db()
     .from("visits")
     .select(VISIT_SELECT)
+    .eq("account.is_test", false) // test visits never trigger real reminders
     .is("done", null)
     .is("forgotten_nag_sent_at", null)
     .not("followup_prompt_sent_at", "is", null)

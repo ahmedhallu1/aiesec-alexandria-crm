@@ -17,6 +17,8 @@ import { Hint } from "./hint";
 export interface FeedbackItem {
   id: string;
   type: string;
+  /** the type-dependent pick-list value (v21) — null on older rows */
+  category?: string | null;
   message: string;
   page: string | null;
   status: string;
@@ -114,6 +116,11 @@ export function FeedbackInboxView({ items }: { items: FeedbackItem[] }) {
                   <Badge variant={f.type === "Bug" ? "destructive" : "outline"}>
                     {f.type === "Bug" ? "🐞 Bug" : f.type === "Enhancement" ? "✨ Enhancement" : "💬 Other"}
                   </Badge>
+                  {f.category ? (
+                    <Badge variant="outline" className="text-[10px] font-normal">
+                      {f.category}
+                    </Badge>
+                  ) : null}
                   <span className="text-sm font-semibold">{who}</span>
                   <span className="text-xs text-muted-foreground">
                     {new Date(f.created_at).toLocaleString()}

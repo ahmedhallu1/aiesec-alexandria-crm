@@ -25,7 +25,7 @@ import { Hint } from "./hint";
 import { CountUp } from "./count-up";
 import { cn } from "@/lib/utils";
 import { FUNCTION_COLORS } from "@/lib/types";
-import type { DrillGroup, FunnelStats, PerformanceGoal } from "@/server/data";
+import type { DrillGroup, FunnelStats, LanePlan, PerformanceGoal } from "@/server/data";
 
 export interface DashboardScopeView { key: string; label: string }
 
@@ -66,6 +66,8 @@ interface Props {
   goalCaps: GoalCaps;
   /** the signed-in member — powers the "My numbers" personal KPI toggle */
   viewerId: string;
+  /** VP plan snapshot for product lanes (IGV/IGTa/IGTe/IGT) — null elsewhere */
+  lanePlan: LanePlan | null;
 }
 
 const pct = (num: number, den: number) =>
@@ -87,7 +89,7 @@ function monthRange(): { from: string; to: string; label: string } {
 export function DashboardView({
   total, byFunction, byTeam, memberBoard, mmBoard, teamBoard, teamAchieved, funcAchieved,
   funcGoal, bdGoal, bdMoneyAchieved, teamGoal, views, activeFn, laneLabel, scopeLabel,
-  showTeamDrill, teamOptions, memberOptions, filters, goalCaps, viewerId,
+  showTeamDrill, teamOptions, memberOptions, filters, goalCaps, viewerId, lanePlan,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -298,6 +300,9 @@ export function DashboardView({
         </div>
       ) : null}
 
+      {/* VP plan (from the planning sheet) — current sprint, toggleable to month */}
+      {lanePlan ? <PlanCard plan={lanePlan} /> : null}
+
       {/* KPI row — MR · Contacted · Visits · Visits done · Deals · Slots · Lead→Deal */}
       <div className="stagger grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
         {kpis.map((k) => (
@@ -430,6 +435,70 @@ function GoalCard({
             />
           </div>
         ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** The VP plan snapshot (from the planning sheet): current SPRINT by default,
+ *  toggleable to the month. Opens = plan vs actually-raised; the consideration
+ *  funnel numbers are the plan (consideration isn't tracked in Sodio yet). */
+function PlanCard({ plan }: { plan: LanePlan }) {
+  const [view, setView] = useState<"sprint" | "month">("sprint");
+  const win = view === "sprint" ? plan.sprint : plan.month;
+  const progress = win.plannedOpens > 0 ? Math.min(1, win.actualOpens / win.plannedOpens) : 0;
+  const metricLabel: Record<string, string> = {
+    applicants: "Applicants", accepted: "Accepted", approvals: "Approvals",
+  };
+  return (
+    <Card className="relative overflow-hidden rise-in rise-in-2">
+      <CardContent className="pt-4">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <CalendarRange className="size-3.5" /> {plan.lane} plan · {win.label}
+            </p>
+            <p className="mt-1 text-2xl font-bold">
+              {win.actualOpens.toLocaleString("en")}
+              <span className="text-base font-semibold text-muted-foreground">
+                {" "}/ {win.plannedOpens.toLocaleString("en")} opens planned
+              </span>
+            </p>
+          </div>
+          <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+            {(["sprint", "month"] as const).map((k) => (
+              <button
+                key={k}
+                onClick={() => setView(k)}
+                className={cn(
+                  "rounded-md px-3 py-1 text-xs font-medium capitalize transition-colors",
+                  view === k ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"
+                )}
+              >
+                {k === "sprint" ? "This sprint" : "This month"}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-3 h-2 w-full rounded-full bg-muted">
+          <div
+            className={cn(
+              "h-full rounded-full transition-all duration-700",
+              progress >= 1 ? "bg-success" : "bg-primary",
+              progress > 0 && "goal-fill goal-striped"
+            )}
+            style={{ width: `${progress * 100}%` }}
+          />
+        </div>
+        <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground/70">Consideration plan:</span>
+          {win.funnel.map((f) => (
+            <span key={f.metric}>
+              {metricLabel[f.metric] ?? f.metric}: <b className="text-foreground">{f.value.toLocaleString("en")}</b>
+            </span>
+          ))}
+          <span className="text-muted-foreground/60">— from the VPs&apos; planning sheet</span>
+        </div>
       </CardContent>
     </Card>
   );

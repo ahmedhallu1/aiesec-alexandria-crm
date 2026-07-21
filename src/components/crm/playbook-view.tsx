@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v20";
+export const PLAYBOOK_VERSION = "v21";
 
 interface Props {
   role: string;
@@ -95,6 +95,7 @@ const SECTIONS: Section[] = [
     points: [
       <>You see and work <b>your whole team&apos;s accounts</b>, pick the Responsible on each, and can revive archived accounts.</>,
       <><b>Set the team goal</b> every period. When a period ends, Sodio emails you the goal-vs-achieved recap with a button to set the next one — your team is notified automatically once you do.</>,
+      <>OGX &amp; Consideration MMs: on your first sign-in Sodio asks for your <b>6-month plan</b> (applicants · accepted · approvals per month of the peak) — those numbers are your goals, visible to your VP on the Planning board and in the period reports.</>,
       <>You&apos;re on your members&apos; <b>visit follow-up emails</b> (and the week-later &quot;forgotten&quot; nags). A nag means an account is frozen — unfreeze it together.</>,
       <>Leaderboards rank <b>Members & Coordinators</b> on their own accounts; deals always belong to the account&apos;s Responsible.</>,
       <>Use the dashboard&apos;s team filter (and <b>My numbers</b> for your own raising) to steer the week.</>,
@@ -109,6 +110,8 @@ const SECTIONS: Section[] = [
     points: [
       <>Dashboards run per lane: <b>IGV / IGTa / IGTe</b> (All-IGT shows IGTa + IGTe combined — its goal is derived, never set directly).</>,
       <><b>Set the lane goal</b> each period. Period over → you get the recap email with the set-new-goal button; everyone in the lane hears about the new goal automatically.</>,
+      <>The <b>Planning</b> tab (v21) carries the term plan from the LC&apos;s planning sheet: opens per month, the consideration funnel per <b>sprint</b> (half-months — 1–15 and 16–end), conversions, quarter totals, and every MM&apos;s filed plan. The dashboard&apos;s product lanes show the current sprint&apos;s plan vs achieved (toggle to month).</>,
+      <>Every <b>sprint, month and quarter</b> close, your whole function + the LCP get the <b>period report email</b>: totals, plan-vs-achieved, and a waterfall with every team&apos;s and every person&apos;s numbers.</>,
       <>The <b>Membership sheet</b> is the source of truth for people — edit in the app or in the sheet, both stay in sync (30-min imports + instant write-back).</>,
       <>Visit reports and function-wide visit announcements reach you automatically. The LCP never receives operational email.</>,
       <>Archive powers: remove wrong entries, import pre-CRM blacklists (Archived tab).</>,
@@ -176,6 +179,7 @@ const SECTIONS: Section[] = [
     audience: "Everyone",
     color: "#037EF3",
     points: [
+      <><b>0.</b> Two feedback doors (v21): <b>Sodio feedback</b> (bugs/ideas) lives on your <b>Profile</b>; the sidebar&apos;s <b>LC Feedback</b> is about PEOPLE — 🎉 shout-outs reach the person directly, 😟 concerns go ONLY to the LCP, anonymously if you like.</>,
       <><b>1.</b> If it&apos;s not in Sodio, it didn&apos;t happen.</>,
       <><b>2.</b> Every in-process account has a next step with a date — always.</>,
       <><b>3.</b> Log the result the same day you get it.</>,

@@ -37,3 +37,15 @@ select cron.schedule(
 
 -- To inspect: select * from cron.job;
 -- To remove:  select cron.unschedule('visit-followups');
+
+-- v21: per-function period reports (sprint / month / quarter) — checked daily
+-- at 07:00 UTC; the route itself decides which period (if any) just closed.
+select cron.schedule(
+  'period-reports',
+  '0 7 * * *',
+  $$
+  select net.http_get(
+    url := '<APP_URL>/api/cron/period-reports?key=<CRON_SECRET>'
+  );
+  $$
+);

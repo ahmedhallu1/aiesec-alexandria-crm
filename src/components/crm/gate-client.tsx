@@ -3,8 +3,9 @@
 import { usePathname } from "next/navigation";
 
 /** Routes every member keeps even when their module isn't live yet —
- *  the playbook is the manual of the whole LC, everyone can read it. */
-const ALWAYS_ALLOWED = ["/profile", "/feedback", "/playbook"];
+ *  the playbook is the manual of the whole LC, everyone can read it, and
+ *  LC feedback (about people) is for the whole LC by design. */
+const ALWAYS_ALLOWED = ["/profile", "/feedback", "/playbook", "/lc-feedback"];
 
 /** Client-side switch used by the (app) layout for members whose function has
  *  no module: allowed routes render normally, everything else shows "Soon".

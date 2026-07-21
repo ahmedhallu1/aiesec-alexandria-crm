@@ -13,16 +13,30 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { FEEDBACK_CATEGORIES } from "@/lib/types";
 
 export function FeedbackForm({ showInboxLink }: { showInboxLink: boolean }) {
   const [type, setType] = useState<"Bug" | "Enhancement" | "Other">("Enhancement");
+  const [category, setCategory] = useState<string>("");
   const [message, setMessage] = useState("");
   const [anonymous, setAnonymous] = useState(false);
   const [pending, startTransition] = useTransition();
+  const categories = FEEDBACK_CATEGORIES[type];
+
+  const pickType = (v: typeof type) => {
+    setType(v);
+    setCategory(""); // the list changes with the type — never keep a stale pick
+  };
 
   const submit = () =>
     startTransition(async () => {
-      const res = await submitFeedback({ type, message, page: "/feedback", anonymous });
+      const res = await submitFeedback({
+        type,
+        category: category || undefined,
+        message,
+        page: "/feedback",
+        anonymous,
+      });
       if (res.ok) {
         toast.success(
           anonymous
@@ -39,16 +53,31 @@ export function FeedbackForm({ showInboxLink }: { showInboxLink: boolean }) {
   return (
     <Card>
       <CardContent className="grid gap-4 pt-5">
-        <div className="grid gap-2">
-          <Label>Type</Label>
-          <Select value={type} onValueChange={(v) => setType(v as typeof type)}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Bug">🐞 Bug — something is broken</SelectItem>
-              <SelectItem value="Enhancement">✨ Enhancement — make it better</SelectItem>
-              <SelectItem value="Other">💬 Other</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-2">
+            <Label>Type</Label>
+            <Select value={type} onValueChange={(v) => pickType(v as typeof type)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Bug">🐞 Bug — something is broken</SelectItem>
+                <SelectItem value="Enhancement">✨ Enhancement — make it better</SelectItem>
+                <SelectItem value="Other">💬 Other</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-2">
+            <Label>What kind exactly?</Label>
+            <Select value={category || undefined} onValueChange={setCategory}>
+              <SelectTrigger>
+                <SelectValue placeholder={type === "Bug" ? "What's broken?" : "Pick a category…"} />
+              </SelectTrigger>
+              <SelectContent>
+                {categories.map((c) => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
         <div className="grid gap-2">
           <Label>What happened / what do you wish for?</Label>

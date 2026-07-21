@@ -1,6 +1,7 @@
 import { google, sheets_v4, drive_v3 } from "googleapis";
 import { db } from "@/lib/supabase";
 import { env, requireEnv } from "@/lib/env";
+import { sandboxSuppressed } from "@/server/sandbox";
 import { LC_FUNCTIONS, SUB_FUNCTIONS } from "@/lib/types";
 import type { Member, MemberRole } from "@/lib/types";
 
@@ -412,6 +413,7 @@ export interface MemberWriteBack {
  *  appended if new) so in-app edits survive the next import. Best-effort:
  *  callers should .catch() and keep going — the DB row is already saved. */
 export async function writeMemberToSheet(m: MemberWriteBack): Promise<void> {
+  if (await sandboxSuppressed("membership sheet write-back")) return;
   const id = await ensureSpreadsheet("CRM — Membership", MEMBERSHIP_HEADERS);
   const { sheets } = clients();
   const res = await sheets.spreadsheets.values.get({
@@ -462,14 +464,17 @@ export async function exportAllSheets(): Promise<void> {
     { data: comments },
     { data: manualArchived },
   ] = await Promise.all([
-    db().from("accounts_pipeline").select("*").order("created_at"),
+    // test accounts (and their contacts/visits) never reach the Drive mirrors
+    db().from("accounts_pipeline").select("*").eq("is_test", false).order("created_at"),
     db()
       .from("contact_attempts")
-      .select("*, account:accounts(name), member:members(name)")
+      .select("*, account:accounts!inner(name, is_test), member:members(name)")
+      .eq("account.is_test", false)
       .order("created_at"),
     db()
       .from("visits")
-      .select("*, account:accounts(name), member:members(name)")
+      .select("*, account:accounts!inner(name, is_test), member:members(name)")
+      .eq("account.is_test", false)
       .order("visit_date"),
     db()
       .from("account_comments")
@@ -601,6 +606,136 @@ export async function exportAllSheets(): Promise<void> {
 
   if (failures.length > 0)
     console.error(`[sheets] export finished with ${failures.length} failed sheet(s): ${failures.join(", ")}`);
+}
+
+// ====================================================================
+// VP planning import — "Alexandria | Planning Tool" goal-setting tabs
+// ====================================================================
+//
+// Term Feb→Jan. Each goal tab has two numeric blocks:
+//   1. monthly overview — marker "here is the overview"; header row
+//      Goal · February … January (+ Q1/Q2/S1/Q3/Q4/S2 totals, skipped);
+//      7 metric rows in FIXED ORDER: Opens(i*)/SignUps(o*), Applicants,
+//      Accepted, Approvals, Realised, Finished, Complete.
+//   2. sprint block — marker "LC goal distribution by Sprints"; months ×
+//      (Sprint 1, Sprint 2); same 7 rows. For i* the first row is the OPENS
+//      split per sprint (verified against the monthly totals).
+// Labels are template copy-paste (unreliable) — parse by ROW ORDER.
+// The sheet must be shared (Viewer) with the service account.
+
+const PLAN_TABS: { fn: string; tab: string }[] = [
+  { fn: "IGV", tab: "🎯 iGV | goal setting" },
+  { fn: "IGTa", tab: "🎯 iGTa | goal setting" },
+  { fn: "IGTe", tab: "🎯 iGTe | goal setting" },
+  { fn: "OGV", tab: "🎯 oGV | goal setting" },
+  { fn: "OGTa", tab: "🎯 oGTa | goal setting" },
+  { fn: "OGTe", tab: "🎯 oGTe | goal setting" },
+];
+const PLAN_MONTHS = ["February","March","April","May","June","July",
+  "August","September","October","November","December","January"];
+const PLAN_METRIC_ROWS = ["m1","applicants","accepted","approvals","realised","finished","complete"];
+
+/** ISO first-of-month for a term anchored at `febYear` (Jan → febYear+1). */
+function planMonthIso(month: string, febYear: number): string {
+  const idx = PLAN_MONTHS.indexOf(month); // 0 = February … 11 = January
+  return idx === 11
+    ? `${febYear + 1}-01-01`
+    : `${febYear}-${String(idx + 2).padStart(2, "0")}-01`;
+}
+
+function planNum(v: unknown): number {
+  if (typeof v === "number" && isFinite(v)) return v;
+  const n = Number(String(v ?? "").replace(/[,%\s]/g, ""));
+  return isFinite(n) ? n : 0;
+}
+
+/** Re-imports the six goal-setting tabs into plan_cells. Returns cell count.
+ *  febYear anchors the term (default: current term — Feb of this year, or of
+ *  last year when we're in January). */
+export async function importPlanningSheet(febYear?: number): Promise<{ cells: number; skipped: string[] }> {
+  const { data: setting } = await db()
+    .from("app_settings").select("value").eq("key", "planning:sheet-id").maybeSingle();
+  const spreadsheetId =
+    typeof setting?.value === "string" ? setting.value : (setting?.value as { id?: string })?.id;
+  if (!spreadsheetId) throw new Error("planning:sheet-id is not set in app_settings.");
+
+  // anchor the term in Cairo time (matches src/lib/plan.ts) — the term starts
+  // in February, so a January import belongs to the PREVIOUS Feb-anchored term
+  const cairoNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Africa/Cairo" }));
+  const year = febYear ?? (cairoNow.getMonth() === 0 ? cairoNow.getFullYear() - 1 : cairoNow.getFullYear());
+
+  const { sheets } = clients();
+  const skipped: string[] = [];
+  const rows: { fn: string; scope: string; period_start: string; metric: string; value: number }[] = [];
+
+  for (const { fn, tab } of PLAN_TABS) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let grid: any[][];
+    try {
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `'${tab}'!A1:AZ80`,
+        valueRenderOption: "UNFORMATTED_VALUE",
+      });
+      grid = (res.data.values ?? []) as unknown[][];
+    } catch (e) {
+      skipped.push(`${tab}: ${e instanceof Error ? e.message : "unreadable"}`);
+      continue;
+    }
+    const m1 = fn.startsWith("O") ? "signups" : "opens";
+    const rowText = (r: unknown[]) => r.map((c) => String(c ?? "")).join(" ");
+
+    // ---- monthly block ----
+    const hdrIdx = grid.findIndex(
+      (r) => rowText(r).includes("February") && rowText(r).includes("Goal")
+    );
+    if (hdrIdx < 0) { skipped.push(`${tab}: monthly header not found`); continue; }
+    const hdr = grid[hdrIdx].map((c) => String(c ?? "").trim());
+    const monthCols = PLAN_MONTHS.map((m) => hdr.indexOf(m));
+    if (monthCols.some((c) => c < 0)) { skipped.push(`${tab}: month columns missing`); continue; }
+    PLAN_METRIC_ROWS.forEach((met, j) => {
+      const r = grid[hdrIdx + 1 + j] ?? [];
+      PLAN_MONTHS.forEach((mName, k) => {
+        rows.push({
+          fn, scope: "month", period_start: planMonthIso(mName, year),
+          metric: met === "m1" ? m1 : met, value: planNum(r[monthCols[k]]),
+        });
+      });
+    });
+
+    // ---- sprint block ----
+    const sIdx = grid.findIndex((r) => rowText(r).includes("LC goal distribution by Sprints"));
+    if (sIdx < 0) { skipped.push(`${tab}: sprint block not found`); continue; }
+    const sHdr = (grid[sIdx + 1] ?? []).map((c) => String(c ?? "").trim());
+    const sMonthCols = PLAN_MONTHS.map((m) => sHdr.indexOf(m));
+    if (sMonthCols.some((c) => c < 0)) { skipped.push(`${tab}: sprint month columns missing`); continue; }
+    PLAN_METRIC_ROWS.forEach((met, j) => {
+      const r = grid[sIdx + 3 + j] ?? [];
+      PLAN_MONTHS.forEach((mName, k) => {
+        const base = sMonthCols[k];
+        const monthIso = planMonthIso(mName, year);
+        rows.push({
+          fn, scope: "sprint", period_start: monthIso,
+          metric: met === "m1" ? m1 : met, value: planNum(r[base]),
+        });
+        rows.push({
+          fn, scope: "sprint", period_start: `${monthIso.slice(0, 8)}16`,
+          metric: met === "m1" ? m1 : met, value: planNum(r[base + 1]),
+        });
+      });
+    });
+  }
+
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error } = await db()
+      .from("plan_cells")
+      .upsert(
+        rows.slice(i, i + 500).map((r) => ({ ...r, imported_at: new Date().toISOString() })),
+        { onConflict: "fn,scope,period_start,metric" }
+      );
+    if (error) throw new Error(`plan_cells upsert failed: ${error.message}`);
+  }
+  return { cells: rows.length, skipped };
 }
 
 export type { Member };

@@ -42,8 +42,9 @@ async function laneAchieved(lane: string, from: string, to: string): Promise<num
     const money = lane === "BD";
     const { data } = await db()
       .from("deals")
-      .select(`${money ? "amount" : "slots"}, account:accounts!inner(function)`)
+      .select(`${money ? "amount" : "slots"}, account:accounts!inner(function, is_test)`)
       .in("account.function", money ? ["BD"] : ["B2B", "BD"])
+      .eq("account.is_test", false)
       .gte("created_at", `${from}T00:00:00Z`)
       .lte("created_at", `${to}T23:59:59Z`);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -55,7 +56,8 @@ async function laneAchieved(lane: string, from: string, to: string): Promise<num
   const col = lane === "IGV" ? "slots_igv" : lane === "IGTa" ? "slots_igta" : "slots_igte";
   const { data } = await db()
     .from("deals")
-    .select(col)
+    .select(`${col}, account:accounts!inner(is_test)`)
+    .eq("account.is_test", false)
     .gte("created_at", `${from}T00:00:00Z`)
     .lte("created_at", `${to}T23:59:59Z`);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -72,8 +74,9 @@ async function teamAchieved(
   if (teamIds.length === 0) return 0;
   const { data } = await db()
     .from("deals")
-    .select("slots, member_id")
+    .select("slots, member_id, account:accounts!inner(is_test)")
     .in("member_id", teamIds)
+    .eq("account.is_test", false)
     .gte("created_at", `${from}T00:00:00Z`)
     .lte("created_at", `${to}T23:59:59Z`);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

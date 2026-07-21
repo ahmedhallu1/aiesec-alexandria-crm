@@ -1,0 +1,72 @@
+import { redirect } from "next/navigation";
+import { getViewer, laneOpensActual, listMmPlans, listPlanCells } from "@/server/data";
+import { canSeePlanning } from "@/lib/rbac";
+import {
+  PLAN_FUNCTIONS,
+  isOgxPlanFn,
+  monthOf,
+  peakForPlanning,
+  planFunctionsFor,
+  quarterOf,
+  sprintOf,
+  type PlanFunction,
+} from "@/lib/plan";
+import { PlanningView } from "@/components/crm/planning-view";
+
+export const metadata = { title: "Planning" };
+
+/** The VP planning cockpit (v21): the imported "Alexandria | Planning Tool"
+ *  sheet (plan_cells) vs the opens actually raised, plus the MM plans filed
+ *  on first sign-in. Leadership only (canSeePlanning). */
+export default async function PlanningPage() {
+  const viewer = await getViewer();
+  if (!canSeePlanning(viewer)) redirect("/");
+
+  // LCP/admin see all six lanes; VPs/Directors just their own family pair(s).
+  const fns: PlanFunction[] =
+    viewer.isAdmin || viewer.role === "LCP"
+      ? [...PLAN_FUNCTIONS]
+      : planFunctionsFor(viewer.functions);
+  if (fns.length === 0) redirect("/");
+
+  const sprint = sprintOf();
+  const month = monthOf();
+  const quarter = quarterOf();
+  const peak = peakForPlanning();
+
+  // Actuals exist for ICX lanes only — OGX has no signup tracking in Sodio yet.
+  const hasIcx = fns.some((f) => !isOgxPlanFn(f));
+  const opts = { includeTest: !!viewer.testMode };
+  const [cells, mmPlans, sprintActual, monthActual, quarterActual] = await Promise.all([
+    listPlanCells(fns),
+    listMmPlans(),
+    hasIcx ? laneOpensActual(sprint.start, sprint.end, opts) : Promise.resolve(null),
+    hasIcx ? laneOpensActual(month.start, month.end, opts) : Promise.resolve(null),
+    hasIcx ? laneOpensActual(quarter.start, quarter.end, opts) : Promise.resolve(null),
+  ]);
+
+  // The running term (Feb → Jan) as first-of-month keys — S2 = the last six.
+  const y = Number(month.start.slice(0, 4));
+  const m = Number(month.start.slice(5, 7));
+  const startYear = m >= 2 ? y : y - 1;
+  const termMonths = Array.from({ length: 12 }, (_, i) => {
+    const mo = 2 + i; // 2..13
+    const yy = mo > 12 ? startYear + 1 : startYear;
+    const mm = ((mo - 1) % 12) + 1;
+    return `${yy}-${String(mm).padStart(2, "0")}-01`;
+  });
+
+  return (
+    <PlanningView
+      fns={fns}
+      cells={cells}
+      mmPlans={mmPlans}
+      sprint={sprint}
+      month={month}
+      quarter={quarter}
+      termMonths={termMonths}
+      peak={{ label: peak.label, months: peak.months }}
+      actuals={{ sprint: sprintActual, month: monthActual, quarter: quarterActual }}
+    />
+  );
+}

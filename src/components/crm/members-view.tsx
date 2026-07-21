@@ -17,14 +17,40 @@ import {
 import { Hint } from "./hint";
 import { WhatsAppIcon } from "./icons";
 
-const KPI_COLS = [
-  ["mr", "MR"],
-  ["contacted", "Cont."],
-  ["visits", "Vis."],
-  ["visitsDone", "Done"],
-  ["deals", "Deals"],
-  ["slots", "Opens"],
-] as const;
+/** v21 — each function has its own MOS, so the KPI set adapts per member:
+ *  raising (ICX raising / B2B) → the funnel with OPENS as MOS ·
+ *  BD → the funnel + MONEY (EGP) as MOS ·
+ *  consideration & OGX → APPROVALS (their filed plan — actuals come with the
+ *  consideration module) · others (TM/F&L/…) → no numbers yet. */
+function mosMetrics(m: MemberDirectoryEntry): { label: string; value: string }[] {
+  const k = m.kpis;
+  const funnel = [
+    { label: "MR", value: String(k.mr) },
+    { label: "Cont.", value: String(k.contacted) },
+    { label: "Vis.", value: String(k.visits) },
+    { label: "Done", value: String(k.visitsDone) },
+    { label: "Deals", value: String(k.deals) },
+  ];
+  if (m.mos === "raising") return [...funnel, { label: "Opens ★", value: String(k.slots) }];
+  if (m.mos === "bd")
+    return [...funnel, { label: "Opens", value: String(k.slots) },
+      { label: "EGP ★", value: k.egp.toLocaleString("en") }];
+  if (m.mos === "consideration" || m.mos === "ogx")
+    return [
+      { label: "APL (plan)", value: String(k.planApplicants) },
+      { label: "ACC (plan)", value: String(k.planAccepted) },
+      { label: "APD ★ (plan)", value: String(k.planApprovals) },
+    ];
+  return [];
+}
+
+const MOS_TAG: Record<MemberDirectoryEntry["mos"], string | null> = {
+  raising: "MOS: Opens",
+  bd: "MOS: Money (EGP)",
+  consideration: "MOS: Approvals",
+  ogx: "MOS: Approvals",
+  other: null,
+};
 
 /** email / call / WhatsApp shortcuts for one member. */
 function ContactButtons({ m }: { m: MemberDirectoryEntry }) {
@@ -186,14 +212,25 @@ export function MembersView({ members }: { members: MemberDirectoryEntry[] }) {
                 {m.team_name ? `${m.team_name} · ` : ""}
                 {m.manager ? `Manager: ${m.manager}` : "—"}
               </p>
-              <div className="grid grid-cols-6 gap-1 rounded-lg bg-muted/50 p-2 text-center">
-                {KPI_COLS.map(([key, label]) => (
-                  <div key={key}>
-                    <p className="text-sm font-bold">{m.kpis[key]}</p>
-                    <p className="text-[10px] text-muted-foreground">{label}</p>
-                  </div>
-                ))}
-              </div>
+              {mosMetrics(m).length > 0 ? (
+                <div className="flex flex-wrap gap-x-3 gap-y-1 rounded-lg bg-muted/50 p-2">
+                  {MOS_TAG[m.mos] ? (
+                    <span className="w-full text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+                      {MOS_TAG[m.mos]}
+                    </span>
+                  ) : null}
+                  {mosMetrics(m).map((c) => (
+                    <div key={c.label} className="text-center">
+                      <p className="text-sm font-bold">{c.value}</p>
+                      <p className="text-[10px] text-muted-foreground">{c.label}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="rounded-lg bg-muted/40 p-2 text-xs text-muted-foreground">
+                  No tracked numbers yet — their module is coming.
+                </p>
+              )}
             </CardContent>
           </Card>
         ))}
@@ -213,9 +250,7 @@ export function MembersView({ members }: { members: MemberDirectoryEntry[] }) {
                 <TableHead>Functions</TableHead>
                 <TableHead>Team</TableHead>
                 <TableHead>Manager</TableHead>
-                {KPI_COLS.map(([key, label]) => (
-                  <TableHead key={key} className="text-center">{label}</TableHead>
-                ))}
+                <TableHead>MOS / KPIs</TableHead>
                 <TableHead>Contact</TableHead>
               </TableRow>
             </TableHeader>
@@ -230,17 +265,25 @@ export function MembersView({ members }: { members: MemberDirectoryEntry[] }) {
                   <TableCell><FnChips functions={m.functions} /></TableCell>
                   <TableCell className="text-sm text-muted-foreground">{m.team_name ?? "—"}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{m.manager ?? "—"}</TableCell>
-                  {KPI_COLS.map(([key]) => (
-                    <TableCell key={key} className="text-center text-sm font-semibold">
-                      {m.kpis[key]}
-                    </TableCell>
-                  ))}
+                  <TableCell>
+                    {mosMetrics(m).length > 0 ? (
+                      <div className="flex max-w-md flex-wrap gap-x-3 gap-y-0.5">
+                        {mosMetrics(m).map((c) => (
+                          <span key={c.label} className="whitespace-nowrap text-xs text-muted-foreground">
+                            {c.label} <b className="text-sm text-foreground">{c.value}</b>
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
                   <TableCell><ContactButtons m={m} /></TableCell>
                 </TableRow>
               ))}
               {filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={12} className="py-10 text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
                     No members match.
                   </TableCell>
                 </TableRow>

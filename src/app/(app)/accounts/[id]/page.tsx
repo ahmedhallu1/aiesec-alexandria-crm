@@ -23,6 +23,8 @@ export async function generateMetadata({
   if (!viewer) return { title: "Account" };
   const account = await findAccountRow(id);
   if (!account || !canViewAccount(viewer, account)) return { title: "Account" };
+  // don't leak a test account's name in the tab title outside test mode
+  if (account.is_test && !viewer.testMode) return { title: "Account" };
   return { title: account.name };
 }
 

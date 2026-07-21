@@ -1,15 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
-  Activity, AlertTriangle, CheckCircle2, Database, ScrollText, Search, XCircle,
+  Activity, AlertTriangle, CheckCircle2, Database, FlaskConical, Loader2,
+  ScrollText, Search, Trash2, XCircle,
 } from "lucide-react";
 import { fmtDateTime } from "@/lib/types";
 import type { SystemHealth, AuditEntry } from "@/server/data";
+import { removeTestData, seedTestAccounts, setTestDataVisibility } from "@/server/actions";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 
 /** Small "time ago" for cron proxies. */
 function ago(iso: string | null): string {
@@ -43,9 +49,11 @@ const ACTION_TONE: Record<string, string> = {
 export function AdminView({
   health,
   audit,
+  testMode,
 }: {
   health: SystemHealth | null;
   audit: AuditEntry[];
+  testMode: { testAccounts: number; showTestData: boolean };
 }) {
   const [q, setQ] = useState("");
 
@@ -83,6 +91,8 @@ export function AdminView({
           instant pull.
         </p>
       </div>
+
+      <TestModeCard testMode={testMode} />
 
       {!health ? (
         <Card className="rise-in rise-in-1">
@@ -223,5 +233,110 @@ export function AdminView({
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/** v21 — the admin's test playground:
+ *  - seed/remove TEST accounts (is_test — invisible to everyone outside test
+ *    mode: lists, dashboards, leaderboards, calendar, mirrors, reports);
+ *  - "Show test data" switch: see them in YOUR OWN session;
+ *  - reminder that Test view (profile) defaults to the SANDBOX mode where all
+ *    actions are undone on exit and no emails/notifications leak. */
+function TestModeCard({
+  testMode,
+}: {
+  testMode: { testAccounts: number; showTestData: boolean };
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [busy, setBusy] = useState<"seed" | "wipe" | null>(null);
+
+  const seed = () =>
+    start(async () => {
+      setBusy("seed");
+      const res = await seedTestAccounts();
+      setBusy(null);
+      if (res.ok) {
+        toast.success(`🧪 ${res.data!.created} test accounts seeded across all functions.`);
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
+  const wipe = () =>
+    start(async () => {
+      setBusy("wipe");
+      const res = await removeTestData();
+      setBusy(null);
+      if (res.ok) {
+        toast.success(`🧹 ${res.data!.removed} test accounts removed.`);
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
+  const toggleShow = (show: boolean) =>
+    start(async () => {
+      const res = await setTestDataVisibility(show);
+      if (res.ok) {
+        toast.success(
+          show
+            ? "Test data is now VISIBLE in your session (marked TEST —)."
+            : "Test data hidden again."
+        );
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
+  return (
+    <Card className="rise-in rise-in-1 border-primary/30">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <FlaskConical className="size-4 text-primary" /> Test mode
+          {testMode.testAccounts > 0 ? (
+            <Badge variant="outline" className="font-normal">
+              {testMode.testAccounts} test accounts live
+            </Badge>
+          ) : null}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Seed <b>TEST accounts across every function</b> (various stages:
+          leads, contacted, visits, deals, archived) to try flows, dashboards
+          and filters with real-looking data. They are invisible to members —
+          only test views and this switch reveal them, and they never reach the
+          Drive mirrors or reports.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" onClick={seed} disabled={pending}>
+            {busy === "seed" ? <Loader2 className="size-4 animate-spin" /> : <FlaskConical className="size-4" />}
+            {testMode.testAccounts > 0 ? "Re-seed test accounts" : "Seed test accounts"}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-destructive hover:text-destructive"
+            onClick={wipe}
+            disabled={pending || testMode.testAccounts === 0}
+          >
+            {busy === "wipe" ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+            Remove test data
+          </Button>
+          <label className="ml-auto flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm">
+            Show test data in my session
+            <Switch
+              checked={testMode.showTestData}
+              onCheckedChange={toggleShow}
+              disabled={pending}
+            />
+          </label>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          💡 Start a <b>Test view</b> from your Profile to use the app as any
+          member — it opens in <b>Sandbox</b> by default: every action is rolled
+          back when you exit, and no emails, notifications or calendar events go
+          out. Flip the chip to <b>Real</b> only when you mean it.
+        </p>
+      </CardContent>
+    </Card>
   );
 }

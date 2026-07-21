@@ -3,7 +3,8 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Check, Eye, KeyRound, Loader2, Lock, Mail, Phone, Sparkles, Upload, Users, UsersRound } from "lucide-react";
+import Link from "next/link";
+import { Check, Eye, KeyRound, Loader2, Lock, Mail, MessageSquareHeart, Phone, Sparkles, Upload, Users, UsersRound } from "lucide-react";
 import { changePassword, startViewAs, stopViewAs, updateAvatar, updateProfile } from "@/server/actions";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -355,6 +356,25 @@ export function ProfileView({
           </CardContent>
         </Card>
       ) : null}
+
+      {/* system feedback moved here from the sidebar (v21) — the sidebar's
+          "LC Feedback" is about PEOPLE; this one is about Sodio itself */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <MessageSquareHeart className="size-4 text-muted-foreground" /> System feedback
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">
+            Found a bug? Want a feature? Tell the IM team — every report makes
+            Sodio better. 💙
+          </p>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/feedback">Give feedback</Link>
+          </Button>
+        </CardContent>
+      </Card>
 
       {viewAs ? <ViewAsCard viewAs={viewAs} /> : null}
     </div>

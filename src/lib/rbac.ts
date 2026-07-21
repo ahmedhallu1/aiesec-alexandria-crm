@@ -20,6 +20,14 @@ export interface Viewer extends Member {
   teamMemberIds: string[];
   /** set when an admin is test-viewing as this member ("View as" on profile) */
   impersonated?: boolean;
+  /** sandbox test view: mutations are journaled and undone on exit, and
+   *  outbound side effects (emails/notifications/calendar) are suppressed */
+  sandbox?: boolean;
+  /** the open test_sessions row backing the sandbox journal */
+  sandboxSession?: string | null;
+  /** test data (is_test accounts) is VISIBLE to this viewer — true during any
+   *  test view and when the admin flips "Show test data" on /admin */
+  testMode?: boolean;
 }
 
 export type AccountScope =
@@ -70,6 +78,16 @@ export function accountScope(v: Viewer): AccountScope {
   if (v.role === "Team Leader")
     return { kind: "members", ids: [v.id, ...v.teamMemberIds] };
   return { kind: "members", ids: [v.id] };
+}
+
+/** Who sees the /planning tab: LCP/admin + VPs & Directors of any planned
+ *  function (IGV/IGT + the OGX pair — the sheet covers all six product lanes).
+ *  OGX VPs lack raising access, so /planning must also ride the GateClient
+ *  `extra` prefixes for them (like /members does for TM). */
+export function canSeePlanning(v: Viewer): boolean {
+  if (master(v)) return true;
+  if (v.role !== "LCVP" && v.role !== "Director") return false;
+  return v.functions.some((f) => ["IGV", "IGT", "OGV", "OGT"].includes(f));
 }
 
 /** Whether the ICX Raising module is visible at all for this user. */

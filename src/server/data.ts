@@ -26,6 +26,7 @@ import type {
   Stage,
 } from "@/lib/types";
 import { normalizeName } from "@/lib/types";
+import { monthOf, sprintOf } from "@/lib/plan";
 
 export interface PipelineRow extends AccountPipeline {
   responsible_role: MemberRole;
@@ -77,16 +78,34 @@ export async function listViewAsTargets(): Promise<ViewAsTarget[]> {
 /** The effective viewer. When the REAL user is an admin and the view-as
  *  cookie is set, this becomes the impersonated member (marked
  *  `impersonated`) — the whole app then behaves exactly as it would for
- *  them, which is the point of the test view. */
+ *  them, which is the point of the test view.
+ *
+ *  Cookie format (v21): `<targetId>|<mode>|<sessionId>` where mode is
+ *  `sandbox` (default — journaled + undone on exit, side effects suppressed)
+ *  or `real`. A bare `<targetId>` (legacy) means real mode. Outside view-as,
+ *  the admin's `sodio-test-mode` cookie makes test accounts visible. */
 export const getViewer = cache(async (): Promise<Viewer> => {
   const real = await getRealViewer();
   if (!real.isAdmin) return real;
   const { cookies } = await import("next/headers");
-  const targetId = (await cookies()).get(VIEW_AS_COOKIE)?.value;
-  if (!targetId || targetId === real.id) return real;
+  const jar = await cookies();
+  const showTest = jar.get("sodio-test-mode")?.value === "1";
+  const raw = jar.get(VIEW_AS_COOKIE)?.value;
+  if (!raw) return showTest ? { ...real, testMode: true } : real;
+  const [targetId, mode, sessionId] = raw.split("|");
+  if (!targetId || targetId === real.id)
+    return showTest ? { ...real, testMode: true } : real;
   const target = await getViewerById(targetId);
-  if (!target) return real;
-  return { ...target, impersonated: true };
+  if (!target) return showTest ? { ...real, testMode: true } : real;
+  const sandbox = mode === "sandbox" && !!sessionId;
+  return {
+    ...target,
+    impersonated: true,
+    sandbox,
+    sandboxSession: sandbox ? sessionId : null,
+    // any test view sees the seeded test accounts — that's what they're for
+    testMode: true,
+  };
 });
 
 async function getViewerById(id: string): Promise<Viewer | null> {
@@ -194,6 +213,9 @@ async function buildAccountsQuery(
       ? { kind: "functions", fns: scope.fns.filter((f) => f !== "BD") }
       : scope;
   let query = applyScope(db().from("accounts_pipeline").select("*"), effScope);
+  // test accounts live in a parallel universe: visible ONLY in test mode
+  // (admin's "Show test data" toggle or any test view)
+  if (!viewer.testMode) query = query.eq("is_test", false);
   if (filters.archived) query = query.eq("out_of_process", true);
   else if (!filters.includeArchived) query = query.eq("out_of_process", false);
   if (filters.podioPending)
@@ -256,6 +278,9 @@ export async function findAccountRow(idOrSlug: string): Promise<PipelineRow | nu
 export async function getAccount(viewer: Viewer, idOrSlug: string) {
   const account = await findAccountRow(idOrSlug);
   if (!account || !canViewAccount(viewer, account)) return null;
+  // test accounts open ONLY in test mode — no guessing a test URL to see fake
+  // data (a followup email could even hand out the link)
+  if (account.is_test && !viewer.testMode) return null;
   const id = account.id;
 
   const [{ data: attempts }, { data: visits }, { data: comments }, { data: deals }] =
@@ -315,6 +340,7 @@ export async function checkAccountName(name: string): Promise<NameCheckResult> {
       .from("accounts_pipeline")
       .select("*")
       .eq("normalized_name", normalized)
+      .eq("is_test", false) // a hidden test account never blocks a real name
       .maybeSingle<PipelineRow>(),
     db()
       .from("blacklist")
@@ -628,8 +654,9 @@ export async function getDashboard(
     bdGoal = await getActiveGoal("function", "BD");
     let q = db()
       .from("deals")
-      .select("amount, account:accounts!inner(function)")
+      .select("amount, account:accounts!inner(function, is_test)")
       .eq("account.function", "BD");
+    if (!viewer.testMode) q = q.eq("account.is_test", false);
     if (filters.from) q = q.gte("created_at", `${filters.from}T00:00:00Z`);
     if (filters.to) q = q.lte("created_at", `${filters.to}T23:59:59Z`);
     const { data: bdDeals } = await q;
@@ -670,6 +697,49 @@ export async function getDashboard(
   }
   const teamGoal = teamLeadId ? await getActiveGoal("team", teamLeadId) : null;
 
+  // ---- VP plan snapshot (from the imported planning sheet) --------------
+  // Product lanes only: IGV / IGTa / IGTe map 1:1 to plan_cells.fn; the IGT
+  // lane sums IGTa+IGTe. Opens are planned monthly AND split per sprint; the
+  // consideration funnel is per sprint. Actual opens come from deals created
+  // in the window (per-product split — B2B deals feed the lanes too).
+  let lanePlan: LanePlan | null = null;
+  if (lane === "IGV" || lane === "IGTa" || lane === "IGTe" || lane === "IGT") {
+    const planFns = lane === "IGT" ? ["IGTa", "IGTe"] : [lane];
+    const [cells, sprint, month] = [await listPlanCells(planFns), sprintOf(), monthOf()];
+    if (cells.length > 0) {
+      const sum = (scope: string, keys: string[], metric: string) =>
+        cells
+          .filter((c) => c.scope === scope && keys.includes(c.period_start) && c.metric === metric)
+          .reduce((s, c) => s + c.value, 0);
+      const [sprintActual, monthActual] = await Promise.all([
+        laneOpensActual(sprint.start, sprint.end, { includeTest: !!viewer.testMode }),
+        laneOpensActual(month.start, month.end, { includeTest: !!viewer.testMode }),
+      ]);
+      const act = (a: { IGV: number; IGTa: number; IGTe: number }) =>
+        lane === "IGT" ? a.IGTa + a.IGTe : a[lane as "IGV" | "IGTa" | "IGTe"];
+      const funnel = (scope: string, keys: string[]) =>
+        (["applicants", "accepted", "approvals"] as const).map((m) => ({
+          metric: m,
+          value: sum(scope, keys, m),
+        }));
+      lanePlan = {
+        lane,
+        sprint: {
+          label: sprint.label,
+          plannedOpens: sum("sprint", sprint.planKeys, "opens"),
+          actualOpens: act(sprintActual),
+          funnel: funnel("sprint", sprint.planKeys),
+        },
+        month: {
+          label: month.label,
+          plannedOpens: sum("month", month.planKeys, "opens"),
+          actualOpens: act(monthActual),
+          funnel: funnel("month", month.planKeys),
+        },
+      };
+    }
+  }
+
   return {
     total,
     byFunction: [...byFunction.values()],
@@ -684,7 +754,21 @@ export async function getDashboard(
     bdMoneyAchieved,
     teamGoal,
     teamLeadId,
+    lanePlan,
   };
+}
+
+/** The dashboard's per-lane plan snapshot (current sprint + current month). */
+export interface LanePlan {
+  lane: string;
+  sprint: LanePlanWindow;
+  month: LanePlanWindow;
+}
+export interface LanePlanWindow {
+  label: string;
+  plannedOpens: number;
+  actualOpens: number;
+  funnel: { metric: string; value: number }[];
 }
 
 // ------------------------------------------------------------------ manual archive
@@ -793,6 +877,10 @@ export interface MemberDirectoryEntry {
   sub_functions: string[];
   team_name: string | null;
   manager: string | null;
+  /** which MOS family this member's numbers belong to (v21):
+   *  raising → opens · bd → money (EGP) · consideration/ogx → approvals (plan)
+   *  · other → info only */
+  mos: "raising" | "bd" | "consideration" | "ogx" | "other";
   /** the member's MOS/KPIs — their own accounts' funnel numbers */
   kpis: {
     mr: number;
@@ -801,6 +889,12 @@ export interface MemberDirectoryEntry {
     visitsDone: number;
     deals: number;
     slots: number;
+    /** BD only: Σ deal amounts (EGP) on their accounts */
+    egp: number;
+    /** consideration/OGX only: their mm_plans totals (applicants·accepted·approvals) */
+    planApplicants: number;
+    planAccepted: number;
+    planApprovals: number;
   };
 }
 
@@ -811,35 +905,92 @@ export async function listMembersDirectory(
 ): Promise<MemberDirectoryEntry[]> {
   if (!hasTmAccess(viewer)) return [];
 
-  const [{ data: membersData }, { data: accountsData }] = await Promise.all([
-    db()
-      .from("members")
-      .select(
-        "id, name, nickname, email, phone, role, functions, sub_functions, team_name, stakeholder_id"
-      )
-      .eq("is_active", true)
-      .order("name"),
-    db()
-      .from("accounts_pipeline")
-      .select("responsible_id, attempts, visit_id, visit_done, deals_count, slots_count")
-      .limit(5000),
-  ]);
+  const [{ data: membersData }, { data: accountsData }, { data: bdDeals }, { data: mmPlans }] =
+    await Promise.all([
+      db()
+        .from("members")
+        .select(
+          "id, name, nickname, email, phone, role, functions, sub_functions, team_name, stakeholder_id"
+        )
+        .eq("is_active", true)
+        .order("name"),
+      db()
+        .from("accounts_pipeline")
+        .select("responsible_id, attempts, visit_id, visit_done, deals_count, slots_count")
+        .eq("is_test", false)
+        .limit(5000),
+      // BD money: Σ deal amounts on BD accounts, per responsible
+      db()
+        .from("deals")
+        .select("amount, account:accounts!inner(responsible_id, function, is_test)")
+        .eq("account.function", "BD")
+        .eq("account.is_test", false),
+      db().from("mm_plans").select("member_id, applicants, accepted, approvals"),
+    ]);
 
   type Agg = MemberDirectoryEntry["kpis"];
+  const emptyAgg = (): Agg => ({
+    mr: 0, contacted: 0, visits: 0, visitsDone: 0, deals: 0, slots: 0,
+    egp: 0, planApplicants: 0, planAccepted: 0, planApprovals: 0,
+  });
   const kpisById = new Map<string, Agg>();
+  const agg = (id: string) => {
+    let k = kpisById.get(id);
+    if (!k) { k = emptyAgg(); kpisById.set(id, k); }
+    return k;
+  };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const a of (accountsData ?? []) as any[]) {
-    const k = kpisById.get(a.responsible_id) ?? {
-      mr: 0, contacted: 0, visits: 0, visitsDone: 0, deals: 0, slots: 0,
-    };
+    const k = agg(a.responsible_id);
     k.mr += 1;
     if (a.attempts > 0) k.contacted += 1;
     if (a.visit_id) k.visits += 1;
     if (a.visit_done) k.visitsDone += 1;
     k.deals += a.deals_count ?? 0;
     k.slots += a.slots_count ?? 0;
-    kpisById.set(a.responsible_id, k);
   }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const d of (bdDeals ?? []) as any[]) {
+    const owner = d.account?.responsible_id;
+    if (owner) agg(owner).egp += Number(d.amount) || 0;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const p of (mmPlans ?? []) as any[]) {
+    const k = agg(p.member_id);
+    k.planApplicants += p.applicants ?? 0;
+    k.planAccepted += p.accepted ?? 0;
+    k.planApprovals += p.approvals ?? 0;
+  }
+
+  /** MOS classification (v21) — mirrors the function definitions in rbac.ts,
+   *  but on bare member rows:
+   *  BD-only crew → money · B2B/BD → opens (raising) · ICX raising (or ICX
+   *  leaders) → opens · OGX → approvals · ICX consideration-only → approvals
+   *  · everyone else (TM/F&L/B2C/CXP/LCP…) → info only. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const classify = (m: any): MemberDirectoryEntry["mos"] => {
+    const fns: string[] = m.functions ?? [];
+    const subs: string[] = m.sub_functions ?? [];
+    const b2b = ["B2B", "BD"].some((f) => fns.includes(f) || subs.includes(f));
+    const icx = fns.includes("IGV") || fns.includes("IGT");
+    const ogx = fns.includes("OGV") || fns.includes("OGT");
+    if (b2b) {
+      // one crew, two MOS: money when they're BD-labeled only, else opens
+      const bdOnly = (fns.includes("BD") || subs.includes("BD")) &&
+        !fns.includes("B2B") && !subs.includes("B2B");
+      return bdOnly ? "bd" : "raising";
+    }
+    if (icx) {
+      const leader = m.role === "LCVP" || m.role === "Director";
+      const raising = subs.includes("Raising") || subs.includes("ICX");
+      const consideration = subs.includes("Consideration");
+      if (leader || raising) return "raising";
+      if (consideration) return "consideration";
+      return "raising";
+    }
+    if (ogx) return "ogx";
+    return "other";
+  };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const members = (membersData ?? []) as any[];
@@ -855,9 +1006,8 @@ export async function listMembersDirectory(
     sub_functions: m.sub_functions ?? [],
     team_name: m.team_name,
     manager: m.stakeholder_id ? nameById.get(m.stakeholder_id) ?? null : null,
-    kpis: kpisById.get(m.id) ?? {
-      mr: 0, contacted: 0, visits: 0, visitsDone: 0, deals: 0, slots: 0,
-    },
+    mos: classify(m),
+    kpis: kpisById.get(m.id) ?? emptyAgg(),
   }));
 }
 
@@ -977,13 +1127,15 @@ export async function listFunctionVisits(
   // hard server-side gate: no raising access → no visit data, ever (the
   // layout's ComingSoon overlay is cosmetic — RSC payloads still ship)
   if (!hasRaisingAccess(viewer)) return [];
-  const { data } = await db()
+  let visitsQuery = db()
     .from("visits")
     .select(
       "id, visit_date, visit_time, done, " +
-        "account:accounts(id, name, function, out_of_process), " +
+        "account:accounts!inner(id, name, function, out_of_process, is_test), " +
         "member:members(id, name, nickname)"
-    )
+    );
+  if (!viewer.testMode) visitsQuery = visitsQuery.eq("account.is_test", false);
+  const { data } = await visitsQuery
     .gte("visit_date", from)
     .lte("visit_date", to)
     .order("visit_date")
@@ -1006,7 +1158,7 @@ export async function listFunctionVisits(
 // ------------------------------------------------------------------ audit
 
 export async function logAudit(
-  actorId: string,
+  actorId: string | null,
   action: string,
   entity: string,
   entityId: string | null,
@@ -1154,6 +1306,7 @@ export async function getSystemHealth(): Promise<SystemHealth> {
     { key: "membership-import", label: "Membership import", note: "every 30 min" },
     { key: "sheets-export", label: "Sheets export", note: "hourly" },
     { key: "goal-reminders", label: "Goal reminders", note: "daily 06:00 UTC" },
+    { key: "period-reports", label: "Period reports", note: "daily 07:00 UTC (fires on sprint/month/quarter ends)" },
   ];
   const crons: SystemHealth["crons"] = [];
   try {
@@ -1172,6 +1325,393 @@ export async function getSystemHealth(): Promise<SystemHealth> {
   }
 
   return { checks, counts, crons };
+}
+
+// ================================================================== planning
+
+export interface PlanCell {
+  fn: string;
+  scope: "month" | "sprint";
+  period_start: string;
+  metric: string;
+  value: number;
+}
+
+/** All imported plan cells for the given plan-functions (IGV/IGTa/IGTe/OGV/OGTa/OGTe). */
+export async function listPlanCells(fns: string[]): Promise<PlanCell[]> {
+  if (fns.length === 0) return [];
+  const { data } = await db()
+    .from("plan_cells")
+    .select("fn, scope, period_start, metric, value")
+    .in("fn", fns)
+    .order("period_start");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[]).map((r) => ({ ...r, value: Number(r.value) })) as PlanCell[];
+}
+
+export interface MmPlanRow {
+  member_id: string;
+  member_name: string;
+  member_role: string;
+  team_name: string | null;
+  month: string;
+  applicants: number;
+  accepted: number;
+  approvals: number;
+  peak: string;
+}
+
+/** MM monthly plans for a set of members (or all when ids omitted). */
+export async function listMmPlans(memberIds?: string[]): Promise<MmPlanRow[]> {
+  let q = db()
+    .from("mm_plans")
+    .select("member_id, month, applicants, accepted, approvals, peak, member:members!member_id(name, nickname, role, team_name)")
+    .order("month");
+  if (memberIds && memberIds.length > 0) q = q.in("member_id", memberIds);
+  const { data } = await q;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[]).map((r) => ({
+    member_id: r.member_id,
+    member_name: r.member?.nickname || r.member?.name || "?",
+    member_role: r.member?.role ?? "",
+    team_name: r.member?.team_name ?? null,
+    month: r.month,
+    applicants: r.applicants,
+    accepted: r.accepted,
+    approvals: r.approvals,
+    peak: r.peak,
+  }));
+}
+
+/** Whether this member is an OGX/Consideration MM who still needs to fill
+ *  their first plan. MM = Team Leader or Coordinator. */
+export function isPlanningMm(v: {
+  role: string; functions: string[]; sub_functions: string[];
+}): boolean {
+  if (v.role !== "Team Leader" && v.role !== "Coordinator") return false;
+  const ogx = v.functions.some((f) => f === "OGV" || f === "OGT");
+  const icxConsid =
+    v.functions.some((f) => f === "IGV" || f === "IGT") &&
+    v.sub_functions.includes("Consideration");
+  return ogx || icxConsid;
+}
+
+/** True when an eligible MM has not filled a single plan month yet. */
+export async function needsMmPlan(v: Viewer): Promise<boolean> {
+  if (!isPlanningMm(v)) return false;
+  const { count } = await db()
+    .from("mm_plans")
+    .select("id", { count: "exact", head: true })
+    .eq("member_id", v.id);
+  return (count ?? 0) === 0;
+}
+
+/** Actual opens raised per product lane inside a date window — sum of each
+ *  deal's per-product split (B2B/BD deals feed the product lanes too). */
+export async function laneOpensActual(
+  fromIso: string,
+  toIso: string,
+  opts: { includeTest?: boolean } = {}
+): Promise<{ IGV: number; IGTa: number; IGTe: number }> {
+  const { data } = await db()
+    .from("deals")
+    .select("slots_igv, slots_igta, slots_igte, created_at, account:accounts!account_id(is_test)")
+    .gte("created_at", `${fromIso}T00:00:00`)
+    .lte("created_at", `${toIso}T23:59:59`);
+  const out = { IGV: 0, IGTa: 0, IGTe: 0 };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const d of (data ?? []) as any[]) {
+    if (!opts.includeTest && d.account?.is_test) continue;
+    out.IGV += d.slots_igv ?? 0;
+    out.IGTa += d.slots_igta ?? 0;
+    out.IGTe += d.slots_igte ?? 0;
+  }
+  return out;
+}
+
+// ================================================================== period reports (v21)
+
+export interface FunctionReportData {
+  functionLabel: string;
+  recipients: string[]; // whole function + the LCP
+  kpis: [string, string][];
+  planLine: string | null;
+  waterfallHeaders: string[];
+  waterfallRows: (string | number)[][];
+  boldRows: number[];
+  indentRows: number[];
+  mmPlanLines: string[];
+}
+
+/** Builds one function's period report: function totals, plan-vs-achieved and
+ *  the waterfall (every team in bold, every person under it). Window-based:
+ *  MR = accounts created in the window; contacts/visits/deals by their own
+ *  dates. Test accounts are always excluded. */
+export async function buildFunctionReport(
+  fnKey: "IGV" | "IGT" | "B2B",
+  window: { start: string; end: string },
+  kind: "sprint" | "month" | "quarter" = "month"
+): Promise<FunctionReportData | null> {
+  const isB2BReport = fnKey === "B2B";
+  const { data: membersData } = await db()
+    .from("members")
+    .select("id, name, nickname, email, role, functions, sub_functions, team_name, stakeholder_id")
+    .eq("is_active", true);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const allMembers = (membersData ?? []) as any[];
+  const inFn = (m: (typeof allMembers)[number]) =>
+    isB2BReport
+      ? ["B2B", "BD"].some((f) => (m.functions ?? []).includes(f) || (m.sub_functions ?? []).includes(f))
+      : (m.functions ?? []).includes(fnKey);
+  const crew = allMembers.filter(inFn);
+  if (crew.length === 0) return null;
+  const crewIds = new Set(crew.map((m) => m.id as string));
+  const lcp = allMembers.find((m) => m.role === "LCP");
+
+  // ---- window events on the crew's accounts --------------------------------
+  const fromTs = `${window.start}T00:00:00`;
+  const toTs = `${window.end}T23:59:59`;
+  const [{ data: accs }, { data: attempts }, { data: visits }, { data: deals }] =
+    await Promise.all([
+      db()
+        .from("accounts")
+        .select("id, responsible_id, created_at, is_test")
+        .eq("is_test", false)
+        .gte("created_at", fromTs)
+        .lte("created_at", toTs),
+      db()
+        .from("contact_attempts")
+        .select("id, member_id, account_id, created_at, account:accounts!inner(responsible_id, is_test)")
+        .eq("account.is_test", false)
+        .gte("created_at", fromTs)
+        .lte("created_at", toTs),
+      db()
+        .from("visits")
+        .select("id, member_id, done, visit_date, account:accounts!inner(responsible_id, is_test)")
+        .eq("account.is_test", false)
+        .gte("visit_date", window.start)
+        .lte("visit_date", window.end),
+      db()
+        .from("deals")
+        .select("id, member_id, slots, slots_igv, slots_igta, slots_igte, amount, created_at, account:accounts!inner(responsible_id, is_test)")
+        .eq("account.is_test", false)
+        .gte("created_at", fromTs)
+        .lte("created_at", toTs),
+    ]);
+
+  interface PersonStats {
+    mr: number; contacts: number; visits: number; visitsDone: number;
+    deals: number; opens: number; egp: number;
+  }
+  const zero = (): PersonStats =>
+    ({ mr: 0, contacts: 0, visits: 0, visitsDone: 0, deals: 0, opens: 0, egp: 0 });
+  const stats = new Map<string, PersonStats>();
+  const get = (id: string) => {
+    let s = stats.get(id);
+    if (!s) { s = zero(); stats.set(id, s); }
+    return s;
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const a of (accs ?? []) as any[])
+    if (crewIds.has(a.responsible_id)) get(a.responsible_id).mr++;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const c of (attempts ?? []) as any[]) {
+    const owner = c.account?.responsible_id;
+    if (owner && crewIds.has(owner)) get(owner).contacts++;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const v of (visits ?? []) as any[]) {
+    const owner = v.account?.responsible_id;
+    if (!owner || !crewIds.has(owner)) continue;
+    get(owner).visits++;
+    if (v.done) get(owner).visitsDone++;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const d of (deals ?? []) as any[]) {
+    const owner = d.account?.responsible_id;
+    if (!owner || !crewIds.has(owner)) continue;
+    const s = get(owner);
+    s.deals++;
+    s.opens += d.slots ?? 0;
+    s.egp += Number(d.amount) || 0;
+  }
+
+  // ---- waterfall: team (bold) → its people --------------------------------
+  const label = (m: (typeof crew)[number]) => m.nickname || m.name;
+  const tls = crew.filter((m) => m.role === "Team Leader");
+  const leaders = crew.filter((m) => m.role === "LCVP" || m.role === "Director");
+  const grouped = new Set<string>();
+  const headers = isB2BReport
+    ? ["Who", "MR", "Contacts", "Visits", "Done", "Deals", "Opens", "EGP"]
+    : ["Who", "MR", "Contacts", "Visits", "Done", "Deals", "Opens"];
+  const rows: (string | number)[][] = [];
+  const boldRows: number[] = [];
+  const indentRows: number[] = [];
+  const sum = (ids: string[]): PersonStats =>
+    ids.reduce((acc, id) => {
+      const s = stats.get(id) ?? zero();
+      acc.mr += s.mr; acc.contacts += s.contacts; acc.visits += s.visits;
+      acc.visitsDone += s.visitsDone; acc.deals += s.deals; acc.opens += s.opens; acc.egp += s.egp;
+      return acc;
+    }, zero());
+  const toCells = (who: string, s: PersonStats): (string | number)[] =>
+    isB2BReport
+      ? [who, s.mr, s.contacts, s.visits, s.visitsDone, s.deals, s.opens, s.egp ? `${s.egp.toLocaleString()} EGP` : 0]
+      : [who, s.mr, s.contacts, s.visits, s.visitsDone, s.deals, s.opens];
+
+  for (const tl of tls) {
+    const teamPeople = crew.filter((m) => m.stakeholder_id === tl.id && m.id !== tl.id);
+    const ids = [tl.id, ...teamPeople.map((m) => m.id)];
+    ids.forEach((id) => grouped.add(id));
+    boldRows.push(rows.length);
+    rows.push(toCells(`${tl.team_name || `Team ${label(tl)}`}`, sum(ids)));
+    indentRows.push(rows.length);
+    rows.push(toCells(`${label(tl)} (TL)`, stats.get(tl.id) ?? zero()));
+    for (const p of teamPeople) {
+      indentRows.push(rows.length);
+      rows.push(toCells(label(p), stats.get(p.id) ?? zero()));
+    }
+  }
+  const loose = crew.filter(
+    (m) => !grouped.has(m.id) && m.role !== "LCVP" && m.role !== "Director" && m.role !== "LCP"
+  );
+  if (loose.length > 0) {
+    boldRows.push(rows.length);
+    rows.push(toCells("No team yet", sum(loose.map((m) => m.id))));
+    for (const p of loose) {
+      indentRows.push(rows.length);
+      rows.push(toCells(label(p), stats.get(p.id) ?? zero()));
+    }
+  }
+  const leadersWithNumbers = leaders.filter((m) => stats.has(m.id));
+  if (leadersWithNumbers.length > 0) {
+    boldRows.push(rows.length);
+    rows.push(toCells("Leaders' own accounts", sum(leadersWithNumbers.map((m) => m.id))));
+    for (const p of leadersWithNumbers) {
+      indentRows.push(rows.length);
+      rows.push(toCells(`${label(p)} (${p.role})`, stats.get(p.id) ?? zero()));
+    }
+  }
+
+  const total = sum(crew.map((m) => m.id));
+  const kpis: [string, string][] = [
+    ["Market Research (accounts added)", String(total.mr)],
+    ["Contact attempts", String(total.contacts)],
+    ["Visits scheduled", String(total.visits)],
+    ["Visits done", String(total.visitsDone)],
+    ["Deals", String(total.deals)],
+    ["Opens raised", String(total.opens)],
+    ...(isB2BReport ? ([["BD money", `${total.egp.toLocaleString()} EGP`]] as [string, string][]) : []),
+  ];
+
+  // ---- plan vs achieved (opens) for planned lanes --------------------------
+  // every month key the window touches (a quarter spans 3 — not just its ends)
+  const windowMonthKeys: string[] = [];
+  {
+    let y = Number(window.start.slice(0, 4));
+    let m = Number(window.start.slice(5, 7));
+    const endKey = `${window.end.slice(0, 7)}`;
+    while (`${y}-${String(m).padStart(2, "0")}` <= endKey) {
+      windowMonthKeys.push(`${y}-${String(m).padStart(2, "0")}-01`);
+      m++;
+      if (m > 12) { m = 1; y++; }
+    }
+  }
+  let planLine: string | null = null;
+  if (!isB2BReport) {
+    const planFns = fnKey === "IGT" ? ["IGTa", "IGTe"] : [fnKey];
+    const cells = await listPlanCells(planFns);
+    // a SPRINT report compares against the sprint's planned opens (the plan
+    // splits opens per half-month); month/quarter use the month cells they span
+    const planned =
+      kind === "sprint"
+        ? cells
+            .filter((c) => c.scope === "sprint" && c.metric === "opens" && c.period_start === window.start)
+            .reduce((s, c) => s + c.value, 0)
+        : cells
+            .filter((c) => c.scope === "month" && c.metric === "opens" && windowMonthKeys.includes(c.period_start))
+            .reduce((s, c) => s + c.value, 0);
+    if (planned > 0) {
+      const actual = await laneOpensActual(window.start, window.end);
+      const ach = fnKey === "IGT" ? actual.IGTa + actual.IGTe : actual[fnKey];
+      const span = kind === "sprint" ? "this sprint" : windowMonthKeys.length > 1 ? "these months" : "this month";
+      planLine = `Plan check (opens): ${ach} raised of ~${planned} planned for ${span} (${planned ? Math.round((ach / planned) * 100) : 0}%).`;
+    }
+  }
+
+  // ---- MM plans covering the window ----------------------------------------
+  const mmPlanLines: string[] = [];
+  const { data: plans } = await db()
+    .from("mm_plans")
+    .select("member_id, month, applicants, accepted, approvals")
+    .in("month", windowMonthKeys);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const p of (plans ?? []) as any[]) {
+    const m = crew.find((c) => c.id === p.member_id);
+    if (!m) continue;
+    mmPlanLines.push(
+      `${label(m)} — ${p.month.slice(0, 7)}: ${p.applicants} applicants · ${p.accepted} accepted · ${p.approvals} approvals (plan)`
+    );
+  }
+
+  const recipients = [
+    ...crew.map((m) => m.email as string),
+    ...(lcp?.email ? [lcp.email as string] : []),
+  ].filter(Boolean);
+
+  return {
+    functionLabel: isB2BReport ? "B2B & BD" : fnKey,
+    recipients: [...new Set(recipients.map((e) => e.toLowerCase()))],
+    kpis,
+    planLine,
+    waterfallHeaders: headers,
+    waterfallRows: rows,
+    boldRows,
+    indentRows,
+    mmPlanLines,
+  };
+}
+
+// ================================================================== LC feedback
+
+export interface LcFeedbackRow {
+  id: string;
+  positive: boolean;
+  anonymous: boolean;
+  author: string | null; // hidden (null) when anonymous
+  aboutNames: string[];
+  message: string;
+  status: "new" | "seen" | "done";
+  created_at: string;
+}
+
+/** The LC people-feedback inbox — LCP + admin ONLY. Anonymous rows never
+ *  expose the author, not even here. */
+export async function listLcFeedback(viewer: Viewer): Promise<LcFeedbackRow[]> {
+  if (!viewer.isAdmin && viewer.role !== "LCP") return [];
+  const [{ data }, { data: membersData }] = await Promise.all([
+    db()
+      .from("lc_feedback")
+      .select("id, positive, anonymous, author_id, about, message, status, created_at")
+      .order("created_at", { ascending: false })
+      .limit(300),
+    db().from("members").select("id, name, nickname"),
+  ]);
+  const nameById = new Map(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ((membersData ?? []) as any[]).map((m) => [m.id, m.nickname || m.name])
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[]).map((r) => ({
+    id: r.id,
+    positive: r.positive,
+    anonymous: r.anonymous,
+    author: r.anonymous ? null : nameById.get(r.author_id) ?? "(left the LC)",
+    aboutNames: (r.about ?? []).map((id: string) => nameById.get(id) ?? "(left the LC)"),
+    message: r.message,
+    status: r.status,
+    created_at: r.created_at,
+  }));
 }
 
 /** Recent audit-log rows (admin page). Actor joined for a readable name. */

@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-07-18 · Version: v20
+Last updated: 2026-07-21 · Version: v21
 
 ---
 
@@ -37,7 +37,7 @@ the blueprint for future OGX/other-function modules.
 **Migrations** live in `supabase/migrations/` and are run **manually** in the
 Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v2`
 → `0003_ops_v2` → `0004_pins_v2` → `0005_deals` → `0006_admin_label` → `0007_visit_scheduled_result` → `0008_notifications_feedback` → `0009_b2b_deals_v9` → `0010_notif_link` → `0011_teams` → `0012_contracts_reminders` → `0013_director_label` → `0014_bd_podio` → `0015_bd_deal_amount` →
-`0016_comment_archive`.
+`0016_comment_archive` → `0017_planning_lcfeedback_testmode`.
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
@@ -442,14 +442,33 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | Goal reminder emails / cadence | `/api/cron/goal-reminders/route.ts`, announce in `setPerformanceGoal` |
 | Follow-up / forgotten-visit reminders | `/api/cron/visit-followups/route.ts`, templates in `email/templates.ts` |
 | Deal contract uploads | `requestContractUploads`/`confirmContractUploads`/`getContractUrl` in `actions.ts` |
+| Sprint/peak/quarter calendar math | `src/lib/plan.ts` |
+| Planning sheet parsing / re-import | `importPlanningSheet` in `src/lib/google/sheets.ts` |
+| Planning page / dashboard plan card | `planning-view.tsx` · `PlanCard` in `dashboard-view.tsx` · `lanePlan` in `getDashboard` |
+| MM plan flow (who must file, when) | `isPlanningMm`/`needsMmPlan` in `data.ts` · `peakForPlanning` in `plan.ts` · `/welcome/plan` |
+| Period reports (content / cadence / recipients) | `buildFunctionReport` in `data.ts` · `periodReportEmail` in `templates.ts` · `/api/cron/period-reports` |
+| Sandbox test view (undo / suppression) | `src/server/sandbox.ts` · `startViewAs`/`stopViewAs` in `actions.ts` · chip in `view-as-banner.tsx` |
+| Test data seeding | `seedTestAccounts`/`removeTestData` in `actions.ts` |
+| Feedback categories | `FEEDBACK_CATEGORIES` in `types.ts` |
+| LC people feedback | `submitLcFeedback` in `actions.ts` · `lc-feedback-view.tsx` · inbox via `listLcFeedback` |
 
 ---
 
 ## 9. Pending / operational notes
 
-- **All migrations 0001–0016 are RUN** (0001–0015 verified live 2026-07-16;
-  **0016_comment_archive applied 2026-07-18 via the Supabase MCP** — adds
-  `account_comments.archived boolean default false`).
+- **All migrations 0001–0017 are RUN** (0001–0015 verified live 2026-07-16;
+  0016 applied 2026-07-18; **0017_planning_lcfeedback_testmode applied
+  2026-07-21 via the Supabase MCP** — plan_cells, mm_plans, feedback.category,
+  lc_feedback, accounts.is_test (+ accounts_pipeline view column),
+  test_sessions, test_undo).
+- **PLANNING SHEET NOT YET SHARED WITH THE SERVICE ACCOUNT**: v21's initial
+  1512 plan cells were scraped from Ahmed's browser session and verified. For
+  the /planning **Re-import** button to work, share "Alexandria | Planning
+  Tool 26.1" (Viewer) with
+  `crm-sheets@gen-lang-client-0055329754.iam.gserviceaccount.com`.
+- The **period-reports pg_cron job** (daily 07:00 UTC) was scheduled directly
+  in prod (2026-07-21) by cloning the goal-reminders job's URL+key — it's in
+  supabase/cron.sql too for rebuilds.
 - **CRON_SECRET was rotated 2026-07-16**: the old pg_cron jobs had been
   scheduled with the literal `<CRON_SECRET>` placeholder (silent 401s — the
   production crons had likely never fired successfully). New 48-hex secret
@@ -481,6 +500,74 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-07-21 · v21** — **THE PLANNING RELEASE.** ① **VP planning imported
+  from the LC's sheet** ("Alexandria | Planning Tool 26.1", id
+  `1gmPTHjZdYC2i8jdzFZi6mX7-…`): the six 🎯 goal-setting tabs (iGV/iGTa/iGTe/
+  oGV/oGTa/oGTe — BD/B2B/TM skipped by request) were scraped via the user's
+  browser (the sheet is NOT yet shared with the service account —
+  `crm-sheets@gen-lang-client-0055329754.iam.gserviceaccount.com` needs Viewer
+  for re-imports), verified (all Q sums match) and seeded as **1512
+  `plan_cells` rows** (fn, scope month|sprint, period_start, metric, value).
+  Term Feb 2026→Jan 2027; **S1 summer = Feb–Jul, S2 winter = Aug–Jan
+  (current); sprints are HALF-MONTHS** (S1 = 1–15, S2 = 16–EOM); quarters
+  Q1 Feb-Apr · Q2 May-Jul · Q3 Aug-Oct · Q4 Nov-Jan. Calendar math in
+  `src/lib/plan.ts`; re-import parser `importPlanningSheet` in sheets.ts
+  (sheet id cached at app_settings `planning:sheet-id`); scrape reference doc
+  in the session scratchpad (PLANNING-REFERENCE.md). ② **/planning tab**
+  (`canSeePlanning` = LCP/admin + VPs/Directors of IGV/IGT/OGV/OGT; OGX VPs
+  enter via GateClient extra): per-function plan — sprint/month/quarter cards
+  (plan vs ACTUAL opens for ICX lanes via `laneOpensActual` from deals'
+  per-product splits; OGX = plan-only), full funnel tables, conversions,
+  monthly + sprint-split tables, MM plans, and a **Re-import** button
+  (`runPlanningImport`). ③ **Dashboard plan card** on product lanes
+  (`lanePlan` in getDashboard): current SPRINT's planned opens vs raised +
+  consideration plan chips, toggle to month. ④ **MM planning on first
+  sign-in** (`mm_plans`, migration 0017): OGX & Consideration MMs
+  (TL/Coordinator; `isPlanningMm`) are redirected to **/welcome/plan** after
+  onboarding to file applicants/accepted/approvals × the peak's 6 months
+  (peak from signup date via `peakForPlanning` — July→winter, January→summer
+  edge rule); `saveMmPlan` upserts; plans feed /planning, the members
+  directory and reports. ⑤ **Period reports** (`/api/cron/period-reports`,
+  daily 07:00 UTC, scheduled in pg_cron): when a sprint/month/quarter closes
+  (starting with the winter peak, Aug 2026), each function (IGV / IGT / B2B&BD)
+  + the LCP gets a **waterfall report email** — totals, plan-vs-achieved, per
+  team (bold) → per person rows (`buildFunctionReport` + `periodReportEmail`
+  + `gridTable` multi-col builder); idempotent via app_settings
+  `report:<kind>:<fn>:<start>`; `?test=1` sends a live preview to the IM
+  mailbox only. ⑥ **Admin test mode**: /admin gains a Test-mode card —
+  **Seed test accounts** (~11 `is_test=true` accounts across IGV/IGT/B2B/BD in
+  every stage incl. OOP + a 3-no-response flag case), **Remove test data**,
+  and a **Show-test-data switch** (`sodio-test-mode` cookie). Test accounts
+  are invisible everywhere (accounts query, dashboards, members KPIs,
+  calendar, Drive mirrors, reports) unless `viewer.testMode`. ⑦ **Sandbox
+  test view** (v3): startViewAs defaults to **sandbox** — cookie
+  `<target>|<mode>|<sessionId>` + `test_sessions` row; every mutation is
+  journaled to `test_undo` (via `recordUndo`/`snapshotForUndo` in
+  `src/server/sandbox.ts`, instrumented across accounts/contacts/visits/
+  deals/comments/goals/blacklist writes) and **rolled back in reverse on
+  exit** (`undoSandboxSession`); outbound side effects (emails, notifications,
+  calendar events, sheet write-backs, Gmail drafts) are **suppressed** in
+  sandbox (`sandboxSuppressed` checks the verified cookie). The fixed banner
+  became a **draggable chip** (view-as-banner.tsx): drag anywhere, snaps to
+  the nearest edge (position persisted in localStorage), collapses to a tab,
+  and carries the 🧪 Sandbox / ⚡ Real toggle (`setViewAsMode` — flips without
+  losing the undo journal). ⑧ **Feedback split**: SYSTEM feedback (form now
+  has **type-dependent categories** — `FEEDBACK_CATEGORIES` in types.ts,
+  `feedback.category` column, chips in the inbox) moved off the sidebar to a
+  **Profile card**; the sidebar gained **LC Feedback** (`/lc-feedback`,
+  ALWAYS_ALLOWED): feedback about PEOPLE — smart level-aware quick-pick chips
+  (a TL is never offered "My TL"), searchable multi-select (≤10), 🎉 positive
+  → bell + `lcShoutoutEmail` to the person (anonymous supported), 😟 negative
+  → `lc_feedback` table, **inbox visible ONLY to LCP + admin** behind an
+  "Inbox (n)" button on the form page (no sidebar tab). ⑨ **Members directory
+  MOS fix**: per-member `mos` class — raising/B2B → opens ★, **BD → money
+  (EGP ★)**, consideration & OGX → approvals (their **plan** until the
+  consideration module lands), others → "module coming"; one flexible MOS
+  cell replaces the uniform 6-column row. Playbook v21; Blue Man teaches all
+  of it. Migration **0017 applied via MCP** (plan_cells, mm_plans,
+  feedback.category, lc_feedback, accounts.is_test + view column,
+  test_sessions, test_undo).
 
 - **2026-07-18 · v20** — **Comment archiving** (migration `0016_comment_archive`,
   applied via the Supabase MCP): every comment gets an **Archive** button

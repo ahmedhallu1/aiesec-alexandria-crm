@@ -2,6 +2,7 @@ import { google } from "googleapis";
 import { env } from "@/lib/env";
 import { db } from "@/lib/supabase";
 import { cairoToUtc } from "@/lib/time";
+import { sandboxSuppressed } from "@/server/sandbox";
 
 export const LC_TIMEZONE = "Africa/Cairo";
 
@@ -77,6 +78,7 @@ export async function upsertMailboxVisitEvent(
   existingEventId: string | null,
   input: VisitEventInput
 ): Promise<string | null> {
+  if (await sandboxSuppressed("mailbox visit event")) return existingEventId;
   const cal = mailboxCalendar();
   const requestBody = eventBody(input);
   if (existingEventId) {
@@ -262,6 +264,7 @@ export async function createVisitEvent(
   refreshToken: string | null,
   input: VisitEventInput
 ): Promise<string | null> {
+  if (await sandboxSuppressed("visit calendar event")) return null;
   if (!refreshToken || !env.googleClientId) return null;
   const res = await calendarFor(refreshToken).events.insert({
     calendarId: "primary",
@@ -356,6 +359,7 @@ export async function upsertFollowupEvent(
   eventId: string | null,
   input: FollowupEventInput
 ): Promise<string | null> {
+  if (await sandboxSuppressed("next-step reminder event")) return eventId;
   if (!refreshToken || !env.googleClientId) return null;
   const cal = calendarFor(refreshToken);
   const requestBody = followupEventBody(input);

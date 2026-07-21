@@ -1,5 +1,6 @@
 import "server-only";
 import { db } from "@/lib/supabase";
+import { sandboxSuppressed } from "@/server/sandbox";
 
 export type NotificationKind =
   | "welcome"
@@ -9,6 +10,8 @@ export type NotificationKind =
   | "followup"
   | "thanks"
   | "broadcast"
+  | "lc_feedback"
+  | "report"
   | "info";
 
 /** Writes in-app notifications. Best-effort: failures are logged, never thrown
@@ -25,6 +28,7 @@ export async function notifyMembers(
 ): Promise<void> {
   const ids = [...new Set(memberIds)].filter(Boolean);
   if (ids.length === 0) return;
+  if (await sandboxSuppressed(`notification "${title}" → ${ids.length} member(s)`)) return;
   const rows = ids.map((member_id) => ({
     member_id,
     kind,

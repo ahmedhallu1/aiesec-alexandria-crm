@@ -15,6 +15,7 @@ import {
   MessageSquareHeart,
   BookOpen,
   Activity,
+  Target,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -35,7 +36,7 @@ interface ShellProps {
     photoUrl: string | null;
     isAdmin: boolean;
   };
-  nav: { raising: boolean; tm: boolean; membership: boolean; feedbackInbox: boolean };
+  nav: { raising: boolean; tm: boolean; membership: boolean; planning: boolean; feedbackInbox: boolean };
   signOutAction: () => Promise<void>;
   children: React.ReactNode;
 }
@@ -66,10 +67,13 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
           { href: "/calendar", label: "Calendar", icon: CalendarDays },
         ]
       : []),
+    ...(nav.planning ? [{ href: "/planning", label: "Planning", icon: Target }] : []),
     ...(nav.tm ? [{ href: "/members", label: "Talent Management", icon: UsersRound }] : []),
     ...(nav.membership ? [{ href: "/membership", label: "Membership", icon: Users }] : []),
     { href: "/playbook", label: "Playbook", icon: BookOpen },
-    { href: "/feedback", label: "Feedback", icon: MessageSquareHeart },
+    // system feedback moved to the Profile page (v21) — this is feedback about
+    // PEOPLE in the LC: shout-outs & concerns
+    { href: "/lc-feedback", label: "LC Feedback", icon: MessageSquareHeart },
     ...(nav.feedbackInbox ? [{ href: "/feedback/inbox", label: "Feedback inbox", icon: Inbox }] : []),
     ...(user.isAdmin ? [{ href: "/admin", label: "Health & Logs", icon: Activity }] : []),
   ];

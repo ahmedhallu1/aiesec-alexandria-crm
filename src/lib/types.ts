@@ -220,6 +220,8 @@ export interface Account {
   /** number of separate deals signed (one account can close many deals) */
   deals_count: number;
   contacts: AccountContact[];
+  /** seeded test account (admin test mode) — hidden outside test mode (v21) */
+  is_test: boolean;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -499,3 +501,27 @@ export const FEEDBACK_INBOX_EMAILS = [
   "ahmedhallul@aiesec.net",
   "omareldeeb123@aiesec.net",
 ] as const;
+
+/** System-feedback categories — the list adapts to the feedback type (v21). */
+export const FEEDBACK_CATEGORIES: Record<"Bug" | "Enhancement" | "Other", readonly string[]> = {
+  Bug: [
+    "Doesn't work / button dead",
+    "Wrong data / numbers",
+    "UI looks broken",
+    "Responsiveness / mobile",
+    "Slow / laggy",
+    "Login / access",
+    "Emails / notifications",
+    "Other",
+  ],
+  Enhancement: [
+    "New feature",
+    "UX / easier flow",
+    "Design / looks",
+    "Mobile experience",
+    "Automation / integration",
+    "Performance",
+    "Other",
+  ],
+  Other: ["Question", "Appreciation", "Idea", "Other"],
+} as const;

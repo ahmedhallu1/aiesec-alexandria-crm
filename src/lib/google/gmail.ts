@@ -1,5 +1,6 @@
 import { google } from "googleapis";
 import { env, requireEnv } from "@/lib/env";
+import { sandboxSuppressed } from "@/server/sandbox";
 
 /** Sends branded transactional email from the IM director's mailbox
  *  (GMAIL_SENDER) via the Gmail API using an offline refresh token. */
@@ -13,6 +14,7 @@ export async function sendEmail(opts: {
    *  Apple Mail add the event automatically (used for visit reminders). */
   ics?: { content: string; method?: "REQUEST" | "CANCEL" };
 }): Promise<void> {
+  if (await sandboxSuppressed(`email "${opts.subject}"`)) return;
   const missing = requireEnv("googleClientId", "googleClientSecret", "gmailRefreshToken", "gmailSender");
   if (missing) {
     console.warn(`[email] Not sent ("${opts.subject}"): ${missing}`);
@@ -95,6 +97,7 @@ export async function createMemberDraft(
     attachments?: { filename: string; mimeType: string; contentBase64: string }[];
   }
 ): Promise<string | null> {
+  if (await sandboxSuppressed(`gmail draft "${opts.subject}"`)) return "sandbox";
   const oauth2 = new google.auth.OAuth2(env.googleClientId, env.googleClientSecret);
   oauth2.setCredentials({ refresh_token: refreshToken });
   const gmail = google.gmail({ version: "v1", auth: oauth2 });

@@ -33,6 +33,8 @@ const KIND_ICON: Record<string, string> = {
   followup: "📝",
   thanks: "💙",
   broadcast: "📣",
+  lc_feedback: "💙",
+  report: "📊",
   info: "🔔",
 };
 

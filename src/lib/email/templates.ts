@@ -471,3 +471,98 @@ export function broadcastEmail(opts: {
     }),
   };
 }
+
+/** v21 — LC people feedback: a positive shout-out delivered to the member. */
+export function lcShoutoutEmail(opts: {
+  firstName: string;
+  from: string;
+  message: string;
+}): { subject: string; html: string } {
+  return {
+    subject: `💙 ${opts.from} appreciated you!`,
+    html: emailLayout({
+      preheader: "Someone in the LC has something nice to say about you.",
+      body: `
+        <h2 style="margin:0 0 10px;">You got a shout-out, ${escapeHtml(opts.firstName)}! 🎉</h2>
+        <p style="margin:0 0 6px;color:#5c6b80;">From <b>${escapeHtml(opts.from)}</b>:</p>
+        <p style="border-left:4px solid #0CB9C1;background:#f0fdfd;border-radius:0 8px 8px 0;padding:14px 16px;font-size:16px;font-style:italic;">
+          “${escapeHtml(opts.message)}”
+        </p>
+        <p style="margin:16px 0 0;">Keep doing what you're doing — people notice. 💙</p>`,
+    }),
+  };
+}
+
+// ------------------------------------------------------------- period reports
+
+/** Multi-column table for report waterfalls (detailsTable is 2-col only). */
+export function gridTable(
+  headers: string[],
+  rows: (string | number)[][],
+  opts: { boldRows?: number[]; indentCol0?: number[] } = {}
+): string {
+  const th = headers
+    .map(
+      (h, i) =>
+        `<th style="padding:7px 9px;background:#0d3a6e;color:#ffffff;font-size:12px;text-align:${i === 0 ? "left" : "center"};white-space:nowrap;">${escapeHtml(h)}</th>`
+    )
+    .join("");
+  const body = rows
+    .map((r, ri) => {
+      const bold = opts.boldRows?.includes(ri);
+      const indent = opts.indentCol0?.includes(ri);
+      return `<tr>${r
+        .map((c, ci) => {
+          const base = `padding:6px 9px;font-size:13px;border-bottom:1px solid #eef3fa;${ci === 0 ? `text-align:left;${indent ? "padding-left:24px;color:#5c6b80;" : ""}` : "text-align:center;"}`;
+          const weight = bold ? "font-weight:bold;background:#f0f7ff;" : "";
+          return `<td style="${base}${weight}">${escapeHtml(String(c))}</td>`;
+        })
+        .join("")}</tr>`;
+    })
+    .join("");
+  return `<div style="overflow-x:auto;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-radius:8px;overflow:hidden;margin:12px 0;border-collapse:collapse;">
+    <tr>${th}</tr>${body}
+  </table></div>`;
+}
+
+/** v21 — the per-function period report (sprint / month / quarter): function
+ *  totals, plan-vs-achieved, then the waterfall (each team → each member). */
+export function periodReportEmail(opts: {
+  functionLabel: string;
+  periodKind: "sprint" | "month" | "quarter";
+  periodLabel: string;
+  kpis: [string, string][];
+  planLine?: string | null;
+  waterfallHeaders: string[];
+  waterfallRows: (string | number)[][];
+  boldRows: number[];
+  indentRows: number[];
+  mmPlanLines?: string[];
+  dashboardUrl: string;
+}): { subject: string; html: string } {
+  const kindLabel =
+    opts.periodKind === "sprint" ? "Sprint report" : opts.periodKind === "month" ? "Monthly report" : "Quarter report";
+  return {
+    subject: `📊 ${opts.functionLabel} ${kindLabel} — ${opts.periodLabel}`,
+    html: emailLayout({
+      preheader: `${opts.functionLabel} numbers for ${opts.periodLabel} — totals + every member.`,
+      body: `
+        <h2 style="margin:0 0 4px;">${escapeHtml(opts.functionLabel)} · ${kindLabel}</h2>
+        <p style="margin:0 0 14px;color:#5c6b80;">${escapeHtml(opts.periodLabel)}</p>
+        ${opts.planLine ? `<p style="border-left:4px solid #037EF3;background:#f0f7ff;border-radius:0 8px 8px 0;padding:12px 16px;font-weight:600;">${escapeHtml(opts.planLine)}</p>` : ""}
+        <p style="margin:18px 0 4px;font-size:13px;font-weight:800;letter-spacing:0.6px;text-transform:uppercase;color:#037EF3;">Function totals</p>
+        ${detailsTable(opts.kpis)}
+        <p style="margin:22px 0 4px;font-size:13px;font-weight:800;letter-spacing:0.6px;text-transform:uppercase;color:#037EF3;">The waterfall — every team, every person</p>
+        <p style="margin:0 0 6px;color:#5c6b80;font-size:13px;">Bold rows are team totals; the rows under them are that team's people.</p>
+        ${gridTable(opts.waterfallHeaders, opts.waterfallRows, { boldRows: opts.boldRows, indentCol0: opts.indentRows })}
+        ${
+          opts.mmPlanLines && opts.mmPlanLines.length > 0
+            ? `<p style="margin:22px 0 4px;font-size:13px;font-weight:800;letter-spacing:0.6px;text-transform:uppercase;color:#037EF3;">MM plans this period</p>
+               <ul style="margin:6px 0;padding-left:20px;">${opts.mmPlanLines.map((l) => `<li style="margin:5px 0;">${escapeHtml(l)}</li>`).join("")}</ul>`
+            : ""
+        }
+        ${button("Open the dashboard", opts.dashboardUrl)}
+        <p style="margin:14px 0 0;color:#5c6b80;font-size:13px;">Numbers cover ${escapeHtml(opts.periodLabel)} only. Questions? Ask The Blue Man. 🔵</p>`,
+    }),
+  };
+}

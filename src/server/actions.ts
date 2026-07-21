@@ -18,6 +18,7 @@ import {
   reassignTargetScope,
 } from "@/lib/rbac";
 import { checkAccountName, getViewer, logAudit, type PipelineRow } from "./data";
+import { recordUndo, snapshotForUndo } from "./sandbox";
 import { sendEmail } from "@/lib/google/gmail";
 import { visitReportEmail } from "@/lib/email/templates";
 import {
@@ -35,6 +36,7 @@ import {
   accountSlug,
   cleanPhone,
   EMAIL_RE,
+  FEEDBACK_CATEGORIES,
   FEEDBACK_INBOX_EMAILS,
   LC_FUNCTIONS,
   MEMBER_ROLES,
@@ -321,6 +323,7 @@ export async function createAccount(
     });
   }
 
+  await recordUndo("accounts", created.id, "insert"); // children cascade on undo
   await logAudit(viewer.id, "create", "account", created.id, { name: data.name });
   refresh();
   return { ok: true, data: { id: created.id, slug: accountSlug(data.name) } };
@@ -378,6 +381,7 @@ export async function updateAccount(
     update.podio_submit_requested_at = null;
   }
 
+  await snapshotForUndo("accounts", accountId);
   const { error } = await db().from("accounts").update(update).eq("id", accountId);
   if (error) return fail(error.message);
   // next step touched (or the account auto-archived) → keep the calendar
@@ -427,6 +431,7 @@ export async function reassignAccount(
     (scope.kind === "members" && scope.ids.includes(target.id));
   if (!inScope) return fail("You can only reassign to members in your scope.", "forbidden");
 
+  await snapshotForUndo("accounts", accountId);
   const { error } = await db()
     .from("accounts")
     .update({ responsible_id: newResponsibleId })
@@ -450,6 +455,7 @@ export async function setOutOfProcess(
     return fail("You are not allowed to edit this account.", "forbidden");
   // never re-archive: it would overwrite the ORIGINAL reason/date
   if (account.out_of_process) return fail("This account is already archived.");
+  await snapshotForUndo("accounts", accountId);
   const { error } = await db()
     .from("accounts")
     .update({
@@ -490,6 +496,7 @@ export async function reviveAccount(accountId: string): Promise<ActionResult> {
   const account = await loadAccount(accountId);
   if (!account || !canReassignAccount(viewer, account))
     return fail("Only the Team Leader, VP or LCP can bring an account back into process.", "forbidden");
+  await snapshotForUndo("accounts", accountId);
   const { error } = await db()
     .from("accounts")
     .update({ out_of_process: false, oop_reason: null, oop_at: null })
@@ -531,15 +538,20 @@ async function insertArchivedName(
       "duplicate"
     );
 
-  const { error } = await db().from("blacklist").insert({
-    account_name: cleanName,
-    comments: cleanReason,
-    added_by: viewerId,
-  });
+  const { data: newEntry, error } = await db()
+    .from("blacklist")
+    .insert({
+      account_name: cleanName,
+      comments: cleanReason,
+      added_by: viewerId,
+    })
+    .select("id")
+    .single<{ id: string }>();
   if (error) {
     if (error.code === "23505") return fail(`"${cleanName}" is already in the archive.`, "archived");
     return fail(error.message);
   }
+  if (newEntry) await recordUndo("blacklist", newEntry.id, "insert");
   return { ok: true };
 }
 
@@ -592,8 +604,11 @@ export async function removeArchivedEntry(id: string): Promise<ActionResult> {
   const allowed =
     viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
   if (!allowed) return fail("Only VPs, Directors or the LCP remove archive entries.", "forbidden");
+  // sandbox: keep the row's content so exit can re-insert it
+  const { data: beforeRow } = await db().from("blacklist").select("*").eq("id", id).maybeSingle();
   const { error } = await db().from("blacklist").delete().eq("id", id);
   if (error) return fail(error.message);
+  if (beforeRow) await recordUndo("blacklist", id, "delete", beforeRow);
   await logAudit(viewer.id, "archive_remove", "blacklist", id);
   refresh();
   return { ok: true };
@@ -667,6 +682,7 @@ export async function recordDeal(
     return fail(error?.message ?? "The deal could not be saved — try again.");
   }
 
+  await recordUndo("deals", inserted.id, "insert");
   const totals = {
     slot_raised: true,
     slot_raised_at: new Date().toISOString(),
@@ -676,6 +692,7 @@ export async function recordDeal(
     slots_igta_count: (account.slots_igta_count ?? 0) + igta,
     slots_igte_count: (account.slots_igte_count ?? 0) + igte,
   };
+  await snapshotForUndo("accounts", accountId);
   const { error: updateError } = await db()
     .from("accounts")
     .update(totals)
@@ -815,8 +832,17 @@ export async function getContractUrl(
 
 /** Admin-only: see & use the whole app exactly as another member would.
  *  The check runs against the REAL session (never the impersonated viewer),
- *  so the admin can always start/stop regardless of the current test view. */
-export async function startViewAs(memberId: string): Promise<ActionResult<{ name: string }>> {
+ *  so the admin can always start/stop regardless of the current test view.
+ *
+ *  v21 — SANDBOX is the default: every mutation is journaled (test_undo) and
+ *  undone on exit, and outbound side effects (emails, notifications, calendar
+ *  events, sheet write-backs) are suppressed. `mode: "real"` restores the old
+ *  behavior (actions stick, side effects fire). The cookie carries
+ *  `<targetId>|<mode>|<sessionId>`. */
+export async function startViewAs(
+  memberId: string,
+  mode: "sandbox" | "real" = "sandbox"
+): Promise<ActionResult<{ name: string; mode: "sandbox" | "real" }>> {
   const { getRealViewer, VIEW_AS_COOKIE } = await import("./data");
   const real = await getRealViewer();
   if (!real.isAdmin) return fail("Only the admin can use the test view.", "forbidden");
@@ -829,26 +855,273 @@ export async function startViewAs(memberId: string): Promise<ActionResult<{ name
   if (!target || !target.is_active) return fail("That member doesn't exist (or is inactive).");
 
   const { cookies } = await import("next/headers");
-  (await cookies()).set(VIEW_AS_COOKIE, target.id, {
+  const jar = await cookies();
+
+  // reuse the open session when just SWITCHING target/mode mid-test-view —
+  // its undo journal must survive until the admin actually exits
+  const prev = jar.get(VIEW_AS_COOKIE)?.value?.split("|") ?? [];
+  let sessionId = prev[2] || null;
+  if (sessionId) {
+    const { data: open } = await db()
+      .from("test_sessions").select("id").eq("id", sessionId).is("ended_at", null).maybeSingle();
+    if (!open) sessionId = null;
+    else await db().from("test_sessions").update({ target_id: target.id, mode }).eq("id", sessionId);
+  }
+  if (!sessionId) {
+    const { data: session, error } = await db()
+      .from("test_sessions")
+      .insert({ admin_id: real.id, target_id: target.id, mode })
+      .select("id")
+      .single<{ id: string }>();
+    if (error || !session)
+      return fail(`Could not open a test session${error ? `: ${error.message}` : ""} — is migration 0017 applied?`);
+    sessionId = session.id;
+  }
+
+  jar.set(VIEW_AS_COOKIE, `${target.id}|${mode}|${sessionId}`, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
     maxAge: 60 * 60 * 4, // auto-expires after 4h so a test view can't linger
   });
-  await logAudit(real.id, "view_as_start", "member", target.id);
+  await logAudit(real.id, "view_as_start", "member", target.id, { mode });
   refresh();
-  return { ok: true, data: { name: target.nickname || target.name } };
+  return { ok: true, data: { name: target.nickname || target.name, mode } };
 }
 
-export async function stopViewAs(): Promise<ActionResult> {
+/** Flip the CURRENT test view between sandbox and real. Switching sandbox→real
+ *  first ROLLS BACK everything the sandbox phase journaled (you were "just
+ *  testing") so the real phase starts from a clean slate — this prevents a
+ *  later exit from clobbering a genuine real-mode edit to a row you'd also
+ *  touched in sandbox. Returns how many sandbox changes were rolled back. */
+export async function setViewAsMode(
+  mode: "sandbox" | "real"
+): Promise<ActionResult<{ rolledBack: number }>> {
+  const { getRealViewer, VIEW_AS_COOKIE } = await import("./data");
+  const real = await getRealViewer();
+  if (!real.isAdmin) return fail("Only the admin can use the test view.", "forbidden");
+  const { cookies } = await import("next/headers");
+  const jar = await cookies();
+  const raw = jar.get(VIEW_AS_COOKIE)?.value;
+  if (!raw) return fail("No test view is active.");
+  const [targetId, prevMode, sessionId] = raw.split("|");
+  if (!targetId || !sessionId) return fail("This test view predates modes — exit and start it again.");
+
+  let rolledBack = 0;
+  if (prevMode === "sandbox" && mode === "real") {
+    const { rollbackJournal } = await import("./sandbox");
+    rolledBack = await rollbackJournal(sessionId);
+  }
+  await db().from("test_sessions").update({ mode }).eq("id", sessionId);
+  jar.set(VIEW_AS_COOKIE, `${targetId}|${mode}|${sessionId}`, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 4,
+  });
+  await logAudit(real.id, "view_as_mode", "member", targetId, { mode, rolledBack });
+  refresh();
+  return { ok: true, data: { rolledBack } };
+}
+
+export async function stopViewAs(): Promise<ActionResult<{ undone: number }>> {
   const { getRealViewer, VIEW_AS_COOKIE } = await import("./data");
   const real = await getRealViewer(); // any signed-in user may clear their own cookie
   const { cookies } = await import("next/headers");
-  (await cookies()).delete(VIEW_AS_COOKIE);
-  await logAudit(real.id, "view_as_stop", "member", null);
+  const jar = await cookies();
+  const raw = jar.get(VIEW_AS_COOKIE)?.value;
+  jar.delete(VIEW_AS_COOKIE);
+
+  // roll back everything the sandbox journaled, then close the session
+  let undone = 0;
+  const sessionId = raw?.split("|")[2];
+  if (sessionId) {
+    const { undoSandboxSession } = await import("./sandbox");
+    undone = await undoSandboxSession(sessionId);
+  }
+  await logAudit(real.id, "view_as_stop", "member", null, undone ? { undone } : undefined);
+  refresh();
+  return { ok: true, data: { undone } };
+}
+
+// ================================================================== test mode
+
+/** Admin: show/hide the seeded test accounts in the REAL session (outside of
+ *  view-as). Test accounts are always visible inside a test view. */
+export async function setTestDataVisibility(show: boolean): Promise<ActionResult> {
+  const { getRealViewer } = await import("./data");
+  const real = await getRealViewer();
+  if (!real.isAdmin) return fail("Only the admin can toggle test mode.", "forbidden");
+  const { cookies } = await import("next/headers");
+  const jar = await cookies();
+  if (show)
+    jar.set("sodio-test-mode", "1", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60 * 12,
+    });
+  else jar.delete("sodio-test-mode");
   refresh();
   return { ok: true };
+}
+
+/** Admin: seeds a small universe of TEST accounts across every function —
+ *  various stages (lead / contacted / visit scheduled / visit done / deals /
+ *  archived) with contacts, so dashboards, drills, filters and flows all have
+ *  something to chew on. All rows carry is_test=true and are INVISIBLE outside
+ *  test mode (accounts list, dashboards, leaderboards, calendar, mirrors,
+ *  reports all filter them out). Safe to run twice — existing test accounts
+ *  are wiped first. */
+export async function seedTestAccounts(): Promise<ActionResult<{ created: number }>> {
+  const { getRealViewer } = await import("./data");
+  const real = await getRealViewer();
+  if (!real.isAdmin) return fail("Only the admin can seed test data.", "forbidden");
+
+  // start clean — cascades wipe old test contacts/visits/deals/comments
+  await db().from("accounts").delete().eq("is_test", true);
+
+  const { data: membersData } = await db()
+    .from("members")
+    .select("id, role, functions, sub_functions")
+    .eq("is_active", true);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const members = (membersData ?? []) as any[];
+  const pick = (pred: (m: (typeof members)[number]) => boolean) =>
+    members.filter(pred).map((m) => m.id as string);
+  const igv = pick((m) => (m.functions ?? []).includes("IGV"));
+  const igt = pick((m) => (m.functions ?? []).includes("IGT"));
+  const b2b = pick((m) => memberIsB2B(m));
+  const anyone = [real.id];
+  const cycle = (list: string[], i: number) => (list.length ? list[i % list.length] : anyone[0]);
+
+  const testContacts = (n: number) => [
+    { kind: "phone", value: `+2010000000${String(n).padStart(2, "0")}`, tag: "Whatsapp" },
+    { kind: "email", value: `test${n}@example.com`, tag: "Contact" },
+  ];
+
+  const specs: {
+    name: string; fn: string; product?: string | null; project?: string | null;
+    resp: string; stage: "lead" | "contacted" | "visit" | "visit_done" | "deal" | "oop" | "limit";
+    deal?: { igv: number; igta: number; igte: number; amount?: number };
+  }[] = [
+    { name: "TEST — Blue Lotus Cafe", fn: "IGV", project: "Skill Up!", resp: cycle(igv, 0), stage: "lead" },
+    { name: "TEST — Pharos Academy", fn: "IGV", project: "Rooted", resp: cycle(igv, 1), stage: "contacted" },
+    { name: "TEST — Corniche Dental", fn: "IGV", project: "Skill Up!", resp: cycle(igv, 2), stage: "visit" },
+    { name: "TEST — Alex Motors", fn: "IGV", project: "Global Classroom", resp: cycle(igv, 3), stage: "deal", deal: { igv: 3, igta: 0, igte: 0 } },
+    { name: "TEST — Delta Textiles", fn: "IGT", product: "GTa", resp: cycle(igt, 0), stage: "contacted" },
+    { name: "TEST — Sigma Software House", fn: "IGT", product: "GTa", resp: cycle(igt, 1), stage: "deal", deal: { igv: 0, igta: 2, igte: 0 } },
+    { name: "TEST — Nile English School", fn: "IGT", product: "GTe", resp: cycle(igt, 2), stage: "visit" },
+    { name: "TEST — Horizon Nursery", fn: "IGT", product: "GTe", resp: cycle(igt, 3), stage: "limit" },
+    { name: "TEST — Andalus Holding", fn: "B2B", resp: cycle(b2b, 0), stage: "deal", deal: { igv: 2, igta: 1, igte: 1 } },
+    { name: "TEST — Levant Trading Co", fn: "BD", resp: cycle(b2b, 1), stage: "deal", deal: { igv: 0, igta: 0, igte: 1, amount: 5000 } },
+    { name: "TEST — Old Town Bakery", fn: "IGV", project: "Skill Up!", resp: cycle(igv, 4), stage: "oop" },
+  ];
+
+  let created = 0;
+  for (const [i, s] of specs.entries()) {
+    const contacts = testContacts(i);
+    const { data: acc, error } = await db()
+      .from("accounts")
+      .insert({
+        function: s.fn,
+        name: s.name,
+        product: s.product ?? null,
+        project: s.project ?? null,
+        account_type: "Company",
+        industry: "Other",
+        contacts,
+        phone: contacts[0].value,
+        email: contacts[1].value,
+        responsible_id: s.resp,
+        created_by: real.id,
+        is_test: true,
+        ...(s.stage === "oop"
+          ? { out_of_process: true, oop_reason: "Not Interested", oop_at: new Date().toISOString() }
+          : {}),
+      })
+      .select("id")
+      .single();
+    if (error || !acc) {
+      console.error("[test-seed] account failed:", s.name, error?.message);
+      continue;
+    }
+    created++;
+
+    const attempt = (status: string, daysAgo: number) =>
+      db().from("contact_attempts").insert({
+        account_id: acc.id,
+        member_id: s.resp,
+        method: "Call",
+        status,
+        comment: "Seeded test attempt",
+        created_at: new Date(Date.now() - daysAgo * 864e5).toISOString(),
+      });
+
+    if (s.stage === "contacted") await attempt("Responded", 2);
+    if (s.stage === "limit") {
+      await attempt("No Response", 6);
+      await attempt("No Response", 4);
+      await attempt("No Response", 2);
+    }
+    if (s.stage === "visit" || s.stage === "visit_done" || s.stage === "deal") {
+      await attempt("Interested", 5);
+      const future = new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10);
+      const past = new Date(Date.now() - 2 * 864e5).toISOString().slice(0, 10);
+      await db().from("visits").insert({
+        account_id: acc.id,
+        member_id: s.resp,
+        visit_date: s.stage === "visit" ? future : past,
+        visit_time: "14:00",
+        ...(s.stage === "visit" ? {} : { done: true, visit_comment: "Great meeting (test)" }),
+      });
+    }
+    if (s.stage === "deal" && s.deal) {
+      const slots = s.deal.igv + s.deal.igta + s.deal.igte;
+      await db().from("deals").insert({
+        account_id: acc.id,
+        member_id: s.resp,
+        slots,
+        slots_igv: s.deal.igv,
+        slots_igta: s.deal.igta,
+        slots_igte: s.deal.igte,
+        ...(s.deal.amount ? { amount: s.deal.amount, benefits: "Test partnership" } : {}),
+        note: "Seeded test deal",
+      });
+      await db().from("accounts").update({
+        slot_raised: true,
+        slot_raised_at: new Date().toISOString(),
+        slots_count: slots,
+        deals_count: 1,
+        slots_igv_count: s.deal.igv,
+        slots_igta_count: s.deal.igta,
+        slots_igte_count: s.deal.igte,
+      }).eq("id", acc.id);
+    }
+  }
+
+  await logAudit(real.id, "test_seed", "system", null, { created });
+  refresh();
+  return { ok: true, data: { created } };
+}
+
+/** Admin: removes every test account (children cascade). */
+export async function removeTestData(): Promise<ActionResult<{ removed: number }>> {
+  const { getRealViewer } = await import("./data");
+  const real = await getRealViewer();
+  if (!real.isAdmin) return fail("Only the admin can remove test data.", "forbidden");
+  const { count } = await db()
+    .from("accounts")
+    .select("id", { count: "exact", head: true })
+    .eq("is_test", true);
+  const { error } = await db().from("accounts").delete().eq("is_test", true);
+  if (error) return fail(error.message);
+  await logAudit(real.id, "test_wipe", "system", null, { removed: count ?? 0 });
+  refresh();
+  return { ok: true, data: { removed: count ?? 0 } };
 }
 
 // ================================================================== bulk operations
@@ -913,6 +1186,7 @@ export async function requestPodioSubmit(accountId: string): Promise<ActionResul
   if (account.requested_podio || account.request_state)
     return fail("This account is already requested on Podio.");
 
+  await snapshotForUndo("accounts", accountId);
   const { error } = await db()
     .from("accounts")
     .update({ podio_submit_requested_at: new Date().toISOString() })
@@ -952,13 +1226,18 @@ export async function addComment(
   const text = body?.trim();
   if (!text) return fail("Write the comment first 🙂");
 
-  const { error } = await db().from("account_comments").insert({
-    account_id: accountId,
-    member_id: viewer.id,
-    author_label: commentLabel(viewer),
-    body: text,
-  });
+  const { data: newComment, error } = await db()
+    .from("account_comments")
+    .insert({
+      account_id: accountId,
+      member_id: viewer.id,
+      author_label: commentLabel(viewer),
+      body: text,
+    })
+    .select("id")
+    .single<{ id: string }>();
   if (error) return fail(error.message);
+  if (newComment) await recordUndo("account_comments", newComment.id, "insert");
   await logAudit(viewer.id, "comment", "account", accountId);
   refresh(accountId);
   return { ok: true };
@@ -980,6 +1259,7 @@ export async function toggleCommentPin(
   const account = await loadAccount(comment.account_id);
   if (!account || !canEditAccount(viewer, account))
     return fail("You are not allowed to pin comments on this account.", "forbidden");
+  await snapshotForUndo("account_comments", commentId);
   const { error } = await db()
     .from("account_comments")
     .update({ pinned })
@@ -1007,6 +1287,7 @@ export async function toggleCommentArchive(
   const account = await loadAccount(comment.account_id);
   if (!account || !canEditAccount(viewer, account))
     return fail("You are not allowed to archive comments on this account.", "forbidden");
+  await snapshotForUndo("account_comments", commentId);
   const { error } = await db()
     .from("account_comments")
     .update(archived ? { archived: true, pinned: false } : { archived: false })
@@ -1074,13 +1355,18 @@ export async function logContact(
     );
   }
 
-  const { error } = await db().from("contact_attempts").insert({
-    account_id: accountId,
-    member_id: viewer.id,
-    method,
-    status,
-    comment: comment || null,
-  });
+  const { data: newAttempt, error } = await db()
+    .from("contact_attempts")
+    .insert({
+      account_id: accountId,
+      member_id: viewer.id,
+      method,
+      status,
+      comment: comment || null,
+    })
+    .select("id")
+    .single<{ id: string }>();
+  if (newAttempt) await recordUndo("contact_attempts", newAttempt.id, "insert");
   if (error) {
     if (error.message.includes("enum contact_status"))
       return fail(
@@ -1090,6 +1376,7 @@ export async function logContact(
   }
 
   if (notInterested) {
+    await snapshotForUndo("accounts", accountId);
     await db()
       .from("accounts")
       .update({
@@ -1118,6 +1405,7 @@ export async function logContact(
   }
 
   if (nextStep || nextStepDate) {
+    await snapshotForUndo("accounts", accountId);
     await db()
       .from("accounts")
       .update({
@@ -1290,6 +1578,7 @@ export async function scheduleVisit(
 
   let visitId = pending?.id ?? null;
   if (pending) {
+    await snapshotForUndo("visits", pending.id);
     await db()
       .from("visits")
       .update({ visit_date: visitDate, visit_time: visitTime, followup_prompt_sent_at: null })
@@ -1307,6 +1596,7 @@ export async function scheduleVisit(
       .single();
     if (error) return fail(error.message);
     visitId = created.id;
+    await recordUndo("visits", created.id, "insert");
   }
 
   const token = responsible?.google_refresh_token ?? null;
@@ -1476,6 +1766,7 @@ export async function reportVisit(
   if (!account || !canEditAccount(viewer, account))
     return fail("You are not allowed to report this visit.", "forbidden");
 
+  await snapshotForUndo("visits", visitId);
   const { error } = await db()
     .from("visits")
     .update({ done, visit_comment: comment, next_step: nextStep || null })
@@ -1483,6 +1774,7 @@ export async function reportVisit(
   if (error) return fail(error.message);
 
   if (nextStep || nextStepDate) {
+    await snapshotForUndo("accounts", visit.account_id);
     await db()
       .from("accounts")
       .update({ next_step: nextStep || null, next_step_date: nextStepDate || null })
@@ -1532,27 +1824,39 @@ export async function reportVisit(
 
 export async function submitFeedback(input: {
   type: "Bug" | "Enhancement" | "Other";
+  category?: string;
   message: string;
   page?: string;
   anonymous?: boolean;
 }): Promise<ActionResult> {
   const viewer = await getViewer();
   if (!input.message?.trim()) return fail("Tell us what happened first 🙂");
+  // the category list depends on the type — validate against the pick-lists
+  const allowedCategories = FEEDBACK_CATEGORIES[input.type] ?? [];
+  const category =
+    input.category && (allowedCategories as readonly string[]).includes(input.category)
+      ? input.category
+      : null;
   const { error } = await db().from("feedback").insert({
     member_id: input.anonymous ? null : viewer.id,
     anonymous: !!input.anonymous,
     type: input.type,
+    category,
     message: input.message.trim(),
     page: input.page || null,
   });
-  if (error) return fail(error.message);
+  if (error) {
+    if (error.message.includes("category"))
+      return fail("Feedback categories need migration 0017 — run it in the Supabase SQL editor.");
+    return fail(error.message);
+  }
 
   // straight to the IM director + IM coach inboxes
   const { feedbackEmail } = await import("@/lib/email/templates");
   const mail = feedbackEmail({
     memberName: input.anonymous ? "Anonymous member 🎭" : viewer.nickname || viewer.name,
     memberEmail: input.anonymous ? "hidden" : viewer.email,
-    type: input.type,
+    type: category ? `${input.type} · ${category}` : input.type,
     message: input.message.trim(),
     inboxUrl: `${env.appUrl}/feedback/inbox`,
   });
@@ -1646,6 +1950,7 @@ export async function updateProfile(input: {
   const parsed = profileSchema.safeParse({ name: viewer.name, ...input });
   if (!parsed.success) return fail(parsed.error.issues[0].message);
 
+  await snapshotForUndo("members", viewer.id); // sandbox test view: roll back on exit
   const { error } = await db()
     .from("members")
     .update({ nickname: parsed.data.nickname, phone: parsed.data.phone })
@@ -1676,6 +1981,7 @@ export async function changePassword(input: {
       return fail('Your current password is wrong. Forgot it? Use "Forgot password" on the login page — a new one lands in your inbox.');
   }
   const password_hash = await bcrypt.hash(input.next, 10);
+  await snapshotForUndo("members", viewer.id); // sandbox test view: roll back on exit
   const { error } = await db()
     .from("members")
     .update({ password_hash, temp_password_hash: null })
@@ -1727,6 +2033,7 @@ export async function updateAvatar(url: string | null): Promise<ActionResult> {
     if (isDataImage && clean.length > 550_000)
       return fail("That image is too large — pick a smaller one (it's downscaled automatically, so try again).");
   }
+  await snapshotForUndo("members", viewer.id); // sandbox test view: roll back on exit
   const { error } = await db()
     .from("members")
     .update({ avatar_url: clean })
@@ -1896,6 +2203,7 @@ export async function updateAccountContacts(
   if (!account || !canEditAccount(viewer, account))
     return fail("You are not allowed to edit this account.", "forbidden");
 
+  await snapshotForUndo("accounts", accountId);
   const { list: clean, error: contactError } = cleanContacts(contacts);
   if (contactError) return fail(contactError);
 
@@ -1989,10 +2297,12 @@ export async function setPerformanceGoal(
     period_end: g.periodEnd,
     created_by: viewer.id,
   };
-  const { error } = found
-    ? await db().from("performance_goals").update(row).eq("id", found.id)
-    : await db().from("performance_goals").insert(row);
+  if (found) await snapshotForUndo("performance_goals", found.id);
+  const { data: goalRow, error } = found
+    ? await db().from("performance_goals").update(row).eq("id", found.id).select("id").single<{ id: string }>()
+    : await db().from("performance_goals").insert(row).select("id").single<{ id: string }>();
   if (error) return fail(error.message);
+  if (!found && goalRow) await recordUndo("performance_goals", goalRow.id, "insert");
   await logAudit(viewer.id, "set_goal", "goal", null, { ...row });
 
   // a NEW goal is announced to everyone it applies to (email + bell) — updates
@@ -2466,4 +2776,163 @@ export async function setFeedbackStatus(
   const { error } = await db().from("feedback").update({ status }).eq("id", feedbackId);
   if (error) return fail("Feedback workflow needs migration 0008.");
   return { ok: true };
+}
+
+// ================================================================== MM planning (v21)
+
+/** OGX & Consideration MMs (TLs/Coordinators) fill applicants/accepted/
+ *  approvals for each of their peak's 6 months on first sign-in. These are
+ *  their period goals — shown on /planning and in the period reports. */
+export async function saveMmPlan(
+  months: { month: string; applicants: number; accepted: number; approvals: number }[]
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const { isPlanningMm } = await import("./data");
+  if (!isPlanningMm(viewer))
+    return fail("The monthly plan is for OGX & Consideration MMs.", "forbidden");
+  if (!Array.isArray(months) || months.length === 0) return fail("Fill your plan first 🙂");
+  if (months.length > 12) return fail("A plan covers one peak (6 months).");
+
+  const { peakForPlanning } = await import("@/lib/plan");
+  const peak = peakForPlanning();
+  const allowed = new Set(peak.months);
+  const clamp = (n: unknown) => Math.max(0, Math.min(100000, Math.round(Number(n) || 0)));
+  const rows = months
+    .filter((m) => allowed.has(m.month))
+    .map((m) => ({
+      member_id: viewer.id,
+      month: m.month,
+      applicants: clamp(m.applicants),
+      accepted: clamp(m.accepted),
+      approvals: clamp(m.approvals),
+      peak: `${peak.name}-${peak.months[0].slice(0, 4)}`,
+      updated_at: new Date().toISOString(),
+    }));
+  if (rows.length === 0) return fail("Those months don't belong to the current peak.");
+
+  const { error } = await db()
+    .from("mm_plans")
+    .upsert(rows, { onConflict: "member_id,month" });
+  if (error) {
+    if (error.message.includes("mm_plans"))
+      return fail("MM planning needs migration 0017 — run it in the Supabase SQL editor.");
+    return fail(error.message);
+  }
+  await logAudit(viewer.id, "mm_plan_saved", "member", viewer.id, {
+    months: rows.length, peak: peak.name,
+  });
+  refresh();
+  return { ok: true };
+}
+
+// ================================================================== LC people feedback (v21)
+
+/** Feedback about PEOPLE in the LC (not the system): positive shout-outs go
+ *  straight to the person (bell + email); negative concerns land in an inbox
+ *  only the LCP + admin can read. The author is always stored for
+ *  accountability but NEVER shown when anonymous. */
+export async function submitLcFeedback(input: {
+  positive: boolean;
+  about: string[];
+  message: string;
+  anonymous?: boolean;
+}): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const message = input.message?.trim();
+  if (!message || message.length < 3) return fail("Write the feedback first 🙂");
+  const about = [...new Set(input.about ?? [])].filter((id) => id && id !== viewer.id);
+  if (about.length === 0) return fail("Pick at least one person (not yourself 🙂).");
+  if (about.length > 10) return fail("Max 10 people per feedback.");
+
+  const { data: targets } = await db()
+    .from("members")
+    .select("id, name, nickname, email")
+    .in("id", about)
+    .eq("is_active", true);
+  if (!targets || targets.length === 0) return fail("Those members don't exist.");
+
+  const { error } = await db().from("lc_feedback").insert({
+    author_id: viewer.id,
+    anonymous: !!input.anonymous,
+    positive: input.positive,
+    about: targets.map((t) => t.id),
+    message,
+  });
+  if (error) {
+    if (error.message.includes("lc_feedback"))
+      return fail("LC feedback needs migration 0017 — run it in the Supabase SQL editor.");
+    return fail(error.message);
+  }
+
+  if (input.positive) {
+    // shout-out → tell the person right away (bell + branded email)
+    const from = input.anonymous ? "Someone in the LC 🎭" : viewer.nickname || viewer.name;
+    const { notifyMembers } = await import("./notify");
+    await notifyMembers(
+      targets.map((t) => t.id),
+      "lc_feedback",
+      `💙 ${from} appreciated you!`,
+      message.slice(0, 300),
+      input.anonymous ? null : viewer.id
+    );
+    const { lcShoutoutEmail } = await import("@/lib/email/templates");
+    for (const t of targets) {
+      const mail = lcShoutoutEmail({
+        firstName: (t.nickname || t.name).split(" ")[0],
+        from,
+        message,
+      });
+      sendEmail({ to: [t.email], ...mail }).catch((e) =>
+        console.error("[lc-feedback] shout-out email failed:", e)
+      );
+    }
+  }
+  // negative feedback stays quiet: inbox-only (LCP + admin)
+
+  // NEVER attribute anonymous feedback in the audit log — the admin reads BOTH
+  // the audit log and the inbox, so an author here would deanonymize a concern.
+  // (The lc_feedback row keeps author_id at the DB layer for true abuse
+  // accountability, but that is never surfaced in any UI.)
+  await logAudit(input.anonymous ? null : viewer.id, "lc_feedback", "member", targets[0].id, {
+    positive: input.positive,
+    people: targets.length,
+    anonymous: !!input.anonymous,
+  });
+  return { ok: true };
+}
+
+export async function setLcFeedbackStatus(
+  id: string,
+  status: "new" | "seen" | "done"
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!viewer.isAdmin && viewer.role !== "LCP")
+    return fail("Only the LCP or admin manage this inbox.", "forbidden");
+  const { error } = await db().from("lc_feedback").update({ status }).eq("id", id);
+  if (error) return fail(error.message);
+  return { ok: true };
+}
+
+// ================================================================== planning import (v21)
+
+/** Re-imports the VP planning sheet ("Alexandria | Planning Tool") into
+ *  plan_cells. Requires the sheet to be shared with the service account. */
+export async function runPlanningImport(): Promise<ActionResult<{ cells: number; skipped: string[] }>> {
+  const viewer = await getViewer();
+  const { canSeePlanning } = await import("@/lib/rbac");
+  if (!canSeePlanning(viewer)) return fail("Planning owners only.", "forbidden");
+  try {
+    const { importPlanningSheet } = await import("@/lib/google/sheets");
+    const res = await importPlanningSheet();
+    await logAudit(viewer.id, "plan_import", "system", null, { cells: res.cells });
+    refresh();
+    return { ok: true, data: res };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Import failed.";
+    if (msg.includes("permission") || msg.includes("PERMISSION") || msg.includes("caller does not have"))
+      return fail(
+        "The planning sheet isn't shared with Sodio's service account yet — share it (Viewer) with crm-sheets@gen-lang-client-0055329754.iam.gserviceaccount.com and retry."
+      );
+    return fail(msg);
+  }
 }

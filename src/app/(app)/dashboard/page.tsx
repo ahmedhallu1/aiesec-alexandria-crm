@@ -130,6 +130,7 @@ export default async function DashboardPage({
       teamAchieved={data.teamAchieved}
       funcAchieved={data.funcAchieved}
       funcGoal={data.funcGoal}
+      lanePlan={data.lanePlan}
       bdGoal={data.bdGoal}
       bdMoneyAchieved={data.bdMoneyAchieved}
       teamGoal={data.teamGoal}
