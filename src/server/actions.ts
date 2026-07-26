@@ -2735,17 +2735,17 @@ export async function saveMmPlan(
 
 // ================================================================== TL planning (v22)
 
-/** Raising Team Leaders (IGV/IGT/B2B&BD) plan their team's OPENS per month of
- *  the peak — on first sign-in and any time later from the profile "My plan"
- *  card. These ARE the team goals: the dashboard's team card and the /planning
- *  page compare them with what the team actually raised. */
+/** Raising MMs — TLs & Coordinators of IGV/IGT/B2B&BD — plan OPENS per month
+ *  of the peak: on first sign-in and any time later from the profile "My plan"
+ *  card. A TL's plan IS the team goal (dashboard team card + /planning track
+ *  it); a Coordinator's plan tracks their own raising. */
 export async function saveTlPlan(
   months: { month: string; opens: number }[]
 ): Promise<ActionResult> {
   const viewer = await getViewer();
   const { isPlanningTl } = await import("./data");
   if (!isPlanningTl(viewer))
-    return fail("The opens plan is for raising Team Leaders.", "forbidden");
+    return fail("The opens plan is for raising TLs & Coordinators.", "forbidden");
   if (!Array.isArray(months) || months.length === 0) return fail("Fill your plan first 🙂");
   if (months.length > 12) return fail("A plan covers one peak (6 months).");
 

@@ -84,6 +84,7 @@ const SECTIONS: Section[] = [
       <>&quot;Not interested&quot; is a valid result: mark the account <b>Out of Process</b> with its reason — from the account page or the ✕ right on the list. Leaders can <b>Select</b> many accounts and archive or reassign them in one go (reassign only offers people you&apos;re allowed to hand accounts to). The archive IS the blacklist — those names never come back.</>,
       <><b>Comments</b> are numbered per author and can be <b>pinned</b> (they surface on the list) or <b>archived</b> to declutter — archived ones tuck behind an &quot;Archived (n)&quot; toggle on the comments card without changing the numbering.</>,
       <>On your phone, the little <b>Cards / Compact / Table</b> switcher above the accounts list lets you pick the density you like — it remembers your choice.</>,
+      <><b>Raising Coordinators plan too</b> (v22): on first sign-in Sodio asks for your <b>opens per month</b> of the peak, and the profile&apos;s <b>My plan</b> card lets you update it — with what you actually raised next to each month. Your VP sees it on the Planning board.</>,
     ],
   },
   {

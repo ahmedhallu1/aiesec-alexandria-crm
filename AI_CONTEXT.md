@@ -341,14 +341,17 @@ admin** (they already see the whole function). Filter bar sits on a single h-9
 baseline (the date range is one inline "Added → →" group) and KPI cards have
 equal-height labels so the numbers align.
 
-**TL plans (v22, `tl_plans`)**: raising Team Leaders (IGV/IGT or B2B/BD;
-`isPlanningTl` — consideration TLs keep the MM plan flow, never both) file
-their team's OPENS per month of the peak on first sign-in (`/welcome/plan-tl`,
-layout redirect via `needsTlPlan`) and edit any time from the profile
-**"My plan" card** (`tlPlanForProfile` — plan + the team's actual opens per
-month, allocation-attributed). `saveTlPlan` upserts (peak re-derived
-server-side like saveMmPlan). /planning gains a **"Team Leader plans"** card
-(`listTlPlans`) next to the MM plans.
+**Raising MM plans (v22, `tl_plans`)**: raising MMs — **Team Leaders AND
+Coordinators** of IGV/IGT or B2B/BD (`isPlanningTl`; consideration/OGX MMs
+keep the applicants/accepted/approvals `mm_plans` flow, never both — so EVERY
+MM plans) — file OPENS per month of the peak on first sign-in
+(`/welcome/plan-tl`, layout redirect via `needsTlPlan`) and edit any time from
+the profile **"My plan" card** (`tlPlanForProfile` — plan + actual opens per
+month, allocation-attributed; a TL's actuals cover the whole team, a
+Coordinator's their own). `saveTlPlan` upserts (peak re-derived server-side,
+sandbox-journaled). /planning gains a **"Raising MM plans"** card
+(`listTlPlans`) next to the MM plans. Only a TL's plan feeds the dashboard
+team card.
 
 **KPI row (this exact order, nothing else):** Market Research (total accounts) ·
 Contacted · Visits (scheduled) · Visits done · Deals (count of deals, not
@@ -506,11 +509,16 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
   2026-07-21 via the Supabase MCP** — plan_cells, mm_plans, feedback.category,
   lc_feedback, accounts.is_test (+ accounts_pipeline view column),
   test_sessions, test_undo).
-- **PLANNING SHEET NOT YET SHARED WITH THE SERVICE ACCOUNT**: v21's initial
-  1512 plan cells were scraped from Ahmed's browser session and verified. For
-  the /planning **Re-import** button to work, share "Alexandria | Planning
-  Tool 26.1" (Viewer) with
-  `crm-sheets@gen-lang-client-0055329754.iam.gserviceaccount.com`.
+- **PLANNING SHEET STILL NOT REACHABLE BY THE SERVICE ACCOUNT** (re-checked
+  2026-07-26 after Ahmed shared it: Drive returns "File not found" for the
+  service account = zero access — the share never landed, most likely an
+  aiesec.net external-sharing restriction or a mistyped address). v21's 1512
+  verified plan cells stay live. For the /planning **Re-import** button to
+  work, "Alexandria | Planning Tool 26.1" must be readable by
+  `crm-sheets@gen-lang-client-0055329754.iam.gserviceaccount.com` — either a
+  direct Viewer share (watch for the "sharing outside your organisation"
+  warning and confirm it), OR move/copy the sheet into the CRM Drive folder
+  (the folder is already shared with the service account).
 - The **period-reports pg_cron job** (daily 07:00 UTC) was scheduled directly
   in prod (2026-07-21) by cloning the goal-reminders job's URL+key — it's in
   supabase/cron.sql too for rebuilds.
@@ -521,11 +529,9 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
   rebuilt with it via one SQL script. If the secret ever rotates again:
   update BOTH env locations, redeploy, and re-run the four `cron.schedule`
   calls from `supabase/cron.sql` with the value substituted.
-- **CRON_SECRET mismatch:** the value in local `.env.local` differs from the
-  one in Vercel/pg_cron (Vercel marks it sensitive — unreadable). The
-  production crons work; only manual local triggering fails with 401. To sync:
-  run `select substring(command from 'key=([^']+)') from cron.job limit 1;` in
-  the Supabase SQL editor and paste the value into `.env.local`.
+- **CRON_SECRET is IN SYNC** since 2026-07-26: `.env.local` now carries the
+  same value as Vercel/pg_cron (pulled from `cron.job` and pasted in) — manual
+  local cron triggering works.
 - **Drive is already renamed** (done by Ahmed by hand): the old IGT sheet is
   now `CRM — Raising Accounts`, the blacklist sheet is `CRM — Archived
   Accounts`, the IGV sheet is deleted. The code finds them by (loose) title,
@@ -545,6 +551,18 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-07-26 · v22.1** — **Every raising MM plans**: `isPlanningTl` now
+  matches **Coordinators too** (was TLs only) — raising Coordinators of
+  IGV/IGT/B2B&BD file their own opens plan on first sign-in and from the
+  profile card (their actuals = their own allocation-attributed opens);
+  /planning card retitled "Raising MM plans". Role-aware copy on
+  /welcome/plan-tl + the profile card. Planning-sheet re-import attempted —
+  still blocked: the service account has ZERO access ("File not found"), the
+  share to `crm-sheets@gen-lang-client-0055329754.iam.gserviceaccount.com`
+  never landed (likely an aiesec.net external-sharing restriction). v21's
+  verified 1512 plan_cells stay live. Test period-report email sent to the IM
+  mailbox via `?test=1`.
 
 - **2026-07-26 · v22** — **GOALS = PLANNING + THE BIG IMPORT.** ① **Goal
   setting removed everywhere** ("no one sets goals from Sodio"): GoalDialog /

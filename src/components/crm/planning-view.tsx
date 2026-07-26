@@ -429,15 +429,15 @@ export function PlanningView({
       <Card className="rise-in rise-in-4">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <TrendingUp className="size-4 text-primary" /> Team Leader plans — opens
+            <TrendingUp className="size-4 text-primary" /> Raising MM plans — opens
             <span className="text-xs font-normal text-muted-foreground">· {peak.label}</span>
           </CardTitle>
         </CardHeader>
         <CardContent>
           {tlGroups.length === 0 ? (
             <p className="py-4 text-center text-sm text-muted-foreground">
-              No TL plans filed yet — raising Team Leaders are asked on sign-in
-              and can file/update from their profile.
+              No plans filed yet — raising TLs &amp; Coordinators are asked on
+              sign-in and can file/update from their profile.
             </p>
           ) : (
             <div className="grid gap-3 md:grid-cols-2">

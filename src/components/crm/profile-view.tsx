@@ -299,12 +299,13 @@ export function ProfileView({
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Target className="size-4 text-muted-foreground" /> My plan — team opens
+              <Target className="size-4 text-muted-foreground" /> My plan —{" "}
+              {member.role === "Team Leader" ? "team opens" : "opens"}
             </CardTitle>
             <p className="text-sm text-muted-foreground">
-              Your team&apos;s opens goal per month of the peak. This IS the team
-              goal — the dashboard and the Planning board track it against what
-              your team actually raises.
+              {member.role === "Team Leader"
+                ? "Your team's opens goal per month of the peak. This IS the team goal — the dashboard and the Planning board track it against what your team actually raises."
+                : "Your opens goal per month of the peak. Your VP sees it on the Planning board, and the Raised column tracks what you actually close."}
             </p>
           </CardHeader>
           <CardContent>
