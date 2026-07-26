@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Archive, ArchiveRestore, ArrowLeft, CalendarPlus, CheckCircle2, FileText, Loader2, Mail,
-  MessageSquareText, Paperclip, Phone, Pin, PinOff, RotateCcw, Trophy, Upload, XCircle,
+  MessageSquareText, Paperclip, Phone, Pin, PinOff, Plus, RotateCcw, Trophy, Upload, X,
+  XCircle,
 } from "lucide-react";
 import {
   addComment, confirmContractUploads, getContractUrl, reassignAccount, recordDeal,
@@ -58,7 +59,8 @@ const methodIcon = {
 };
 
 export function AccountDetailView({
-  account, attempts, visits, comments, deals, caps, reassignTargets, autoReportVisitId,
+  account, attempts, visits, comments, deals, caps, reassignTargets,
+  functionMembers, autoReportVisitId,
 }: {
   account: PipelineRow;
   attempts: AttemptWithMember[];
@@ -67,6 +69,8 @@ export function AccountDetailView({
   deals: DealWithMember[];
   caps: Caps;
   reassignTargets: { id: string; label: string }[];
+  /** everyone in the account's function — the deal opens-split picker (v22) */
+  functionMembers: { id: string; label: string }[];
   autoReportVisitId: string | null;
 }) {
   const pendingVisit = visits.find((v) => v.done === null) ?? null;
@@ -259,6 +263,9 @@ export function AccountDetailView({
         accountId={account.id}
         fn={account.function}
         dealNumber={account.deals_count + 1}
+        responsibleId={account.responsible_id}
+        responsibleLabel={account.responsible_nickname || account.responsible_name}
+        functionMembers={functionMembers}
         open={dealOpen}
         onOpenChange={setDealOpen}
       />
@@ -281,7 +288,8 @@ function ResponsibleRow({
   if (!canReassign || targets.length <= 1) {
     return (
       <p className="text-sm text-muted-foreground">
-        Responsible: <b>{account.responsible_nickname || account.responsible_name}</b>
+        Responsible:{" "}
+        <b>{account.responsible_nickname || account.responsible_name || "Unassigned"}</b>
         {account.out_of_process && account.oop_reason ? (
           <span className="text-destructive"> · Archived: {account.oop_reason}</span>
         ) : null}
@@ -293,7 +301,7 @@ function ResponsibleRow({
     <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
       <span>Responsible:</span>
       <Select
-        value={account.responsible_id}
+        value={account.responsible_id ?? undefined}
         disabled={pending}
         onValueChange={(v) =>
           start(async () => {
@@ -304,7 +312,7 @@ function ResponsibleRow({
         }
       >
         <SelectTrigger className="h-8 w-auto min-w-36">
-          <SelectValue />
+          <SelectValue placeholder="Unassigned" />
         </SelectTrigger>
         <SelectContent>
           {targets.map((t) => (
@@ -1063,6 +1071,18 @@ function TimelineCard({
                       <p className="text-muted-foreground">+ {d.benefits}</p>
                     ) : null}
                     {d.note ? <p className="text-muted-foreground">{d.note}</p> : null}
+                    {/* v22: the deal's opens split across members (if custom) */}
+                    {(d.allocations ?? []).length > 1 ? (
+                      <p className="text-xs text-muted-foreground">
+                        Opens split:{" "}
+                        {(d.allocations ?? [])
+                          .map((a) => {
+                            const n = a.slots_igv + a.slots_igta + a.slots_igte;
+                            return `${a.member?.nickname || a.member?.name || "?"} (${n})`;
+                          })
+                          .join(" · ")}
+                      </p>
+                    ) : null}
                     <p className="text-xs text-muted-foreground">
                       {d.member?.nickname || d.member?.name || "—"} · {fmtDateTime(d.created_at)}
                     </p>
@@ -1351,11 +1371,16 @@ function OopDialog({
 /** Records a deal's opens PER PRODUCT. IGV accounts sign IGV opens; IGT accounts
  *  split IGTa + IGTe; B2B accounts mix all three (e.g. 3 IGV + 2 IGTe + 1 IGTa). */
 function DealDialog({
-  accountId, fn, dealNumber, open, onOpenChange,
+  accountId, fn, dealNumber, responsibleId, responsibleLabel, functionMembers,
+  open, onOpenChange,
 }: {
   accountId: string;
   fn: "IGV" | "IGT" | "B2B" | "BD";
   dealNumber: number;
+  responsibleId: string | null;
+  responsibleLabel: string | null;
+  /** everyone in the account's function — the opens-split picker (v22) */
+  functionMembers: { id: string; label: string }[];
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
@@ -1369,6 +1394,12 @@ function DealDialog({
   const [files, setFiles] = useState<File[]>([]);
   const [celebrate, setCelebrate] = useState(false);
   const [pending, start] = useTransition();
+  // v22: optionally split THIS deal's opens across members (default: 100% to
+  // the responsible). Rows are {memberId, igv, igta, igte} as strings.
+  const [splitOn, setSplitOn] = useState(false);
+  const [splitRows, setSplitRows] = useState<
+    { memberId: string; igv: string; igta: string; igte: string }[]
+  >([]);
 
   // which product fields to show for this account
   const mixed = fn === "B2B" || fn === "BD"; // both raise for the whole ICX
@@ -1376,23 +1407,55 @@ function DealDialog({
   const showIgv = fn === "IGV" || mixed;
   const showIgta = fn === "IGT" || mixed;
   const showIgte = fn === "IGT" || mixed;
-  const total =
-    (showIgv ? Number(igv) || 0 : 0) +
-    (showIgta ? Number(igta) || 0 : 0) +
-    (showIgte ? Number(igte) || 0 : 0);
+  const dealIgv = showIgv ? Number(igv) || 0 : 0;
+  const dealIgta = showIgta ? Number(igta) || 0 : 0;
+  const dealIgte = showIgte ? Number(igte) || 0 : 0;
+  const total = dealIgv + dealIgta + dealIgte;
   const amountOk = (Number(amount) || 0) >= 1;
+
+  const toggleSplit = (on: boolean) => {
+    setSplitOn(on);
+    if (on && splitRows.length === 0) {
+      // start from the default: everything to the responsible
+      setSplitRows([
+        {
+          memberId: responsibleId ?? "",
+          igv: String(dealIgv),
+          igta: String(dealIgta),
+          igte: String(dealIgte),
+        },
+      ]);
+    }
+  };
+  const setSplitCell = (
+    i: number,
+    key: "memberId" | "igv" | "igta" | "igte",
+    value: string
+  ) => setSplitRows((rows) => rows.map((r, j) => (j === i ? { ...r, [key]: value } : r)));
+  const splitSum = (key: "igv" | "igta" | "igte") =>
+    splitRows.reduce((s, r) => s + (Number(r[key]) || 0), 0);
+  const splitMatches =
+    splitSum("igv") === dealIgv && splitSum("igta") === dealIgta && splitSum("igte") === dealIgte;
+  const splitMembersOk =
+    splitRows.every((r) => r.memberId) &&
+    new Set(splitRows.map((r) => r.memberId)).size === splitRows.length;
+  const splitOk = !splitOn || total === 0 || (splitMatches && splitMembersOk);
 
   const submit = () =>
     start(async () => {
       const res = await recordDeal(
         accountId,
-        {
-          igv: showIgv ? Number(igv) || 0 : 0,
-          igta: showIgta ? Number(igta) || 0 : 0,
-          igte: showIgte ? Number(igte) || 0 : 0,
-        },
+        { igv: dealIgv, igta: dealIgta, igte: dealIgte },
         note,
-        isBD ? { amount: Number(amount) || 0, benefits: benefits.trim() || undefined } : undefined
+        isBD ? { amount: Number(amount) || 0, benefits: benefits.trim() || undefined } : undefined,
+        splitOn && total > 0
+          ? splitRows.map((r) => ({
+              memberId: r.memberId,
+              igv: Number(r.igv) || 0,
+              igta: Number(r.igta) || 0,
+              igte: Number(r.igte) || 0,
+            }))
+          : undefined
       );
       if (res.ok) {
         toast.success(
@@ -1408,6 +1471,7 @@ function DealDialog({
         setCelebrate(true);
         setIgv(fn === "IGV" ? "1" : "0"); setIgta("0"); setIgte("0"); setNote(""); setFiles([]);
         setAmount(""); setBenefits("");
+        setSplitOn(false); setSplitRows([]);
         onOpenChange(false);
         router.refresh();
       } else toast.error(res.error);
@@ -1478,6 +1542,98 @@ function DealDialog({
               {!isBD || total > 0 ? `${total} open${total === 1 ? "" : "s"}` : null}
             </b>
           </p>
+
+          {/* v22: split the opens across members (default = all to the responsible) */}
+          {total > 0 && functionMembers.length > 1 ? (
+            <div className="rounded-lg border p-3">
+              <label className="flex items-center justify-between gap-2 text-sm font-medium">
+                <span>Split the opens between members</span>
+                <Switch checked={splitOn} onCheckedChange={toggleSplit} />
+              </label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {splitOn
+                  ? "Who gets how many of this deal's opens? The split must add up exactly."
+                  : `All ${total} open${total === 1 ? "" : "s"} go to ${responsibleLabel ?? "the account's responsible"}.`}
+              </p>
+              {splitOn ? (
+                <div className="mt-3 grid gap-2">
+                  {splitRows.map((r, i) => (
+                    <div key={i} className="flex flex-wrap items-center gap-1.5">
+                      <Select
+                        value={r.memberId || undefined}
+                        onValueChange={(v) => setSplitCell(i, "memberId", v)}
+                      >
+                        <SelectTrigger className="h-8 w-36 flex-1">
+                          <SelectValue placeholder="Member…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {functionMembers.map((m) => (
+                            <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {showIgv ? (
+                        <Input
+                          type="number" min={0} inputMode="numeric"
+                          aria-label="IGV opens for this member"
+                          className="h-8 w-16 text-gv"
+                          value={r.igv}
+                          onChange={(e) => setSplitCell(i, "igv", e.target.value)}
+                        />
+                      ) : null}
+                      {showIgta ? (
+                        <Input
+                          type="number" min={0} inputMode="numeric"
+                          aria-label="IGTa opens for this member"
+                          className="h-8 w-16 text-gt"
+                          value={r.igta}
+                          onChange={(e) => setSplitCell(i, "igta", e.target.value)}
+                        />
+                      ) : null}
+                      {showIgte ? (
+                        <Input
+                          type="number" min={0} inputMode="numeric"
+                          aria-label="IGTe opens for this member"
+                          className="h-8 w-16 text-gte"
+                          value={r.igte}
+                          onChange={(e) => setSplitCell(i, "igte", e.target.value)}
+                        />
+                      ) : null}
+                      {splitRows.length > 1 ? (
+                        <Button
+                          type="button" variant="ghost" size="icon" className="size-8"
+                          aria-label="Remove this member from the split"
+                          onClick={() => setSplitRows((rows) => rows.filter((_, j) => j !== i))}
+                        >
+                          <X className="size-4" />
+                        </Button>
+                      ) : null}
+                    </div>
+                  ))}
+                  <Button
+                    type="button" variant="outline" size="sm" className="w-fit"
+                    onClick={() =>
+                      setSplitRows((rows) => [...rows, { memberId: "", igv: "0", igta: "0", igte: "0" }])
+                    }
+                  >
+                    <Plus className="size-4" /> Add member
+                  </Button>
+                  {!splitMatches ? (
+                    <p className="text-xs font-medium text-warning">
+                      The split must add up to the deal:{" "}
+                      {showIgv ? `IGV ${splitSum("igv")}/${dealIgv} ` : ""}
+                      {showIgta ? `IGTa ${splitSum("igta")}/${dealIgta} ` : ""}
+                      {showIgte ? `IGTe ${splitSum("igte")}/${dealIgte}` : ""}
+                    </p>
+                  ) : !splitMembersOk ? (
+                    <p className="text-xs font-medium text-warning">
+                      Pick a member for every row (each one once).
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <div className="grid gap-1.5">
             <Label>Note (optional)</Label>
             <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. summer peak bulk deal" />
@@ -1497,7 +1653,7 @@ function DealDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button onClick={submit} disabled={pending || (isBD ? !amountOk : total < 1)}>
+          <Button onClick={submit} disabled={pending || (isBD ? !amountOk : total < 1) || !splitOk}>
             {pending ? "Saving…" : files.length > 0 ? `Record deal + upload ${files.length} file${files.length === 1 ? "" : "s"}` : "Record deal"}
           </Button>
         </DialogFooter>

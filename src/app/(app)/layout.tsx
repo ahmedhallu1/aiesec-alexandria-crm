@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getViewer, listViewAsTargets, needsMmPlan } from "@/server/data";
+import { getViewer, listViewAsTargets, needsMmPlan, needsTlPlan } from "@/server/data";
 import {
   hasRaisingAccess, hasTmAccess, canManageMembership, canSeeFeedbackInbox,
   canSeePlanning,
@@ -22,6 +22,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // onboarding — the numbers ARE their period goals
   if (viewer.profile_completed_at && !viewer.impersonated && (await needsMmPlan(viewer)))
     redirect("/welcome/plan");
+
+  // raising Team Leaders file their team's OPENS plan the same way (v22) —
+  // it IS the team goal; editable later from the profile "My plan" card
+  if (viewer.profile_completed_at && !viewer.impersonated && (await needsTlPlan(viewer)))
+    redirect("/welcome/plan-tl");
 
   const raising = hasRaisingAccess(viewer);
   const tm = hasTmAccess(viewer);

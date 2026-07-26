@@ -185,34 +185,112 @@ export interface AccountFilters {
   podioPending?: boolean;
 }
 
+/** Supabase caps one response at 1000 rows — big reads must page. */
+const DB_PAGE = 1000;
+/** Sanity ceiling for "fetch everything" reads (dashboards, mirrors). */
+const MAX_FETCH_ROWS = 20000;
+
+/** Pages through a query in 1000-row chunks. The builder MUST apply a stable
+ *  order (we re-run it per page) or rows can repeat/skip across pages. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function fetchAll<T>(build: () => any, max = MAX_FETCH_ROWS): Promise<T[]> {
+  const out: T[] = [];
+  for (let off = 0; off < max; off += DB_PAGE) {
+    const { data, error } = await build().range(off, Math.min(off + DB_PAGE, max) - 1);
+    if (error) throw error;
+    const chunk = (data ?? []) as T[];
+    out.push(...chunk);
+    if (chunk.length < DB_PAGE) break;
+  }
+  return out;
+}
+
+/** ALL matching accounts (paged under the hood) — dashboards, mirrors, the
+ *  assistant. The accounts LIST page uses listAccountsPage instead.
+ *  `max` caps the fetch for consumers that only need the freshest slice. */
 export async function listAccounts(
   viewer: Viewer,
-  filters: AccountFilters = {}
+  filters: AccountFilters = {},
+  max = MAX_FETCH_ROWS
 ): Promise<PipelineRow[]> {
-  const attempt = (bdSafe: boolean) => buildAccountsQuery(viewer, filters, bdSafe);
-  let { data, error } = await attempt(false);
-  // MIGRATION-0014 GRACE: before the migration runs, Postgres rejects the
-  // "BD" enum value (22P02 on lc_function). Retry without BD so a deploy can
-  // never break the dashboard/accounts while the SQL editor lags behind.
-  if (error && `${error.message}`.includes("lc_function")) {
-    if (filters.fn === "BD") return [];
-    ({ data, error } = await attempt(true));
+  const out: PipelineRow[] = [];
+  for (let off = 0; off < max; off += DB_PAGE) {
+    const attempt = async (bdSafe: boolean) =>
+      (await buildAccountsQuery(viewer, filters, bdSafe)).query.range(off, off + DB_PAGE - 1);
+    let { data, error } = await attempt(false);
+    // MIGRATION-0014 GRACE: before the migration runs, Postgres rejects the
+    // "BD" enum value (22P02 on lc_function). Retry without BD so a deploy can
+    // never break the dashboard/accounts while the SQL editor lags behind.
+    if (error && `${error.message}`.includes("lc_function")) {
+      if (filters.fn === "BD") return [];
+      ({ data, error } = await attempt(true));
+    }
+    if (error) throw error;
+    const chunk = (data ?? []) as PipelineRow[];
+    out.push(...chunk);
+    if (chunk.length < DB_PAGE || out.length >= max) break;
   }
+  return out.slice(0, max);
+}
+
+export interface AccountsPage {
+  rows: PipelineRow[];
+  total: number;
+  /** the page actually served — a stale/out-of-range param gets clamped */
+  page: number;
+}
+
+/** One page of the accounts list + the total match count (v22 — the list is
+ *  paginated since the big market-research import). */
+export async function listAccountsPage(
+  viewer: Viewer,
+  filters: AccountFilters = {},
+  page = 0,
+  pageSize = 100
+): Promise<AccountsPage> {
+  const fetchPage = async (p: number) => {
+    const attempt = async (bdSafe: boolean) =>
+      (await buildAccountsQuery(viewer, filters, bdSafe, true)).query.range(
+        p * pageSize,
+        p * pageSize + pageSize - 1
+      );
+    let res = await attempt(false);
+    if (res.error && `${res.error.message}`.includes("lc_function")) {
+      if (filters.fn === "BD") return { data: [], error: null, count: 0 };
+      res = await attempt(true);
+    }
+    return res;
+  };
+  let { data, error, count } = await fetchPage(page);
   if (error) throw error;
-  return (data ?? []) as PipelineRow[];
+  // a stale page param past the end returns 200 + [] — serve the LAST page
+  // instead of a blank list (e.g. after bulk-reassigning a whole page away)
+  let served = page;
+  if ((data ?? []).length === 0 && (count ?? 0) > 0 && page > 0) {
+    served = Math.max(0, Math.ceil((count ?? 0) / pageSize) - 1);
+    ({ data, error, count } = await fetchPage(served));
+    if (error) throw error;
+  }
+  return { rows: (data ?? []) as PipelineRow[], total: count ?? 0, page: served };
 }
 
 async function buildAccountsQuery(
   viewer: Viewer,
   filters: AccountFilters,
-  bdSafe: boolean
+  bdSafe: boolean,
+  withCount = false
 ) {
   const scope = accountScope(viewer);
   const effScope: AccountScope =
     bdSafe && scope.kind === "functions"
       ? { kind: "functions", fns: scope.fns.filter((f) => f !== "BD") }
       : scope;
-  let query = applyScope(db().from("accounts_pipeline").select("*"), effScope);
+  let query = applyScope(
+    db()
+      .from("accounts_pipeline")
+      .select("*", withCount ? { count: "exact" } : undefined),
+    effScope
+  );
   // test accounts live in a parallel universe: visible ONLY in test mode
   // (admin's "Show test data" toggle or any test view)
   if (!viewer.testMode) query = query.eq("is_test", false);
@@ -228,7 +306,9 @@ async function buildAccountsQuery(
   if (filters.product) query = query.eq("product", filters.product);
   if (filters.stage) query = query.eq("stage", filters.stage);
   if (filters.lastStatus) query = query.eq("last_contact_status", filters.lastStatus);
-  if (filters.responsibleId) query = query.eq("responsible_id", filters.responsibleId);
+  // "none" = unassigned (imported market research awaiting an owner)
+  if (filters.responsibleId === "none") query = query.is("responsible_id", null);
+  else if (filters.responsibleId) query = query.eq("responsible_id", filters.responsibleId);
   if (filters.teamId) {
     const { data: team } = await db()
       .from("members")
@@ -245,7 +325,10 @@ async function buildAccountsQuery(
   if (filters.flag === "contact_limit") query = query.eq("contact_limit_reached", true);
   if (filters.flag === "next_step_missing") query = query.eq("next_step_missing", true);
   if (filters.q) query = query.ilike("normalized_name", `%${normalizeName(filters.q)}%`);
-  return query.order("updated_at", { ascending: false }).limit(1000);
+  // id tiebreak: bulk-imported rows share updated_at — pages must be stable.
+  // Wrapped in an object: the builder is a THENABLE, so returning it bare from
+  // this async function would let `await` execute it before .range() applies.
+  return { query: query.order("updated_at", { ascending: false }).order("id") };
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -283,6 +366,23 @@ export async function getAccount(viewer: Viewer, idOrSlug: string) {
   if (account.is_test && !viewer.testMode) return null;
   const id = account.id;
 
+  // MIGRATION-0018 GRACE: the deal_allocations embed fails the WHOLE deals
+  // query on a pre-0018 DB — retry without it so deal history never vanishes.
+  const fetchDeals = async () => {
+    const withAllocs = await db()
+      .from("deals")
+      .select(
+        "*, member:members(name, nickname), allocations:deal_allocations(member_id, slots_igv, slots_igta, slots_igte, member:members(name, nickname))"
+      )
+      .eq("account_id", id)
+      .order("created_at", { ascending: false });
+    if (!withAllocs.error) return withAllocs;
+    return db()
+      .from("deals")
+      .select("*, member:members(name, nickname)")
+      .eq("account_id", id)
+      .order("created_at", { ascending: false });
+  };
   const [{ data: attempts }, { data: visits }, { data: comments }, { data: deals }] =
     await Promise.all([
       db()
@@ -301,11 +401,7 @@ export async function getAccount(viewer: Viewer, idOrSlug: string) {
         .select("*, member:members(name, nickname)")
         .eq("account_id", id)
         .order("created_at", { ascending: true }),
-      db()
-        .from("deals")
-        .select("*, member:members(name, nickname)")
-        .eq("account_id", id)
-        .order("created_at", { ascending: false }),
+      fetchDeals(),
     ]);
   return {
     account,
@@ -316,8 +412,17 @@ export async function getAccount(viewer: Viewer, idOrSlug: string) {
   };
 }
 
+export interface DealAllocation {
+  member_id: string;
+  slots_igv: number;
+  slots_igta: number;
+  slots_igte: number;
+  member: { name: string; nickname: string | null } | null;
+}
+
 export type DealWithMember = Deal & {
   member: { name: string; nickname: string | null } | null;
+  allocations?: DealAllocation[];
 };
 
 export type CommentWithMember = AccountComment & {
@@ -513,35 +618,31 @@ function dashboardViewer(viewer: Viewer): Viewer {
   return { ...viewer, role: "Director" };
 }
 
-export interface PerformanceGoal {
-  id: string;
-  scope: "function" | "team";
-  function: string | null;
-  team_leader_id: string | null;
-  metric: string;
-  target: number;
-  period_label: string;
-  period_start: string;
-  period_end: string;
+/** One deal_allocations row + its deal's account (for lane/scope checks).
+ *  v22: a deal's opens can be split across members — every per-MEMBER opens
+ *  number reads from allocations, not the account counters. */
+interface AllocRow {
+  member_id: string;
+  slots_igv: number;
+  slots_igta: number;
+  slots_igte: number;
+  deal: { account_id: string } | null;
 }
 
-/** The goal currently in effect (today inside its period; latest wins). */
-export async function getActiveGoal(
-  scope: "function" | "team",
-  key: string
-): Promise<PerformanceGoal | null> {
-  const today = new Date().toISOString().slice(0, 10);
-  let query = db()
-    .from("performance_goals")
-    .select("*")
-    .eq("scope", scope)
-    .lte("period_start", today)
-    .gte("period_end", today)
-    .order("created_at", { ascending: false })
-    .limit(1);
-  query = scope === "function" ? query.eq("function", key) : query.eq("team_leader_id", key);
-  const { data } = await query.maybeSingle<PerformanceGoal>();
-  return data ?? null;
+/** Opens one allocation contributes to a lane (mirror of laneSlots, but for a
+ *  single allocation row instead of an account's running counters). */
+function laneAllocSlots(
+  a: { slots_igv: number; slots_igta: number; slots_igte: number },
+  lane: string,
+  accountFn: string
+): number {
+  if (lane === "IGV") return a.slots_igv ?? 0;
+  if (lane === "IGTa") return a.slots_igta ?? 0;
+  if (lane === "IGTe") return a.slots_igte ?? 0;
+  if (lane === "IGT") return (a.slots_igta ?? 0) + (a.slots_igte ?? 0);
+  const totalSlots = (a.slots_igv ?? 0) + (a.slots_igta ?? 0) + (a.slots_igte ?? 0);
+  if (lane === "B2B") return accountFn === "B2B" || accountFn === "BD" ? totalSlots : 0;
+  return totalSlots; // "all"
 }
 
 export async function getDashboard(
@@ -589,9 +690,7 @@ export async function getDashboard(
   const byMemberRole = new Map<string, DrillGroup>();
   const byMM = new Map<string, DrillGroup>();
   const byPerson = new Map<string, DrillGroup>(); // union, for the team board
-  let teamAchieved = 0;
-  // function-goal progress is NEVER scoped by the member filter
-  let funcAchieved = 0;
+  const rowById = new Map(rows.map((r) => [r.id, r]));
 
   for (const r of rows) {
     const inLane = rowInLane(r, lane);
@@ -599,7 +698,6 @@ export async function getDashboard(
     if (!inLane && !contributes) continue; // nothing for this lane
 
     if (inKpiScope(r)) addRowLane(total, r, lane);
-    funcAchieved += laneSlots(r, lane);
 
     // product drill: IGV / IGTa / IGTe / B2B rows (account-level numbers)
     if (inLane) {
@@ -632,9 +730,47 @@ export async function getDashboard(
       addRowLane(getOrInit(byMM, r.responsible_id, respLabel), r, lane);
       addRowLane(getOrInit(byPerson, r.responsible_id, respLabel), r, lane);
     }
+  }
 
-    // team goal progress counts the WHOLE team (TL's own accounts included)
-    if (teamMemberIds?.has(r.responsible_id)) teamAchieved += laneSlots(r, lane);
+  // ---- per-member opens come from deal ALLOCATIONS (v22): a deal's opens can
+  // be split across members, so boards can't trust the account counters. Only
+  // allocations whose parent account is in the scoped/filtered row set count —
+  // the boards stay consistent with the rest of the dashboard. When the table
+  // is empty (pre-migration), keep the account-based numbers.
+  const allocations = await fetchAll<AllocRow>(() =>
+    db()
+      .from("deal_allocations")
+      .select("member_id, slots_igv, slots_igta, slots_igte, deal:deals!inner(account_id)")
+      .order("id")
+  ).catch(() => [] as AllocRow[]);
+  const allocSlotsByMember = new Map<string, number>();
+  for (const al of allocations) {
+    const acc = al.deal ? rowById.get(al.deal.account_id) : undefined;
+    if (!acc) continue; // outside this viewer's scope / the active filters
+    const v = laneAllocSlots(al, lane, acc.function);
+    if (v > 0)
+      allocSlotsByMember.set(al.member_id, (allocSlotsByMember.get(al.member_id) ?? 0) + v);
+  }
+  if (allocations.length > 0) {
+    // members who received split opens without owning a scoped account still
+    // deserve a board row
+    for (const [mid, v] of allocSlotsByMember) {
+      const m = byId.get(mid);
+      if (!m || v <= 0) continue;
+      const label = m.nickname || m.name;
+      if (m.role === "Member") {
+        getOrInit(byMemberRole, mid, label);
+        getOrInit(byPerson, mid, label);
+      } else if (m.role === "Team Leader" || m.role === "Coordinator") {
+        getOrInit(byMM, mid, label);
+        getOrInit(byPerson, mid, label);
+      }
+    }
+    for (const map of [byMemberRole, byMM, byPerson])
+      for (const g of map.values()) g.slots = allocSlotsByMember.get(g.key) ?? 0;
+    // "My numbers": the member's personal opens are what was ALLOCATED to them
+    if (filters.responsibleId && filters.responsibleId !== "none")
+      total.slots = allocSlotsByMember.get(filters.responsibleId) ?? 0;
   }
 
   const rank = (a: DrillGroup, b: DrillGroup) =>
@@ -645,57 +781,40 @@ export async function getDashboard(
     ? [...byPerson.values()].filter((g) => teamMemberIds.has(g.key)).sort(rank)
     : [];
 
-  // ---- goals in effect. Lane goals live at IGV / IGTa / IGTe; the IGT goal
-  // is DERIVED: goal(IGT) = goal(IGTa) + goal(IGTe).
-  // the B2B lane carries a SECOND goal: BD money (EGP) — the BD deals' MOS
-  let bdGoal: PerformanceGoal | null = null;
-  let bdMoneyAchieved = 0;
-  if (lane === "B2B") {
-    bdGoal = await getActiveGoal("function", "BD");
+  // ---- the team's plan (v22 — goals come from planning, never set in-app):
+  // the TL's filed opens plan for the CURRENT month vs what the team actually
+  // raised this month (allocation-attributed, so split opens count correctly).
+  let teamPlan: TeamPlan | null = null;
+  if (teamLeadId && teamMemberIds) {
+    const month = monthOf();
+    const { data: planRow } = await db()
+      .from("tl_plans")
+      .select("opens")
+      .eq("member_id", teamLeadId)
+      .eq("month", month.planKeys[0])
+      .maybeSingle<{ opens: number }>();
     let q = db()
-      .from("deals")
-      .select("amount, account:accounts!inner(function, is_test)")
-      .eq("account.function", "BD");
-    if (!viewer.testMode) q = q.eq("account.is_test", false);
-    if (filters.from) q = q.gte("created_at", `${filters.from}T00:00:00Z`);
-    if (filters.to) q = q.lte("created_at", `${filters.to}T23:59:59Z`);
-    const { data: bdDeals } = await q;
+      .from("deal_allocations")
+      .select(
+        "slots_igv, slots_igta, slots_igte, deal:deals!inner(created_at, account:accounts!inner(is_test))"
+      )
+      .in("member_id", [...teamMemberIds])
+      .gte("deal.created_at", `${month.start}T00:00:00`)
+      .lte("deal.created_at", `${month.end}T23:59:59`);
+    if (!viewer.testMode) q = q.eq("deal.account.is_test", false);
+    const { data: monthAllocs } = await q;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    bdMoneyAchieved = ((bdDeals ?? []) as any[]).reduce(
-      (sum, d) => sum + (Number(d.amount) || 0),
+    const actualOpens = ((monthAllocs ?? []) as any[]).reduce(
+      (s, a) => s + (a.slots_igv ?? 0) + (a.slots_igta ?? 0) + (a.slots_igte ?? 0),
       0
     );
+    teamPlan = {
+      teamLeaderId: teamLeadId,
+      monthLabel: month.label,
+      plannedOpens: planRow?.opens ?? 0,
+      actualOpens,
+    };
   }
-
-  let funcGoal: PerformanceGoal | null = null;
-  if (laneKey === "IGV" || laneKey === "IGTa" || laneKey === "IGTe" || laneKey === "B2B") {
-    funcGoal = await getActiveGoal("function", laneKey);
-  } else if (laneKey === "IGT") {
-    const [a, e] = await Promise.all([
-      getActiveGoal("function", "IGTa"),
-      getActiveGoal("function", "IGTe"),
-    ]);
-    if (a || e) {
-      const first = (a ?? e)!;
-      funcGoal = {
-        id: "igt-combined",
-        scope: "function",
-        function: "IGT",
-        team_leader_id: null,
-        metric: "Slots",
-        target: (a?.target ?? 0) + (e?.target ?? 0),
-        period_label:
-          a && e
-            ? a.period_label === e.period_label
-              ? `${a.period_label} · IGTa+IGTe`
-              : `${a.period_label} + ${e.period_label}`
-            : `${first.period_label} · ${a ? "IGTa only" : "IGTe only"}`,
-        period_start: first.period_start,
-        period_end: first.period_end,
-      };
-    }
-  }
-  const teamGoal = teamLeadId ? await getActiveGoal("team", teamLeadId) : null;
 
   // ---- VP plan snapshot (from the imported planning sheet) --------------
   // Product lanes only: IGV / IGTa / IGTe map 1:1 to plan_cells.fn; the IGT
@@ -747,14 +866,9 @@ export async function getDashboard(
     memberBoard,
     mmBoard,
     teamBoard,
-    teamAchieved,
-    funcAchieved,
-    funcGoal,
-    bdGoal,
-    bdMoneyAchieved,
-    teamGoal,
     teamLeadId,
     lanePlan,
+    teamPlan,
   };
 }
 
@@ -771,6 +885,15 @@ export interface LanePlanWindow {
   funnel: { metric: string; value: number }[];
 }
 
+/** The viewer's team plan snapshot (v22): the TL's filed opens plan for the
+ *  current month vs the team's allocation-attributed opens this month. */
+export interface TeamPlan {
+  teamLeaderId: string;
+  monthLabel: string;
+  plannedOpens: number;
+  actualOpens: number;
+}
+
 // ------------------------------------------------------------------ manual archive
 
 export interface ManualArchivedRow extends BlacklistEntry {
@@ -780,12 +903,13 @@ export interface ManualArchivedRow extends BlacklistEntry {
 /** Manually archived account names (never worked in the CRM) — they live in
  *  the blacklist table and block re-adding exactly like OOP accounts. */
 export async function listManualArchived(): Promise<ManualArchivedRow[]> {
-  const { data } = await db()
-    .from("blacklist")
-    .select("*, added_by_member:members!blacklist_added_by_fkey(name, nickname)")
-    .order("created_at", { ascending: false })
-    .limit(2000);
-  return (data ?? []) as ManualArchivedRow[];
+  return fetchAll<ManualArchivedRow>(() =>
+    db()
+      .from("blacklist")
+      .select("*, added_by_member:members!blacklist_added_by_fkey(name, nickname)")
+      .order("created_at", { ascending: false })
+      .order("id")
+  );
 }
 
 function getOrInit(map: Map<string, DrillGroup>, key: string, label: string): DrillGroup {
@@ -905,7 +1029,7 @@ export async function listMembersDirectory(
 ): Promise<MemberDirectoryEntry[]> {
   if (!hasTmAccess(viewer)) return [];
 
-  const [{ data: membersData }, { data: accountsData }, { data: bdDeals }, { data: mmPlans }] =
+  const [{ data: membersData }, accountsData, { data: bdDeals }, { data: mmPlans }, allocations] =
     await Promise.all([
       db()
         .from("members")
@@ -914,11 +1038,14 @@ export async function listMembersDirectory(
         )
         .eq("is_active", true)
         .order("name"),
-      db()
-        .from("accounts_pipeline")
-        .select("responsible_id, attempts, visit_id, visit_done, deals_count, slots_count")
-        .eq("is_test", false)
-        .limit(5000),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      fetchAll<any>(() =>
+        db()
+          .from("accounts_pipeline")
+          .select("responsible_id, attempts, visit_id, visit_done, deals_count, slots_count")
+          .eq("is_test", false)
+          .order("id")
+      ),
       // BD money: Σ deal amounts on BD accounts, per responsible
       db()
         .from("deals")
@@ -926,6 +1053,17 @@ export async function listMembersDirectory(
         .eq("account.function", "BD")
         .eq("account.is_test", false),
       db().from("mm_plans").select("member_id, applicants, accepted, approvals"),
+      // per-member opens = deal allocations (v22 — split deals count correctly)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      fetchAll<any>(() =>
+        db()
+          .from("deal_allocations")
+          .select(
+            "member_id, slots_igv, slots_igta, slots_igte, deal:deals!inner(account:accounts!inner(is_test))"
+          )
+          .eq("deal.account.is_test", false)
+          .order("id")
+      ).catch(() => []),
     ]);
 
   type Agg = MemberDirectoryEntry["kpis"];
@@ -939,15 +1077,24 @@ export async function listMembersDirectory(
     if (!k) { k = emptyAgg(); kpisById.set(id, k); }
     return k;
   };
+  const useAllocations = allocations.length > 0;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const a of (accountsData ?? []) as any[]) {
+    if (!a.responsible_id) continue; // unassigned imports belong to nobody yet
     const k = agg(a.responsible_id);
     k.mr += 1;
     if (a.attempts > 0) k.contacted += 1;
     if (a.visit_id) k.visits += 1;
     if (a.visit_done) k.visitsDone += 1;
     k.deals += a.deals_count ?? 0;
-    k.slots += a.slots_count ?? 0;
+    // pre-0018 fallback: no allocations table → account counters
+    if (!useAllocations) k.slots += a.slots_count ?? 0;
+  }
+  // opens are allocation-attributed (a split deal credits each member their share)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const al of allocations as any[]) {
+    agg(al.member_id).slots +=
+      (al.slots_igv ?? 0) + (al.slots_igta ?? 0) + (al.slots_igte ?? 0);
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const d of (bdDeals ?? []) as any[]) {
@@ -1305,7 +1452,6 @@ export async function getSystemHealth(): Promise<SystemHealth> {
     { key: "visit-followups", label: "Visit follow-ups", note: "every 15 min" },
     { key: "membership-import", label: "Membership import", note: "every 30 min" },
     { key: "sheets-export", label: "Sheets export", note: "hourly" },
-    { key: "goal-reminders", label: "Goal reminders", note: "daily 06:00 UTC" },
     { key: "period-reports", label: "Period reports", note: "daily 07:00 UTC (fires on sprint/month/quarter ends)" },
   ];
   const crons: SystemHealth["crons"] = [];
@@ -1337,16 +1483,21 @@ export interface PlanCell {
   value: number;
 }
 
-/** All imported plan cells for the given plan-functions (IGV/IGTa/IGTe/OGV/OGTa/OGTe). */
+/** All imported plan cells for the given plan-functions (IGV/IGTa/IGTe/OGV/OGTa/OGTe).
+ *  Paged: the full six-lane set is 1500+ rows — over Supabase's 1000-row cap. */
 export async function listPlanCells(fns: string[]): Promise<PlanCell[]> {
   if (fns.length === 0) return [];
-  const { data } = await db()
-    .from("plan_cells")
-    .select("fn, scope, period_start, metric, value")
-    .in("fn", fns)
-    .order("period_start");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return ((data ?? []) as any[]).map((r) => ({ ...r, value: Number(r.value) })) as PlanCell[];
+  const data = await fetchAll<any>(() =>
+    db()
+      .from("plan_cells")
+      .select("id, fn, scope, period_start, metric, value")
+      .in("fn", fns)
+      .order("period_start")
+      .order("id")
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (data as any[]).map((r) => ({ ...r, value: Number(r.value) })) as PlanCell[];
 }
 
 export interface MmPlanRow {
@@ -1404,6 +1555,129 @@ export async function needsMmPlan(v: Viewer): Promise<boolean> {
     .select("id", { count: "exact", head: true })
     .eq("member_id", v.id);
   return (count ?? 0) === 0;
+}
+
+// ------------------------------------------------------- TL plans (v22)
+
+/** A RAISING Team Leader who plans their team's opens per month (IGV/IGT or
+ *  the B2B/BD crew). Consideration TLs file the MM plan instead — never both. */
+export function isPlanningTl(v: {
+  role: string;
+  functions: string[];
+  sub_functions: string[];
+}): boolean {
+  if (v.role !== "Team Leader") return false;
+  if (isPlanningMm(v)) return false;
+  const raising =
+    v.functions.some((f) => f === "IGV" || f === "IGT") ||
+    ["B2B", "BD"].some((f) => v.functions.includes(f) || v.sub_functions.includes(f));
+  return raising;
+}
+
+/** True when an eligible raising TL has not filed a single plan month yet. */
+export async function needsTlPlan(v: Viewer): Promise<boolean> {
+  if (!isPlanningTl(v)) return false;
+  const { count, error } = await db()
+    .from("tl_plans")
+    .select("id", { count: "exact", head: true })
+    .eq("member_id", v.id);
+  if (error) return false; // pre-0018 grace: never lock anyone out
+  return (count ?? 0) === 0;
+}
+
+export interface TlPlanRow {
+  member_id: string;
+  member_name: string;
+  team_name: string | null;
+  month: string;
+  opens: number;
+  peak: string;
+}
+
+/** Every TL's monthly opens plan (for /planning) — optionally scoped to ids. */
+export async function listTlPlans(memberIds?: string[]): Promise<TlPlanRow[]> {
+  let q = db()
+    .from("tl_plans")
+    .select("member_id, month, opens, peak, member:members!member_id(name, nickname, team_name)")
+    .order("month");
+  if (memberIds && memberIds.length > 0) q = q.in("member_id", memberIds);
+  const { data, error } = await q;
+  if (error) return []; // pre-0018 grace
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[]).map((r) => ({
+    member_id: r.member_id,
+    member_name: r.member?.nickname || r.member?.name || "?",
+    team_name: r.member?.team_name ?? null,
+    month: r.month,
+    opens: r.opens ?? 0,
+    peak: r.peak,
+  }));
+}
+
+export interface TlPlanData {
+  peakLabel: string;
+  /** month key (YYYY-MM-01) → filed plan + the team's actual opens that month */
+  months: { month: string; opens: number; actual: number }[];
+}
+
+/** The profile "My plan" card data for a raising TL: their filed plan for the
+ *  current planning peak + the team's ACTUAL opens per month (allocation-
+ *  attributed, so split deals credit the right people). */
+export async function tlPlanForProfile(viewer: Viewer): Promise<TlPlanData | null> {
+  if (!isPlanningTl(viewer)) return null;
+  const { peakForPlanning } = await import("@/lib/plan");
+  const peak = peakForPlanning();
+  const teamIds = [viewer.id, ...(viewer.teamMemberIds ?? [])];
+  const [{ data: planRows }, { data: allocRows }] = await Promise.all([
+    db().from("tl_plans").select("month, opens").eq("member_id", viewer.id),
+    db()
+      .from("deal_allocations")
+      .select(
+        "slots_igv, slots_igta, slots_igte, deal:deals!inner(created_at, account:accounts!inner(is_test))"
+      )
+      .in("member_id", teamIds)
+      .eq("deal.account.is_test", false),
+  ]);
+  const planByMonth = new Map(
+    // normalize: PG dates can round-trip with a day component
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ((planRows ?? []) as any[]).map((r) => [`${String(r.month).slice(0, 7)}-01`, r.opens ?? 0])
+  );
+  const actualByMonth = new Map<string, number>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const a of (allocRows ?? []) as any[]) {
+    const created = a.deal?.created_at as string | undefined;
+    if (!created) continue;
+    const key = `${created.slice(0, 7)}-01`;
+    const v = (a.slots_igv ?? 0) + (a.slots_igta ?? 0) + (a.slots_igte ?? 0);
+    actualByMonth.set(key, (actualByMonth.get(key) ?? 0) + v);
+  }
+  return {
+    peakLabel: peak.label,
+    months: peak.months.map((m) => ({
+      month: m,
+      opens: planByMonth.get(m) ?? 0,
+      actual: actualByMonth.get(m) ?? 0,
+    })),
+  };
+}
+
+/** Everyone in a function (for the deal opens-split picker): active members
+ *  carrying the account's function — B2B/BD matches sub-functions too. The
+ *  LCP never appears (they don't raise). */
+export async function listFunctionMembers(
+  fn: AccountFunction
+): Promise<{ id: string; label: string }[]> {
+  let q = db().from("members").select("id, name, nickname, role").eq("is_active", true);
+  q =
+    fn === "B2B" || fn === "BD"
+      ? q.or("functions.ov.{B2B,BD},sub_functions.ov.{B2B,BD}")
+      : q.contains("functions", [fn]);
+  const { data } = await q.order("name");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[])
+    .filter((m) => m.role !== "LCP")
+    .map((m) => ({ id: m.id, label: m.nickname || m.name }));
 }
 
 /** Actual opens raised per product lane inside a date window — sum of each
@@ -1471,33 +1745,59 @@ export async function buildFunctionReport(
   // ---- window events on the crew's accounts --------------------------------
   const fromTs = `${window.start}T00:00:00`;
   const toTs = `${window.end}T23:59:59`;
-  const [{ data: accs }, { data: attempts }, { data: visits }, { data: deals }] =
-    await Promise.all([
+  const [accs, attempts, visits, deals, allocs] = await Promise.all([
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    fetchAll<any>(() =>
       db()
         .from("accounts")
         .select("id, responsible_id, created_at, is_test")
         .eq("is_test", false)
         .gte("created_at", fromTs)
-        .lte("created_at", toTs),
+        .lte("created_at", toTs)
+        .order("id")
+    ),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    fetchAll<any>(() =>
       db()
         .from("contact_attempts")
         .select("id, member_id, account_id, created_at, account:accounts!inner(responsible_id, is_test)")
         .eq("account.is_test", false)
         .gte("created_at", fromTs)
-        .lte("created_at", toTs),
+        .lte("created_at", toTs)
+        .order("id")
+    ),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    fetchAll<any>(() =>
       db()
         .from("visits")
         .select("id, member_id, done, visit_date, account:accounts!inner(responsible_id, is_test)")
         .eq("account.is_test", false)
         .gte("visit_date", window.start)
-        .lte("visit_date", window.end),
+        .lte("visit_date", window.end)
+        .order("id")
+    ),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    fetchAll<any>(() =>
       db()
         .from("deals")
         .select("id, member_id, slots, slots_igv, slots_igta, slots_igte, amount, created_at, account:accounts!inner(responsible_id, is_test)")
         .eq("account.is_test", false)
         .gte("created_at", fromTs)
-        .lte("created_at", toTs),
-    ]);
+        .lte("created_at", toTs)
+        .order("id")
+    ),
+    // per-member opens = allocations (v22) — split deals credit each member
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    fetchAll<any>(() =>
+      db()
+        .from("deal_allocations")
+        .select("member_id, slots_igv, slots_igta, slots_igte, deal:deals!inner(created_at, account:accounts!inner(is_test))")
+        .eq("deal.account.is_test", false)
+        .gte("deal.created_at", fromTs)
+        .lte("deal.created_at", toTs)
+        .order("id")
+    ).catch(() => []),
+  ]);
 
   interface PersonStats {
     mr: number; contacts: number; visits: number; visitsDone: number;
@@ -1526,14 +1826,23 @@ export async function buildFunctionReport(
     get(owner).visits++;
     if (v.done) get(owner).visitsDone++;
   }
+  const useAllocs = allocs.length > 0;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const d of (deals ?? []) as any[]) {
     const owner = d.account?.responsible_id;
     if (!owner || !crewIds.has(owner)) continue;
     const s = get(owner);
     s.deals++;
-    s.opens += d.slots ?? 0;
+    // pre-0018 fallback: no allocations yet → the whole deal to the owner
+    if (!useAllocs) s.opens += d.slots ?? 0;
     s.egp += Number(d.amount) || 0;
+  }
+  // opens are allocation-attributed (v22): each member gets their agreed share
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const al of allocs as any[]) {
+    if (!crewIds.has(al.member_id)) continue;
+    get(al.member_id).opens +=
+      (al.slots_igv ?? 0) + (al.slots_igta ?? 0) + (al.slots_igte ?? 0);
   }
 
   // ---- waterfall: team (bold) → its people --------------------------------

@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v21";
+export const PLAYBOOK_VERSION = "v22";
 
 interface Props {
   role: string;
@@ -80,7 +80,7 @@ const SECTIONS: Section[] = [
       <>The <b>Proposal email</b> button builds a branded, AIESEC-blue outreach draft in <b>your own Gmail</b> — review, attach, send.</>,
       <>Two hours after a visit, you (and your TL) get the <b>report-it email</b> — report from it, the top button, or by clicking the pending visit in History. Ignore it a week and the reminder comes back firmer — report it or archive the account.</>,
       <>The <b>Calendar</b> page (sidebar) shows your whole function&apos;s visits, one color per member — see the rhythm, plan around it.</>,
-      <>Deal signed → <b>Record deal</b> 🏆: opens per product, optional <b>contract upload</b> (any file format — add later from History; the account grows a <b>Contracts</b> button to preview & download them).</>,
+      <>Deal signed → <b>Record deal</b> 🏆: opens per product, optional <b>contract upload</b> (any file format — add later from History; the account grows a <b>Contracts</b> button to preview & download them). Need to share the credit? <b>Split the opens</b> between members right in the popup (e.g. 3 to the owner, 3 to whoever helped) — leaderboards count each person&apos;s share.</>,
       <>&quot;Not interested&quot; is a valid result: mark the account <b>Out of Process</b> with its reason — from the account page or the ✕ right on the list. Leaders can <b>Select</b> many accounts and archive or reassign them in one go (reassign only offers people you&apos;re allowed to hand accounts to). The archive IS the blacklist — those names never come back.</>,
       <><b>Comments</b> are numbered per author and can be <b>pinned</b> (they surface on the list) or <b>archived</b> to declutter — archived ones tuck behind an &quot;Archived (n)&quot; toggle on the comments card without changing the numbering.</>,
       <>On your phone, the little <b>Cards / Compact / Table</b> switcher above the accounts list lets you pick the density you like — it remembers your choice.</>,
@@ -94,7 +94,7 @@ const SECTIONS: Section[] = [
     color: "#F48924",
     points: [
       <>You see and work <b>your whole team&apos;s accounts</b>, pick the Responsible on each, and can revive archived accounts.</>,
-      <><b>Set the team goal</b> every period. When a period ends, Sodio emails you the goal-vs-achieved recap with a button to set the next one — your team is notified automatically once you do.</>,
+      <><b>Your plan IS the team goal</b> (v22): on first sign-in Sodio asks for your team&apos;s <b>opens per month</b> of the peak, and the profile&apos;s <b>My plan</b> card lets you update it any time — with each month&apos;s actual next to it. The dashboard&apos;s team card and the Planning board track your team against it. Nobody &quot;sets goals&quot; in Sodio anymore.</>,
       <>OGX &amp; Consideration MMs: on your first sign-in Sodio asks for your <b>6-month plan</b> (applicants · accepted · approvals per month of the peak) — those numbers are your goals, visible to your VP on the Planning board and in the period reports.</>,
       <>You&apos;re on your members&apos; <b>visit follow-up emails</b> (and the week-later &quot;forgotten&quot; nags). A nag means an account is frozen — unfreeze it together.</>,
       <>Leaderboards rank <b>Members & Coordinators</b> on their own accounts; deals always belong to the account&apos;s Responsible.</>,
@@ -108,9 +108,10 @@ const SECTIONS: Section[] = [
     audience: "VPs & Directors",
     color: "#037EF3",
     points: [
-      <>Dashboards run per lane: <b>IGV / IGTa / IGTe</b> (All-IGT shows IGTa + IGTe combined — its goal is derived, never set directly).</>,
-      <><b>Set the lane goal</b> each period. Period over → you get the recap email with the set-new-goal button; everyone in the lane hears about the new goal automatically.</>,
-      <>The <b>Planning</b> tab (v21) carries the term plan from the LC&apos;s planning sheet: opens per month, the consideration funnel per <b>sprint</b> (half-months — 1–15 and 16–end), conversions, quarter totals, and every MM&apos;s filed plan. The dashboard&apos;s product lanes show the current sprint&apos;s plan vs achieved (toggle to month).</>,
+      <>Dashboards run per lane: <b>IGV / IGTa / IGTe</b> (All-IGT shows IGTa + IGTe combined).</>,
+      <><b>Goals come from planning</b> (v22): the lane goal card shows YOUR planned opens (from the LC&apos;s planning sheet) against what the lane actually raised, per sprint or month. Nothing is set in-app — update the planning sheet and re-import instead.</>,
+      <>The <b>Planning</b> tab (v21) carries the term plan from the LC&apos;s planning sheet: opens per month, the consideration funnel per <b>sprint</b> (half-months — 1–15 and 16–end), conversions, quarter totals, and every MM&apos;s filed plan. The dashboard&apos;s product lanes show the current sprint&apos;s plan vs achieved (toggle to month), and the Planning board lists every TL&apos;s and MM&apos;s filed plan.</>,
+      <><b>Unassigned accounts</b> (v22): the old sheets&apos; market research was imported with no owner — filter Responsible → <b>Unassigned</b> and hand them out with reassign / bulk-reassign. Members see an account once it&apos;s theirs.</>,
       <>Every <b>sprint, month and quarter</b> close, your whole function + the LCP get the <b>period report email</b>: totals, plan-vs-achieved, and a waterfall with every team&apos;s and every person&apos;s numbers.</>,
       <>The <b>Membership sheet</b> is the source of truth for people — edit in the app or in the sheet, both stay in sync (30-min imports + instant write-back).</>,
       <>Visit reports and function-wide visit announcements reach you automatically. The LCP never receives operational email.</>,
@@ -126,7 +127,7 @@ const SECTIONS: Section[] = [
     points: [
       <>One function, two names (<b>B2B & BD</b> — may split in future peaks): either grants the same raising access.</>,
       <>When adding an account you <b>choose its label: B2B or BD</b>. Both split every deal&apos;s opens across <b>IGV / IGTa / IGTe</b> — each product lane picks up its share.</>,
-      <>Your dashboard is <b>your own B2B lane</b> with <b>two goals</b>, both set by your VP/Director: the <b>B2B goal (opens)</b> and the <b>BD goal (money, EGP)</b>. IGV/IGT VPs & Directors also see the B2B lane, because you raise for them.</>,
+      <>Your dashboard is <b>your own B2B lane</b>; your TLs&apos; filed plans are the team goals (v22 — nothing is set in-app). IGV/IGT VPs & Directors also see the B2B lane, because you raise for them.</>,
       <><b>Podio worklist</b> (MMs & Director/VP): the &quot;Podio pending&quot; filter lists accounts not yet requested — copy names for the form, set the request state inline, or <b>Ask to submit</b>: the owner gets an in-app notification and the account pins to the top of their list until they act.</>,
       <><b>BD deals are measured in MONEY</b>: recording a deal on a BD account asks for the <b>amount (EGP)</b> + other benefits — opens are optional extras. The account header and Drive sheet show the EGP totals.</>,
       <>Proposal emails: B2B accounts get the <b>all-programs variant</b> (aiesec.org/partners); <b>BD accounts get the Talent-Solutions pitch</b> (aiesec.org.eg/partner.html) with no ready-made attachments.</>,
@@ -153,7 +154,7 @@ const SECTIONS: Section[] = [
     points: [
       <>Google Drive mirrors (hourly): <b>CRM — Raising Accounts</b> = ALL accounts in one sheet — filter by the <b>Function / Product / Archived?</b> flag columns; <b>CRM — Archived Accounts</b> = the blacklist view; plus Contact Log and Visits.</>,
       <><b>CRM — Membership</b> is the only two-way sheet (with its <b>Teams</b> tab naming the standing teams). Everything else is a read-only mirror — <b>the CRM is the truth</b>: deleting or editing rows in a mirror sheet changes NOTHING in Sodio, and the hourly export rewrites the sheet. All edits happen inside Sodio.</>,
-      <>Automatic emails: welcome, passwords, visit invites/reports/follow-ups/nags, goal reminders & announcements, broadcasts. All AIESEC-branded.</>,
+      <>Automatic emails: welcome, passwords, visit invites/reports/follow-ups/nags, period reports, broadcasts. All AIESEC-branded.</>,
       <>In-app 🔔 notifications mirror the important ones and open the related page on click.</>,
     ],
   },
@@ -166,7 +167,7 @@ const SECTIONS: Section[] = [
     points: [
       <><b>Ship rule:</b> every change goes <b>commit → merge to main → push to GitHub → <code>vercel deploy --prod</code></b>. Never leave finished work on a side branch.</>,
       <><b>Test view</b>: from your Profile, view & use the whole app as ANY member (banner at the bottom exits). Actions taken in a test view are real — look, don&apos;t touch.</>,
-      <>DB migrations run <b>manually, in order</b> in the Supabase SQL editor (<code>supabase/migrations/0001 → 0016</code>). Cron schedules live in <code>supabase/cron.sql</code>.</>,
+      <>DB migrations run <b>manually, in order</b> in the Supabase SQL editor (<code>supabase/migrations/0001 → 0018</code>). Cron schedules live in <code>supabase/cron.sql</code>.</>,
       <><code>AI_CONTEXT.md</code> in the repo is the technical single source of truth — update it (and <b>this playbook + its version</b>) in the same commit as any change.</>,
       <>Secrets live in <code>.env.local</code> + Vercel env — never in the repo. The feedback inbox is restricted to the IM director + coach.</>,
       <>Google side: a service account syncs the Drive sheets; Gmail sends from the IM mailbox; each member&apos;s own Google grant powers their calendar + drafts.</>,

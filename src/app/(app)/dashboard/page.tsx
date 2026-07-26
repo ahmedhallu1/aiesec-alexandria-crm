@@ -1,7 +1,6 @@
 import { getViewer, getDashboard, listTeamLeaders, listVisibleMembers } from "@/server/data";
 import type { AccountFilters } from "@/server/data";
 import { accountScope, icxFunctions, isB2B } from "@/lib/rbac";
-import { memberIsB2B } from "@/lib/types";
 import { DashboardView, type DashboardScopeView } from "@/components/crm/dashboard-view";
 
 export const metadata = { title: "Dashboard" };
@@ -96,28 +95,21 @@ export default async function DashboardPage({
           ? viewer.team_name || "Your team"
           : `${fnNames.join(" & ")} — your function's picture`;
 
-  // goal-setting powers: goals live on the IGV / IGTa / IGTe / B2B lanes —
-  // the IGT lane shows the derived sum (IGTa + IGTe). The B2B goal belongs to
-  // the B2B/BD VP or Director (the function-leaders team's leader), never to
-  // its TLs.
-  const laneForGoal =
-    activeFn === "IGV" || activeFn === "IGTa" || activeFn === "IGTe" || activeFn === "B2B"
-      ? activeFn
-      : null;
-  const canSetFunctionGoal =
-    !!laneForGoal &&
-    (viewer.isAdmin ||
-      viewer.role === "LCP" ||
-      ((viewer.role === "LCVP" || viewer.role === "Director") &&
-        (laneForGoal === "B2B"
-          ? memberIsB2B(viewer)
-          : viewer.functions.includes(laneForGoal === "IGV" ? "IGV" : "IGT"))));
-  // team goals need an actual team — a TL with no members has none to steer
-  const leadsTeam =
-    viewer.role === "Team Leader" && members.some((m) => m.stakeholder_id === viewer.id);
+  // v22: goals are never set in-app — the lane goal comes from the VPs'
+  // planning sheet (PlanCard) and the team goal from the TL's filed plan.
   const teamLead = data.teamLeadId
     ? members.find((m) => m.id === data.teamLeadId)
     : null;
+  const teamLabel =
+    viewer.role === "Team Leader"
+      ? viewer.team_name || "My team"
+      : teamLead
+        ? teamLead.team_name || `Team ${teamLead.nickname || teamLead.name}`
+        : null;
+  // leaders already see the whole function — "My numbers" is for the people
+  // who actually carry accounts (members, coordinators, TLs)
+  const showMyNumbers =
+    !viewer.isAdmin && !["LCP", "LCVP", "Director"].includes(viewer.role);
 
   return (
     <DashboardView
@@ -127,13 +119,9 @@ export default async function DashboardPage({
       memberBoard={data.memberBoard}
       mmBoard={data.mmBoard}
       teamBoard={data.teamBoard}
-      teamAchieved={data.teamAchieved}
-      funcAchieved={data.funcAchieved}
-      funcGoal={data.funcGoal}
       lanePlan={data.lanePlan}
-      bdGoal={data.bdGoal}
-      bdMoneyAchieved={data.bdMoneyAchieved}
-      teamGoal={data.teamGoal}
+      teamPlan={data.teamPlan}
+      teamLabel={teamLabel}
       views={views}
       activeFn={activeFn}
       laneLabel={activeFn === "all" ? "ICX" : activeFn}
@@ -145,26 +133,12 @@ export default async function DashboardPage({
       }))}
       memberOptions={memberOptions}
       viewerId={viewer.id}
+      showMyNumbers={showMyNumbers}
       filters={{
         team: params.team ?? "",
         member: params.member ?? "",
         from: params.from ?? "",
         to: params.to ?? "",
-      }}
-      goalCaps={{
-        functionGoalFn: canSetFunctionGoal ? laneForGoal : null,
-        bdMoneyGoal: canSetFunctionGoal && activeFn === "B2B",
-        teamGoal: leadsTeam,
-        teamLeaderId: leadsTeam
-          ? viewer.id
-          : viewer.role !== "Team Leader"
-            ? data.teamLeadId
-            : null,
-        teamLabel: leadsTeam
-          ? viewer.team_name || "My team"
-          : teamLead
-            ? teamLead.team_name || `Team ${teamLead.nickname || teamLead.name}`
-            : null,
       }}
     />
   );

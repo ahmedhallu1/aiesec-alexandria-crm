@@ -4,13 +4,14 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import Link from "next/link";
-import { Check, Eye, KeyRound, Loader2, Lock, Mail, MessageSquareHeart, Phone, Sparkles, Upload, Users, UsersRound } from "lucide-react";
+import { Check, Eye, KeyRound, Loader2, Lock, Mail, MessageSquareHeart, Phone, Sparkles, Target, Upload, Users, UsersRound } from "lucide-react";
 import { changePassword, startViewAs, stopViewAs, updateAvatar, updateProfile } from "@/server/actions";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { ADMIN_EMAIL, cleanPhone, FUNCTION_COLORS, normalizePhone, PHONE_RE } from "@/lib/types";
-import type { PersonCard } from "@/server/data";
+import type { PersonCard, TlPlanData } from "@/server/data";
+import { TlPlanForm } from "./tl-plan-form";
 import { WhatsAppIcon } from "./icons";
 import { Hint } from "./hint";
 import { avatarChoices } from "@/lib/avatars";
@@ -47,11 +48,14 @@ interface ProfileInfo {
 export function ProfileView({
   member,
   people,
+  tlPlan,
   viewAs,
 }: {
   member: ProfileInfo;
   /** the viewer's people (TL → team · VP/Director → function · LCP → EB) */
   people: { title: string; people: PersonCard[] } | null;
+  /** raising TLs only (v22): their opens plan for the peak + monthly actuals */
+  tlPlan: TlPlanData | null;
   /** REAL-admin only: the test-view picker (survives an active test view) */
   viewAs: {
     activeId: string | null;
@@ -287,6 +291,30 @@ export function ProfileView({
                 <span className="text-xs text-muted-foreground">· {t.label}</span>
               </div>
             ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {tlPlan ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Target className="size-4 text-muted-foreground" /> My plan — team opens
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Your team&apos;s opens goal per month of the peak. This IS the team
+              goal — the dashboard and the Planning board track it against what
+              your team actually raises.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <TlPlanForm
+              months={tlPlan.months.map((m) => m.month)}
+              peakLabel={tlPlan.peakLabel}
+              initial={Object.fromEntries(tlPlan.months.map((m) => [m.month, m.opens]))}
+              actuals={Object.fromEntries(tlPlan.months.map((m) => [m.month, m.actual]))}
+              mode="profile"
+            />
           </CardContent>
         </Card>
       ) : null}

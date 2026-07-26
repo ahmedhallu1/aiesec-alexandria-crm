@@ -3,9 +3,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { toast } from "sonner";
 import { CalendarRange, Loader2, Target, Trophy, UserRound, X } from "lucide-react";
-import { setPerformanceGoal } from "@/server/actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -13,11 +11,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -25,20 +19,9 @@ import { Hint } from "./hint";
 import { CountUp } from "./count-up";
 import { cn } from "@/lib/utils";
 import { FUNCTION_COLORS } from "@/lib/types";
-import type { DrillGroup, FunnelStats, LanePlan, PerformanceGoal } from "@/server/data";
+import type { DrillGroup, FunnelStats, LanePlan, TeamPlan } from "@/server/data";
 
 export interface DashboardScopeView { key: string; label: string }
-
-interface GoalCaps {
-  /** the lane goal the viewer may set (IGV / IGTa / IGTe / B2B — IGT is derived) */
-  functionGoalFn: "IGV" | "IGTa" | "IGTe" | "B2B" | null;
-  /** B2B lane only: may also set the BD MONEY goal (EGP) */
-  bdMoneyGoal: boolean;
-  /** the team whose goal the viewer may set (their own team) */
-  teamGoal: boolean;
-  teamLeaderId: string | null;
-  teamLabel: string | null;
-}
 
 interface Props {
   total: FunnelStats;
@@ -47,14 +30,6 @@ interface Props {
   memberBoard: DrillGroup[];
   mmBoard: DrillGroup[];
   teamBoard: DrillGroup[];
-  teamAchieved: number;
-  /** function-wide slots for the lane — NEVER scoped by the member filter */
-  funcAchieved: number;
-  funcGoal: PerformanceGoal | null;
-  /** B2B lane only: the BD money goal + EGP achieved (from BD deals) */
-  bdGoal: PerformanceGoal | null;
-  bdMoneyAchieved: number;
-  teamGoal: PerformanceGoal | null;
   views: DashboardScopeView[];
   activeFn: string;
   laneLabel: string;
@@ -63,15 +38,22 @@ interface Props {
   teamOptions: { id: string; label: string }[];
   memberOptions: { id: string; label: string }[];
   filters: { team: string; member: string; from: string; to: string };
-  goalCaps: GoalCaps;
   /** the signed-in member — powers the "My numbers" personal KPI toggle */
   viewerId: string;
-  /** VP plan snapshot for product lanes (IGV/IGTa/IGTe/IGT) — null elsewhere */
+  /** leaders (VP/Director/LCP) see the whole function — no "My numbers" chip */
+  showMyNumbers: boolean;
+  /** VP plan snapshot for product lanes (IGV/IGTa/IGTe/IGT) — null elsewhere.
+   *  v22: this IS the lane goal (from the planning sheet — nothing set in-app) */
   lanePlan: LanePlan | null;
+  /** the viewer's team plan (the TL's filed opens plan vs the team's month) */
+  teamPlan: TeamPlan | null;
+  teamLabel: string | null;
 }
 
+/** Funnel conversions are capped at 100% — a later step can outrun an earlier
+ *  one in the data (e.g. a deal without a reported visit), never in logic. */
 const pct = (num: number, den: number) =>
-  den > 0 ? `${Math.round((num / den) * 100)}%` : "—";
+  den > 0 ? `${Math.min(100, Math.round((num / den) * 100))}%` : "—";
 
 function monthRange(): { from: string; to: string; label: string } {
   const now = new Date();
@@ -87,20 +69,14 @@ function monthRange(): { from: string; to: string; label: string } {
 }
 
 export function DashboardView({
-  total, byFunction, byTeam, memberBoard, mmBoard, teamBoard, teamAchieved, funcAchieved,
-  funcGoal, bdGoal, bdMoneyAchieved, teamGoal, views, activeFn, laneLabel, scopeLabel,
-  showTeamDrill, teamOptions, memberOptions, filters, goalCaps, viewerId, lanePlan,
+  total, byFunction, byTeam, memberBoard, mmBoard, teamBoard,
+  views, activeFn, laneLabel, scopeLabel,
+  showTeamDrill, teamOptions, memberOptions, filters, viewerId, showMyNumbers,
+  lanePlan, teamPlan, teamLabel,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [navPending, startNav] = useTransition();
-  const [goalOpen, setGoalOpen] = useState(false);
-  // which card opened the dialog — its scope is preselected
-  const [goalScope, setGoalScope] = useState<"function" | "bd" | "team">("function");
-  const openGoal = (sc: "function" | "bd" | "team") => {
-    setGoalScope(sc);
-    setGoalOpen(true);
-  };
 
   const go = useCallback(
     (mutate: (p: URLSearchParams) => void) => {
@@ -138,8 +114,6 @@ export function DashboardView({
   const thisMonthActive = filters.from === month.from && filters.to === month.to;
   const myNumbersActive = filters.member === viewerId;
   const anyFilter = Object.values(filters).some(Boolean);
-  const canSetAnyGoal =
-    !!goalCaps.functionGoalFn || goalCaps.bdMoneyGoal || goalCaps.teamGoal;
 
   return (
     <div className={cn("mx-auto max-w-6xl space-y-5", navPending && "nav-pending")}>
@@ -188,16 +162,18 @@ export function DashboardView({
             <CalendarRange className="size-4" /> This month
           </Button>
         </Hint>
-        <Hint label="Track your own KPIs & MOS — every number counts only the accounts you're responsible for">
-          <Button
-            variant={myNumbersActive ? "default" : "outline"}
-            className="h-9"
-            size="sm"
-            onClick={() => setParam("member", myNumbersActive ? "" : viewerId)}
-          >
-            <UserRound className="size-4" /> My numbers
-          </Button>
-        </Hint>
+        {showMyNumbers ? (
+          <Hint label="Track your own KPIs & MOS — every number counts only the accounts you're responsible for">
+            <Button
+              variant={myNumbersActive ? "default" : "outline"}
+              className="h-9"
+              size="sm"
+              onClick={() => setParam("member", myNumbersActive ? "" : viewerId)}
+            >
+              <UserRound className="size-4" /> My numbers
+            </Button>
+          </Hint>
+        ) : null}
         {teamOptions.length > 0 ? (
           <Select
             value={filters.team || "__all"}
@@ -262,46 +238,12 @@ export function DashboardView({
         ) : null}
       </div>
 
-      {/* Goals */}
-      {(funcGoal || bdGoal || teamGoal || canSetAnyGoal) ? (
-        <div className="grid gap-3 sm:grid-cols-2 rise-in rise-in-2">
-          <GoalCard
-            title={`${laneLabel} goal${activeFn === "IGT" ? " (= IGTa + IGTe)" : ""}${activeFn === "B2B" ? " (opens)" : ""}`}
-            goal={funcGoal}
-            achieved={funcAchieved}
-            canSet={!!goalCaps.functionGoalFn}
-            emptyHint={
-              activeFn === "IGT"
-                ? "Set the IGTa and IGTe goals — this lane shows their sum."
-                : undefined
-            }
-            onSet={() => openGoal("function")}
-          />
-          {activeFn === "B2B" ? (
-            <GoalCard
-              title="BD goal (money)"
-              goal={bdGoal}
-              achieved={bdMoneyAchieved}
-              unit="EGP"
-              canSet={goalCaps.bdMoneyGoal}
-              emptyHint="No BD money goal for this period yet."
-              onSet={() => openGoal("bd")}
-            />
-          ) : null}
-          {(teamGoal || goalCaps.teamGoal || goalCaps.teamLeaderId) ? (
-            <GoalCard
-              title={`${goalCaps.teamLabel ?? "Team"} goal`}
-              goal={teamGoal}
-              achieved={teamAchieved}
-              canSet={goalCaps.teamGoal}
-              onSet={() => openGoal("team")}
-            />
-          ) : null}
-        </div>
-      ) : null}
-
-      {/* VP plan (from the planning sheet) — current sprint, toggleable to month */}
+      {/* Goals = the plans (v22): the lane goal comes from the VPs' planning
+          sheet, the team goal from the TL's filed plan — nothing is set here. */}
       {lanePlan ? <PlanCard plan={lanePlan} /> : null}
+      {teamPlan ? (
+        <TeamPlanCard plan={teamPlan} teamLabel={teamLabel} isOwnPlan={teamPlan.teamLeaderId === viewerId} />
+      ) : null}
 
       {/* KPI row — MR · Contacted · Visits · Visits done · Deals · Slots · Lead→Deal */}
       <div className="stagger grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
@@ -338,7 +280,7 @@ export function DashboardView({
         ) : null}
         {teamBoard.length > 1 ? (
           <Leaderboard
-            title={`${goalCaps.teamLabel ?? "Team"} leaderboard`}
+            title={`${teamLabel ?? "Team"} leaderboard`}
             groups={teamBoard}
           />
         ) : null}
@@ -367,63 +309,55 @@ export function DashboardView({
         </Card>
       ) : null}
 
-      <GoalDialog
-        open={goalOpen}
-        onOpenChange={setGoalOpen}
-        caps={goalCaps}
-        monthDefault={month}
-        initialScope={goalScope}
-      />
     </div>
   );
 }
 
 // ------------------------------------------------------------------ pieces
 
-function GoalCard({
-  title, goal, achieved, canSet, onSet, emptyHint, unit = "slots",
+/** The viewer's TEAM goal (v22): the Team Leader's filed opens plan for the
+ *  current month vs what the team actually raised. Nothing is set here — the
+ *  TL files/updates the plan from their profile. */
+function TeamPlanCard({
+  plan, teamLabel, isOwnPlan,
 }: {
-  title: string;
-  goal: PerformanceGoal | null;
-  achieved: number;
-  canSet: boolean;
-  onSet: () => void;
-  emptyHint?: string;
-  /** "slots" (default) — the BD money goal shows "EGP" */
-  unit?: string;
+  plan: TeamPlan;
+  teamLabel: string | null;
+  isOwnPlan: boolean;
 }) {
-  const progress = goal ? Math.min(1, achieved / goal.target) : 0;
+  const progress = plan.plannedOpens > 0 ? Math.min(1, plan.actualOpens / plan.plannedOpens) : 0;
   return (
-    <Card className="relative overflow-hidden">
+    <Card className="relative overflow-hidden rise-in rise-in-2">
       <CardContent className="pt-4">
-        <div className="flex items-start justify-between gap-2">
+        <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-              <Target className="size-3.5" /> {title}
-              {goal ? <span className="text-muted-foreground/70">· {goal.period_label}</span> : null}
+              <Target className="size-3.5" /> {teamLabel ?? "Team"} plan · {plan.monthLabel}
             </p>
-            {goal ? (
+            {plan.plannedOpens > 0 ? (
               <p className="mt-1 text-2xl font-bold">
-                {achieved.toLocaleString("en")}
+                {plan.actualOpens.toLocaleString("en")}
                 <span className="text-base font-semibold text-muted-foreground">
-                  {" "}/ {goal.target.toLocaleString("en")} {unit}
+                  {" "}/ {plan.plannedOpens.toLocaleString("en")} opens planned
                 </span>
               </p>
             ) : (
               <p className="mt-1 text-sm text-muted-foreground">
-                {emptyHint ?? "No goal set for this period yet."}
+                {isOwnPlan
+                  ? "No plan filed for this month yet — set your team's opens plan from your profile."
+                  : "Your Team Leader hasn't filed this month's plan yet."}
               </p>
             )}
           </div>
-          {canSet ? (
-            <Hint label={`Set or update the ${unit} goal your people rally around`}>
-              <Button size="sm" variant="outline" onClick={onSet}>
-                <Target className="size-4" /> Set goal
-              </Button>
-            </Hint>
+          {isOwnPlan ? (
+            <Button size="sm" variant="outline" asChild>
+              <Link href="/profile">
+                <Target className="size-4" /> My plan
+              </Link>
+            </Button>
           ) : null}
         </div>
-        {goal ? (
+        {plan.plannedOpens > 0 ? (
           <div className="mt-3 h-2 w-full rounded-full bg-muted">
             <div
               className={cn(
@@ -456,7 +390,7 @@ function PlanCard({ plan }: { plan: LanePlan }) {
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-              <CalendarRange className="size-3.5" /> {plan.lane} plan · {win.label}
+              <CalendarRange className="size-3.5" /> {plan.lane} goal · {win.label}
             </p>
             <p className="mt-1 text-2xl font-bold">
               {win.actualOpens.toLocaleString("en")}
@@ -691,132 +625,6 @@ function Leaderboard({ title, groups }: { title: string; groups: DrillGroup[] })
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-function GoalDialog({
-  open, onOpenChange, caps, monthDefault, initialScope,
-}: {
-  open: boolean;
-  onOpenChange: (o: boolean) => void;
-  caps: GoalCaps;
-  monthDefault: { from: string; to: string; label: string };
-  /** the scope of the card that opened the dialog — preselected when valid */
-  initialScope?: "function" | "bd" | "team";
-}) {
-  const router = useRouter();
-  const scopes: ("function" | "bd" | "team")[] = [
-    ...(caps.functionGoalFn ? (["function"] as const) : []),
-    ...(caps.bdMoneyGoal ? (["bd"] as const) : []),
-    ...(caps.teamGoal ? (["team"] as const) : []),
-  ];
-  const [scope, setScope] = useState<"function" | "bd" | "team">(scopes[0] ?? "team");
-  // on open: preselect the opener card's scope; and never keep a selection
-  // that a lane switch made invalid
-  const scopeKey = scopes.join(",");
-  useLayoutEffect(() => {
-    if (!open) return;
-    if (initialScope && scopes.includes(initialScope)) setScope(initialScope);
-    else if (!scopes.includes(scope)) setScope(scopes[0] ?? "team");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, scopeKey, initialScope]);
-  const [target, setTarget] = useState("");
-  const [label, setLabel] = useState(monthDefault.label);
-  const [start, setStart] = useState(monthDefault.from);
-  const [end, setEnd] = useState(monthDefault.to);
-  const [pending, startSave] = useTransition();
-
-  const save = () =>
-    startSave(async () => {
-      const res = await setPerformanceGoal({
-        scope: scope === "bd" ? "function" : scope,
-        function: scope === "function" ? caps.functionGoalFn : scope === "bd" ? "BD" : null,
-        teamLeaderId: scope === "team" ? caps.teamLeaderId : null,
-        target: Number(target),
-        periodLabel: label.trim(),
-        periodStart: start,
-        periodEnd: end,
-      });
-      if (res.ok) {
-        toast.success("Goal set — it's on everyone's dashboard now 🎯");
-        onOpenChange(false);
-        router.refresh();
-      } else toast.error(res.error);
-    });
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>🎯 Set the {scope === "bd" ? "BD money (EGP)" : "slots"} goal</DialogTitle>
-          <DialogDescription>
-            The goal shows on the dashboard of everyone it covers — the shared
-            target for the month or the peak.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-3">
-          {scopes.length > 1 ? (
-            <div className="grid gap-1.5">
-              <Label>Goal for</Label>
-              <Select value={scope} onValueChange={(v) => setScope(v as "function" | "bd" | "team")}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {caps.functionGoalFn ? (
-                    <SelectItem value="function">
-                      {caps.functionGoalFn} (whole function{caps.functionGoalFn === "B2B" ? " — opens" : ""})
-                    </SelectItem>
-                  ) : null}
-                  {caps.bdMoneyGoal ? (
-                    <SelectItem value="bd">BD — money goal (EGP)</SelectItem>
-                  ) : null}
-                  {caps.teamGoal ? (
-                    <SelectItem value="team">{caps.teamLabel ?? "My team"}</SelectItem>
-                  ) : null}
-                </SelectContent>
-              </Select>
-            </div>
-          ) : null}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-1.5">
-              <Label>{scope === "bd" ? "Money target (EGP) *" : "Slots target *"}</Label>
-              <Input
-                type="number"
-                min={1}
-                value={target}
-                onChange={(e) => setTarget(e.target.value)}
-                placeholder={scope === "bd" ? "e.g. 50000" : "e.g. 25"}
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <Label>Period name *</Label>
-              <Input
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                placeholder="July 2026 / Summer Peak 26"
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-1.5">
-              <Label>From</Label>
-              <Input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
-            </div>
-            <div className="grid gap-1.5">
-              <Label>To</Label>
-              <Input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
-            </div>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button
-            onClick={save}
-            disabled={pending || !Number(target) || !label.trim() || !start || !end || scopes.length === 0}
-          >
-            {pending ? "Saving…" : "Set goal"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 

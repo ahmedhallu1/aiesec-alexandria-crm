@@ -386,73 +386,8 @@ export function feedbackThanksEmail(opts: {
   };
 }
 
-/** Sent to the goal's owners (VP/Director for lane goals, the TL for team
- *  goals) once the goal period has ENDED, with the achieved-vs-target recap
- *  and a button to set the next period's goal. */
-export function goalPeriodEndedEmail(opts: {
-  scopeLabel: string; // e.g. "IGTa lane" or "Team فرقة ناجي عطالله"
-  periodLabel: string;
-  target: number;
-  achieved: number;
-  setGoalUrl: string;
-  /** "slots" (default) — the BD money goal passes "EGP" */
-  unit?: string;
-}) {
-  const hit = opts.achieved >= opts.target;
-  const pctNum = opts.target > 0 ? Math.round((opts.achieved / opts.target) * 100) : 0;
-  return {
-    subject: `🎯 ${opts.periodLabel} is over — set the new ${opts.scopeLabel} goal`,
-    html: emailLayout({
-      preheader: `${opts.achieved}/${opts.target} achieved — time to set the next goal`,
-      body: `
-        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">The ${escapeHtml(opts.periodLabel)} period just ended ${hit ? "🎉" : "⏱️"}</h1>
-        <p>Here's how the <b>${escapeHtml(opts.scopeLabel)}</b> closed it:</p>
-        ${detailsTable([
-          ["Period", opts.periodLabel],
-          ["Goal", `${opts.target} ${opts.unit ?? "slots"}`],
-          ["Achieved", `${opts.achieved} ${opts.unit ?? "slots"} (${pctNum}%)`],
-          ["Result", hit ? "Goal reached — congratulations! 🏆" : "Goal not reached — new period, new push 💪"],
-        ])}
-        <p>There's <b>no goal set for the new period yet</b> — your people can't chase a
-        number that doesn't exist. Set it now so every dashboard shows the target from day one:</p>
-        ${button("Set the new goal", opts.setGoalUrl)}
-        <p style="color:#5c6b80;font-size:13px;">Once you set it, everyone it applies to gets notified automatically.</p>`,
-    }),
-  };
-}
-
-/** Announces a freshly set goal to everyone it applies to. */
-export function newGoalEmail(opts: {
-  scopeLabel: string;
-  periodLabel: string;
-  periodStart: string;
-  periodEnd: string;
-  target: number;
-  setByName: string;
-  dashboardUrl: string;
-  /** "slots" (default) — the BD money goal passes "EGP" */
-  unit?: string;
-}) {
-  return {
-    subject: `🎯 New goal for ${opts.scopeLabel}: ${opts.target} ${opts.unit ?? "slots"} (${opts.periodLabel})`,
-    html: emailLayout({
-      preheader: `${opts.target} ${opts.unit ?? "slots"} by ${opts.periodEnd} — let's go`,
-      body: `
-        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Your new goal is live 🎯</h1>
-        <p><b>${escapeHtml(opts.setByName)}</b> just set the ${escapeHtml(opts.scopeLabel)} goal
-        for <b>${escapeHtml(opts.periodLabel)}</b>:</p>
-        <p style="margin:20px 0;text-align:center;">
-          <span style="display:inline-block;background:#f0f7ff;border:2px solid #037EF3;border-radius:14px;padding:16px 30px;font-size:26px;font-weight:800;color:#0A2540;">${opts.target} ${opts.unit ?? "slots"}</span>
-        </p>
-        ${detailsTable([
-          ["Applies to", opts.scopeLabel],
-          ["Period", `${opts.periodLabel} (${opts.periodStart} → ${opts.periodEnd})`],
-        ])}
-        <p>Your dashboard now tracks the progress bar live — every deal you close moves it.</p>
-        ${button("Open the dashboard", opts.dashboardUrl)}`,
-    }),
-  };
-}
+// (v22) goalPeriodEndedEmail + newGoalEmail removed — goals now come from
+// the planning sheet and the TLs' filed plans; nothing is set in-app.
 
 export function broadcastEmail(opts: {
   title: string;

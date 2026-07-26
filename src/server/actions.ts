@@ -248,7 +248,8 @@ export async function createAccount(
         function: duplicate.function,
         reason: duplicate.oop_reason,
         archived_at: duplicate.oop_at?.slice(0, 10) ?? null,
-        was_responsible: duplicate.responsible_nickname || duplicate.responsible_name,
+        was_responsible:
+          duplicate.responsible_nickname || duplicate.responsible_name || "Unassigned",
       }
     );
   if (duplicate)
@@ -257,7 +258,8 @@ export async function createAccount(
       "duplicate",
       {
         function: duplicate.function,
-        responsible: duplicate.responsible_nickname || duplicate.responsible_name,
+        responsible:
+          duplicate.responsible_nickname || duplicate.responsible_name || "Unassigned",
         stage: duplicate.stage,
         project: duplicate.project ?? duplicate.sub_product,
         created_at: duplicate.created_at?.slice(0, 10) ?? null,
@@ -534,7 +536,7 @@ async function insertArchivedName(
     });
   if (duplicate)
     return fail(
-      `"${cleanName}" exists in the active accounts (${duplicate.function}, ${duplicate.responsible_nickname || duplicate.responsible_name}) — mark it Out of Process from its page instead.`,
+      `"${cleanName}" exists in the active accounts (${duplicate.function}, ${duplicate.responsible_nickname || duplicate.responsible_name || "Unassigned"}) — mark it Out of Process from its page instead.`,
       "duplicate"
     );
 
@@ -624,7 +626,11 @@ export async function recordDeal(
   accountId: string,
   breakdown: { igv?: number; igta?: number; igte?: number },
   note?: string,
-  extras?: { amount?: number; benefits?: string }
+  extras?: { amount?: number; benefits?: string },
+  /** v22: optionally split the opens across members (e.g. 3 to the owner,
+   *  3 to whoever helped close) — every recipient must be in the account's
+   *  function and the splits must add up to the deal's opens exactly. */
+  allocations?: { memberId: string; igv?: number; igta?: number; igte?: number }[]
 ): Promise<ActionResult<{ deals: number; slots: number; dealId: string }>> {
   const viewer = await getViewer();
   const account = await loadAccount(accountId);
@@ -651,6 +657,38 @@ export async function recordDeal(
     return fail("Add the opens of this deal (IGV / IGTa / IGTe).");
   }
   const cleanSlots = igv + igta + igte;
+
+  // ---- who do the opens belong to? Default: 100% to the account's
+  // responsible. A custom split must cover the deal's opens exactly and only
+  // name members of the account's function.
+  let allocRows = (allocations ?? [])
+    .map((a) => ({
+      member_id: a.memberId,
+      slots_igv: clamp(a.igv),
+      slots_igta: clamp(a.igta),
+      slots_igte: clamp(a.igte),
+    }))
+    .filter((a) => a.member_id && a.slots_igv + a.slots_igta + a.slots_igte > 0);
+  if (allocRows.length > 0) {
+    const ids = allocRows.map((a) => a.member_id);
+    if (new Set(ids).size !== ids.length)
+      return fail("Each member appears once in the opens split.");
+    const sum = (k: "slots_igv" | "slots_igta" | "slots_igte") =>
+      allocRows.reduce((s, a) => s + a[k], 0);
+    if (sum("slots_igv") !== igv || sum("slots_igta") !== igta || sum("slots_igte") !== igte)
+      return fail("The split must add up to the deal's opens exactly.");
+    const { listFunctionMembers } = await import("./data");
+    const crew = await listFunctionMembers(account.function);
+    const crewIds = new Set(crew.map((m) => m.id));
+    if (ids.some((id) => !crewIds.has(id)))
+      return fail(`Opens can only be assigned to ${account.function} members.`);
+  } else if (cleanSlots > 0) {
+    if (!account.responsible_id)
+      return fail("This account has no responsible yet — choose who the opens go to.");
+    allocRows = [
+      { member_id: account.responsible_id, slots_igv: igv, slots_igta: igta, slots_igte: igte },
+    ];
+  }
 
   // the deal is recorded for the account's RESPONSIBLE (whoever the opens
   // were raised for), not the person clicking the button
@@ -683,6 +721,21 @@ export async function recordDeal(
   }
 
   await recordUndo("deals", inserted.id, "insert");
+  // opens allocations (v22): who the opens belong to. If this write fails the
+  // deal must NOT survive half-recorded — roll the deal row back and say so.
+  if (allocRows.length > 0) {
+    const { data: insertedAllocs, error: allocError } = await db()
+      .from("deal_allocations")
+      .insert(allocRows.map((a) => ({ ...a, deal_id: inserted.id })))
+      .select("id");
+    if (allocError) {
+      await db().from("deals").delete().eq("id", inserted.id);
+      if (allocError.message.includes("deal_allocations"))
+        return fail("Opens splitting needs migration 0018 — run it in the Supabase SQL editor.");
+      return fail(`The opens split could not be saved (${allocError.message}) — nothing was recorded, try again.`);
+    }
+    for (const a of insertedAllocs ?? []) await recordUndo("deal_allocations", a.id, "insert");
+  }
   const totals = {
     slot_raised: true,
     slot_raised_at: new Date().toISOString(),
@@ -1185,6 +1238,8 @@ export async function requestPodioSubmit(accountId: string): Promise<ActionResul
     return fail("This account is archived — nothing to submit.");
   if (account.requested_podio || account.request_state)
     return fail("This account is already requested on Podio.");
+  if (!account.responsible_id)
+    return fail("This account has no responsible yet — assign it first.");
 
   await snapshotForUndo("accounts", accountId);
   const { error } = await db()
@@ -1342,6 +1397,10 @@ export async function logContact(
   const visitScheduled = status === "Visit Scheduled";
   if (visitScheduled && (!scheduledDate || !scheduledTime))
     return fail("Pick the date and time of the visit.");
+  // the visit lands on the RESPONSIBLE's calendar — fail BEFORE the attempt
+  // row is written, or an unbookable visit leaves a phantom contact behind
+  if (visitScheduled && !account.responsible_id)
+    return fail("Assign a responsible first — the visit lands on THEIR calendar.");
 
   // BUSINESS RULE: after a contact without a scheduled visit, the account must
   // carry a next step with a date (unless one is already set in the future).
@@ -1548,6 +1607,8 @@ export async function scheduleVisit(
   const account = await loadAccount(accountId);
   if (!account || !canEditAccount(viewer, account))
     return fail("You are not allowed to schedule visits on this account.", "forbidden");
+  if (!account.responsible_id)
+    return fail("Assign a responsible first — the visit lands on THEIR calendar.");
 
   const { data: responsible } = await db()
     .from("members")
@@ -2217,182 +2278,9 @@ export async function updateAccountContacts(
   return { ok: true };
 }
 
-// ================================================================== performance goals
-
-const goalSchema = z.object({
-  scope: z.enum(["function", "team"]),
-  // goals are set per lane — the IGT goal is DERIVED (IGTa + IGTe). The B2B
-  // lane carries TWO goals: "B2B" (opens) and "BD" (MONEY, EGP — the BD MOS)
-  function: z.enum(["IGV", "IGTa", "IGTe", "B2B", "BD"]).nullish(),
-  teamLeaderId: z.string().uuid().nullish(),
-  target: z.number().int().min(1, "The goal must be at least 1 slot."),
-  periodLabel: z.string().trim().min(2, "Name the period (e.g. July 2026 or Summer Peak 26)."),
-  periodStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  periodEnd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-});
-
-/** VPs (and the LCP) set the function goal; Team Leaders set their team goal.
- *  Shown on every member's dashboard as the shared target. */
-export async function setPerformanceGoal(
-  input: z.infer<typeof goalSchema>
-): Promise<ActionResult> {
-  const viewer = await getViewer();
-  const parsed = goalSchema.safeParse(input);
-  if (!parsed.success) return fail(parsed.error.issues[0].message);
-  const g = parsed.data;
-  if (g.periodEnd < g.periodStart) return fail("The period ends before it starts.");
-
-  const master = viewer.isAdmin || viewer.role === "LCP";
-  if (g.scope === "function") {
-    if (!g.function) return fail("Pick the lane for this goal.");
-    // the B2B goal belongs to the B2B/BD VP or Director — the function-leaders
-    // team's leader (e.g. Suits) — never to its Team Leaders
-    const ownsFunction =
-      (viewer.role === "LCVP" || viewer.role === "Director") &&
-      (g.function === "B2B" || g.function === "BD"
-        ? memberIsB2B(viewer)
-        : viewer.functions.includes(g.function === "IGV" ? "IGV" : "IGT"));
-    if (!master && !ownsFunction)
-      return fail("Only the function's VP/Director (or the LCP) sets the function goal.", "forbidden");
-  } else {
-    const teamLeaderId = g.teamLeaderId ?? viewer.id;
-    const isOwnTeam = viewer.role === "Team Leader" && teamLeaderId === viewer.id;
-    const isLeadOver =
-      (viewer.role === "LCVP" || viewer.role === "Director") || master;
-    if (!isOwnTeam && !isLeadOver)
-      return fail("Only the Team Leader (or their VP/LCP) sets the team goal.", "forbidden");
-    // team goals need an actual team — a TL with no members steers via the
-    // function goal instead
-    const { count } = await db()
-      .from("members")
-      .select("id", { count: "exact", head: true })
-      .eq("stakeholder_id", teamLeaderId)
-      .eq("is_active", true);
-    if (!count)
-      return fail("This team has no members yet — its numbers live in the function goal.");
-    g.teamLeaderId = teamLeaderId;
-  }
-
-  // one goal per scope/key/period label — update in place if it exists
-  let existing = db()
-    .from("performance_goals")
-    .select("id")
-    .eq("scope", g.scope)
-    .eq("period_label", g.periodLabel);
-  existing =
-    g.scope === "function"
-      ? existing.eq("function", g.function!)
-      : existing.eq("team_leader_id", g.teamLeaderId!);
-  const { data: found } = await existing.maybeSingle<{ id: string }>();
-
-  const row = {
-    scope: g.scope,
-    function: g.scope === "function" ? g.function : null,
-    team_leader_id: g.scope === "team" ? g.teamLeaderId : null,
-    // the BD goal is measured in MONEY — everything else counts opens
-    metric: g.scope === "function" && g.function === "BD" ? "EGP" : "Slots",
-    target: g.target,
-    period_label: g.periodLabel,
-    period_start: g.periodStart,
-    period_end: g.periodEnd,
-    created_by: viewer.id,
-  };
-  if (found) await snapshotForUndo("performance_goals", found.id);
-  const { data: goalRow, error } = found
-    ? await db().from("performance_goals").update(row).eq("id", found.id).select("id").single<{ id: string }>()
-    : await db().from("performance_goals").insert(row).select("id").single<{ id: string }>();
-  if (error) return fail(error.message);
-  if (!found && goalRow) await recordUndo("performance_goals", goalRow.id, "insert");
-  await logAudit(viewer.id, "set_goal", "goal", null, { ...row });
-
-  // a NEW goal is announced to everyone it applies to (email + bell) — updates
-  // to an existing period stay quiet to avoid noise. Best-effort.
-  if (!found) {
-    try {
-      const { data: membersData } = await db()
-        .from("members")
-        .select("id, name, nickname, email, role, functions, sub_functions, stakeholder_id, team_name")
-        .eq("is_active", true);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const all = (membersData ?? []) as any[];
-
-      let audience: typeof all = [];
-      let scopeLabel = "";
-      let dashboardUrl = env.appUrl;
-      if (g.scope === "function" && g.function) {
-        const isB2BMember = (m: (typeof all)[number]) =>
-          ["B2B", "BD"].some(
-            (f) => (m.functions ?? []).includes(f) || (m.sub_functions ?? []).includes(f)
-          );
-        // v15 isolation: each lane's goal is announced to ITS crew only —
-        // the B2B/BD goals to the B2B crew, product goals to their function
-        audience =
-          g.function === "B2B" || g.function === "BD"
-            ? all.filter((m) => m.role !== "LCP" && isB2BMember(m))
-            : all.filter(
-                (m) =>
-                  m.role !== "LCP" &&
-                  (m.functions ?? []).includes(g.function === "IGV" ? "IGV" : "IGT")
-              );
-        scopeLabel =
-          g.function === "BD"
-            ? "the BD money goal"
-            : g.function === "B2B"
-              ? "the B2B lane"
-              : `the ${g.function} lane`;
-        dashboardUrl = `${env.appUrl}/dashboard?fn=B2B`;
-        if (g.function !== "B2B" && g.function !== "BD")
-          dashboardUrl = `${env.appUrl}/dashboard?fn=${g.function}`;
-      } else if (g.scope === "team" && g.teamLeaderId) {
-        dashboardUrl = `${env.appUrl}/dashboard`;
-        const tl = all.find((m) => m.id === g.teamLeaderId);
-        audience = all.filter(
-          (m) => m.id === g.teamLeaderId || m.stakeholder_id === g.teamLeaderId
-        );
-        scopeLabel = tl?.team_name
-          ? `Team ${tl.team_name}`
-          : `Team ${tl?.nickname || tl?.name || ""}`.trim();
-      }
-      audience = audience.filter((m) => m.id !== viewer.id && m.email);
-
-      if (audience.length > 0) {
-        const { newGoalEmail } = await import("@/lib/email/templates");
-        const mail = newGoalEmail({
-          scopeLabel,
-          periodLabel: g.periodLabel,
-          periodStart: g.periodStart,
-          periodEnd: g.periodEnd,
-          target: g.target,
-          setByName: viewer.nickname || viewer.name,
-          dashboardUrl,
-          unit: g.scope === "function" && g.function === "BD" ? "EGP" : undefined,
-        });
-        await sendEmail({
-          to: [viewer.email],
-          bcc: audience.map((m) => m.email),
-          ...mail,
-        });
-        const { notifyMembers } = await import("./notify");
-        const isBdGoal = g.scope === "function" && g.function === "BD";
-        await notifyMembers(
-          audience.map((m) => m.id),
-          "info",
-          `🎯 New goal for ${scopeLabel}: ${g.target} ${isBdGoal ? "EGP" : "slots"}`,
-          `${g.periodLabel} (${g.periodStart} → ${g.periodEnd}) — the dashboard tracks it live.`,
-          viewer.id,
-          g.scope === "function"
-            ? `/dashboard?fn=${isBdGoal ? "B2B" : g.function}`
-            : "/dashboard"
-        );
-      }
-    } catch (e) {
-      console.error("[goal] announcement failed:", e);
-    }
-  }
-
-  refresh();
-  return { ok: true };
-}
+// Goals are no longer set in Sodio (v22): function goals come from the VPs'
+// planning sheet (plan_cells) and team goals from the Team Leaders' filed
+// plans (tl_plans) — setPerformanceGoal and its announcement flow are gone.
 
 // ================================================================== bulk import
 
@@ -2810,15 +2698,101 @@ export async function saveMmPlan(
     }));
   if (rows.length === 0) return fail("Those months don't belong to the current peak.");
 
-  const { error } = await db()
+  // sandbox undo: snapshot existing months, journal the new ones (v22)
+  const { data: existingRows } = await db()
     .from("mm_plans")
-    .upsert(rows, { onConflict: "member_id,month" });
+    .select("id, month")
+    .eq("member_id", viewer.id);
+  const existingByMonth = new Map(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ((existingRows ?? []) as any[]).map((r) => [`${String(r.month).slice(0, 7)}-01`, r.id])
+  );
+  for (const r of rows) {
+    const id = existingByMonth.get(r.month);
+    if (id) await snapshotForUndo("mm_plans", id);
+  }
+
+  const { data: upserted, error } = await db()
+    .from("mm_plans")
+    .upsert(rows, { onConflict: "member_id,month" })
+    .select("id, month");
   if (error) {
     if (error.message.includes("mm_plans"))
       return fail("MM planning needs migration 0017 — run it in the Supabase SQL editor.");
     return fail(error.message);
   }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const r of (upserted ?? []) as any[]) {
+    if (!existingByMonth.has(`${String(r.month).slice(0, 7)}-01`))
+      await recordUndo("mm_plans", r.id, "insert");
+  }
   await logAudit(viewer.id, "mm_plan_saved", "member", viewer.id, {
+    months: rows.length, peak: peak.name,
+  });
+  refresh();
+  return { ok: true };
+}
+
+// ================================================================== TL planning (v22)
+
+/** Raising Team Leaders (IGV/IGT/B2B&BD) plan their team's OPENS per month of
+ *  the peak — on first sign-in and any time later from the profile "My plan"
+ *  card. These ARE the team goals: the dashboard's team card and the /planning
+ *  page compare them with what the team actually raised. */
+export async function saveTlPlan(
+  months: { month: string; opens: number }[]
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const { isPlanningTl } = await import("./data");
+  if (!isPlanningTl(viewer))
+    return fail("The opens plan is for raising Team Leaders.", "forbidden");
+  if (!Array.isArray(months) || months.length === 0) return fail("Fill your plan first 🙂");
+  if (months.length > 12) return fail("A plan covers one peak (6 months).");
+
+  const { peakForPlanning } = await import("@/lib/plan");
+  const peak = peakForPlanning();
+  const allowed = new Set(peak.months);
+  const clamp = (n: unknown) => Math.max(0, Math.min(100000, Math.round(Number(n) || 0)));
+  const rows = months
+    .filter((m) => allowed.has(m.month))
+    .map((m) => ({
+      member_id: viewer.id,
+      month: m.month,
+      opens: clamp(m.opens),
+      peak: `${peak.name}-${peak.months[0].slice(0, 4)}`,
+      updated_at: new Date().toISOString(),
+    }));
+  if (rows.length === 0) return fail("Those months don't belong to the current peak.");
+
+  // sandbox undo: snapshot the months that already exist, journal the new ones
+  const { data: existingRows } = await db()
+    .from("tl_plans")
+    .select("id, month")
+    .eq("member_id", viewer.id);
+  const existingByMonth = new Map(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ((existingRows ?? []) as any[]).map((r) => [`${String(r.month).slice(0, 7)}-01`, r.id])
+  );
+  for (const r of rows) {
+    const id = existingByMonth.get(r.month);
+    if (id) await snapshotForUndo("tl_plans", id);
+  }
+
+  const { data: upserted, error } = await db()
+    .from("tl_plans")
+    .upsert(rows, { onConflict: "member_id,month" })
+    .select("id, month");
+  if (error) {
+    if (error.message.includes("tl_plans"))
+      return fail("TL planning needs migration 0018 — run it in the Supabase SQL editor.");
+    return fail(error.message);
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const r of (upserted ?? []) as any[]) {
+    if (!existingByMonth.has(`${String(r.month).slice(0, 7)}-01`))
+      await recordUndo("tl_plans", r.id, "insert");
+  }
+  await logAudit(viewer.id, "tl_plan_saved", "member", viewer.id, {
     months: rows.length, peak: peak.name,
   });
   refresh();

@@ -377,9 +377,15 @@ function SelectDot({ checked, onToggle }: { checked: boolean; onToggle: () => vo
 }
 
 export function AccountsView({
-  rows, manualArchived, members, reassignTargets, respOptions, viewer, filters,
+  rows, total, page, pageSize, manualArchived, members, reassignTargets,
+  respOptions, viewer, filters,
 }: {
   rows: PipelineRow[];
+  /** total matches across ALL pages (the list is paginated since v22) */
+  total: number;
+  /** 0-based current page + the server's page size */
+  page: number;
+  pageSize: number;
   manualArchived: ManualEntry[];
   members: MemberOption[];
   /** members the viewer may reassign accounts TO (RBAC-correct, list-level) */
@@ -403,6 +409,8 @@ export function AccountsView({
       const params = new URLSearchParams(searchParams.toString());
       if (value) params.set(key, value);
       else params.delete(key);
+      // changing any filter restarts from the first page
+      if (key !== "page") params.delete("page");
       startNav(() => router.replace(`/accounts?${params.toString()}`));
     },
     [router, searchParams]
@@ -446,8 +454,9 @@ export function AccountsView({
     setSelectMode(false);
     setSelected(new Set());
   };
-  // a filter/tab switch changes what "selected" would even mean — always reset
-  const filterKey = JSON.stringify(filters);
+  // a filter/tab/PAGE switch changes what "selected" would even mean — always
+  // reset (off-page ids would get bulk-archived invisibly otherwise)
+  const filterKey = `${JSON.stringify(filters)}:${page}`;
   useEffect(() => {
     setSelectMode(false);
     setSelected(new Set());
@@ -474,7 +483,8 @@ export function AccountsView({
     nextStepDate: row.next_step_date,
   });
 
-  // archive = OOP accounts + manually added names, newest first
+  // archive = OOP accounts (paginated) + manually added names (shown with the
+  // FIRST page only — repeating them on every page would duplicate the list)
   const archivedItems: (
     | { kind: "account"; date: string; row: PipelineRow }
     | { kind: "manual"; date: string; entry: ManualEntry }
@@ -485,7 +495,7 @@ export function AccountsView({
           date: row.oop_at ?? row.updated_at ?? row.created_at,
           row,
         })),
-        ...manualArchived
+        ...(page === 0 ? manualArchived : [])
           .filter((e) => !q || e.name.toLowerCase().includes(q.trim().toLowerCase()))
           .map((entry) => ({ kind: "manual" as const, date: entry.createdAt, entry })),
       ].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""))
@@ -503,8 +513,8 @@ export function AccountsView({
           </h1>
           <p className="text-sm text-muted-foreground">
             {archived
-              ? `${archivedCount} archived name${archivedCount === 1 ? "" : "s"} — none of them can ever be re-added`
-              : `${rows.length} account${rows.length === 1 ? "" : "s"} in your scope`}
+              ? `${(total + manualArchived.length).toLocaleString("en")} archived name${total + manualArchived.length === 1 ? "" : "s"} — none of them can ever be re-added`
+              : `${total.toLocaleString("en")} account${total === 1 ? "" : "s"} in your scope`}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -904,7 +914,7 @@ export function AccountsView({
                           </span>
                           {viewer.seesOthers ? (
                             <p className="text-xs text-muted-foreground">
-                              {row.responsible_nickname || row.responsible_name}
+                              {row.responsible_nickname || row.responsible_name || "Unassigned"}
                             </p>
                           ) : null}
                           {podioMode ? <PodioRowTools row={row} /> : null}
@@ -969,6 +979,38 @@ export function AccountsView({
           </div>
         </>
       )}
+
+      {/* pagination (v22 — the market-research import made the list BIG) */}
+      {total > pageSize ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
+          <span>
+            Showing {(page * pageSize + 1).toLocaleString("en")}–
+            {Math.min(total, (page + 1) * pageSize).toLocaleString("en")} of{" "}
+            {total.toLocaleString("en")}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page === 0 || navPending}
+              onClick={() => setParam("page", page <= 1 ? "" : String(page))}
+            >
+              ← Prev
+            </Button>
+            <span className="tabular-nums">
+              Page {page + 1} / {Math.max(1, Math.ceil(total / pageSize))}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={(page + 1) * pageSize >= total || navPending}
+              onClick={() => setParam("page", String(page + 2))}
+            >
+              Next →
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       {/* bulk-selection action bar — shows once anything is selected (or in
           the mobile Select mode) */}
@@ -1173,7 +1215,7 @@ function ArchivedList({
                         <span className="font-medium">{item.row.name}</span>
                         {seesOthers ? (
                           <p className="text-xs text-muted-foreground">
-                            {item.row.responsible_nickname || item.row.responsible_name}
+                            {item.row.responsible_nickname || item.row.responsible_name || "Unassigned"}
                           </p>
                         ) : null}
                       </TableCell>

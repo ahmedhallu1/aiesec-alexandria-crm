@@ -21,7 +21,7 @@ import {
   type PlanFunction,
   type PlanMetric,
 } from "@/lib/plan";
-import type { MmPlanRow, PlanCell } from "@/server/data";
+import type { MmPlanRow, PlanCell, TlPlanRow } from "@/server/data";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,8 @@ interface Props {
   fns: PlanFunction[];
   cells: PlanCell[];
   mmPlans: MmPlanRow[];
+  /** raising Team Leaders' monthly opens plans (v22 — these ARE team goals) */
+  tlPlans: TlPlanRow[];
   sprint: Period;
   month: Period;
   quarter: Period;
@@ -123,7 +125,7 @@ function PeriodCard({
 }
 
 export function PlanningView({
-  fns, cells, mmPlans, sprint, month, quarter, termMonths, peak, actuals,
+  fns, cells, mmPlans, tlPlans, sprint, month, quarter, termMonths, peak, actuals,
 }: Props) {
   const [fn, setFn] = useState<PlanFunction>(fns[0]);
   const [pending, startImport] = useTransition();
@@ -152,13 +154,14 @@ export function PlanningView({
     { label: "Term total", scope: "month", keys: termMonths },
   ];
 
-  // step-to-step conversions from the TERM month totals
+  // step-to-step conversions from the TERM month totals — capped at 100%
+  // (a funnel step can't logically convert more than all of the previous one)
   const termTotal = (m: PlanMetric) => sum("month", termMonths, m);
   const conversions = funnel.slice(0, -1).map((from, i) => {
     const to = funnel[i + 1];
     const a = termTotal(from);
     const b = termTotal(to);
-    return { from, to, pct: a > 0 ? `${Math.round((b / a) * 100)}%` : "—" };
+    return { from, to, pct: a > 0 ? `${Math.min(100, Math.round((b / a) * 100))}%` : "—" };
   });
 
   // sprint-split columns for the current quarter's 3 months (6 columns)
@@ -181,6 +184,23 @@ export function PlanningView({
     }
     return [...map.values()];
   }, [mmPlans, peak.months]);
+
+  // TL opens plans grouped per Team Leader, kept to the same peak
+  const tlGroups = useMemo(() => {
+    const peakSet = new Set(peak.months);
+    const map = new Map<string, { id: string; name: string; team: string | null; rows: TlPlanRow[]; total: number }>();
+    for (const p of tlPlans) {
+      const key = `${p.month.slice(0, 7)}-01`;
+      if (!peakSet.has(key)) continue;
+      const g = map.get(p.member_id) ?? {
+        id: p.member_id, name: p.member_name, team: p.team_name, rows: [], total: 0,
+      };
+      g.rows.push(p);
+      g.total += p.opens;
+      map.set(p.member_id, g);
+    }
+    return [...map.values()];
+  }, [tlPlans, peak.months]);
 
   const reimport = () =>
     startImport(async () => {
@@ -404,6 +424,53 @@ export function PlanningView({
           </Card>
         </>
       )}
+
+      {/* TL opens plans (v22) — these ARE the team goals */}
+      <Card className="rise-in rise-in-4">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <TrendingUp className="size-4 text-primary" /> Team Leader plans — opens
+            <span className="text-xs font-normal text-muted-foreground">· {peak.label}</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {tlGroups.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">
+              No TL plans filed yet — raising Team Leaders are asked on sign-in
+              and can file/update from their profile.
+            </p>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {tlGroups.map((g) => (
+                <div key={g.id} className="rounded-lg border p-3">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <p className="font-semibold">{g.name}</p>
+                    {g.team ? (
+                      <Badge className="border-transparent bg-primary/15 text-[10px] font-bold text-primary">
+                        {g.team}
+                      </Badge>
+                    ) : null}
+                    <Badge variant="outline" className="ml-auto text-[10px]">
+                      {g.total.toLocaleString("en")} opens total
+                    </Badge>
+                  </div>
+                  <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+                    {g.rows.map((r) => (
+                      <li key={r.month}>
+                        <span className="font-medium text-foreground">
+                          {monthKeyLabel(`${r.month.slice(0, 7)}-01`)}
+                        </span>
+                        {" — "}
+                        {r.opens} opens
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* MM plans for the peak being planned */}
       <Card className="rise-in rise-in-4">

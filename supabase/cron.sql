@@ -26,14 +26,9 @@ select cron.schedule(
   $$ select net.http_get(url := '<APP_URL>/api/cron/sheets-export?key=<CRON_SECRET>') $$
 );
 
--- Daily 06:00 UTC (~8-9am Cairo): after a goal period ends, remind the
--- VPs/Directors (lane goals) and Team Leaders (team goals) to set the new
--- period's goal — with last period's goal vs achieved in the email.
-select cron.schedule(
-  'goal-reminders',
-  '0 6 * * *',
-  $$ select net.http_get(url := '<APP_URL>/api/cron/goal-reminders?key=<CRON_SECRET>') $$
-);
+-- (v22) the goal-reminders job is GONE — goals come from the planning sheet
+-- and the TLs' filed plans; nothing is set (or reminded about) in-app.
+-- If an old 'goal-reminders' job still exists: select cron.unschedule('goal-reminders');
 
 -- To inspect: select * from cron.job;
 -- To remove:  select cron.unschedule('visit-followups');

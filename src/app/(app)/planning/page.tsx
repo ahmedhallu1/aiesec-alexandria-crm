@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getViewer, laneOpensActual, listMmPlans, listPlanCells } from "@/server/data";
+import { getViewer, laneOpensActual, listMmPlans, listPlanCells, listTlPlans } from "@/server/data";
 import { canSeePlanning } from "@/lib/rbac";
 import {
   PLAN_FUNCTIONS,
@@ -37,9 +37,10 @@ export default async function PlanningPage() {
   // Actuals exist for ICX lanes only — OGX has no signup tracking in Sodio yet.
   const hasIcx = fns.some((f) => !isOgxPlanFn(f));
   const opts = { includeTest: !!viewer.testMode };
-  const [cells, mmPlans, sprintActual, monthActual, quarterActual] = await Promise.all([
+  const [cells, mmPlans, tlPlans, sprintActual, monthActual, quarterActual] = await Promise.all([
     listPlanCells(fns),
     listMmPlans(),
+    listTlPlans(),
     hasIcx ? laneOpensActual(sprint.start, sprint.end, opts) : Promise.resolve(null),
     hasIcx ? laneOpensActual(month.start, month.end, opts) : Promise.resolve(null),
     hasIcx ? laneOpensActual(quarter.start, quarter.end, opts) : Promise.resolve(null),
@@ -61,6 +62,7 @@ export default async function PlanningPage() {
       fns={fns}
       cells={cells}
       mmPlans={mmPlans}
+      tlPlans={tlPlans}
       sprint={sprint}
       month={month}
       quarter={quarter}

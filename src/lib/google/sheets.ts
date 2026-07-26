@@ -457,40 +457,65 @@ export async function writeMemberToSheet(m: MemberWriteBack): Promise<void> {
 // ------------------------------------------------------------------ export
 
 export async function exportAllSheets(): Promise<void> {
-  const [
-    { data: accounts },
-    { data: contacts },
-    { data: visits },
-    { data: comments },
-    { data: manualArchived },
-  ] = await Promise.all([
+  // Supabase caps one response at 1000 rows — since the v22 market-research
+  // import the mirrors hold many thousands, so every read pages. The builder
+  // must apply a stable order (id tiebreak: bulk imports share created_at).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pageAll = async (build: () => any, max = 30000): Promise<any[]> => {
+    const PAGE = 1000;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const out: any[] = [];
+    for (let off = 0; off < max; off += PAGE) {
+      const { data, error } = await build().range(off, off + PAGE - 1);
+      if (error) throw error;
+      const chunk = data ?? [];
+      out.push(...chunk);
+      if (chunk.length < PAGE) break;
+    }
+    return out;
+  };
+  const [accounts, contacts, visits, comments, manualArchived] = await Promise.all([
     // test accounts (and their contacts/visits) never reach the Drive mirrors
-    db().from("accounts_pipeline").select("*").eq("is_test", false).order("created_at"),
-    db()
-      .from("contact_attempts")
-      .select("*, account:accounts!inner(name, is_test), member:members(name)")
-      .eq("account.is_test", false)
-      .order("created_at"),
-    db()
-      .from("visits")
-      .select("*, account:accounts!inner(name, is_test), member:members(name)")
-      .eq("account.is_test", false)
-      .order("visit_date"),
-    db()
-      .from("account_comments")
-      .select("*, member:members(name, nickname)")
-      .order("created_at"),
-    db()
-      .from("blacklist")
-      .select("*, added_by_member:members!blacklist_added_by_fkey(name, nickname)")
-      .order("created_at"),
+    pageAll(() =>
+      db().from("accounts_pipeline").select("*").eq("is_test", false).order("created_at").order("id")
+    ),
+    pageAll(() =>
+      db()
+        .from("contact_attempts")
+        .select("*, account:accounts!inner(name, is_test), member:members(name)")
+        .eq("account.is_test", false)
+        .order("created_at")
+        .order("id")
+    ),
+    pageAll(() =>
+      db()
+        .from("visits")
+        .select("*, account:accounts!inner(name, is_test), member:members(name)")
+        .eq("account.is_test", false)
+        .order("visit_date")
+        .order("id")
+    ),
+    pageAll(() =>
+      db()
+        .from("account_comments")
+        .select("*, member:members(name, nickname)")
+        .order("created_at")
+        .order("id")
+    ),
+    pageAll(() =>
+      db()
+        .from("blacklist")
+        .select("*, added_by_member:members!blacklist_added_by_fkey(name, nickname)")
+        .order("created_at")
+        .order("id")
+    ),
   ]);
 
   // numbered comments per account, flattened for the mirrors
   const commentText = new Map<string, string>();
   const counters = new Map<string, number>();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const c of (comments ?? []) as any[]) {
+  for (const c of comments as any[]) {
     const key = `${c.account_id}:${c.author_label}`;
     const n = (counters.get(key) ?? 0) + 1;
     counters.set(key, n);
@@ -501,7 +526,7 @@ export async function exportAllSheets(): Promise<void> {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rows = (accounts ?? []) as any[];
+  const rows = accounts as any[];
 
   // one failing sheet (e.g. a transient Sheets API error) must NOT abort the
   // whole export — collect failures and keep going
@@ -541,7 +566,7 @@ export async function exportAllSheets(): Promise<void> {
      "Website", "Comments", "Created At", MIRROR_NOTE],
     rows.map((a) => [
       a.name, a.function, productLabel(a), a.sub_product, a.project,
-      a.account_type, a.industry, a.responsible_nickname || a.responsible_name,
+      a.account_type, a.industry, a.responsible_nickname || a.responsible_name || "Unassigned",
       a.responsible_team_name, a.stage,
       a.out_of_process ? "Yes" : "No", a.oop_reason,
       a.attempts, a.requested_podio ? "Yes" : "No", a.request_state,
@@ -558,7 +583,7 @@ export async function exportAllSheets(): Promise<void> {
     "CRM — Contact Log",
     ["Date", "Account", "Member", "Method", "Status", "Comment", MIRROR_NOTE],
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ((contacts ?? []) as any[]).map((c) => [
+    (contacts as any[]).map((c) => [
       c.created_at?.slice(0, 16).replace("T", " "), c.account?.name, c.member?.name,
       c.method, c.status, c.comment,
     ])
@@ -568,7 +593,7 @@ export async function exportAllSheets(): Promise<void> {
     "CRM — Visits",
     ["Visit Date", "Time", "Account", "Member", "Done?", "Comment", "Next Step", MIRROR_NOTE],
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ((visits ?? []) as any[]).map((v) => [
+    (visits as any[]).map((v) => [
       v.visit_date, v.visit_time?.slice(0, 5), v.account?.name, v.member?.name,
       v.done == null ? "Pending" : v.done ? "Yes" : "No", v.visit_comment, v.next_step,
     ])
@@ -586,11 +611,11 @@ export async function exportAllSheets(): Promise<void> {
       productLabel(a),
       a.oop_reason,
       a.oop_at?.slice(0, 16)?.replace("T", " "),
-      a.responsible_nickname || a.responsible_name,
+      a.responsible_nickname || a.responsible_name || "Unassigned",
       "Worked in the CRM, then archived",
     ]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const manualRows = ((manualArchived ?? []) as any[]).map((b) => [
+  const manualRows = (manualArchived as any[]).map((b) => [
     b.account_name,
     "",
     b.comments,

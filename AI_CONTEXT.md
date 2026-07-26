@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-07-21 · Version: v21
+Last updated: 2026-07-26 · Version: v22
 
 ---
 
@@ -37,7 +37,8 @@ the blueprint for future OGX/other-function modules.
 **Migrations** live in `supabase/migrations/` and are run **manually** in the
 Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v2`
 → `0003_ops_v2` → `0004_pins_v2` → `0005_deals` → `0006_admin_label` → `0007_visit_scheduled_result` → `0008_notifications_feedback` → `0009_b2b_deals_v9` → `0010_notif_link` → `0011_teams` → `0012_contracts_reminders` → `0013_director_label` → `0014_bd_podio` → `0015_bd_deal_amount` →
-`0016_comment_archive` → `0017_planning_lcfeedback_testmode`.
+`0016_comment_archive` → `0017_planning_lcfeedback_testmode` →
+`0018_tl_plans_deal_allocations_unassigned`.
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
@@ -168,6 +169,28 @@ mutation through a `can*` predicate, **server-side**.
   `slots_count` totals): 3 slots today + 6 next month = 2 deals · 9 slots.
   `recordDeal` appends; the account stays workable after a deal (more deals,
   more contacts, more visits). Deal history shows in the account timeline.
+- **Deal opens can be SPLIT across members** (v22, `deal_allocations` —
+  deal_id, member_id, per-product splits; every deal gets ≥1 allocation, the
+  default is 100% to the responsible): the Record-deal popup has a "Split the
+  opens" switch (member list = everyone in the account's function via
+  `listFunctionMembers`; splits must sum exactly — server-checked). ALL
+  per-MEMBER opens numbers read allocations (leaderboards, members directory,
+  period-report person rows, "My numbers" slots, TL-plan actuals) with an
+  account-counters fallback when the table is empty (pre-0018); LANE totals
+  still come from the deals' per-product split columns. Deal history shows
+  "Opens split: A (3) · B (3)" when custom.
+- **Unassigned accounts** (v22): `accounts.responsible_id` is NULLABLE (the
+  pipeline view LEFT-JOINs members). The imported market research lands
+  unassigned; member/TL scopes never match NULL so only VPs/Directors/LCP see
+  those rows (accounts filter Responsible → "— Unassigned", value `none`) and
+  distribute them via (bulk) reassign. Guards: scheduleVisit / requestPodioSubmit
+  / recordDeal-without-split fail with "assign first" messages; UI renders
+  "Unassigned".
+- **The accounts list is PAGINATED** (v22): `listAccountsPage` (page size 100,
+  `?page=` 1-based, exact count, Prev/Next footer; filter changes reset the
+  page). Full-set readers (`listAccounts`, dashboard, mirrors, directory,
+  reports) page through Supabase's 1000-row response cap via `fetchAll`
+  (stable order + id tiebreak, 20k sanity ceiling).
 - **Deal contracts (optional)**: any file format, uploaded at record time or
   later from the deal's History entry (`deals.contracts` jsonb, migration
   0012). Files go browser → private Supabase Storage bucket `contracts` via
@@ -302,11 +325,30 @@ admin-owned accounts don't create an EB row in team drills/leaderboards, and
 the team goal/leaderboard cards only appear when the viewer's manager is an
 actual Team Leader.
 
-**Goals live per product lane** — set on IGV / IGTa / IGTe; the IGT goal is
-DERIVED: `goal(IGT) = goal(IGTa) + goal(IGTe)` (the All-IGT lane shows the sum
-and has no Set button). Filter bar sits on a single h-9 baseline (the date
-range is one inline "Added → →" group) and KPI cards have equal-height labels
-so the numbers align.
+**GOALS COME FROM PLANNING — nothing is set in-app (v22).** The
+`performance_goals` machinery is retired (setPerformanceGoal, GoalDialog,
+Set-goal buttons, the goal-reminders cron + its email templates are all gone;
+the table stays in the DB, unread). Instead: the **lane goal = the PlanCard**
+(plan_cells opens vs `laneOpensActual`, sprint/month toggle — product lanes
+only; the B2B lane has no planned goal because the planning sheet skips
+B2B/BD) and the **team goal = the TL's filed plan** (`tl_plans`, see below) —
+`getDashboard` returns `teamPlan` {planned vs allocation-attributed actual for
+the current month} rendered as TeamPlanCard (a TL with no filed month sees a
+nudge to their profile). Funnel conversion percentages are **capped at 100%**
+everywhere (dashboard strip/KPI/drills + planning conversions — plan-progress
+bars stay uncapped). The **"My numbers" chip is hidden for VP/Director/LCP/
+admin** (they already see the whole function). Filter bar sits on a single h-9
+baseline (the date range is one inline "Added → →" group) and KPI cards have
+equal-height labels so the numbers align.
+
+**TL plans (v22, `tl_plans`)**: raising Team Leaders (IGV/IGT or B2B/BD;
+`isPlanningTl` — consideration TLs keep the MM plan flow, never both) file
+their team's OPENS per month of the peak on first sign-in (`/welcome/plan-tl`,
+layout redirect via `needsTlPlan`) and edit any time from the profile
+**"My plan" card** (`tlPlanForProfile` — plan + the team's actual opens per
+month, allocation-attributed). `saveTlPlan` upserts (peak re-derived
+server-side like saveMmPlan). /planning gains a **"Team Leader plans"** card
+(`listTlPlans`) next to the MM plans.
 
 **KPI row (this exact order, nothing else):** Market Research (total accounts) ·
 Contacted · Visits (scheduled) · Visits done · Deals (count of deals, not
@@ -439,7 +481,10 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | Avatars (styles / seeds) | `src/lib/avatars.ts`; picker in `profile-view.tsx` |
 | Leader visibility (who sees which accounts) | `scopeFunctions` in `src/lib/rbac.ts` |
 | The Playbook (member manual) | `src/components/crm/playbook-view.tsx` (+ bump `PLAYBOOK_VERSION`) |
-| Goal reminder emails / cadence | `/api/cron/goal-reminders/route.ts`, announce in `setPerformanceGoal` |
+| Lane goal display (plan vs actual) | `lanePlan` in `getDashboard` · `PlanCard` in `dashboard-view.tsx` |
+| TL plans (who files, flow, card) | `isPlanningTl`/`needsTlPlan`/`tlPlanForProfile` in `data.ts` · `saveTlPlan` in `actions.ts` · `tl-plan-form.tsx` · `/welcome/plan-tl` |
+| Deal opens splits | `recordDeal` allocations in `actions.ts` · `deal_allocations` reads in `data.ts` · DealDialog in `account-detail-view.tsx` |
+| Accounts list pagination | `listAccountsPage` in `data.ts` · pagination footer in `accounts-view.tsx` |
 | Follow-up / forgotten-visit reminders | `/api/cron/visit-followups/route.ts`, templates in `email/templates.ts` |
 | Deal contract uploads | `requestContractUploads`/`confirmContractUploads`/`getContractUrl` in `actions.ts` |
 | Sprint/peak/quarter calendar math | `src/lib/plan.ts` |
@@ -500,6 +545,44 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-07-26 · v22** — **GOALS = PLANNING + THE BIG IMPORT.** ① **Goal
+  setting removed everywhere** ("no one sets goals from Sodio"): GoalDialog /
+  Set-goal buttons / `setPerformanceGoal` / the goal-reminders cron (route
+  deleted, pg_cron job unscheduled) / `newGoalEmail` + `goalPeriodEndedEmail`
+  are gone. The **lane goal is the PlanCard** (VPs' plan_cells opens vs
+  actual, sprint/month toggle; B2B lane has none — the planning sheet skips
+  it) and the **team goal is the TL's plan**. ② **TL planning** (migration
+  0018 `tl_plans`): raising TLs file opens-per-month of the peak on first
+  sign-in (`/welcome/plan-tl`) and edit from the profile **"My plan" card**
+  (with per-month actuals); dashboard team card + /planning "Team Leader
+  plans" card track plan vs raised. ③ **Deal opens splits**
+  (`deal_allocations` + backfill): the Record-deal popup can split a deal's
+  opens across function members (sums must match, server-validated); ALL
+  per-member opens numbers (leaderboards, directory, reports, my-numbers,
+  TL-plan actuals) are allocation-attributed with a pre-0018 fallback;
+  deal history shows the split. ④ **Funnel conversions capped at 100%**
+  (dashboard strip/KPI/drills + planning conversions) and **"My numbers"
+  hidden for VP/Director/LCP** (they see the whole function anyway).
+  ⑤ **THE IMPORT**: the LC's two old Google Sheets were parsed
+  (18 tabs — IGV: Farwada + 8 project tabs + Bulking + 2 scrapped + Black
+  Listed + OUR PARTNERS + potential partners; IGT: Market Research +
+  scrapped; the IGT "Main" tab is EP data, excluded) → **39 blacklist rows**
+  (blacklisted/partners/potential partners, with their info in comments) +
+  **3,782 accounts**: **1,637 archived** (contacted even once → OOP with the
+  old contact history, stakeholders, package plans and "was with" in an
+  Admin comment) and **2,145 active UNASSIGNED** market-research accounts
+  (IGV rows carry their project tab; IGT mostly product-unknown — the badge
+  renders plain "IGT"). Dedupe ran across tabs (blacklist > archived >
+  active) and against the DB; phones normalized to +20 canonical (invalid
+  ones preserved in the comment). ⑥ **Unassigned + scale support**:
+  `accounts.responsible_id` nullable + LEFT-JOIN pipeline view (0018);
+  "— Unassigned" filter; null-safe renders + guards (visit scheduling, podio
+  ask, deal without split); **accounts list paginated** (100/page + count);
+  every full-set reader pages past Supabase's 1000-row cap (`fetchAll`,
+  mirror `pageAll`, directory, reports); the Blue Man reads the freshest 300
+  accounts only. Playbook v22; assistant knows all of it. Migration **0018
+  applied via MCP**; import ran via service-role script (scratchpad).
 
 - **2026-07-21 · v21** — **THE PLANNING RELEASE.** ① **VP planning imported
   from the LC's sheet** ("Alexandria | Planning Tool 26.1", id

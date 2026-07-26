@@ -1,5 +1,5 @@
 import {
-  getViewer, listAccounts, listManualArchived, listVisibleMembers,
+  getViewer, listAccountsPage, listManualArchived, listVisibleMembers,
   listReassignTargetsForViewer,
 } from "@/server/data";
 import type { AccountFilters } from "@/server/data";
@@ -44,33 +44,39 @@ export default async function AccountsPage({
         : undefined,
     from: params.from || undefined,
     to: params.to || undefined,
+    // the Responsible filter — "none" = unassigned (imported market research)
+    responsibleId: params.resp || undefined,
     archived,
     podioPending,
   };
 
-  // the Responsible filter is applied AFTER the query so its dropdown only
-  // offers members who actually have accounts in the current view
-  const [allRows, members, reassignTo, manualArchived] = await Promise.all([
-    listAccounts(viewer, filters),
+  // the list is PAGINATED since the big market-research import (v22) — the
+  // server returns one page + the total match count
+  const PAGE_SIZE = 100;
+  const requestedPage = Math.max(0, (Number(params.page) || 1) - 1);
+  const [{ rows, total, page }, members, reassignTo, manualArchived] = await Promise.all([
+    listAccountsPage(viewer, filters, requestedPage, PAGE_SIZE),
     listVisibleMembers(viewer),
     listReassignTargetsForViewer(viewer),
     archived ? listManualArchived() : Promise.resolve([]),
   ]);
-  const rows = params.resp
-    ? allRows.filter((r) => r.responsible_id === params.resp)
-    : allRows;
+  // Responsible options: every visible member (+ Unassigned — only for scopes
+  // that can actually SEE ownerless accounts, i.e. function-wide and LCP;
+  // member/TL scopes filter by responsible ids and never match NULL)
   const respOptions = [
-    ...new Map(
-      allRows.map((r) => [
-        r.responsible_id,
-        { id: r.responsible_id, label: r.responsible_nickname || r.responsible_name },
-      ])
-    ).values(),
-  ].sort((a, b) => a.label.localeCompare(b.label));
+    ...(scope.kind !== "members" ? [{ id: "none", label: "— Unassigned" }] : []),
+    ...members
+      .filter((m) => m.role !== "LCP")
+      .map((m) => ({ id: m.id, label: m.nickname || m.name }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+  ];
 
   return (
     <AccountsView
       rows={rows}
+      total={total}
+      page={page}
+      pageSize={PAGE_SIZE}
       manualArchived={manualArchived.map((b) => ({
         id: b.id,
         name: b.account_name,

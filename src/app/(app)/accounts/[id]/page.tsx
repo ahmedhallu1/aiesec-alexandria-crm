@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { canViewAccount } from "@/lib/rbac";
 import {
-  findAccountRow, getAccount, getViewer, listReassignTargets,
+  findAccountRow, getAccount, getViewer, listFunctionMembers, listReassignTargets,
 } from "@/server/data";
 import {
   canEditAccount, canEditRequestState, canReassignAccount,
@@ -42,11 +42,18 @@ export default async function AccountPage({
   if (!result) notFound();
   const { account, attempts, visits, comments, deals } = result;
 
-  const reassignTargets = canReassignAccount(viewer, account)
-    ? await listReassignTargets(viewer, account.function)
-    : [];
+  const canEdit = canEditAccount(viewer, account);
+  const [reassignTargets, functionMembers] = await Promise.all([
+    canReassignAccount(viewer, account)
+      ? listReassignTargets(viewer, account.function)
+      : Promise.resolve([]),
+    // the deal opens-split picker: everyone in the account's function
+    canEdit ? listFunctionMembers(account.function) : Promise.resolve([]),
+  ]);
   // the current responsible must always be present so the select shows them
+  // (imported accounts can be UNASSIGNED — nothing to unshift then)
   if (
+    account.responsible_id &&
     reassignTargets.length > 0 &&
     !reassignTargets.some((m) => m.id === account.responsible_id)
   ) {
@@ -64,6 +71,7 @@ export default async function AccountPage({
       visits={visits}
       comments={comments}
       deals={deals}
+      functionMembers={functionMembers}
       caps={{
         edit: canEditAccount(viewer, account),
         reassign: canReassignAccount(viewer, account),
