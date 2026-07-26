@@ -16,6 +16,7 @@ export default async function TlPlanPage() {
 
   const peak = peakForPlanning();
   const nickname = viewer.nickname || viewer.name.split(" ")[0];
+  const isTl = viewer.role === "Team Leader";
 
   return (
     <main className="relative flex min-h-dvh items-center justify-center bg-sidebar p-4">
@@ -27,13 +28,13 @@ export default async function TlPlanPage() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/aiesec-white.png" alt="AIESEC" className="mx-auto mb-3 hidden h-8 w-auto dark:block" />
           <h1 className="text-2xl font-bold">
-            One last thing, {nickname} — your team&apos;s plan 🎯
+            One last thing, {nickname} — your {isTl ? "team's " : ""}plan 🎯
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            How many opens will your team raise in each month of the {peak.label}?
-            This IS your team&apos;s goal — the dashboard tracks it live, your VP
-            sees it on the Planning board, and you can update it any time from
-            your profile.
+            How many opens will {isTl ? "your team" : "you"} raise in each month
+            of the {peak.label}? This IS {isTl ? "your team's" : "your"} goal —
+            the dashboard tracks it live, your VP sees it on the Planning board,
+            and you can update it any time from your profile.
           </p>
         </div>
 

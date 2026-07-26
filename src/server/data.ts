@@ -1557,16 +1557,18 @@ export async function needsMmPlan(v: Viewer): Promise<boolean> {
   return (count ?? 0) === 0;
 }
 
-// ------------------------------------------------------- TL plans (v22)
+// ------------------------------------------------------- raising MM plans (v22)
 
-/** A RAISING Team Leader who plans their team's opens per month (IGV/IGT or
- *  the B2B/BD crew). Consideration TLs file the MM plan instead — never both. */
+/** A RAISING MM — Team Leader or Coordinator of IGV/IGT or the B2B/BD crew —
+ *  who plans OPENS per month. Every MM plans: OGX & Consideration MMs file
+ *  the applicants/accepted/approvals plan (isPlanningMm) instead — never both.
+ *  A TL's plan is their TEAM's opens; a Coordinator's is their own. */
 export function isPlanningTl(v: {
   role: string;
   functions: string[];
   sub_functions: string[];
 }): boolean {
-  if (v.role !== "Team Leader") return false;
+  if (v.role !== "Team Leader" && v.role !== "Coordinator") return false;
   if (isPlanningMm(v)) return false;
   const raising =
     v.functions.some((f) => f === "IGV" || f === "IGT") ||
@@ -1574,7 +1576,7 @@ export function isPlanningTl(v: {
   return raising;
 }
 
-/** True when an eligible raising TL has not filed a single plan month yet. */
+/** True when an eligible raising MM has not filed a single plan month yet. */
 export async function needsTlPlan(v: Viewer): Promise<boolean> {
   if (!isPlanningTl(v)) return false;
   const { count, error } = await db()
@@ -1620,9 +1622,10 @@ export interface TlPlanData {
   months: { month: string; opens: number; actual: number }[];
 }
 
-/** The profile "My plan" card data for a raising TL: their filed plan for the
- *  current planning peak + the team's ACTUAL opens per month (allocation-
- *  attributed, so split deals credit the right people). */
+/** The profile "My plan" card data for a raising MM: their filed plan for the
+ *  current planning peak + the ACTUAL opens per month (allocation-attributed,
+ *  so split deals credit the right people). For a TL the actuals cover the
+ *  whole team; a Coordinator (no team) tracks their own opens. */
 export async function tlPlanForProfile(viewer: Viewer): Promise<TlPlanData | null> {
   if (!isPlanningTl(viewer)) return null;
   const { peakForPlanning } = await import("@/lib/plan");
