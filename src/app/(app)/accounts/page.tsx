@@ -8,7 +8,7 @@ import {
   canViewArchive, icxFunctions,
 } from "@/lib/rbac";
 import { AccountsView } from "@/components/crm/accounts-view";
-import { memberIsB2B, type Stage } from "@/lib/types";
+import { memberIsB2B, memberIsB2C, type Stage } from "@/lib/types";
 
 export const metadata = { title: "Accounts" };
 
@@ -33,7 +33,8 @@ export default async function AccountsPage({
   const filters: AccountFilters = {
     q: params.q || undefined,
     fn:
-      params.fn === "IGV" || params.fn === "IGT" || params.fn === "B2B" || params.fn === "BD"
+      params.fn === "IGV" || params.fn === "IGT" || params.fn === "B2B" ||
+      params.fn === "BD" || params.fn === "B2C"
         ? params.fn
         : undefined,
     // product/sub only apply to IGT rows — a lingering param after switching
@@ -101,11 +102,12 @@ export default async function AccountsPage({
         label: m.nickname || m.name,
         functions: [
           ...(m.functions ?? []),
-          // B2B/BD may live in sub-functions only (one function, two names) —
-          // synthesize BOTH labels so either account kind finds the crew
+          // B2B/BD (and B2C) may live in sub-functions only — synthesize the
+          // labels so either account kind finds the crew
           ...(memberIsB2B(m)
             ? ["B2B", "BD"].filter((f) => !(m.functions ?? []).includes(f))
             : []),
+          ...(memberIsB2C(m) && !(m.functions ?? []).includes("B2C") ? ["B2C"] : []),
         ],
       }))}
       reassignTargets={reassignTo.map((m) => ({
@@ -116,6 +118,7 @@ export default async function AccountsPage({
           ...(memberIsB2B(m)
             ? ["B2B", "BD"].filter((f) => !(m.functions ?? []).includes(f))
             : []),
+          ...(memberIsB2C(m) && !(m.functions ?? []).includes("B2C") ? ["B2C"] : []),
         ],
       }))}
       respOptions={respOptions}

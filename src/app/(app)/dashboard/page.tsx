@@ -1,6 +1,7 @@
 import { getViewer, getDashboard, listTeamLeaders, listVisibleMembers } from "@/server/data";
 import type { AccountFilters } from "@/server/data";
-import { accountScope, icxFunctions, isB2B } from "@/lib/rbac";
+import { accountScope, icxFunctions, isB2B, isB2C } from "@/lib/rbac";
+import { memberIsB2C } from "@/lib/types";
 import { DashboardView, type DashboardScopeView } from "@/components/crm/dashboard-view";
 
 export const metadata = { title: "Dashboard" };
@@ -12,6 +13,7 @@ function parseFnParam(fn?: string): Pick<AccountFilters, "fn" | "product"> {
   if (fn === "IGTa") return { fn: "IGT", product: "GTa" };
   if (fn === "IGTe") return { fn: "IGT", product: "GTe" };
   if (fn === "B2B") return { fn: "B2B" };
+  if (fn === "B2C") return { fn: "B2C" };
   return {};
 }
 
@@ -47,6 +49,10 @@ export default async function DashboardPage({
   ) {
     views.push({ key: "B2B", label: "B2B" });
   }
+  // B2C is its own module (v23): only its crew + the LCP/admin get the lane
+  if (master || isB2C(viewer)) {
+    views.push({ key: "B2C", label: "B2C" });
+  }
 
   const defaultView = views[0]?.key ?? "all";
   const requestedFn =
@@ -77,15 +83,21 @@ export default async function DashboardPage({
   const memberOptions = members
     .filter((m) => m.role !== "LCP")
     .filter((m) =>
-      isB2BMember(m) ||
-      (laneFn
-        ? (m.functions ?? []).includes(laneFn)
-        : (m.functions ?? []).some((f) => f === "IGV" || f === "IGT"))
+      laneFn === "B2C"
+        ? memberIsB2C(m) // the B2C lane lists ONLY the B2C crew (v23)
+        : isB2BMember(m) ||
+          (laneFn
+            ? (m.functions ?? []).includes(laneFn)
+            : (m.functions ?? []).some((f) => f === "IGV" || f === "IGT"))
     )
     .map((m) => ({ id: m.id, label: m.nickname || m.name }));
 
   // BD & B2B are one function shown under ONE name: "B2B"
-  const fnNames = [...icxFunctions(viewer), ...(isB2B(viewer) ? ["B2B"] : [])];
+  const fnNames = [
+    ...icxFunctions(viewer),
+    ...(isB2B(viewer) ? ["B2B"] : []),
+    ...(isB2C(viewer) ? ["B2C"] : []),
+  ];
   const scopeLabel =
     viewer.isAdmin || viewer.role === "LCP"
       ? "Whole LC"
@@ -134,6 +146,7 @@ export default async function DashboardPage({
       memberOptions={memberOptions}
       viewerId={viewer.id}
       showMyNumbers={showMyNumbers}
+      isB2cLane={activeFn === "B2C"}
       filters={{
         team: params.team ?? "",
         member: params.member ?? "",

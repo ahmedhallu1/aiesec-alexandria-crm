@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { checkAccountNameLive, createAccount } from "@/server/actions";
 import {
   ACCOUNT_TYPES,
+  B2C_TYPES,
   IGT_SUB_PRODUCTS,
   IGV_PROJECTS,
   INDUSTRIES,
@@ -73,7 +74,7 @@ function ListOrOther({
   );
 }
 
-type Fn = "IGV" | "IGT" | "B2B" | "BD";
+type Fn = "IGV" | "IGT" | "B2B" | "BD" | "B2C";
 
 export function AddAccountDialog({
   open, onOpenChange, viewer, members,
@@ -142,7 +143,7 @@ export function AddAccountDialog({
         sub_product: fn === "IGT" ? form.sub_product : null,
         project: fn === "IGV" ? form.project : null,
         account_type: fn !== "IGT" ? form.account_type : null,
-        industry: fn !== "IGT" ? form.industry : null,
+        industry: fn !== "IGT" && fn !== "B2C" ? form.industry : null,
         contacts,
         requested_podio: requestedPodio,
         comment: form.comment,
@@ -289,7 +290,22 @@ export function AddAccountDialog({
             ) : null}
           </div>
 
-          {fn === "IGT" ? (
+          {fn === "B2C" ? (
+            <div className="grid gap-2">
+              <Label>Type *</Label>
+              <Select
+                value={form.account_type || undefined}
+                onValueChange={(v) => setVal("account_type")(v)}
+              >
+                <SelectTrigger><SelectValue placeholder="Courses / Events / Student activities…" /></SelectTrigger>
+                <SelectContent>
+                  {B2C_TYPES.map((t) => (
+                    <SelectItem key={t} value={t}>{t}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : fn === "IGT" ? (
             <MultiPick
               label="Sub product / industry (pick all that apply)"
               options={IGT_SUB_PRODUCTS}
@@ -374,7 +390,8 @@ export function AddAccountDialog({
               !fieldsOk ||
               viewer.allowedFns.length === 0 ||
               (fn === "IGT" && !form.product) ||
-              (fn === "IGV" && !form.project)
+              (fn === "IGV" && !form.project) ||
+              (fn === "B2C" && !form.account_type)
             }
           >
             {pending ? "Checking…" : nameBlocked ? "Name is blocked" : "Add account"}

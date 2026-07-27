@@ -11,6 +11,7 @@ import {
   hasTmAccess,
   icxFunctions,
   isB2B,
+  isB2C,
   reassignTargetScope,
   type Viewer,
   type AccountScope,
@@ -467,10 +468,15 @@ export async function listVisibleMembers(viewer: Viewer): Promise<Member[]> {
   let query = db().from("members").select("*").eq("is_active", true);
   const scope = accountScope(viewer);
   if (scope.kind === "functions") {
-    // B2B/BD people may carry those names as sub-functions only — match both columns
-    query = scope.fns.includes("B2B")
-      ? query.or(`functions.ov.{${scope.fns.join(",")}},sub_functions.ov.{B2B,BD}`)
-      : query.overlaps("functions", scope.fns);
+    // B2B/BD (and B2C) people may carry those names as sub-functions only —
+    // match both columns
+    const subFns = scope.fns.filter((f) => f === "B2B" || f === "BD" || f === "B2C");
+    query =
+      subFns.length > 0
+        ? query.or(
+            `functions.ov.{${scope.fns.join(",")}},sub_functions.ov.{${subFns.join(",")}}`
+          )
+        : query.overlaps("functions", scope.fns);
   }
   if (scope.kind === "members") query = query.in("id", scope.ids);
   const { data } = await query.order("name");
@@ -486,11 +492,13 @@ export async function listReassignTargetsForViewer(viewer: Viewer): Promise<Memb
   if (scope.kind === "members" && scope.ids.length === 0) return [];
   let query = db().from("members").select("*").eq("is_active", true);
   if (scope.kind === "functions") {
-    // any of the viewer's functions — B2B/BD folks may sit in sub-functions
+    // any of the viewer's functions — B2B/BD/B2C folks may sit in sub-functions
     const fns = scope.fns;
-    query = fns.includes("B2B")
-      ? query.or(`functions.ov.{${fns.join(",")}},sub_functions.ov.{B2B,BD}`)
-      : query.overlaps("functions", fns);
+    const subFns = fns.filter((f) => f === "B2B" || f === "BD" || f === "B2C");
+    query =
+      subFns.length > 0
+        ? query.or(`functions.ov.{${fns.join(",")}},sub_functions.ov.{${subFns.join(",")}}`)
+        : query.overlaps("functions", fns);
   } else if (scope.kind === "members") {
     query = query.in("id", scope.ids);
   }
@@ -508,7 +516,9 @@ export async function listReassignTargets(viewer: Viewer, fn: AccountFunction): 
     query =
       fn === "B2B" || fn === "BD"
         ? query.or("functions.ov.{B2B,BD},sub_functions.ov.{B2B,BD}")
-        : query.contains("functions", [fn]);
+        : fn === "B2C"
+          ? query.or("functions.ov.{B2C},sub_functions.ov.{B2C}")
+          : query.contains("functions", [fn]);
   } else {
     query = query.in("id", scope.ids);
   }
@@ -560,13 +570,15 @@ const emptyStats = (): FunnelStats => ({
  *  contacted, visits…). B2B accounts live in the All-ICX lane (and the B2B
  *  drill row); their opens still feed the product lanes via deal breakdowns. */
 function rowInLane(r: PipelineRow, lane: string): boolean {
-  if (lane === "all") return true;
+  // B2C is its own module — it never pollutes the All-ICX lane (v23)
+  if (lane === "all") return r.function !== "B2C";
   if (lane === "IGV") return r.function === "IGV";
   if (lane === "IGT") return r.function === "IGT";
   if (lane === "IGTa") return r.function === "IGT" && r.product === "GTa";
   if (lane === "IGTe") return r.function === "IGT" && r.product === "GTe";
   // B2B & BD are one function — the B2B lane shows both labels
   if (lane === "B2B") return r.function === "B2B" || r.function === "BD";
+  if (lane === "B2C") return r.function === "B2C";
   return true;
 }
 
@@ -574,6 +586,8 @@ function rowInLane(r: PipelineRow, lane: string): boolean {
  *  (B2B mixes all three; IGT deals split IGTa/IGTe), so a lane's slots include
  *  every account's contribution — B2B included. */
 function laneSlots(r: PipelineRow, lane: string): number {
+  // B2C deals carry no opens — the lane has no slots at all (v23)
+  if (lane === "B2C" || r.function === "B2C") return 0;
   if (lane === "all") return r.slots_count ?? 0;
   // pre-0009 fallback: attribute the account's total to its own product
   if (r.slots_igv_count == null)
@@ -598,6 +612,11 @@ function addRowLane(s: FunnelStats, r: PipelineRow, lane: string) {
     if (r.out_of_process) s.outOfProcess += 1;
     if (r.contact_limit_reached) s.contactLimitFlags += 1;
     if (r.next_step_missing) s.nextStepMissingFlags += 1;
+    // B2C deals carry NO opens — count them straight off the account (v23)
+    if (r.function === "B2C" && (r.deals_count ?? 0) > 0) {
+      s.deals += r.deals_count ?? 0;
+      s.dealAccounts += 1;
+    }
   }
   const ls = laneSlots(r, lane);
   if (ls > 0) {
@@ -616,6 +635,8 @@ function dashboardViewer(viewer: Viewer): Viewer {
   // B2B/BD crew: whole-FUNCTION aggregates (their B2B/BD accounts) — but NOT
   // the rest of the ICX (v15 isolation); scopeFunctions gives them B2B + BD
   if (isB2B(viewer)) return { ...viewer, role: "Director" };
+  // B2C crew: whole-B2C aggregates, same isolation idea (v23)
+  if (isB2C(viewer)) return { ...viewer, role: "Director" };
   if (scope.kind === "functions") return viewer;
   const fns = icxFunctions(viewer);
   if (fns.length === 0) return viewer;
@@ -641,6 +662,8 @@ function laneAllocSlots(
   lane: string,
   accountFn: string
 ): number {
+  // B2C has NO opens at all (v23) — allocations never count into its lane
+  if (lane === "B2C" || accountFn === "B2C") return 0;
   if (lane === "IGV") return a.slots_igv ?? 0;
   if (lane === "IGTa") return a.slots_igta ?? 0;
   if (lane === "IGTe") return a.slots_igte ?? 0;
@@ -790,7 +813,15 @@ export async function getDashboard(
   // the TL's filed opens plan for the CURRENT month vs what the team actually
   // raised this month (allocation-attributed, so split opens count correctly).
   let teamPlan: TeamPlan | null = null;
-  if (teamLeadId && teamMemberIds) {
+  const teamLeadRow = teamLeadId ? byId.get(teamLeadId) : undefined;
+  const teamLeadPlans =
+    !!teamLeadRow &&
+    isPlanningTl({
+      role: teamLeadRow.role,
+      functions: teamLeadRow.functions ?? [],
+      sub_functions: teamLeadRow.sub_functions ?? [],
+    });
+  if (teamLeadId && teamMemberIds && teamLeadPlans) {
     const month = monthOf();
     const { data: planRow } = await db()
       .from("tl_plans")
@@ -1009,7 +1040,7 @@ export interface MemberDirectoryEntry {
   /** which MOS family this member's numbers belong to (v21):
    *  raising → opens · bd → money (EGP) · consideration/ogx → approvals (plan)
    *  · other → info only */
-  mos: "raising" | "bd" | "consideration" | "ogx" | "other";
+  mos: "raising" | "bd" | "b2c" | "consideration" | "ogx" | "other";
   /** the member's MOS/KPIs — their own accounts' funnel numbers */
   kpis: {
     mr: number;
@@ -1124,6 +1155,8 @@ export async function listMembersDirectory(
     const fns: string[] = m.functions ?? [];
     const subs: string[] = m.sub_functions ?? [];
     const b2b = ["B2B", "BD"].some((f) => fns.includes(f) || subs.includes(f));
+    const b2c = fns.includes("B2C") || subs.includes("B2C");
+    if (b2c && !b2b) return "b2c"; // B2C's MOS = deals signed (v23)
     const icx = fns.includes("IGV") || fns.includes("IGT");
     const ogx = fns.includes("OGV") || fns.includes("OGT");
     if (b2b) {
@@ -1301,6 +1334,7 @@ export async function listFunctionVisits(
     fns.add("B2B");
     fns.add("BD");
   }
+  if (isB2C(viewer)) fns.add("B2C");
   type Row = CalendarVisit & { account: CalendarVisit["account"] & { out_of_process: boolean } };
   return ((data ?? []) as unknown as Row[])
     .filter((v) => v.account && !v.account.out_of_process && v.member)
@@ -1458,6 +1492,7 @@ export async function getSystemHealth(): Promise<SystemHealth> {
     { key: "membership-import", label: "Membership import", note: "every 30 min" },
     { key: "sheets-export", label: "Sheets export", note: "hourly" },
     { key: "period-reports", label: "Period reports", note: "daily 07:00 UTC (fires on sprint/month/quarter ends)" },
+    { key: "podio-updates", label: "B2C Podio updates", note: "daily 05:00 UTC" },
   ];
   const crons: SystemHealth["crons"] = [];
   try {
@@ -1718,7 +1753,9 @@ export async function listFunctionMembers(
   q =
     fn === "B2B" || fn === "BD"
       ? q.or("functions.ov.{B2B,BD},sub_functions.ov.{B2B,BD}")
-      : q.contains("functions", [fn]);
+      : fn === "B2C"
+        ? q.or("functions.ov.{B2C},sub_functions.ov.{B2C}")
+        : q.contains("functions", [fn]);
   const { data } = await q.order("name");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ((data ?? []) as any[])

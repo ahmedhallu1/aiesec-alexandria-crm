@@ -19,7 +19,9 @@ interface TourStep {
 function buildSteps(role: string, functions: string[], hasModule: boolean): TourStep[] {
   const icx = functions.filter((f) => f === "IGV" || f === "IGT");
   const isB2BCrew = functions.some((f) => f === "B2B" || f === "BD");
-  const fnLabel = icx.length > 0 ? icx.join(" & ") : isB2BCrew ? "B2B" : "ICX";
+  const isB2CCrew = functions.includes("B2C");
+  const fnLabel =
+    icx.length > 0 ? icx.join(" & ") : isB2BCrew ? "B2B" : isB2CCrew ? "B2C" : "ICX";
   const isLeader = role === "LCVP" || role === "Director" || role === "LCP";
   const isTl = role === "Team Leader";
 

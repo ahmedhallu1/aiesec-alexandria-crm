@@ -57,7 +57,7 @@ interface ViewerInfo {
   /** add/import archived names — leaders only (viewing is LC-wide) */
   canManageArchive: boolean;
   canRemoveArchived: boolean;
-  allowedFns: ("IGV" | "IGT" | "B2B" | "BD")[];
+  allowedFns: ("IGV" | "IGT" | "B2B" | "BD" | "B2C")[];
   showFnFilter: boolean;
   seesOthers: boolean;
   /** B2B/BD MMs + Director/VP (+LCP/admin): the Podio submission worklist */
@@ -125,7 +125,9 @@ function FnBadge({ row, className, igvOnly }: { row: PipelineRow; className?: st
           ? [["Project", row.project], ["Type", row.account_type], ["Industry", row.industry]]
           : row.function === "B2B" || row.function === "BD"
             ? [["Product", `${row.function} — raises for the whole ICX`], ["Type", row.account_type], ["Industry", row.industry]]
-            : [["Sub product", row.sub_product]]
+            : row.function === "B2C"
+              ? [["Type", row.account_type]]
+              : [["Sub product", row.sub_product]]
       }
     >
       <span className={cn("inline-flex items-center gap-1.5", className)}>

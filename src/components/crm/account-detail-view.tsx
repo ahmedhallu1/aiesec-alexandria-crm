@@ -10,14 +10,16 @@ import {
   XCircle,
 } from "lucide-react";
 import {
-  addComment, confirmContractUploads, getContractUrl, reassignAccount, recordDeal,
-  reportVisit, requestContractUploads, reviveAccount, scheduleVisit, setOutOfProcess,
-  toggleCommentPin, toggleCommentArchive, updateAccount, updateAccountContacts,
+  addComment, confirmContractUploads, getContractUrl, markPodioUpdated,
+  reassignAccount, recordDeal, reportVisit, requestContractUploads, reviveAccount,
+  scheduleVisit, setOutOfProcess, setPodioUpdateCadence, toggleCommentPin,
+  toggleCommentArchive, updateAccount, updateAccountContacts,
 } from "@/server/actions";
 import type { CommentWithMember, DealWithMember, PipelineRow } from "@/server/data";
 import type { ContactAttempt, Visit } from "@/lib/types";
 import {
-  ACCOUNT_TYPES, fmtDateTime, IGT_SUB_PRODUCTS, IGV_PROJECTS, INDUSTRIES,
+  ACCOUNT_TYPES, B2C_CONTRACT_FORM_URL, B2C_DEFAULT_UPDATE_DAYS, B2C_TYPES,
+  fmtDateTime, IGT_SUB_PRODUCTS, IGV_PROJECTS, INDUSTRIES,
   OOP_REASONS, productBadge,
 } from "@/lib/types";
 import type { AccountContact } from "@/lib/types";
@@ -185,11 +187,13 @@ export function AccountDetailView({
                     {pendingVisit ? "Reschedule visit" : "Schedule visit"}
                   </Button>
                 </Hint>
-                <Hint label="Generate the ICX proposal email as a draft in YOUR Gmail — review & send it yourself">
-                  <Button variant="outline" onClick={() => setProposalOpen(true)}>
-                    <FileText className="size-4" /> Proposal email
-                  </Button>
-                </Hint>
+                {account.function !== "B2C" ? (
+                  <Hint label="Generate the ICX proposal email as a draft in YOUR Gmail — review & send it yourself">
+                    <Button variant="outline" onClick={() => setProposalOpen(true)}>
+                      <FileText className="size-4" /> Proposal email
+                    </Button>
+                  </Hint>
+                ) : null}
                 {reportableVisit ? (
                   <Hint label="Tell your leaders how the visit went — they're notified instantly">
                     <Button variant="outline" onClick={() => setReportVisitId(reportableVisit.id)}>
@@ -230,7 +234,11 @@ export function AccountDetailView({
       <div className="grid gap-4 lg:grid-cols-2">
         <ContactInfoCard account={account} canEdit={caps.edit} />
         <DetailsCard account={account} canEdit={caps.edit} />
-        <PodioCard account={account} canEdit={caps.edit} canEditState={caps.requestState} />
+        {account.function === "B2C" ? (
+          <B2cPodioCard account={account} canEdit={caps.edit && active} />
+        ) : (
+          <PodioCard account={account} canEdit={caps.edit} canEditState={caps.requestState} />
+        )}
         <NextStepCard account={account} canEdit={caps.edit && active} />
         <CommentsCard accountId={account.id} comments={comments} canComment={caps.edit} />
       </div>
@@ -391,6 +399,38 @@ function DetailsCard({ account, canEdit }: { account: PipelineRow; canEdit: bool
     );
   };
 
+  if (account.function === "B2C") {
+    // B2C carries ONE Type instead of the account-type/industry pair (v23)
+    return (
+      <Card>
+        <CardHeader><CardTitle className="text-base">Details</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid gap-1 sm:grid-cols-[110px_1fr] sm:items-center sm:gap-2">
+            <Label className="text-xs text-muted-foreground">Type</Label>
+            {canEdit ? (
+              <Select
+                value={form.account_type || undefined}
+                onValueChange={(v) => set("account_type")(v)}
+              >
+                <SelectTrigger className="h-8"><SelectValue placeholder="Choose…" /></SelectTrigger>
+                <SelectContent>
+                  {B2C_TYPES.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            ) : (
+              <p className="truncate text-sm">{form.account_type || "—"}</p>
+            )}
+          </div>
+          {canEdit && dirty ? (
+            <Button size="sm" onClick={save} disabled={pending}>
+              {pending ? "Saving…" : "Save details"}
+            </Button>
+          ) : null}
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card>
       <CardHeader><CardTitle className="text-base">Details</CardTitle></CardHeader>
@@ -494,6 +534,100 @@ function ContactInfoCard({
           <Button size="sm" onClick={save} disabled={pending || !contactsValid(rows)}>
             {pending ? "Saving…" : "Save contact info"}
           </Button>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** B2C (v23): the account lives on Podio and must be REFRESHED every N days.
+ *  Countdown to the next refresh, an "Updated on Podio" reset button, and the
+ *  cadence editor. The daily cron nags the MM + the B2C VP/Director when the
+ *  date arrives. */
+function B2cPodioCard({ account, canEdit }: { account: PipelineRow; canEdit: boolean }) {
+  const [pending, start] = useTransition();
+  const every = account.podio_update_every_days ?? B2C_DEFAULT_UPDATE_DAYS;
+  const [days, setDays] = useState(String(every));
+  const anchor = new Date(account.podio_updated_at ?? account.created_at);
+  const due = new Date(anchor.getTime() + every * 86400000);
+  const msLeft = due.getTime() - Date.now();
+  const daysLeft = Math.ceil(msLeft / 86400000);
+  const overdue = daysLeft < 0;
+  const dueNow = daysLeft <= 0;
+
+  const markUpdated = () =>
+    start(async () => {
+      const res = await markPodioUpdated(account.id);
+      if (res.ok) toast.success("Countdown reset — next update in " + every + " days 🔄");
+      else toast.error(res.error);
+    });
+  const saveCadence = () =>
+    start(async () => {
+      const res = await setPodioUpdateCadence(account.id, Number(days) || 0);
+      if (res.ok) toast.success("Cadence updated");
+      else toast.error(res.error);
+    });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Podio — continuous update</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium">Next Podio refresh</p>
+            <p className="text-xs text-muted-foreground">
+              B2C accounts are refreshed on Podio every {every} days
+            </p>
+          </div>
+          <Badge
+            className={cn(
+              "border-transparent text-sm font-bold",
+              overdue
+                ? "bg-destructive/15 text-destructive"
+                : dueNow
+                  ? "bg-warning/15 text-warning"
+                  : "bg-success/15 text-success"
+            )}
+          >
+            {overdue
+              ? `${Math.abs(daysLeft)}d overdue ⏰`
+              : dueNow
+                ? "due today"
+                : `${daysLeft}d left`}
+          </Badge>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Last updated: {account.podio_updated_at ? fmtDateTime(account.podio_updated_at) : "never (since creation)"} ·
+          due {due.toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}
+        </p>
+        {canEdit ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Hint label="Refreshed the account on Podio? This resets the countdown">
+              <Button size="sm" onClick={markUpdated} disabled={pending}>
+                <CheckCircle2 className="size-4" /> Updated on Podio
+              </Button>
+            </Hint>
+            <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+              every
+              <Input
+                type="number"
+                min={1}
+                max={90}
+                className="h-8 w-16"
+                value={days}
+                onChange={(e) => setDays(e.target.value)}
+                aria-label="Update every N days"
+              />
+              days
+              {Number(days) !== every ? (
+                <Button size="sm" variant="outline" onClick={saveCadence} disabled={pending}>
+                  Save
+                </Button>
+              ) : null}
+            </span>
+          </div>
         ) : null}
       </CardContent>
     </Card>
@@ -1380,7 +1514,7 @@ function DealDialog({
   open, onOpenChange,
 }: {
   accountId: string;
-  fn: "IGV" | "IGT" | "B2B" | "BD";
+  fn: "IGV" | "IGT" | "B2B" | "BD" | "B2C";
   dealNumber: number;
   responsibleId: string | null;
   responsibleLabel: string | null;
@@ -1409,6 +1543,7 @@ function DealDialog({
   // which product fields to show for this account
   const mixed = fn === "B2B" || fn === "BD"; // both raise for the whole ICX
   const isBD = fn === "BD"; // BD's MOS is money — opens are optional extras
+  const isB2C = fn === "B2C"; // B2C deals carry NO details (v23)
   const showIgv = fn === "IGV" || mixed;
   const showIgta = fn === "IGT" || mixed;
   const showIgte = fn === "IGT" || mixed;
@@ -1497,17 +1632,33 @@ function DealDialog({
         <DialogHeader>
           <DialogTitle>🏆 Deal #{dealNumber}</DialogTitle>
           <DialogDescription>
-            {isBD
-              ? "BD deals are measured in MONEY: enter the deal's amount (EGP) and any other benefits. Opens are optional extras."
-              : mixed
-                ? "How many opens were signed in THIS deal, per product? e.g. 3 IGV · 2 IGTe · 1 IGTa."
-                : fn === "IGT"
-                  ? "Split this deal's opens across IGTa and IGTe."
-                  : "How many IGV opens were signed in THIS deal?"}
+            {isB2C
+              ? "B2C deals carry no details — just confirm it's signed. Fill the contract form FIRST."
+              : isBD
+                ? "BD deals are measured in MONEY: enter the deal's amount (EGP) and any other benefits. Opens are optional extras."
+                : mixed
+                  ? "How many opens were signed in THIS deal, per product? e.g. 3 IGV · 2 IGTe · 1 IGTa."
+                  : fn === "IGT"
+                    ? "Split this deal's opens across IGTa and IGTe."
+                    : "How many IGV opens were signed in THIS deal?"}
             {" "}Accounts can close more deals later — every one is counted.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
+          {isB2C ? (
+            <div className="rounded-lg border border-primary/40 bg-primary/5 p-4 text-sm">
+              <p className="font-semibold">📄 Contract form first</p>
+              <p className="mt-1 text-muted-foreground">
+                Before marking the deal signed, fill the official contract form
+                for this partner:
+              </p>
+              <Button asChild variant="outline" size="sm" className="mt-2.5">
+                <a href={B2C_CONTRACT_FORM_URL} target="_blank" rel="noreferrer">
+                  <FileText className="size-4" /> Open the contract form
+                </a>
+              </Button>
+            </div>
+          ) : null}
           {isBD ? (
             <>
               <div className="grid gap-1.5">
@@ -1534,11 +1685,14 @@ function DealDialog({
               </p>
             </>
           ) : null}
+          {!isB2C ? (
           <div className={cn("grid gap-3", mixed ? "grid-cols-3" : showIgta ? "grid-cols-2" : "grid-cols-1")}>
             {showIgv ? numField(isBD ? "IGV (optional)" : "IGV", "text-gv", igv, setIgv) : null}
             {showIgta ? numField(isBD ? "IGTa (optional)" : "IGTa", "text-gt", igta, setIgta) : null}
             {showIgte ? numField(isBD ? "IGTe (optional)" : "IGTe", "text-gte", igte, setIgte) : null}
           </div>
+          ) : null}
+          {!isB2C ? (
           <p className="text-sm text-muted-foreground">
             Total this deal:{" "}
             <b className="text-foreground">
@@ -1547,9 +1701,10 @@ function DealDialog({
               {!isBD || total > 0 ? `${total} open${total === 1 ? "" : "s"}` : null}
             </b>
           </p>
+          ) : null}
 
           {/* v22: split the opens across members (default = all to the responsible) */}
-          {total > 0 && functionMembers.length > 1 ? (
+          {!isB2C && total > 0 && functionMembers.length > 1 ? (
             <div className="rounded-lg border p-3">
               <label className="flex items-center justify-between gap-2 text-sm font-medium">
                 <span>Split the opens between members</span>
@@ -1643,6 +1798,7 @@ function DealDialog({
             <Label>Note (optional)</Label>
             <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. summer peak bulk deal" />
           </div>
+          {!isB2C ? (
           <div className="grid gap-1.5">
             <Label className="flex items-center gap-1.5">
               <Paperclip className="size-3.5" /> Contract file(s) — optional
@@ -1656,10 +1812,20 @@ function DealDialog({
               Any format works (PDF, photo, scan, doc…). You can also add them later from the deal in History.
             </p>
           </div>
+          ) : null}
         </div>
         <DialogFooter>
-          <Button onClick={submit} disabled={pending || (isBD ? !amountOk : total < 1) || !splitOk}>
-            {pending ? "Saving…" : files.length > 0 ? `Record deal + upload ${files.length} file${files.length === 1 ? "" : "s"}` : "Record deal"}
+          <Button
+            onClick={submit}
+            disabled={pending || (isB2C ? false : isBD ? !amountOk : total < 1) || !splitOk}
+          >
+            {pending
+              ? "Saving…"
+              : isB2C
+                ? "Deal signed ✅"
+                : files.length > 0
+                  ? `Record deal + upload ${files.length} file${files.length === 1 ? "" : "s"}`
+                  : "Record deal"}
           </Button>
         </DialogFooter>
       </DialogContent>

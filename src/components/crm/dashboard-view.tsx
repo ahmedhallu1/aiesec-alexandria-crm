@@ -42,6 +42,8 @@ interface Props {
   viewerId: string;
   /** leaders (VP/Director/LCP) see the whole function — no "My numbers" chip */
   showMyNumbers: boolean;
+  /** the B2C lane (v23): deals-centric — no opens/slots anywhere */
+  isB2cLane: boolean;
   /** VP plan snapshot for product lanes (IGV/IGTa/IGTe/IGT) — null elsewhere.
    *  v22: this IS the lane goal (from the planning sheet — nothing set in-app) */
   lanePlan: LanePlan | null;
@@ -72,7 +74,7 @@ export function DashboardView({
   total, byFunction, byTeam, memberBoard, mmBoard, teamBoard,
   views, activeFn, laneLabel, scopeLabel,
   showTeamDrill, teamOptions, memberOptions, filters, viewerId, showMyNumbers,
-  lanePlan, teamPlan, teamLabel,
+  isB2cLane, lanePlan, teamPlan, teamLabel,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -94,14 +96,17 @@ export function DashboardView({
     [go]
   );
 
-  // KPIs, in the LC's order — conversions between consecutive steps live below
+  // KPIs, in the LC's order — conversions between consecutive steps live below.
+  // B2C (v23) is deals-centric: no opens/slots exist there at all.
   const kpis = [
     { label: "Market Research", value: total.mr, hint: "total accounts in the system" },
     { label: "Contacted", value: total.contacted, hint: "accounts with ≥1 contact" },
     { label: "Visits", value: total.visitScheduled, hint: "visits scheduled" },
     { label: "Visits done", value: total.visitDone, hint: "confirmed visits" },
     { label: "Deals", value: total.deals, hint: "deals signed (accounts can close many)" },
-    { label: "Slots raised", value: total.slots, hint: "total slots/opens" },
+    ...(isB2cLane
+      ? []
+      : [{ label: "Slots raised", value: total.slots, hint: "total slots/opens" }]),
   ];
   const conversions = [
     { label: "MR → Contacted", value: pct(total.contacted, total.mr) },
@@ -246,14 +251,19 @@ export function DashboardView({
       ) : null}
 
       {/* KPI row — MR · Contacted · Visits · Visits done · Deals · Slots · Lead→Deal */}
-      <div className="stagger grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
+      <div
+        className={cn(
+          "stagger grid grid-cols-2 gap-3 sm:grid-cols-3",
+          isB2cLane ? "lg:grid-cols-6" : "lg:grid-cols-7"
+        )}
+      >
         {kpis.map((k) => (
           <KpiCard key={k.label} label={k.label} value={k.value} sub={k.hint} />
         ))}
         <KpiCard
-          label="Lead → Open"
+          label={isB2cLane ? "Lead → Deal" : "Lead → Open"}
           valueText={pct(total.dealAccounts, total.mr)}
-          sub="accounts that raised opens"
+          sub={isB2cLane ? "accounts that signed a deal" : "accounts that raised opens"}
         />
       </div>
 
@@ -273,15 +283,16 @@ export function DashboardView({
           MMs), each with all numbers + click-a-KPI-header-to-re-rank. */}
       <div className="grid gap-4 rise-in rise-in-3 xl:grid-cols-2">
         {memberBoard.length > 0 ? (
-          <Leaderboard title={`${laneLabel} — Members`} groups={memberBoard} />
+          <Leaderboard title={`${laneLabel} — Members`} groups={memberBoard} dealsOnly={isB2cLane} />
         ) : null}
         {mmBoard.length > 0 ? (
-          <Leaderboard title={`${laneLabel} — MMs`} groups={mmBoard} />
+          <Leaderboard title={`${laneLabel} — MMs`} groups={mmBoard} dealsOnly={isB2cLane} />
         ) : null}
         {teamBoard.length > 1 ? (
           <Leaderboard
             title={`${teamLabel ?? "Team"} leaderboard`}
             groups={teamBoard}
+            dealsOnly={isB2cLane}
           />
         ) : null}
       </div>
@@ -484,8 +495,16 @@ function useFlipReorder<T>(dep: T) {
 /** ONE wide board showing every funnel number per member. Click any KPI header
  *  to re-sort — rows glide to their new places. Members & Coordinators only,
  *  default sorted by Opens. */
-function Leaderboard({ title, groups }: { title: string; groups: DrillGroup[] }) {
-  const [metricKey, setMetricKey] = useState<keyof FunnelStats>("slots");
+function Leaderboard({
+  title, groups, dealsOnly,
+}: {
+  title: string;
+  groups: DrillGroup[];
+  /** B2C (v23): no opens exist — rank by Deals, hide the Opens column */
+  dealsOnly?: boolean;
+}) {
+  const metrics = dealsOnly ? BOARD_METRICS.filter((m) => m.key !== "slots") : BOARD_METRICS;
+  const [metricKey, setMetricKey] = useState<keyof FunnelStats>(dealsOnly ? "deals" : "slots");
   const ranked = [...groups].sort(
     (a, b) =>
       (b[metricKey] as number) - (a[metricKey] as number) ||
@@ -507,7 +526,7 @@ function Leaderboard({ title, groups }: { title: string; groups: DrillGroup[] })
         {/* phones: compact board — metric chips + rank/name/value, no wide table */}
         <div className="md:hidden">
           <div className="mb-2 flex flex-wrap gap-1">
-            {BOARD_METRICS.map((m) => (
+            {metrics.map((m) => (
               <button
                 key={m.key}
                 onClick={() => setMetricKey(m.key)}
@@ -544,7 +563,7 @@ function Leaderboard({ title, groups }: { title: string; groups: DrillGroup[] })
                     <span className="min-w-0 flex-1 truncate font-medium">{g.label}</span>
                     <span className="shrink-0 font-bold tabular-nums text-primary">{active}</span>
                     <span className="w-16 shrink-0 text-right text-[10px] text-muted-foreground">
-                      {BOARD_METRICS.find((m) => m.key === metricKey)?.label}
+                      {metrics.find((m) => m.key === metricKey)?.label}
                     </span>
                   </div>
                 );
@@ -559,7 +578,7 @@ function Leaderboard({ title, groups }: { title: string; groups: DrillGroup[] })
             <div className="flex items-center gap-2 border-b px-2 pb-2 text-xs font-semibold text-muted-foreground">
               <span className="w-7 shrink-0" />
               <span className="min-w-0 flex-1">Member</span>
-              {BOARD_METRICS.map((m) => (
+              {metrics.map((m) => (
                 <button
                   key={m.key}
                   onClick={() => setMetricKey(m.key)}
@@ -597,7 +616,7 @@ function Leaderboard({ title, groups }: { title: string; groups: DrillGroup[] })
                         {active > 0 && MEDALS[i] ? MEDALS[i] : <span className="text-xs text-muted-foreground">#{i + 1}</span>}
                       </span>
                       <span className="min-w-0 flex-1 truncate font-medium">{g.label}</span>
-                      {BOARD_METRICS.map((m) => {
+                      {metrics.map((m) => {
                         const v = g[m.key] as number;
                         const isActive = m.key === metricKey;
                         return (

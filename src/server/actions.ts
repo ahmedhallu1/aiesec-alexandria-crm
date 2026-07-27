@@ -34,6 +34,8 @@ import {
 } from "@/lib/google/calendar";
 import {
   accountSlug,
+  B2C_DEFAULT_UPDATE_DAYS,
+  B2C_TYPES,
   cleanPhone,
   EMAIL_RE,
   FEEDBACK_CATEGORIES,
@@ -145,7 +147,7 @@ const linkField = z
 // ================================================================== accounts
 
 const createAccountSchema = z.object({
-  function: z.enum(["IGV", "IGT", "B2B", "BD"]),
+  function: z.enum(["IGV", "IGT", "B2B", "BD", "B2C"]),
   name: z.string().trim().min(2, "Account name is required"),
   product: z.enum(["GTa", "GTe"]).nullish(),
   sub_product: z.string().trim().nullish(),
@@ -227,6 +229,10 @@ export async function createAccount(
     return fail("Choose the product (Global Talent or Global Teacher).");
   if (data.function === "IGV" && !data.project)
     return fail("Choose the project for this IGV account.");
+  // B2C accounts carry a TYPE (Courses / Events / Student activities) instead
+  // of the account-type/industry pair (v23)
+  if (data.function === "B2C" && !(B2C_TYPES as readonly string[]).includes(data.account_type ?? ""))
+    return fail("Choose the B2C type (Courses / Events / Student activities).");
 
   // HARD RULE: unique account name across ALL ICX data + archive block
   const { duplicate, blacklisted } = await checkAccountName(data.name);
@@ -300,12 +306,16 @@ export async function createAccount(
       sub_product: data.function === "IGT" ? data.sub_product || null : null,
       project: data.function === "IGV" ? data.project : null,
       account_type: data.account_type || null,
-      industry: data.industry || null,
+      industry: data.function === "B2C" ? null : data.industry || null,
       contacts,
       ...legacy,
       requested_podio: data.requested_podio ?? false,
       responsible_id: responsibleId,
       created_by: viewer.id,
+      // B2C: the continuous Podio-update countdown starts at creation (v23)
+      ...(data.function === "B2C"
+        ? { podio_update_every_days: B2C_DEFAULT_UPDATE_DAYS, podio_updated_at: new Date().toISOString() }
+        : {}),
     })
     .select("id")
     .single();
@@ -419,14 +429,15 @@ export async function reassignAccount(
     .eq("is_active", true)
     .maybeSingle<Member>();
   if (!target) return fail("Target member not found.");
-  // reassignment stays inside the account's function; B2B/BD is one function
-  // with two names that may live in EITHER column, so match memberIsB2B (both
-  // functions and sub_functions) — mirrors listReassignTargets in data.ts so
-  // the dialog can never offer a valid B2B/BD target the check would reject.
+  // reassignment stays inside the account's function; B2B/BD (and B2C) may
+  // live in EITHER column, so match both — mirrors listReassignTargets in
+  // data.ts so the dialog can never offer a target the check would reject.
   const targetInFunction =
     account.function === "B2B" || account.function === "BD"
       ? memberIsB2B(target)
-      : (target.functions ?? []).includes(account.function);
+      : account.function === "B2C"
+        ? rowIsB2C(target)
+        : (target.functions ?? []).includes(account.function);
   const inScope =
     scope.kind === "all" ||
     (scope.kind === "functions" && targetInFunction) ||
@@ -653,6 +664,9 @@ export async function recordDeal(
   } else if (account.function === "BD") {
     // BD's MOS is the money — opens are a bonus, not a requirement
     if (amount < 1) return fail("What's this deal's amount (EGP)?");
+  } else if (account.function === "B2C") {
+    // B2C deals carry NO details — just "deal signed" (v23)
+    igv = 0; igta = 0; igte = 0;
   } else if (igv + igta + igte < 1) {
     return fail("Add the opens of this deal (IGV / IGTa / IGTe).");
   }
@@ -1518,6 +1532,9 @@ const memberIsB2B = (m: { functions: string[] | null; sub_functions: string[] | 
     (f) => (m.functions ?? []).includes(f) || (m.sub_functions ?? []).includes(f)
   );
 
+const rowIsB2C = (m: { functions: string[] | null; sub_functions: string[] | null }) =>
+  (m.functions ?? []).includes("B2C") || (m.sub_functions ?? []).includes("B2C");
+
 /** Product label for emails/notifications: IGV / IGTa / IGTe / B2B. */
 function productLabel(fn: string, product: string | null): string {
   if (fn === "IGT") return product === "GTe" ? "IGTe" : product === "GTa" ? "IGTa" : "IGT";
@@ -1528,9 +1545,10 @@ function productLabel(fn: string, product: string | null): string {
  *  - IGV visit → the IGV raising crew + B2B
  *  - IGT visit → the IGT raising crew + B2B
  *  - B2B visit → the B2B crew ONLY (not the rest of ICX) */
-function announceFunctions(fn: string): ("IGV" | "IGT" | "B2B")[] {
+function announceFunctions(fn: string): ("IGV" | "IGT" | "B2B" | "B2C")[] {
   if (fn === "IGV") return ["IGV", "B2B"];
   if (fn === "IGT") return ["IGT", "B2B"];
+  if (fn === "B2C") return ["B2C"]; // its own island (v23)
   return ["B2B"]; // B2B/BD account → B2B crew only (memberIsB2B matches both)
 }
 
@@ -1562,7 +1580,11 @@ async function resolveVisitRecipients(
 
   const fns = announceFunctions(account.function);
   const inFunction = (m: Row) =>
-    (m.functions ?? []).some((f) => (fns as string[]).includes(f)) || memberIsB2B(m);
+    (m.functions ?? []).some((f) => (fns as string[]).includes(f)) ||
+    // B2B may live in sub-functions; same for B2C — but ONLY when that
+    // function is actually part of this announcement
+    ((fns as string[]).includes("B2B") && memberIsB2B(m)) ||
+    ((fns as string[]).includes("B2C") && rowIsB2C(m));
 
   // ---- calendar attendees (TL + VP as the spec describes) ----
   const attendees = new Set<string>();
@@ -1570,8 +1592,9 @@ async function resolveVisitRecipients(
     (m) =>
       m.role === "LCVP" &&
       ((m.functions ?? []).some((f) => (fns as string[]).includes(f)) ||
-        // B2B/BD VPs may carry either label (or sub-functions only)
-        ((fns as string[]).includes("B2B") && memberIsB2B(m)))
+        // B2B/BD (and B2C) VPs may carry the label in sub-functions only
+        ((fns as string[]).includes("B2B") && memberIsB2B(m)) ||
+        ((fns as string[]).includes("B2C") && rowIsB2C(m)))
   );
   if (responsible.role === "Member") {
     const tl = responsible.stakeholder_id ? byId.get(responsible.stakeholder_id) : null;
@@ -2280,6 +2303,56 @@ export async function updateAccountContacts(
   return { ok: true };
 }
 
+// ============================================================ B2C podio updates (v23)
+
+/** B2C accounts must be refreshed on Podio every N days. "I updated it" —
+ *  stamps now, resets the countdown and clears the pending reminder. */
+export async function markPodioUpdated(accountId: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const account = await loadAccount(accountId);
+  if (!account || !canEditAccount(viewer, account))
+    return fail("You are not allowed to edit this account.", "forbidden");
+  if (account.function !== "B2C")
+    return fail("The Podio update cadence is a B2C thing.");
+  await snapshotForUndo("accounts", accountId);
+  const { error } = await db()
+    .from("accounts")
+    .update({
+      podio_updated_at: new Date().toISOString(),
+      podio_update_notified_at: null,
+    })
+    .eq("id", accountId);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "podio_updated", "account", accountId);
+  refresh(accountId);
+  return { ok: true };
+}
+
+/** Change how often this B2C account must be refreshed on Podio (days). */
+export async function setPodioUpdateCadence(
+  accountId: string,
+  everyDays: number
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const account = await loadAccount(accountId);
+  if (!account || !canEditAccount(viewer, account))
+    return fail("You are not allowed to edit this account.", "forbidden");
+  if (account.function !== "B2C")
+    return fail("The Podio update cadence is a B2C thing.");
+  const days = Math.round(Number(everyDays));
+  if (!Number.isFinite(days) || days < 1 || days > 90)
+    return fail("Pick a cadence between 1 and 90 days.");
+  await snapshotForUndo("accounts", accountId);
+  const { error } = await db()
+    .from("accounts")
+    .update({ podio_update_every_days: days })
+    .eq("id", accountId);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "podio_cadence", "account", accountId, { days });
+  refresh(accountId);
+  return { ok: true };
+}
+
 // ============================================================ live name check
 
 /** Instant duplicate/archive check for the Add-account dialog (v22.2): fires
@@ -2358,7 +2431,7 @@ export async function checkAccountNameLive(name: string): Promise<
 // ================================================================== bulk import
 
 export interface ImportRowInput {
-  function: "IGV" | "IGT" | "B2B" | "BD";
+  function: "IGV" | "IGT" | "B2B" | "BD" | "B2C";
   name: string;
   product?: string | null;
   project?: string | null;
@@ -2459,6 +2532,10 @@ export async function createProposalDraft(
   const account = await loadAccount(accountId);
   if (!account || !canEditAccount(viewer, account))
     return fail("You are not allowed to work on this account.", "forbidden");
+  // B2C partners get no proposal emails (v23) — their flow is Podio + the
+  // contract form, not the ICX proposal pitch
+  if (account.function === "B2C")
+    return fail("B2C accounts don't send proposal emails.");
 
   if (!viewer.google_refresh_token)
     return fail(

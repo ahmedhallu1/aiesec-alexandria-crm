@@ -389,6 +389,41 @@ export function feedbackThanksEmail(opts: {
 // (v22) goalPeriodEndedEmail + newGoalEmail removed — goals now come from
 // the planning sheet and the TLs' filed plans; nothing is set in-app.
 
+/** B2C (v23): the account's Podio-refresh date arrived — sent to the
+ *  responsible MM and the B2C VP/Director, once per cycle. */
+export function podioUpdateDueEmail(opts: {
+  accountName: string;
+  everyDays: number;
+  /** 0 = due today; >0 = this many days overdue */
+  daysOverdue: number;
+  responsibleName: string | null;
+  accountUrl: string;
+}) {
+  const late = opts.daysOverdue > 0;
+  return {
+    subject: late
+      ? `⏰ "${opts.accountName}" is ${opts.daysOverdue} day${opts.daysOverdue === 1 ? "" : "s"} late on Podio`
+      : `🔄 Time to update "${opts.accountName}" on Podio`,
+    html: emailLayout({
+      preheader: `B2C accounts refresh on Podio every ${opts.everyDays} days — this one is due`,
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">${late ? "This one slipped ⏰" : "Podio refresh time 🔄"}</h1>
+        <p>B2C accounts are kept alive on Podio — every account gets refreshed
+        <b>every ${opts.everyDays} days</b>, and <b>${escapeHtml(opts.accountName)}</b>
+        ${late ? `is <b>${opts.daysOverdue} day${opts.daysOverdue === 1 ? "" : "s"} overdue</b>` : "is due <b>today</b>"}.</p>
+        ${detailsTable([
+          ["Account", opts.accountName],
+          ["Responsible", opts.responsibleName ?? "Unassigned"],
+          ["Cadence", `every ${opts.everyDays} days`],
+          ["Status", late ? `${opts.daysOverdue} day(s) overdue` : "due today"],
+        ])}
+        <p>Update it on Podio, then hit <b>"Updated on Podio"</b> on the account —
+        that resets the countdown for the next cycle.</p>
+        ${button("Open the account", opts.accountUrl)}`,
+    }),
+  };
+}
+
 export function broadcastEmail(opts: {
   title: string;
   body: string;
