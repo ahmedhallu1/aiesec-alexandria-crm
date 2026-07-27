@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v23";
+export const PLAYBOOK_VERSION = "v23.2";
 
 interface Props {
   role: string;
@@ -76,7 +76,7 @@ const SECTIONS: Section[] = [
     audience: "Members & Coordinators",
     color: "#F85A40",
     points: [
-      <><b>Add the account first</b> — the name is checked <b>the moment you type it</b> against every ICX account and the archive, so you learn it&apos;s taken BEFORE filling the rest. Bulk import exists for whole research sheets.</>,
+      <><b>Add the account first</b> — the name is checked <b>the moment you type it</b> against every function&apos;s accounts and your function&apos;s archive, so you learn it&apos;s taken BEFORE filling the rest. Bulk import exists for whole research sheets.</>,
       <><b>Log every contact attempt</b> with its result. Picking <b>&quot;Visit Scheduled&quot;</b> books the visit — calendar invite and reminders included.</>,
       <>Every in-process account carries a <b>next step with a date</b> or a pending visit. Three no-responses → the CRM suggests archiving.</>,
       <>The <b>Proposal email</b> button builds a branded, AIESEC-blue outreach draft in <b>your own Gmail</b> — review, attach, send.</>,
@@ -148,6 +148,7 @@ const SECTIONS: Section[] = [
       <><b>Deals carry no details</b> — no opens, no amounts. Fill the official <b>contract form</b> (linked right in the popup), then hit <b>Deal signed</b>. Your MOS is the number of deals.</>,
       <>Your dashboard is <b>your own B2C lane</b>: MR · Contacted · Visits · Visits done · Deals, with the leaderboard ranked by <b>Deals</b>.</>,
       <>No proposal emails for B2C — your flow is the visit, Podio and the contract form.</>,
+      <><b>Your archive is YOURS</b>: a name the raising crews burned doesn&apos;t block you (different offer, different door) — the add-form even tells you when a name sits in their archive so you walk in informed. Only <b>your own</b> archived B2C names are blocked.</>,
     ],
   },
   {

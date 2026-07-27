@@ -307,7 +307,7 @@ export function DashboardView({
             <Tabs defaultValue={byFunction.length > 1 ? "function" : "team"}>
               <TabsList className="flex-wrap">
                 {byFunction.length > 1 ? <TabsTrigger value="function">By product</TabsTrigger> : null}
-                {showTeamDrill ? <TabsTrigger value="team">By team</TabsTrigger> : null}
+                {showTeamDrill ? <TabsTrigger value="team">By MM</TabsTrigger> : null}
               </TabsList>
               {byFunction.length > 1 ? (
                 <TabsContent value="function"><DrillTable groups={byFunction} colorKeys /></TabsContent>

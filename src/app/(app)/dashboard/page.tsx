@@ -138,7 +138,9 @@ export default async function DashboardPage({
       activeFn={activeFn}
       laneLabel={activeFn === "all" ? "ICX" : activeFn}
       scopeLabel={scopeLabel}
-      showTeamDrill={teamLeaders.length > 0}
+      showTeamDrill={members.some(
+        (m) => m.role === "Team Leader" || m.role === "Coordinator"
+      )}
       teamOptions={teamLeaders.map((t) => ({
         id: t.id,
         label: t.team_name || `Team ${t.nickname || t.name}`,

@@ -353,12 +353,17 @@ export async function findAccountRow(idOrSlug: string): Promise<PipelineRow | nu
       .maybeSingle<PipelineRow>();
     return data ?? null;
   }
-  // slug: dashes were spaces (names containing real dashes are matched second)
+  // slug: dashes were spaces (names containing real dashes are matched second).
+  // v23.2: a name can exist TWICE (archived in one world + active in the
+  // other) — the slug resolves to the ACTIVE one first, newest as tiebreak;
+  // archived rows are always reachable by their UUID link.
   const candidates = [...new Set([raw.replace(/-/g, " "), raw])];
   const { data } = await db()
     .from("accounts_pipeline")
     .select("*")
     .in("normalized_name", candidates)
+    .order("out_of_process", { ascending: true })
+    .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle<PipelineRow>();
   return data ?? null;
@@ -436,30 +441,53 @@ export type CommentWithMember = AccountComment & {
 };
 
 export interface NameCheckResult {
+  /** BLOCKS: an active account anywhere, or an archived one in the SAME world */
   duplicate: PipelineRow | null;
+  /** BLOCKS: manual/imported archive names (the ICX-raising world's list) */
   blacklisted: BlacklistEntry | null;
+  /** INFO ONLY (v23.2): archived in the OTHER world — B2C has no relation
+   *  with the raising archive and vice versa, so this never blocks */
+  crossWorldArchived: PipelineRow | null;
 }
 
-/** Cross-ICX duplicate + archive/blacklist check for the Add Account flow.
- *  Out-of-process accounts stay in the data as an archive — re-adding their
- *  name is blocked exactly like a blacklist hit. */
-export async function checkAccountName(name: string): Promise<NameCheckResult> {
+/** Duplicate + archive check for the Add Account flow — WORLD-AWARE (v23.2):
+ *  ACTIVE names are unique across every function, but each world (ICX-raising
+ *  IGV/IGT/B2B/BD vs B2C) keeps its OWN archive: a name the raising crews
+ *  burned can still be a fresh B2C partner, and vice versa. */
+export async function checkAccountName(
+  name: string,
+  fn?: AccountFunction
+): Promise<NameCheckResult> {
   const normalized = normalizeName(name);
-  if (!normalized) return { duplicate: null, blacklisted: null };
-  const [{ data: duplicate }, { data: blacklisted }] = await Promise.all([
+  if (!normalized)
+    return { duplicate: null, blacklisted: null, crossWorldArchived: null };
+  const world: "ICX" | "B2C" = fn === "B2C" ? "B2C" : "ICX";
+  const [{ data: rows }, { data: blacklistHit }] = await Promise.all([
     db()
       .from("accounts_pipeline")
       .select("*")
       .eq("normalized_name", normalized)
       .eq("is_test", false) // a hidden test account never blocks a real name
-      .maybeSingle<PipelineRow>(),
+      .limit(2),
     db()
       .from("blacklist")
       .select("*")
       .eq("normalized_name", normalized)
       .maybeSingle<BlacklistEntry>(),
   ]);
-  return { duplicate: duplicate ?? null, blacklisted: blacklisted ?? null };
+  const all = (rows ?? []) as PipelineRow[];
+  const sameWorld = (r: PipelineRow) => (r.function === "B2C") === (world === "B2C");
+  const active = all.find((r) => !r.out_of_process) ?? null;
+  const archivedSame = all.find((r) => r.out_of_process && sameWorld(r)) ?? null;
+  const archivedOther = all.find((r) => r.out_of_process && !sameWorld(r)) ?? null;
+  // the manual blacklist is the RAISING world's list — it never blocks B2C
+  const blacklisted = world === "ICX" ? (blacklistHit ?? null) : null;
+  const duplicate = active ?? archivedSame;
+  return {
+    duplicate,
+    blacklisted,
+    crossWorldArchived: !duplicate && !blacklisted ? archivedOther : null,
+  };
 }
 
 // ------------------------------------------------------------------ members
@@ -734,16 +762,20 @@ export async function getDashboard(
       addRowLane(getOrInit(byFunction, fnKey, fnKey), r, lane);
     }
 
-    // team = a REAL Team Leader's group only — the EB (IRIS) is not a team,
-    // so accounts owned by VPs/admins don't create a fake EB leaderboard row
-    const teamKey =
-      r.responsible_role === "Team Leader"
+    // MM drill (v23.2 — was "by team"): every Team Leader AND Coordinator
+    // gets a row aggregating their whole portfolio (a TL's row includes the
+    // team's accounts; a Coordinator's their own). VP/admin-owned accounts
+    // still create no row — the EB is not an MM.
+    const mmKey =
+      r.responsible_role === "Team Leader" || r.responsible_role === "Coordinator"
         ? r.responsible_id
         : r.responsible_stakeholder_id ?? null;
-    const teamLead = teamKey ? byId.get(teamKey) : undefined;
-    if (teamLead && teamLead.role === "Team Leader") {
-      const teamLabel = teamLead.team_name || `Team ${teamLead.nickname || teamLead.name}`;
-      addRowLane(getOrInit(byTeam, teamLead.id, teamLabel), r, lane);
+    const mm = mmKey ? byId.get(mmKey) : undefined;
+    if (mm && (mm.role === "Team Leader" || mm.role === "Coordinator")) {
+      const mmLabel = mm.team_name
+        ? `${mm.nickname || mm.name} — ${mm.team_name}`
+        : mm.nickname || mm.name;
+      addRowLane(getOrInit(byTeam, mm.id, mmLabel), r, lane);
     }
 
     // leaderboards (VPs/Directors/LCP never appear — leaders steer):
