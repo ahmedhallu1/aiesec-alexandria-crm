@@ -421,7 +421,9 @@ export function normalizePhone(raw: string): PhoneCheck {
   };
 }
 
-/** URL slug for an account — names are unique across all ICX, so the slug is too. */
+/** URL slug for an account. ACTIVE names are unique across every function;
+ *  an archived name may be reused by the other world (v23.2) — slug lookups
+ *  prefer the active row, archived rows are linked by UUID. */
 export function accountSlug(name: string): string {
   return encodeURIComponent(normalizeName(name).replace(/\s+/g, "-"));
 }

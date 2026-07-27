@@ -109,7 +109,7 @@ export function AddAccountDialog({
   // ---- LIVE name check (v22.2): fires while typing so nobody fills the whole
   // form only to learn the name is taken/burned. Stale responses are dropped.
   type NameCheck =
-    | { status: "free" }
+    | { status: "free"; note?: string }
     | { status: "checking" }
     | { status: "duplicate" | "archived" | "blacklisted"; message: string; info: Record<string, string | null> };
   const [nameCheck, setNameCheck] = useState<NameCheck | null>(null);
@@ -124,12 +124,14 @@ export function AddAccountDialog({
     setNameCheck({ status: "checking" });
     const seq = ++checkSeq.current;
     const t = setTimeout(async () => {
-      const res = await checkAccountNameLive(name);
+      // fn matters (v23.2): the archive block is world-aware — B2C is only
+      // blocked by its own archive, so switching function re-checks
+      const res = await checkAccountNameLive(name, fn);
       if (seq !== checkSeq.current) return; // superseded by more typing
       setNameCheck(res.ok ? (res.data as NameCheck) : null);
     }, 450);
     return () => clearTimeout(t);
-  }, [name]);
+  }, [name, fn]);
   const nameBlocked =
     nameCheck != null && nameCheck.status !== "free" && nameCheck.status !== "checking";
 
@@ -182,7 +184,8 @@ export function AddAccountDialog({
         <DialogHeader>
           <DialogTitle>Add account</DialogTitle>
           <DialogDescription>
-            Names are checked against all ICX accounts and the archive.
+            Names are checked against every function&apos;s accounts and your
+            function&apos;s archive.
           </DialogDescription>
         </DialogHeader>
 
@@ -266,6 +269,10 @@ export function AddAccountDialog({
             {/* live check — bad news arrives BEFORE the rest of the form is filled */}
             {nameCheck?.status === "checking" ? (
               <p className="text-xs text-muted-foreground">Checking the name…</p>
+            ) : nameCheck?.status === "free" && nameCheck.note ? (
+              <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs font-medium text-warning">
+                {nameCheck.note}
+              </p>
             ) : nameCheck?.status === "free" && name.length >= 3 ? (
               <p className="text-xs font-medium text-success">✓ Name is free — go ahead</p>
             ) : nameBlocked && nameCheck && "message" in nameCheck ? (

@@ -496,7 +496,10 @@ export function AccountsView({
     (a, b) => Number(isPinnedForMe(b)) - Number(isPinnedForMe(a))
   );
 
-  const hrefFor = (row: PipelineRow) => `/accounts/${accountSlug(row.name)}`;
+  // archived rows link by UUID (v23.2): a name can exist archived in one
+  // world AND active in the other — the slug resolves to the active one
+  const hrefFor = (row: PipelineRow) =>
+    row.out_of_process ? `/accounts/${row.id}` : `/accounts/${accountSlug(row.name)}`;
   const contactFor = (row: PipelineRow): ContactTarget => ({
     id: row.id,
     name: row.name,

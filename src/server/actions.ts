@@ -234,8 +234,9 @@ export async function createAccount(
   if (data.function === "B2C" && !(B2C_TYPES as readonly string[]).includes(data.account_type ?? ""))
     return fail("Choose the B2C type (Courses / Events / Student activities).");
 
-  // HARD RULE: unique account name across ALL ICX data + archive block
-  const { duplicate, blacklisted } = await checkAccountName(data.name);
+  // HARD RULE: an ACTIVE name is unique across EVERY function; the archive
+  // block is world-aware (v23.2) — B2C is only blocked by its own archive
+  const { duplicate, blacklisted } = await checkAccountName(data.name, data.function);
   if (blacklisted)
     return fail(
       `"${data.name}" is archived and cannot be added again.`,
@@ -2359,9 +2360,12 @@ export async function setPodioUpdateCadence(
  *  as soon as the member types the name so nobody fills a whole form (and
  *  checks Podio…) only to discover the name is burned. Same checks as
  *  createAccount, read-only. */
-export async function checkAccountNameLive(name: string): Promise<
+export async function checkAccountNameLive(
+  name: string,
+  fn?: "IGV" | "IGT" | "B2B" | "BD" | "B2C"
+): Promise<
   ActionResult<
-    | { status: "free" }
+    | { status: "free"; note?: string }
     | {
         status: "duplicate" | "archived" | "blacklisted";
         message: string;
@@ -2376,7 +2380,7 @@ export async function checkAccountNameLive(name: string): Promise<
   const clean = name?.trim() ?? "";
   if (clean.length < 2) return { ok: true, data: { status: "free" } };
   const { checkAccountName } = await import("./data");
-  const { duplicate, blacklisted } = await checkAccountName(clean);
+  const { duplicate, blacklisted, crossWorldArchived } = await checkAccountName(clean, fn);
   if (blacklisted)
     return {
       ok: true,
@@ -2419,6 +2423,15 @@ export async function checkAccountNameLive(name: string): Promise<
           project: duplicate.project ?? duplicate.sub_product,
           created_at: duplicate.created_at?.slice(0, 10) ?? null,
         },
+      },
+    };
+  // archived in the OTHER world — allowed, but worth knowing (v23.2)
+  if (crossWorldArchived)
+    return {
+      ok: true,
+      data: {
+        status: "free",
+        note: `Heads-up: "${clean}" is archived on ${crossWorldArchived.function} (${crossWorldArchived.oop_reason ?? "no reason"}) — that's their archive, not yours. You can still add it.`,
       },
     };
   return { ok: true, data: { status: "free" } };

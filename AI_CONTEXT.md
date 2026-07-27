@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-07-27 · Version: v23
+Last updated: 2026-07-27 · Version: v23.2
 
 ---
 
@@ -38,7 +38,8 @@ the blueprint for future OGX/other-function modules.
 Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v2`
 → `0003_ops_v2` → `0004_pins_v2` → `0005_deals` → `0006_admin_label` → `0007_visit_scheduled_result` → `0008_notifications_feedback` → `0009_b2b_deals_v9` → `0010_notif_link` → `0011_teams` → `0012_contracts_reminders` → `0013_director_label` → `0014_bd_podio` → `0015_bd_deal_amount` →
 `0016_comment_archive` → `0017_planning_lcfeedback_testmode` →
-`0018_tl_plans_deal_allocations_unassigned` → `0019_b2c_module`.
+`0018_tl_plans_deal_allocations_unassigned` → `0019_b2c_module` →
+`0020_name_worlds`.
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
@@ -220,8 +221,14 @@ mutation through a `can*` predicate, **server-side**.
 - **IGV accounts always carry a Project** (Skill Up!, Rooted, …) — required at
   creation/import, shown on the accounts list next to the IGV badge, editable
   in Details, filterable.
-- **Unique name across ALL ICX** (normalized); duplicates/archived names are
-  blocked at creation with full context (who, stage, why archived).
+- **Unique name — WORLD-AWARE (v23.2)**: ACTIVE names are unique across every
+  function, but the ARCHIVE block is per world — ICX-raising (IGV/IGT/B2B/BD,
+  incl. the manual blacklist) vs B2C each keep their own archive
+  (`checkAccountName(name, fn)`; a cross-world archived match is a
+  non-blocking heads-up in the add dialog). The DB index is
+  `accounts_normalized_name_world_key (normalized_name, function='B2C')`
+  (0020), so a name can exist archived in one world AND active in the other:
+  slug lookups prefer the ACTIVE row; archived list rows link by UUID.
 - **The archive IS the blacklist**: OOP accounts are hidden, unre-addable,
   revivable by TL+. No blacklist tab/sheet. **The Archived tab is LC-WIDE
   (v22.2)** — every member browses ALL archived names (scope skipped) and can
@@ -575,6 +582,16 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-07-27 · v23.2** — ① **Name worlds**: the archive block is per world
+  (0020 splits the unique index) — B2C is tested against ALL active accounts
+  + its OWN archive only; the raising archive/blacklist never blocks B2C and
+  vice versa (cross-world archived match = amber heads-up in the add dialog,
+  not a block); slug prefers the active row, archived rows link by UUID; all
+  "unique across all ICX" copy now says every function. ② **Dashboard
+  drill-down "By team" → "By MM"**: rows = every TL AND Coordinator with
+  their whole portfolio (label "Nick — Team"). ③ v23.1: B2C default cadence
+  = 10 days; Perrihan (B2C Director) auto-covered by the reminder cron.
 
 - **2026-07-27 · v23** — **THE B2C MODULE.** B2C is a full account function:
   accounts like raising but with a single **Type** (Courses / Events / Student

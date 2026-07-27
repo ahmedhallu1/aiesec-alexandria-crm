@@ -55,7 +55,7 @@ function buildSteps(role: string, functions: string[], hasModule: boolean): Tour
     {
       icon: "🏢",
       title: "Accounts — your pipeline",
-      body: `Every company you raise lives in Accounts. Add them one by one or import a whole market-research sheet. Names are unique across all ICX — if someone already works it or it was archived, the system blocks it and tells you who/why.`,
+      body: `Every company you raise lives in Accounts. Add them one by one or import a whole market-research sheet. Names are unique across every function — if someone already works it or it sits in your function's archive, the system blocks it and tells you who/why.`,
     },
     {
       icon: "📞",
