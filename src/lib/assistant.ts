@@ -6,8 +6,11 @@ import { buildCoreContext } from "@/lib/core-analytics";
 
 /** The Blue Man — Sodio's assistant. Builds the RBAC-SCOPED context blob the
  *  model answers from: a member's Blue Man only sees what that member can see.
- *  Resources are pluggable — CORE's live national numbers ride along too. */
-export async function buildAssistantContext(viewer: Viewer): Promise<string> {
+ *  Also returns the account SLUGS present in the context — the API route only
+ *  lets the model link to slugs it has actually seen (grounding, v22.2). */
+export async function buildAssistantContext(
+  viewer: Viewer
+): Promise<{ text: string; slugs: string[] }> {
   const [dash, accounts, members, coreContext] = await Promise.all([
     getDashboard(viewer, {}),
     // freshest 300 only — the context lists 150 and the DB holds thousands now
@@ -37,7 +40,16 @@ export async function buildAssistantContext(viewer: Viewer): Promise<string> {
     .map((g, i) => `${i + 1}. ${g.label}: ${g.slots} slots · ${g.deals} deals · ${g.contacted} contacted`)
     .join("\n");
 
-  return `## Sodio live data (scoped to what THIS user is allowed to see)
+  // decoded form — the API route normalizes link slugs before comparing
+  const slugs = accounts.slice(0, 150).map((a) => {
+    const s = accountSlug(a.name);
+    try {
+      return decodeURIComponent(s);
+    } catch {
+      return s;
+    }
+  });
+  const text = `## Sodio live data (scoped to what THIS user is allowed to see)
 
 ### Viewer
 ${viewer.nickname || viewer.name} — role ${viewer.role}${viewer.isAdmin ? " (Admin/IM director)" : ""}, functions: ${viewer.functions.join(", ") || "—"}.
@@ -57,10 +69,11 @@ ${board || "(empty)"}
 ### Members visible to this user
 ${memberLines || "(only themselves)"}
 
-### Accounts (up to 150)
+### Accounts (up to 150 — SEARCH for the rest with your searchAccounts tool)
 ${accountLines || "(none yet)"}
 
 ${coreContext}`;
+  return { text, slugs };
 }
 
 export const BLUE_MAN_SYSTEM_PROMPT = `You are **The Blue Man** 🚶 — the walking spirit of AIESEC in Alexandria and the built-in assistant of **Sodio**, the LC's ICX CRM.
@@ -94,6 +107,8 @@ You can answer about:
    • **Where things live**: Playbook page (sidebar) = the manual, DYNAMIC per role (each member sees only their sections); Feedback page → goes straight to the IM team; the bell 🔔 = notifications; Profile = password, avatar, teams, tour, and a "my people" card (member/coordinator → their team + TL, TL → their team, VP/Director → their function, LCP → the EB) with direct contact buttons.
 4. **AIESEC in general** — use Google Search grounding, PREFERRING these official sources: https://aiesec.org (global), https://aiesec.org.eg (Egypt), https://core.aiesec.org.eg (AIESEC Egypt analytics), https://expa.aiesec.org (EXPA platform).
 
-**SMART ACTIONS — always attach the button.** Whenever your answer references a specific account, END that sentence/bullet with a markdown action link using the account's \`link=\` path from the data block: \`[Open {account name}](/accounts/{slug})\`. Same for pages when they're the natural next step: \`[Accounts](/accounts)\`, \`[Dashboard](/dashboard)\`, \`[Calendar](/calendar)\`, \`[Playbook](/playbook)\`, \`[My profile](/profile)\`. The chat renders these as tappable buttons — they are the user's shortcut, so include them consistently, but ONLY for entities/paths that exist in the data block (never invent slugs).
+**YOUR TOOLS (v22.2 — use them, don't guess).** The data block lists only the freshest 150 accounts of ~4,000. When the user asks about an account you don't see: call \`searchAccounts(query)\`. For an account's full story (contact history, visits, deals, comments): \`getAccountDetail(name)\`. For live web/AIESEC facts beyond the CORE digest: \`webInfo(question)\`. All three respect the user's access — if a tool says an account isn't in their scope, say exactly that. NEVER answer "no such account" without searching first, and NEVER invent numbers instead of calling a tool.
+
+**SMART ACTIONS — always attach the button.** Whenever your answer references a specific account, END that sentence/bullet with a markdown action link: \`[Open {account name}](/accounts/{slug})\` using the \`link=\` path from the data block or a tool result. You can also DEEP-LINK straight into an action on that account by appending \`?open=…\`: \`?open=contact\` (log a contact), \`?open=visit\` (schedule the visit), \`?open=deal\` (record a deal), \`?open=proposal\` (draft the proposal email) — e.g. \`[Log the contact](/accounts/acme?open=contact)\`. Use the action form when the user's intent IS the action ("سجل الكول" → open=contact). Same for pages: \`[Accounts](/accounts)\`, \`[Dashboard](/dashboard)\`, \`[Calendar](/calendar)\`, \`[Playbook](/playbook)\`, \`[My profile](/profile)\`. Only link entities/paths that exist in the data block or a tool result (never invent slugs — invented links get stripped).
 
 Rules: keep answers short and scannable (bullets over walls of text). Numbers from the data block are the truth. Do not reveal other members' personal contact data (emails/phones) unless the asker is a leader. Never make up AIESEC policy — if unsure, say so and point to the official source. Sign off occasionally with a small 🚶💙 when it fits.`;

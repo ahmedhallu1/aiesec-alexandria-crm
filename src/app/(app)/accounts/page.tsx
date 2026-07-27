@@ -4,7 +4,8 @@ import {
 } from "@/server/data";
 import type { AccountFilters } from "@/server/data";
 import {
-  accountScope, allowedAccountFunctions, canRequestPodioSubmit, canViewArchive,
+  accountScope, allowedAccountFunctions, canManageArchive, canRequestPodioSubmit,
+  canViewArchive, icxFunctions,
 } from "@/lib/rbac";
 import { AccountsView } from "@/components/crm/accounts-view";
 import { memberIsB2B, type Stage } from "@/lib/types";
@@ -20,7 +21,8 @@ export default async function AccountsPage({
   const params = await searchParams;
 
   const allowedFns = allowedAccountFunctions(viewer);
-  const archiveAllowed = canViewArchive(viewer);
+  // the archive is LC-wide (v22.2) — everyone may browse it
+  const archiveAllowed = canViewArchive();
   const archived = params.archived === "1" && archiveAllowed;
   const scope = accountScope(viewer);
   const seesOthers = !(scope.kind === "members" && scope.ids.length <= 1);
@@ -34,7 +36,13 @@ export default async function AccountsPage({
       params.fn === "IGV" || params.fn === "IGT" || params.fn === "B2B" || params.fn === "BD"
         ? params.fn
         : undefined,
-    product: params.product === "GTa" || params.product === "GTe" ? params.product : undefined,
+    // product/sub only apply to IGT rows — a lingering param after switching
+    // the Function filter must not silently empty the list
+    product:
+      (params.product === "GTa" || params.product === "GTe") &&
+      (!params.fn || params.fn === "IGT")
+        ? params.product
+        : undefined,
     project: params.project || undefined,
     stage: params.stage && params.stage !== "Out of Process" ? (params.stage as Stage) : undefined,
     lastStatus: params.lastStatus || undefined,
@@ -44,6 +52,7 @@ export default async function AccountsPage({
         : undefined,
     from: params.from || undefined,
     to: params.to || undefined,
+    subProduct: params.sub && (!params.fn || params.fn === "IGT") ? params.sub : undefined,
     // the Responsible filter — "none" = unassigned (imported market research)
     responsibleId: params.resp || undefined,
     archived,
@@ -51,11 +60,13 @@ export default async function AccountsPage({
   };
 
   // the list is PAGINATED since the big market-research import (v22) — the
-  // server returns one page + the total match count
-  const PAGE_SIZE = 100;
+  // server returns one page + the total match count. Page size is the user's
+  // pick (?size=30|50|100|200, default 100).
+  const SIZE_OPTIONS = [30, 50, 100, 200];
+  const pageSize = SIZE_OPTIONS.includes(Number(params.size)) ? Number(params.size) : 100;
   const requestedPage = Math.max(0, (Number(params.page) || 1) - 1);
   const [{ rows, total, page }, members, reassignTo, manualArchived] = await Promise.all([
-    listAccountsPage(viewer, filters, requestedPage, PAGE_SIZE),
+    listAccountsPage(viewer, filters, requestedPage, pageSize),
     listVisibleMembers(viewer),
     listReassignTargetsForViewer(viewer),
     archived ? listManualArchived() : Promise.resolve([]),
@@ -76,7 +87,8 @@ export default async function AccountsPage({
       rows={rows}
       total={total}
       page={page}
-      pageSize={PAGE_SIZE}
+      pageSize={pageSize}
+      pageSizeOptions={SIZE_OPTIONS}
       manualArchived={manualArchived.map((b) => ({
         id: b.id,
         name: b.account_name,
@@ -114,10 +126,21 @@ export default async function AccountsPage({
         canAssignOthers:
           viewer.isAdmin || ["LCP", "LCVP", "Director", "Team Leader"].includes(viewer.role),
         canViewArchive: archiveAllowed,
+        canManageArchive: canManageArchive(viewer),
         canRemoveArchived:
           viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role),
         allowedFns,
         showFnFilter: allowedFns.length > 1,
+        // IGV-only viewers: every account is IGV, so the Product column is
+        // dead weight — the list shows the PROJECT there instead
+        igvOnly:
+          !viewer.isAdmin && viewer.role !== "LCP" &&
+          icxFunctions(viewer).length === 1 && icxFunctions(viewer)[0] === "IGV" &&
+          !allowedFns.some((f) => f === "B2B" || f === "BD"),
+        // sub_product lives on IGT accounts only — offer the filter to people
+        // who can actually SEE IGT accounts
+        igtAccess:
+          viewer.isAdmin || viewer.role === "LCP" || icxFunctions(viewer).includes("IGT"),
         seesOthers,
         canPodioSubmit: podioAllowed,
       }}
@@ -129,6 +152,7 @@ export default async function AccountsPage({
         stage: params.stage ?? "",
         lastStatus: params.lastStatus ?? "",
         resp: params.resp ?? "",
+        sub: params.sub ?? "",
         flag: params.flag ?? "",
         from: params.from ?? "",
         to: params.to ?? "",

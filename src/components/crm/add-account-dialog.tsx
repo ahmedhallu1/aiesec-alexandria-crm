@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { createAccount } from "@/server/actions";
+import { checkAccountNameLive, createAccount } from "@/server/actions";
 import {
   ACCOUNT_TYPES,
   IGT_SUB_PRODUCTS,
@@ -104,6 +104,33 @@ export function AddAccountDialog({
   const setVal = (key: string) => (v: string) => setForm((f) => ({ ...f, [key]: v }));
 
   const fieldsOk = contactsValid(contacts);
+
+  // ---- LIVE name check (v22.2): fires while typing so nobody fills the whole
+  // form only to learn the name is taken/burned. Stale responses are dropped.
+  type NameCheck =
+    | { status: "free" }
+    | { status: "checking" }
+    | { status: "duplicate" | "archived" | "blacklisted"; message: string; info: Record<string, string | null> };
+  const [nameCheck, setNameCheck] = useState<NameCheck | null>(null);
+  const checkSeq = useRef(0);
+  const name = (form.name ?? "").trim();
+  useEffect(() => {
+    if (name.length < 2) {
+      checkSeq.current++; // kill any in-flight response for the old text
+      setNameCheck(null);
+      return;
+    }
+    setNameCheck({ status: "checking" });
+    const seq = ++checkSeq.current;
+    const t = setTimeout(async () => {
+      const res = await checkAccountNameLive(name);
+      if (seq !== checkSeq.current) return; // superseded by more typing
+      setNameCheck(res.ok ? (res.data as NameCheck) : null);
+    }, 450);
+    return () => clearTimeout(t);
+  }, [name]);
+  const nameBlocked =
+    nameCheck != null && nameCheck.status !== "free" && nameCheck.status !== "checking";
 
   const submit = () =>
     startTransition(async () => {
@@ -229,7 +256,37 @@ export function AddAccountDialog({
 
           <div className="grid gap-2">
             <Label>Account name *</Label>
-            <Input value={form.name ?? ""} onChange={set("name")} placeholder="Company / organization name" />
+            <Input
+              value={form.name ?? ""}
+              onChange={set("name")}
+              placeholder="Company / organization name"
+              aria-invalid={nameBlocked || undefined}
+            />
+            {/* live check — bad news arrives BEFORE the rest of the form is filled */}
+            {nameCheck?.status === "checking" ? (
+              <p className="text-xs text-muted-foreground">Checking the name…</p>
+            ) : nameCheck?.status === "free" && name.length >= 3 ? (
+              <p className="text-xs font-medium text-success">✓ Name is free — go ahead</p>
+            ) : nameBlocked && nameCheck && "message" in nameCheck ? (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
+                <p className="font-semibold text-destructive">
+                  {nameCheck.status === "duplicate" ? "🚫 Already exists" : "🗄️ Archived / blocked"} —{" "}
+                  {nameCheck.message}
+                </p>
+                <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs text-foreground">
+                  {Object.entries(nameCheck.info)
+                    .filter(([, v]) => v)
+                    .map(([k, v]) => (
+                      <div key={k} className="contents">
+                        <dt className="font-medium capitalize text-muted-foreground">
+                          {k.replace(/_/g, " ")}
+                        </dt>
+                        <dd dir="auto">{v}</dd>
+                      </div>
+                    ))}
+                </dl>
+              </div>
+            ) : null}
           </div>
 
           {fn === "IGT" ? (
@@ -313,13 +370,14 @@ export function AddAccountDialog({
             disabled={
               pending ||
               !(form.name ?? "").trim() ||
+              nameBlocked ||
               !fieldsOk ||
               viewer.allowedFns.length === 0 ||
               (fn === "IGT" && !form.product) ||
               (fn === "IGV" && !form.project)
             }
           >
-            {pending ? "Checking…" : "Add account"}
+            {pending ? "Checking…" : nameBlocked ? "Name is blocked" : "Add account"}
           </Button>
         </DialogFooter>
       </DialogContent>

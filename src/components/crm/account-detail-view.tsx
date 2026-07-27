@@ -60,7 +60,7 @@ const methodIcon = {
 
 export function AccountDetailView({
   account, attempts, visits, comments, deals, caps, reassignTargets,
-  functionMembers, autoReportVisitId,
+  functionMembers, autoReportVisitId, autoOpen,
 }: {
   account: PipelineRow;
   attempts: AttemptWithMember[];
@@ -72,14 +72,19 @@ export function AccountDetailView({
   /** everyone in the account's function — the deal opens-split picker (v22) */
   functionMembers: { id: string; label: string }[];
   autoReportVisitId: string | null;
+  /** ?open= deep link (Blue Man action chips): open a dialog on arrival */
+  autoOpen: "contact" | "visit" | "deal" | "proposal" | null;
 }) {
   const pendingVisit = visits.find((v) => v.done === null) ?? null;
   const reportableVisit =
     (autoReportVisitId && visits.find((v) => v.id === autoReportVisitId && v.done === null)) ||
     pendingVisit;
 
-  const [contactOpen, setContactOpen] = useState(false);
-  const [visitOpen, setVisitOpen] = useState(false);
+  // ?open= deep links (Blue Man action chips) pre-open a dialog — only when
+  // the viewer could click the button themselves (edit rights + active)
+  const canAct = caps.edit && !account.out_of_process;
+  const [contactOpen, setContactOpen] = useState(autoOpen === "contact" && canAct);
+  const [visitOpen, setVisitOpen] = useState(autoOpen === "visit" && canAct);
   // which visit the report dialog is open FOR — openable from the top button
   // or from any pending visit row in History
   const [reportVisitId, setReportVisitId] = useState<string | null>(
@@ -88,8 +93,8 @@ export function AccountDetailView({
   const reportVisit = visits.find((v) => v.id === reportVisitId && v.done === null) ?? null;
   const [contractsOpen, setContractsOpen] = useState(false);
   const [oopOpen, setOopOpen] = useState(false);
-  const [dealOpen, setDealOpen] = useState(false);
-  const [proposalOpen, setProposalOpen] = useState(false);
+  const [dealOpen, setDealOpen] = useState(autoOpen === "deal" && canAct);
+  const [proposalOpen, setProposalOpen] = useState(autoOpen === "proposal" && canAct);
 
   const contactTarget: ContactTarget = {
     id: account.id,

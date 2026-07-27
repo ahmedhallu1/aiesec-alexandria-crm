@@ -110,18 +110,28 @@ export function allowedAccountFunctions(v: Viewer): AccountFunction[] {
   return v.functions.filter((f): f is "IGV" | "IGT" => f === "IGV" || f === "IGT");
 }
 
-type AccountLike = { function: string; responsible_id: string };
+type AccountLike = {
+  function: string;
+  responsible_id: string | null;
+  out_of_process?: boolean;
+};
 
+/** In-scope accounts, plus (v22.2) EVERY archived account: the archive is the
+ *  LC-wide blacklist — every member may open a dead name read-only to see who
+ *  burned it and why before wasting a call on it. */
 export function canViewAccount(v: Viewer, a: AccountLike): boolean {
+  if (a.out_of_process) return true;
+  return canEditAccount(v, a);
+}
+
+/** Edit stays SCOPED (own/team/function) — the archive being world-readable
+ *  never makes it world-editable. */
+export function canEditAccount(v: Viewer, a: AccountLike): boolean {
   const scope = accountScope(v);
   if (scope.kind === "all") return true;
   if (scope.kind === "functions") return scope.fns.includes(a.function as AccountFunction);
-  return scope.ids.includes(a.responsible_id);
+  return a.responsible_id != null && scope.ids.includes(a.responsible_id);
 }
-
-/** View and edit scopes are identical per the spec (everyone edits what they see,
- *  with field-level exceptions below). */
-export const canEditAccount = canViewAccount;
 
 /** Responsibility: Team Leaders choose between themselves and their members;
  *  LCVPs/Directors inside their function; LCP anywhere. Plain members never. */
@@ -129,7 +139,7 @@ export function canReassignAccount(v: Viewer, a: AccountLike): boolean {
   if (master(v)) return true;
   if (isIcxLead(v)) return scopeFunctions(v).includes(a.function as AccountFunction);
   if (v.role === "Team Leader")
-    return [v.id, ...v.teamMemberIds].includes(a.responsible_id);
+    return a.responsible_id != null && [v.id, ...v.teamMemberIds].includes(a.responsible_id);
   return false;
 }
 
@@ -142,8 +152,14 @@ export function reassignTargetScope(v: Viewer): AccountScope {
   return { kind: "members", ids: [] };
 }
 
-/** Out-of-process accounts are archived, not shown; leaders can review them. */
-export function canViewArchive(v: Viewer): boolean {
+/** The Archived tab is open to EVERYONE (v22.2) — the archive is the shared
+ *  blacklist and members must be able to check a name before working it. */
+export function canViewArchive(): boolean {
+  return true;
+}
+
+/** Managing the archive (add/import names) stays with leaders. */
+export function canManageArchive(v: Viewer): boolean {
   return master(v) || isIcxLead(v) || v.role === "Team Leader";
 }
 
@@ -167,7 +183,7 @@ export function canEditRequestState(v: Viewer, a: AccountLike): boolean {
   if (master(v) || (isIcxLead(v) && scopeFunctions(v).includes(a.function as AccountFunction)))
     return true;
   if (v.role === "Team Leader")
-    return [v.id, ...v.teamMemberIds].includes(a.responsible_id);
+    return a.responsible_id != null && [v.id, ...v.teamMemberIds].includes(a.responsible_id);
   return v.role === "Coordinator" && a.responsible_id === v.id;
 }
 

@@ -32,11 +32,11 @@ export default async function AccountPage({
   params, searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ report?: string }>;
+  searchParams: Promise<{ report?: string; open?: string }>;
 }) {
   const viewer = await getViewer();
   const { id } = await params;
-  const { report } = await searchParams;
+  const { report, open } = await searchParams;
 
   const result = await getAccount(viewer, id);
   if (!result) notFound();
@@ -82,6 +82,11 @@ export default async function AccountPage({
         label: m.nickname || m.name,
       }))}
       autoReportVisitId={report ?? null}
+      autoOpen={
+        open === "contact" || open === "visit" || open === "deal" || open === "proposal"
+          ? open
+          : null
+      }
     />
   );
 }

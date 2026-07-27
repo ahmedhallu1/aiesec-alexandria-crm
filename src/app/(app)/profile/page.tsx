@@ -1,6 +1,6 @@
 import {
-  getRealViewer, getViewer, listViewAsTargets, profilePeople, teamsForViewer,
-  tlPlanForProfile,
+  getRealViewer, getViewer, listViewAsTargets, mmPlanForProfile, profilePeople,
+  teamsForViewer, tlPlanForProfile,
 } from "@/server/data";
 import { db } from "@/lib/supabase";
 import { ProfileView } from "@/components/crm/profile-view";
@@ -24,7 +24,7 @@ export default async function ProfilePage() {
     };
   }
 
-  const [stakeholderRow, teams, people, tlPlan] = await Promise.all([
+  const [stakeholderRow, teams, people, tlPlan, mmPlan] = await Promise.all([
     viewer.stakeholder_id
       ? db()
           .from("members")
@@ -35,6 +35,7 @@ export default async function ProfilePage() {
     teamsForViewer(viewer).catch(() => []),
     profilePeople(viewer).catch(() => null),
     tlPlanForProfile(viewer).catch(() => null),
+    mmPlanForProfile(viewer).catch(() => null),
   ]);
   const stakeholder = stakeholderRow.data;
 
@@ -60,6 +61,7 @@ export default async function ProfilePage() {
       }}
       people={people}
       tlPlan={tlPlan}
+      mmPlan={mmPlan}
       viewAs={viewAs}
     />
   );

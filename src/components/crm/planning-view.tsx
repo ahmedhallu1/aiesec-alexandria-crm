@@ -154,14 +154,15 @@ export function PlanningView({
     { label: "Term total", scope: "month", keys: termMonths },
   ];
 
-  // step-to-step conversions from the TERM month totals — capped at 100%
-  // (a funnel step can't logically convert more than all of the previous one)
+  // step-to-step conversions from the TERM month totals — deliberately NOT
+  // capped at 100%: the planning funnel legitimately grows (applicants are
+  // normally MORE than opens). Only the dashboard's account funnel caps.
   const termTotal = (m: PlanMetric) => sum("month", termMonths, m);
   const conversions = funnel.slice(0, -1).map((from, i) => {
     const to = funnel[i + 1];
     const a = termTotal(from);
     const b = termTotal(to);
-    return { from, to, pct: a > 0 ? `${Math.min(100, Math.round((b / a) * 100))}%` : "—" };
+    return { from, to, pct: a > 0 ? `${Math.round((b / a) * 100)}%` : "—" };
   });
 
   // sprint-split columns for the current quarter's 3 months (6 columns)
