@@ -11,7 +11,6 @@ import {
   UsersRound,
   Menu,
   LogOut,
-  Inbox,
   MessageSquareHeart,
   BookOpen,
   Activity,
@@ -36,7 +35,7 @@ interface ShellProps {
     photoUrl: string | null;
     isAdmin: boolean;
   };
-  nav: { raising: boolean; tm: boolean; membership: boolean; planning: boolean; feedbackInbox: boolean };
+  nav: { raising: boolean; tm: boolean; membership: boolean; planning: boolean };
   signOutAction: () => Promise<void>;
   children: React.ReactNode;
 }
@@ -74,7 +73,6 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
     // system feedback moved to the Profile page (v21) — this is feedback about
     // PEOPLE in the LC: shout-outs & concerns
     { href: "/lc-feedback", label: "LC Feedback", icon: MessageSquareHeart },
-    ...(nav.feedbackInbox ? [{ href: "/feedback/inbox", label: "Feedback inbox", icon: Inbox }] : []),
     ...(user.isAdmin ? [{ href: "/admin", label: "Health & Logs", icon: Activity }] : []),
   ];
 

@@ -21,11 +21,31 @@ const FIELD_LABEL: Record<Field, string> = {
 /** Parse an input value the same way the server will (≥0 integer). */
 const num = (s: string) => Math.max(0, Math.round(Number(s) || 0));
 
-export function MmPlanForm({ months, peakLabel }: { months: string[]; peakLabel: string }) {
+export function MmPlanForm({
+  months,
+  peakLabel,
+  initial,
+  mode = "welcome",
+}: {
+  months: string[];
+  peakLabel: string;
+  /** existing plan (profile mode prefills — saving is an upsert) */
+  initial?: Record<string, { applicants: number; accepted: number; approvals: number }>;
+  mode?: "welcome" | "profile";
+}) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [rows, setRows] = useState<Record<string, Row>>(() =>
-    Object.fromEntries(months.map((m) => [m, { applicants: "", accepted: "", approvals: "" }]))
+    Object.fromEntries(
+      months.map((m) => [
+        m,
+        {
+          applicants: initial?.[m]?.applicants ? String(initial[m].applicants) : "",
+          accepted: initial?.[m]?.accepted ? String(initial[m].accepted) : "",
+          approvals: initial?.[m]?.approvals ? String(initial[m].approvals) : "",
+        },
+      ])
+    )
   );
 
   const set = (month: string, field: Field, value: string) =>
@@ -63,8 +83,12 @@ export function MmPlanForm({ months, peakLabel }: { months: string[]; peakLabel:
         toast.error(res.error);
         return;
       }
-      toast.success("Plan saved — go get those approvals! 💙");
-      router.replace("/");
+      if (mode === "welcome") {
+        toast.success("Plan saved — go get those approvals! 💙");
+        router.replace("/");
+      } else {
+        toast.success("Plan updated 🎯");
+      }
       router.refresh();
     });
 
@@ -125,7 +149,7 @@ export function MmPlanForm({ months, peakLabel }: { months: string[]; peakLabel:
       ) : null}
 
       <Button size="lg" onClick={submit} disabled={pending || allZero}>
-        {pending ? "Saving…" : "Save my plan 🚀"}
+        {pending ? "Saving…" : mode === "welcome" ? "Save my plan 🚀" : "Update my plan 🎯"}
       </Button>
     </div>
   );

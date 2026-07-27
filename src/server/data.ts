@@ -166,6 +166,8 @@ export interface AccountFilters {
   fn?: AccountFunction;
   project?: string;
   product?: "GTa" | "GTe";
+  /** IGT sub-product (Other, Teaching…) — loose text match */
+  subProduct?: string;
   stage?: Stage;
   responsibleId?: string;
   /** filter by the account's LAST contact result (No Response, Interested…) */
@@ -285,12 +287,13 @@ async function buildAccountsQuery(
     bdSafe && scope.kind === "functions"
       ? { kind: "functions", fns: scope.fns.filter((f) => f !== "BD") }
       : scope;
-  let query = applyScope(
-    db()
-      .from("accounts_pipeline")
-      .select("*", withCount ? { count: "exact" } : undefined),
-    effScope
-  );
+  let query = db()
+    .from("accounts_pipeline")
+    .select("*", withCount ? { count: "exact" } : undefined);
+  // the Archived TAB is LC-wide (v22.2): the archive is the shared blacklist,
+  // so it skips the account scope. Everything else stays scoped (dashboards'
+  // includeArchived reads included).
+  if (!filters.archived) query = applyScope(query, effScope);
   // test accounts live in a parallel universe: visible ONLY in test mode
   // (admin's "Show test data" toggle or any test view)
   if (!viewer.testMode) query = query.eq("is_test", false);
@@ -304,6 +307,8 @@ async function buildAccountsQuery(
   if (filters.fn) query = query.eq("function", filters.fn);
   if (filters.project) query = query.eq("project", filters.project);
   if (filters.product) query = query.eq("product", filters.product);
+  // sub_product is free-ish text (may hold several values) — match loosely
+  if (filters.subProduct) query = query.ilike("sub_product", `%${filters.subProduct}%`);
   if (filters.stage) query = query.eq("stage", filters.stage);
   if (filters.lastStatus) query = query.eq("last_contact_status", filters.lastStatus);
   // "none" = unassigned (imported market research awaiting an owner)
@@ -1560,20 +1565,25 @@ export async function needsMmPlan(v: Viewer): Promise<boolean> {
 // ------------------------------------------------------- raising MM plans (v22)
 
 /** A RAISING MM — Team Leader or Coordinator of IGV/IGT or the B2B/BD crew —
- *  who plans OPENS per month. Every MM plans: OGX & Consideration MMs file
- *  the applicants/accepted/approvals plan (isPlanningMm) instead — never both.
- *  A TL's plan is their TEAM's opens; a Coordinator's is their own. */
+ *  who plans OPENS per month. Every MM plans (v22.2): raising MMs file opens,
+ *  OGX & Consideration MMs file applicants/accepted/approvals (isPlanningMm) —
+ *  and an MM wearing BOTH hats (e.g. subs "Raising, Consideration") files
+ *  BOTH plans. A TL's opens plan is their TEAM's; a Coordinator's their own. */
 export function isPlanningTl(v: {
   role: string;
   functions: string[];
   sub_functions: string[];
 }): boolean {
   if (v.role !== "Team Leader" && v.role !== "Coordinator") return false;
-  if (isPlanningMm(v)) return false;
-  const raising =
-    v.functions.some((f) => f === "IGV" || f === "IGT") ||
-    ["B2B", "BD"].some((f) => v.functions.includes(f) || v.sub_functions.includes(f));
-  return raising;
+  if (["B2B", "BD"].some((f) => v.functions.includes(f) || v.sub_functions.includes(f)))
+    return true;
+  if (!v.functions.some((f) => f === "IGV" || f === "IGT")) return false;
+  // raising sub explicitly — or no Consideration sub at all (default raising)
+  return (
+    v.sub_functions.includes("Raising") ||
+    v.sub_functions.includes("ICX") ||
+    !v.sub_functions.includes("Consideration")
+  );
 }
 
 /** True when an eligible raising MM has not filed a single plan month yet. */
@@ -1662,6 +1672,39 @@ export async function tlPlanForProfile(viewer: Viewer): Promise<TlPlanData | nul
       opens: planByMonth.get(m) ?? 0,
       actual: actualByMonth.get(m) ?? 0,
     })),
+  };
+}
+
+export interface MmPlanData {
+  peakLabel: string;
+  months: { month: string; applicants: number; accepted: number; approvals: number }[];
+}
+
+/** The profile "My plan" card data for an OGX / Consideration MM (v22.2 —
+ *  the plan used to be fileable only on first sign-in, invisible after). */
+export async function mmPlanForProfile(viewer: Viewer): Promise<MmPlanData | null> {
+  if (!isPlanningMm(viewer)) return null;
+  const { peakForPlanning } = await import("@/lib/plan");
+  const peak = peakForPlanning();
+  const { data } = await db()
+    .from("mm_plans")
+    .select("month, applicants, accepted, approvals")
+    .eq("member_id", viewer.id);
+  const byMonth = new Map(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ((data ?? []) as any[]).map((r) => [`${String(r.month).slice(0, 7)}-01`, r])
+  );
+  return {
+    peakLabel: peak.label,
+    months: peak.months.map((m) => {
+      const r = byMonth.get(m);
+      return {
+        month: m,
+        applicants: r?.applicants ?? 0,
+        accepted: r?.accepted ?? 0,
+        approvals: r?.approvals ?? 0,
+      };
+    }),
   };
 }
 

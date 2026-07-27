@@ -1,8 +1,7 @@
 import { redirect } from "next/navigation";
 import { getViewer, listViewAsTargets, needsMmPlan, needsTlPlan } from "@/server/data";
 import {
-  hasRaisingAccess, hasTmAccess, canManageMembership, canSeeFeedbackInbox,
-  canSeePlanning,
+  hasRaisingAccess, hasTmAccess, canManageMembership, canSeePlanning,
 } from "@/lib/rbac";
 import { signOut } from "@/lib/auth";
 import { AppShell } from "@/components/crm/app-shell";
@@ -56,7 +55,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         tm,
         membership,
         planning,
-        feedbackInbox: canSeeFeedbackInbox(viewer),
       }}
       signOutAction={async () => {
         "use server";

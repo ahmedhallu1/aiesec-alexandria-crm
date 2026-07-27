@@ -10,8 +10,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { ADMIN_EMAIL, cleanPhone, FUNCTION_COLORS, normalizePhone, PHONE_RE } from "@/lib/types";
-import type { PersonCard, TlPlanData } from "@/server/data";
+import type { MmPlanData, PersonCard, TlPlanData } from "@/server/data";
 import { TlPlanForm } from "./tl-plan-form";
+import { MmPlanForm } from "./mm-plan-form";
 import { WhatsAppIcon } from "./icons";
 import { Hint } from "./hint";
 import { avatarChoices } from "@/lib/avatars";
@@ -49,13 +50,16 @@ export function ProfileView({
   member,
   people,
   tlPlan,
+  mmPlan,
   viewAs,
 }: {
   member: ProfileInfo;
   /** the viewer's people (TL → team · VP/Director → function · LCP → EB) */
   people: { title: string; people: PersonCard[] } | null;
-  /** raising TLs only (v22): their opens plan for the peak + monthly actuals */
+  /** raising MMs (v22): their opens plan for the peak + monthly actuals */
   tlPlan: TlPlanData | null;
+  /** OGX / Consideration MMs (v22.2): their applicants/accepted/approvals plan */
+  mmPlan: MmPlanData | null;
   /** REAL-admin only: the test-view picker (survives an active test view) */
   viewAs: {
     activeId: string | null;
@@ -314,6 +318,34 @@ export function ProfileView({
               peakLabel={tlPlan.peakLabel}
               initial={Object.fromEntries(tlPlan.months.map((m) => [m.month, m.opens]))}
               actuals={Object.fromEntries(tlPlan.months.map((m) => [m.month, m.actual]))}
+              mode="profile"
+            />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {mmPlan ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Target className="size-4 text-muted-foreground" /> My plan — consideration funnel
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Your applicants · accepted · approvals plan per month of the peak.
+              These ARE your goals — your VP sees them on the Planning board and
+              in the period reports. Update any time.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <MmPlanForm
+              months={mmPlan.months.map((m) => m.month)}
+              peakLabel={mmPlan.peakLabel}
+              initial={Object.fromEntries(
+                mmPlan.months.map((m) => [
+                  m.month,
+                  { applicants: m.applicants, accepted: m.accepted, approvals: m.approvals },
+                ])
+              )}
               mode="profile"
             />
           </CardContent>

@@ -203,7 +203,11 @@ mutation through a `can*` predicate, **server-side**.
 - **Unique name across ALL ICX** (normalized); duplicates/archived names are
   blocked at creation with full context (who, stage, why archived).
 - **The archive IS the blacklist**: OOP accounts are hidden, unre-addable,
-  revivable by TL+. No blacklist tab/sheet.
+  revivable by TL+. No blacklist tab/sheet. **The Archived tab is LC-WIDE
+  (v22.2)** — every member browses ALL archived names (scope skipped) and can
+  OPEN any archived account read-only (`canViewAccount` passes for archived;
+  editing stays scoped via `canEditAccount`); add/import archived stays TL+
+  (`canManageArchive`).
 - **Auto-archive rules**: contact result **"Not Interested"** and Podio request
   state **"Rejected"** both archive the account (with warning confirmations).
 - **Out-of-Process reasons** (`OOP_REASONS` in `types.ts`) are a fixed pick-list
@@ -551,6 +555,35 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-07-27 · v22.2** — Fix-and-polish wave from LC feedback. ① **Archive
+  is LC-WIDE**: `canViewArchive()` = everyone (management stays TL+ via
+  `canManageArchive`), the Archived tab query skips accountScope, and
+  `canViewAccount` returns true for ANY archived account (read-only —
+  `canEditAccount` is no longer an alias and stays scoped). ② **Live name
+  check** (`checkAccountNameLive` + debounced check in AddAccountDialog):
+  duplicate/archived/blacklist verdict with full context appears AS the name
+  is typed — before the rest of the form is filled; submit blocked. ③ **Every
+  MM sees & edits their plan on the PROFILE**: new `mmPlanForProfile` +
+  MmPlanForm profile mode (consideration/OGX funnel card) next to the raising
+  opens card; `isPlanningTl` no longer excludes `isPlanningMm` — an MM with
+  subs "Raising, Consideration" (e.g. Boda) files BOTH plans. ④ **Accounts
+  list**: IGV-only viewers see a **Project** column instead of the pointless
+  IGV badge; **sub-product filter** (`?sub`, ilike) for IGT-access viewers;
+  **page-size picker** (?size 30/50/100/200). ⑤ **Planning conversions
+  UNcapped** (applicants > opens is normal); the dashboard funnel keeps its
+  100% cap. ⑥ **System-feedback inbox** left the sidebar — it's the "Open the
+  inbox" button on /feedback (inbox owners only). ⑦ **The Blue Man v2**:
+  Gemini function-calling with RBAC-scoped `searchAccounts` /
+  `getAccountDetail` (+ `webInfo` bridge, since google_search can't mix with
+  custom tools), **?open= action deep links** (contact/visit/deal/proposal
+  auto-open on the account page, edit-gated), and **link grounding** (internal
+  links are stripped unless the slug came from the context or a tool result;
+  `buildAssistantContext` now returns `{text, slugs}`). ⑧ **Test data
+  purged**: members "Test TL"/"Test member" deleted (notifications/audit/
+  goal-rows cleaned; they were never in the Membership sheet) + the 4 old
+  manually-made test accounts (incl. Hana's 3 "missing" ones — they were
+  archived under her name) with their children.
 
 - **2026-07-26 · v22.1** — **Every raising MM plans**: `isPlanningTl` now
   matches **Coordinators too** (was TLs only) — raising Coordinators of

@@ -13,7 +13,7 @@ import {
   canReassignAccount,
   canRequestPodioSubmit,
   canViewAccount,
-  canViewArchive,
+  canManageArchive,
   commentLabel,
   reassignTargetScope,
 } from "@/lib/rbac";
@@ -564,7 +564,7 @@ export async function addArchivedAccount(input: {
   reason: string;
 }): Promise<ActionResult> {
   const viewer = await getViewer();
-  if (!canViewArchive(viewer))
+  if (!canManageArchive(viewer))
     return fail("Only TLs, VPs and the LCP manage the archive.", "forbidden");
   const res = await insertArchivedName(viewer.id, input.name, input.reason);
   if (!res.ok) return res;
@@ -579,7 +579,7 @@ export async function importArchivedBulk(
   rows: { name: string; reason: string }[]
 ): Promise<ActionResult<{ results: ImportRowResult[]; created: number }>> {
   const viewer = await getViewer();
-  if (!canViewArchive(viewer))
+  if (!canManageArchive(viewer))
     return fail("Only TLs, VPs and the LCP manage the archive.", "forbidden");
   if (!rows?.length) return fail("Nothing to import.");
   if (rows.length > 1000) return fail("Import at most 1000 archived names at a time.");
@@ -871,7 +871,9 @@ export async function getContractUrl(
 ): Promise<ActionResult<{ url: string }>> {
   const viewer = await getViewer();
   const loaded = await loadDeal(dealId);
-  if (!loaded || !canViewAccount(viewer, loaded.account))
+  // contracts stay EDIT-scoped (v22.2): the archive being world-readable must
+  // not make other functions' signed contract files world-downloadable
+  if (!loaded || !canEditAccount(viewer, loaded.account))
     return fail("You are not allowed to view this account.", "forbidden");
   if (!path.startsWith(`${loaded.deal.account_id}/${dealId}/`))
     return fail("That file does not belong to this deal.");
@@ -2276,6 +2278,77 @@ export async function updateAccountContacts(
   await logAudit(viewer.id, "update_contacts", "account", accountId, { count: clean.length });
   refresh(accountId);
   return { ok: true };
+}
+
+// ============================================================ live name check
+
+/** Instant duplicate/archive check for the Add-account dialog (v22.2): fires
+ *  as soon as the member types the name so nobody fills a whole form (and
+ *  checks Podio…) only to discover the name is burned. Same checks as
+ *  createAccount, read-only. */
+export async function checkAccountNameLive(name: string): Promise<
+  ActionResult<
+    | { status: "free" }
+    | {
+        status: "duplicate" | "archived" | "blacklisted";
+        message: string;
+        info: Record<string, string | null>;
+      }
+  >
+> {
+  const viewer = await getViewer();
+  // only people who can CREATE accounts get the rich duplicate context
+  if (allowedAccountFunctions(viewer).length === 0)
+    return { ok: true, data: { status: "free" } };
+  const clean = name?.trim() ?? "";
+  if (clean.length < 2) return { ok: true, data: { status: "free" } };
+  const { checkAccountName } = await import("./data");
+  const { duplicate, blacklisted } = await checkAccountName(clean);
+  if (blacklisted)
+    return {
+      ok: true,
+      data: {
+        status: "blacklisted",
+        message: `"${clean}" is in the archive — this name is blocked.`,
+        info: {
+          reason: blacklisted.comments,
+          project: blacklisted.project,
+          link: blacklisted.link,
+        },
+      },
+    };
+  if (duplicate && duplicate.out_of_process)
+    return {
+      ok: true,
+      data: {
+        status: "archived",
+        message: `"${clean}" was worked before and is archived — it cannot be added again.`,
+        info: {
+          function: duplicate.function,
+          reason: duplicate.oop_reason,
+          archived_at: duplicate.oop_at?.slice(0, 10) ?? null,
+          was_responsible:
+            duplicate.responsible_nickname || duplicate.responsible_name || "Unassigned",
+        },
+      },
+    };
+  if (duplicate)
+    return {
+      ok: true,
+      data: {
+        status: "duplicate",
+        message: `"${clean}" already exists on ${duplicate.function} accounts.`,
+        info: {
+          function: duplicate.function,
+          responsible:
+            duplicate.responsible_nickname || duplicate.responsible_name || "Unassigned",
+          stage: duplicate.stage,
+          project: duplicate.project ?? duplicate.sub_product,
+          created_at: duplicate.created_at?.slice(0, 10) ?? null,
+        },
+      },
+    };
+  return { ok: true, data: { status: "free" } };
 }
 
 // Goals are no longer set in Sodio (v22): function goals come from the VPs'

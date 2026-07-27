@@ -14,7 +14,7 @@ import {
   removeArchivedEntry, requestPodioSubmit, updateAccount,
 } from "@/server/actions";
 import {
-  accountSlug, fmtDateTime, fmtTime, IGV_PROJECTS, OOP_REASONS, productBadge,
+  accountSlug, fmtDateTime, fmtTime, IGT_SUB_PRODUCTS, IGV_PROJECTS, OOP_REASONS, productBadge,
   STAGES,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -54,12 +54,18 @@ interface ViewerInfo {
   isAdmin: boolean;
   canAssignOthers: boolean;
   canViewArchive: boolean;
+  /** add/import archived names — leaders only (viewing is LC-wide) */
+  canManageArchive: boolean;
   canRemoveArchived: boolean;
   allowedFns: ("IGV" | "IGT" | "B2B" | "BD")[];
   showFnFilter: boolean;
   seesOthers: boolean;
   /** B2B/BD MMs + Director/VP (+LCP/admin): the Podio submission worklist */
   canPodioSubmit: boolean;
+  /** IGV-only viewer — the Product column shows the PROJECT instead (v22.2) */
+  igvOnly: boolean;
+  /** may see IGT accounts — enables the sub-product filter */
+  igtAccess: boolean;
 }
 
 interface ManualEntry {
@@ -99,8 +105,19 @@ function DetailHint({
   );
 }
 
-function FnBadge({ row, className }: { row: PipelineRow; className?: string }) {
+function FnBadge({ row, className, igvOnly }: { row: PipelineRow; className?: string; igvOnly?: boolean }) {
   const b = productBadge(row.function, row.product);
+  // IGV-only viewers: every account is IGV — the badge is dead weight, show
+  // the PROJECT in its place (v22.2)
+  if (igvOnly && row.function === "IGV") {
+    return (
+      <DetailHint rows={[["Type", row.account_type], ["Industry", row.industry]]}>
+        <Badge variant="outline" className={cn("max-w-40 truncate text-[10px] font-semibold", className)}>
+          {row.project || "No project"}
+        </Badge>
+      </DetailHint>
+    );
+  }
   return (
     <DetailHint
       rows={
@@ -377,8 +394,8 @@ function SelectDot({ checked, onToggle }: { checked: boolean; onToggle: () => vo
 }
 
 export function AccountsView({
-  rows, total, page, pageSize, manualArchived, members, reassignTargets,
-  respOptions, viewer, filters,
+  rows, total, page, pageSize, pageSizeOptions, manualArchived, members,
+  reassignTargets, respOptions, viewer, filters,
 }: {
   rows: PipelineRow[];
   /** total matches across ALL pages (the list is paginated since v22) */
@@ -386,6 +403,8 @@ export function AccountsView({
   /** 0-based current page + the server's page size */
   page: number;
   pageSize: number;
+  /** the accounts-per-page choices (?size param) */
+  pageSizeOptions: number[];
   manualArchived: ManualEntry[];
   members: MemberOption[];
   /** members the viewer may reassign accounts TO (RBAC-correct, list-level) */
@@ -551,7 +570,7 @@ export function AccountsView({
               </Button>
             </Hint>
           ) : null}
-          {archived ? (
+          {archived && viewer.canManageArchive ? (
             <>
               <Hint label="Import a whole sheet of archived names (Name + Reason) — blocked from ever being added">
                 <Button variant="outline" onClick={() => setImportArchivedOpen(true)}>
@@ -564,7 +583,7 @@ export function AccountsView({
                 </Button>
               </Hint>
             </>
-          ) : (
+          ) : !archived ? (
             <>
               <Hint label="Got a sheet of market research? Import a whole CSV/Excel at once">
                 <Button variant="outline" asChild>
@@ -579,7 +598,7 @@ export function AccountsView({
                 </Button>
               </Hint>
             </>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -613,6 +632,13 @@ export function AccountsView({
             value={filters.project} placeholder="Project"
             onChange={(v) => setParam("project", v)}
             options={IGV_PROJECTS.map((p) => [p, p])}
+          />
+        ) : null}
+        {(!filters.fn || filters.fn !== "IGV") && viewer.igtAccess ? (
+          <FilterSelect
+            value={filters.sub} placeholder="Sub product"
+            onChange={(v) => setParam("sub", v)}
+            options={IGT_SUB_PRODUCTS.map((s) => [s, s])}
           />
         ) : null}
         {!archived ? (
@@ -681,6 +707,7 @@ export function AccountsView({
           items={archivedItems}
           canRemove={viewer.canRemoveArchived}
           seesOthers={viewer.seesOthers}
+          igvOnly={viewer.igvOnly}
           onOpen={(row) => router.push(hrefFor(row))}
         />
       ) : (
@@ -739,7 +766,7 @@ export function AccountsView({
                           </span>
                         </p>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                          <FnBadge row={row} />
+                          <FnBadge row={row} igvOnly={viewer.igvOnly} />
                           <StageBadge stage={row.stage} className="text-[10px]" />
                           {isPinnedForMe(row) ? <PodioPinBadge /> : null}
                           {row.contact_limit_reached ? (
@@ -845,7 +872,7 @@ export function AccountsView({
                         </p>
                       ) : null}
                     </div>
-                    <FnBadge row={row} />
+                    <FnBadge row={row} igvOnly={viewer.igvOnly} />
                     <StageBadge stage={row.stage} className="text-[10px]" />
                   </div>
                 ))}
@@ -868,7 +895,7 @@ export function AccountsView({
                     <TableHead className="w-10" />
                     <TableHead>Date added</TableHead>
                     <TableHead>Account</TableHead>
-                    <TableHead>Product</TableHead>
+                    <TableHead>{viewer.igvOnly ? "Project" : "Product"}</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-center">Contacts</TableHead>
                     <TableHead>Next step</TableHead>
@@ -919,7 +946,7 @@ export function AccountsView({
                           ) : null}
                           {podioMode ? <PodioRowTools row={row} /> : null}
                         </TableCell>
-                        <TableCell><FnBadge row={row} /></TableCell>
+                        <TableCell><FnBadge row={row} igvOnly={viewer.igvOnly} /></TableCell>
                         <TableCell><StatusCell row={row} /></TableCell>
                         <TableCell className="text-center"><ContactsCell row={row} /></TableCell>
                         <TableCell className="max-w-44 text-sm">
@@ -981,12 +1008,25 @@ export function AccountsView({
       )}
 
       {/* pagination (v22 — the market-research import made the list BIG) */}
-      {total > pageSize ? (
+      {total > Math.min(...pageSizeOptions) ? (
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
-          <span>
+          <span className="flex items-center gap-2">
             Showing {(page * pageSize + 1).toLocaleString("en")}–
             {Math.min(total, (page + 1) * pageSize).toLocaleString("en")} of{" "}
             {total.toLocaleString("en")}
+            <Select
+              value={String(pageSize)}
+              onValueChange={(v) => setParam("size", v === "100" ? "" : v)}
+            >
+              <SelectTrigger className="h-7 w-auto min-w-16 text-xs" aria-label="Accounts per page">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {pageSizeOptions.map((n) => (
+                  <SelectItem key={n} value={String(n)}>{n} / page</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </span>
           <div className="flex items-center gap-2">
             <Button
@@ -1106,7 +1146,7 @@ export function AccountsView({
 // ------------------------------------------------------------------ archive
 
 function ArchivedList({
-  items, canRemove, seesOthers, onOpen,
+  items, canRemove, seesOthers, igvOnly, onOpen,
 }: {
   items: (
     | { kind: "account"; date: string; row: PipelineRow }
@@ -1114,6 +1154,7 @@ function ArchivedList({
   )[];
   canRemove: boolean;
   seesOthers: boolean;
+  igvOnly: boolean;
   onOpen: (row: PipelineRow) => void;
 }) {
   const router = useRouter();
@@ -1143,7 +1184,7 @@ function ArchivedList({
                 <CardContent className="space-y-1.5 p-3.5">
                   <p className="flex items-center gap-1.5 font-semibold">{item.row.name}</p>
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <FnBadge row={item.row} />
+                    <FnBadge row={item.row} igvOnly={igvOnly} />
                     <span className="text-xs text-destructive">🗄️ {item.row.oop_reason ?? "archived"}</span>
                   </div>
                   <p className="text-xs text-muted-foreground">{fmtDateTime(item.date)}</p>
@@ -1186,7 +1227,7 @@ function ArchivedList({
               <TableRow>
                 <TableHead>Archived</TableHead>
                 <TableHead>Account</TableHead>
-                <TableHead>Product</TableHead>
+                <TableHead>{igvOnly ? "Project" : "Product"}</TableHead>
                 <TableHead>Reason</TableHead>
                 <TableHead>Source</TableHead>
                 <TableHead />
@@ -1219,7 +1260,7 @@ function ArchivedList({
                           </p>
                         ) : null}
                       </TableCell>
-                      <TableCell><FnBadge row={item.row} /></TableCell>
+                      <TableCell><FnBadge row={item.row} igvOnly={igvOnly} /></TableCell>
                       <TableCell className="max-w-64 truncate text-sm text-muted-foreground">
                         {item.row.oop_reason ?? "—"}
                       </TableCell>
