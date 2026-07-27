@@ -32,6 +32,13 @@ function mosMetrics(m: MemberDirectoryEntry): { label: string; value: string }[]
     { label: "Deals", value: String(k.deals) },
   ];
   if (m.mos === "raising") return [...funnel, { label: "Opens ★", value: String(k.slots) }];
+  if (m.mos === "b2c") {
+    // B2C's MOS = deals signed — the funnel already ends in Deals, star it
+    const b2cFunnel = funnel.map((f) =>
+      f.label === "Deals" ? { ...f, label: "Deals ★" } : f
+    );
+    return b2cFunnel;
+  }
   if (m.mos === "bd")
     return [...funnel, { label: "Opens", value: String(k.slots) },
       { label: "EGP ★", value: k.egp.toLocaleString("en") }];
@@ -47,6 +54,7 @@ function mosMetrics(m: MemberDirectoryEntry): { label: string; value: string }[]
 const MOS_TAG: Record<MemberDirectoryEntry["mos"], string | null> = {
   raising: "MOS: Opens",
   bd: "MOS: Money (EGP)",
+  b2c: "MOS: Deals",
   consideration: "MOS: Approvals",
   ogx: "MOS: Approvals",
   other: null,

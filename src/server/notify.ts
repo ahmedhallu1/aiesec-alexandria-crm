@@ -11,6 +11,7 @@ export type NotificationKind =
   | "thanks"
   | "broadcast"
   | "lc_feedback"
+  | "podio_update"
   | "report"
   | "info";
 

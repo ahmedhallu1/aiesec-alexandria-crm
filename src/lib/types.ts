@@ -2,8 +2,9 @@ export type LcFunction =
   | "IGV" | "IGT" | "OGV" | "OGT" | "CXP" | "B2C" | "F&L" | "B2B" | "BD" | "TM";
 /** What an ACCOUNT can be raised as. B2B raises for the whole ICX: B2B
  *  accounts live in their own product and split each deal's opens across
- *  IGV / IGTa / IGTe. */
-export type AccountFunction = "IGV" | "IGT" | "B2B" | "BD";
+ *  IGV / IGTa / IGTe. B2C (v23) is its own module: partner accounts for
+ *  courses/events/student activities — deals carry no details. */
+export type AccountFunction = "IGV" | "IGT" | "B2B" | "BD" | "B2C";
 export type MemberRole =
   | "LCP"
   | "LCVP"
@@ -66,6 +67,25 @@ export function memberIsB2B(m: {
     (f) => (m.functions ?? []).includes(f) || (m.sub_functions ?? []).includes(f)
   );
 }
+
+/** B2C crew (v23) — the B2C label in functions or sub-functions. */
+export function memberIsB2C(m: {
+  functions?: string[] | null;
+  sub_functions?: string[] | null;
+}): boolean {
+  return (m.functions ?? []).includes("B2C") || (m.sub_functions ?? []).includes("B2C");
+}
+
+/** B2C account types (v23) — B2C accounts carry ONE of these instead of the
+ *  account-type/industry pair (stored in the account_type column). */
+export const B2C_TYPES = ["Courses", "Events", "Student activities"] as const;
+
+/** The contract Google Form B2C fills BEFORE marking a deal signed. */
+export const B2C_CONTRACT_FORM_URL =
+  "https://docs.google.com/forms/d/e/1FAIpQLSd4hhlgs53U2dHxQDaQXJv_sr3lxJd-FXzxrrQColD2uXVp4A/viewform";
+
+/** Default Podio-update cadence for B2C accounts (days) — editable per account. */
+export const B2C_DEFAULT_UPDATE_DAYS = 7;
 
 export const IGV_PROJECTS = [
   "Skill Up!",
@@ -214,6 +234,12 @@ export interface Account {
   /** a B2B/BD leader asked the owner to submit this account on Podio — the
    *  account pins to the top of the owner's list until requested/stated */
   podio_submit_requested_at: string | null;
+  /** B2C only (v23): the account must be refreshed on Podio every N days */
+  podio_update_every_days: number | null;
+  /** B2C only: when it was last marked "updated on Podio" */
+  podio_updated_at: string | null;
+  /** B2C only: the last time the due-date reminder fired (once per cycle) */
+  podio_update_notified_at: string | null;
   out_of_process: boolean;
   oop_reason: string | null;
   oop_at: string | null;
@@ -434,6 +460,7 @@ export const FUNCTION_COLORS: Record<string, { bg: string; text: string }> = {
   IGTe: { bg: "bg-gte/15", text: "text-gte" },
   B2B: { bg: "bg-primary/15", text: "text-primary" },
   BD: { bg: "bg-chart-4/15", text: "text-chart-4" },
+  B2C: { bg: "bg-fuchsia-500/15", text: "text-fuchsia-600 dark:text-fuchsia-400" },
 };
 
 /** Product-level badge next to an account name: IGV / IGTa / IGTe / B2B. */

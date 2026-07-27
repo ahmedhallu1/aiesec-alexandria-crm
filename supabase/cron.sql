@@ -44,3 +44,11 @@ select cron.schedule(
   );
   $$
 );
+
+-- v23: B2C accounts must be refreshed on Podio every N days — checked daily
+-- at 05:00 UTC; nags the responsible + the B2C VP/Director once per cycle.
+select cron.schedule(
+  'podio-updates',
+  '0 5 * * *',
+  $$ select net.http_get(url := '<APP_URL>/api/cron/podio-updates?key=<CRON_SECRET>') $$
+);

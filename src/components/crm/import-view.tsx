@@ -20,9 +20,9 @@ import {
 } from "@/components/ui/table";
 
 interface MemberOption { id: string; label: string; functions: string[] }
-type ImportFn = "IGV" | "IGT" | "B2B" | "BD";
+type ImportFn = "IGV" | "IGT" | "B2B" | "BD" | "B2C";
 
-type Fn = "IGV" | "IGT" | "B2B" | "BD";
+type Fn = "IGV" | "IGT" | "B2B" | "BD" | "B2C";
 
 interface DraftRow {
   name: string;

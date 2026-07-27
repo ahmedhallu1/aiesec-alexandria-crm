@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-07-26 · Version: v22
+Last updated: 2026-07-27 · Version: v23
 
 ---
 
@@ -38,7 +38,7 @@ the blueprint for future OGX/other-function modules.
 Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v2`
 → `0003_ops_v2` → `0004_pins_v2` → `0005_deals` → `0006_admin_label` → `0007_visit_scheduled_result` → `0008_notifications_feedback` → `0009_b2b_deals_v9` → `0010_notif_link` → `0011_teams` → `0012_contracts_reminders` → `0013_director_label` → `0014_bd_podio` → `0015_bd_deal_amount` →
 `0016_comment_archive` → `0017_planning_lcfeedback_testmode` →
-`0018_tl_plans_deal_allocations_unassigned`.
+`0018_tl_plans_deal_allocations_unassigned` → `0019_b2c_module`.
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
@@ -186,6 +186,26 @@ mutation through a `can*` predicate, **server-side**.
   distribute them via (bulk) reassign. Guards: scheduleVisit / requestPodioSubmit
   / recordDeal-without-split fail with "assign first" messages; UI renders
   "Unassigned".
+- **B2C module (v23)**: `AccountFunction` gains `B2C` (enum + check via 0019).
+  B2C accounts carry ONE **Type** — `B2C_TYPES` = Courses / Events / Student
+  activities — stored in `account_type` (no industry, no product/project).
+  **Podio continuous updates**: every B2C account must be refreshed on Podio
+  every `podio_update_every_days` days (default `B2C_DEFAULT_UPDATE_DAYS` = 7,
+  editable 1–90 on the account's "Podio — continuous update" card, which shows
+  the countdown); `markPodioUpdated` stamps `podio_updated_at` and clears
+  `podio_update_notified_at`. The daily **podio-updates cron** (05:00 UTC,
+  `/api/cron/podio-updates`, scheduled in pg_cron) notifies (bell kind
+  `podio_update` + `podioUpdateDueEmail`) the responsible + the B2C
+  LCVP/Directors ONCE per cycle when due. **B2C deals carry NO details**
+  (deals check relaxed to `slots >= 0` in 0019): the Record-deal popup links
+  the contract Google Form (`B2C_CONTRACT_FORM_URL`) and offers one "Deal
+  signed" button — no opens/splits/amount/files. **No proposal emails**
+  (button hidden + server-rejected). RBAC: `isB2C`/`memberIsB2C` (functions OR
+  sub_functions), B2C appended to `scopeFunctions`/`allowedAccountFunctions`,
+  `hasRaisingAccess` includes the crew; the **B2C dashboard lane** is
+  isolated like B2B (crew + LCP/admin only), deals-centric (no Slots KPI,
+  "Lead → Deal", leaderboards ranked by Deals, B2C excluded from All-ICX);
+  members-directory MOS `b2c` = deals; visits announce to the B2C crew only.
 - **The accounts list is PAGINATED** (v22): `listAccountsPage` (page size 100,
   `?page=` 1-based, exact count, Prev/Next footer; filter changes reset the
   page). Full-set readers (`listAccounts`, dashboard, mirrors, directory,
@@ -555,6 +575,19 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-07-27 · v23** — **THE B2C MODULE.** B2C is a full account function:
+  accounts like raising but with a single **Type** (Courses / Events / Student
+  activities) instead of product/account-type/industry; **Podio continuous
+  updates** (per-account cadence, default 7 days, countdown card, daily cron
+  → bell + email to the MM + B2C VP/Director once per cycle, "Updated on
+  Podio" resets); **detail-free deals** behind the contract Google Form link;
+  **no proposal emails**; an isolated **deals-centric B2C dashboard lane**
+  (no opens anywhere, leaderboard by Deals); B2C MOS in the members directory
+  = deals. Migration **0019 applied via MCP** (enum value, checks, cadence
+  columns, view); pg_cron job `podio-updates` scheduled (daily 05:00 UTC).
+  Salma's & Ali's B2C accounts get the workspace immediately (their tour and
+  ComingSoon copy updated). Playbook v23; the Blue Man teaches all of it.
 
 - **2026-07-27 · v22.2** — Fix-and-polish wave from LC feedback. ① **Archive
   is LC-WIDE**: `canViewArchive()` = everyone (management stays TL+ via

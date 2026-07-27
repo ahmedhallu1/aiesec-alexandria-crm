@@ -1,6 +1,6 @@
 import { getViewer } from "@/server/data";
 import { hasTmAccess } from "@/lib/rbac";
-import { memberIsB2B } from "@/lib/types";
+import { memberIsB2B, memberIsB2C } from "@/lib/types";
 import { PlaybookView } from "@/components/crm/playbook-view";
 
 export const metadata = { title: "Playbook" };
@@ -16,6 +16,7 @@ export default async function PlaybookPage() {
       role={viewer.role}
       isAdmin={viewer.isAdmin}
       isB2B={memberIsB2B(viewer)}
+      isB2C={memberIsB2C(viewer)}
       isTm={hasTmAccess(viewer)}
     />
   );

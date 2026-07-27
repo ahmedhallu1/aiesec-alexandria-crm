@@ -50,6 +50,12 @@ export function isB2B(v: Viewer): boolean {
   return hit(v.functions) || hit(v.sub_functions);
 }
 
+/** The B2C crew (v23): partner accounts for courses / events / student
+ *  activities — its own module, isolated from the ICX raising lanes. */
+export function isB2C(v: Viewer): boolean {
+  return v.functions.includes("B2C") || v.sub_functions.includes("B2C");
+}
+
 /** The viewer's OWN ICX product families. B2B/BD people live in their own
  *  B2B lane — they do NOT follow the whole ICX (v15 isolation). */
 export function icxFunctions(v: Viewer): ("IGV" | "IGT")[] {
@@ -65,6 +71,8 @@ export function scopeFunctions(v: Viewer): AccountFunction[] {
   );
   // B2B & BD accounts raise for every leader's function — both labels visible
   if (fns.length > 0 || isB2B(v)) fns.push("B2B", "BD");
+  // B2C is its own island: only the B2C crew's leaders see it (v23)
+  if (isB2C(v)) fns.push("B2C");
   return [...new Set(fns)];
 }
 
@@ -92,7 +100,7 @@ export function canSeePlanning(v: Viewer): boolean {
 
 /** Whether the ICX Raising module is visible at all for this user. */
 export function hasRaisingAccess(v: Viewer): boolean {
-  if (master(v) || isIcxLead(v) || isB2B(v)) return true;
+  if (master(v) || isIcxLead(v) || isB2B(v) || isB2C(v)) return true;
   return (
     icxFunctions(v).length > 0 &&
     v.sub_functions.some((s) => s === "Raising" || s === "ICX")
@@ -103,11 +111,15 @@ export function hasRaisingAccess(v: Viewer): boolean {
  *  B2B people add accounts as B2B (not IGV/IGT); IGV-only members cannot add
  *  IGT accounts and vice versa. Leaders create inside their visibility scope. */
 export function allowedAccountFunctions(v: Viewer): AccountFunction[] {
-  if (master(v)) return ["IGV", "IGT", "B2B", "BD"];
+  if (master(v)) return ["IGV", "IGT", "B2B", "BD", "B2C"];
   if (v.role === "LCVP" || v.role === "Director") return scopeFunctions(v);
-  // B2B & BD crew pick per account which label it carries
-  if (isB2B(v)) return ["B2B", "BD"];
-  return v.functions.filter((f): f is "IGV" | "IGT" => f === "IGV" || f === "IGT");
+  const fns: AccountFunction[] = v.functions.filter(
+    (f): f is "IGV" | "IGT" => f === "IGV" || f === "IGT"
+  );
+  // B2B & BD crew pick per account which label it carries; B2C is its own
+  if (isB2B(v)) fns.push("B2B", "BD");
+  if (isB2C(v)) fns.push("B2C");
+  return [...new Set(fns)];
 }
 
 type AccountLike = {
