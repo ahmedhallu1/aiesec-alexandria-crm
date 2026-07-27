@@ -144,7 +144,7 @@ const SECTIONS: Section[] = [
     color: "#C464D9",
     points: [
       <>Your accounts work like raising accounts — <b>add → contact → visit → deal</b> — but each carries a single <b>Type</b>: <b>Courses / Events / Student activities</b> (no products, no industries).</>,
-      <><b>Podio is your live database</b>: every B2C account must be refreshed on Podio <b>every N days</b> (default 7 — adjustable per account). The account page shows the <b>countdown</b>; when the date arrives, you AND the B2C VP/Director get a bell + email. After refreshing, hit <b>&quot;Updated on Podio&quot;</b> — the countdown restarts.</>,
+      <><b>Podio is your live database</b>: every B2C account must be refreshed on Podio <b>every N days</b> (default 10 — adjustable per account). The account page shows the <b>countdown</b>; when the date arrives, you AND the B2C VP/Director get a bell + email. After refreshing, hit <b>&quot;Updated on Podio&quot;</b> — the countdown restarts.</>,
       <><b>Deals carry no details</b> — no opens, no amounts. Fill the official <b>contract form</b> (linked right in the popup), then hit <b>Deal signed</b>. Your MOS is the number of deals.</>,
       <>Your dashboard is <b>your own B2C lane</b>: MR · Contacted · Visits · Visits done · Deals, with the leaderboard ranked by <b>Deals</b>.</>,
       <>No proposal emails for B2C — your flow is the visit, Podio and the contract form.</>,

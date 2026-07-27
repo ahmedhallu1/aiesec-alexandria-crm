@@ -190,7 +190,7 @@ mutation through a `can*` predicate, **server-side**.
   B2C accounts carry ONE **Type** — `B2C_TYPES` = Courses / Events / Student
   activities — stored in `account_type` (no industry, no product/project).
   **Podio continuous updates**: every B2C account must be refreshed on Podio
-  every `podio_update_every_days` days (default `B2C_DEFAULT_UPDATE_DAYS` = 7,
+  every `podio_update_every_days` days (default `B2C_DEFAULT_UPDATE_DAYS` = 10,
   editable 1–90 on the account's "Podio — continuous update" card, which shows
   the countdown); `markPodioUpdated` stamps `podio_updated_at` and clears
   `podio_update_notified_at`. The daily **podio-updates cron** (05:00 UTC,
@@ -579,7 +579,7 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 - **2026-07-27 · v23** — **THE B2C MODULE.** B2C is a full account function:
   accounts like raising but with a single **Type** (Courses / Events / Student
   activities) instead of product/account-type/industry; **Podio continuous
-  updates** (per-account cadence, default 7 days, countdown card, daily cron
+  updates** (per-account cadence, default 10 days, countdown card, daily cron
   → bell + email to the MM + B2C VP/Director once per cycle, "Updated on
   Podio" resets); **detail-free deals** behind the contract Google Form link;
   **no proposal emails**; an isolated **deals-centric B2C dashboard lane**
