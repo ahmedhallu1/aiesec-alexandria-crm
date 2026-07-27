@@ -84,8 +84,9 @@ export const B2C_TYPES = ["Courses", "Events", "Student activities"] as const;
 export const B2C_CONTRACT_FORM_URL =
   "https://docs.google.com/forms/d/e/1FAIpQLSd4hhlgs53U2dHxQDaQXJv_sr3lxJd-FXzxrrQColD2uXVp4A/viewform";
 
-/** Default Podio-update cadence for B2C accounts (days) — editable per account. */
-export const B2C_DEFAULT_UPDATE_DAYS = 7;
+/** Default Podio-update cadence for B2C accounts (days) — editable per
+ *  account. 10 days per the B2C Director's process. */
+export const B2C_DEFAULT_UPDATE_DAYS = 10;
 
 export const IGV_PROJECTS = [
   "Skill Up!",
