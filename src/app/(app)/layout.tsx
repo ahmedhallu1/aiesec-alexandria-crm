@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getViewer, listViewAsTargets, needsMmPlan, needsTlPlan } from "@/server/data";
 import {
-  hasRaisingAccess, hasTmAccess, canManageMembership, canSeePlanning,
+  hasRaisingAccess, hasTmAccess, hasOgxAccess, canManageMembership, canSeePlanning,
 } from "@/lib/rbac";
 import { signOut } from "@/lib/auth";
 import { AppShell } from "@/components/crm/app-shell";
@@ -29,13 +29,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const raising = hasRaisingAccess(viewer);
   const tm = hasTmAccess(viewer);
+  // the OGX workspace (v25): OGT/OGV crews live in /signups
+  const ogx = hasOgxAccess(viewer);
   const membership = canManageMembership(viewer);
   const planning = canSeePlanning(viewer);
-  // OGT VPs/Directors (+ LCP/admin): the Expectation-Setting mail composer
+  // OGT & OGV VPs/Directors (+ LCP/admin): the Expectation-Setting mail composer
   const ogtMail =
     viewer.isAdmin ||
     viewer.role === "LCP" ||
-    ((viewer.role === "LCVP" || viewer.role === "Director") && viewer.functions.includes("OGT"));
+    ((viewer.role === "LCVP" || viewer.role === "Director") &&
+      ["OGT", "OGV"].some(
+        (f) => viewer.functions.includes(f) || viewer.sub_functions.includes(f)
+      ));
   // routes a non-raising member still gets: their TM module, the membership
   // editor for EB members of other functions (e.g. an OGX LCVP), and the
   // planning board for OGX VPs/Directors
@@ -43,6 +48,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     ...(tm ? ["/members"] : []),
     ...(membership ? ["/membership"] : []),
     ...(planning ? ["/planning"] : []),
+    ...(ogx ? ["/signups"] : []),
     ...(ogtMail ? ["/ogt-mail"] : []),
   ];
 
@@ -62,6 +68,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         membership,
         planning,
         ogtMail,
+        signups: ogx,
       }}
       signOutAction={async () => {
         "use server";
@@ -88,7 +95,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         email={viewer.email ?? viewer.id}
         role={viewer.isAdmin && viewer.role !== "LCP" ? "LCP" : viewer.role}
         functions={viewer.functions}
-        hasModule={raising || tm}
+        hasModule={raising || tm || ogx}
       />
       {viewer.impersonated ? (
         <ViewAsBanner

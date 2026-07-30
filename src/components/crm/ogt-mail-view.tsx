@@ -1,9 +1,14 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Mail, Plus, X } from "lucide-react";
+import { useRef, useState, useTransition } from "react";
+import { ArrowLeft, Eye, Mail, Plus, Send, X } from "lucide-react";
 import { toast } from "sonner";
-import { createOgtExpectationDraft, type OgtMailInput } from "@/server/actions";
+import {
+  createOgtExpectationDraft,
+  previewOgtExpectationMail,
+  sendOgtExpectationMail,
+  type OgtMailInput,
+} from "@/server/actions";
 import { EMAIL_RE } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,6 +21,11 @@ import {
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 type Day = (typeof DAYS)[number];
+
+type Program = "OGT" | "OGV";
+
+/** the fixed CC on every expectation mail — shown read-only so the VP knows */
+const FIXED_CC = "customer.support@aiesec.net.eg";
 
 interface DayRow {
   days: Day[];
@@ -50,14 +60,27 @@ function YesNoField({
   );
 }
 
-/** OGT "Home Entity Expectation Setting Mail" builder: fill the standardized
- *  fields → a ready-to-review DRAFT lands in YOUR Gmail (like the proposal
- *  emails) — review it there, tweak anything, and hit send yourself. */
-export function OgtMailView({ hasGoogle }: { hasGoogle: boolean }) {
+/** "Home Entity Expectation Setting Mail" builder for OGT & OGV: fill the
+ *  standardized fields → review the EXACT email in-app (subject + body are
+ *  editable) → send it from YOUR own Gmail, or save it as a draft instead.
+ *  `programs` decides the variant: one entry locks it, two show a toggle. */
+export function OgtMailView({
+  hasGoogle,
+  programs,
+}: {
+  hasGoogle: boolean;
+  programs: Program[];
+}) {
   const [pending, startTransition] = useTransition();
 
+  // program variant (OGT = Salary line · OGV = TN Fee line)
+  const [variant, setVariant] = useState<Program>(programs[0] ?? "OGT");
+
+  // recipients
+  const [toEp, setToEp] = useState("");
+  const [toIr, setToIr] = useState("");
+
   // hosting entity & EP
-  const [to, setTo] = useState("");
   const [hostingEntity, setHostingEntity] = useState("");
   const [epName, setEpName] = useState("");
   const [hostLcName, setHostLcName] = useState("");
@@ -72,6 +95,7 @@ export function OgtMailView({ hasGoogle }: { hasGoogle: boolean }) {
   const [dayRows, setDayRows] = useState<DayRow[]>([newDayRow()]);
   const [daysNote, setDaysNote] = useState("");
   const [salary, setSalary] = useState("");
+  const [tnFee, setTnFee] = useState("");
 
   // logistics
   const [computer, setComputer] = useState<YesNo>("yes");
@@ -82,6 +106,13 @@ export function OgtMailView({ hasGoogle }: { hasGoogle: boolean }) {
   const [accommodationType, setAccommodationType] = useState<AccommodationType>("Hostel");
   const [accommodationDetail, setAccommodationDetail] = useState("");
   const [meals, setMeals] = useState("");
+
+  // review step: the built email — subject stays editable state, the body is
+  // an in-place contentEditable div read back at send time
+  const [review, setReview] = useState<{ subject: string; html: string } | null>(null);
+  const [subject, setSubject] = useState("");
+  const [reviewEpoch, setReviewEpoch] = useState(0);
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   const digitsOnly = (v: string) => v.replace(/\D+/g, "");
 
@@ -115,8 +146,8 @@ export function OgtMailView({ hasGoogle }: { hasGoogle: boolean }) {
     accommodationType === "Hostel" || accommodationType === "Private Apartment";
 
   const firstProblem = (): string | null => {
-    if (to.trim() && !EMAIL_RE.test(to.trim()))
-      return "That hosting-entity email doesn't look valid (or leave it empty).";
+    if (!EMAIL_RE.test(toEp.trim())) return "The EP email doesn't look valid.";
+    if (!EMAIL_RE.test(toIr.trim())) return "The IR email doesn't look valid.";
     if (!hostingEntity.trim()) return "Which hosting entity? (\"Dear AIESEC in ___\")";
     if (!epName.trim()) return "The EP name is required.";
     if (!hostLcName.trim()) return "The host LC name is required.";
@@ -131,6 +162,8 @@ export function OgtMailView({ hasGoogle }: { hasGoogle: boolean }) {
       return "Every working-days row needs at least one day picked.";
     if (dayRows.some((r) => !r.from || !r.to))
       return "Every working-days row needs both times.";
+    if (variant === "OGV" && !tnFee.trim())
+      return "TN Fee and what it covers is required for the OGV mail.";
     if (needsTransportDetail && !transportationDetail.trim())
       return "Transportation isn't provided — describe the daily cost, duration & method.";
     if (needsAccommodationDetail && !accommodationDetail.trim())
@@ -139,14 +172,16 @@ export function OgtMailView({ hasGoogle }: { hasGoogle: boolean }) {
     return null;
   };
 
-  const submit = () => {
+  const buildPreview = () => {
     const problem = firstProblem();
     if (problem) {
       toast.error(problem);
       return;
     }
     const input: OgtMailInput = {
-      to: to.trim() || null,
+      variant,
+      toEp: toEp.trim(),
+      toIr: toIr.trim(),
       hostingEntity: hostingEntity.trim(),
       epName: epName.trim(),
       hostLcName: hostLcName.trim(),
@@ -162,7 +197,8 @@ export function OgtMailView({ hasGoogle }: { hasGoogle: boolean }) {
         to: r.to,
       })),
       workingDaysNote: daysNote.trim() || null,
-      salary: salary.trim() || null,
+      salary: variant === "OGT" ? salary.trim() || null : null,
+      tnFee: variant === "OGV" ? tnFee.trim() : null,
       computerProvided: computer === "yes",
       accommodationProvided: accommodation === "yes",
       accommodationCovered: accommodationCovered === "yes",
@@ -173,17 +209,137 @@ export function OgtMailView({ hasGoogle }: { hasGoogle: boolean }) {
       mealsProvided: meals.trim(),
     };
     startTransition(async () => {
-      const res = await createOgtExpectationDraft(input);
+      const res = await previewOgtExpectationMail(input);
+      if (res.ok && res.data) {
+        setReview(res.data);
+        setSubject(res.data.subject);
+        setReviewEpoch((e) => e + 1);
+      } else if (!res.ok) {
+        toast.error(res.error);
+      }
+    });
+  };
+
+  /** the body as it stands NOW — including any inline edits the VP made */
+  const currentHtml = () => bodyRef.current?.innerHTML ?? review?.html ?? "";
+
+  const sendNow = () => {
+    const html = currentHtml();
+    if (!subject.trim()) { toast.error("The subject can't be empty."); return; }
+    if (!html.trim()) { toast.error("The email body can't be empty."); return; }
+    startTransition(async () => {
+      const res = await sendOgtExpectationMail({
+        subject: subject.trim(),
+        html,
+        toEp: toEp.trim(),
+        toIr: toIr.trim(),
+      });
       if (res.ok) {
-        toast.success(
-          "Draft created! Open your Gmail Drafts to review it and hit send yourself. 💙"
-        );
+        toast.success("Sent ✈️ — it's in your Gmail Sent folder.");
+        setReview(null);
       } else {
         toast.error(res.error);
       }
     });
   };
 
+  const saveDraft = () => {
+    const html = currentHtml();
+    if (!subject.trim()) { toast.error("The subject can't be empty."); return; }
+    if (!html.trim()) { toast.error("The email body can't be empty."); return; }
+    startTransition(async () => {
+      const res = await createOgtExpectationDraft({
+        subject: subject.trim(),
+        html,
+        toEp: toEp.trim(),
+        toIr: toIr.trim(),
+      });
+      if (res.ok) {
+        toast.success(
+          "Draft created! Open your Gmail Drafts to review it and hit send yourself. 💙"
+        );
+        setReview(null);
+      } else {
+        toast.error(res.error);
+      }
+    });
+  };
+
+  // ---------------------------------------------------------- review step
+  if (review) {
+    return (
+      <div className="mx-auto max-w-3xl space-y-5">
+        <div>
+          <h1 className="text-2xl font-bold">
+            Expectation mail<span className="text-primary">.</span>
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            This is the <b>exact email</b> that goes out — click anywhere in the
+            body (or the subject) to edit it, then send it from your own Gmail
+            or save it as a draft.
+          </p>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Review &amp; send</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            <div className="grid gap-1 rounded-lg border bg-muted/40 p-3 text-sm">
+              <p className="break-words">
+                <span className="font-semibold">To:</span> {toEp.trim()}, {toIr.trim()}
+              </p>
+              <p className="break-words">
+                <span className="font-semibold">Cc:</span> {FIXED_CC}{" "}
+                <span className="text-xs text-muted-foreground">(always included)</span>
+              </p>
+            </div>
+            <div className="grid gap-2">
+              <Label>Subject</Label>
+              <Input value={subject} onChange={(e) => setSubject(e.target.value)} />
+            </div>
+            <div className="grid gap-2">
+              <Label>Email body — click in to edit any text</Label>
+              <div
+                key={reviewEpoch}
+                ref={bodyRef}
+                contentEditable
+                suppressContentEditableWarning
+                dir="auto"
+                role="textbox"
+                aria-multiline="true"
+                aria-label="Email body"
+                className="max-h-[60vh] overflow-y-auto rounded-lg border bg-white p-4 text-sm leading-relaxed text-neutral-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                dangerouslySetInnerHTML={{ __html: review.html }}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            variant="ghost"
+            onClick={() => setReview(null)}
+            disabled={pending}
+          >
+            <ArrowLeft className="size-4" /> Back to the form
+          </Button>
+          <div className="ml-auto flex flex-wrap items-center gap-3">
+            <Button variant="outline" onClick={saveDraft} disabled={pending}>
+              <Mail className="size-4" />
+              {pending ? "Working…" : "Save as draft instead"}
+            </Button>
+            <Button onClick={sendNow} disabled={pending}>
+              <Send className="size-4" />
+              {pending ? "Sending…" : "Send now"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ------------------------------------------------------------- form step
   return (
     <div className="mx-auto max-w-3xl space-y-5">
       <div>
@@ -191,17 +347,69 @@ export function OgtMailView({ hasGoogle }: { hasGoogle: boolean }) {
           Expectation mail<span className="text-primary">.</span>
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          The Home Entity <b>Expectation Setting Mail</b> — fill it once, and a
-          ready-to-review <b>draft</b> lands in <b>your own Gmail</b>. Review,
-          adjust anything, and send it yourself before approving the EP.
+          The Home Entity <b>Expectation Setting Mail</b> — fill it once,
+          <b> review the exact email</b> (edit anything you like), then send it
+          from <b>your own Gmail</b> or save it as a draft.
         </p>
         {!hasGoogle ? (
           <p className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
             Your Google access is missing — sign out, then sign in with Google
-            once so Sodio can place drafts in your Gmail.
+            once so Sodio can send (or draft) from your Gmail.
           </p>
         ) : null}
       </div>
+
+      {programs.length > 1 ? (
+        <div className="flex w-fit items-center gap-1 rounded-lg border p-1">
+          {programs.map((p) => (
+            <button
+              key={p}
+              type="button"
+              aria-pressed={variant === p}
+              onClick={() => setVariant(p)}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                variant === p
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {p === "OGT" ? "OGT — Global Talent" : "OGV — Global Volunteer"}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Recipients</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-2">
+              <Label>EP email</Label>
+              <Input
+                type="email"
+                value={toEp}
+                onChange={(e) => setToEp(e.target.value)}
+                placeholder="The exchange participant"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>IR email</Label>
+              <Input
+                type="email"
+                value={toIr}
+                onChange={(e) => setToIr(e.target.value)}
+                placeholder="The hosting entity's IR responsible"
+              />
+            </div>
+          </div>
+          <div className="grid gap-2">
+            <Label>CC — always included</Label>
+            <Input value={FIXED_CC} readOnly className="text-muted-foreground" />
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -209,15 +417,6 @@ export function OgtMailView({ hasGoogle }: { hasGoogle: boolean }) {
         </CardHeader>
         <CardContent className="grid gap-4">
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="grid gap-2">
-              <Label>Hosting entity email (optional)</Label>
-              <Input
-                type="email"
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-                placeholder="Set as the draft's To — or add it in Gmail"
-              />
-            </div>
             <div className="grid gap-2">
               <Label>Hosting entity — &ldquo;Dear AIESEC in ___&rdquo;</Label>
               <Input
@@ -227,12 +426,12 @@ export function OgtMailView({ hasGoogle }: { hasGoogle: boolean }) {
               />
             </div>
             <div className="grid gap-2">
-              <Label>EP name</Label>
-              <Input value={epName} onChange={(e) => setEpName(e.target.value)} />
-            </div>
-            <div className="grid gap-2">
               <Label>Host LC — &ldquo;an opportunity with AIESEC in ___&rdquo;</Label>
               <Input value={hostLcName} onChange={(e) => setHostLcName(e.target.value)} />
+            </div>
+            <div className="grid gap-2">
+              <Label>EP name</Label>
+              <Input value={epName} onChange={(e) => setEpName(e.target.value)} />
             </div>
             <div className="grid gap-2">
               <Label>EP ID</Label>
@@ -288,15 +487,28 @@ export function OgtMailView({ hasGoogle }: { hasGoogle: boolean }) {
                 placeholder="e.g. 6 hours/day"
               />
             </div>
+            {variant === "OGT" ? (
+              <div className="grid gap-2">
+                <Label>Salary (if any)</Label>
+                <Input
+                  value={salary}
+                  onChange={(e) => setSalary(e.target.value)}
+                  placeholder="Left empty → N/A"
+                />
+              </div>
+            ) : null}
+          </div>
+          {variant === "OGV" ? (
             <div className="grid gap-2">
-              <Label>Salary (if any)</Label>
-              <Input
-                value={salary}
-                onChange={(e) => setSalary(e.target.value)}
-                placeholder="Left empty → N/A"
+              <Label>TN Fee and what it covers</Label>
+              <Textarea
+                rows={2}
+                value={tnFee}
+                onChange={(e) => setTnFee(e.target.value)}
+                placeholder="e.g. 250 USD — covers accommodation & one meal/day"
               />
             </div>
-          </div>
+          ) : null}
 
           <div className="grid gap-2">
             <Label>Working days</Label>
@@ -456,12 +668,12 @@ export function OgtMailView({ hasGoogle }: { hasGoogle: boolean }) {
       </Card>
 
       <div className="flex items-center gap-3">
-        <Button onClick={submit} disabled={pending}>
-          <Mail className="size-4" />
-          {pending ? "Creating the draft…" : "Create the Gmail draft"}
+        <Button onClick={buildPreview} disabled={pending}>
+          <Eye className="size-4" />
+          {pending ? "Building the preview…" : "Preview the email"}
         </Button>
         <p className="text-xs text-muted-foreground">
-          Nothing is sent automatically — you review &amp; send from Gmail.
+          Nothing goes out yet — you review &amp; edit the exact email first.
         </p>
       </div>
     </div>

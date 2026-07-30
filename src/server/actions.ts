@@ -3363,9 +3363,27 @@ export async function runPlanningImport(): Promise<ActionResult<{ cells: number;
   }
 }
 
-// ================================================================== OGT expectation mail
+// ================================================================== OGT/OGV expectation mail
 
 const OGT_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+
+/** the fixed CC on every expectation mail — the MC's customer-support inbox */
+const OGT_MAIL_CC = "customer.support@aiesec.net.eg";
+
+/** OGT & OGV VPs/Directors + LCP/admin own the Expectation-mail composer. */
+const canUseExpectationMail = (v: {
+  isAdmin: boolean;
+  role: MemberRole;
+  functions: string[];
+  sub_functions?: string[];
+}): boolean =>
+  v.isAdmin ||
+  v.role === "LCP" ||
+  ((v.role === "LCVP" || v.role === "Director") &&
+    // sub_functions count too — same recognition rule as the OGX module
+    ["OGT", "OGV"].some(
+      (f) => v.functions.includes(f) || (v.sub_functions ?? []).includes(f)
+    ));
 
 const ogtWorkingDayRow = z.object({
   days: z.array(z.enum(OGT_DAYS)).min(1, "Pick at least one day in every working-days row."),
@@ -3374,12 +3392,10 @@ const ogtWorkingDayRow = z.object({
 });
 
 const ogtMailSchema = z.object({
-  /** optional — when given it becomes the draft's To */
-  to: z
-    .string()
-    .trim()
-    .refine((v) => v === "" || EMAIL_RE.test(v), "That hosting-entity email doesn't look valid.")
-    .nullish(),
+  /** OGT → Salary line, no TN Fee · OGV → TN Fee line, no Salary */
+  variant: z.enum(["OGT", "OGV"]),
+  toEp: z.string().trim().refine((v) => EMAIL_RE.test(v), "The EP email doesn't look valid."),
+  toIr: z.string().trim().refine((v) => EMAIL_RE.test(v), "The IR email doesn't look valid."),
   hostingEntity: z.string().trim().min(1, "The hosting entity name is required."),
   epName: z.string().trim().min(1, "The EP name is required."),
   hostLcName: z.string().trim().min(1, "The host LC name is required."),
@@ -3391,7 +3407,10 @@ const ogtMailSchema = z.object({
   workingHours: z.string().trim().min(1, "The working hours are required."),
   workingDays: z.array(ogtWorkingDayRow).min(1, "Add at least one working-days interval."),
   workingDaysNote: z.string().trim().nullish(),
+  /** OGT only — empty renders as N/A */
   salary: z.string().trim().nullish(),
+  /** OGV only — required for that variant (checked after parse) */
+  tnFee: z.string().trim().nullish(),
   computerProvided: z.boolean(),
   accommodationProvided: z.boolean(),
   accommodationCovered: z.boolean(),
@@ -3404,6 +3423,16 @@ const ogtMailSchema = z.object({
 
 export type OgtMailInput = z.infer<typeof ogtMailSchema>;
 
+/** the reviewed & possibly edited email — what send/draft actually ship */
+const ogtReviewedSchema = z.object({
+  subject: z.string().trim().min(1, "The subject can't be empty."),
+  html: z.string().trim().min(1, "The email body can't be empty."),
+  toEp: z.string().trim().refine((v) => EMAIL_RE.test(v), "The EP email doesn't look valid."),
+  toIr: z.string().trim().refine((v) => EMAIL_RE.test(v), "The IR email doesn't look valid."),
+});
+
+export type OgtReviewedMail = z.infer<typeof ogtReviewedSchema>;
+
 /** "Aug 5, 2026" — how slot dates read inside the expectation email. */
 function ogtDateLabel(iso: string): string {
   return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", {
@@ -3414,24 +3443,23 @@ function ogtDateLabel(iso: string): string {
   });
 }
 
-/** OGT "Home Entity Expectation Setting Mail": builds the standardized
- *  pre-approval email to a hosting entity and places it as a ready-to-review
- *  DRAFT in the VP's OWN Gmail (gmail.compose from their Google sign-in) —
- *  exactly like the ICX proposal flow. The VP reviews and sends it
- *  themselves, from their address. OGT leadership (+ LCP/admin) only. */
-export async function createOgtExpectationDraft(input: OgtMailInput): Promise<ActionResult> {
+/** "Home Entity Expectation Setting Mail" step 1: validates the form and
+ *  builds the exact email (subject + HTML, incl. the VP's signature) WITHOUT
+ *  touching Gmail — the view renders it as an editable review step, then the
+ *  VP sends it or saves it as a draft. OGT/OGV leadership (+ LCP/admin). */
+export async function previewOgtExpectationMail(
+  input: OgtMailInput
+): Promise<ActionResult<{ subject: string; html: string }>> {
   const viewer = await getViewer();
-  const allowed =
-    viewer.isAdmin ||
-    viewer.role === "LCP" ||
-    ((viewer.role === "LCVP" || viewer.role === "Director") && viewer.functions.includes("OGT"));
-  if (!allowed) return fail("OGT leadership only.", "forbidden");
+  if (!canUseExpectationMail(viewer)) return fail("OGT/OGV leadership only.", "forbidden");
 
   const parsed = ogtMailSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0].message);
   const d = parsed.data;
 
   if (d.slotEnd < d.slotStart) return fail("The slot end date can't be before its start date.");
+  if (d.variant === "OGV" && !d.tnFee?.trim())
+    return fail("TN Fee and what it covers is required for the OGV mail.");
   if (!d.transportationProvided && !d.transportationDetail?.trim())
     return fail("Transportation isn't provided — describe the daily cost, duration & method.");
   if (
@@ -3439,11 +3467,6 @@ export async function createOgtExpectationDraft(input: OgtMailInput): Promise<Ac
     !d.accommodationTypeDetail?.trim()
   )
     return fail(`${d.accommodationType} — specify the EPs per room & bathroom situation.`);
-
-  if (!viewer.google_refresh_token)
-    return fail(
-      "Your Google access is missing — sign out, then sign in with Google once to grant it (it also powers your calendar reminders)."
-    );
 
   // canonical Mon→Sun order inside each interval line, whatever the click order
   const dayLines = d.workingDays.map((row) => {
@@ -3455,6 +3478,7 @@ export async function createOgtExpectationDraft(input: OgtMailInput): Promise<Ac
 
   const { ogtExpectationEmail } = await import("@/lib/email/templates");
   const mail = ogtExpectationEmail({
+    variant: d.variant,
     hostingEntity: d.hostingEntity,
     epName: d.epName,
     hostLcName: d.hostLcName,
@@ -3467,6 +3491,7 @@ export async function createOgtExpectationDraft(input: OgtMailInput): Promise<Ac
     workingDayLines: dayLines,
     workingDaysNote: d.workingDaysNote ?? null,
     salary: d.salary ?? null,
+    tnFee: d.tnFee ?? null,
     computerProvided: d.computerProvided,
     accommodationProvided: d.accommodationProvided,
     accommodationCovered: d.accommodationCovered,
@@ -3476,16 +3501,91 @@ export async function createOgtExpectationDraft(input: OgtMailInput): Promise<Ac
     accommodationTypeDetail: d.accommodationTypeDetail ?? null,
     mealsProvided: d.mealsProvided,
     senderName: viewer.name,
+    senderPosition:
+      (viewer.role === "LCP"
+        ? "Local Committee President"
+        : viewer.role === "Director"
+          ? "Director"
+          : "Local Committee Vice President") +
+      " — Outgoing Global " +
+      (d.variant === "OGT" ? "Talent" : "Volunteer") +
+      ", AIESEC in Alexandria",
+    senderPhone: viewer.phone,
+    senderEmail: viewer.email,
   });
+
+  return { ok: true, data: mail };
+}
+
+/** Step 2a — SENDS the reviewed expectation mail from the VP's OWN Gmail
+ *  (their gmail.compose grant covers sending): To = EP + IR, Cc fixed to the
+ *  MC's customer-support inbox. The VP owns the content — whatever they
+ *  edited in the review step goes out verbatim. */
+export async function sendOgtExpectationMail(input: OgtReviewedMail): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!canUseExpectationMail(viewer)) return fail("OGT/OGV leadership only.", "forbidden");
+
+  const parsed = ogtReviewedSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0].message);
+  const d = parsed.data;
+
+  if (!viewer.google_refresh_token)
+    return fail(
+      "Your Google access is missing — sign out, then sign in with Google once to grant it (it also powers your calendar reminders)."
+    );
+
+  try {
+    const { sendMemberEmail } = await import("@/lib/google/gmail");
+    const messageId = await sendMemberEmail(viewer.google_refresh_token, {
+      to: [d.toEp, d.toIr],
+      cc: [OGT_MAIL_CC],
+      subject: d.subject,
+      html: d.html,
+    });
+    if (!messageId) return fail("Google didn't accept the email — try again.");
+    // sandbox test view: the send was suppressed — no real audit row either
+    if (messageId === "sandbox") return { ok: true };
+  } catch (e) {
+    console.error("[ogt-mail] send failed:", e);
+    return fail(
+      "Couldn't send the email. Sign out and sign in with Google again to refresh your access, then retry."
+    );
+  }
+
+  await logAudit(viewer.id, "ogt_mail_sent", "system", null, {
+    toEp: d.toEp,
+    toIr: d.toIr,
+    subject: d.subject,
+  });
+  return { ok: true };
+}
+
+/** Step 2b — saves the reviewed expectation mail as a DRAFT in the VP's OWN
+ *  Gmail instead of sending it (same recipients + fixed Cc, so the draft
+ *  matches exactly what the review step showed). */
+export async function createOgtExpectationDraft(input: OgtReviewedMail): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!canUseExpectationMail(viewer)) return fail("OGT/OGV leadership only.", "forbidden");
+
+  const parsed = ogtReviewedSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0].message);
+  const d = parsed.data;
+
+  if (!viewer.google_refresh_token)
+    return fail(
+      "Your Google access is missing — sign out, then sign in with Google once to grant it (it also powers your calendar reminders)."
+    );
 
   try {
     const { createMemberDraft } = await import("@/lib/google/gmail");
     const draftId = await createMemberDraft(viewer.google_refresh_token, {
-      to: d.to?.trim() || "", // a draft may start with no recipient — the VP fills it in Gmail
-      subject: mail.subject,
-      html: mail.html,
+      to: `${d.toEp}, ${d.toIr}`,
+      cc: [OGT_MAIL_CC],
+      subject: d.subject,
+      html: d.html,
     });
     if (!draftId) return fail("Google didn't accept the draft — try again.");
+    if (draftId === "sandbox") return { ok: true };
   } catch (e) {
     console.error("[ogt-mail] draft failed:", e);
     return fail(
@@ -3494,10 +3594,331 @@ export async function createOgtExpectationDraft(input: OgtMailInput): Promise<Ac
   }
 
   await logAudit(viewer.id, "ogt_mail_draft", "system", null, {
-    epId: d.epId,
-    oppId: d.oppId,
-    epName: d.epName,
-    hostingEntity: d.hostingEntity,
+    toEp: d.toEp,
+    toIr: d.toIr,
+    subject: d.subject,
   });
   return { ok: true };
+}
+
+// ================================================================== OGX sign-ups (v25)
+
+import {
+  canEditSignupVpFields,
+  canViewSignup,
+  canWorkSignup,
+  ogxFunctions,
+} from "@/lib/rbac";
+import { SIGNUP_STATUSES, type SignupComment, type SignupRow } from "@/lib/types";
+
+async function loadSignup(id: string): Promise<SignupRow | null> {
+  const { data } = await db().from("signups").select("*").eq("id", id).maybeSingle<SignupRow>();
+  return data ?? null;
+}
+
+/** After every sign-up mutation: reload row + comments and push the workflow
+ *  cells back to the tracker sheet ("as fast as possible" two-way sync). */
+async function pushSignupToSheet(id: string): Promise<void> {
+  const signup = await loadSignup(id);
+  if (!signup) return;
+  const [{ data: comments }, assigned] = await Promise.all([
+    db().from("signup_comments").select("*").eq("signup_id", id).order("created_at"),
+    signup.assigned_to
+      ? db()
+          .from("members")
+          .select("name, nickname")
+          .eq("id", signup.assigned_to)
+          .maybeSingle<{ name: string; nickname: string | null }>()
+      : Promise.resolve({ data: null }),
+  ]);
+  const { writeSignupBack } = await import("@/lib/google/signups");
+  await writeSignupBack(
+    signup,
+    (comments ?? []) as SignupComment[],
+    assigned.data ? assigned.data.nickname || assigned.data.name : signup.assigned_name
+  ).catch((e) => console.error("[signups] write-back failed:", e));
+}
+
+const touchSignup = (extra: Record<string, unknown> = {}) => ({
+  sodio_touched: true,
+  last_edited_at: new Date().toISOString(),
+  ...extra,
+});
+
+/** "This one's mine": a member claims an UNASSIGNED sign-up of their
+ *  function — the core motion of the main (unassigned) view. */
+export async function claimSignup(id: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const signup = await loadSignup(id);
+  if (!signup || !ogxFunctions(viewer).includes(signup.fn))
+    return fail("This sign-up is outside your function.", "forbidden");
+  if (signup.out_of_process) return fail("This sign-up is archived (Out of Process).");
+  if (signup.assigned_to)
+    return fail("Someone already took this one — refresh the list.");
+  // the sheet may carry a name Sodio couldn't match to a member — that's
+  // still an assignment; only a TL/VP reassign can override it
+  if (signup.assigned_name)
+    return fail(
+      `The sheet already assigns this one to "${signup.assigned_name}" — ask your TL/VP to reassign it.`
+    );
+  await snapshotForUndo("signups", id);
+  const { data: claimed, error } = await db()
+    .from("signups")
+    .update(
+      touchSignup({
+        assigned_to: viewer.id,
+        assigned_name: viewer.nickname || viewer.name,
+        assigned_at: new Date().toISOString(),
+      })
+    )
+    .eq("id", id)
+    .is("assigned_to", null) // double-claim race guard
+    .select("id");
+  if (error) return fail(error.message);
+  if (!claimed?.length)
+    return fail("Someone already took this one — refresh the list.");
+  await logAudit(viewer.id, "signup_claim", "signup", id, { ep_id: signup.ep_id });
+  await pushSignupToSheet(id);
+  refresh();
+  return { ok: true };
+}
+
+/** TL/VP re-assignment (or un-assignment with null). */
+export async function reassignSignup(
+  id: string,
+  memberId: string | null
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const signup = await loadSignup(id);
+  if (!signup) return fail("Sign-up not found.");
+  if (signup.out_of_process)
+    return fail("This sign-up is archived (Out of Process) — revive it first.");
+  const isVp = canEditSignupVpFields(viewer, signup);
+  const isLeader =
+    isVp || (viewer.role === "Team Leader" && ogxFunctions(viewer).includes(signup.fn));
+  if (!isLeader) return fail("Only Team Leaders and up re-assign sign-ups.", "forbidden");
+  // a TL only touches the pool + their own team's rows — never another team's
+  if (
+    !isVp &&
+    signup.assigned_to &&
+    signup.assigned_to !== viewer.id &&
+    !viewer.teamMemberIds.includes(signup.assigned_to)
+  )
+    return fail("Team Leaders re-assign only their own team's sign-ups.", "forbidden");
+  let target: { id: string; name: string; nickname: string | null } | null = null;
+  if (memberId) {
+    const { data } = await db()
+      .from("members")
+      .select("id, name, nickname, is_active, role, functions, sub_functions")
+      .eq("id", memberId)
+      .maybeSingle<{
+        id: string; name: string; nickname: string | null; is_active: boolean;
+        role: string; functions: string[] | null; sub_functions: string[] | null;
+      }>();
+    if (!data || !data.is_active) return fail("Pick an active member.");
+    // the target must actually WORK this function (and never the LCP)
+    if (
+      data.role === "LCP" ||
+      ![...(data.functions ?? []), ...(data.sub_functions ?? [])].includes(signup.fn)
+    )
+      return fail("Pick a member of the sign-up's function.", "forbidden");
+    if (
+      viewer.role === "Team Leader" &&
+      data.id !== viewer.id &&
+      !viewer.teamMemberIds.includes(data.id)
+    )
+      return fail("Team Leaders assign within their own team.", "forbidden");
+    target = data;
+  }
+  await snapshotForUndo("signups", id);
+  const { error } = await db()
+    .from("signups")
+    .update(
+      touchSignup({
+        assigned_to: target?.id ?? null,
+        assigned_name: target ? target.nickname || target.name : null,
+        assigned_at: target ? new Date().toISOString() : null,
+      })
+    )
+    .eq("id", id);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "signup_reassign", "signup", id, {
+    to: target?.id ?? null,
+  });
+  await pushSignupToSheet(id);
+  refresh();
+  return { ok: true };
+}
+
+/** Member/MM workflow edits: Contacted (Yes/No) + Interested (Yes/No). */
+export async function updateSignupContact(
+  id: string,
+  input: { contactStatus?: string | null; interested?: string | null }
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const signup = await loadSignup(id);
+  if (!signup || !canWorkSignup(viewer, signup))
+    return fail("You are not allowed to work this sign-up.", "forbidden");
+  if (signup.out_of_process) return fail("This sign-up is archived (Out of Process).");
+  const clean = (v: string | null | undefined) => {
+    const t = (v ?? "").trim();
+    if (!t) return null;
+    return /^y/i.test(t) ? "Yes" : /^n/i.test(t) ? "No" : t;
+  };
+  const contact = clean(input.contactStatus);
+  await snapshotForUndo("signups", id);
+  const { error } = await db()
+    .from("signups")
+    .update(
+      touchSignup({
+        ...(input.contactStatus !== undefined
+          ? {
+              contact_status: contact,
+              // first Yes stamps the contacted date (mirrored to the sheet)
+              ...(contact === "Yes" && !signup.contacted_at
+                ? { contacted_at: new Date().toISOString() }
+                : {}),
+            }
+          : {}),
+        ...(input.interested !== undefined ? { interested: clean(input.interested) } : {}),
+      })
+    )
+    .eq("id", id);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "signup_contact", "signup", id, input);
+  await pushSignupToSheet(id);
+  refresh();
+  return { ok: true };
+}
+
+/** Comment log: members/MMs land in the Comment cell, VPs (VP/Director/LCP/
+ *  admin) in the VP Comment cell — each cell holds the organized log. */
+export async function addSignupComment(id: string, body: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const signup = await loadSignup(id);
+  if (!signup) return fail("Sign-up not found.");
+  if (signup.out_of_process)
+    return fail("This sign-up is archived (Out of Process) — revive it first.");
+  const isVpClass = canEditSignupVpFields(viewer, signup);
+  if (!isVpClass && !canWorkSignup(viewer, signup))
+    return fail("You are not allowed to comment on this sign-up.", "forbidden");
+  const clean = (body ?? "").trim();
+  if (!clean) return fail("Write the comment first.");
+  const { data: inserted, error } = await db()
+    .from("signup_comments")
+    .insert({
+      signup_id: id,
+      author_id: viewer.id,
+      author_name: viewer.nickname || viewer.name,
+      author_class: isVpClass ? "vp" : "member",
+      body: clean,
+    })
+    .select("id")
+    .maybeSingle<{ id: string }>();
+  if (error) return fail(error.message);
+  if (inserted) await recordUndo("signup_comments", inserted.id, "insert");
+  await db().from("signups").update(touchSignup()).eq("id", id);
+  await logAudit(viewer.id, "signup_comment", "signup", id);
+  await pushSignupToSheet(id);
+  refresh();
+  return { ok: true };
+}
+
+/** VP-only fields: Country (autocomplete text), Sub Product (OGT), Status. */
+export async function updateSignupVpFields(
+  id: string,
+  input: { country?: string | null; subProduct?: string | null; status?: string | null }
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const signup = await loadSignup(id);
+  if (!signup || !canEditSignupVpFields(viewer, signup))
+    return fail("Only the function's VP/Director edits these fields.", "forbidden");
+  if (
+    input.status !== undefined &&
+    input.status !== null &&
+    input.status !== "" &&
+    !(SIGNUP_STATUSES as readonly string[]).includes(input.status)
+  )
+    return fail("Pick a valid status.");
+  await snapshotForUndo("signups", id);
+  const { error } = await db()
+    .from("signups")
+    .update(
+      touchSignup({
+        ...(input.country !== undefined ? { country: input.country?.trim() || null } : {}),
+        ...(input.subProduct !== undefined
+          ? { sub_product: input.subProduct?.trim() || null }
+          : {}),
+        ...(input.status !== undefined ? { status: input.status || null } : {}),
+      })
+    )
+    .eq("id", id);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "signup_vp_fields", "signup", id, input);
+  await pushSignupToSheet(id);
+  refresh();
+  return { ok: true };
+}
+
+/** VP-only: Out of Process — the sign-up leaves the list (like the accounts
+ *  archive) and the sheet row is stamped. Revive brings it back. */
+export async function setSignupOop(id: string, reason: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const signup = await loadSignup(id);
+  if (!signup || !canEditSignupVpFields(viewer, signup))
+    return fail("Only the function's VP/Director archives sign-ups.", "forbidden");
+  await snapshotForUndo("signups", id);
+  const { error } = await db()
+    .from("signups")
+    .update(touchSignup({ out_of_process: true, oop_reason: reason?.trim() || null }))
+    .eq("id", id);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "signup_oop", "signup", id, { reason });
+  await pushSignupToSheet(id);
+  refresh();
+  return { ok: true };
+}
+
+export async function reviveSignup(id: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const signup = await loadSignup(id);
+  if (!signup || !canEditSignupVpFields(viewer, signup))
+    return fail("Only the function's VP/Director revives sign-ups.", "forbidden");
+  await snapshotForUndo("signups", id);
+  const { error } = await db()
+    .from("signups")
+    .update(touchSignup({ out_of_process: false, oop_reason: null }))
+    .eq("id", id);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "signup_revive", "signup", id);
+  await pushSignupToSheet(id);
+  refresh();
+  return { ok: true };
+}
+
+/** Manual "Sync now" (VP+ / admin) — same import the 15-min cron runs. */
+export async function runSignupsImport(): Promise<ActionResult<{ imported: number; created: number }>> {
+  const viewer = await getViewer();
+  const leader = viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
+  if (!leader || !ogxFunctions(viewer).length)
+    return fail("Only OGX leaders trigger a sync.", "forbidden");
+  try {
+    const { importSignups } = await import("@/lib/google/signups");
+    const res = await importSignups();
+    refresh();
+    return { ok: true, data: res };
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : "Sign-ups import failed.");
+  }
+}
+
+/** Read: the sign-up dialog's full payload (scope-checked). */
+export async function openSignupDetail(
+  id: string
+): Promise<ActionResult<import("./data").SignupDetail>> {
+  const viewer = await getViewer();
+  const { getSignupDetail } = await import("./data");
+  const detail = await getSignupDetail(viewer, id);
+  if (!detail) return fail("Sign-up not found — or outside your scope.", "forbidden");
+  return { ok: true, data: detail };
 }

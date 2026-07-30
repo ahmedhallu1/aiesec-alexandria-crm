@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/table";
 import { Hint } from "./hint";
 import { WhatsAppIcon } from "./icons";
+import { SortHeader, useTableSort, type SortDir } from "./sort-header";
 
 /** v21 — each function has its own MOS, so the KPI set adapts per member:
  *  raising (ICX raising / B2B) → the funnel with OPENS as MOS ·
@@ -42,7 +43,13 @@ function mosMetrics(m: MemberDirectoryEntry): { label: string; value: string }[]
   if (m.mos === "bd")
     return [...funnel, { label: "Opens", value: String(k.slots) },
       { label: "EGP ★", value: k.egp.toLocaleString("en") }];
-  if (m.mos === "consideration" || m.mos === "ogx")
+  if (m.mos === "ogx")
+    // v25: the sign-ups module is live — approvals are REAL now
+    return [
+      { label: "Approvals ★", value: String(k.signupApprovals) },
+      { label: "APD (plan)", value: String(k.planApprovals) },
+    ];
+  if (m.mos === "consideration")
     return [
       { label: "APL (plan)", value: String(k.planApplicants) },
       { label: "ACC (plan)", value: String(k.planAccepted) },
@@ -58,6 +65,24 @@ const MOS_TAG: Record<MemberDirectoryEntry["mos"], string | null> = {
   consideration: "MOS: Approvals",
   ogx: "MOS: Approvals",
   other: null,
+};
+
+// click-to-sort accessors (v24.3): text columns sort asc by default, the
+// MOS column sorts by each member's own star metric (desc by default) —
+// opens / EGP / deals / plan approvals depending on their MOS family
+const DIRECTORY_SORTERS: Record<string, (m: MemberDirectoryEntry) => string | number | null> = {
+  member: (m) => m.nickname || m.name,
+  role: (m) => m.role,
+  functions: (m) => (m.functions.length ? m.functions.join(", ") : null),
+  team: (m) => m.team_name,
+  manager: (m) => m.manager,
+  mos: (m) =>
+    m.mos === "raising" ? m.kpis.slots
+    : m.mos === "bd" ? m.kpis.egp
+    : m.mos === "b2c" ? m.kpis.deals
+    : m.mos === "ogx" ? m.kpis.signupApprovals
+    : m.mos === "consideration" ? m.kpis.planApprovals
+    : null,
 };
 
 /** email / call / WhatsApp shortcuts for one member. */
@@ -147,6 +172,26 @@ export function MembersView({ members }: { members: MemberDirectoryEntry[] }) {
     return true;
   });
 
+  // click a header to sort the filtered list; mobile cards follow the order
+  const { sorted, sortKey, dir, toggle } = useTableSort(filtered, DIRECTORY_SORTERS);
+  const SortHead = ({
+    field, defaultDir = "asc", children, className,
+  }: {
+    field: string;
+    defaultDir?: SortDir;
+    children: React.ReactNode;
+    className?: string;
+  }) => (
+    <TableHead className={className}>
+      <SortHeader
+        label={children}
+        onClick={() => toggle(field, defaultDir)}
+        active={sortKey === field}
+        dir={dir}
+      />
+    </TableHead>
+  );
+
   return (
     <div className="mx-auto max-w-6xl space-y-4">
       <div className="rise-in">
@@ -198,7 +243,7 @@ export function MembersView({ members }: { members: MemberDirectoryEntry[] }) {
 
       {/* phones: cards */}
       <div className="space-y-2 rise-in rise-in-2 md:hidden">
-        {filtered.map((m) => (
+        {sorted.map((m) => (
           <Card key={m.id} className="card-lift">
             <CardContent className="space-y-2 p-3">
               <div className="flex items-start justify-between gap-2">
@@ -253,17 +298,17 @@ export function MembersView({ members }: { members: MemberDirectoryEntry[] }) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Member</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Functions</TableHead>
-                <TableHead>Team</TableHead>
-                <TableHead>Manager</TableHead>
-                <TableHead>MOS / KPIs</TableHead>
+                <SortHead field="member">Member</SortHead>
+                <SortHead field="role">Role</SortHead>
+                <SortHead field="functions">Functions</SortHead>
+                <SortHead field="team">Team</SortHead>
+                <SortHead field="manager">Manager</SortHead>
+                <SortHead field="mos" defaultDir="desc">MOS / KPIs</SortHead>
                 <TableHead>Contact</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((m) => (
+              {sorted.map((m) => (
                 <TableRow key={m.id}>
                   <TableCell>
                     <p className="font-medium">{m.nickname || m.name}</p>

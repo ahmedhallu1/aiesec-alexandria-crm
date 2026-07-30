@@ -366,13 +366,16 @@ function TeamPlanCard({
   isOwnPlan: boolean;
 }) {
   const progress = plan.plannedOpens > 0 ? Math.min(1, plan.actualOpens / plan.plannedOpens) : 0;
+  // a planning Coordinator's card is PERSONAL (own plan vs own numbers) —
+  // a real Team Leader always carries a team label
+  const personal = isOwnPlan && !teamLabel;
   return (
     <Card className="relative overflow-hidden rise-in rise-in-2">
       <CardContent className="pt-4">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-              <Target className="size-3.5" /> {teamLabel ?? "Team"} plan · {plan.monthLabel}
+              <Target className="size-3.5" /> {personal ? "My" : teamLabel ?? "Team"} plan · {plan.monthLabel}
             </p>
             {plan.plannedOpens > 0 ? (
               <p className="mt-1 text-2xl font-bold">
@@ -383,9 +386,11 @@ function TeamPlanCard({
               </p>
             ) : (
               <p className="mt-1 text-sm text-muted-foreground">
-                {isOwnPlan
-                  ? "No plan filed for this month yet — set your team's opens plan from your profile."
-                  : "Your Team Leader hasn't filed this month's plan yet."}
+                {personal
+                  ? "No plan filed for this month yet — set your opens plan from your profile."
+                  : isOwnPlan
+                    ? "No plan filed for this month yet — set your team's opens plan from your profile."
+                    : "Your Team Leader hasn't filed this month's plan yet."}
               </p>
             )}
           </div>

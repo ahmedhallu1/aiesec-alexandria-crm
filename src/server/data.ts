@@ -944,12 +944,20 @@ export async function getDashboard(
       functions: teamLeadRow.functions ?? [],
       sub_functions: teamLeadRow.sub_functions ?? [],
     });
-  if (teamLeadId && teamMemberIds && teamLeadPlans) {
+  // whose plan does this dashboard track? a TL's (their team), or — v25 — a
+  // planning COORDINATOR's own plan vs their own numbers
+  let planOwnerId = teamLeadId && teamMemberIds && teamLeadPlans ? teamLeadId : null;
+  let planScopeIds = planOwnerId ? teamMemberIds! : null;
+  if (!planOwnerId && viewer.role === "Coordinator" && isPlanningTl(viewer)) {
+    planOwnerId = viewer.id;
+    planScopeIds = new Set([viewer.id]);
+  }
+  if (planOwnerId && planScopeIds) {
     const month = monthOf();
     const { data: planRow } = await db()
       .from("tl_plans")
       .select("opens")
-      .eq("member_id", teamLeadId)
+      .eq("member_id", planOwnerId)
       .eq("month", month.planKeys[0])
       .maybeSingle<{ opens: number }>();
     let q = db()
@@ -957,7 +965,7 @@ export async function getDashboard(
       .select(
         "slots_igv, slots_igta, slots_igte, deal:deals!inner(created_at, account:accounts!inner(is_test))"
       )
-      .in("member_id", [...teamMemberIds])
+      .in("member_id", [...planScopeIds])
       .gte("deal.created_at", `${month.start}T00:00:00`)
       .lte("deal.created_at", `${month.end}T23:59:59`);
     if (!viewer.testMode) q = q.eq("deal.account.is_test", false);
@@ -968,7 +976,7 @@ export async function getDashboard(
       0
     );
     teamPlan = {
-      teamLeaderId: teamLeadId,
+      teamLeaderId: planOwnerId,
       monthLabel: month.label,
       plannedOpens: planRow?.opens ?? 0,
       actualOpens,
@@ -981,7 +989,11 @@ export async function getDashboard(
   // consideration funnel is per sprint. Actual opens come from deals created
   // in the window (per-product split — B2B deals feed the lanes too).
   let lanePlan: LanePlan | null = null;
-  if (lane === "IGV" || lane === "IGTa" || lane === "IGTe" || lane === "IGT") {
+  // v25: the VP/Director planning numbers are for leaders' eyes — an MM
+  // tracks THEIR OWN plan (the team card below), not the function's
+  const viewerIsPlanLeader =
+    viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
+  if (viewerIsPlanLeader && (lane === "IGV" || lane === "IGTa" || lane === "IGTe" || lane === "IGT")) {
     const planFns = lane === "IGT" ? ["IGTa", "IGTe"] : [lane];
     const [cells, sprint, month] = [await listPlanCells(planFns), sprintOf(), monthOf()];
     if (cells.length > 0) {
@@ -1178,6 +1190,8 @@ export interface MemberDirectoryEntry {
     planApplicants: number;
     planAccepted: number;
     planApprovals: number;
+    /** OGX only (v25): REAL approvals — sign-ups they own with status Approved */
+    signupApprovals: number;
   };
 }
 
@@ -1188,7 +1202,7 @@ export async function listMembersDirectory(
 ): Promise<MemberDirectoryEntry[]> {
   if (!hasTmAccess(viewer)) return [];
 
-  const [{ data: membersData }, accountsData, { data: bdDeals }, { data: mmPlans }, allocations] =
+  const [{ data: membersData }, accountsData, { data: bdDeals }, { data: mmPlans }, approvedSignups, allocations] =
     await Promise.all([
       db()
         .from("members")
@@ -1212,6 +1226,17 @@ export async function listMembersDirectory(
         .eq("account.function", "BD")
         .eq("account.is_test", false),
       db().from("mm_plans").select("member_id, applicants, accepted, approvals"),
+      // v25: real OGX approvals — Approved sign-ups per assigned member
+      // (fetchAll pages past the 1000-row response cap)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      fetchAll<any>(() =>
+        db()
+          .from("signups")
+          .select("assigned_to, id")
+          .eq("status", "Approved")
+          .eq("out_of_process", false)
+          .order("id")
+      ).catch(() => []),
       // per-member opens = deal allocations (v22 — split deals count correctly)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       fetchAll<any>(() =>
@@ -1229,6 +1254,7 @@ export async function listMembersDirectory(
   const emptyAgg = (): Agg => ({
     mr: 0, contacted: 0, visits: 0, visitsDone: 0, deals: 0, slots: 0,
     egp: 0, planApplicants: 0, planAccepted: 0, planApprovals: 0,
+    signupApprovals: 0,
   });
   const kpisById = new Map<string, Agg>();
   const agg = (id: string) => {
@@ -1266,6 +1292,10 @@ export async function listMembersDirectory(
     k.planApplicants += p.applicants ?? 0;
     k.planAccepted += p.accepted ?? 0;
     k.planApprovals += p.approvals ?? 0;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const s of approvedSignups as any[]) {
+    if (s.assigned_to) agg(s.assigned_to).signupApprovals += 1;
   }
 
   /** MOS classification (v21) — mirrors the function definitions in rbac.ts,
@@ -1676,13 +1706,38 @@ export interface MmPlanRow {
 }
 
 /** MM monthly plans for a set of members (or all when ids omitted). */
-export async function listMmPlans(memberIds?: string[]): Promise<MmPlanRow[]> {
+/** v25: OGX/consideration functions overlap check (B2B↔BD aliased). */
+function memberInFns(
+  m: { functions?: string[] | null; sub_functions?: string[] | null } | null | undefined,
+  fns: string[]
+): boolean {
+  const all = [...(m?.functions ?? []), ...(m?.sub_functions ?? [])];
+  return fns.some(
+    (f) =>
+      all.includes(f) ||
+      (f === "B2B" && all.includes("BD")) ||
+      (f === "BD" && all.includes("B2B")) ||
+      // B2B/BD raise for the whole ICX — their plans belong on the IGV/IGT
+      // VPs' planning board too (mirrors scopeFunctions)
+      ((f === "IGV" || f === "IGT") && ["B2B", "BD"].some((b) => all.includes(b)))
+  );
+}
+
+export async function listMmPlans(
+  memberIds?: string[],
+  /** restrict to MMs of these functions (a VP sees only their own crew) */
+  memberFns?: string[]
+): Promise<MmPlanRow[]> {
   let q = db()
     .from("mm_plans")
-    .select("member_id, month, applicants, accepted, approvals, peak, member:members!member_id(name, nickname, role, team_name)")
+    .select("member_id, month, applicants, accepted, approvals, peak, member:members!member_id(name, nickname, role, team_name, functions, sub_functions)")
     .order("month");
   if (memberIds && memberIds.length > 0) q = q.in("member_id", memberIds);
-  const { data } = await q;
+  const { data: rawData } = await q;
+  const data = memberFns?.length
+    ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ((rawData ?? []) as any[]).filter((r) => memberInFns(r.member, memberFns))
+    : rawData;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ((data ?? []) as any[]).map((r) => ({
     member_id: r.member_id,
@@ -1765,14 +1820,22 @@ export interface TlPlanRow {
 }
 
 /** Every TL's monthly opens plan (for /planning) — optionally scoped to ids. */
-export async function listTlPlans(memberIds?: string[]): Promise<TlPlanRow[]> {
+export async function listTlPlans(
+  memberIds?: string[],
+  /** restrict to MMs of these functions (a VP sees only their own crew) */
+  memberFns?: string[]
+): Promise<TlPlanRow[]> {
   let q = db()
     .from("tl_plans")
-    .select("member_id, month, opens, peak, member:members!member_id(name, nickname, team_name)")
+    .select("member_id, month, opens, peak, member:members!member_id(name, nickname, team_name, functions, sub_functions)")
     .order("month");
   if (memberIds && memberIds.length > 0) q = q.in("member_id", memberIds);
-  const { data, error } = await q;
+  const { data: rawData, error } = await q;
   if (error) return []; // pre-0018 grace
+  const data = memberFns?.length
+    ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ((rawData ?? []) as any[]).filter((r) => memberInFns(r.member, memberFns))
+    : rawData;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ((data ?? []) as any[]).map((r) => ({
     member_id: r.member_id,
@@ -2245,4 +2308,183 @@ export async function listRecentAudit(limit = 60): Promise<AuditEntry[]> {
     details: r.details ? JSON.stringify(r.details) : null,
     createdAt: r.created_at,
   }));
+}
+
+// ================================================================== OGX sign-ups (v25)
+
+import {
+  canEditSignupVpFields as _canEditSignupVpFields,
+  canViewSignup as _canViewSignup,
+  ogxFunctions as _ogxFunctions,
+} from "@/lib/rbac";
+import type { OgxFunction, SignupComment, SignupRow } from "@/lib/types";
+
+export interface SignupFilters {
+  /** unassigned (default main view) · mine · team (TL+) · all (VP+) · archived */
+  view?: string;
+  fn?: string;
+  batch?: string;
+  program?: string;
+  status?: string;
+  interested?: string;
+  contacted?: string;
+  country?: string;
+  q?: string;
+  sort?: string;
+  dir?: "asc" | "desc";
+}
+
+const SIGNUP_SORTABLE = new Set([
+  "signed_up_at", "name", "program", "contact_status", "interested",
+  "status", "country", "created_at", "updated_at", "assigned_at",
+]);
+
+/** Which list views this viewer may open (server-enforced). */
+export function signupViewsFor(v: Viewer): string[] {
+  const leader =
+    v.isAdmin || ["LCP", "LCVP", "Director"].includes(v.role);
+  return [
+    "unassigned",
+    "mine",
+    ...(v.role === "Team Leader" ? ["team"] : []),
+    ...(leader ? ["all"] : []),
+    "archived",
+  ];
+}
+
+/** Paginated, scoped sign-ups list. Scope: leaders → their function(s); TL →
+ *  own + team + the unassigned pool; members → own + unassigned. The
+ *  "archived" view (Out of Process) is read-only browsing for the crew. */
+export async function listSignupsPage(
+  viewer: Viewer,
+  filters: SignupFilters,
+  page: number,
+  pageSize = 100
+): Promise<{ rows: SignupRow[]; total: number; page: number; view: string }> {
+  const fns = _ogxFunctions(viewer);
+  if (fns.length === 0) return { rows: [], total: 0, page: 0, view: "unassigned" };
+  const allowedViews = signupViewsFor(viewer);
+  const view = allowedViews.includes(filters.view ?? "") ? filters.view! : "unassigned";
+
+  const build = () => {
+    let q = db().from("signups").select("*", { count: "exact" });
+    // function scope
+    const fn = filters.fn && fns.includes(filters.fn as OgxFunction) ? [filters.fn] : fns;
+    q = q.in("fn", fn);
+    // view scope
+    if (view === "archived") q = q.eq("out_of_process", true);
+    else q = q.eq("out_of_process", false);
+    if (view === "unassigned") q = q.is("assigned_to", null);
+    else if (view === "mine") q = q.eq("assigned_to", viewer.id);
+    else if (view === "team")
+      q = q.in("assigned_to", [viewer.id, ...viewer.teamMemberIds]);
+    else if (view === "all" || view === "archived") {
+      // leaders browse the whole function; non-leaders' archived view is
+      // still scoped to what they could otherwise see
+      const leader = viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
+      if (!leader && view === "archived") {
+        if (viewer.role === "Team Leader")
+          q = q.or(
+            `assigned_to.is.null,assigned_to.in.(${[viewer.id, ...viewer.teamMemberIds].join(",")})`
+          );
+        else q = q.or(`assigned_to.is.null,assigned_to.eq.${viewer.id}`);
+      }
+    }
+    if (filters.batch === "new" || filters.batch === "old") q = q.eq("batch", filters.batch);
+    if (filters.program) q = q.ilike("program", filters.program);
+    if (filters.status) q = q.eq("status", filters.status);
+    // the display treats any y*/n* as Yes/No — the filter must match it
+    const ynPat = (v: string) => (v === "Yes" ? "y%" : v === "No" ? "n%" : v);
+    if (filters.interested) q = q.ilike("interested", ynPat(filters.interested));
+    if (filters.contacted) q = q.ilike("contact_status", ynPat(filters.contacted));
+    if (filters.country) q = q.ilike("country", `%${filters.country}%`);
+    if (filters.q) {
+      const safe = filters.q.replaceAll(",", " ").replaceAll("(", "").replaceAll(")", "");
+      q = q.or(`name.ilike.%${safe}%,ep_id.ilike.%${safe}%,phone.ilike.%${safe}%`);
+    }
+    const sortField =
+      filters.sort && SIGNUP_SORTABLE.has(filters.sort) ? filters.sort : "signed_up_at";
+    return q
+      .order(sortField, { ascending: filters.dir === "asc", nullsFirst: false })
+      .order("id");
+  };
+
+  let from = Math.max(0, page) * pageSize;
+  let { data, count, error } = await build().range(from, from + pageSize - 1);
+  if (error && from > 0) {
+    ({ data, count, error } = await build().range(0, pageSize - 1));
+    from = 0;
+  }
+  if (error) return { rows: [], total: 0, page: 0, view };
+  const total = count ?? 0;
+  // clamp past-the-end pages back to the last real page
+  if ((data ?? []).length === 0 && total > 0 && from >= total) {
+    const lastPage = Math.max(0, Math.ceil(total / pageSize) - 1);
+    const res2 = await build().range(lastPage * pageSize, lastPage * pageSize + pageSize - 1);
+    return { rows: (res2.data ?? []) as SignupRow[], total, page: lastPage, view };
+  }
+  return { rows: (data ?? []) as SignupRow[], total, page: Math.floor(from / pageSize), view };
+}
+
+export interface SignupDetail {
+  signup: SignupRow;
+  comments: SignupComment[];
+  assignedLabel: string | null;
+  canWork: boolean;
+  canVp: boolean;
+}
+
+export async function getSignupDetail(
+  viewer: Viewer,
+  id: string
+): Promise<SignupDetail | null> {
+  const { data } = await db().from("signups").select("*").eq("id", id).maybeSingle<SignupRow>();
+  if (!data || !_canViewSignup(viewer, data)) return null;
+  const [{ data: comments }, assigned] = await Promise.all([
+    db()
+      .from("signup_comments")
+      .select("*")
+      .eq("signup_id", id)
+      .order("created_at"),
+    data.assigned_to
+      ? db()
+          .from("members")
+          .select("name, nickname")
+          .eq("id", data.assigned_to)
+          .maybeSingle<{ name: string; nickname: string | null }>()
+      : Promise.resolve({ data: null }),
+  ]);
+  const { canWorkSignup } = await import("@/lib/rbac");
+  return {
+    signup: data,
+    comments: (comments ?? []) as SignupComment[],
+    assignedLabel: assigned.data
+      ? assigned.data.nickname || assigned.data.name
+      : data.assigned_name,
+    canWork: canWorkSignup(viewer, data),
+    canVp: _canEditSignupVpFields(viewer, data),
+  };
+}
+
+/** Members a leader can assign sign-ups to: TL → self + team; VP/Director/
+ *  LCP/admin → every active member of the function. */
+export async function signupReassignTargets(
+  viewer: Viewer,
+  fn: OgxFunction
+): Promise<{ id: string; label: string }[]> {
+  if (!_ogxFunctions(viewer).includes(fn)) return [];
+  const { data } = await db()
+    .from("members")
+    .select("id, name, nickname, role, functions, sub_functions")
+    .eq("is_active", true);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const all = (data ?? []) as any[];
+  const inFn = (m: { functions?: string[]; sub_functions?: string[] }) =>
+    [...(m.functions ?? []), ...(m.sub_functions ?? [])].includes(fn);
+  let pool = all.filter((m) => inFn(m) && m.role !== "LCP");
+  if (viewer.role === "Team Leader")
+    pool = pool.filter((m) => m.id === viewer.id || viewer.teamMemberIds.includes(m.id));
+  else if (!viewer.isAdmin && !["LCP", "LCVP", "Director"].includes(viewer.role))
+    pool = pool.filter((m) => m.id === viewer.id);
+  return pool.map((m) => ({ id: m.id, label: m.nickname || m.name }));
 }

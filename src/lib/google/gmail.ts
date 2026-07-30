@@ -92,6 +92,7 @@ export async function createMemberDraft(
   refreshToken: string,
   opts: {
     to: string;
+    cc?: string[];
     subject: string;
     html: string;
     attachments?: { filename: string; mimeType: string; contentBase64: string }[];
@@ -102,13 +103,18 @@ export async function createMemberDraft(
   oauth2.setCredentials({ refresh_token: refreshToken });
   const gmail = google.gmail({ version: "v1", auth: oauth2 });
 
+  const addrHeaders = [
+    `To: ${opts.to}`,
+    ...(opts.cc?.length ? [`Cc: ${opts.cc.join(", ")}`] : []),
+    `Subject: ${encodeHeader(opts.subject)}`,
+    "MIME-Version: 1.0",
+  ];
+
   let message: string;
   if (opts.attachments && opts.attachments.length > 0) {
     const boundary = `crm_${Date.now().toString(36)}`;
     const parts = [
-      `To: ${opts.to}`,
-      `Subject: ${encodeHeader(opts.subject)}`,
-      "MIME-Version: 1.0",
+      ...addrHeaders,
       `Content-Type: multipart/mixed; boundary="${boundary}"`,
       "",
       `--${boundary}`,
@@ -131,9 +137,7 @@ export async function createMemberDraft(
     message = parts.join("\r\n");
   } else {
     const headers = [
-      `To: ${opts.to}`,
-      `Subject: ${encodeHeader(opts.subject)}`,
-      "MIME-Version: 1.0",
+      ...addrHeaders,
       'Content-Type: text/html; charset="UTF-8"',
       "Content-Transfer-Encoding: base64",
     ];
@@ -144,6 +148,39 @@ export async function createMemberDraft(
   const res = await gmail.users.drafts.create({
     userId: "me",
     requestBody: { message: { raw: Buffer.from(message).toString("base64url") } },
+  });
+  return res.data.id ?? null;
+}
+
+/** SENDS an email from the MEMBER's own Gmail (their gmail.compose grant —
+ *  the scope covers sending mail the member composed). Used by the
+ *  Expectation-mail flow after the VP reviews & edits the exact body in-app.
+ *  Same OAuth client + raw RFC822 building as createMemberDraft, but the
+ *  message goes straight out via users.messages.send. */
+export async function sendMemberEmail(
+  refreshToken: string,
+  opts: { to: string[]; cc?: string[]; subject: string; html: string }
+): Promise<string | null> {
+  if (await sandboxSuppressed(`gmail send "${opts.subject}"`)) return "sandbox";
+  const oauth2 = new google.auth.OAuth2(env.googleClientId, env.googleClientSecret);
+  oauth2.setCredentials({ refresh_token: refreshToken });
+  const gmail = google.gmail({ version: "v1", auth: oauth2 });
+
+  const message =
+    [
+      `To: ${opts.to.join(", ")}`,
+      ...(opts.cc?.length ? [`Cc: ${opts.cc.join(", ")}`] : []),
+      `Subject: ${encodeHeader(opts.subject)}`,
+      "MIME-Version: 1.0",
+      'Content-Type: text/html; charset="UTF-8"',
+      "Content-Transfer-Encoding: base64",
+    ].join("\r\n") +
+    "\r\n\r\n" +
+    Buffer.from(opts.html).toString("base64");
+
+  const res = await gmail.users.messages.send({
+    userId: "me",
+    requestBody: { raw: Buffer.from(message).toString("base64url") },
   });
   return res.data.id ?? null;
 }

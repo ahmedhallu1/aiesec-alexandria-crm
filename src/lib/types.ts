@@ -156,6 +156,68 @@ export type CommentLabel = "Member" | "TL" | "VP" | "Director" | "LCP" | "Admin"
 
 /** Curated Out-of-Process reasons ("Other" opens a free-text field; imported
  *  sheets may carry any other value and it is kept as-is). */
+// ------------------------------------------------------------------ OGX (v25)
+
+export type OgxFunction = "OGT" | "OGV";
+
+/** VP-set sign-up statuses — "Approved" is the OGX MOS (accepted by the host
+ *  entity, paid, contract signed, ready to start the travel process). */
+export const SIGNUP_STATUSES = [
+  "Parents Approval",
+  "Applied",
+  "Accepted",
+  "Approved",
+] as const;
+
+/** A sign-up imported from the OGX tracker sheets (two-way synced). */
+export interface SignupRow {
+  id: string;
+  fn: OgxFunction;
+  batch: "new" | "old";
+  source: string;
+  ep_id: string;
+  name: string;
+  signed_up_at: string | null;
+  phone: string | null;
+  email: string | null;
+  gender: string | null;
+  dob: string | null;
+  person_status: string | null;
+  program: string | null;
+  referral: string | null;
+  grad_year: string | null;
+  university: string | null;
+  background: string | null;
+  home_lc: string | null;
+  campaign: string | null;
+  assigned_to: string | null;
+  assigned_name: string | null;
+  contact_status: string | null;
+  interested: string | null;
+  country: string | null;
+  sub_product: string | null;
+  status: string | null;
+  out_of_process: boolean;
+  oop_reason: string | null;
+  reasons_not_travel: string | null;
+  assigned_at: string | null;
+  contacted_at: string | null;
+  last_edited_at: string | null;
+  sodio_touched: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SignupComment {
+  id: string;
+  signup_id: string;
+  author_id: string | null;
+  author_name: string;
+  author_class: "member" | "vp";
+  body: string;
+  created_at: string;
+}
+
 export const OOP_REASONS = [
   "Not responding",
   "Financial issues",
@@ -403,7 +465,7 @@ export function normalizeName(name: string): string {
 
 /** Loose shape check (server safety net) — real validation is normalizePhone. */
 export const PHONE_RE = /^\+?\d{7,15}$/;
-export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+export const EMAIL_RE = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]{2,}$/;
 export const URL_RE = /^https?:\/\/\S+\.\S+/i;
 
 export function cleanPhone(raw: string): string {
