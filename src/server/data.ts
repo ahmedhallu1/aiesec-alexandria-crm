@@ -26,7 +26,8 @@ import type {
   MemberRole,
   Stage,
 } from "@/lib/types";
-import { normalizeName } from "@/lib/types";
+import {
+  parsePhoneSessionKey, normalizeName } from "@/lib/types";
 import { monthOf, sprintOf } from "@/lib/plan";
 
 export interface PipelineRow extends AccountPipeline {
@@ -46,9 +47,53 @@ export const getRealViewer = cache(async (): Promise<Viewer> => {
   const email = session?.user?.email?.toLowerCase();
   if (!email) redirect("/login");
   const viewer = await getViewerByEmail(email);
-  if (!viewer) redirect("/login");
+  if (!viewer) {
+    // deactivated mid-session? send them to the "you're inactive" screen
+    // instead of a confusing login loop
+    if (await sessionKeyIsInactiveMember(email)) redirect("/inactive");
+    redirect("/login");
+  }
   return viewer;
 });
+
+/** True when the session key belongs to a member row that EXISTS but is
+ *  deactivated (Active = No on the sheet). Distinguishes "kicked out" from
+ *  "never existed" so getRealViewer can route to /inactive. */
+async function sessionKeyIsInactiveMember(email: string): Promise<boolean> {
+  const phoneDigits = parsePhoneSessionKey(email);
+  if (phoneDigits) {
+    const m = await memberByPhoneDigits(phoneDigits, "id, is_active, email, phone");
+    return !!m && !(m as { is_active: boolean }).is_active;
+  }
+  const { data } = await db()
+    .from("members")
+    .select("id, is_active")
+    .ilike("email", email)
+    .limit(1);
+  const row = (data ?? [])[0] as { is_active: boolean } | undefined;
+  return !!row && !row.is_active;
+}
+
+/** Resolves a phone-keyed session to its member by EXACT digit equality (the
+ *  session key carries the full number — never a tail match, so a shared
+ *  9-digit tail can't swap identities). Members whose email landed mid-session
+ *  still resolve (email-less rows win ties) so their session survives. */
+async function memberByPhoneDigits(
+  phoneDigits: string,
+  columns: string
+): Promise<Record<string, unknown> | null> {
+  const { data } = await db()
+    .from("members")
+    .select(columns)
+    .not("phone", "is", null)
+    .ilike("phone", `%${phoneDigits}%`)
+    .limit(10);
+  const rows = (data ?? []) as unknown as { email: string | null; phone: string | null }[];
+  const exact = rows.filter(
+    (m) => (m.phone ?? "").replace(/\D/g, "") === phoneDigits
+  );
+  return (exact.find((m) => !m.email) ?? exact[0] ?? null) as Record<string, unknown> | null;
+}
 
 /** The members an admin can test-view as — [] for everyone else. Powers the
  *  profile picker AND the switch-list on the floating test-view banner. */
@@ -125,17 +170,26 @@ async function getViewerById(id: string): Promise<Viewer | null> {
     ...member,
     functions: member.functions ?? [],
     sub_functions: member.sub_functions ?? [],
-    isAdmin: env.adminEmails.includes(member.email.toLowerCase()),
+    isAdmin: env.adminEmails.includes((member.email ?? "").toLowerCase()),
     teamMemberIds: (team ?? []).map((t) => t.id),
   };
 }
 
 export async function getViewerByEmail(email: string): Promise<Viewer | null> {
-  const { data: member } = await db()
-    .from("members")
-    .select("*")
-    .ilike("email", email)
-    .maybeSingle<Member>();
+  // members without an AIESEC email carry a synthetic phone-keyed session
+  // identity (phone+<digits>@sodio.local) — resolve those by phone
+  const phoneDigits = parsePhoneSessionKey(email);
+  let member: Member | null = null;
+  if (phoneDigits) {
+    member = (await memberByPhoneDigits(phoneDigits, "*")) as Member | null;
+  } else {
+    const { data } = await db()
+      .from("members")
+      .select("*")
+      .ilike("email", email)
+      .maybeSingle<Member>();
+    member = data;
+  }
   if (!member || !member.is_active) return null;
   const { data: team } = await db()
     .from("members")
@@ -146,9 +200,31 @@ export async function getViewerByEmail(email: string): Promise<Viewer | null> {
     ...member,
     functions: member.functions ?? [],
     sub_functions: member.sub_functions ?? [],
-    isAdmin: env.adminEmails.includes(member.email.toLowerCase()),
+    isAdmin: env.adminEmails.includes((member.email ?? "").toLowerCase()),
     teamMemberIds: (team ?? []).map((t) => t.id),
   };
+}
+
+// ------------------------------------------------------------------ teams registry
+
+export interface TeamRegistryRow {
+  id: string;
+  type: string;
+  function_key: string;
+  name: string;
+}
+
+/** Every named team (EB / LB / Function / MM from the sheet + the in-app
+ *  'Team' registry rows) — powers the membership Teams card and the
+ *  role-filtered team pickers (v24). */
+export async function listTeamsRegistry(): Promise<TeamRegistryRow[]> {
+  const { data } = await db()
+    .from("teams")
+    .select("id, type, function_key, name")
+    .order("type")
+    .order("function_key")
+    .order("name");
+  return (data ?? []) as TeamRegistryRow[];
 }
 
 // ------------------------------------------------------------------ scope helpers
@@ -179,6 +255,9 @@ export interface AccountFilters {
   /** created_at range (YYYY-MM-DD) */
   from?: string;
   to?: string;
+  /** column sorting (v24): whitelisted field + direction; default updated_at desc */
+  sort?: string;
+  dir?: "asc" | "desc";
   /** OOP accounts are archived: hidden unless explicitly requested */
   archived?: boolean;
   /** dashboards need the full picture including archived accounts */
@@ -331,10 +410,22 @@ async function buildAccountsQuery(
   if (filters.flag === "contact_limit") query = query.eq("contact_limit_reached", true);
   if (filters.flag === "next_step_missing") query = query.eq("next_step_missing", true);
   if (filters.q) query = query.ilike("normalized_name", `%${normalizeName(filters.q)}%`);
-  // id tiebreak: bulk-imported rows share updated_at — pages must be stable.
+  // column sorting (v24) — WHITELISTED fields only; anything else falls back
+  // to the default recency order. Nulls always sink to the bottom.
+  const SORTABLE = new Set([
+    "created_at", "updated_at", "normalized_name", "stage", "attempts",
+    "next_step_date", "last_contact_at", "slots_count", "deals_count", "function",
+  ]);
+  const sortField = filters.sort && SORTABLE.has(filters.sort) ? filters.sort : "updated_at";
+  const ascending = filters.dir === "asc";
+  // id tiebreak: bulk-imported rows share timestamps — pages must be stable.
   // Wrapped in an object: the builder is a THENABLE, so returning it bare from
   // this async function would let `await` execute it before .range() applies.
-  return { query: query.order("updated_at", { ascending: false }).order("id") };
+  return {
+    query: query
+      .order(sortField, { ascending, nullsFirst: false })
+      .order("id"),
+  };
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -1235,7 +1326,7 @@ export interface PersonCard {
   name: string;
   nickname: string | null;
   role: string;
-  email: string;
+  email: string | null;
   phone: string | null;
   team_name: string | null;
   functions: string[];

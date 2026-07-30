@@ -88,6 +88,19 @@ export const B2C_CONTRACT_FORM_URL =
  *  account. 10 days per the B2C Director's process. */
 export const B2C_DEFAULT_UPDATE_DAYS = 10;
 
+/** Default Podio-update cadence for the other functions (v24 — the feature
+ *  now exists on IGV/IGT/BD too; ON by default for new IGV/B2C/BD accounts). */
+export const PODIO_UPDATE_DEFAULT_DAYS = 14;
+
+/** The functions that show the "Podio — continuous update" card (v24).
+ *  B2B keeps only the classic AMS request card. */
+export const PODIO_UPDATE_FUNCTIONS: AccountFunction[] = ["IGV", "IGT", "BD", "B2C"];
+
+/** Per-function default cadence: B2C runs on 10 days, the rest on 14. */
+export function podioDefaultDays(fn: AccountFunction): number {
+  return fn === "B2C" ? B2C_DEFAULT_UPDATE_DAYS : PODIO_UPDATE_DEFAULT_DAYS;
+}
+
 export const IGV_PROJECTS = [
   "Skill Up!",
   "Scale Up",
@@ -151,6 +164,8 @@ export const OOP_REASONS = [
   "Not Interested",
   "Backed out",
   "Other Plans",
+  "Closed company",
+  "No contact info",
   "Needs too technical background EPs",
   "Conflict of Values between AIESEC and organization",
   "Blacklisted",
@@ -160,7 +175,9 @@ export interface Member {
   id: string;
   name: string;
   nickname: string | null;
-  email: string;
+  /** null = no AIESEC email yet (v24) — the member signs in with their PHONE
+   *  in both login fields until the email lands and they Google-sign-in */
+  email: string | null;
   phone: string | null;
   functions: string[];
   sub_functions: string[];
@@ -177,6 +194,17 @@ export interface Member {
   photo_url: string | null;
   /** chosen fun avatar — wins over the Google photo when set */
   avatar_url: string | null;
+}
+
+/** Session key for members WITHOUT an AIESEC email (v24): their JWT "email"
+ *  claim is a synthetic `phone+<digits>@sodio.local` that can never collide
+ *  with a real mailbox. parse… returns the digits, or null for real emails. */
+export function phoneSessionKey(phone: string): string {
+  return `phone+${phone.replace(/\D/g, "")}@sodio.local`;
+}
+export function parsePhoneSessionKey(email: string): string | null {
+  const m = /^phone\+(\d{7,15})@sodio\.local$/.exec(email);
+  return m ? m[1] : null;
 }
 
 /** A tagged phone number, email or link on an account ("CEO", "LinkedIn", …). */
@@ -235,10 +263,14 @@ export interface Account {
   /** a B2B/BD leader asked the owner to submit this account on Podio — the
    *  account pins to the top of the owner's list until requested/stated */
   podio_submit_requested_at: string | null;
-  /** B2C only (v23): the account must be refreshed on Podio every N days */
+  /** the account must be refreshed on Podio every N days (v23 B2C; v24 all) */
   podio_update_every_days: number | null;
-  /** B2C only: when it was last marked "updated on Podio" */
+  /** continuous Podio updates active for this account (v24) */
+  podio_update_enabled: boolean;
+  /** when it was last marked "updated on Podio" */
   podio_updated_at: string | null;
+  /** the week-later firmer reminder (once per cycle, v24) */
+  podio_update_second_notified_at: string | null;
   /** B2C only: the last time the due-date reminder fired (once per cycle) */
   podio_update_notified_at: string | null;
   out_of_process: boolean;

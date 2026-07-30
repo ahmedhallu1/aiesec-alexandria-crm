@@ -57,17 +57,29 @@ interface Props {
 const pct = (num: number, den: number) =>
   den > 0 ? `${Math.min(100, Math.round((num / den) * 100))}%` : "—";
 
+const isoDay = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
 function monthRange(): { from: string; to: string; label: string } {
   const now = new Date();
   const from = new Date(now.getFullYear(), now.getMonth(), 1);
   const to = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  const iso = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   return {
-    from: iso(from),
-    to: iso(to),
+    from: isoDay(from),
+    to: isoDay(to),
     label: now.toLocaleString("en", { month: "long", year: "numeric" }),
   };
+}
+
+/** The current SPRINT = half-month: day 1–15, or 16–end (v24). */
+function sprintRange(): { from: string; to: string } {
+  const now = new Date();
+  const first = now.getDate() <= 15;
+  const from = new Date(now.getFullYear(), now.getMonth(), first ? 1 : 16);
+  const to = first
+    ? new Date(now.getFullYear(), now.getMonth(), 15)
+    : new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  return { from: isoDay(from), to: isoDay(to) };
 }
 
 export function DashboardView({
@@ -115,8 +127,10 @@ export function DashboardView({
     { label: "Visit Done → Deal", value: pct(total.dealAccounts, total.visitDone) },
   ];
   const month = monthRange();
+  const sprint = sprintRange();
   const today = new Date().toISOString().slice(0, 10);
   const thisMonthActive = filters.from === month.from && filters.to === month.to;
+  const thisSprintActive = filters.from === sprint.from && filters.to === sprint.to;
   const myNumbersActive = filters.member === viewerId;
   const anyFilter = Object.values(filters).some(Boolean);
 
@@ -165,6 +179,21 @@ export function DashboardView({
             }
           >
             <CalendarRange className="size-4" /> This month
+          </Button>
+        </Hint>
+        <Hint label="Only this sprint's accounts — the current half of the month (1–15 / 16–end)">
+          <Button
+            variant={thisSprintActive ? "default" : "outline"}
+            className="h-9"
+            size="sm"
+            onClick={() =>
+              go((p) => {
+                if (thisSprintActive) { p.delete("from"); p.delete("to"); }
+                else { p.set("from", sprint.from); p.set("to", sprint.to); }
+              })
+            }
+          >
+            <CalendarRange className="size-4" /> This sprint
           </Button>
         </Hint>
         {showMyNumbers ? (

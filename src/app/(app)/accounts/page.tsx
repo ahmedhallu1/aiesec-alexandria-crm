@@ -54,6 +54,8 @@ export default async function AccountsPage({
     from: params.from || undefined,
     to: params.to || undefined,
     subProduct: params.sub && (!params.fn || params.fn === "IGT") ? params.sub : undefined,
+    sort: params.sort || undefined,
+    dir: params.dir === "asc" ? "asc" : params.dir === "desc" ? "desc" : undefined,
     // the Responsible filter — "none" = unassigned (imported market research)
     responsibleId: params.resp || undefined,
     archived,
@@ -124,6 +126,7 @@ export default async function AccountsPage({
       respOptions={respOptions}
       viewer={{
         id: viewer.id,
+        name: viewer.nickname || viewer.name,
         role: viewer.role,
         isAdmin: viewer.isAdmin,
         canAssignOthers:
@@ -140,6 +143,10 @@ export default async function AccountsPage({
           !viewer.isAdmin && viewer.role !== "LCP" &&
           icxFunctions(viewer).length === 1 && icxFunctions(viewer)[0] === "IGV" &&
           !allowedFns.some((f) => f === "B2B" || f === "BD"),
+        // same idea for the B2C crew: every account is B2C — show the TYPE
+        b2cOnly:
+          !viewer.isAdmin && viewer.role !== "LCP" &&
+          allowedFns.length === 1 && allowedFns[0] === "B2C",
         // sub_product lives on IGT accounts only — offer the filter to people
         // who can actually SEE IGT accounts
         igtAccess:
@@ -156,6 +163,8 @@ export default async function AccountsPage({
         lastStatus: params.lastStatus ?? "",
         resp: params.resp ?? "",
         sub: params.sub ?? "",
+        sort: params.sort ?? "",
+        dir: params.dir ?? "",
         flag: params.flag ?? "",
         from: params.from ?? "",
         to: params.to ?? "",

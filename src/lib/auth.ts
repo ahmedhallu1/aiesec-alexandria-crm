@@ -5,7 +5,7 @@ import { authConfig } from "./auth.config";
 import { db } from "./supabase";
 import { sendEmail } from "./google/gmail";
 import { welcomeEmail } from "./email/templates";
-import type { Member } from "./types";
+import { phoneSessionKey, type Member } from "./types";
 
 async function findMember(email: string): Promise<Member | null> {
   const { data: member } = await db()
@@ -26,13 +26,18 @@ async function findMemberByIdentifier(identifier: string): Promise<Member | null
     .select("*")
     .not("phone", "is", null)
     .ilike("phone", `%${digits.slice(-8)}%`)
-    .limit(5);
+    .limit(10);
+  const candidates = ((data ?? []) as Member[]).filter((m) => m.is_active);
+  // exact full-digit match first — tail matching is only a typing convenience
+  const exact = candidates.find((m) => (m.phone ?? "").replace(/\D/g, "") === digits);
+  if (exact) return exact;
   const tail = digits.slice(-9);
-  const hit = ((data ?? []) as Member[]).find((m) => {
-    const md = (m.phone ?? "").replace(/\D/g, "");
-    return md.endsWith(tail) || tail.endsWith(md.slice(-9));
-  });
-  return hit && hit.is_active ? hit : null;
+  return (
+    candidates.find((m) => {
+      const md = (m.phone ?? "").replace(/\D/g, "");
+      return md.endsWith(tail) || tail.endsWith(md.slice(-9));
+    }) ?? null
+  );
 }
 
 function markFirstLogin(member: Member) {
@@ -42,10 +47,12 @@ function markFirstLogin(member: Member) {
     .update({ first_login_at: new Date().toISOString() })
     .eq("id", member.id)
     .then(() => {
-      const mail = welcomeEmail(member);
-      sendEmail({ to: [member.email], ...mail }).catch((e) =>
-        console.error("[auth] welcome email failed:", e)
-      );
+      if (member.email) {
+        const mail = welcomeEmail(member);
+        sendEmail({ to: [member.email], ...mail }).catch((e) =>
+          console.error("[auth] welcome email failed:", e)
+        );
+      }
       import("@/server/notify").then(({ notifyMembers }) =>
         notifyMembers(
           [member.id],
@@ -88,10 +95,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           const okTemp = member.temp_password_hash
             ? await bcrypt.compare(password, member.temp_password_hash)
             : false;
-          if (!okOwn && !okTemp) return null;
+          // Members WITHOUT an AIESEC email (v24): until they set a real
+          // password, their phone works in BOTH fields — identifier AND
+          // password. Once an email lands on their row, this door closes and
+          // the login form tells them to sign in with Google instead.
+          const pwDigits = password.replace(/\D/g, "");
+          const phoneDigits = (member.phone ?? "").replace(/\D/g, "");
+          const okPhoneAsPassword =
+            !member.email &&
+            !member.password_hash &&
+            pwDigits.length >= 7 &&
+            phoneDigits.length >= 7 &&
+            phoneDigits.length <= 15 &&
+            (phoneDigits.endsWith(pwDigits.slice(-9)) ||
+              pwDigits.endsWith(phoneDigits.slice(-9)));
+          if (!okOwn && !okTemp && !okPhoneAsPassword) return null;
           markFirstLogin(member);
           return {
-            email: member.email,
+            // no email → a synthetic phone-keyed session identity
+            email: member.email ?? phoneSessionKey(member.phone ?? ""),
             name: member.nickname || member.name,
             image: member.avatar_url || member.photo_url,
           };
@@ -110,7 +132,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (!email) return false;
       try {
         const member = await findMember(email);
-        if (!member) return false;
+        if (!member) {
+          // deactivated members get the dedicated screen (unknown → denied)
+          const { data } = await db()
+            .from("members")
+            .select("is_active")
+            .ilike("email", email)
+            .maybeSingle<{ is_active: boolean }>();
+          return data && !data.is_active ? "/inactive" : false;
+        }
 
         const updates: Record<string, unknown> = {};
         if (account?.refresh_token) updates.google_refresh_token = account.refresh_token;
@@ -123,7 +153,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
         if (firstLogin) {
           const mail = welcomeEmail(member);
-          sendEmail({ to: [member.email], ...mail }).catch((e) =>
+          sendEmail({ to: [member.email ?? email], ...mail }).catch((e) =>
             console.error("[auth] welcome email failed:", e)
           );
           import("@/server/notify").then(({ notifyMembers }) =>

@@ -44,7 +44,7 @@ export default async function ProfilePage() {
       member={{
         name: viewer.name,
         nickname: viewer.nickname ?? "",
-        email: viewer.email,
+        email: viewer.email ?? "",
         phone: viewer.phone ?? "",
         role: viewer.role,
         functions: viewer.functions,

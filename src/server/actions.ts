@@ -18,7 +18,7 @@ import {
   reassignTargetScope,
 } from "@/lib/rbac";
 import { checkAccountName, getViewer, logAudit, type PipelineRow } from "./data";
-import { recordUndo, snapshotForUndo } from "./sandbox";
+import { recordUndo, sandboxSuppressed, snapshotForUndo } from "./sandbox";
 import { sendEmail } from "@/lib/google/gmail";
 import { visitReportEmail } from "@/lib/email/templates";
 import {
@@ -34,8 +34,8 @@ import {
 } from "@/lib/google/calendar";
 import {
   accountSlug,
-  B2C_DEFAULT_UPDATE_DAYS,
   B2C_TYPES,
+  podioDefaultDays,
   cleanPhone,
   EMAIL_RE,
   FEEDBACK_CATEGORIES,
@@ -313,10 +313,11 @@ export async function createAccount(
       requested_podio: data.requested_podio ?? false,
       responsible_id: responsibleId,
       created_by: viewer.id,
-      // B2C: the continuous Podio-update countdown starts at creation (v23)
-      ...(data.function === "B2C"
-        ? { podio_update_every_days: B2C_DEFAULT_UPDATE_DAYS, podio_updated_at: new Date().toISOString() }
-        : {}),
+      // continuous Podio updates (v24): ON by default for IGV / B2C / BD,
+      // OFF for IGT / B2B — always editable on the account page
+      podio_update_enabled: ["IGV", "B2C", "BD"].includes(data.function),
+      podio_update_every_days: podioDefaultDays(data.function),
+      podio_updated_at: new Date().toISOString(),
     })
     .select("id")
     .single();
@@ -1221,19 +1222,67 @@ export async function bulkArchiveAccounts(
 /** Reassign many accounts to one member — per-account RBAC via reassignAccount. */
 export async function bulkReassignAccounts(
   ids: string[],
-  responsibleId: string
-): Promise<ActionResult<{ done: number; failed: number }>> {
+  responsibleId: string,
+  /** v24: email the new responsible a list of what landed on their plate */
+  notifyByEmail = false
+): Promise<ActionResult<{ done: number; failed: number; emailed: boolean }>> {
   if (!Array.isArray(ids) || ids.length === 0) return fail("Select at least one account.");
   if (ids.length > 50) return fail("Max 50 accounts per bulk reassign — run it in batches.");
   let done = 0;
   let failed = 0;
+  let emailed = false;
+  const doneIds: string[] = [];
   for (const id of ids) {
     const res = await reassignAccount(id, responsibleId);
-    if (res.ok) done += 1;
+    if (res.ok) { done += 1; doneIds.push(id); }
     else failed += 1;
   }
+
+  if (notifyByEmail && doneIds.length > 0) {
+    try {
+      const viewer = await getViewer();
+      const [{ data: target }, { data: accounts }] = await Promise.all([
+        db()
+          .from("members")
+          .select("id, name, nickname, email, role")
+          .eq("id", responsibleId)
+          .maybeSingle<{ id: string; name: string; nickname: string | null; email: string | null; role: string }>(),
+        db().from("accounts").select("name").in("id", doneIds).order("name"),
+      ]);
+      if (target) {
+        const names = ((accounts ?? []) as { name: string }[]).map((a) => a.name);
+        const { notifyMembers } = await import("./notify");
+        await notifyMembers(
+          [target.id],
+          "broadcast",
+          `📋 ${viewer.nickname || viewer.name} assigned you ${names.length} account${names.length === 1 ? "" : "s"}`,
+          `${names.slice(0, 5).join(" · ")}${names.length > 5 ? ` · +${names.length - 5} more` : ""} — they're yours now, start raising!`,
+          null,
+          "/accounts"
+        );
+        // the LCP never receives operational emails (house rule)
+        if (target.email && target.role !== "LCP" && !(await sandboxSuppressed("bulk-assign email"))) {
+          emailed = true;
+          const { accountsAssignedEmail } = await import("@/lib/email/templates");
+          const { sendEmail } = await import("@/lib/google/gmail");
+          const mail = accountsAssignedEmail({
+            memberName: target.nickname || target.name,
+            managerName: viewer.nickname || viewer.name,
+            accountNames: names,
+            accountsUrl: `${env.appUrl}/accounts`,
+          });
+          sendEmail({ to: [target.email], ...mail }).catch((e) =>
+            console.error("[bulk-reassign] email failed:", e)
+          );
+        }
+      }
+    } catch (e) {
+      console.error("[bulk-reassign] notify failed:", e);
+    }
+  }
+
   refresh();
-  return { ok: true, data: { done, failed } };
+  return { ok: true, data: { done, failed, emailed } };
 }
 
 // ================================================================== podio submit requests
@@ -1604,7 +1653,7 @@ async function resolveVisitRecipients(
   } else if (responsible.role === "Team Leader" || responsible.role === "Coordinator") {
     for (const vp of vps) if (vp.email) attendees.add(vp.email);
   }
-  attendees.delete(responsible.email);
+  if (responsible.email) attendees.delete(responsible.email);
 
   // ---- announcement crew: whole raising function + B2B ----
   const announceIds: string[] = [];
@@ -1755,7 +1804,7 @@ export async function scheduleVisit(
         visitTime,
         notes,
         detailsUrl,
-        organizerEmail: env.gmailSender || viewer.email,
+        organizerEmail: env.gmailSender || viewer.email || "",
         organizerName: "Sodio · AIESEC in Alexandria",
         attendeeEmails: inviteTo,
         method: "REQUEST",
@@ -1812,7 +1861,7 @@ export async function scheduleVisit(
         notes: notes || null,
         accountUrl: `${env.appUrl}/accounts/${slug}`,
       });
-      sendEmail({ to: [env.gmailSender || viewer.email], bcc: recipients.announceEmails, ...mail }).catch(
+      sendEmail({ to: [env.gmailSender || viewer.email || ""].filter(Boolean), bcc: recipients.announceEmails, ...mail }).catch(
         (e) => console.error("[visits] announcement email failed:", e)
       );
     }
@@ -1879,12 +1928,13 @@ export async function reportVisit(
       .eq("is_active", true),
   ]);
   const recipients = new Map<string, string>();
-  for (const vp of (vps ?? []) as Member[]) recipients.set(vp.email.toLowerCase(), vp.email);
+  for (const vp of (vps ?? []) as Member[])
+    if (vp.email) recipients.set(vp.email.toLowerCase(), vp.email);
   const stakeholder = (responsible as { stakeholder?: Member } | null)?.stakeholder;
   // the LCP does not receive operational reports — that is the VP's concern
   if (stakeholder?.email && stakeholder.role !== "LCP")
     recipients.set(stakeholder.email.toLowerCase(), stakeholder.email);
-  recipients.delete(viewer.email.toLowerCase());
+  if (viewer.email) recipients.delete(viewer.email.toLowerCase());
 
   if (recipients.size > 0) {
     const mail = visitReportEmail({
@@ -1942,7 +1992,7 @@ export async function submitFeedback(input: {
   const { feedbackEmail } = await import("@/lib/email/templates");
   const mail = feedbackEmail({
     memberName: input.anonymous ? "Anonymous member 🎭" : viewer.nickname || viewer.name,
-    memberEmail: input.anonymous ? "hidden" : viewer.email,
+    memberEmail: input.anonymous ? "hidden" : viewer.email ?? "no email (phone sign-in)",
     type: category ? `${input.type} · ${category}` : input.type,
     message: input.message.trim(),
     inboxUrl: `${env.appUrl}/feedback/inbox`,
@@ -2114,7 +2164,11 @@ export async function updateAvatar(url: string | null): Promise<ActionResult> {
   if (clean) {
     const isHttps = /^https:\/\/\S+$/i.test(clean);
     const isDataImage = /^data:image\/(png|jpe?g|webp);base64,/i.test(clean);
-    if (!isHttps && !isDataImage)
+    // The Blue Man mascot (BLUE_MAN_AVATAR in lib/avatars.ts) is the ONE
+    // site-relative path allowed — it's our own bundled /public asset, so a
+    // strict whitelist of the exact literal, never arbitrary relative paths.
+    const isBlueMan = clean === "/brand/walk.png";
+    if (!isHttps && !isDataImage && !isBlueMan)
       return fail("The avatar must be an image link or an uploaded picture.");
     // ~400KB cap on uploaded images (the client already downscales to ~256px)
     if (isDataImage && clean.length > 550_000)
@@ -2138,23 +2192,30 @@ export async function updateAvatar(url: string | null): Promise<ActionResult> {
 
 // ================================================================== membership (EB + admin)
 
-const memberSchema = z.object({
-  id: z.string().uuid().nullish(),
-  name: z.string().trim().min(2, "Name is required."),
-  nickname: z.string().trim().nullish(),
-  email: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .refine((v) => EMAIL_RE.test(v), "A valid email is required."),
-  phone: phoneField,
-  role: z.enum(MEMBER_ROLES as [MemberRole, ...MemberRole[]]),
-  functions: z.array(z.enum(LC_FUNCTIONS as unknown as [string, ...string[]])),
-  sub_functions: z.array(z.enum(SUB_FUNCTIONS as unknown as [string, ...string[]])),
-  stakeholder_name: z.string().trim().nullish(),
-  team_name: z.string().trim().nullish(),
-  is_active: z.boolean(),
-});
+const memberSchema = z
+  .object({
+    id: z.string().uuid().nullish(),
+    name: z.string().trim().min(2, "Name is required."),
+    nickname: z.string().trim().nullish(),
+    // email is OPTIONAL since v24 — phone-only members sign in with their
+    // number (both fields) until the AIESEC email lands
+    email: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .refine((v) => v === "" || EMAIL_RE.test(v), "That email doesn't look valid.")
+      .nullish(),
+    phone: phoneField,
+    role: z.enum(MEMBER_ROLES as [MemberRole, ...MemberRole[]]),
+    functions: z.array(z.enum(LC_FUNCTIONS as unknown as [string, ...string[]])),
+    sub_functions: z.array(z.enum(SUB_FUNCTIONS as unknown as [string, ...string[]])),
+    stakeholder_name: z.string().trim().nullish(),
+    team_name: z.string().trim().nullish(),
+    is_active: z.boolean(),
+  })
+  .refine((m) => !!m.email || !!m.phone, {
+    message: "A member needs an email OR a phone number (phone-only members sign in with their number).",
+  });
 
 /** EB (LCP/LCVPs) + admins edit membership directly in the system; every
  *  change is written back to the Membership sheet so imports don't revert it. */
@@ -2168,10 +2229,28 @@ export async function upsertMember(
   if (!parsed.success) return fail(parsed.error.issues[0].message);
   const m = parsed.data;
 
+  // a phone-only member's phone IS their identity — block a second member
+  // with the same number (the DB partial index would reject it cryptically)
+  if (!m.email && m.phone) {
+    const digits = m.phone.replace(/\D/g, "");
+    const { data: phoneTwins } = await db()
+      .from("members")
+      .select("id, name, phone")
+      .is("email", null)
+      .not("phone", "is", null)
+      .ilike("phone", `%${digits.slice(-8)}%`)
+      .limit(10);
+    const twin = ((phoneTwins ?? []) as { id: string; name: string; phone: string | null }[]).find(
+      (t) => t.id !== (m.id ?? "") && (t.phone ?? "").replace(/\D/g, "") === digits
+    );
+    if (twin)
+      return fail(`"${twin.name}" already signs in with this phone number — phone-only members need unique numbers.`);
+  }
+
   const row = {
     name: m.name,
     nickname: m.nickname || null,
-    email: m.email,
+    email: m.email || null,
     phone: m.phone || null,
     role: m.role,
     functions: m.functions,
@@ -2183,12 +2262,25 @@ export async function upsertMember(
 
   let id = m.id ?? null;
   if (id) {
-    const { error } = await db().from("members").update(row).eq("id", id);
+    // never ERASE an existing email with an empty field — adding one is the
+    // phone-only upgrade path, removing one only happens via the sheet
+    const { email: emailValue, ...rest } = row;
+    const updatePayload = emailValue ? row : rest;
+    const { error } = await db().from("members").update(updatePayload).eq("id", id);
     if (error) return fail(error.message);
-  } else {
+  } else if (row.email) {
     const { data: created, error } = await db()
       .from("members")
       .upsert(row, { onConflict: "email" })
+      .select("id")
+      .single();
+    if (error) return fail(error.message);
+    id = created.id;
+  } else {
+    // no email → plain insert (nulls never conflict on the email key)
+    const { data: created, error } = await db()
+      .from("members")
+      .insert(row)
       .select("id")
       .single();
     if (error) return fail(error.message);
@@ -2201,10 +2293,13 @@ export async function upsertMember(
     .select("id, name, nickname, role, functions, stakeholder_name, stakeholder_id, is_active");
   let targetId: string | null = null;
   if (m.stakeholder_name) {
+    // a plain Member can never BE a manager — such names fall through to the
+    // default chain (VP → Director → LCP)
     targetId =
       (all ?? []).find(
         (x) =>
           x.id !== id &&
+          x.role !== "Member" &&
           (x.name.trim().toLowerCase() === m.stakeholder_name!.trim().toLowerCase() ||
             x.nickname?.trim().toLowerCase() === m.stakeholder_name!.trim().toLowerCase())
       )?.id ?? null;
@@ -2241,12 +2336,64 @@ export async function resetMemberPassword(memberId: string): Promise<ActionResul
     .from("members")
     .select("id, email, name, nickname")
     .eq("id", memberId)
-    .maybeSingle<{ id: string; email: string; name: string; nickname: string | null }>();
+    .maybeSingle<{ id: string; email: string | null; name: string; nickname: string | null }>();
   if (!member) return fail("Member not found.");
+  if (!member.email)
+    return fail("This member has no email — they sign in with their phone number (both fields).");
   const { issueTempPassword } = await import("./password");
-  const res = await issueTempPassword(member);
+  const res = await issueTempPassword({ ...member, email: member.email });
   if (!res.ok) return fail(res.error ?? "Couldn't issue the password.");
   await logAudit(viewer.id, "password_reset", "member", memberId);
+  return { ok: true };
+}
+
+// ---- teams registry (v24): TL team NAMES managed in-app ----
+
+async function syncTeamRegistrySheet(): Promise<void> {
+  const { data } = await db()
+    .from("teams")
+    .select("function_key, name")
+    .eq("type", "Team")
+    .order("function_key")
+    .order("name");
+  const { writeTeamRegistryRows } = await import("@/lib/google/sheets");
+  await writeTeamRegistryRows(
+    ((data ?? []) as { function_key: string; name: string }[])
+  ).catch((e) => console.error("[teams] registry sheet mirror failed:", e));
+}
+
+/** Register a Team-Leader team name (Membership page, EB/admin). */
+export async function addTeamName(
+  functionKey: string,
+  name: string
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!canManageMembership(viewer))
+    return fail("Only the EB and admins manage teams.", "forbidden");
+  const fn = (functionKey ?? "").trim().toUpperCase();
+  const clean = (name ?? "").trim();
+  if (!fn) return fail("Pick the team's function.");
+  if (clean.length < 2) return fail("Type the team's name.");
+  const { error } = await db()
+    .from("teams")
+    .upsert({ type: "Team", function_key: fn, name: clean }, { onConflict: "type,function_key,name" });
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "team_add", "team", null, { fn, name: clean });
+  await syncTeamRegistrySheet();
+  refresh();
+  return { ok: true };
+}
+
+/** Remove a registered team name (members keep their team_name text). */
+export async function deleteTeamName(id: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!canManageMembership(viewer))
+    return fail("Only the EB and admins manage teams.", "forbidden");
+  const { error } = await db().from("teams").delete().eq("id", id).eq("type", "Team");
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "team_delete", "team", id);
+  await syncTeamRegistrySheet();
+  refresh();
   return { ok: true };
 }
 
@@ -2304,23 +2451,90 @@ export async function updateAccountContacts(
   return { ok: true };
 }
 
+// ============================================================ archive bulk (v24)
+
+/** Bring several archived accounts back to active — RBAC per row (TL+ via
+ *  canReassignAccount, exactly like the single Revive button). */
+export async function bulkReviveAccounts(
+  ids: string[]
+): Promise<ActionResult<{ revived: number; failed: number }>> {
+  const viewer = await getViewer();
+  if (!ids?.length) return fail("Nothing selected.");
+  if (ids.length > 50) return fail("Revive at most 50 accounts at a time.");
+  let revived = 0;
+  for (const id of ids) {
+    const account = await loadAccount(id);
+    if (!account || !account.out_of_process) continue;
+    // the single action carries the full revive semantics (RBAC, undo
+    // snapshot, next-step calendar reminder, audit) — never fork the logic
+    const res = await reviveAccount(id);
+    if (res.ok) revived++;
+  }
+  await logAudit(viewer.id, "bulk_revive", "account", null, { count: revived });
+  refresh();
+  return { ok: true, data: { revived, failed: ids.length - revived } };
+}
+
+/** PERMANENTLY delete archived accounts (children included) — VP+ only.
+ *  This frees the names for re-adding; there is no undo outside sandbox. */
+export async function bulkDeleteArchived(
+  ids: string[]
+): Promise<ActionResult<{ deleted: number; failed: number }>> {
+  const viewer = await getViewer();
+  const allowed = viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
+  if (!allowed) return fail("Only VPs, Directors or the LCP delete archived accounts.", "forbidden");
+  // a permanent delete cannot be journaled faithfully (children are gone) —
+  // it has no place in the undo-everything sandbox test view
+  if (viewer.sandbox)
+    return fail("Deleting archived accounts is disabled in the sandbox test view — it can't be undone on exit.");
+  if (!ids?.length) return fail("Nothing selected.");
+  if (ids.length > 50) return fail("Delete at most 50 accounts at a time.");
+  let deleted = 0;
+  for (const id of ids) {
+    const account = await loadAccount(id);
+    // only ARCHIVED accounts inside the viewer's edit scope can be deleted
+    if (!account || !account.out_of_process || !canEditAccount(viewer, account)) continue;
+    // children first; ANY failure aborts THIS account before its row is
+    // touched, so a half-deleted (history-stripped but live) row can't linger
+    const children = ["contact_attempts", "visits", "account_comments", "deals"];
+    let childError = false;
+    for (const table of children) {
+      const { error } = await db().from(table).delete().eq("account_id", id);
+      if (error) {
+        console.error(`[bulk-delete] ${table} for ${id}:`, error.message);
+        childError = true;
+        break;
+      }
+    }
+    if (childError) continue;
+    const { error } = await db().from("accounts").delete().eq("id", id);
+    if (!error) deleted++;
+  }
+  await logAudit(viewer.id, "bulk_delete_archived", "account", null, { count: deleted });
+  refresh();
+  return { ok: true, data: { deleted, failed: ids.length - deleted } };
+}
+
 // ============================================================ B2C podio updates (v23)
 
-/** B2C accounts must be refreshed on Podio every N days. "I updated it" —
- *  stamps now, resets the countdown and clears the pending reminder. */
+const PODIO_UPDATE_FNS = new Set(["IGV", "IGT", "BD", "B2C"]);
+
+/** The account must be refreshed on Podio every N days (v24 — IGV/IGT/BD/B2C).
+ *  "I updated it" stamps now, resets the countdown and clears both reminders. */
 export async function markPodioUpdated(accountId: string): Promise<ActionResult> {
   const viewer = await getViewer();
   const account = await loadAccount(accountId);
   if (!account || !canEditAccount(viewer, account))
     return fail("You are not allowed to edit this account.", "forbidden");
-  if (account.function !== "B2C")
-    return fail("The Podio update cadence is a B2C thing.");
+  if (!PODIO_UPDATE_FNS.has(account.function))
+    return fail("Continuous Podio updates don't apply to this account.");
   await snapshotForUndo("accounts", accountId);
   const { error } = await db()
     .from("accounts")
     .update({
       podio_updated_at: new Date().toISOString(),
       podio_update_notified_at: null,
+      podio_update_second_notified_at: null,
     })
     .eq("id", accountId);
   if (error) return fail(error.message);
@@ -2329,7 +2543,7 @@ export async function markPodioUpdated(accountId: string): Promise<ActionResult>
   return { ok: true };
 }
 
-/** Change how often this B2C account must be refreshed on Podio (days). */
+/** Change how often this account must be refreshed on Podio (days). */
 export async function setPodioUpdateCadence(
   accountId: string,
   everyDays: number
@@ -2338,18 +2552,56 @@ export async function setPodioUpdateCadence(
   const account = await loadAccount(accountId);
   if (!account || !canEditAccount(viewer, account))
     return fail("You are not allowed to edit this account.", "forbidden");
-  if (account.function !== "B2C")
-    return fail("The Podio update cadence is a B2C thing.");
+  if (!PODIO_UPDATE_FNS.has(account.function))
+    return fail("Continuous Podio updates don't apply to this account.");
   const days = Math.round(Number(everyDays));
   if (!Number.isFinite(days) || days < 1 || days > 90)
     return fail("Pick a cadence between 1 and 90 days.");
   await snapshotForUndo("accounts", accountId);
   const { error } = await db()
     .from("accounts")
-    .update({ podio_update_every_days: days })
+    .update({
+      podio_update_every_days: days,
+      // a new cadence starts a fresh reminder cycle — stale stamps otherwise
+      // re-fire the first nag and suppress the second
+      podio_update_notified_at: null,
+      podio_update_second_notified_at: null,
+    })
     .eq("id", accountId);
   if (error) return fail(error.message);
   await logAudit(viewer.id, "podio_cadence", "account", accountId, { days });
+  refresh(accountId);
+  return { ok: true };
+}
+
+/** Turn continuous Podio updates on/off for this account (v24). Turning ON
+ *  restarts the countdown from now. */
+export async function setPodioUpdateEnabled(
+  accountId: string,
+  enabled: boolean
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const account = await loadAccount(accountId);
+  if (!account || !canEditAccount(viewer, account))
+    return fail("You are not allowed to edit this account.", "forbidden");
+  if (!PODIO_UPDATE_FNS.has(account.function))
+    return fail("Continuous Podio updates don't apply to this account.");
+  await snapshotForUndo("accounts", accountId);
+  const { error } = await db()
+    .from("accounts")
+    .update({
+      podio_update_enabled: !!enabled,
+      ...(enabled
+        ? {
+            podio_updated_at: new Date().toISOString(),
+            podio_update_notified_at: null,
+            podio_update_second_notified_at: null,
+          }
+        : {}),
+    })
+    .eq("id", accountId);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "podio_update_toggle", "account", accountId, { enabled });
   refresh(accountId);
   return { ok: true };
 }
@@ -2575,7 +2827,7 @@ export async function createProposalDraft(
     attachmentsNote: attachmentsNote || null,
     memberName: viewer.name,
     memberPhone: viewer.phone,
-    memberEmail: viewer.email,
+    memberEmail: viewer.email ?? "",
   });
 
   // which official PDFs to attach: B2B picks any of the three; BD sends NO
@@ -2741,7 +2993,7 @@ export async function sendBroadcast(
       body: b.body,
       senderName: viewer.nickname || viewer.name,
     });
-    sendEmail({ to: [viewer.email], bcc: targets.map((t) => t.email), ...mail }).catch(
+    sendEmail({ to: [viewer.email || env.gmailSender].filter(Boolean), bcc: targets.map((t) => t.email), ...mail }).catch(
       (e) => console.error("[broadcast] email failed:", e)
     );
   }
@@ -3072,4 +3324,143 @@ export async function runPlanningImport(): Promise<ActionResult<{ cells: number;
       );
     return fail(msg);
   }
+}
+
+// ================================================================== OGT expectation mail
+
+const OGT_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+
+const ogtWorkingDayRow = z.object({
+  days: z.array(z.enum(OGT_DAYS)).min(1, "Pick at least one day in every working-days row."),
+  from: z.string().regex(/^\d{1,2}:\d{2}$/, "Every working-days row needs a from time."),
+  to: z.string().regex(/^\d{1,2}:\d{2}$/, "Every working-days row needs a to time."),
+});
+
+const ogtMailSchema = z.object({
+  /** optional — when given it becomes the draft's To */
+  to: z
+    .string()
+    .trim()
+    .refine((v) => v === "" || EMAIL_RE.test(v), "That hosting-entity email doesn't look valid.")
+    .nullish(),
+  hostingEntity: z.string().trim().min(1, "The hosting entity name is required."),
+  epName: z.string().trim().min(1, "The EP name is required."),
+  hostLcName: z.string().trim().min(1, "The host LC name is required."),
+  epId: z.string().trim().regex(/^\d+$/, "EP ID must be digits only."),
+  oppId: z.string().trim().regex(/^\d+$/, "OPP ID must be digits only."),
+  oppName: z.string().trim().min(1, "The opportunity name is required."),
+  slotStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick the slot start date."),
+  slotEnd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick the slot end date."),
+  workingHours: z.string().trim().min(1, "The working hours are required."),
+  workingDays: z.array(ogtWorkingDayRow).min(1, "Add at least one working-days interval."),
+  workingDaysNote: z.string().trim().nullish(),
+  salary: z.string().trim().nullish(),
+  computerProvided: z.boolean(),
+  accommodationProvided: z.boolean(),
+  accommodationCovered: z.boolean(),
+  transportationProvided: z.boolean(),
+  transportationDetail: z.string().trim().nullish(),
+  accommodationType: z.enum(["Hostel", "Host Family", "Private Apartment"]),
+  accommodationTypeDetail: z.string().trim().nullish(),
+  mealsProvided: z.string().trim().min(1, "Meals Provided is required (write 'None' if none)."),
+});
+
+export type OgtMailInput = z.infer<typeof ogtMailSchema>;
+
+/** "Aug 5, 2026" — how slot dates read inside the expectation email. */
+function ogtDateLabel(iso: string): string {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+/** OGT "Home Entity Expectation Setting Mail": builds the standardized
+ *  pre-approval email to a hosting entity and places it as a ready-to-review
+ *  DRAFT in the VP's OWN Gmail (gmail.compose from their Google sign-in) —
+ *  exactly like the ICX proposal flow. The VP reviews and sends it
+ *  themselves, from their address. OGT leadership (+ LCP/admin) only. */
+export async function createOgtExpectationDraft(input: OgtMailInput): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const allowed =
+    viewer.isAdmin ||
+    viewer.role === "LCP" ||
+    ((viewer.role === "LCVP" || viewer.role === "Director") && viewer.functions.includes("OGT"));
+  if (!allowed) return fail("OGT leadership only.", "forbidden");
+
+  const parsed = ogtMailSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0].message);
+  const d = parsed.data;
+
+  if (d.slotEnd < d.slotStart) return fail("The slot end date can't be before its start date.");
+  if (!d.transportationProvided && !d.transportationDetail?.trim())
+    return fail("Transportation isn't provided — describe the daily cost, duration & method.");
+  if (
+    (d.accommodationType === "Hostel" || d.accommodationType === "Private Apartment") &&
+    !d.accommodationTypeDetail?.trim()
+  )
+    return fail(`${d.accommodationType} — specify the EPs per room & bathroom situation.`);
+
+  if (!viewer.google_refresh_token)
+    return fail(
+      "Your Google access is missing — sign out, then sign in with Google once to grant it (it also powers your calendar reminders)."
+    );
+
+  // canonical Mon→Sun order inside each interval line, whatever the click order
+  const dayLines = d.workingDays.map((row) => {
+    const days = [...new Set(row.days)].sort(
+      (a, b) => OGT_DAYS.indexOf(a) - OGT_DAYS.indexOf(b)
+    );
+    return `${days.join(", ")}: ${row.from}–${row.to}`;
+  });
+
+  const { ogtExpectationEmail } = await import("@/lib/email/templates");
+  const mail = ogtExpectationEmail({
+    hostingEntity: d.hostingEntity,
+    epName: d.epName,
+    hostLcName: d.hostLcName,
+    epId: d.epId,
+    oppId: d.oppId,
+    oppName: d.oppName,
+    slotStartLabel: ogtDateLabel(d.slotStart),
+    slotEndLabel: ogtDateLabel(d.slotEnd),
+    workingHours: d.workingHours,
+    workingDayLines: dayLines,
+    workingDaysNote: d.workingDaysNote ?? null,
+    salary: d.salary ?? null,
+    computerProvided: d.computerProvided,
+    accommodationProvided: d.accommodationProvided,
+    accommodationCovered: d.accommodationCovered,
+    transportationProvided: d.transportationProvided,
+    transportationDetail: d.transportationDetail ?? null,
+    accommodationType: d.accommodationType,
+    accommodationTypeDetail: d.accommodationTypeDetail ?? null,
+    mealsProvided: d.mealsProvided,
+    senderName: viewer.name,
+  });
+
+  try {
+    const { createMemberDraft } = await import("@/lib/google/gmail");
+    const draftId = await createMemberDraft(viewer.google_refresh_token, {
+      to: d.to?.trim() || "", // a draft may start with no recipient — the VP fills it in Gmail
+      subject: mail.subject,
+      html: mail.html,
+    });
+    if (!draftId) return fail("Google didn't accept the draft — try again.");
+  } catch (e) {
+    console.error("[ogt-mail] draft failed:", e);
+    return fail(
+      "Couldn't create the draft. Sign out and sign in with Google again to refresh your access, then retry."
+    );
+  }
+
+  await logAudit(viewer.id, "ogt_mail_draft", "system", null, {
+    epId: d.epId,
+    oppId: d.oppId,
+    epName: d.epName,
+    hostingEntity: d.hostingEntity,
+  });
+  return { ok: true };
 }

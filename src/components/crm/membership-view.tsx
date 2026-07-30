@@ -2,9 +2,11 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { KeyRound, Pencil, Plus, RefreshCw, Search, Table2 } from "lucide-react";
+import { KeyRound, Pencil, Plus, RefreshCw, Search, Table2, Trash2, Users2 } from "lucide-react";
 import { toast } from "sonner";
 import {
+  addTeamName,
+  deleteTeamName,
   resetMemberPassword,
   runMembershipImport,
   runSheetsExport,
@@ -41,7 +43,7 @@ export interface MemberRow {
   id: string;
   name: string;
   nickname: string | null;
-  email: string;
+  email: string | null;
   phone: string | null;
   functions: string[];
   sub_functions: string[];
@@ -53,7 +55,14 @@ export interface MemberRow {
   has_password: boolean;
 }
 
-export function MembershipView({ members }: { members: MemberRow[] }) {
+export interface TeamRegistryRow {
+  id: string;
+  type: string;
+  function_key: string;
+  name: string;
+}
+
+export function MembershipView({ members, teams }: { members: MemberRow[]; teams: TeamRegistryRow[] }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [editing, setEditing] = useState<MemberRow | null>(null);
@@ -66,7 +75,7 @@ export function MembershipView({ members }: { members: MemberRow[] }) {
         [
           m.name,
           m.nickname ?? "",
-          m.email,
+          m.email ?? "",
           m.phone ?? "",
           m.role,
           m.team_name ?? "",
@@ -125,6 +134,8 @@ export function MembershipView({ members }: { members: MemberRow[] }) {
         />
       </div>
 
+      <TeamsCard teams={teams} />
+
       {/* Mobile: cards */}
       <div className="space-y-2.5 md:hidden">
         {shown.map((m) => (
@@ -133,7 +144,7 @@ export function MembershipView({ members }: { members: MemberRow[] }) {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate font-semibold">{m.nickname || m.name}</p>
-                  <p className="truncate text-xs text-muted-foreground">{m.email}</p>
+                  <p className="truncate text-xs text-muted-foreground">{m.email ?? "no email — phone sign-in"}</p>
                 </div>
                 <Pencil className="size-4 shrink-0 text-muted-foreground" />
               </div>
@@ -193,7 +204,7 @@ export function MembershipView({ members }: { members: MemberRow[] }) {
                         <span className="ml-2 text-xs text-muted-foreground">{m.team_name}</span>
                       ) : null}
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{m.email}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{m.email ?? <span className="italic opacity-70">no email — phone sign-in</span>}</TableCell>
                     <TableCell><Badge variant="outline">{m.role}</Badge></TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
@@ -249,8 +260,10 @@ export function MembershipView({ members }: { members: MemberRow[] }) {
         member={editing}
         open={!!editing || adding}
         stakeholderOptions={members
-          .filter((m) => m.is_active && m.id !== editing?.id)
+          // a plain Member is never anyone's manager (v24 rule)
+          .filter((m) => m.is_active && m.id !== editing?.id && m.role !== "Member")
           .map((m) => m.nickname || m.name)}
+        teams={teams}
         onOpenChange={(o) => {
           if (!o) { setEditing(null); setAdding(false); }
         }}
@@ -259,13 +272,123 @@ export function MembershipView({ members }: { members: MemberRow[] }) {
   );
 }
 
+/** The TEAMS REGISTRY (v24): EB names the Team-Leader teams here — the names
+ *  feed the role-filtered team picker in the member dialog and are mirrored
+ *  onto the sheet's Teams tab. EB/MM/Function names still come from the tab. */
+function TeamsCard({ teams }: { teams: TeamRegistryRow[] }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [openCard, setOpenCard] = useState(false);
+  const [fn, setFn] = useState("IGV");
+  const [name, setName] = useState("");
+
+  const tlTeams = teams.filter((t) => t.type === "Team");
+  const namedTeams = teams.filter((t) => t.type !== "Team");
+
+  const add = () =>
+    start(async () => {
+      const res = await addTeamName(fn, name);
+      if (res.ok) { toast.success(`Team "${name}" registered 🏷️`); setName(""); router.refresh(); }
+      else toast.error(res.error);
+    });
+
+  const del = (id: string, teamName: string) =>
+    start(async () => {
+      const res = await deleteTeamName(id);
+      if (res.ok) { toast.success(`Team "${teamName}" removed from the registry`); router.refresh(); }
+      else toast.error(res.error);
+    });
+
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <button
+          type="button"
+          className="flex w-full items-center justify-between text-left"
+          onClick={() => setOpenCard((o) => !o)}
+        >
+          <span className="flex items-center gap-2 text-sm font-semibold">
+            <Users2 className="size-4 text-primary" /> Teams
+            <span className="text-xs font-normal text-muted-foreground">
+              {tlTeams.length} TL team{tlTeams.length === 1 ? "" : "s"} registered
+            </span>
+          </span>
+          <span className="text-xs text-muted-foreground">{openCard ? "Hide" : "Manage"}</span>
+        </button>
+        {openCard ? (
+          <div className="mt-3 space-y-3">
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="grid gap-1">
+                <Label className="text-xs">Function</Label>
+                <Select value={fn} onValueChange={setFn}>
+                  <SelectTrigger className="h-9 w-28"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {LC_FUNCTIONS.map((f) => (
+                      <SelectItem key={f} value={f}>{f}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid flex-1 gap-1">
+                <Label className="text-xs">Team name</Label>
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. The Falcons"
+                  className="h-9"
+                  onKeyDown={(e) => { if (e.key === "Enter" && name.trim()) add(); }}
+                />
+              </div>
+              <Button size="sm" onClick={add} disabled={pending || name.trim().length < 2}>
+                <Plus className="size-4" /> Add team
+              </Button>
+            </div>
+            {tlTeams.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {tlTeams.map((t) => (
+                  <span
+                    key={t.id}
+                    className="inline-flex items-center gap-1 rounded-full border bg-muted px-2.5 py-1 text-xs font-medium"
+                  >
+                    <span className="text-muted-foreground">{t.function_key}</span> {t.name}
+                    <button
+                      type="button"
+                      className="ml-0.5 text-muted-foreground transition-colors hover:text-destructive"
+                      disabled={pending}
+                      onClick={() => del(t.id, t.name)}
+                    >
+                      <Trash2 className="size-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                No TL teams registered yet — add the team names, then assign each
+                member to one from their edit dialog.
+              </p>
+            )}
+            {namedTeams.length > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                From the sheet:{" "}
+                {namedTeams.map((t) => `${t.type}${t.function_key ? ` ${t.function_key}` : ""} = ${t.name}`).join(" · ")}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 function MemberDialog({
-  member, open, onOpenChange, stakeholderOptions,
+  member, open, onOpenChange, stakeholderOptions, teams,
 }: {
   member: MemberRow | null;
   open: boolean;
   onOpenChange: (o: boolean) => void;
   stakeholderOptions: string[];
+  teams: TeamRegistryRow[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -294,9 +417,33 @@ function MemberDialog({
   const fnOptions = [...LC_FUNCTIONS, ...form.functions.filter((f) => !(LC_FUNCTIONS as readonly string[]).includes(f))];
   const sfOptions = [...SUB_FUNCTIONS, ...form.sub_functions.filter((f) => !(SUB_FUNCTIONS as readonly string[]).includes(f))];
 
-  const emailOk = EMAIL_RE.test(form.email.trim());
+  // email is OPTIONAL (v24) — but a member needs email OR phone to sign in
+  const emailOk = !form.email.trim() || EMAIL_RE.test(form.email.trim());
   const phoneOk = !form.phone.trim() || PHONE_RE.test(cleanPhone(form.phone));
-  const ready = form.name.trim().length >= 2 && emailOk && phoneOk;
+  const hasIdentity = !!form.email.trim() || !!form.phone.trim();
+  const ready = form.name.trim().length >= 2 && emailOk && phoneOk && hasIdentity;
+
+  // the team picker offers what makes sense for the ROLE (v24):
+  // Member → a registered TL team · Team Leader → the team they LEAD (their
+  // team_name IS the team's label on every dashboard/drill, so it must stay
+  // the led team, not the MM team) · Coordinator/Director → the function's
+  // MM ("<fn> leaders") team · LCP/LCVP → the EB team
+  const teamChoices = (() => {
+    const fnMatch = (key: string) =>
+      form.functions.length === 0 ||
+      form.functions.includes(key) ||
+      (key === "B2B" && form.functions.some((f) => f === "BD" || f === "B2B"));
+    let list: string[];
+    if (form.role === "Member" || form.role === "Team Leader")
+      list = teams.filter((t) => t.type === "Team" && fnMatch(t.function_key)).map((t) => t.name);
+    else if (form.role === "LCP" || form.role === "LCVP")
+      list = teams.filter((t) => t.type === "EB").map((t) => t.name);
+    else
+      list = teams.filter((t) => t.type === "MM" && fnMatch(t.function_key)).map((t) => t.name);
+    return [...new Set(list)];
+  })();
+  const teamIsCustom = !!form.team_name && !teamChoices.includes(form.team_name);
+  const [customTeam, setCustomTeam] = useState(teamIsCustom);
 
   const save = () =>
     start(async () => {
@@ -304,7 +451,7 @@ function MemberDialog({
         id: member?.id ?? null,
         name: form.name.trim(),
         nickname: form.nickname.trim() || null,
-        email: form.email.trim().toLowerCase(),
+        email: form.email.trim().toLowerCase() || null,
         phone: form.phone ? cleanPhone(form.phone) : null,
         role: form.role,
         functions: form.functions,
@@ -355,15 +502,22 @@ function MemberDialog({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
-              <Label>Email *</Label>
+              <Label>Email {member && member.email ? "" : "(optional)"}</Label>
               <Input
                 value={form.email}
-                disabled={!!member}
+                disabled={!!member?.email}
                 inputMode="email"
+                placeholder="none yet? they sign in with their phone"
                 onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
               />
               {form.email && !emailOk ? (
                 <p className="text-xs text-destructive">Valid email required.</p>
+              ) : null}
+              {member && !member.email && form.email && emailOk ? (
+                <p className="text-xs text-muted-foreground">
+                  Once saved, they should sign in with <b>Google</b> to unlock
+                  everything (their phone login closes).
+                </p>
               ) : null}
             </div>
             <div className="grid gap-1.5">
@@ -397,7 +551,40 @@ function MemberDialog({
             </div>
             <div className="grid gap-1.5">
               <Label>Team name</Label>
-              <Input value={form.team_name} onChange={(e) => setForm((f) => ({ ...f, team_name: e.target.value }))} />
+              {customTeam || teamChoices.length === 0 ? (
+                <div className="flex gap-1.5">
+                  <Input
+                    value={form.team_name}
+                    placeholder="Type the team's name"
+                    onChange={(e) => setForm((f) => ({ ...f, team_name: e.target.value }))}
+                  />
+                  {teamChoices.length > 0 ? (
+                    <Button
+                      type="button" variant="ghost" size="sm" className="shrink-0 px-2 text-xs"
+                      onClick={() => { setCustomTeam(false); setForm((f) => ({ ...f, team_name: "" })); }}
+                    >
+                      List
+                    </Button>
+                  ) : null}
+                </div>
+              ) : (
+                <Select
+                  value={form.team_name || "__none"}
+                  onValueChange={(v) => {
+                    if (v === "__custom") { setCustomTeam(true); return; }
+                    setForm((f) => ({ ...f, team_name: v === "__none" ? "" : v }));
+                  }}
+                >
+                  <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none">—</SelectItem>
+                    {teamChoices.map((n) => (
+                      <SelectItem key={n} value={n}>{n}</SelectItem>
+                    ))}
+                    <SelectItem value="__custom">✏️ Other…</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           </div>
 
