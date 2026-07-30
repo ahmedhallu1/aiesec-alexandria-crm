@@ -1083,7 +1083,7 @@ function getOrInit(map: Map<string, DrillGroup>, key: string, label: string): Dr
 // ------------------------------------------------------------------ teams
 
 export interface Team {
-  type: "EB" | "LB" | "Function" | "MM";
+  type: "EB" | "LB" | "Function" | "Function leaders" | "Team";
   function_key: string; // "" | IGV | IGT | B2B
   name: string;
 }
@@ -1116,9 +1116,9 @@ export async function teamsForViewer(viewer: Viewer): Promise<{ label: string; n
   if (onEb) push("Executive Board", byKey.get("EB:"));
   if (isManager) push("Leadership Body", byKey.get("LB:"));
   for (const fn of fns) push(`${fn} function`, byKey.get(`Function:${fn}`));
-  // the MM ("Function leaders") team: the function's VP/Director + their TLs
+  // the "Function leaders" team: the function's VP/Director + their TLs
   if (["Team Leader", "Coordinator", "Director", "LCVP"].includes(viewer.role))
-    for (const fn of fns) push(`${fn} leaders`, byKey.get(`MM:${fn}`));
+    for (const fn of fns) push(`${fn} leaders`, byKey.get(`Function leaders:${fn}`));
 
   // Team-Leader team (from members.team_name): their own if TL, else their manager's
   if (viewer.role === "Team Leader") push("My team", viewer.team_name);

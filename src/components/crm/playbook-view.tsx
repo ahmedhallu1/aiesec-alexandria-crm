@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v24";
+export const PLAYBOOK_VERSION = "v24.2";
 
 interface Props {
   role: string;
@@ -128,7 +128,7 @@ const SECTIONS: Section[] = [
       <>The <b>Membership sheet</b> is the source of truth for people — edit in the app or in the sheet, both stay in sync (30-min imports + instant write-back).</>,
       <>Visit reports and function-wide visit announcements reach you automatically. The LCP never receives operational email.</>,
       <>Archive powers (Archived tab): remove wrong entries, import pre-CRM blacklists, bulk <b>Back to active</b> (v24 — per-row ↩️ too), and — VP/Director/LCP only — permanent <b>Delete</b>: the account is gone forever and its <b>name is freed</b>, so read the confirmation before you click.</>,
-      <><b>Teams registry</b> (v24, Membership page, EB): register your Team Leaders&apos; team names per function in the <b>Teams card</b> — the member dialog then offers a role-aware team picker (Member → a registered TL team; TL/Coordinator/Director → the function&apos;s &quot;leaders&quot; team; LCP/LCVP → the EB team; custom still possible), and a plain Member can never be set as anyone&apos;s manager. Email is now <b>optional</b> when adding a member — phone-only people sign in with their number in both login fields until you add it.</>,
+      <><b>Teams registry</b> (v24.2, Membership page, EB): the <b>Teams card</b> manages EVERY named team — the 5 types are <b>EB</b> &amp; <b>LB</b> (one each), <b>Function</b> &amp; <b>Function leaders</b> (one per function) and <b>Team</b> (a TL&apos;s team, many per function). Add, rename or remove any of them; the sheet&apos;s Teams tab follows automatically. The member dialog then offers a role-aware team picker (Member → a registered TL team; TL/Coordinator/Director → the function&apos;s &quot;leaders&quot; team; LCP/LCVP → the EB team; custom still possible), and a plain Member can never be set as anyone&apos;s manager. Email is now <b>optional</b> when adding a member — phone-only people sign in with their number in both login fields until you add it.</>,
       <><b>Expectation mail</b> (v24, OGT VPs/Directors + LCP): the sidebar tab builds the standardized <b>&quot;Home Entity Expectation Setting&quot;</b> email — EP/OPP IDs, slot dates, flexible working-days rows, logistics — as a ready-to-review <b>draft in your own Gmail</b>.</>,
     ],
   },

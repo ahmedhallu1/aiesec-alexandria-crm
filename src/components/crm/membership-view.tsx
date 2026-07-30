@@ -2,12 +2,12 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { KeyRound, Pencil, Plus, RefreshCw, Search, Table2, Trash2, Users2 } from "lucide-react";
+import { KeyRound, Pencil, Plus, RefreshCw, Search, Table2, Trash2, Users2, X } from "lucide-react";
 import { toast } from "sonner";
 import {
-  addTeamName,
-  deleteTeamName,
+  deleteTeamEntry,
   resetMemberPassword,
+  saveTeamEntry,
   runMembershipImport,
   runSheetsExport,
   upsertMember,
@@ -272,32 +272,58 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
   );
 }
 
-/** The TEAMS REGISTRY (v24): EB names the Team-Leader teams here — the names
- *  feed the role-filtered team picker in the member dialog and are mirrored
- *  onto the sheet's Teams tab. EB/MM/Function names still come from the tab. */
+/** The TEAMS REGISTRY (v24.2): EB manages EVERY named team here — the
+ *  5 types are EB & LB (one each), Function & Function leaders (one per
+ *  function) and Team (a TL's team — many per function). Add, rename or
+ *  remove; the sheet's Teams tab follows automatically. */
+const TEAM_TYPE_OPTIONS = ["Team", "Function leaders", "Function", "EB", "LB"] as const;
+
 function TeamsCard({ teams }: { teams: TeamRegistryRow[] }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [openCard, setOpenCard] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [type, setType] = useState<string>("Team");
   const [fn, setFn] = useState("IGV");
   const [name, setName] = useState("");
 
-  const tlTeams = teams.filter((t) => t.type === "Team");
-  const namedTeams = teams.filter((t) => t.type !== "Team");
+  const singleType = type === "EB" || type === "LB";
+  const typeLabel = (t: string) => (t === "MM" ? "Function leaders" : t);
 
-  const add = () =>
+  const reset = () => { setEditingId(null); setType("Team"); setFn("IGV"); setName(""); };
+
+  const startEdit = (t: TeamRegistryRow) => {
+    setEditingId(t.id);
+    setType(typeLabel(t.type));
+    setFn(t.function_key || "IGV");
+    setName(t.name);
+  };
+
+  const save = () =>
     start(async () => {
-      const res = await addTeamName(fn, name);
-      if (res.ok) { toast.success(`Team "${name}" registered 🏷️`); setName(""); router.refresh(); }
-      else toast.error(res.error);
+      const res = await saveTeamEntry({ id: editingId, type, functionKey: fn, name });
+      if (res.ok) {
+        toast.success(editingId ? `Team renamed to "${name.trim()}" ✏️` : `Team "${name.trim()}" registered 🏷️`);
+        reset();
+        router.refresh();
+      } else toast.error(res.error);
     });
 
   const del = (id: string, teamName: string) =>
     start(async () => {
-      const res = await deleteTeamName(id);
-      if (res.ok) { toast.success(`Team "${teamName}" removed from the registry`); router.refresh(); }
-      else toast.error(res.error);
+      const res = await deleteTeamEntry(id);
+      if (res.ok) {
+        toast.success(`Team "${teamName}" removed from the registry`);
+        if (editingId === id) reset();
+        router.refresh();
+      } else toast.error(res.error);
     });
+
+  // grouped display, in structure order
+  const groups = TEAM_TYPE_OPTIONS.map((t) => ({
+    type: t,
+    rows: teams.filter((x) => typeLabel(x.type) === t),
+  })).filter((g) => g.rows.length > 0);
 
   return (
     <Card>
@@ -310,7 +336,7 @@ function TeamsCard({ teams }: { teams: TeamRegistryRow[] }) {
           <span className="flex items-center gap-2 text-sm font-semibold">
             <Users2 className="size-4 text-primary" /> Teams
             <span className="text-xs font-normal text-muted-foreground">
-              {tlTeams.length} TL team{tlTeams.length === 1 ? "" : "s"} registered
+              {teams.length} registered
             </span>
           </span>
           <span className="text-xs text-muted-foreground">{openCard ? "Hide" : "Manage"}</span>
@@ -319,68 +345,96 @@ function TeamsCard({ teams }: { teams: TeamRegistryRow[] }) {
           <div className="mt-3 space-y-3">
             <div className="flex flex-wrap items-end gap-2">
               <div className="grid gap-1">
-                <Label className="text-xs">Function</Label>
-                <Select value={fn} onValueChange={setFn}>
-                  <SelectTrigger className="h-9 w-28"><SelectValue /></SelectTrigger>
+                <Label className="text-xs">Type</Label>
+                <Select value={type} onValueChange={setType}>
+                  <SelectTrigger className="h-9 w-40"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {LC_FUNCTIONS.map((f) => (
-                      <SelectItem key={f} value={f}>{f}</SelectItem>
+                    {TEAM_TYPE_OPTIONS.map((t) => (
+                      <SelectItem key={t} value={t}>{t}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid flex-1 gap-1">
+              {!singleType ? (
+                <div className="grid gap-1">
+                  <Label className="text-xs">Function</Label>
+                  <Select value={fn} onValueChange={setFn}>
+                    <SelectTrigger className="h-9 w-28"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {LC_FUNCTIONS.map((f) => (
+                        <SelectItem key={f} value={f}>{f}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
+              <div className="grid min-w-40 flex-1 gap-1">
                 <Label className="text-xs">Team name</Label>
                 <Input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. The Falcons"
+                  placeholder={type === "Team" ? "e.g. The Falcons" : "Team name"}
                   className="h-9"
-                  onKeyDown={(e) => { if (e.key === "Enter" && name.trim()) add(); }}
+                  onKeyDown={(e) => { if (e.key === "Enter" && name.trim().length >= 2) save(); }}
                 />
               </div>
-              <Button size="sm" onClick={add} disabled={pending || name.trim().length < 2}>
-                <Plus className="size-4" /> Add team
+              <Button size="sm" onClick={save} disabled={pending || name.trim().length < 2}>
+                {editingId ? <Pencil className="size-4" /> : <Plus className="size-4" />}
+                {editingId ? "Save" : "Add team"}
               </Button>
+              {editingId ? (
+                <Button variant="ghost" size="sm" onClick={reset} disabled={pending}>
+                  <X className="size-4" />
+                </Button>
+              ) : null}
             </div>
-            {tlTeams.length > 0 ? (
-              <div className="flex flex-wrap gap-1.5">
-                {tlTeams.map((t) => (
-                  <span
-                    key={t.id}
-                    className="inline-flex items-center gap-1 rounded-full border bg-muted px-2.5 py-1 text-xs font-medium"
-                  >
-                    <span className="text-muted-foreground">{t.function_key}</span> {t.name}
-                    <button
-                      type="button"
-                      className="ml-0.5 text-muted-foreground transition-colors hover:text-destructive"
-                      disabled={pending}
-                      onClick={() => del(t.id, t.name)}
-                    >
-                      <Trash2 className="size-3" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            ) : (
+
+            {groups.length === 0 ? (
               <p className="text-xs text-muted-foreground">
-                No TL teams registered yet — add the team names, then assign each
+                No teams registered yet — add the team names, then assign each
                 member to one from their edit dialog.
               </p>
+            ) : (
+              groups.map((g) => (
+                <div key={g.type} className="space-y-1">
+                  <p className="text-xs font-semibold text-muted-foreground">{g.type}</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {g.rows.map((t) => (
+                      <span
+                        key={t.id}
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-full border bg-muted px-2.5 py-1 text-xs font-medium",
+                          editingId === t.id && "border-primary bg-primary/10"
+                        )}
+                      >
+                        {t.function_key ? (
+                          <span className="text-muted-foreground">{t.function_key}</span>
+                        ) : null}
+                        {t.name}
+                        <button
+                          type="button"
+                          className="ml-0.5 text-muted-foreground transition-colors hover:text-primary"
+                          disabled={pending}
+                          onClick={() => startEdit(t)}
+                          title="Edit this team"
+                        >
+                          <Pencil className="size-3" />
+                        </button>
+                        <button
+                          type="button"
+                          className="text-muted-foreground transition-colors hover:text-destructive"
+                          disabled={pending}
+                          onClick={() => del(t.id, t.name)}
+                          title="Remove this team"
+                        >
+                          <Trash2 className="size-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))
             )}
-            {namedTeams.length > 0 ? (
-              <p className="text-xs text-muted-foreground">
-                From the sheet:{" "}
-                {namedTeams
-                  .map(
-                    (t) =>
-                      `${t.type === "MM" ? "Function leaders" : t.type}${
-                        t.function_key && !["EB", "LB"].includes(t.function_key) ? ` ${t.function_key}` : ""
-                      } = ${t.name}`
-                  )
-                  .join(" · ")}
-              </p>
-            ) : null}
           </div>
         ) : null}
       </CardContent>
@@ -446,7 +500,9 @@ function MemberDialog({
     else if (form.role === "LCP" || form.role === "LCVP")
       list = teams.filter((t) => t.type === "EB").map((t) => t.name);
     else
-      list = teams.filter((t) => t.type === "MM" && fnMatch(t.function_key)).map((t) => t.name);
+      list = teams
+        .filter((t) => (t.type === "Function leaders" || t.type === "MM") && fnMatch(t.function_key))
+        .map((t) => t.name);
     return [...new Set(list)];
   })();
   const teamIsCustom = !!form.team_name && !teamChoices.includes(form.team_name);
