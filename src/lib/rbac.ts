@@ -214,6 +214,55 @@ export function canManageMembership(v: Viewer): boolean {
   return isEb(v);
 }
 
+// ------------------------------------------------------------------ OGX (v25)
+
+import type { OgxFunction } from "./types";
+import type { SignupRow } from "./types";
+
+/** Which OGX functions this viewer works: OGT / OGV (functions OR
+ *  sub_functions; LCP + admin see both). */
+export function ogxFunctions(v: Viewer): OgxFunction[] {
+  if (v.isAdmin || v.role === "LCP") return ["OGT", "OGV"];
+  const all = [...(v.functions ?? []), ...(v.sub_functions ?? [])];
+  const out: OgxFunction[] = [];
+  if (all.includes("OGT")) out.push("OGT");
+  if (all.includes("OGV")) out.push("OGV");
+  return out;
+}
+
+export function hasOgxAccess(v: Viewer): boolean {
+  return ogxFunctions(v).length > 0;
+}
+
+/** OGX leaders (VP/Director of the sign-up's function + LCP/admin) own the
+ *  VP-only fields: VP comments, Country, Sub Product, Status, Out of Process. */
+export function canEditSignupVpFields(v: Viewer, s: { fn: OgxFunction }): boolean {
+  if (v.isAdmin || v.role === "LCP") return true;
+  return (
+    (v.role === "LCVP" || v.role === "Director") && ogxFunctions(v).includes(s.fn)
+  );
+}
+
+/** Member-level edits (contact status, interested, comments): the assigned
+ *  member, their Team Leader, the function's VP/Director, LCP/admin. */
+export function canWorkSignup(v: Viewer, s: SignupRow): boolean {
+  if (!ogxFunctions(v).includes(s.fn)) return false;
+  if (canEditSignupVpFields(v, s)) return true;
+  if (s.assigned_to && s.assigned_to === v.id) return true;
+  if (v.role === "Team Leader" && s.assigned_to && v.teamMemberIds.includes(s.assigned_to))
+    return true;
+  return false;
+}
+
+/** Viewing: leaders see the whole function; a TL their team; everyone their
+ *  own + the UNASSIGNED pool (the main view — contact one, claim it). */
+export function canViewSignup(v: Viewer, s: SignupRow): boolean {
+  if (!ogxFunctions(v).includes(s.fn)) return false;
+  if (canEditSignupVpFields(v, s)) return true;
+  if (!s.assigned_to) return true;
+  return canWorkSignup(v, s);
+}
+
 /** Feedback inbox: ONLY the IM director (admin) and the IM coach. */
 export function canSeeFeedbackInbox(v: Viewer): boolean {
   const email = (v.email ?? "").toLowerCase();

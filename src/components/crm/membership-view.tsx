@@ -38,6 +38,7 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import { SortHeader, useTableSort, type SortDir } from "./sort-header";
 
 export interface MemberRow {
   id: string;
@@ -62,6 +63,18 @@ export interface TeamRegistryRow {
   name: string;
 }
 
+// click-to-sort accessors for the members table (v24.3 — universal sorting)
+const MEMBER_SORTERS: Record<string, (m: MemberRow) => string | number | null> = {
+  member: (m) => m.nickname || m.name,
+  email: (m) => m.email,
+  role: (m) => m.role,
+  function: (m) => (m.functions.length ? m.functions.join(", ") : null),
+  sub: (m) => (m.sub_functions.length ? m.sub_functions.join(", ") : null),
+  manager: (m) => m.stakeholder_name,
+  // rank so asc reads active → never signed in → inactive
+  status: (m) => (!m.is_active ? 2 : m.first_login_at ? 0 : 1),
+};
+
 export function MembershipView({ members, teams }: { members: MemberRow[]; teams: TeamRegistryRow[] }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -84,6 +97,26 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
         ].some((v) => v.toLowerCase().includes(needle))
       )
     : members;
+
+  // click a header to sort the (already filtered) list; mobile cards follow
+  const { sorted, sortKey, dir, toggle: toggleSort } = useTableSort(shown, MEMBER_SORTERS);
+  const SortHead = ({
+    field, defaultDir = "asc", children, className,
+  }: {
+    field: string;
+    defaultDir?: SortDir;
+    children: React.ReactNode;
+    className?: string;
+  }) => (
+    <TableHead className={className}>
+      <SortHeader
+        label={children}
+        onClick={() => toggleSort(field, defaultDir)}
+        active={sortKey === field}
+        dir={dir}
+      />
+    </TableHead>
+  );
 
   const importNow = () =>
     start(async () => {
@@ -138,7 +171,7 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
 
       {/* Mobile: cards */}
       <div className="space-y-2.5 md:hidden">
-        {shown.map((m) => (
+        {sorted.map((m) => (
           <Card key={m.id} className={!m.is_active ? "opacity-50" : undefined}>
             <CardContent className="space-y-1.5 p-3.5" onClick={() => setEditing(m)}>
               <div className="flex items-start justify-between gap-2">
@@ -185,18 +218,18 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Member</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Function</TableHead>
-                  <TableHead>Sub function</TableHead>
-                  <TableHead>Manager</TableHead>
-                  <TableHead>Status</TableHead>
+                  <SortHead field="member">Member</SortHead>
+                  <SortHead field="email">Email</SortHead>
+                  <SortHead field="role">Role</SortHead>
+                  <SortHead field="function">Function</SortHead>
+                  <SortHead field="sub">Sub function</SortHead>
+                  <SortHead field="manager">Manager</SortHead>
+                  <SortHead field="status">Status</SortHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {shown.map((m) => (
+                {sorted.map((m) => (
                   <TableRow key={m.id} className={!m.is_active ? "opacity-50" : undefined}>
                     <TableCell className="font-medium">
                       {m.nickname || m.name}

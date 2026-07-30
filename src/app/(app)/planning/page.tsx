@@ -37,10 +37,13 @@ export default async function PlanningPage() {
   // Actuals exist for ICX lanes only — OGX has no signup tracking in Sodio yet.
   const hasIcx = fns.some((f) => !isOgxPlanFn(f));
   const opts = { includeTest: !!viewer.testMode };
+  // v25: a VP/Director sees only THEIR function's MM plans (LCP/admin: all)
+  const mmScope =
+    viewer.isAdmin || viewer.role === "LCP" ? undefined : viewer.functions;
   const [cells, mmPlans, tlPlans, sprintActual, monthActual, quarterActual] = await Promise.all([
     listPlanCells(fns),
-    listMmPlans(),
-    listTlPlans(),
+    listMmPlans(undefined, mmScope),
+    listTlPlans(undefined, mmScope),
     hasIcx ? laneOpensActual(sprint.start, sprint.end, opts) : Promise.resolve(null),
     hasIcx ? laneOpensActual(month.start, month.end, opts) : Promise.resolve(null),
     hasIcx ? laneOpensActual(quarter.start, quarter.end, opts) : Promise.resolve(null),

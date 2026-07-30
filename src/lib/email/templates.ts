@@ -597,14 +597,16 @@ export function periodReportEmail(opts: {
   };
 }
 
-// ------------------------------------------------- OGT expectation setting
+// ------------------------------------------------- OGT/OGV expectation setting
 
-/** OGT "Home Entity Expectation Setting Mail" — sent by an OGT VP to the
+/** "Home Entity Expectation Setting Mail" — sent by an OGT/OGV VP to the
  *  HOSTING entity before approving an EP. Deliberately PLAIN professional
  *  HTML (no branded gradient layout — the recipient is an external AIESEC
- *  entity, not an LC member). NOTE: no "TN Fee" line — that's OGV-only,
- *  removed for OGT on purpose. */
+ *  entity, not an LC member). Variant rule: OGT carries a "Salary (If any)"
+ *  line and NO TN Fee; OGV carries "TN Fee and what it covers" and NO Salary.
+ *  Everything else is the LC's official template wording — do not reword. */
 export function ogtExpectationEmail(opts: {
+  variant: "OGT" | "OGV";
   hostingEntity: string;
   epName: string;
   hostLcName: string;
@@ -618,7 +620,10 @@ export function ogtExpectationEmail(opts: {
   /** rendered interval lines, e.g. "Mon, Tue: 09:00–17:00" */
   workingDayLines: string[];
   workingDaysNote?: string | null;
+  /** OGT only — rendered as "Salary (If any)", empty → N/A */
   salary?: string | null;
+  /** OGV only — rendered as "TN Fee and what it covers" */
+  tnFee?: string | null;
   computerProvided: boolean;
   accommodationProvided: boolean;
   accommodationCovered: boolean;
@@ -630,6 +635,10 @@ export function ogtExpectationEmail(opts: {
   accommodationTypeDetail?: string | null;
   mealsProvided: string;
   senderName: string;
+  /** e.g. "Local Committee Vice President — Outgoing Global Talent, AIESEC in Alexandria" */
+  senderPosition?: string | null;
+  senderPhone?: string | null;
+  senderEmail?: string | null;
 }): { subject: string; html: string } {
   const yn = (v: boolean) => (v ? "yes" : "no");
   const li = (label: string, value: string) =>
@@ -665,7 +674,11 @@ export function ogtExpectationEmail(opts: {
     ${li("Slot End Date", escapeHtml(opts.slotEndLabel))}
     ${li("Working Hours", escapeHtml(opts.workingHours))}
     ${li("Working Days (Highlight if any of them is on weekend)", `<br>${workingDays}`)}
-    ${li("Salary (If any)", escapeHtml(opts.salary?.trim() || "N/A"))}
+    ${
+      opts.variant === "OGT"
+        ? li("Salary (If any)", escapeHtml(opts.salary?.trim() || "N/A"))
+        : li("TN Fee and what it covers", escapeHtml(opts.tnFee?.trim() || ""))
+    }
   </ul>
   <p><b>Logistics:</b></p>
   <ul style="margin:0 0 14px;padding-left:22px;">
@@ -691,7 +704,9 @@ export function ogtExpectationEmail(opts: {
   <p>Please "Reply All" to this mail by confirming the above information. If your mail signature doesn't have your full name, position and LC Name, please write them in your reply.</p>
   <p style="margin-top:22px;">Best regards,<br>
   <b>${escapeHtml(opts.senderName)}</b><br>
-  AIESEC in Alexandria</p>
+  ${escapeHtml(opts.senderPosition?.trim() || "AIESEC in Alexandria")}${
+    opts.senderPhone?.trim() ? `<br>\n  ${escapeHtml(opts.senderPhone.trim())}` : ""
+  }${opts.senderEmail?.trim() ? `<br>\n  ${escapeHtml(opts.senderEmail.trim())}` : ""}</p>
 </div>`;
 
   return {

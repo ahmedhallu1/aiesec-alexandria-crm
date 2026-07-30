@@ -61,7 +61,7 @@ const TEAMS_SEED = [
   ["Function leaders", "IGV", "تملي معاك"],
 ];
 
-function clients(): { sheets: sheets_v4.Sheets; drive: drive_v3.Drive } {
+export function clients(): { sheets: sheets_v4.Sheets; drive: drive_v3.Drive } {
   const missing = requireEnv("serviceAccountKeyBase64", "driveFolderId");
   if (missing) throw new Error(missing);
   const key = JSON.parse(

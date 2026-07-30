@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v24.2";
+export const PLAYBOOK_VERSION = "v25";
 
 interface Props {
   role: string;
@@ -14,6 +14,7 @@ interface Props {
   isB2B: boolean;
   isB2C: boolean;
   isTm: boolean;
+  isOgx: boolean;
 }
 
 interface Section {
@@ -27,7 +28,8 @@ interface Section {
 
 /** Which sections THIS member needs — the playbook renders only these. */
 function sectionsForRole(
-  role: string, isAdmin: boolean, isB2B: boolean, isB2C: boolean, isTm: boolean
+  role: string, isAdmin: boolean, isB2B: boolean, isB2C: boolean, isTm: boolean,
+  isOgx: boolean
 ): Set<string> {
   const mine = new Set(["what", "start", "rules"]);
   if (role === "Member" || role === "Coordinator") mine.add("raising");
@@ -36,6 +38,7 @@ function sectionsForRole(
   if (isB2B) mine.add("b2b");
   if (isB2C) mine.add("b2c-module");
   if (isTm) mine.add("tm");
+  if (isOgx) mine.add("ogx");
   if (isAdmin) { mine.add("im"); mine.add("data"); }
   return mine;
 }
@@ -129,7 +132,7 @@ const SECTIONS: Section[] = [
       <>Visit reports and function-wide visit announcements reach you automatically. The LCP never receives operational email.</>,
       <>Archive powers (Archived tab): remove wrong entries, import pre-CRM blacklists, bulk <b>Back to active</b> (v24 — per-row ↩️ too), and — VP/Director/LCP only — permanent <b>Delete</b>: the account is gone forever and its <b>name is freed</b>, so read the confirmation before you click.</>,
       <><b>Teams registry</b> (v24.2, Membership page, EB): the <b>Teams card</b> manages EVERY named team — the 5 types are <b>EB</b> &amp; <b>LB</b> (one each), <b>Function</b> &amp; <b>Function leaders</b> (one per function) and <b>Team</b> (a TL&apos;s team, many per function). Add, rename or remove any of them; the sheet&apos;s Teams tab follows automatically. The member dialog then offers a role-aware team picker (Member → a registered TL team; TL/Coordinator/Director → the function&apos;s &quot;leaders&quot; team; LCP/LCVP → the EB team; custom still possible), and a plain Member can never be set as anyone&apos;s manager. Email is now <b>optional</b> when adding a member — phone-only people sign in with their number in both login fields until you add it.</>,
-      <><b>Expectation mail</b> (v24, OGT VPs/Directors + LCP): the sidebar tab builds the standardized <b>&quot;Home Entity Expectation Setting&quot;</b> email — EP/OPP IDs, slot dates, flexible working-days rows, logistics — as a ready-to-review <b>draft in your own Gmail</b>.</>,
+      <><b>Expectation mail</b> (v25 — OGT <b>and OGV</b> VPs/Directors + LCP): fill the standardized <b>&quot;Home Entity Expectation Setting&quot;</b> form (OGT has <b>Salary</b>, OGV has <b>TN Fee and what it covers</b>; recipients = the <b>EP email + IR email</b>, with customer.support@aiesec.net.eg always in CC), then <b>review the FINAL email</b> — edit any line right there — and hit <b>Send now</b> (goes out from your own Gmail, with your signature) or save it as a draft.</>,
     ],
   },
   {
@@ -161,6 +164,23 @@ const SECTIONS: Section[] = [
       <>Your dashboard is <b>your own B2C lane</b>: MR · Contacted · Visits · Visits done · Deals, with the leaderboard ranked by <b>Deals</b>.</>,
       <>No proposal emails for B2C — your flow is the visit, Podio and the contract form.</>,
       <><b>Your archive is YOURS</b>: a name the raising crews burned doesn&apos;t block you (different offer, different door) — the add-form even tells you when a name sits in their archive so you walk in informed. Only <b>your own</b> archived B2C names are blocked.</>,
+    ],
+  },
+  {
+    id: "ogx",
+    emoji: "✈️",
+    title: "OGX — the sign-ups module",
+    audience: "OGV & OGT crews",
+    color: "#0CB9C1",
+    points: [
+      <><b>Sign-ups</b> (sidebar) is your workspace: every sign-up from your tracker sheet lives here, <b>two-way synced</b> — the sheet imports every 15 minutes and every edit you make in Sodio lands back on the sheet instantly. Same data, two doors.</>,
+      <>The main view is the <b>🆕 Unassigned pool</b>: open a fresh sign-up, contact them (the WhatsApp/call buttons are right in the row), then hit <b>Claim</b> — it&apos;s yours and your name is on the sheet.</>,
+      <>Views: <b>Unassigned · My sign-ups · My team</b> (Team Leaders) · <b>All</b> (VPs/Directors) · <b>Archived</b>. Members see their own + the pool; TLs their team; leaders everything in their function.</>,
+      <>You edit <b>Contacted</b> (Yes/No), <b>Interested</b> (Yes/No) and <b>comments</b> — everything else (phone, email, program, referral, university…) is the sign-up&apos;s own data, read-only in the details.</>,
+      <>Comments are an <b>organized log</b>: yours land in the sheet&apos;s Comment cell, the VP&apos;s in the VP Comment cell — each entry stamped with the author and time. Assigned/contacted dates stamp themselves.</>,
+      <><b>VP/Director only</b>: VP comments, <b>Country</b> (autocomplete), <b>Sub Product</b> (OGT: GTa/GTe), <b>Status</b> — Parents Approval → Applied → Accepted → <b>Approved</b> — and <b>Out of Process</b> (archives the sign-up with a reason; revivable).</>,
+      <><b>Approved is the MOS</b> 🏆 — accepted by the host entity, paid, contract signed, ready to start the travel process. Your real Approvals count shows in the members directory.</>,
+      <>VPs/Directors: the <b>Expectation mail</b> tab builds the pre-approval &quot;Home Entity Expectation Setting&quot; email — review the final version, edit inline, and send it from your own Gmail (EP + IR in To, customer support in CC, your signature at the end).</>,
     ],
   },
   {
@@ -223,8 +243,8 @@ const SECTIONS: Section[] = [
   },
 ];
 
-export function PlaybookView({ role, isAdmin, isB2B, isB2C, isTm }: Props) {
-  const mine = sectionsForRole(role, isAdmin, isB2B, isB2C, isTm);
+export function PlaybookView({ role, isAdmin, isB2B, isB2C, isTm, isOgx }: Props) {
+  const mine = sectionsForRole(role, isAdmin, isB2B, isB2C, isTm, isOgx);
   // the playbook is DYNAMIC: it renders only what THIS member needs to know
   const sections = SECTIONS.filter((s) => mine.has(s.id));
 
@@ -245,11 +265,11 @@ export function PlaybookView({ role, isAdmin, isB2B, isB2C, isTm }: Props) {
           Alexandria. 💙
         </p>
         <p className="mt-3 max-w-xl text-xs leading-relaxed text-white/75">
-          <b>New in v24:</b> sortable account columns · archive revive &amp;
-          delete · Podio update reminders for every raising function ·
-          phone-only sign-in · &quot;Next week&quot; &amp; &quot;This
-          sprint&quot; shortcuts · avatar creator · WhatsApp ready-to-send
-          opener · bulk-assign heads-up emails · Teams registry · Expectation mail.
+          <b>New in v25:</b> THE OGX MODULE — sign-ups for OGV &amp; OGT,
+          two-way synced with the tracker sheets · claim-from-the-pool flow ·
+          Approved = the OGX MOS · Expectation mail v2 (review, edit, send
+          from your Gmail) · click-to-sort on every table · planning privacy
+          (your plan vs your numbers).
         </p>
         <div className="mt-4 flex items-start gap-2.5 rounded-xl bg-white/10 p-3 text-sm leading-relaxed text-white/90">
           <span className="text-lg">🚶</span>

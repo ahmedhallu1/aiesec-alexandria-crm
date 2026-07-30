@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -25,6 +25,7 @@ import { ContactDialog, type ContactTarget } from "./contact-dialog";
 import { AddAccountDialog, type MemberOption } from "./add-account-dialog";
 import { Hint } from "./hint";
 import { QuickActions } from "./quick-actions";
+import { SortHeader, useTableSort } from "./sort-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -1221,13 +1222,14 @@ export function AccountsView({
 
 // ------------------------------------------------------------------ archive
 
+type ArchivedItem =
+  | { kind: "account"; date: string; row: PipelineRow }
+  | { kind: "manual"; date: string; entry: ManualEntry };
+
 function ArchivedList({
   items, canRemove, canManage, seesOthers, igvOnly, b2cOnly, onOpen,
 }: {
-  items: (
-    | { kind: "account"; date: string; row: PipelineRow }
-    | { kind: "manual"; date: string; entry: ManualEntry }
-  )[];
+  items: ArchivedItem[];
   canRemove: boolean;
   /** TL+ — can bring archived accounts back to active */
   canManage: boolean;
@@ -1243,11 +1245,50 @@ function ArchivedList({
     { mode: "revive" | "delete"; ids: string[]; label: string } | null
   >(null);
 
+  // click-to-sort (v24.3): client-side over the archive items — same
+  // affordance as the active list's headers, no server round-trip
+  const sorters = useMemo<Record<string, (i: ArchivedItem) => string | number | null>>(
+    () => ({
+      date: (i) => i.date ?? null,
+      name: (i) => (i.kind === "account" ? i.row.name : i.entry.name),
+      product: (i) =>
+        i.kind !== "account"
+          ? null
+          : igvOnly
+            ? i.row.project ?? null
+            : b2cOnly
+              ? i.row.account_type ?? null
+              : i.row.function ?? null,
+      reason: (i) =>
+        i.kind === "account" ? i.row.oop_reason ?? null : i.entry.reason ?? null,
+      source: (i) => (i.kind === "account" ? "worked, then archived" : "added manually"),
+    }),
+    [igvOnly, b2cOnly]
+  );
+  const { sorted: sortedItems, sortKey, dir, toggle: toggleSort } = useTableSort(items, sorters);
+  const ArchSortHead = ({
+    field, defaultDir = "asc", children,
+  }: {
+    field: string;
+    defaultDir?: "asc" | "desc";
+    children: React.ReactNode;
+  }) => (
+    <TableHead>
+      <SortHeader
+        label={children}
+        onClick={() => toggleSort(field, defaultDir)}
+        active={sortKey === field}
+        dir={dir}
+      />
+    </TableHead>
+  );
+
   // selection only makes sense on ACCOUNT rows (manual entries have their own ✕)
   const selectable = canManage || canRemove;
   const accountIds = items.flatMap((i) => (i.kind === "account" ? [i.row.id] : []));
   // a filter/search/page change redefines what "selected" means — start over
-  const idsKey = accountIds.join(",");
+  // (order-independent key: re-sorting the same rows must NOT clear it)
+  const idsKey = [...accountIds].sort().join(",");
   useEffect(() => {
     setSelected(new Set());
   }, [idsKey]);
@@ -1306,7 +1347,7 @@ function ArchivedList({
             </CardContent>
           </Card>
         ) : (
-          items.map((item) =>
+          sortedItems.map((item) =>
             item.kind === "account" ? (
               <Card key={item.row.id} onClick={() => onOpen(item.row)}>
                 <CardContent className="space-y-1.5 p-3.5">
@@ -1382,11 +1423,13 @@ function ArchivedList({
                     />
                   </TableHead>
                 ) : null}
-                <TableHead>Archived</TableHead>
-                <TableHead>Account</TableHead>
-                <TableHead>{igvOnly ? "Project" : b2cOnly ? "Type" : "Product"}</TableHead>
-                <TableHead>Reason</TableHead>
-                <TableHead>Source</TableHead>
+                <ArchSortHead field="date" defaultDir="desc">Archived</ArchSortHead>
+                <ArchSortHead field="name">Account</ArchSortHead>
+                <ArchSortHead field="product">
+                  {igvOnly ? "Project" : b2cOnly ? "Type" : "Product"}
+                </ArchSortHead>
+                <ArchSortHead field="reason">Reason</ArchSortHead>
+                <ArchSortHead field="source">Source</ArchSortHead>
                 <TableHead />
               </TableRow>
             </TableHeader>
@@ -1398,7 +1441,7 @@ function ArchivedList({
                   </TableCell>
                 </TableRow>
               ) : (
-                items.map((item) =>
+                sortedItems.map((item) =>
                   item.kind === "account" ? (
                     <TableRow
                       key={item.row.id}

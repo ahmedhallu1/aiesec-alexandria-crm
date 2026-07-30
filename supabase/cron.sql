@@ -52,3 +52,11 @@ select cron.schedule(
   '0 5 * * *',
   $$ select net.http_get(url := '<APP_URL>/api/cron/podio-updates?key=<CRON_SECRET>') $$
 );
+
+-- v25: OGX sign-ups two-way sync — pulls the OGT/OGV tracker tabs every
+-- 15 minutes (Sodio-side edits write back instantly from the app itself).
+select cron.schedule(
+  'signups-import',
+  '*/15 * * * *',
+  $$ select net.http_get(url := '<APP_URL>/api/cron/signups-import?key=<CRON_SECRET>') $$
+);

@@ -10,14 +10,15 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-07-30 · Version: v24.2
+Last updated: 2026-07-31 · Version: v25
 
 ---
 
 ## 1. What this is
 
-**Sodio** — a **100% free** CRM for AIESEC in Alexandria's ICX functions
-(**IGV** & **IGT**), covering the **Raising** process. The brand name is
+**Sodio** — a **100% free** CRM for AIESEC in Alexandria: the ICX functions
+(**IGV** & **IGT** raising, **B2B/BD**, **B2C**) plus — since v25 — the **OGX
+sign-ups module** (OGT & OGV, two-way synced with the LC's tracker sheets). The brand name is
 **Sodio** (shown in the sidebar, tab titles, manifest, emails); the built-in
 AI assistant is **The Blue Man**. Members log accounts, contacts, visits and
 deals; leaders steer with goals, leaderboards and dashboards. The RBAC engine is
@@ -41,7 +42,7 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0018_tl_plans_deal_allocations_unassigned` → `0019_b2c_module` →
 `0020_name_worlds` → `0021_podio_updates_all_fns_email_optional` →
 `0022_team_registry` → `0023_email_unique_fix_phone_identity` →
-`0024_function_leaders_type`.
+`0024_function_leaders_type` → `0025_ogx_signups`.
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
@@ -584,6 +585,59 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-07-31 · v25** — **THE OGX RELEASE.**
+  ① **Sign-ups module** (`/signups`, sidebar "Sign-ups", `hasOgxAccess` =
+  OGT/OGV in functions or subs + LCP/admin; OGX-only members' home "/" now
+  lands there): migration **0025 applied** (`signups` + `signup_comments`,
+  unique `(source, ep_id)`). **Two-way sheet sync** (`src/lib/google/
+  signups.ts`): imports the 4 tracker tabs — OGT "New SUs"/"Old SUs", OGV
+  [Old]"Old"/[New]"Main" (~7.9k rows) — every 15 min (pg_cron `signups-import`
+  scheduled; batched inserts + row-diffing keep runs cheap) AND writes every
+  in-app edit straight back to the row's workflow cells (`writeSignupBack`,
+  row located by EP ID at write time, columns resolved BY HEADER NAME with
+  aliases — trailing spaces/"Intersted"/double-"Status" on OGV Main all
+  handled). Ownership rule: intake data is sheet-authoritative; once a row is
+  touched in Sodio (`sodio_touched`) the workflow fields belong to Sodio.
+  Legacy sheet Comment/VP Comment cells become the log's first entries;
+  Sodio comments are an **organized two-class log** (member/MM → Comment
+  cell, VP → VP Comment cell, each entry stamped author+time); Time Stamp /
+  Assigned date / Contacted date cells stamp automatically. **Views**:
+  Unassigned (the MAIN pool — anyone in the function contacts one and
+  **Claims** it, race-guarded), Mine, My team (TL), All (VP+), Archived
+  (OOP). Member/MM edits: Contacted + Interested (Yes/No) + comments; TL
+  re-assigns within the team; **VP-only**: VP comments, Country (autocomplete
+  from `src/lib/countries.ts`), Sub Product (OGT: GTa/GTe), **Status**
+  (`SIGNUP_STATUSES` = Parents Approval · Applied · Accepted · **Approved** =
+  the OGX MOS) and Out of Process (+reason, revivable — hidden like the
+  archive). Members directory: OGX MOS now shows **real Approvals**
+  (`kpis.signupApprovals`) next to the plan number. RBAC:
+  `ogxFunctions`/`canWorkSignup`/`canViewSignup`/`canEditSignupVpFields` in
+  rbac.ts; reads/mutations re-check server-side; sheet write-back is
+  sandbox-suppressed.
+  ② **Expectation mail v2**: OGT **and OGV** VPs/Directors (+LCP/admin;
+  variant toggle for dual-access) — OGT keeps "Salary (If any)", OGV gets
+  required "TN Fee and what it covers"; recipients = **EP email + IR email**
+  (both required) with **customer.support@aiesec.net.eg always in CC**; new
+  **review step**: the final email renders in an editable (contentEditable)
+  preview with editable subject → **"Send now"** sends from the VP's own
+  Gmail (`sendMemberEmail` via gmail users.messages.send) or "Save as draft
+  instead"; the email ends with the VP's **signature** (name, position —
+  LCVP/Director — Outgoing Global Talent/Volunteer, phone, email). Actions:
+  `previewOgtExpectationMail` / `sendOgtExpectationMail` /
+  `createOgtExpectationDraft` (all take the reviewed subject/html).
+  ③ **Universal table sorting**: new `src/components/crm/sort-header.tsx`
+  (`useTableSort` + `SortHeader`, null-last, Arabic-safe localeCompare) wired
+  into the membership table, the TM members directory (incl. a per-MOS metric
+  sort) and the Archived list (whose selection now survives re-sorting);
+  the sign-ups table sorts server-side like accounts.
+  ④ **Planning privacy**: `/planning` shows a VP/Director only THEIR
+  function's MM/TL plans (`listMmPlans`/`listTlPlans` gained a `memberFns`
+  filter); on dashboards the VP `lanePlan` card is now **leaders-only** — a
+  TL keeps the team card and a planning **Coordinator** now gets their OWN
+  plan vs their own numbers (`planOwnerId` self-scope in `getDashboard`).
+  ⑤ WhatsApp opener is **emoji-free** (the 👋 rendered as � on several
+  devices — removed for good). Playbook v25; the Blue Man teaches all of it.
 
 - **2026-07-30 · v24.2** — Teams registry made REAL + emoji fix.
   ① Migration **0024 applied**: teams type `MM` renamed to its real name
