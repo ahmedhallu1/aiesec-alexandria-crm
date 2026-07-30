@@ -84,21 +84,19 @@ export const B2C_TYPES = ["Courses", "Events", "Student activities"] as const;
 export const B2C_CONTRACT_FORM_URL =
   "https://docs.google.com/forms/d/e/1FAIpQLSd4hhlgs53U2dHxQDaQXJv_sr3lxJd-FXzxrrQColD2uXVp4A/viewform";
 
-/** Default Podio-update cadence for B2C accounts (days) — editable per
- *  account. 10 days per the B2C Director's process. */
-export const B2C_DEFAULT_UPDATE_DAYS = 10;
-
-/** Default Podio-update cadence for the other functions (v24 — the feature
- *  now exists on IGV/IGT/BD too; ON by default for new IGV/B2C/BD accounts). */
+/** Default Podio-update cadence — 14 days for EVERY function (v24.1;
+ *  editable 1–90 per account). The feature exists on IGV/IGT/BD/B2C and is
+ *  ON by default for new IGV/B2C/BD accounts. */
 export const PODIO_UPDATE_DEFAULT_DAYS = 14;
 
 /** The functions that show the "Podio — continuous update" card (v24).
  *  B2B keeps only the classic AMS request card. */
 export const PODIO_UPDATE_FUNCTIONS: AccountFunction[] = ["IGV", "IGT", "BD", "B2C"];
 
-/** Per-function default cadence: B2C runs on 10 days, the rest on 14. */
-export function podioDefaultDays(fn: AccountFunction): number {
-  return fn === "B2C" ? B2C_DEFAULT_UPDATE_DAYS : PODIO_UPDATE_DEFAULT_DAYS;
+/** Per-function default cadence — 14 days across the board (kept as a
+ *  function so a future per-function default is a one-line change). */
+export function podioDefaultDays(_fn: AccountFunction): number {
+  return PODIO_UPDATE_DEFAULT_DAYS;
 }
 
 export const IGV_PROJECTS = [

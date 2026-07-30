@@ -27,11 +27,9 @@ interface ActionItem {
 /** The ready-to-send WhatsApp opener (v24): a short, personal AIESEC intro —
  *  the member just hits send (or edits first). */
 export function waIntroText(viewerName: string, accountName?: string): string {
-  const target = accountName ? ` I'm reaching out about a collaboration with ${accountName}.` : "";
   return (
-    `Hello! 👋 This is ${viewerName} from AIESEC in Alexandria — the world's largest youth-led leadership organization.` +
-    target +
-    ` We connect organizations with talented international young people. When would be a good time for a quick chat?`
+    `Hello! 👋 This is ${viewerName} from AIESEC, the world's largest youth-led organization.` +
+    (accountName ? ` I'm reaching out about a collaboration with ${accountName}.` : "")
   );
 }
 

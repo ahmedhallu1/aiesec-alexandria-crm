@@ -46,11 +46,19 @@ const MEMBERSHIP_HEADERS = [
  *  may hold SEVERAL functions ("B2B, BD") — one teams row is stored per
  *  function so every member matches. */
 const TEAMS_TAB = "Teams";
-const TEAMS_HEADERS = ["Type (EB/LB/Function/MM)", "Function (IGV/IGT/B2B)", "Team Name"];
+// the 5 team types: EB and LB are single teams; Function, Function leaders
+// (stored internally as MM) and Team exist per function / many times
+const TEAMS_HEADERS = [
+  "Type (EB / LB / Function / Function leaders / Team)",
+  "Function (IGV/IGT/B2B…)",
+  "Team Name",
+];
 const TEAMS_SEED = [
-  ["EB", "", "IRIS"],
-  ["Function", "IGT", "فرقة ناجي عطالله"],
-  ["Function", "B2B", "Suits"],
+  ["EB", "EB", "IRIS"],
+  ["LB", "LB", "شماريخ"],
+  ["Function leaders", "IGT", "فرقة ناجي عطالله"],
+  ["Function leaders", "B2B, BD", "Suits"],
+  ["Function leaders", "IGV", "تملي معاك"],
 ];
 
 function clients(): { sheets: sheets_v4.Sheets; drive: drive_v3.Drive } {

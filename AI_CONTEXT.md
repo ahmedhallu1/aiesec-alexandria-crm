@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-07-30 · Version: v24
+Last updated: 2026-07-30 · Version: v24.1
 
 ---
 
@@ -192,7 +192,7 @@ mutation through a `can*` predicate, **server-side**.
   B2C accounts carry ONE **Type** — `B2C_TYPES` = Courses / Events / Student
   activities — stored in `account_type` (no industry, no product/project).
   **Podio continuous updates**: every B2C account must be refreshed on Podio
-  every `podio_update_every_days` days (default `B2C_DEFAULT_UPDATE_DAYS` = 10,
+  every `podio_update_every_days` days (default `PODIO_UPDATE_DEFAULT_DAYS` = 14 since v24.1,
   editable 1–90 on the account's "Podio — continuous update" card, which shows
   the countdown); `markPodioUpdated` stamps `podio_updated_at` and clears
   `podio_update_notified_at`. The daily **podio-updates cron** (05:00 UTC,
@@ -584,6 +584,25 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 
 ## 10. Changelog
 
+- **2026-07-30 · v24.1** — Post-launch polish from Ahmed's test pass.
+  ① **Sortable headers advertise themselves**: hover shows a ghost ↕ arrow
+  dropping in + a muted pill background + press-scale (`SortHead`).
+  ② **Podio default is 14 days for ALL functions** — `podioDefaultDays`
+  returns 14 across the board (`B2C_DEFAULT_UPDATE_DAYS` deleted; existing
+  B2C rows at the old 10-day default were backfilled to 14 in prod).
+  ③ **Bulk-assign heads-up skips self-assignments** (no email/bell when the
+  leader assigns accounts to themself). ④ **WhatsApp opener shortened** per
+  request: "Hello! 👋 This is {name} from AIESEC, the world's largest
+  youth-led organization. I'm reaching out about a collaboration with
+  {account}." ⑤ **"OGT mail" renamed "Expectation mail"** (sidebar, tab
+  title, page hero, Playbook, Blue Man — route stays `/ogt-mail`).
+  ⑥ **Teams structure corrected to the sheet's 5 types** — EB & LB are
+  SINGLE teams, `Function`, `Function leaders` (stored as type `MM`) and
+  `Team` are many (per function): Teams-tab headers/seed rewritten to match
+  the real tab, the Membership Teams card labels MM rows "Function leaders",
+  and the stale seed-era `Function` duplicate rows (Suits / فرقة ناجي
+  عطالله) were deleted from the prod `teams` table.
+
 - **2026-07-30 · v24** — THE 15-ITEM BATCH. ① **Click-to-sort accounts list**
   (`SortHead` headers; `AccountFilters.sort/dir`, whitelist in
   `buildAccountsQuery`, `?sort/&dir` params, page reset on re-sort). ② **B2C-only
@@ -599,8 +618,8 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
   nullable + partial unique index): the card (renamed `PodioUpdateCard`) shows
   on IGV/IGT/BD/B2C with an ON/OFF switch (`setPodioUpdateEnabled` — enabling
   restarts the countdown); **new IGV/B2C/BD accounts start ON, IGT/B2B OFF**
-  (`createAccount`); default cadence **14 days** (`PODIO_UPDATE_DEFAULT_DAYS`,
-  B2C keeps 10 via `podioDefaultDays`); the cron
+  (`createAccount`); default cadence **14 days** (`PODIO_UPDATE_DEFAULT_DAYS`;
+  since v24.1 B2C too); the cron
   (`/api/cron/podio-updates`) now scans `podio_update_enabled=true` across all
   functions, mails the responsible + the FUNCTION's VP/Directors (BD↔B2B
   aliased), and sends a **firmer second reminder one week after the first**
