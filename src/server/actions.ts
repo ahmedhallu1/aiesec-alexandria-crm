@@ -2348,49 +2348,85 @@ export async function resetMemberPassword(memberId: string): Promise<ActionResul
   return { ok: true };
 }
 
-// ---- teams registry (v24): TL team NAMES managed in-app ----
+// ---- teams registry (v24.2): ALL team types managed in-app ----
+
+const TEAM_TYPES = ["EB", "LB", "Function", "Function leaders", "Team"] as const;
+/** EB and LB are SINGLE teams; Function & Function leaders are one per
+ *  function; Team (a TL's team) is many per function. */
+const SINGLE_TEAM_TYPES = new Set(["EB", "LB"]);
+const PER_FN_SINGLE_TYPES = new Set(["Function", "Function leaders"]);
 
 async function syncTeamRegistrySheet(): Promise<void> {
   const { data } = await db()
     .from("teams")
-    .select("function_key, name")
-    .eq("type", "Team")
+    .select("type, function_key, name")
+    .order("type")
     .order("function_key")
     .order("name");
-  const { writeTeamRegistryRows } = await import("@/lib/google/sheets");
-  await writeTeamRegistryRows(
-    ((data ?? []) as { function_key: string; name: string }[])
-  ).catch((e) => console.error("[teams] registry sheet mirror failed:", e));
+  const { writeTeamsTab } = await import("@/lib/google/sheets");
+  await writeTeamsTab(
+    (data ?? []) as { type: string; function_key: string; name: string }[]
+  ).catch((e) => console.error("[teams] tab mirror failed:", e));
 }
 
-/** Register a Team-Leader team name (Membership page, EB/admin). */
-export async function addTeamName(
-  functionKey: string,
-  name: string
-): Promise<ActionResult> {
+/** Add or edit a named team (Membership Teams card, EB/admin). `id` set =
+ *  rename/move that row; unset = create. The Teams tab follows. */
+export async function saveTeamEntry(input: {
+  id?: string | null;
+  type: string;
+  functionKey: string;
+  name: string;
+}): Promise<ActionResult> {
   const viewer = await getViewer();
   if (!canManageMembership(viewer))
     return fail("Only the EB and admins manage teams.", "forbidden");
-  const fn = (functionKey ?? "").trim().toUpperCase();
-  const clean = (name ?? "").trim();
-  if (!fn) return fail("Pick the team's function.");
-  if (clean.length < 2) return fail("Type the team's name.");
-  const { error } = await db()
-    .from("teams")
-    .upsert({ type: "Team", function_key: fn, name: clean }, { onConflict: "type,function_key,name" });
-  if (error) return fail(error.message);
-  await logAudit(viewer.id, "team_add", "team", null, { fn, name: clean });
+  const type = (input.type ?? "").trim();
+  if (!(TEAM_TYPES as readonly string[]).includes(type)) return fail("Pick a valid team type.");
+  const fn = SINGLE_TEAM_TYPES.has(type) ? "" : (input.functionKey ?? "").trim().toUpperCase();
+  if (!SINGLE_TEAM_TYPES.has(type) && !fn) return fail("Pick the team's function.");
+  const name = (input.name ?? "").trim();
+  if (name.length < 2) return fail("Type the team's name.");
+
+  // single-team rules: EB/LB once ever; Function & Function leaders once per fn
+  if (SINGLE_TEAM_TYPES.has(type) || PER_FN_SINGLE_TYPES.has(type)) {
+    let dupQ = db().from("teams").select("id, name").eq("type", type);
+    if (PER_FN_SINGLE_TYPES.has(type)) dupQ = dupQ.eq("function_key", fn);
+    const { data: dupes } = await dupQ.limit(5);
+    const other = ((dupes ?? []) as { id: string; name: string }[]).find(
+      (t) => t.id !== (input.id ?? "")
+    );
+    if (other)
+      return fail(
+        `${type}${PER_FN_SINGLE_TYPES.has(type) ? ` for ${fn}` : ""} already has a team ("${other.name}") — edit that one instead.`
+      );
+  }
+
+  if (input.id) {
+    const { error } = await db()
+      .from("teams")
+      .update({ type, function_key: fn, name })
+      .eq("id", input.id);
+    if (error) return fail(error.message);
+  } else {
+    const { error } = await db()
+      .from("teams")
+      .upsert({ type, function_key: fn, name }, { onConflict: "type,function_key,name" });
+    if (error) return fail(error.message);
+  }
+  await logAudit(viewer.id, input.id ? "team_update" : "team_add", "team", input.id ?? null, {
+    type, fn, name,
+  });
   await syncTeamRegistrySheet();
   refresh();
   return { ok: true };
 }
 
-/** Remove a registered team name (members keep their team_name text). */
-export async function deleteTeamName(id: string): Promise<ActionResult> {
+/** Remove a team from the registry (members keep their team_name text). */
+export async function deleteTeamEntry(id: string): Promise<ActionResult> {
   const viewer = await getViewer();
   if (!canManageMembership(viewer))
     return fail("Only the EB and admins manage teams.", "forbidden");
-  const { error } = await db().from("teams").delete().eq("id", id).eq("type", "Team");
+  const { error } = await db().from("teams").delete().eq("id", id);
   if (error) return fail(error.message);
   await logAudit(viewer.id, "team_delete", "team", id);
   await syncTeamRegistrySheet();

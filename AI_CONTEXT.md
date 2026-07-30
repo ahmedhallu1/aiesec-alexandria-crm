@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-07-30 · Version: v24.1
+Last updated: 2026-07-30 · Version: v24.2
 
 ---
 
@@ -40,7 +40,8 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0016_comment_archive` → `0017_planning_lcfeedback_testmode` →
 `0018_tl_plans_deal_allocations_unassigned` → `0019_b2c_module` →
 `0020_name_worlds` → `0021_podio_updates_all_fns_email_optional` →
-`0022_team_registry` → `0023_email_unique_fix_phone_identity`.
+`0022_team_registry` → `0023_email_unique_fix_phone_identity` →
+`0024_function_leaders_type`.
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
@@ -583,6 +584,21 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-07-30 · v24.2** — Teams registry made REAL + emoji fix.
+  ① Migration **0024 applied**: teams type `MM` renamed to its real name
+  **`Function leaders`** (check constraint now the 5 sheet types; "MM" kept
+  as an import alias). All consumers updated (`teamsForViewer`, member-dialog
+  picker, importTeams). ② **Full team CRUD**: the Membership Teams card now
+  manages EVERY type — add with a Type+Function+Name form, ✏️ edit and 🗑
+  delete each chip, grouped by type; `saveTeamEntry`/`deleteTeamEntry`
+  enforce the structure (EB/LB single, Function & Function leaders one per
+  function, Team many) and `writeTeamsTab` rewrites the whole sheet tab from
+  the DB after every change (the tab is now a mirror of the in-app registry;
+  importTeams also imports `Team` rows and no longer cleanup-deletes
+  siblings of the many-per-function Team type). ③ **WhatsApp 👋 fixed for
+  real**: the emoji is emitted via the ASCII escape `\u{1F44B}` so no
+  re-encoding step can mangle it into �.
 
 - **2026-07-30 · v24.1** — Post-launch polish from Ahmed's test pass.
   ① **Sortable headers advertise themselves**: hover shows a ghost ↕ arrow

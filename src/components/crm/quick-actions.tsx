@@ -28,7 +28,7 @@ interface ActionItem {
  *  the member just hits send (or edits first). */
 export function waIntroText(viewerName: string, accountName?: string): string {
   return (
-    `Hello! 👋 This is ${viewerName} from AIESEC, the world's largest youth-led organization.` +
+    `Hello! \u{1F44B} This is ${viewerName} from AIESEC, the world's largest youth-led organization.` +
     (accountName ? ` I'm reaching out about a collaboration with ${accountName}.` : "")
   );
 }

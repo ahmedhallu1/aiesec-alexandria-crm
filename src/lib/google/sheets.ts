@@ -439,36 +439,39 @@ export async function importTeams(): Promise<number> {
   });
   const rows = (res.data.values ?? []) as string[][];
 
-  // sheet wording → stored type ("Function leaders" = the MM team)
+  // sheet wording → stored type (5 types since v24.2; "MM" is the legacy
+  // alias of "Function leaders")
   const TYPE_ALIASES: Record<string, string> = {
     eb: "EB",
     lb: "LB",
     function: "Function",
-    mm: "MM",
-    functionleaders: "MM",
+    mm: "Function leaders",
+    functionleaders: "Function leaders",
+    team: "Team",
   };
   let count = 0;
   for (const raw of rows) {
     const [typeRaw, fnRaw, nameRaw] = raw;
     const name = (nameRaw ?? "").trim();
     const type = TYPE_ALIASES[(typeRaw ?? "").trim().toLowerCase().replace(/[^a-z]/g, "")];
-    // "Team" rows are intentionally skipped — TL teams live in the in-app
-    // registry (type 'Team' rows managed from the Membership page, v24)
     if (!name || !type) continue;
-    const needsFn = type === "Function" || type === "MM";
+    const needsFn = type === "Function" || type === "Function leaders" || type === "Team";
     // multi-select cells arrive as "B2B, BD" — store one row per function
     const fnKeys = needsFn
       ? [...new Set((fnRaw ?? "").split(/[,;]+/).map((f) => f.trim().toUpperCase()).filter(Boolean))]
       : [""];
     for (const fnKey of fnKeys.length > 0 ? fnKeys : [""]) {
-      // the unique key is (type, function_key, name) since 0022 — keep the
-      // one-name-per-(type,fn) semantics for these types by dropping renames
-      await db()
-        .from("teams")
-        .delete()
-        .eq("type", type)
-        .eq("function_key", fnKey)
-        .neq("name", name);
+      // EB / LB / Function / Function leaders are SINGLE per (type, fn) — a
+      // rename in the sheet replaces the old name. 'Team' is many per
+      // function, so siblings must never be dropped.
+      if (type !== "Team") {
+        await db()
+          .from("teams")
+          .delete()
+          .eq("type", type)
+          .eq("function_key", fnKey)
+          .neq("name", name);
+      }
       await db()
         .from("teams")
         .upsert({ type, function_key: fnKey, name }, { onConflict: "type,function_key,name" });
@@ -478,10 +481,11 @@ export async function importTeams(): Promise<number> {
   return count;
 }
 
-/** Mirrors the in-app TEAM registry (TL team names, v24) onto the Teams tab
- *  as "Team" rows — informational only (the import skips them). Best-effort. */
-export async function writeTeamRegistryRows(
-  teams: { function_key: string; name: string }[]
+/** Rewrites the WHOLE Teams tab from the in-app registry (v24.2 — every
+ *  type is editable in Sodio, so the DB is the source and the tab follows).
+ *  Best-effort: callers .catch() and keep going. */
+export async function writeTeamsTab(
+  teams: { type: string; function_key: string; name: string }[]
 ): Promise<void> {
   if (await sandboxSuppressed("teams tab write-back")) return;
   const id = await ensureSpreadsheet("CRM — Membership", MEMBERSHIP_HEADERS);
@@ -491,16 +495,10 @@ export async function writeTeamRegistryRows(
     spreadsheetId: id,
     range: `'${tab}'!A2:C200`,
   });
-  const rows = (res.data.values ?? []) as string[][];
-  const kept = rows.filter(
-    (r) => (r[0] ?? "").trim().toLowerCase().replace(/[^a-z]/g, "") !== "team"
-  );
-  const next = [
-    ...kept,
-    ...teams.map((t) => ["Team", t.function_key, t.name]),
-  ];
-  // rewrite the block (pad with blanks so removed rows clear)
-  while (next.length < rows.length) next.push(["", "", ""]);
+  const existing = (res.data.values ?? []) as string[][];
+  // EB/LB rows traditionally carry the type in the Function cell too
+  const next: string[][] = teams.map((t) => [t.type, t.function_key || t.type, t.name]);
+  while (next.length < existing.length) next.push(["", "", ""]);
   await sheets.spreadsheets.values.update({
     spreadsheetId: id,
     range: `'${tab}'!A2:C${next.length + 1}`,
