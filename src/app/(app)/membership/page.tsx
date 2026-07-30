@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getViewer, listAllMembers } from "@/server/data";
+import { getViewer, listAllMembers, listTeamsRegistry } from "@/server/data";
 import { canManageMembership } from "@/lib/rbac";
 import { MembershipView } from "@/components/crm/membership-view";
 
@@ -8,10 +8,11 @@ export const metadata = { title: "Membership" };
 export default async function MembershipPage() {
   const viewer = await getViewer();
   if (!canManageMembership(viewer)) redirect("/");
-  const members = await listAllMembers();
+  const [members, teams] = await Promise.all([listAllMembers(), listTeamsRegistry()]);
 
   return (
     <MembershipView
+      teams={teams}
       members={members.map((m) => ({
         id: m.id,
         name: m.name,

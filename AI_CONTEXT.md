@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-07-27 · Version: v23.2
+Last updated: 2026-07-30 · Version: v24
 
 ---
 
@@ -29,7 +29,7 @@ the blueprint for future OGX/other-function modules.
 | Repo | github.com/ahmedhallu1/aiesec-alexandria-crm (private) |
 | Vercel project | `aiesec-alexandria-crm` (scope `ahmedhallu1s-projects`) — deploy with `vercel deploy --prod` |
 | Stack | Next.js 16 (App Router, Turbopack) · React 19 · Tailwind v4 · shadcn/ui · Supabase (Postgres, project `iesrpuuoduxtihuaqfic`) |
-| Auth | Auth.js v5: **FIRST sign-in is Google-only** (grants `calendar` + `gmail.compose`) → onboarding sets a password → afterwards **email OR phone + password**, or Google, all work. **Forgot password emails a fresh password** (`issueTempPassword` in `server/password.ts`); the old password still works until the member changes it (no lockouts) |
+| Auth | Auth.js v5: **FIRST sign-in is Google-only** (grants `calendar` + `gmail.compose`) → onboarding sets a password → afterwards **email OR phone + password**, or Google, all work. **Members with NO email yet (v24) sign in with their phone in BOTH fields** until a password is set; adding their email closes that door (Google once, then password). Deactivated members land on **/inactive**. **Forgot password emails a fresh password** (`issueTempPassword` in `server/password.ts`); the old password still works until the member changes it (no lockouts) |
 | Google | Service account (Sheets sync) · Gmail API from `ahmedhallul@aiesec.net` · Calendar events on each member's own calendar |
 | Cron | Supabase `pg_cron` + `pg_net` → `/api/cron/*` (visit-followups 15 min · membership-import 30 min · sheets-export hourly · goal-reminders daily 06:00 UTC) |
 | Admin | `ADMIN_EMAILS` env (= IM director, treated as LCP) |
@@ -39,7 +39,8 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 → `0003_ops_v2` → `0004_pins_v2` → `0005_deals` → `0006_admin_label` → `0007_visit_scheduled_result` → `0008_notifications_feedback` → `0009_b2b_deals_v9` → `0010_notif_link` → `0011_teams` → `0012_contracts_reminders` → `0013_director_label` → `0014_bd_podio` → `0015_bd_deal_amount` →
 `0016_comment_archive` → `0017_planning_lcfeedback_testmode` →
 `0018_tl_plans_deal_allocations_unassigned` → `0019_b2c_module` →
-`0020_name_worlds`.
+`0020_name_worlds` → `0021_podio_updates_all_fns_email_optional` →
+`0022_team_registry` → `0023_email_unique_fix_phone_identity`.
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
@@ -582,6 +583,93 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-07-30 · v24** — THE 15-ITEM BATCH. ① **Click-to-sort accounts list**
+  (`SortHead` headers; `AccountFilters.sort/dir`, whitelist in
+  `buildAccountsQuery`, `?sort/&dir` params, page reset on re-sort). ② **B2C-only
+  viewers** see a **Type** column instead of Product (`viewer.b2cOnly`, like
+  igvOnly). ③ OOP reasons + **"Closed company" / "No contact info"**.
+  ④ **Archive bulk actions**: select archived account rows → **Back to active**
+  (`bulkReviveAccounts`, TL+ via per-row `canReassignAccount`) or **Delete**
+  (`bulkDeleteArchived`, VP/Director/LCP + `canEditAccount` per row — deletes
+  children then the account, frees the name) — both behind confirm dialogs, plus
+  a per-row ↩️ revive with confirm. ⑤ **Podio continuous updates for ALL raising
+  functions** (migration **0021 applied**: `podio_update_enabled` default false
+  backfilled true for B2C, `podio_update_second_notified_at`, members.email
+  nullable + partial unique index): the card (renamed `PodioUpdateCard`) shows
+  on IGV/IGT/BD/B2C with an ON/OFF switch (`setPodioUpdateEnabled` — enabling
+  restarts the countdown); **new IGV/B2C/BD accounts start ON, IGT/B2B OFF**
+  (`createAccount`); default cadence **14 days** (`PODIO_UPDATE_DEFAULT_DAYS`,
+  B2C keeps 10 via `podioDefaultDays`); the cron
+  (`/api/cron/podio-updates`) now scans `podio_update_enabled=true` across all
+  functions, mails the responsible + the FUNCTION's VP/Directors (BD↔B2B
+  aliased), and sends a **firmer second reminder one week after the first**
+  (once per cycle; `markPodioUpdated` clears both stamps).
+  ⑥ **Phone-only sign-in** (`members.email` NULLABLE, `Member.email:
+  string|null` — every consumer null-guarded): members without an AIESEC email
+  sign in with their **phone in BOTH fields** until a password is set
+  (`okPhoneAsPassword` in authorize); their session key is a synthetic
+  `phone+<digits>@sodio.local` (`phoneSessionKey`/`parsePhoneSessionKey` in
+  types.ts, resolved in `getViewerByEmail`); once the email lands (sheet import
+  ADOPTS the phone-keyed row — no duplicate member) the phone door closes and
+  login says "sign in with Google once"; sheet import/write-back key email-less
+  rows by phone tail (parseSheetRow accepts them, deactivation loop spares
+  them). ⑦ **/inactive screen** (public route in the proxy matcher):
+  deactivated members are routed there from login (probe in
+  `loginWithPassword`), from Google sign-in (`signIn` callback returns the
+  URL), and mid-session (`getRealViewer` → `sessionKeyIsInactiveMember`).
+  ⑧ **Membership**: email OPTIONAL in the editor (locked only once set —
+  adding an email to a phone-only member is the upgrade path) + schema
+  requires email OR phone; **manager rules** — a plain Member can never be a
+  manager (dialog options, `upsertMember` resolution AND import
+  `relinkStakeholders` via `MANAGER_ROLES` all enforce it); **Teams registry**
+  (migration **0022 applied**: teams.type gains 'Team', unique key now
+  (type,function_key,name)): EB registers TL team names on a Membership
+  "Teams" card (`addTeamName`/`deleteTeamName`, mirrored to the sheet's Teams
+  tab as informational "Team" rows via `writeTeamRegistryRows` — import still
+  skips them), and the member dialog's Team field became a **role-aware
+  picker** (Member → registered TL teams of their function · TL/Coordinator/
+  Director → the fn's MM team · LCP/LCVP → EB · "Other…" custom fallback).
+  ⑨ **"Next week"** (+7d) buttons on the Next-step date (account card +
+  contact dialog) and a **"This sprint" chip** (1–15 / 16–EOM) on the
+  dashboard. ⑩ **Avatar creator** ("🎨 Create your own": style/seed/dice/flip/
+  gradient presets via `buildAvatarUrl` in avatars.ts) + **The Blue Man** as a
+  pickable avatar (`/brand/walk.png` whitelisted in `updateAvatar`).
+  ⑪ **Bulk-assign heads-up**: the reassign popup's "Email them about it"
+  toggle → bell + `accountsAssignedEmail` (account list + button) to the new
+  responsible (`bulkReassignAccounts(ids, target, notify)`).
+  ⑫ **WhatsApp ready-to-send opener**: accounts-list WhatsApp quick actions
+  carry `?text=` (`waIntroText` — member name + AIESEC intro + meeting ask).
+  ⑬ **OGT mail tab** (`/ogt-mail`, sidebar + GateClient extra; OGT
+  VPs/Directors + LCP/admin): the "Home Entity Expectation Setting Mail" form
+  (numeric EP/OPP IDs, calendar slot dates rendered "Aug 5, 2026", flexible
+  per-day working-hours rows, logistics with conditional details, NO TN-fee
+  line) → `createOgtExpectationDraft` drops a ready-to-review DRAFT in the
+  VP's own Gmail (`ogtExpectationEmail` template). ⑭ **Launch drafts script
+  rewritten** for v24 (`scripts/draft-announcements.mjs`): B2C launch segments
+  (lead + member), planning-not-goals copy everywhere, split-opens/unassigned
+  bullets, **OGX members get NO draft at all**. ⑮ **32-agent adversarial
+  review → 26 confirmed findings fixed pre-ship**, the big ones: 0021's
+  partial unique index silently broke EVERY members upsert (`ON CONFLICT
+  (email)` can't use a partial index — the 30-min import cron was erroring;
+  **0022 + 0023 applied to prod**: plain UNIQUE constraint restored, unique
+  phone-digits index for email-less members, phone normalization backfill);
+  phone-keyed sessions/import matched by 9-digit TAIL (identity collision —
+  now exact full-digit equality everywhere: `memberByPhoneDigits` in data.ts,
+  findMemberByIdentifier, probeMember, findPhoneKeyed) with phone-duplicate
+  guards in `upsertMember`; sheet import stores `normalizePhone`d values; the
+  email-upgrade write-back fills the member's OLD phone row (no duplicate row
+  → no duplicate member on re-import); mid-session email-landing no longer
+  logout-loops (phone sessions resolve email-ful members too);
+  `bulkReviveAccounts` delegates to `reviveAccount` (calendar reminder +
+  RBAC); `bulkDeleteArchived` is sandbox-refused (undo can't restore a
+  cascade delete), aborts per-account on child-delete errors, and the client
+  chunks select-all into 50s; archive selection resets on filter/page change;
+  the podio cron pages past 1000 rows and fails loudly on stamp errors;
+  cadence edits restart the reminder cycle; bulk-assign email skips the LCP
+  and the toast reports when no email was on file; Team Leaders' team picker
+  offers their LED team (their `team_name` labels every dashboard drill), not
+  the MM team. Playbook v24; the Blue Man teaches all of it.
 
 - **2026-07-27 · v23.2** — ① **Name worlds**: the archive block is per world
   (0020 splits the unique index) — B2C is tested against ALL active accounts

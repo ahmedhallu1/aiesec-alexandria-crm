@@ -1,17 +1,19 @@
 #!/usr/bin/env node
 /**
- * Draft the Sodio launch announcement emails — ONE personalized DRAFT per
+ * Draft the Sodio v24 announcement emails — ONE personalized DRAFT per
  * active member, created in the IM mailbox (GMAIL_SENDER) so Ahmed can review
  * and send them by hand. NOTHING is sent by this script; it only creates
  * Gmail drafts.
  *
- * Two flavors, decided by the SAME rule the app uses to unlock the Raising
- * module (rbac.ts → hasRaisingAccess):
- *   • "launch"     — the member's module is LIVE (IGV raising, IGT raising,
- *                    B2B/BD, or the LCP): a funny, role/function/level-tailored
- *                    tour of what's now theirs + The Blue Man hype.
- *   • "stay-tuned" — module not built yet (TM, OGX, F&L, B2C, CXP, no-module):
- *                    a short "yours is coming" teaser.
+ * Two flavors, decided by the SAME rule the app uses to unlock modules
+ * (rbac.ts v23 → hasRaisingAccess, isB2B, isB2C):
+ *   • "launch"     — the member's module is LIVE: IGV raising, IGT raising,
+ *                    B2B/BD, **B2C (new in v23)**, or the LCP — a funny,
+ *                    role/function/level-tailored tour of what's now theirs.
+ *   • "stay-tuned" — module not built yet (TM, F&L, CXP, no-module): a short
+ *                    "yours is coming" teaser.
+ *   • OGX members (OGV/OGT/OGX) who don't classify as a launch segment
+ *     earlier in the priority order are SKIPPED entirely — no draft.
  * Content differs per (role, function, level). The sender (Ahmed) is skipped.
  *
  * Usage (from the repo root or the worktree — it finds .env.local by walking up):
@@ -73,33 +75,41 @@ for (const [k, v] of [["AUTH_GOOGLE_ID", CLIENT_ID], ["AUTH_GOOGLE_SECRET", CLIE
 }
 if (!DRY && !REFRESH) { console.error("✖ Missing GMAIL_REFRESH_TOKEN — needed to create drafts (use --dry to preview)."); process.exit(1); }
 
-// ── mirror of rbac.ts classification ────────────────────────────────────────
+// ── mirror of rbac.ts classification (v23: B2C is live) ─────────────────────
 const hitB2B = (m) => ["B2B", "BD"].some((x) => (m.functions || []).includes(x) || (m.sub_functions || []).includes(x));
+const hitB2C = (m) => (m.functions || []).includes("B2C") || (m.sub_functions || []).includes("B2C");
 const icxFns = (m) => (m.functions || []).filter((f) => f === "IGV" || f === "IGT");
-const scopeFns = (m) => { const f = icxFns(m); if (f.length || hitB2B(m)) f.push("B2B", "BD"); return [...new Set(f)]; };
+const scopeFns = (m) => {
+  const f = icxFns(m);
+  if (f.length || hitB2B(m)) f.push("B2B", "BD");
+  if (hitB2C(m)) f.push("B2C"); // B2C is its own island (v23)
+  return [...new Set(f)];
+};
 const isMaster = (m) => m.role === "LCP" || ADMINS.includes((m.email || "").toLowerCase());
 const isIcxLead = (m) => (m.role === "LCVP" || m.role === "Director") && scopeFns(m).length > 0;
 const hasRaising = (m) =>
-  isMaster(m) || isIcxLead(m) || hitB2B(m) ||
+  isMaster(m) || isIcxLead(m) || hitB2B(m) || hitB2C(m) ||
   (icxFns(m).length > 0 && (m.sub_functions || []).some((s) => s === "Raising" || s === "ICX"));
 
-/** The segment key drives which body a member gets. */
+/** The segment key drives which body a member gets. Returns null → NO draft
+ *  (OGX members whose launch checks all missed are skipped entirely). */
 function segmentOf(m) {
   if (isMaster(m)) return "lcp";
   if (hitB2B(m)) return m.role === "Director" || m.role === "LCVP" ? "b2b-lead" : m.role === "Team Leader" ? "b2b-tl" : "b2b-member";
   const igv = icxFns(m).includes("IGV"), igt = icxFns(m).includes("IGT");
-  if (hasRaising(m)) {
+  if ((igv || igt) && hasRaising(m)) {
     const fn = igv && igt ? "icx" : igv ? "igv" : "igt";
     if (m.role === "LCVP" || m.role === "Director") return `${fn}-vp`;
     if (m.role === "Team Leader") return `${fn}-tl`;
     return `${fn}-member`;
   }
-  // stay-tuned, function-aware
+  // B2C is LIVE (v23): its own launch segments
+  if (hitB2C(m)) return m.role === "LCVP" || m.role === "Director" ? "b2c-lead" : "b2c-member";
+  // stay-tuned, function-aware — OGX gets nothing at all
   const fnl = [...(m.functions || []), ...(m.sub_functions || [])];
   if (fnl.includes("TM")) return "soon-tm";
-  if (fnl.some((f) => ["OGV", "OGT", "OGX"].includes(f))) return "soon-ogx";
+  if (fnl.some((f) => ["OGV", "OGT", "OGX"].includes(f))) return null; // skip OGX entirely
   if (fnl.some((f) => ["F&L"].includes(f))) return "soon-fl";
-  if (fnl.some((f) => ["B2C"].includes(f))) return "soon-b2c";
   if (fnl.some((f) => ["CXP"].includes(f))) return "soon-cxp";
   return "soon-generic";
 }
@@ -138,8 +148,9 @@ const blueMan = () =>
   `<p style="margin:6px 0;">See the little walking guy in the corner? That's <strong>The Blue Man</strong> — Sodio's built-in AI. Ask him <em>anything</em>, in English or fluent Egyptian Arabic:</p>` +
   ul([
     `"مين الأول في الـ oGV في تركيا دلوقتي؟" — he reads AIESEC <strong>CORE</strong> live, whole world, real time.`,
+    `"فين حساب فلان؟" — he now <strong>searches every account you're allowed to see</strong>, on demand, and opens the right one for you.`,
+    `His answers come with <strong>tap-to-act chips</strong> — tap one and the right popup opens itself, ready to go.`,
     `"How do I book a visit?" — he knows this system better than the person who built it. Probably.`,
-    `"Draft me a proposal for [company]" — and he'll point you to the button that does it.`,
   ]) +
   `<p style="margin:6px 0;color:#5c6b80;font-size:13px;">He only ever sees <em>your</em> data — no peeking outside your scope.</p>`;
 
@@ -147,9 +158,22 @@ const stunners = (extra = []) =>
   h("A few things that'll make you smile") +
   ul([
     `<strong>Proposal emails in one click</strong> — a branded, AIESEC-blue proposal drafts straight into <em>your own Gmail</em>. You just review and hit send.`,
+    `<strong>Live name check</strong> — the add dialog tells you "already here / archived / blacklisted" <em>while you type</em>, before you've filled a single other field.`,
+    `<strong>~3,800 companies</strong> imported from the LC's old sheets are already in there — the list paginates, has a page-size picker, and columns sort on click.`,
+    `<strong>The archive is the blacklist — and it's LC-wide</strong>: anyone can browse every archived name and open it read-only. Burned names still can't sneak back in.`,
     `<strong>It's a real app</strong> — add it to your home screen, dark mode, Arabic-friendly, works on the metro.`,
-    `<strong>The archive is the blacklist</strong> — burned company names can never sneak back in.`,
     ...extra,
+    `<strong>Confetti when you sign a deal</strong> 🎉 — because you earned it.`,
+  ]);
+
+// B2C never sends proposal emails — same brick, minus that bullet, plus the
+// per-world archive twist.
+const b2cStunners = () =>
+  h("A few things that'll make you smile") +
+  ul([
+    `<strong>Live name check</strong> — the add dialog tells you "already here / archived" <em>while you type</em>, before you've filled anything else.`,
+    `<strong>B2C has its own archive world</strong> — the raising crews' blacklist never blocks your names (and yours never blocks theirs). The LC-wide archive is browsable by everyone, read-only.`,
+    `<strong>It's a real app</strong> — add it to your home screen, dark mode, Arabic-friendly, works on the metro.`,
     `<strong>Confetti when you sign a deal</strong> 🎉 — because you earned it.`,
   ]);
 
@@ -168,8 +192,9 @@ const SEG = {
       callout(`<strong>The big idea:</strong> one free CRM that runs the entire ICX <strong>Raising</strong> process — from "just found this company" to "deal signed 🏆" — for everyone, on their phones.`) +
       h("Your command deck, President") +
       ul([
-        `Every function's funnel, live: <strong>MR → Contacted → Visits → Visits done → Deals → Opens</strong>, split by lane (IGV / IGTa / IGTe / B2B) with goals-vs-achieved bars.`,
-        `<strong>Leaderboards that re-sort with an animation</strong> when you tap a column. Yes, we made a spreadsheet fun.`,
+        `Every function's funnel, live: <strong>MR → Contacted → Visits → Visits done → Deals → Opens</strong>, split by lane (IGV / IGTa / IGTe / B2B / B2C) — each lane's goal card is <strong>the plan itself</strong>: the VPs' planning-sheet numbers vs what's actually raised, sprint or month.`,
+        `<strong>~3,800 companies</strong> imported from the LC's old sheets — the actives landed <strong>Unassigned</strong> and your VPs distribute them with bulk reassign. Watch the market get carved up in real time.`,
+        `<strong>Leaderboards that re-sort with an animation</strong> when you tap a column — and when a deal's opens were a group effort, the split credits each member's share.`,
         `<strong>Test view</strong> — become any member for a moment to see <em>exactly</em> what they see. Debugging trust, not accounts.`,
         `<strong>Broadcasts</strong> from the bell 🔔 to the whole LC, one function, or hand-picked people.`,
         `And you never get the visit-reminder spam — Sodio knows the LCP steers, not chases.`,
@@ -179,33 +204,36 @@ const SEG = {
 
   "igv-vp": (m) => ({
     subject: `${m.nick}, your IGV cockpit just opened 🛬`,
-    pre: "Set the IGV goal, watch the whole lane, edit membership in-app.",
+    pre: "Your plan vs raised, the whole lane, membership in-app.",
     body:
       `<p>Yalla ${m.nick} 👋</p>` +
       `<p>The IGV raising machine now has a dashboard, and it's yours to drive.</p>` +
       callout(`<strong>Sodio</strong> is our free CRM for the whole ICX Raising process — one place, on everyone's phone.`) +
       h("What's now yours as IGV VP") +
       ul([
-        `Set the <strong>IGV goal</strong> (month or peak) — progress bars land on your whole crew's dashboards.`,
-        `One <strong>wide leaderboard</strong> of your Members & Coordinators: MR · Contacted · Visits · Done · Deals · Opens, tap any column to re-sort.`,
+        `Nobody "sets goals" in Sodio — <strong>goals come from planning</strong>. Your lane's goal card reads YOUR planning-sheet opens vs what's actually raised, with a sprint / month toggle.`,
+        `Every raising TL <em>and</em> Coordinator files an <strong>opens plan</strong> on first sign-in (and edits it from the profile "My plan" card, per-month actuals included) — a TL's plan becomes the team card on the dashboard.`,
+        `<strong>~3,800 imported companies</strong> — the actives landed <strong>Unassigned</strong>. Filter Responsible → "— Unassigned" and carve up the market with <strong>bulk reassign</strong>.`,
+        `One <strong>wide leaderboard</strong> of your Members & Coordinators: MR · Contacted · Visits · Done · Deals · Opens, tap any column to re-sort — split deals credit each member's share.`,
         `<strong>Edit membership right in the app</strong> — it writes back to the Membership sheet, so "who touched the sheet?" dies today.`,
-        `Every IGV visit your members book lands on <strong>your calendar</strong> too, with the report email.`,
-        `You also see <strong>B2B accounts</strong> — they raise IGV opens for you.`,
+        `Every IGV visit lands on <strong>your calendar</strong> too, with the report email — and you also see <strong>B2B accounts</strong>, since they raise IGV opens for you.`,
       ]) +
       blueMan() + stunners() + openBtn + feedbackPS,
   }),
 
   "igt-vp": (m) => ({
     subject: `${m.nick}, the IGT lane is live — and it splits itself 🧮`,
-    pre: "IGTa + IGTe tracked automatically, plus the feedback inbox is yours.",
+    pre: "IGTa + IGTe tracked automatically, plan vs raised, the feedback inbox.",
     body:
       `<p>Yalla ${m.nick} 👋</p>` +
       `<p>Your IGT raising world now lives in Sodio — and it does the annoying math for you.</p>` +
       callout(`<strong>Sodio</strong> is our free CRM running the whole ICX Raising process in one place.`) +
       h("What's now yours as IGT VP") +
       ul([
-        `Set <strong>IGTa</strong> and <strong>IGTe</strong> goals separately — the All-IGT goal is just the sum, tracked for you.`,
-        `The full <strong>wide leaderboard</strong> for your crew + <strong>in-app membership editing</strong> (writes back to the sheet).`,
+        `Nobody "sets goals" in Sodio — <strong>goals come from planning</strong>. The IGTa and IGTe lane cards read YOUR planning-sheet opens vs what's actually raised (sprint / month toggle); All-IGT is just the sum, tracked for you.`,
+        `Every raising TL <em>and</em> Coordinator files an <strong>opens plan</strong> on first sign-in (editable from the profile "My plan" card, per-month actuals included) — a TL's plan becomes the team card on the dashboard.`,
+        `<strong>~3,800 imported companies</strong> — the actives landed <strong>Unassigned</strong>. Filter Responsible → "— Unassigned" and distribute them with <strong>bulk reassign</strong>.`,
+        `The full <strong>wide leaderboard</strong> for your crew (split deals credit each share) + <strong>in-app membership editing</strong> that writes back to the sheet.`,
         `Every IGT visit lands on <strong>your calendar</strong> with the report email; <strong>B2B accounts</strong> feed your IGT opens too.`,
         `And yes — you + Ahmed are the only two humans who read the <strong>feedback inbox</strong> 🕵️. Handle with care.`,
       ]) +
@@ -214,49 +242,70 @@ const SEG = {
 
   "b2b-lead": (m) => ({
     subject: `${m.nick}, your B2B lane is money — literally 💰`,
-    pre: "Two goals (opens + EGP), the Podio worklist, whole-ICX raising.",
+    pre: "EGP deals, the Podio worklist, your MMs' plans, whole-ICX raising.",
     body:
       `<p>Yalla ${m.nick} 👋</p>` +
       `<p>The Suits now have a proper cockpit — and it counts EGP, not vibes.</p>` +
       callout(`<strong>Sodio</strong> is our free CRM for the entire ICX Raising process. Your crew raises for the <em>whole</em> ICX — opens split across IGV / IGTa / IGTe.`) +
       h(`What's now yours as ${m.role === "Director" ? "B2B & BD Director" : "B2B & BD VP"}`) +
       ul([
-        `Your <strong>own B2B lane</strong>, isolated and yours, with <strong>TWO goals you set</strong>: B2B in <strong>opens</strong> and BD in <strong>EGP money</strong> 💰.`,
+        `Your <strong>own B2B lane</strong>, isolated and yours — the crew sees their world, not the whole ICX noise.`,
+        `<strong>Goals come from planning now</strong>: every one of your MMs — TLs <em>and</em> Coordinators — files an <strong>opens plan</strong> on first sign-in (editable from the profile "My plan" card); a TL's plan is the team card on the dashboard, plan vs raised, month by month.`,
         `<strong>BD deals are measured in money</strong> — record the EGP (+ optional benefits); the account header sums your EGP for you.`,
+        `A bulk deal's opens can be <strong>split across members</strong> right in the Record-deal popup — leaderboards credit each share.`,
         `The <strong>Podio worklist</strong>: accounts pending national submission, a copy-the-name button, request states, and "ask to submit" that pings the owner.`,
         `Proposal emails use the <strong>Talent-Solutions</strong> pitch by default — the whole-programs B2B variant.`,
       ]) +
       blueMan() + stunners() + openBtn + feedbackPS,
   }),
 
+  "b2c-lead": (m) => ({
+    subject: `${m.nick}, the B2C lane is live — and it counts deals, not vibes 🎓`,
+    pre: "Your own deals-centric lane, Podio countdowns, one-tap deals.",
+    body:
+      `<p>Yalla ${m.nick} 👋</p>` +
+      `<p>Courses, events, student activities — your world now has its own lane in Sodio, built around YOUR process, isolated from the raising noise.</p>` +
+      callout(`<strong>Sodio</strong> is our free CRM — and <strong>B2C is now a full module</strong>: your accounts, your lane, your rules.`) +
+      h(`What's now yours as B2C ${m.role === "Director" ? "Director" : "VP"}`) +
+      ul([
+        `Your <strong>own B2C dashboard lane</strong> — deals-centric: MR · Contacted · Visits · Done · <strong>Deals</strong> (no opens anywhere), with the <strong>leaderboard ranked by Deals</strong>.`,
+        `B2C accounts carry one <strong>Type</strong> — Courses / Events / Student activities — no products, no industries, no clutter.`,
+        `<strong>Podio continuous updates</strong>: every account shows a countdown (every 10 days by default, tweakable per account). When it runs out, the reminder lands on the responsible <em>and you</em> — "Updated on Podio" resets the clock. Nothing goes stale on your watch.`,
+        `<strong>Deals are one tap</strong>: the Record-deal popup links the contract Google Form and offers a single "Deal signed" button — no opens, no splits, no amounts, no paperwork in the CRM.`,
+        `<strong>No proposal emails in B2C</strong> — your pitch happens your way; Sodio stays out of it.`,
+      ]) +
+      blueMan() + b2cStunners() + openBtn + feedbackPS,
+  }),
+
   "igv-tl": (m) => ({
     subject: `${m.nick}, your IGV team just got superpowers 🦸`,
-    pre: "Team accounts, a team goal, and visits that remind themselves.",
+    pre: "Team accounts, your filed plan as the team goal, self-reminding visits.",
     body:
       `<p>Yalla ${m.nick} 👋</p>` +
       `<p>Leading an IGV team used to mean chasing people for updates. Not anymore.</p>` +
       callout(`<strong>Sodio</strong> is our free CRM for the whole ICX Raising process — one place, on your team's phones.`) +
       h("What's now yours as an IGV Team Leader") +
       ul([
-        `<strong>Your team's accounts</strong> in one view; pick who's <strong>Responsible</strong> (you or a teammate); set the <strong>team goal</strong>.`,
+        `<strong>Your team's accounts</strong> in one view; pick who's <strong>Responsible</strong> (you or a teammate).`,
+        `Your <strong>team goal = the plan you file</strong>: opens per month of the peak, filed on first sign-in, editable any time from your profile's <strong>"My plan"</strong> card — with per-month actuals next to it. Your Coordinators file theirs too.`,
         `Book a visit → <strong>calendar reminders</strong> (24h + 1h) for the responsible, shared with you and the VP.`,
         `The <strong>+2h "did it happen?"</strong> nudge, and a firmer one a week later if it's still unreported — so nothing rots.`,
-        `A team <strong>leaderboard</strong> so your crew can flex their numbers at each other.`,
+        `A team <strong>leaderboard</strong> so your crew can flex their numbers at each other — and when a deal was a team effort, <strong>split the opens</strong> in the Record-deal popup so everyone's share counts.`,
       ]) +
       blueMan() + stunners() + openBtn + feedbackPS,
   }),
 
   "igt-tl": (m) => ({
     subject: `${m.nick}, ${m.team ? `${m.team} ` : "your IGT team "}now runs on Sodio ⚙️`,
-    pre: "Team accounts, a team goal, self-reminding visits.",
+    pre: "Team accounts, your filed plan as the team goal, self-reminding visits.",
     body:
       `<p>Yalla ${m.nick} 👋</p>` +
       `<p>Your IGT squad just traded the group chat for a real cockpit.</p>` +
       callout(`<strong>Sodio</strong> is our free CRM for the whole ICX Raising process, on everyone's phone.`) +
       h("What's now yours as an IGT Team Leader") +
       ul([
-        `${m.team ? `<strong>${m.team}</strong> gets` : "Your team gets"} its own <strong>goal</strong> and its own <strong>leaderboard</strong>.`,
-        `Your team's IGT accounts in one view; pick the <strong>Responsible</strong>; opens split IGTa + IGTe automatically.`,
+        `${m.team ? `<strong>${m.team}</strong> gets` : "Your team gets"} its own <strong>leaderboard</strong> — and its goal card is <strong>the plan you file</strong>: opens per month of the peak, filed on first sign-in, editable any time from your profile's <strong>"My plan"</strong> card, per-month actuals included. Your Coordinators file theirs too.`,
+        `Your team's IGT accounts in one view; pick the <strong>Responsible</strong>; opens split IGTa + IGTe automatically — and a group-effort deal can <strong>split its opens across members</strong> right in the Record-deal popup.`,
         `Book a visit → <strong>calendar reminders</strong> (24h + 1h), shared with the VP; the <strong>+2h nudge</strong> and a week-later reminder keep visits from rotting.`,
       ]) +
       blueMan() + stunners() + openBtn + feedbackPS,
@@ -264,15 +313,15 @@ const SEG = {
 
   "b2b-tl": (m) => ({
     subject: `${m.nick}, your B2B squad now closes in EGP 💼`,
-    pre: "Money deals, the Podio worklist, whole-ICX raising.",
+    pre: "Money deals, your filed plan as the team goal, the Podio worklist.",
     body:
       `<p>Yalla ${m.nick} 👋</p>` +
       `<p>The Suits' team lane is live — and it speaks money.</p>` +
       callout(`<strong>Sodio</strong> is our free CRM for the whole ICX Raising process. Your crew raises for the <em>whole</em> ICX — opens split across IGV / IGTa / IGTe.`) +
       h("What's now yours as a B2B & BD Team Leader") +
       ul([
-        `Your team's <strong>B2B/BD accounts</strong>; pick the Responsible; set the team goal.`,
-        `<strong>BD deals in EGP</strong> — record the money (+ optional benefits); the account sums it for you.`,
+        `Your team's <strong>B2B/BD accounts</strong>; pick the Responsible — and your <strong>team goal = the plan you file</strong>: opens per month of the peak, filed on first sign-in, editable from your profile's <strong>"My plan"</strong> card with per-month actuals.`,
+        `<strong>BD deals in EGP</strong> — record the money (+ optional benefits); the account sums it for you. A bulk deal's opens can be <strong>split across members</strong> so everyone's share counts.`,
         `The <strong>Podio worklist</strong> to push accounts toward national submission (copy-name, request states, "ask to submit").`,
       ]) +
       blueMan() + stunners() + openBtn + feedbackPS,
@@ -290,7 +339,11 @@ const SEG = {
       ul([
         `Add an account → log every contact → "Visit Scheduled" books it with <strong>calendar reminders</strong> → report it → <strong>Record deal 🏆</strong>.`,
         `Every in-process account keeps a <strong>next step with a date</strong>, so nothing slips.`,
+        `Raised a deal together? The Record-deal popup <strong>splits the opens across members</strong> — the leaderboard credits your share.`,
         `<strong>My numbers</strong> shows your personal KPIs — your own little MOS tracker.`,
+        ...(m.role === "Coordinator"
+          ? [`As a Coordinator you file your own <strong>opens plan</strong> (once, on first sign-in) and track plan vs actuals from your profile's <strong>"My plan"</strong> card.`]
+          : []),
       ]) +
       blueMan() + stunners() + openBtn + feedbackPS,
   }),
@@ -300,14 +353,31 @@ const SEG = {
   "icx-vp": (m) => SEG["igv-vp"](m),
   "icx-tl": (m) => SEG["igv-tl"](m),
 
+  "b2c-member": (m) => ({
+    subject: `${m.nick}, your B2C toolkit is live 🎓`,
+    pre: "Your accounts, Podio countdowns, one-tap deals.",
+    body:
+      `<p>Yalla ${m.nick} 👋</p>` +
+      `<p>Courses, events, student activities — your accounts now live in Sodio, in a lane built just for B2C.</p>` +
+      callout(`<strong>Sodio</strong> is our free CRM — and <strong>B2C is now a full module</strong>, isolated from the raising lanes and shaped around your process.`) +
+      h("Your daily flow") +
+      ul([
+        `Add an account with its <strong>Type</strong> (Courses / Events / Student activities) → log every contact → book visits with <strong>calendar reminders</strong> → <strong>"Deal signed" 🏆</strong>.`,
+        `Deals are <strong>one tap</strong>: the popup links the contract Google Form and a single button records it — no opens, no amounts, no forms inside the CRM.`,
+        `Every account shows a <strong>Podio countdown</strong> (every 10 days by default): hit <strong>"Updated on Podio"</strong> after each refresh and the clock resets — miss it and the reminder pings you <em>and</em> the Director.`,
+        `Your lane's <strong>leaderboard ranks by Deals</strong> — your MOS, front and center.`,
+      ]) +
+      blueMan() + b2cStunners() + openBtn + feedbackPS,
+  }),
+
   // ── stay-tuned ──
   "soon-tm": (m) => ({
     subject: `${m.nick}, your Sodio module is warming up 👀 (peek inside)`,
     pre: "TM directory + Playbook are already live; the full module is next.",
     body:
       `<p>Yalla ${m.nick} 👋</p>` +
-      `<p>You've probably heard the IGV / IGT / B2B crews bragging about their shiny new CRM. Here's the deal: <strong>yours is coming</strong> — and you already get a head start.</p>` +
-      callout(`<strong>Sodio</strong> is our own free CRM. Right now it runs ICX <strong>Raising</strong>; the full <strong>Talent Management</strong> module is next on the runway.`) +
+      `<p>You've probably heard the IGV / IGT / B2B / B2C crews bragging about their shiny new CRM. Here's the deal: <strong>yours is coming</strong> — and you already get a head start.</p>` +
+      callout(`<strong>Sodio</strong> is our own free CRM. Right now it runs ICX <strong>Raising</strong> + <strong>B2C</strong>; the full <strong>Talent Management</strong> module is next on the runway.`) +
       h("You can already peek") +
       ul([
         `The <strong>Members directory</strong> — the whole LC, teams, managers, per-member KPIs, with call / WhatsApp / email shortcuts.`,
@@ -318,30 +388,13 @@ const SEG = {
       button("Peek at Sodio", APP_URL) +
       `<p style="margin:20px 0 0;color:#5c6b80;font-size:13px;">P.S. Pinky promise you'll be the first to know. 🤙</p>`,
   }),
-  "soon-ogx": (m) => ({
-    subject: `${m.nick}, OGX on Sodio is coming — stay tuned 👀`,
-    pre: "The ICX raising crew is live; OGX is high on the list.",
-    body:
-      `<p>Yalla ${m.nick} 👋</p>` +
-      `<p>The ICX raising crews just got a brand-new CRM, and the group chats are <em>loud</em>. Your turn is coming.</p>` +
-      callout(`<strong>Sodio</strong> is our own free CRM. Today it runs ICX <strong>Raising</strong>; <strong>OGX</strong> is a big one and it's high on the build list.`) +
-      h("What you'll get") +
-      ul([
-        `Your whole process in one place, on your phone — no more scattered sheets.`,
-        `<strong>The Blue Man</strong> 🔵 — an AI agent who reads AIESEC CORE live (global rankings, real time) and talks fluent Egyptian Arabic.`,
-        `Goals, leaderboards, calendar reminders, one-click branded emails — the works.`,
-      ]) +
-      `<p style="margin:14px 0 0;">Meanwhile you can sign in, explore the Playbook, and say hi to The Blue Man.</p>` +
-      button("Explore Sodio", APP_URL) +
-      `<p style="margin:20px 0 0;color:#5c6b80;font-size:13px;">P.S. We'll email you the second OGX goes live. 🤙</p>`,
-  }),
   "soon-fl": (m) => ({
     subject: `${m.nick}, Sodio has a seat reserved for F&L 👀`,
-    pre: "ICX raising is live; your finance module is on the plan.",
+    pre: "ICX raising + B2C are live; your finance module is on the plan.",
     body:
       `<p>Yalla ${m.nick} 👋</p>` +
       `<p>The ICX crews are already living in our new CRM. F&L, your module is on the plan.</p>` +
-      callout(`<strong>Sodio</strong> is our own free CRM. Today it runs ICX <strong>Raising</strong>; more functions — yours included — are being built on the same engine.`) +
+      callout(`<strong>Sodio</strong> is our own free CRM. Today it runs ICX <strong>Raising</strong> + <strong>B2C</strong>; more functions — yours included — are being built on the same engine.`) +
       h("What's coming your way") +
       ul([
         `Your workflow in one place, on your phone.`,
@@ -352,31 +405,30 @@ const SEG = {
       button("Explore Sodio", APP_URL) +
       `<p style="margin:20px 0 0;color:#5c6b80;font-size:13px;">P.S. You'll be the first to know. 🤙</p>`,
   }),
-  // soon-b2c / soon-cxp / soon-generic are assigned just below (they reuse
-  // the soonGeneric factory, which is hoisted).
+  // soon-cxp / soon-generic are assigned just below (they reuse the
+  // soonGeneric factory, which is hoisted).
 };
 
 function soonGeneric(fn) {
   return (m) => ({
     subject: `${m.nick}, your Sodio module is on the way 👀`,
-    pre: "ICX raising is live; your module is being built next.",
+    pre: "ICX raising + B2C are live; your module is being built next.",
     body:
       `<p>Yalla ${m.nick} 👋</p>` +
       `<p>The ICX raising crews just got a brand-new CRM and won't stop talking about it. ${fn ? `${fn}, your` : "Your"} module is being built.</p>` +
-      callout(`<strong>Sodio</strong> is our own free CRM. Today it runs ICX <strong>Raising</strong>; more functions are coming on the same engine — yours included.`) +
+      callout(`<strong>Sodio</strong> is our own free CRM. Today it runs ICX <strong>Raising</strong> + <strong>B2C</strong>; more functions are coming on the same engine — yours included.`) +
       h("What you'll get") +
       ul([
         `Your whole process in one place, on your phone.`,
         `<strong>The Blue Man</strong> 🔵 — an AI agent who reads AIESEC CORE live (global, real time) and talks fluent Egyptian Arabic.`,
-        `Goals, leaderboards, calendar reminders, and one-click branded emails.`,
+        `Dashboards, leaderboards, calendar reminders, and one-click branded emails.`,
       ]) +
       `<p style="margin:14px 0 0;">Meanwhile, sign in to explore the Playbook and say hi to The Blue Man.</p>` +
       button("Explore Sodio", APP_URL) +
       `<p style="margin:20px 0 0;color:#5c6b80;font-size:13px;">P.S. We'll email you the moment it's live. 🤙</p>`,
   });
 }
-// resolve the two thunk-wrapped soon variants
-SEG["soon-b2c"] = soonGeneric("B2C");
+// resolve the thunk-wrapped soon variants
 SEG["soon-cxp"] = soonGeneric("CXP");
 SEG["soon-generic"] = soonGeneric(null);
 
@@ -416,6 +468,7 @@ async function main() {
     if (!email) continue;
     if (email === senderLc) continue; // never email the sender/reviewer himself
     const seg = segmentOf(m);
+    if (!seg) continue; // OGX — skipped entirely, no draft
     if (ONLY.length && !ONLY.includes(seg)) continue;
     const ctx = { nick: m.nickname || m.name.split(" ")[0], name: m.name, role: m.role, team: m.team_name };
     const builder = SEG[seg];

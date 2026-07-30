@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v23.2";
+export const PLAYBOOK_VERSION = "v24";
 
 interface Props {
   role: string;
@@ -63,10 +63,13 @@ const SECTIONS: Section[] = [
     points: [
       <>First sign-in is <b>Google only</b> (it grants your calendar reminders + Gmail drafts). Onboarding then sets your password.</>,
       <>After that, sign in with <b>email or phone + password</b>, or Google — whatever you like.</>,
+      <>No AIESEC email yet? (v24) Sign in with your <b>phone number typed in BOTH fields</b> — identifier AND password. Once the EB adds your email that door closes: sign in with <b>Google once</b> to unlock everything, then set a password from your Profile.</>,
+      <>Deactivated members never chase a login loop (v24): a clear <b>&quot;your account is inactive&quot;</b> screen says to contact your manager or the IM team.</>,
       <>Forgot the password? The login page emails you a fresh one instantly. Your old one keeps working until you change it.</>,
       <>Signing in lands you on <b>Accounts</b> — your daily workspace; the Dashboard, Calendar and the rest live in the sidebar.</>,
       <>Meet <b>The Blue Man</b> 🚶 (bottom-right) — he answers questions using your real CRM data and AIESEC sources.</>,
       <>The first-run <b>tour</b> walks you through your workspace. Rewatch it any time from your Profile.</>,
+      <>Make the avatar YOURS (v24): the profile avatar dialog has a <b>🎨 Create your own</b> builder — style, seed text, a dice randomizer, flip, background gradients — and <b>The Blue Man himself</b> is pickable.</>,
     ],
   },
   {
@@ -78,14 +81,17 @@ const SECTIONS: Section[] = [
     points: [
       <><b>Add the account first</b> — the name is checked <b>the moment you type it</b> against every function&apos;s accounts and your function&apos;s archive, so you learn it&apos;s taken BEFORE filling the rest. Bulk import exists for whole research sheets.</>,
       <><b>Log every contact attempt</b> with its result. Picking <b>&quot;Visit Scheduled&quot;</b> books the visit — calendar invite and reminders included.</>,
-      <>Every in-process account carries a <b>next step with a date</b> or a pending visit. Three no-responses → the CRM suggests archiving.</>,
+      <>Every in-process account carries a <b>next step with a date</b> or a pending visit. Three no-responses → the CRM suggests archiving. Setting that date is one tap now (v24): the date fields (account card + Log-contact dialog) have a <b>&quot;Next week&quot;</b> button — +7 days, done.</>,
       <>The <b>Proposal email</b> button builds a branded, AIESEC-blue outreach draft in <b>your own Gmail</b> — review, attach, send.</>,
       <>Two hours after a visit, you (and your TL) get the <b>report-it email</b> — report from it, the top button, or by clicking the pending visit in History. Ignore it a week and the reminder comes back firmer — report it or archive the account.</>,
       <>The <b>Calendar</b> page (sidebar) shows your whole function&apos;s visits, one color per member — see the rhythm, plan around it.</>,
+      <>Your accounts live on Podio too (v24): every raising account has a <b>&quot;Podio — continuous update&quot;</b> card with an ON/OFF switch and a countdown — new IGV accounts start ON (IGT off), every <b>14 days</b> by default (editable 1–90). When it&apos;s due, you and your VP/Director get a bell + email; a week ignored brings a firmer second email. <b>&quot;Updated on Podio&quot;</b> restarts the clock.</>,
       <>Deal signed → <b>Record deal</b> 🏆: opens per product, optional <b>contract upload</b> (any file format — add later from History; the account grows a <b>Contracts</b> button to preview & download them). Need to share the credit? <b>Split the opens</b> between members right in the popup (e.g. 3 to the owner, 3 to whoever helped) — leaderboards count each person&apos;s share.</>,
       <>&quot;Not interested&quot; is a valid result: mark the account <b>Out of Process</b> with its reason — from the account page or the ✕ right on the list. Leaders can <b>Select</b> many accounts and archive or reassign them in one go (reassign only offers people you&apos;re allowed to hand accounts to). The archive IS the blacklist — those names never come back, and (v22.2) <b>everyone can browse the whole archive</b> and open any archived account read-only to see who burned it and why.</>,
       <><b>Comments</b> are numbered per author and can be <b>pinned</b> (they surface on the list) or <b>archived</b> to declutter — archived ones tuck behind an &quot;Archived (n)&quot; toggle on the comments card without changing the numbering.</>,
-      <>On your phone, the little <b>Cards / Compact / Table</b> switcher above the accounts list lets you pick the density you like — it remembers your choice.</>,
+      <>On your phone, the little <b>Cards / Compact / Table</b> switcher above the accounts list lets you pick the density you like — it remembers your choice. On desktop the list sorts itself your way (v24): <b>click any column header</b> — Date added, Account, Product, Status, Contacts, Next step — to sort, click again to flip.</>,
+      <>The <b>WhatsApp quick-action</b> on the list opens <b>ready to send</b> (v24): a prefilled intro with your name, who AIESEC in Alexandria is, and the ask for a chat — review and hit send.</>,
+      <>The dashboard&apos;s filter bar gained a <b>&quot;This sprint&quot;</b> chip next to &quot;This month&quot; (v24) — sprints are half-months: 1–15 and 16–end.</>,
       <><b>Raising Coordinators plan too</b> (v22): on first sign-in Sodio asks for your <b>opens per month</b> of the peak, and the profile&apos;s <b>My plan</b> card lets you update it — with what you actually raised next to each month. Your VP sees it on the Planning board.</>,
     ],
   },
@@ -97,6 +103,8 @@ const SECTIONS: Section[] = [
     color: "#F48924",
     points: [
       <>You see and work <b>your whole team&apos;s accounts</b>, pick the Responsible on each, and can revive archived accounts.</>,
+      <>The <b>Archived tab does bulk</b> (v24): select archived accounts → <b>Back to active</b> returns them to the process with their history intact (after a confirmation), and every row also has a per-row ↩️ revive button. Permanent <b>Delete</b> is VP/Director/LCP only.</>,
+      <>Bulk-reassigning accounts? Tick <b>&quot;Email them about it&quot;</b> (v24) and each new responsible gets a bell + a branded email listing their new accounts, with a button straight to the list.</>,
       <><b>Your plan IS the team goal</b> (v22): on first sign-in Sodio asks for your team&apos;s <b>opens per month</b> of the peak, and the profile&apos;s <b>My plan</b> card lets you update it any time — with each month&apos;s actual next to it. The dashboard&apos;s team card and the Planning board track your team against it. Nobody &quot;sets goals&quot; in Sodio anymore.</>,
       <>OGX &amp; Consideration MMs: on your first sign-in Sodio asks for your <b>6-month plan</b> (applicants · accepted · approvals per month of the peak) — those numbers are your goals, visible to your VP on the Planning board and in the period reports.</>,
       <>You&apos;re on your members&apos; <b>visit follow-up emails</b> (and the week-later &quot;forgotten&quot; nags). A nag means an account is frozen — unfreeze it together.</>,
@@ -114,11 +122,14 @@ const SECTIONS: Section[] = [
       <>Dashboards run per lane: <b>IGV / IGTa / IGTe</b> (All-IGT shows IGTa + IGTe combined).</>,
       <><b>Goals come from planning</b> (v22): the lane goal card shows YOUR planned opens (from the LC&apos;s planning sheet) against what the lane actually raised, per sprint or month. Nothing is set in-app — update the planning sheet and re-import instead.</>,
       <>The <b>Planning</b> tab (v21) carries the term plan from the LC&apos;s planning sheet: opens per month, the consideration funnel per <b>sprint</b> (half-months — 1–15 and 16–end), conversions, quarter totals, and every MM&apos;s filed plan. The dashboard&apos;s product lanes show the current sprint&apos;s plan vs achieved (toggle to month), and the Planning board lists every TL&apos;s and MM&apos;s filed plan.</>,
-      <><b>Unassigned accounts</b> (v22): the old sheets&apos; market research was imported with no owner — filter Responsible → <b>Unassigned</b> and hand them out with reassign / bulk-reassign. Members see an account once it&apos;s theirs.</>,
+      <><b>Unassigned accounts</b> (v22): the old sheets&apos; market research was imported with no owner — filter Responsible → <b>Unassigned</b> and hand them out with reassign / bulk-reassign. Members see an account once it&apos;s theirs. (v24: tick <b>&quot;Email them about it&quot;</b> when bulk-reassigning and each new responsible gets a bell + a branded email listing their new accounts.)</>,
+      <><b>Podio continuous updates cover every raising function now</b> (v24): each account&apos;s card has an ON/OFF switch (new IGV/BD/B2C accounts start ON; IGT/B2B off), cadence <b>14 days</b> by default (B2C keeps 10; editable 1–90). Due accounts bell + email the responsible AND you, once per cycle — with a firmer <b>second email</b> a week later if nothing moves.</>,
       <>Every <b>sprint, month and quarter</b> close, your whole function + the LCP get the <b>period report email</b>: totals, plan-vs-achieved, and a waterfall with every team&apos;s and every person&apos;s numbers.</>,
       <>The <b>Membership sheet</b> is the source of truth for people — edit in the app or in the sheet, both stay in sync (30-min imports + instant write-back).</>,
       <>Visit reports and function-wide visit announcements reach you automatically. The LCP never receives operational email.</>,
-      <>Archive powers: remove wrong entries, import pre-CRM blacklists (Archived tab).</>,
+      <>Archive powers (Archived tab): remove wrong entries, import pre-CRM blacklists, bulk <b>Back to active</b> (v24 — per-row ↩️ too), and — VP/Director/LCP only — permanent <b>Delete</b>: the account is gone forever and its <b>name is freed</b>, so read the confirmation before you click.</>,
+      <><b>Teams registry</b> (v24, Membership page, EB): register your Team Leaders&apos; team names per function in the <b>Teams card</b> — the member dialog then offers a role-aware team picker (Member → a registered TL team; TL/Coordinator/Director → the function&apos;s &quot;leaders&quot; team; LCP/LCVP → the EB team; custom still possible), and a plain Member can never be set as anyone&apos;s manager. Email is now <b>optional</b> when adding a member — phone-only people sign in with their number in both login fields until you add it.</>,
+      <><b>OGT mail</b> (v24, OGT VPs/Directors + LCP): the sidebar tab builds the standardized <b>&quot;Home Entity Expectation Setting&quot;</b> email — EP/OPP IDs, slot dates, flexible working-days rows, logistics — as a ready-to-review <b>draft in your own Gmail</b>.</>,
     ],
   },
   {
@@ -133,6 +144,7 @@ const SECTIONS: Section[] = [
       <>Your dashboard is <b>your own B2B lane</b>; your TLs&apos; filed plans are the team goals (v22 — nothing is set in-app). IGV/IGT VPs & Directors also see the B2B lane, because you raise for them.</>,
       <><b>Podio worklist</b> (MMs & Director/VP): the &quot;Podio pending&quot; filter lists accounts not yet requested — copy names for the form, set the request state inline, or <b>Ask to submit</b>: the owner gets an in-app notification and the account pins to the top of their list until they act.</>,
       <><b>BD deals are measured in MONEY</b>: recording a deal on a BD account asks for the <b>amount (EGP)</b> + other benefits — opens are optional extras. The account header and Drive sheet show the EGP totals.</>,
+      <>Podio isn&apos;t only the submission worklist anymore (v24): every account carries a <b>&quot;Podio — continuous update&quot;</b> card — new <b>BD accounts start ON</b>, B2B off, every <b>14 days</b> by default (editable 1–90). Due → bell + email to the owner + your VP/Director; a week ignored → a firmer second email; <b>&quot;Updated on Podio&quot;</b> resets it.</>,
       <>Proposal emails: B2B accounts get the <b>all-programs variant</b> (aiesec.org/partners); <b>BD accounts get the Talent-Solutions pitch</b> (aiesec.org.eg/partner.html) with no ready-made attachments.</>,
     ],
   },
@@ -144,7 +156,7 @@ const SECTIONS: Section[] = [
     color: "#C464D9",
     points: [
       <>Your accounts work like raising accounts — <b>add → contact → visit → deal</b> — but each carries a single <b>Type</b>: <b>Courses / Events / Student activities</b> (no products, no industries).</>,
-      <><b>Podio is your live database</b>: every B2C account must be refreshed on Podio <b>every N days</b> (default 10 — adjustable per account). The account page shows the <b>countdown</b>; when the date arrives, you AND the B2C VP/Director get a bell + email. After refreshing, hit <b>&quot;Updated on Podio&quot;</b> — the countdown restarts.</>,
+      <><b>Podio is your live database</b>: every B2C account must be refreshed on Podio <b>every N days</b> (default 10 — adjustable per account). The account page shows the <b>countdown</b>; when the date arrives, you AND the B2C VP/Director get a bell + email. After refreshing, hit <b>&quot;Updated on Podio&quot;</b> — the countdown restarts. (v24: the card gained an <b>ON/OFF switch</b> — new B2C accounts start ON — and a due account still untouched a week after the first reminder gets a firmer <b>second email</b>.)</>,
       <><b>Deals carry no details</b> — no opens, no amounts. Fill the official <b>contract form</b> (linked right in the popup), then hit <b>Deal signed</b>. Your MOS is the number of deals.</>,
       <>Your dashboard is <b>your own B2C lane</b>: MR · Contacted · Visits · Visits done · Deals, with the leaderboard ranked by <b>Deals</b>.</>,
       <>No proposal emails for B2C — your flow is the visit, Podio and the contract form.</>,
@@ -231,6 +243,13 @@ export function PlaybookView({ role, isAdmin, isB2B, isB2C, isTm }: Props) {
           else. It lives with the system, is updated with <b>every release</b>,
           and is written to be handed to the next generations of AIESEC in
           Alexandria. 💙
+        </p>
+        <p className="mt-3 max-w-xl text-xs leading-relaxed text-white/75">
+          <b>New in v24:</b> sortable account columns · archive revive &amp;
+          delete · Podio update reminders for every raising function ·
+          phone-only sign-in · &quot;Next week&quot; &amp; &quot;This
+          sprint&quot; shortcuts · avatar creator · WhatsApp ready-to-send
+          opener · bulk-assign heads-up emails · Teams registry · OGT mail.
         </p>
         <div className="mt-4 flex items-start gap-2.5 rounded-xl bg-white/10 p-3 text-sm leading-relaxed text-white/90">
           <span className="text-lg">🚶</span>

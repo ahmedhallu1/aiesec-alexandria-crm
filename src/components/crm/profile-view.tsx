@@ -4,7 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import Link from "next/link";
-import { Check, Eye, KeyRound, Loader2, Lock, Mail, MessageSquareHeart, Phone, Sparkles, Target, Upload, Users, UsersRound } from "lucide-react";
+import { Check, ChevronDown, Dices, Eye, FlipHorizontal2, KeyRound, Loader2, Lock, Mail, MessageSquareHeart, Phone, Sparkles, Target, Upload, Users, UsersRound } from "lucide-react";
 import { changePassword, startViewAs, stopViewAs, updateAvatar, updateProfile } from "@/server/actions";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -15,7 +15,10 @@ import { TlPlanForm } from "./tl-plan-form";
 import { MmPlanForm } from "./mm-plan-form";
 import { WhatsAppIcon } from "./icons";
 import { Hint } from "./hint";
-import { avatarChoices } from "@/lib/avatars";
+import {
+  AVATAR_STYLE_LABELS, AVATAR_STYLES, avatarChoices, BLUE_MAN_AVATAR,
+  buildAvatarUrl, randomAvatarSeed, type AvatarStyle,
+} from "@/lib/avatars";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -381,15 +384,17 @@ export function ProfileView({
                       </span>
                     </p>
                     <p className="truncate text-xs text-muted-foreground">
-                      {p.team_name ? `${p.team_name} · ` : ""}{p.email}
+                      {p.team_name ? `${p.team_name} · ` : ""}{p.email ?? "no email"}
                     </p>
                   </div>
                   <span className="flex shrink-0 items-center gap-1">
-                    <Hint label={`Email ${p.nickname || p.name}`}>
-                      <a className={btn} href={`mailto:${p.email}`} aria-label="Email">
-                        <Mail className="size-3.5" />
-                      </a>
-                    </Hint>
+                    {p.email ? (
+                      <Hint label={`Email ${p.nickname || p.name}`}>
+                        <a className={btn} href={`mailto:${p.email}`} aria-label="Email">
+                          <Mail className="size-3.5" />
+                        </a>
+                      </Hint>
+                    ) : null}
                     {p.phone ? (
                       <>
                         <Hint label={`Call ${p.phone}`}>
@@ -593,6 +598,41 @@ function AvatarDialog({
   const [busy, setBusy] = useState(false);
   const [pending, start] = useTransition();
 
+  // "🎨 Create your own" — build a DiceBear avatar from style/seed/flip/bg
+  const [creatorOpen, setCreatorOpen] = useState(false);
+  const [style, setStyle] = useState<AvatarStyle>("adventurer");
+  const [seed, setSeed] = useState("");
+  const [flip, setFlip] = useState(false);
+  const [bg, setBg] = useState("b6e3f4,c0aede");
+  // gradient pairs are hex values WITHOUT '#' (DiceBear's format)
+  const bgPresets: { label: string; value: string }[] = [
+    { label: "Sky", value: "b6e3f4,c0aede" },
+    { label: "Peach", value: "ffd5dc,ffdfbf" },
+    { label: "Mint", value: "c8f7c5,b6e3f4" },
+    { label: "None", value: "" },
+  ];
+  const creatorUrl = buildAvatarUrl(style, seed.trim() || "Sodio", {
+    flip,
+    backgroundColor: bg || undefined,
+  });
+  /** Change a creator option AND move the selection with it — tweaking means
+   *  "I want this one", so the existing save button just works. */
+  const updateCreator = (
+    patch: Partial<{ style: AvatarStyle; seed: string; flip: boolean; bg: string }>
+  ) => {
+    const next = { style, seed, flip, bg, ...patch };
+    if (patch.style !== undefined) setStyle(patch.style);
+    if (patch.seed !== undefined) setSeed(patch.seed);
+    if (patch.flip !== undefined) setFlip(patch.flip);
+    if (patch.bg !== undefined) setBg(patch.bg);
+    setSelected(
+      buildAvatarUrl(next.style, next.seed.trim() || "Sodio", {
+        flip: next.flip,
+        backgroundColor: next.bg || undefined,
+      })
+    );
+  };
+
   const onUpload = async (file: File) => {
     if (!file.type.startsWith("image/")) {
       toast.error("Pick an image file (png, jpg, webp).");
@@ -694,10 +734,154 @@ function AvatarDialog({
             </div>
           </div>
 
-          {/* Fun characters (the first is a classic bearded one) */}
+          {/* Build your own DiceBear character */}
+          <div>
+            <button
+              type="button"
+              onClick={() => setCreatorOpen((o) => !o)}
+              className="mb-2 flex w-full items-center justify-between text-xs font-semibold text-muted-foreground transition hover:text-foreground"
+            >
+              <span>🎨 Create your own</span>
+              <ChevronDown
+                className={cn("size-3.5 transition-transform", creatorOpen && "rotate-180")}
+              />
+            </button>
+            {creatorOpen ? (
+              <div className="space-y-3 rounded-lg border p-3">
+                <div className="flex items-center gap-3">
+                  {/* live preview — tap it (or tweak anything) to select it */}
+                  <button
+                    type="button"
+                    title="Use this one"
+                    onClick={() => setSelected(creatorUrl)}
+                    className={cn(
+                      "relative size-20 shrink-0 rounded-full ring-2 transition hover:scale-105",
+                      selected === creatorUrl ? "ring-primary" : "ring-transparent"
+                    )}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={creatorUrl}
+                      alt="Your custom avatar"
+                      className="size-full rounded-full bg-muted object-cover"
+                    />
+                    {selected === creatorUrl ? (
+                      <span className="absolute -right-0.5 -top-0.5 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                        <Check className="size-3" />
+                      </span>
+                    ) : null}
+                  </button>
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <Select
+                      value={style}
+                      onValueChange={(v) => updateCreator({ style: v as AvatarStyle })}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Style" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {AVATAR_STYLES.map((s) => (
+                          <SelectItem key={s} value={s}>
+                            {AVATAR_STYLE_LABELS[s]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <div className="flex gap-2">
+                      <Input
+                        value={seed}
+                        onChange={(e) => updateCreator({ seed: e.target.value })}
+                        placeholder="Type anything — your name, your cat, whatever"
+                        className="h-8 text-xs"
+                      />
+                      <Hint label="Surprise me 🎲">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="size-8 shrink-0"
+                          onClick={() => updateCreator({ seed: randomAvatarSeed() })}
+                        >
+                          <Dices className="size-4" />
+                        </Button>
+                      </Hint>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => updateCreator({ flip: !flip })}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-semibold transition",
+                      flip
+                        ? "border-primary text-primary"
+                        : "border-border text-muted-foreground hover:border-primary/50"
+                    )}
+                  >
+                    <FlipHorizontal2 className="size-3" /> Flip
+                  </button>
+                  {bgPresets.map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() => updateCreator({ bg: p.value })}
+                      className={cn(
+                        "flex items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-semibold transition",
+                        bg === p.value
+                          ? "border-primary text-primary"
+                          : "border-border text-muted-foreground hover:border-primary/50"
+                      )}
+                    >
+                      <span
+                        className="size-3 rounded-full border"
+                        style={
+                          p.value
+                            ? {
+                                background: `linear-gradient(135deg, #${p.value.split(",")[0]}, #${p.value.split(",")[1]})`,
+                              }
+                            : undefined
+                        }
+                      />
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Fun characters (the Blue Man first, then a classic bearded one) */}
           <div>
             <p className="mb-2 text-xs font-semibold text-muted-foreground">Fun characters</p>
             <div className="grid grid-cols-4 gap-3 sm:grid-cols-6">
+              {/* The Blue Man — Sodio's mascot, white on the blue circle like
+                  the floating assistant button (walk.png is non-square, so
+                  object-contain, never object-cover) */}
+              <button
+                type="button"
+                title="The Blue Man 🚶"
+                onClick={() => setSelected(BLUE_MAN_AVATAR)}
+                className={cn(
+                  "relative aspect-square rounded-full ring-2 transition hover:scale-105",
+                  selected === BLUE_MAN_AVATAR ? "ring-primary" : "ring-transparent"
+                )}
+              >
+                <span className="flex size-full items-center justify-center overflow-hidden rounded-full bg-primary">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={BLUE_MAN_AVATAR}
+                    alt="The Blue Man"
+                    className="size-full brightness-0 invert object-contain p-1"
+                    loading="lazy"
+                  />
+                </span>
+                {selected === BLUE_MAN_AVATAR ? (
+                  <span className="absolute -right-0.5 -top-0.5 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                    <Check className="size-3" />
+                  </span>
+                ) : null}
+              </button>
               {choices.map((c, i) => optionBtn(c.url, `fun-${i}`))}
             </div>
           </div>

@@ -393,26 +393,55 @@ export function feedbackThanksEmail(opts: {
  *  responsible MM and the B2C VP/Director, once per cycle. */
 export function podioUpdateDueEmail(opts: {
   accountName: string;
+  /** the account's function — the copy names it ("IGV accounts…") */
+  accountFunction: string;
   everyDays: number;
   /** 0 = due today; >0 = this many days overdue */
   daysOverdue: number;
   responsibleName: string | null;
   accountUrl: string;
+  /** true = the week-later firmer nag (the first reminder went unanswered) */
+  secondReminder?: boolean;
 }) {
   const late = opts.daysOverdue > 0;
+  if (opts.secondReminder) {
+    return {
+      subject: `⏰ Second reminder — "${opts.accountName}" is STILL not updated on Podio`,
+      html: emailLayout({
+        preheader: `A week since the first reminder and "${opts.accountName}" is still pending on Podio`,
+        body: `
+          <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">A week later — still pending ⏰</h1>
+          <p>We reminded you <b>a week ago</b> and <b>${escapeHtml(opts.accountName)}</b>
+          still hasn't been refreshed on Podio — it's now
+          <b>${opts.daysOverdue} day${opts.daysOverdue === 1 ? "" : "s"} overdue</b>.
+          Stale Podio records hurt the whole entity's pipeline, so please handle it today.</p>
+          ${detailsTable([
+            ["Account", opts.accountName],
+            ["Function", opts.accountFunction],
+            ["Responsible", opts.responsibleName ?? "Unassigned"],
+            ["Cadence", `every ${opts.everyDays} days`],
+            ["Status", `${opts.daysOverdue} day(s) overdue — second reminder`],
+          ])}
+          <p>Update it on Podio, then hit <b>"Updated on Podio"</b> on the account —
+          that resets the countdown and stops these emails.</p>
+          ${button("Open the account", opts.accountUrl)}`,
+      }),
+    };
+  }
   return {
     subject: late
       ? `⏰ "${opts.accountName}" is ${opts.daysOverdue} day${opts.daysOverdue === 1 ? "" : "s"} late on Podio`
       : `🔄 Time to update "${opts.accountName}" on Podio`,
     html: emailLayout({
-      preheader: `B2C accounts refresh on Podio every ${opts.everyDays} days — this one is due`,
+      preheader: `${opts.accountFunction} accounts refresh on Podio every ${opts.everyDays} days — this one is due`,
       body: `
         <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">${late ? "This one slipped ⏰" : "Podio refresh time 🔄"}</h1>
-        <p>B2C accounts are kept alive on Podio — every account gets refreshed
+        <p>${escapeHtml(opts.accountFunction)} accounts are kept alive on Podio — this one gets refreshed
         <b>every ${opts.everyDays} days</b>, and <b>${escapeHtml(opts.accountName)}</b>
         ${late ? `is <b>${opts.daysOverdue} day${opts.daysOverdue === 1 ? "" : "s"} overdue</b>` : "is due <b>today</b>"}.</p>
         ${detailsTable([
           ["Account", opts.accountName],
+          ["Function", opts.accountFunction],
           ["Responsible", opts.responsibleName ?? "Unassigned"],
           ["Cadence", `every ${opts.everyDays} days`],
           ["Status", late ? `${opts.daysOverdue} day(s) overdue` : "due today"],
@@ -420,6 +449,37 @@ export function podioUpdateDueEmail(opts: {
         <p>Update it on Podio, then hit <b>"Updated on Podio"</b> on the account —
         that resets the countdown for the next cycle.</p>
         ${button("Open the account", opts.accountUrl)}`,
+    }),
+  };
+}
+
+/** v24: a leader bulk-assigned accounts to this member — the heads-up mail
+ *  (sent only when the leader ticks "email them" in the reassign popup). */
+export function accountsAssignedEmail(opts: {
+  memberName: string;
+  managerName: string;
+  accountNames: string[];
+  accountsUrl: string;
+}) {
+  const n = opts.accountNames.length;
+  const listed = opts.accountNames.slice(0, 15);
+  const more = n - listed.length;
+  return {
+    subject: `📋 ${opts.managerName} assigned you ${n} account${n === 1 ? "" : "s"}`,
+    html: emailLayout({
+      preheader: `${n} account${n === 1 ? "" : "s"} just landed on your plate — open Sodio and start raising`,
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Fresh accounts for you 📋</h1>
+        <p>Hey ${escapeHtml(opts.memberName)} — <b>${escapeHtml(opts.managerName)}</b> just made you
+        the <b>Responsible</b> of ${n === 1 ? "an account" : `${n} accounts`}. They're yours now:
+        contacts, visits, deals and the leaderboard numbers all follow you.</p>
+        <ul style="margin:12px 0;padding-left:20px;color:#334155;">
+          ${listed.map((a) => `<li style="margin:2px 0;">${escapeHtml(a)}</li>`).join("")}
+          ${more > 0 ? `<li style="margin:2px 0;color:#64748B;">…and ${more} more</li>` : ""}
+        </ul>
+        <p>Golden rule: every in-process account carries a next step with a date.
+        Log the first contact and keep them moving 🚀</p>
+        ${button("Open my accounts", opts.accountsUrl)}`,
     }),
   };
 }
@@ -534,5 +594,108 @@ export function periodReportEmail(opts: {
         ${button("Open the dashboard", opts.dashboardUrl)}
         <p style="margin:14px 0 0;color:#5c6b80;font-size:13px;">Numbers cover ${escapeHtml(opts.periodLabel)} only. Questions? Ask The Blue Man. 🔵</p>`,
     }),
+  };
+}
+
+// ------------------------------------------------- OGT expectation setting
+
+/** OGT "Home Entity Expectation Setting Mail" — sent by an OGT VP to the
+ *  HOSTING entity before approving an EP. Deliberately PLAIN professional
+ *  HTML (no branded gradient layout — the recipient is an external AIESEC
+ *  entity, not an LC member). NOTE: no "TN Fee" line — that's OGV-only,
+ *  removed for OGT on purpose. */
+export function ogtExpectationEmail(opts: {
+  hostingEntity: string;
+  epName: string;
+  hostLcName: string;
+  epId: string;
+  oppId: string;
+  oppName: string;
+  /** already formatted for display, e.g. "Aug 5, 2026" */
+  slotStartLabel: string;
+  slotEndLabel: string;
+  workingHours: string;
+  /** rendered interval lines, e.g. "Mon, Tue: 09:00–17:00" */
+  workingDayLines: string[];
+  workingDaysNote?: string | null;
+  salary?: string | null;
+  computerProvided: boolean;
+  accommodationProvided: boolean;
+  accommodationCovered: boolean;
+  transportationProvided: boolean;
+  /** required by the caller when transportation is NOT provided */
+  transportationDetail?: string | null;
+  accommodationType: "Hostel" | "Host Family" | "Private Apartment";
+  /** required by the caller for Hostel / Private Apartment */
+  accommodationTypeDetail?: string | null;
+  mealsProvided: string;
+  senderName: string;
+}): { subject: string; html: string } {
+  const yn = (v: boolean) => (v ? "yes" : "no");
+  const li = (label: string, value: string) =>
+    `<li style="margin:4px 0;"><b>${label}:</b> ${value}</li>`;
+
+  const workingDays = [
+    ...opts.workingDayLines.map((l) => escapeHtml(l)),
+    ...(opts.workingDaysNote?.trim() ? [escapeHtml(opts.workingDaysNote.trim())] : []),
+  ].join("<br>");
+
+  const transportation =
+    yn(opts.transportationProvided) +
+    (!opts.transportationProvided && opts.transportationDetail?.trim()
+      ? ` (daily cost, duration &amp; method: ${escapeHtml(opts.transportationDetail.trim())})`
+      : "");
+
+  const accommodationType =
+    escapeHtml(opts.accommodationType) +
+    ((opts.accommodationType === "Hostel" || opts.accommodationType === "Private Apartment") &&
+    opts.accommodationTypeDetail?.trim()
+      ? ` (${escapeHtml(opts.accommodationTypeDetail.trim())})`
+      : "");
+
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.65;color:#111111;">
+  <p>Dear AIESEC in ${escapeHtml(opts.hostingEntity)},</p>
+  <p>I'm writing this mail to confirm with you that <b>${escapeHtml(opts.epName)}</b> will be approved on an opportunity with AIESEC in ${escapeHtml(opts.hostLcName)}. To deliver the full experience for our exchange participant and make sure that all the information are aligned and agreed between the two sides. We would like to get your confirmation on the following information:</p>
+  <p><b>EP ID:</b> ${escapeHtml(opts.epId)}<br>
+  <b>OPP ID:</b> ${escapeHtml(opts.oppId)}</p>
+  <p><b>Opportunity Information:</b></p>
+  <ul style="margin:0 0 14px;padding-left:22px;">
+    ${li("Opportunity Name", escapeHtml(opts.oppName))}
+    ${li("Slot Start Date", escapeHtml(opts.slotStartLabel))}
+    ${li("Slot End Date", escapeHtml(opts.slotEndLabel))}
+    ${li("Working Hours", escapeHtml(opts.workingHours))}
+    ${li("Working Days (Highlight if any of them is on weekend)", `<br>${workingDays}`)}
+    ${li("Salary (If any)", escapeHtml(opts.salary?.trim() || "N/A"))}
+  </ul>
+  <p><b>Logistics:</b></p>
+  <ul style="margin:0 0 14px;padding-left:22px;">
+    ${li("Computer provided", yn(opts.computerProvided))}
+    ${li("Accommodation provided", yn(opts.accommodationProvided))}
+    ${li("Accommodation covered", yn(opts.accommodationCovered))}
+    ${li("Transportation provided", transportation)}
+    ${li("Accommodation Type", accommodationType)}
+    ${li("Meals Provided", escapeHtml(opts.mealsProvided))}
+  </ul>
+  <p><b>Documents / Information required before approval:</b><br>
+  1. Accommodation Pictures (If the accommodation isn't available at the time of approval, please submit an example of the accommodation (bedroom, bathroom, utilities such as kitchen if any) to specify its level and state clearly that the accommodation will be as minimum as the pictures attached)<br>
+  2. COVID restrictions</p>
+  <p><b>Documents / Information required after approval</b><br>
+  1. Visa booklet/Information: follow to assist in the visa process<br>
+  2. Invitation letter within 2 weeks: essential to apply for the visa (If an original letter is required, HE shall specify a DDL to send the letter specifying the shipping method and shipping fees liability considering that the EP will have enough time to apply and get the VISA when the letter arrive to the SE)<br>
+  3. If any delay happens in the VISA process or unexpected circumstance and the EP will postpone his/her realization for a few days, please specify the number of days allowed.</p>
+  <p><b>Notes:</b><br>
+  1- In Case of an EP Girl, we request by default that the Accommodation provided to not have any Adult males by anyway, either it's a host family (With Females only), dorms or an apartment or any other accommodation (For Females)<br>
+  2- Any communication between you as Hosting Entity and the EP must include us as Sending Entity or it will not be taken into consideration or else it'll be invalid.<br>
+  3- Any confirmation needed from the EP for any change either by making the EP send a standalone mail or reply with confirmation on a mail must have our confirmation as Sending Entity as well or it will not be considered<br>
+  4- We are considering the single bed standard as a mandatory (it should be a bed not a couch or any other options), and any change in the accommodation should be prior aligned with the EP and Sending LC and by maximum one change if accepted from both sides..</p>
+  <p>Please "Reply All" to this mail by confirming the above information. If your mail signature doesn't have your full name, position and LC Name, please write them in your reply.</p>
+  <p style="margin-top:22px;">Best regards,<br>
+  <b>${escapeHtml(opts.senderName)}</b><br>
+  AIESEC in Alexandria</p>
+</div>`;
+
+  return {
+    subject: `Expectation Setting | ${opts.epName} — EP ${opts.epId} / OPP ${opts.oppId}`,
+    html,
   };
 }

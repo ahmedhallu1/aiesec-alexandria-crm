@@ -216,6 +216,6 @@ export function canManageMembership(v: Viewer): boolean {
 
 /** Feedback inbox: ONLY the IM director (admin) and the IM coach. */
 export function canSeeFeedbackInbox(v: Viewer): boolean {
-  const email = v.email.toLowerCase();
+  const email = (v.email ?? "").toLowerCase();
   return v.isAdmin || (FEEDBACK_INBOX_EMAILS as readonly string[]).includes(email);
 }

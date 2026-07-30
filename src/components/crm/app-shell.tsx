@@ -9,6 +9,7 @@ import {
   CalendarDays,
   Users,
   UsersRound,
+  MailPlus,
   Menu,
   LogOut,
   MessageSquareHeart,
@@ -35,7 +36,7 @@ interface ShellProps {
     photoUrl: string | null;
     isAdmin: boolean;
   };
-  nav: { raising: boolean; tm: boolean; membership: boolean; planning: boolean };
+  nav: { raising: boolean; tm: boolean; membership: boolean; planning: boolean; ogtMail: boolean };
   signOutAction: () => Promise<void>;
   children: React.ReactNode;
 }
@@ -67,6 +68,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
         ]
       : []),
     ...(nav.planning ? [{ href: "/planning", label: "Planning", icon: Target }] : []),
+    ...(nav.ogtMail ? [{ href: "/ogt-mail", label: "OGT mail", icon: MailPlus }] : []),
     ...(nav.tm ? [{ href: "/members", label: "Talent Management", icon: UsersRound }] : []),
     ...(nav.membership ? [{ href: "/membership", label: "Membership", icon: Users }] : []),
     { href: "/playbook", label: "Playbook", icon: BookOpen },

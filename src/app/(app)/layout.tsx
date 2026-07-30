@@ -31,6 +31,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const tm = hasTmAccess(viewer);
   const membership = canManageMembership(viewer);
   const planning = canSeePlanning(viewer);
+  // OGT VPs/Directors (+ LCP/admin): the Expectation-Setting mail composer
+  const ogtMail =
+    viewer.isAdmin ||
+    viewer.role === "LCP" ||
+    ((viewer.role === "LCVP" || viewer.role === "Director") && viewer.functions.includes("OGT"));
   // routes a non-raising member still gets: their TM module, the membership
   // editor for EB members of other functions (e.g. an OGX LCVP), and the
   // planning board for OGX VPs/Directors
@@ -38,13 +43,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     ...(tm ? ["/members"] : []),
     ...(membership ? ["/membership"] : []),
     ...(planning ? ["/planning"] : []),
+    ...(ogtMail ? ["/ogt-mail"] : []),
   ];
 
   return (
     <AppShell
       user={{
         name: viewer.nickname || viewer.name,
-        email: viewer.email,
+        email: viewer.email ?? "",
         role: viewer.role,
         functions: viewer.functions,
         photoUrl: viewer.avatar_url || viewer.photo_url,
@@ -55,6 +61,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         tm,
         membership,
         planning,
+        ogtMail,
       }}
       signOutAction={async () => {
         "use server";
@@ -78,7 +85,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </>
       )}
       <Tour
-        email={viewer.email}
+        email={viewer.email ?? viewer.id}
         role={viewer.isAdmin && viewer.role !== "LCP" ? "LCP" : viewer.role}
         functions={viewer.functions}
         hasModule={raising || tm}

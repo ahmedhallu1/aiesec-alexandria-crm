@@ -229,6 +229,21 @@ export function ContactDialog({
                       <Input type="date" min={today} value={nextStepDate} onChange={(e) => setNextStepDate(e.target.value)} />
                       <Input type="time" value={nextStepTime} onChange={(e) => setNextStepTime(e.target.value)} />
                     </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-fit"
+                      onClick={() => {
+                        const d = new Date();
+                        d.setDate(d.getDate() + 7);
+                        setNextStepDate(
+                          `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+                        );
+                      }}
+                    >
+                      Next week
+                    </Button>
                   </div>
                 </div>
               ) : null}

@@ -1,7 +1,51 @@
 "use server";
 
 import { AuthError } from "next-auth";
+import { redirect } from "next/navigation";
 import { signIn } from "@/lib/auth";
+
+interface LoginProbe {
+  is_active: boolean;
+  email: string | null;
+  phone: string | null;
+  password_hash: string | null;
+  temp_password_hash: string | null;
+}
+
+/** Looks the identifier up WITHOUT the active filter, so the login flow can
+ *  tell "deactivated" and "email landed — use Google" apart from a plain
+ *  wrong password. */
+async function probeMember(identifier: string): Promise<LoginProbe | null> {
+  const { db } = await import("@/lib/supabase");
+  const cols = "is_active, email, phone, password_hash, temp_password_hash";
+  if (identifier.includes("@")) {
+    const { data } = await db().from("members").select(cols).ilike("email", identifier).maybeSingle<LoginProbe>();
+    return data ?? null;
+  }
+  const digits = identifier.replace(/\D/g, "");
+  if (digits.length < 7) return null;
+  const { data } = await db()
+    .from("members")
+    .select(cols)
+    .not("phone", "is", null)
+    .ilike("phone", `%${digits.slice(-8)}%`)
+    .limit(10);
+  const rows = (data ?? []) as LoginProbe[];
+  const strip = (s: string | null) => (s ?? "").replace(/\D/g, "");
+  // exact digits beat tail matches; among equals an ACTIVE row wins so a
+  // tail collision with a deactivated member never bounces an active one
+  const rank = (m: LoginProbe) =>
+    (strip(m.phone) === digits ? 0 : 2) + (m.is_active ? 0 : 1);
+  const tail = digits.slice(-9);
+  return (
+    rows
+      .filter((m) => {
+        const md = strip(m.phone);
+        return md === digits || md.endsWith(tail) || tail.endsWith(md.slice(-9));
+      })
+      .sort((a, b) => rank(a) - rank(b))[0] ?? null
+  );
+}
 
 export interface LoginState {
   error: string | null;
@@ -17,17 +61,31 @@ export async function loginWithPassword(
   const password = String(formData.get("password") ?? "");
   if (!email || !password)
     return { error: "Enter your email (or phone) and a password." };
+  const probe = await probeMember(email.toLowerCase()).catch(() => null);
+  // deactivated members get the dedicated screen, not a cryptic error
+  if (probe && !probe.is_active) redirect("/inactive");
   try {
     await signIn("credentials", { email, password, redirectTo: "/" });
     return { error: null };
   } catch (e) {
     if (e instanceof AuthError) {
-      return {
-        error:
-          e.type === "CredentialsSignin"
-            ? "Wrong password — or you haven't set one yet. Your FIRST sign-in must be with Google (it connects your calendar); after that you can use your email or phone + password."
-            : "Sign-in failed. Try again — if it keeps happening, contact the IM team.",
-      };
+      if (e.type === "CredentialsSignin") {
+        // a former phone-only member whose AIESEC email has landed: the
+        // phone-as-password door is closed — Google unlocks the full account
+        if (probe && probe.email && !probe.password_hash && !probe.temp_password_hash)
+          return {
+            error:
+              "Your AIESEC email is on Sodio now 🎉 — sign in with GOOGLE once to unlock everything (calendar, Gmail drafts). After that you can set a password from your Profile.",
+          };
+        // the phone tip keys off the identifier SHAPE, not the probe — the
+        // login form must not confirm who is or isn't a member
+        return {
+          error: !email.includes("@")
+            ? "That didn't match. No AIESEC email yet? Type your PHONE NUMBER in both fields (identifier and password) to get in."
+            : "Wrong password — or you haven't set one yet. Your FIRST sign-in must be with Google (it connects your calendar); after that you can use your email or phone + password.",
+        };
+      }
+      return { error: "Sign-in failed. Try again — if it keeps happening, contact the IM team." };
     }
     throw e; // NEXT_REDIRECT on success
   }

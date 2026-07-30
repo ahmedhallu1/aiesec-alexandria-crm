@@ -15,6 +15,6 @@ export const config = {
   matcher: [
     // Everything except auth endpoints, the login page, cron endpoints,
     // static assets, brand images, PWA files and .well-known
-    "/((?!api/auth|api/cron|login|_next/static|_next/image|favicon.ico|icons|brand|manifest.webmanifest|\\.well-known).*)",
+    "/((?!api/auth|api/cron|login|inactive|_next/static|_next/image|favicon.ico|icons|brand|manifest.webmanifest|\\.well-known).*)",
   ],
 };

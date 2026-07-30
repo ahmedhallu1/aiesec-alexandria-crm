@@ -24,16 +24,32 @@ interface ActionItem {
   icon: React.ReactNode;
 }
 
-export function buildActions(contacts: AccountContact[] | null | undefined): ActionItem[] {
+/** The ready-to-send WhatsApp opener (v24): a short, personal AIESEC intro —
+ *  the member just hits send (or edits first). */
+export function waIntroText(viewerName: string, accountName?: string): string {
+  const target = accountName ? ` I'm reaching out about a collaboration with ${accountName}.` : "";
+  return (
+    `Hello! 👋 This is ${viewerName} from AIESEC in Alexandria — the world's largest youth-led leadership organization.` +
+    target +
+    ` We connect organizations with talented international young people. When would be a good time for a quick chat?`
+  );
+}
+
+export function buildActions(
+  contacts: AccountContact[] | null | undefined,
+  opts?: { viewerName?: string; accountName?: string }
+): ActionItem[] {
   const qa = quickActions(contacts);
   const items: ActionItem[] = [];
-  if (qa.whatsapp)
+  if (qa.whatsapp) {
+    const text = opts?.viewerName ? waIntroText(opts.viewerName, opts.accountName) : null;
     items.push({
       key: "wa",
-      label: `WhatsApp ${qa.whatsapp}`,
-      href: `https://wa.me/${qa.whatsapp}`,
+      label: text ? `WhatsApp ${qa.whatsapp} — message ready to send` : `WhatsApp ${qa.whatsapp}`,
+      href: `https://wa.me/${qa.whatsapp}${text ? `?text=${encodeURIComponent(text)}` : ""}`,
       icon: <WhatsAppIcon className="size-3.5" />,
     });
+  }
   if (qa.call)
     items.push({
       key: "call",
@@ -61,12 +77,15 @@ export function buildActions(contacts: AccountContact[] | null | undefined): Act
 /** One-tap WhatsApp / call / email / social actions straight from the list.
  *  Shows up to `max` icons; the rest collapse into a "…" menu. */
 export function QuickActions({
-  contacts, max = 4,
+  contacts, max = 4, viewerName, accountName,
 }: {
   contacts: AccountContact[] | null | undefined;
   max?: number;
+  /** when set, the WhatsApp link opens with a ready-to-send AIESEC intro */
+  viewerName?: string;
+  accountName?: string;
 }) {
-  const items = buildActions(contacts);
+  const items = buildActions(contacts, { viewerName, accountName });
   if (items.length === 0) return null;
   const visible = items.length > max ? items.slice(0, max - 1) : items;
   const overflow = items.length > max ? items.slice(max - 1) : [];

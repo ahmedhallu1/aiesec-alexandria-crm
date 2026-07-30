@@ -12,15 +12,15 @@ import {
 import {
   addComment, confirmContractUploads, getContractUrl, markPodioUpdated,
   reassignAccount, recordDeal, reportVisit, requestContractUploads, reviveAccount,
-  scheduleVisit, setOutOfProcess, setPodioUpdateCadence, toggleCommentPin,
-  toggleCommentArchive, updateAccount, updateAccountContacts,
+  scheduleVisit, setOutOfProcess, setPodioUpdateCadence, setPodioUpdateEnabled,
+  toggleCommentPin, toggleCommentArchive, updateAccount, updateAccountContacts,
 } from "@/server/actions";
 import type { CommentWithMember, DealWithMember, PipelineRow } from "@/server/data";
 import type { ContactAttempt, Visit } from "@/lib/types";
 import {
-  ACCOUNT_TYPES, B2C_CONTRACT_FORM_URL, B2C_DEFAULT_UPDATE_DAYS, B2C_TYPES,
+  ACCOUNT_TYPES, B2C_CONTRACT_FORM_URL, B2C_TYPES,
   fmtDateTime, IGT_SUB_PRODUCTS, IGV_PROJECTS, INDUSTRIES,
-  OOP_REASONS, productBadge,
+  OOP_REASONS, podioDefaultDays, productBadge,
 } from "@/lib/types";
 import type { AccountContact } from "@/lib/types";
 import { Hint } from "./hint";
@@ -234,11 +234,12 @@ export function AccountDetailView({
       <div className="grid gap-4 lg:grid-cols-2">
         <ContactInfoCard account={account} canEdit={caps.edit} />
         <DetailsCard account={account} canEdit={caps.edit} />
-        {account.function === "B2C" ? (
-          <B2cPodioCard account={account} canEdit={caps.edit && active} />
-        ) : (
+        {account.function !== "B2C" ? (
           <PodioCard account={account} canEdit={caps.edit} canEditState={caps.requestState} />
-        )}
+        ) : null}
+        {account.function !== "B2B" ? (
+          <PodioUpdateCard account={account} canEdit={caps.edit && active} />
+        ) : null}
         <NextStepCard account={account} canEdit={caps.edit && active} />
         <CommentsCard accountId={account.id} comments={comments} canComment={caps.edit} />
       </div>
@@ -540,13 +541,14 @@ function ContactInfoCard({
   );
 }
 
-/** B2C (v23): the account lives on Podio and must be REFRESHED every N days.
- *  Countdown to the next refresh, an "Updated on Podio" reset button, and the
- *  cadence editor. The daily cron nags the MM + the B2C VP/Director when the
- *  date arrives. */
-function B2cPodioCard({ account, canEdit }: { account: PipelineRow; canEdit: boolean }) {
+/** Continuous Podio updates (v23 B2C → v24 IGV/IGT/BD too): the account must
+ *  be REFRESHED on Podio every N days. Per-account ON/OFF, countdown, an
+ *  "Updated on Podio" reset and the cadence editor. The daily cron nags the
+ *  responsible + the function's VP/Director when the date arrives (and again,
+ *  firmer, a week later). */
+function PodioUpdateCard({ account, canEdit }: { account: PipelineRow; canEdit: boolean }) {
   const [pending, start] = useTransition();
-  const every = account.podio_update_every_days ?? B2C_DEFAULT_UPDATE_DAYS;
+  const every = account.podio_update_every_days ?? podioDefaultDays(account.function);
   const [days, setDays] = useState(String(every));
   const anchor = new Date(account.podio_updated_at ?? account.created_at);
   const due = new Date(anchor.getTime() + every * 86400000);
@@ -568,17 +570,46 @@ function B2cPodioCard({ account, canEdit }: { account: PipelineRow; canEdit: boo
       else toast.error(res.error);
     });
 
+  const toggle = (on: boolean) =>
+    start(async () => {
+      const res = await setPodioUpdateEnabled(account.id, on);
+      if (res.ok) toast.success(on ? "Continuous updates ON — countdown started 🔄" : "Continuous updates off");
+      else toast.error(res.error);
+    });
+
+  if (!account.podio_update_enabled) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Podio — continuous update</CardTitle>
+        </CardHeader>
+        <CardContent className="flex items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">
+            Off — turn on to keep this account refreshed on Podio every{" "}
+            {podioDefaultDays(account.function)} days (with reminders).
+          </p>
+          {canEdit ? <Switch checked={false} onCheckedChange={toggle} disabled={pending} /> : null}
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Podio — continuous update</CardTitle>
+        <CardTitle className="flex items-center justify-between text-base">
+          Podio — continuous update
+          {canEdit ? (
+            <Switch checked onCheckedChange={toggle} disabled={pending} aria-label="Continuous updates on/off" />
+          ) : null}
+        </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-sm font-medium">Next Podio refresh</p>
             <p className="text-xs text-muted-foreground">
-              B2C accounts are refreshed on Podio every {every} days
+              This account is refreshed on Podio every {every} days
             </p>
           </div>
           <Badge
@@ -765,6 +796,23 @@ function NextStepCard({ account, canEdit }: { account: PipelineRow; canEdit: boo
           <Input type="time" value={time} disabled={!canEdit}
             onChange={(e) => { setTime(e.target.value); setDirty(true); }} />
         </div>
+        {canEdit ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const d = new Date();
+              d.setDate(d.getDate() + 7);
+              setDate(
+                `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+              );
+              setDirty(true);
+            }}
+          >
+            <CalendarPlus className="size-3.5" /> Next week
+          </Button>
+        ) : null}
         {canEdit && dirty ? (
           <Button size="sm" onClick={save} disabled={pending || (!!step && !date)}>
             {pending ? "Saving…" : "Save next step"}

@@ -6,12 +6,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   AlertTriangle, Archive, Check, CheckCircle2, CheckSquare, CircleAlert, ClipboardList,
-  Copy, FileUp, Loader2, Phone, Pin, Plus, Search, Send, Trash2, Users2, X, XCircle,
+  Copy, FileUp, Loader2, Phone, Pin, Plus, RotateCcw, Search, Send, Trash2, Users2, X,
+  XCircle,
 } from "lucide-react";
 import type { PipelineRow } from "@/server/data";
 import {
-  addArchivedAccount, bulkArchiveAccounts, bulkReassignAccounts, importArchivedBulk,
-  removeArchivedEntry, requestPodioSubmit, updateAccount,
+  addArchivedAccount, bulkArchiveAccounts, bulkDeleteArchived, bulkReassignAccounts,
+  bulkReviveAccounts, importArchivedBulk, removeArchivedEntry, requestPodioSubmit,
+  updateAccount,
 } from "@/server/actions";
 import {
   accountSlug, fmtDateTime, fmtTime, IGT_SUB_PRODUCTS, IGV_PROJECTS, OOP_REASONS, productBadge,
@@ -50,6 +52,8 @@ const LAST_STATUS_OPTIONS = [
 
 interface ViewerInfo {
   id: string;
+  /** the signed-in member's display name — personalizes the WhatsApp opener */
+  name: string;
   role: string;
   isAdmin: boolean;
   canAssignOthers: boolean;
@@ -64,6 +68,8 @@ interface ViewerInfo {
   canPodioSubmit: boolean;
   /** IGV-only viewer — the Product column shows the PROJECT instead (v22.2) */
   igvOnly: boolean;
+  /** B2C-only viewer — the Product column shows the TYPE instead (v24) */
+  b2cOnly: boolean;
   /** may see IGT accounts — enables the sub-product filter */
   igtAccess: boolean;
 }
@@ -105,7 +111,11 @@ function DetailHint({
   );
 }
 
-function FnBadge({ row, className, igvOnly }: { row: PipelineRow; className?: string; igvOnly?: boolean }) {
+function FnBadge({
+  row, className, igvOnly, b2cOnly,
+}: {
+  row: PipelineRow; className?: string; igvOnly?: boolean; b2cOnly?: boolean;
+}) {
   const b = productBadge(row.function, row.product);
   // IGV-only viewers: every account is IGV — the badge is dead weight, show
   // the PROJECT in its place (v22.2)
@@ -116,6 +126,14 @@ function FnBadge({ row, className, igvOnly }: { row: PipelineRow; className?: st
           {row.project || "No project"}
         </Badge>
       </DetailHint>
+    );
+  }
+  // B2C-only viewers: every account is B2C — show the TYPE instead (v24)
+  if (b2cOnly && row.function === "B2C") {
+    return (
+      <Badge variant="outline" className={cn("max-w-40 truncate text-[10px] font-semibold", className)}>
+        {row.account_type || "No type"}
+      </Badge>
     );
   }
   return (
@@ -444,6 +462,45 @@ export function AccountsView({
     return () => { if (debounce.current) clearTimeout(debounce.current); };
   }, [q, filters.q, setParam]);
 
+  // column sorting (v24): click a header to sort by it, click again to flip
+  const sortBy = useCallback(
+    (field: string, defaultDir: "asc" | "desc") => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (filters.sort === field) {
+        params.set("dir", filters.dir === "asc" ? "desc" : "asc");
+      } else {
+        params.set("sort", field);
+        params.set("dir", defaultDir);
+      }
+      params.delete("page");
+      startNav(() => router.replace(`/accounts?${params.toString()}`));
+    },
+    [router, searchParams, filters.sort, filters.dir]
+  );
+  const SortHead = ({
+    field, defaultDir = "desc", children, className,
+  }: {
+    field: string;
+    defaultDir?: "asc" | "desc";
+    children: React.ReactNode;
+    className?: string;
+  }) => (
+    <TableHead className={className}>
+      <button
+        type="button"
+        onClick={() => sortBy(field, defaultDir)}
+        className={cn(
+          "inline-flex items-center gap-1 transition-colors hover:text-foreground",
+          filters.sort === field && "font-bold text-primary"
+        )}
+        title="Sort by this column"
+      >
+        {children}
+        {filters.sort === field ? (filters.dir === "asc" ? " ↑" : " ↓") : null}
+      </button>
+    </TableHead>
+  );
+
   const archived = filters.archived === "1";
   const podioMode = filters.podio === "1";
   // mobile render style (persisted): cards (default) · compact list · table
@@ -711,8 +768,10 @@ export function AccountsView({
         <ArchivedList
           items={archivedItems}
           canRemove={viewer.canRemoveArchived}
+          canManage={viewer.canManageArchive}
           seesOthers={viewer.seesOthers}
           igvOnly={viewer.igvOnly}
+          b2cOnly={viewer.b2cOnly}
           onOpen={(row) => router.push(hrefFor(row))}
         />
       ) : (
@@ -771,7 +830,7 @@ export function AccountsView({
                           </span>
                         </p>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                          <FnBadge row={row} igvOnly={viewer.igvOnly} />
+                          <FnBadge row={row} igvOnly={viewer.igvOnly} b2cOnly={viewer.b2cOnly} />
                           <StageBadge stage={row.stage} className="text-[10px]" />
                           {isPinnedForMe(row) ? <PodioPinBadge /> : null}
                           {row.contact_limit_reached ? (
@@ -831,7 +890,7 @@ export function AccountsView({
                         </span>
                       ) : null}
                     </div>
-                    <QuickActions contacts={row.contacts} max={6} />
+                    <QuickActions contacts={row.contacts} max={6} viewerName={viewer.name} accountName={row.name} />
                   </CardContent>
                 </Card>
               ))
@@ -877,7 +936,7 @@ export function AccountsView({
                         </p>
                       ) : null}
                     </div>
-                    <FnBadge row={row} igvOnly={viewer.igvOnly} />
+                    <FnBadge row={row} igvOnly={viewer.igvOnly} b2cOnly={viewer.b2cOnly} />
                     <StageBadge stage={row.stage} className="text-[10px]" />
                   </div>
                 ))}
@@ -898,12 +957,14 @@ export function AccountsView({
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-10" />
-                    <TableHead>Date added</TableHead>
-                    <TableHead>Account</TableHead>
-                    <TableHead>{viewer.igvOnly ? "Project" : "Product"}</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-center">Contacts</TableHead>
-                    <TableHead>Next step</TableHead>
+                    <SortHead field="created_at">Date added</SortHead>
+                    <SortHead field="normalized_name" defaultDir="asc">Account</SortHead>
+                    <SortHead field="function" defaultDir="asc">
+                      {viewer.igvOnly ? "Project" : viewer.b2cOnly ? "Type" : "Product"}
+                    </SortHead>
+                    <SortHead field="stage" defaultDir="asc">Status</SortHead>
+                    <SortHead field="attempts" className="text-center">Contacts</SortHead>
+                    <SortHead field="next_step_date" defaultDir="asc">Next step</SortHead>
                     <TableHead>Quick actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -951,7 +1012,7 @@ export function AccountsView({
                           ) : null}
                           {podioMode ? <PodioRowTools row={row} /> : null}
                         </TableCell>
-                        <TableCell><FnBadge row={row} igvOnly={viewer.igvOnly} /></TableCell>
+                        <TableCell><FnBadge row={row} igvOnly={viewer.igvOnly} b2cOnly={viewer.b2cOnly} /></TableCell>
                         <TableCell><StatusCell row={row} /></TableCell>
                         <TableCell className="text-center"><ContactsCell row={row} /></TableCell>
                         <TableCell className="max-w-44 text-sm">
@@ -976,7 +1037,7 @@ export function AccountsView({
                         </TableCell>
                         <TableCell onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center gap-1.5">
-                            <QuickActions contacts={row.contacts} />
+                            <QuickActions contacts={row.contacts} viewerName={viewer.name} accountName={row.name} />
                             {!row.out_of_process ? (
                               <>
                                 <Hint label="Log a call / WhatsApp / email attempt on this account">
@@ -1151,19 +1212,42 @@ export function AccountsView({
 // ------------------------------------------------------------------ archive
 
 function ArchivedList({
-  items, canRemove, seesOthers, igvOnly, onOpen,
+  items, canRemove, canManage, seesOthers, igvOnly, b2cOnly, onOpen,
 }: {
   items: (
     | { kind: "account"; date: string; row: PipelineRow }
     | { kind: "manual"; date: string; entry: ManualEntry }
   )[];
   canRemove: boolean;
+  /** TL+ — can bring archived accounts back to active */
+  canManage: boolean;
   seesOthers: boolean;
   igvOnly: boolean;
+  b2cOnly: boolean;
   onOpen: (row: PipelineRow) => void;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirm, setConfirm] = useState<
+    { mode: "revive" | "delete"; ids: string[]; label: string } | null
+  >(null);
+
+  // selection only makes sense on ACCOUNT rows (manual entries have their own ✕)
+  const selectable = canManage || canRemove;
+  const accountIds = items.flatMap((i) => (i.kind === "account" ? [i.row.id] : []));
+  // a filter/search/page change redefines what "selected" means — start over
+  const idsKey = accountIds.join(",");
+  useEffect(() => {
+    setSelected(new Set());
+  }, [idsKey]);
+  const toggle = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const remove = (id: string, name: string) =>
     start(async () => {
@@ -1171,6 +1255,35 @@ function ArchivedList({
       if (res.ok) { toast.success(`"${name}" removed from the archive`); router.refresh(); }
       else toast.error(res.error);
     });
+
+  const runConfirm = () => {
+    if (!confirm) return;
+    start(async () => {
+      // the server caps one call at 50 — feed it in chunks so select-all works
+      let done = 0;
+      let failed = 0;
+      for (let i = 0; i < confirm.ids.length; i += 50) {
+        const chunk = confirm.ids.slice(i, i + 50);
+        const res =
+          confirm.mode === "revive"
+            ? await bulkReviveAccounts(chunk)
+            : await bulkDeleteArchived(chunk);
+        if (!res.ok) { toast.error(res.error); return; }
+        done +=
+          confirm.mode === "revive"
+            ? (res.data as { revived: number }).revived
+            : (res.data as { deleted: number }).deleted;
+        failed += (res.data as { failed: number }).failed;
+      }
+      if (confirm.mode === "revive")
+        toast.success(`${done} account${done === 1 ? "" : "s"} back in process ↩️${failed ? ` (${failed} skipped)` : ""}`);
+      else
+        toast.success(`${done} account${done === 1 ? "" : "s"} deleted${failed ? ` (${failed} skipped)` : ""}`);
+      setSelected(new Set());
+      setConfirm(null);
+      router.refresh();
+    });
+  };
 
   return (
     <>
@@ -1187,9 +1300,26 @@ function ArchivedList({
             item.kind === "account" ? (
               <Card key={item.row.id} onClick={() => onOpen(item.row)}>
                 <CardContent className="space-y-1.5 p-3.5">
-                  <p className="flex items-center gap-1.5 font-semibold">{item.row.name}</p>
+                  <p className="flex items-center gap-2 font-semibold">
+                    {selectable ? (
+                      <SelectDot checked={selected.has(item.row.id)} onToggle={() => toggle(item.row.id)} />
+                    ) : null}
+                    <span className="min-w-0 flex-1 truncate">{item.row.name}</span>
+                    {canManage ? (
+                      <Button
+                        variant="ghost" size="icon" disabled={pending}
+                        className="size-7 shrink-0 text-muted-foreground hover:text-primary"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setConfirm({ mode: "revive", ids: [item.row.id], label: `"${item.row.name}"` });
+                        }}
+                      >
+                        <RotateCcw className="size-3.5" />
+                      </Button>
+                    ) : null}
+                  </p>
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <FnBadge row={item.row} igvOnly={igvOnly} />
+                    <FnBadge row={item.row} igvOnly={igvOnly} b2cOnly={b2cOnly} />
                     <span className="text-xs text-destructive">🗄️ {item.row.oop_reason ?? "archived"}</span>
                   </div>
                   <p className="text-xs text-muted-foreground">{fmtDateTime(item.date)}</p>
@@ -1230,9 +1360,21 @@ function ArchivedList({
           <Table>
             <TableHeader>
               <TableRow>
+                {selectable ? (
+                  <TableHead className="w-10">
+                    <SelectDot
+                      checked={accountIds.length > 0 && selected.size >= accountIds.length}
+                      onToggle={() =>
+                        setSelected(
+                          selected.size >= accountIds.length ? new Set() : new Set(accountIds)
+                        )
+                      }
+                    />
+                  </TableHead>
+                ) : null}
                 <TableHead>Archived</TableHead>
                 <TableHead>Account</TableHead>
-                <TableHead>{igvOnly ? "Project" : "Product"}</TableHead>
+                <TableHead>{igvOnly ? "Project" : b2cOnly ? "Type" : "Product"}</TableHead>
                 <TableHead>Reason</TableHead>
                 <TableHead>Source</TableHead>
                 <TableHead />
@@ -1241,7 +1383,7 @@ function ArchivedList({
             <TableBody>
               {items.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
+                  <TableCell colSpan={selectable ? 7 : 6} className="py-12 text-center text-muted-foreground">
                     The archive is empty.
                   </TableCell>
                 </TableRow>
@@ -1250,9 +1392,14 @@ function ArchivedList({
                   item.kind === "account" ? (
                     <TableRow
                       key={item.row.id}
-                      className="cursor-pointer"
+                      className={cn("cursor-pointer", selected.has(item.row.id) && "bg-primary/5")}
                       onClick={() => onOpen(item.row)}
                     >
+                      {selectable ? (
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <SelectDot checked={selected.has(item.row.id)} onToggle={() => toggle(item.row.id)} />
+                        </TableCell>
+                      ) : null}
                       <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                         <span className="block leading-tight">{item.date?.slice(0, 10)}</span>
                         <span className="block text-[10px] opacity-70">{fmtTime(item.date)}</span>
@@ -1265,17 +1412,32 @@ function ArchivedList({
                           </p>
                         ) : null}
                       </TableCell>
-                      <TableCell><FnBadge row={item.row} igvOnly={igvOnly} /></TableCell>
+                      <TableCell><FnBadge row={item.row} igvOnly={igvOnly} b2cOnly={b2cOnly} /></TableCell>
                       <TableCell className="max-w-64 truncate text-sm text-muted-foreground">
                         {item.row.oop_reason ?? "—"}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         worked, then archived
                       </TableCell>
-                      <TableCell />
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        {canManage ? (
+                          <Hint label="Back to active — puts it back in the raising process">
+                            <Button
+                              variant="ghost" size="icon" disabled={pending}
+                              className="size-7 text-muted-foreground hover:text-primary"
+                              onClick={() =>
+                                setConfirm({ mode: "revive", ids: [item.row.id], label: `"${item.row.name}"` })
+                              }
+                            >
+                              <RotateCcw className="size-3.5" />
+                            </Button>
+                          </Hint>
+                        ) : null}
+                      </TableCell>
                     </TableRow>
                   ) : (
                     <TableRow key={item.entry.id}>
+                      {selectable ? <TableCell /> : null}
                       <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                         <span className="block leading-tight">{item.date?.slice(0, 10)}</span>
                         <span className="block text-[10px] opacity-70">{fmtTime(item.date)}</span>
@@ -1309,6 +1471,102 @@ function ArchivedList({
           </Table>
         </div>
       </div>
+
+      {/* bulk action bar — appears once archived accounts are selected */}
+      {selected.size > 0 ? (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 p-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-center gap-2">
+            <span className="text-sm font-semibold">{selected.size} selected</span>
+            <Button
+              variant="ghost" size="sm"
+              onClick={() =>
+                setSelected(selected.size >= accountIds.length ? new Set() : new Set(accountIds))
+              }
+            >
+              {selected.size >= accountIds.length ? "Clear" : `All (${accountIds.length})`}
+            </Button>
+            {canManage ? (
+              <Button
+                size="sm" disabled={pending}
+                onClick={() =>
+                  setConfirm({
+                    mode: "revive",
+                    ids: [...selected],
+                    label: `${selected.size} account${selected.size === 1 ? "" : "s"}`,
+                  })
+                }
+              >
+                <RotateCcw className="size-4" /> Back to active
+              </Button>
+            ) : null}
+            {canRemove ? (
+              <Button
+                variant="destructive" size="sm" disabled={pending}
+                onClick={() =>
+                  setConfirm({
+                    mode: "delete",
+                    ids: [...selected],
+                    label: `${selected.size} account${selected.size === 1 ? "" : "s"}`,
+                  })
+                }
+              >
+                <Trash2 className="size-4" /> Delete
+              </Button>
+            ) : null}
+            <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+              <X className="size-4" />
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {/* revive / delete confirmation */}
+      <Dialog open={!!confirm} onOpenChange={(o) => { if (!o) setConfirm(null); }}>
+        <DialogContent className="sm:max-w-md">
+          {confirm?.mode === "revive" ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>↩️ Back to active?</DialogTitle>
+                <DialogDescription>
+                  {confirm.label} will leave the archive and return to the raising
+                  process — status, contacts and history intact. Accounts outside
+                  your scope are skipped automatically.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter className="gap-2">
+                <Button variant="outline" onClick={() => setConfirm(null)} disabled={pending}>
+                  Cancel
+                </Button>
+                <Button onClick={runConfirm} disabled={pending}>
+                  {pending ? "Reviving…" : "Yes, back to active"}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : confirm ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-destructive">
+                  <AlertTriangle className="mr-1.5 inline size-4" /> Delete permanently?
+                </DialogTitle>
+                <DialogDescription>
+                  {confirm.label} — with all contacts, visits, deals and comments —
+                  will be <b>deleted for good</b>. This is NOT archiving: the record
+                  disappears and the name becomes addable again. Accounts outside
+                  your scope are skipped. This cannot be undone.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter className="gap-2">
+                <Button variant="outline" onClick={() => setConfirm(null)} disabled={pending}>
+                  Cancel
+                </Button>
+                <Button variant="destructive" onClick={runConfirm} disabled={pending}>
+                  {pending ? "Deleting…" : "Delete permanently"}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -1423,15 +1681,16 @@ function BulkReassignDialog({
 }) {
   const router = useRouter();
   const [target, setTarget] = useState("");
+  const [notify, setNotify] = useState(true);
   const [pending, start] = useTransition();
 
   const submit = () =>
     start(async () => {
-      const res = await bulkReassignAccounts(ids, target);
+      const res = await bulkReassignAccounts(ids, target, notify);
       if (res.ok) {
-        const { done, failed } = res.data!;
+        const { done, failed, emailed } = res.data!;
         toast.success(
-          `Reassigned ${done} account${done === 1 ? "" : "s"}${failed ? ` · ${failed} skipped (no access / wrong function)` : ""}.`
+          `Reassigned ${done} account${done === 1 ? "" : "s"}${failed ? ` · ${failed} skipped (no access / wrong function)` : ""}${done > 0 && notify ? (emailed ? " · they got the news 📬" : " · notified in-app (no email on file)") : ""}.`
         );
         onDone();
         router.refresh();
@@ -1462,6 +1721,16 @@ function BulkReassignDialog({
             </SelectContent>
           </Select>
         </div>
+        <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border p-3">
+          <SelectDot checked={notify} onToggle={() => setNotify((n) => !n)} />
+          <span className="text-sm">
+            <span className="font-medium">Email them about it 📬</span>
+            <span className="block text-xs text-muted-foreground">
+              A bell notification + an email listing the accounts, with a
+              button to their accounts list.
+            </span>
+          </span>
+        </label>
         <DialogFooter>
           <Button onClick={submit} disabled={pending || ids.length === 0 || !target}>
             {pending ? <Loader2 className="size-4 animate-spin" /> : <Users2 className="size-4" />}

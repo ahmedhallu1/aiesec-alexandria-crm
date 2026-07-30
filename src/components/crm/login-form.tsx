@@ -99,7 +99,7 @@ export function LoginForm() {
             id="password"
             name="password"
             autoComplete="current-password"
-            placeholder="The password you set in Sodio"
+            placeholder="Your password · or your phone again (no email yet)"
             required
           />
         </div>

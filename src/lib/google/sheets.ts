@@ -2,7 +2,8 @@ import { google, sheets_v4, drive_v3 } from "googleapis";
 import { db } from "@/lib/supabase";
 import { env, requireEnv } from "@/lib/env";
 import { sandboxSuppressed } from "@/server/sandbox";
-import { LC_FUNCTIONS, SUB_FUNCTIONS } from "@/lib/types";
+import {
+  normalizePhone, LC_FUNCTIONS, SUB_FUNCTIONS } from "@/lib/types";
 import type { Member, MemberRole } from "@/lib/types";
 
 /** Google Sheets mirror layer.
@@ -234,7 +235,7 @@ function parseMulti(raw: string | undefined, known: readonly string[]): string[]
 interface SheetMemberRow {
   name: string;
   nickname: string | null;
-  email: string;
+  email: string | null;
   phone: string | null;
   role: string;
   functions: string[];
@@ -247,12 +248,20 @@ interface SheetMemberRow {
 function parseSheetRow(row: string[]): SheetMemberRow | null {
   const [name, nickname, email, phone, role, fns, subs, stakeholder, teamName, active] = row;
   const cleanEmail = email?.trim().toLowerCase();
-  if (!name?.trim() || !cleanEmail || !cleanEmail.includes("@")) return null;
+  const cleanPhone = phone?.trim();
+  // email is OPTIONAL since v24 — a row needs a name plus an email OR a phone
+  // (phone-only members sign in with their number until the email lands)
+  if (!name?.trim()) return null;
+  const hasEmail = !!cleanEmail && cleanEmail.includes("@");
+  if (!hasEmail && !cleanPhone) return null;
+  const phoneCheck = cleanPhone ? normalizePhone(cleanPhone) : null;
   return {
     name: name.trim(),
     nickname: nickname?.trim() || null,
-    email: cleanEmail,
-    phone: phone?.trim() || null,
+    email: hasEmail ? cleanEmail : null,
+    // canonical +digits when possible so every digit-tail matcher agrees;
+    // unrecognized formats keep the raw value (stripped of separators)
+    phone: phoneCheck?.ok ? phoneCheck.value : cleanPhone?.replace(/[^0-9+]/g, "") || null,
     role: parseRole(role),
     functions: parseMulti(fns, LC_FUNCTIONS),
     sub_functions: parseMulti(subs, SUB_FUNCTIONS),
@@ -290,22 +299,28 @@ export function defaultManagerId(m: LinkableMember, all: LinkableMember[]): stri
   return lcp?.id ?? null;
 }
 
+/** Roles that can BE someone's manager — a plain Member never manages anyone
+ *  (common sense, enforced on import AND in the editor since v24). */
+export const MANAGER_ROLES: readonly string[] = ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"];
+
 /** Resolves "Stakeholder" (Manager) names to member ids (name OR nickname),
- *  falling back to the default manager chain when the cell is empty. */
+ *  falling back to the default manager chain when the cell is empty or names
+ *  someone who can't manage (a plain Member). */
 async function relinkStakeholders(): Promise<void> {
   const { data: members } = await db()
     .from("members")
     .select("id, name, nickname, role, functions, stakeholder_name, stakeholder_id, is_active");
   const all = (members ?? []) as LinkableMember[];
-  const byName = new Map<string, string>();
+  const byName = new Map<string, LinkableMember>();
   for (const m of all) {
-    byName.set(m.name.trim().toLowerCase(), m.id);
-    if (m.nickname) byName.set(m.nickname.trim().toLowerCase(), m.id);
+    byName.set(m.name.trim().toLowerCase(), m);
+    if (m.nickname) byName.set(m.nickname.trim().toLowerCase(), m);
   }
   for (const m of all) {
-    let targetId = m.stakeholder_name
+    const named = m.stakeholder_name
       ? byName.get(m.stakeholder_name.trim().toLowerCase()) ?? null
       : null;
+    let targetId = named && MANAGER_ROLES.includes(named.role) ? named.id : null;
     if (!targetId || targetId === m.id) targetId = defaultManagerId(m, all);
     if (targetId === m.id) targetId = null;
     if (targetId !== m.stakeholder_id) {
@@ -325,28 +340,81 @@ export async function importMembership(): Promise<number> {
   });
   const rows = (res.data.values ?? []) as string[][];
 
-  const seen: string[] = [];
+  const digitsOf = (s: string | null | undefined) => (s ?? "").replace(/\D/g, "");
+  // an email-less member is matched to their DB row by phone tail
+  const findPhoneKeyed = async (phone: string): Promise<string | null> => {
+    const digits = digitsOf(phone);
+    if (digits.length < 7) return null;
+    const { data } = await db()
+      .from("members")
+      .select("id, phone")
+      .is("email", null)
+      .not("phone", "is", null)
+      .ilike("phone", `%${digits.slice(-8)}%`)
+      .limit(10);
+    const rows = (data ?? []) as { id: string; phone: string | null }[];
+    // exact digits first — a shared tail must never merge two people
+    const exact = rows.find((m) => digitsOf(m.phone) === digits);
+    if (exact) return exact.id;
+    const tail = digits.slice(-9);
+    return rows.find((m) => digitsOf(m.phone).endsWith(tail))?.id ?? null;
+  };
+
+  const seenEmails: string[] = [];
+  const seenPhoneTails: string[] = [];
+  let count = 0;
   for (const raw of rows) {
     const row = parseSheetRow(raw);
     if (!row) continue;
-    seen.push(row.email);
-    await db().from("members").upsert(row, { onConflict: "email" });
+    count += 1;
+    if (row.email) {
+      seenEmails.push(row.email);
+      // "the email just landed": adopt the phone-keyed row instead of
+      // inserting a duplicate — the member keeps their id, accounts, history
+      const { data: existing } = await db()
+        .from("members")
+        .select("id")
+        .ilike("email", row.email)
+        .maybeSingle<{ id: string }>();
+      if (!existing && row.phone) {
+        const phoneKeyedId = await findPhoneKeyed(row.phone);
+        if (phoneKeyedId) {
+          await db().from("members").update(row).eq("id", phoneKeyedId);
+          continue;
+        }
+      }
+      await db().from("members").upsert(row, { onConflict: "email" });
+    } else {
+      // phone-keyed row (no email yet)
+      const tail = digitsOf(row.phone).slice(-9);
+      if (tail) seenPhoneTails.push(tail);
+      const phoneKeyedId = row.phone ? await findPhoneKeyed(row.phone) : null;
+      if (phoneKeyedId) await db().from("members").update(row).eq("id", phoneKeyedId);
+      else await db().from("members").insert(row);
+    }
   }
 
   await relinkStakeholders();
   await importTeams().catch((e) => console.error("[sheets] teams import failed:", e));
 
-  // deactivate anyone removed from the sheet (admins stay)
-  if (seen.length > 0) {
-    const { data: activeMembers } = await db().from("members").select("id, email").eq("is_active", true);
+  // deactivate anyone removed from the sheet (admins stay; phone-keyed
+  // members are recognized by their phone tail)
+  if (count > 0) {
+    const { data: activeMembers } = await db()
+      .from("members")
+      .select("id, email, phone")
+      .eq("is_active", true);
     for (const m of activeMembers ?? []) {
-      const mail = m.email.toLowerCase();
-      if (!seen.includes(mail) && !env.adminEmails.includes(mail)) {
+      const mail = (m.email ?? "").toLowerCase();
+      const stillListed = mail
+        ? seenEmails.includes(mail) || env.adminEmails.includes(mail)
+        : seenPhoneTails.some((t) => digitsOf(m.phone).endsWith(t));
+      if (!stillListed) {
         await db().from("members").update({ is_active: false }).eq("id", m.id);
       }
     }
   }
-  return seen.length;
+  return count;
 }
 
 // ------------------------------------------------------------------ teams
@@ -376,8 +444,8 @@ export async function importTeams(): Promise<number> {
     const [typeRaw, fnRaw, nameRaw] = raw;
     const name = (nameRaw ?? "").trim();
     const type = TYPE_ALIASES[(typeRaw ?? "").trim().toLowerCase().replace(/[^a-z]/g, "")];
-    // "Team" rows are intentionally skipped — TL teams are named in the
-    // Membership tab's Team Name column
+    // "Team" rows are intentionally skipped — TL teams live in the in-app
+    // registry (type 'Team' rows managed from the Membership page, v24)
     if (!name || !type) continue;
     const needsFn = type === "Function" || type === "MM";
     // multi-select cells arrive as "B2B, BD" — store one row per function
@@ -385,13 +453,52 @@ export async function importTeams(): Promise<number> {
       ? [...new Set((fnRaw ?? "").split(/[,;]+/).map((f) => f.trim().toUpperCase()).filter(Boolean))]
       : [""];
     for (const fnKey of fnKeys.length > 0 ? fnKeys : [""]) {
+      // the unique key is (type, function_key, name) since 0022 — keep the
+      // one-name-per-(type,fn) semantics for these types by dropping renames
       await db()
         .from("teams")
-        .upsert({ type, function_key: fnKey, name }, { onConflict: "type,function_key" });
+        .delete()
+        .eq("type", type)
+        .eq("function_key", fnKey)
+        .neq("name", name);
+      await db()
+        .from("teams")
+        .upsert({ type, function_key: fnKey, name }, { onConflict: "type,function_key,name" });
       count += 1;
     }
   }
   return count;
+}
+
+/** Mirrors the in-app TEAM registry (TL team names, v24) onto the Teams tab
+ *  as "Team" rows — informational only (the import skips them). Best-effort. */
+export async function writeTeamRegistryRows(
+  teams: { function_key: string; name: string }[]
+): Promise<void> {
+  if (await sandboxSuppressed("teams tab write-back")) return;
+  const id = await ensureSpreadsheet("CRM — Membership", MEMBERSHIP_HEADERS);
+  const tab = await ensureTab(id, TEAMS_TAB, TEAMS_HEADERS, TEAMS_SEED);
+  const { sheets } = clients();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: id,
+    range: `'${tab}'!A2:C200`,
+  });
+  const rows = (res.data.values ?? []) as string[][];
+  const kept = rows.filter(
+    (r) => (r[0] ?? "").trim().toLowerCase().replace(/[^a-z]/g, "") !== "team"
+  );
+  const next = [
+    ...kept,
+    ...teams.map((t) => ["Team", t.function_key, t.name]),
+  ];
+  // rewrite the block (pad with blanks so removed rows clear)
+  while (next.length < rows.length) next.push(["", "", ""]);
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: id,
+    range: `'${tab}'!A2:C${next.length + 1}`,
+    valueInputOption: "RAW",
+    requestBody: { values: next },
+  });
 }
 
 // ------------------------------------------------------------------ write-back
@@ -399,7 +506,8 @@ export async function importTeams(): Promise<number> {
 export interface MemberWriteBack {
   name: string;
   nickname: string | null;
-  email: string;
+  /** null = no AIESEC email yet — the row is located by PHONE instead */
+  email: string | null;
   phone: string | null;
   role: string;
   functions: string[];
@@ -409,24 +517,41 @@ export interface MemberWriteBack {
   is_active: boolean;
 }
 
-/** Writes one member's row back to the Membership sheet (found by email,
- *  appended if new) so in-app edits survive the next import. Best-effort:
- *  callers should .catch() and keep going — the DB row is already saved. */
+/** Writes one member's row back to the Membership sheet (found by email —
+ *  or, for members without one yet, by phone digits — appended if new) so
+ *  in-app edits survive the next import. Best-effort: callers should .catch()
+ *  and keep going — the DB row is already saved. */
 export async function writeMemberToSheet(m: MemberWriteBack): Promise<void> {
   if (await sandboxSuppressed("membership sheet write-back")) return;
   const id = await ensureSpreadsheet("CRM — Membership", MEMBERSHIP_HEADERS);
   const { sheets } = clients();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: id,
-    range: "C2:C1000", // emails
+    range: "C2:D1000", // emails + phones (the phone is the email-less fallback key)
   });
-  const emails = (res.data.values ?? []).map((r) => (r[0] ?? "").trim().toLowerCase());
-  const idx = emails.findIndex((e) => e === m.email.toLowerCase());
+  const rows = (res.data.values ?? []) as string[][];
+  const digitsOf = (s: string) => s.replace(/\D/g, "");
+  const phoneRowIdx = () => {
+    if (!m.phone) return -1;
+    const tail = digitsOf(m.phone).slice(-9);
+    return rows.findIndex(
+      (r) => !((r[0] ?? "").trim()) && tail && digitsOf(r[1] ?? "").endsWith(tail)
+    );
+  };
+  let idx = -1;
+  if (m.email) {
+    idx = rows.findIndex((r) => (r[0] ?? "").trim().toLowerCase() === m.email!.toLowerCase());
+    // the email just landed on a previously phone-only member: fill THEIR old
+    // email-less row instead of appending a duplicate the import would re-adopt
+    if (idx < 0) idx = phoneRowIdx();
+  } else {
+    idx = phoneRowIdx();
+  }
 
   const rowValues = [
     m.name,
     m.nickname ?? "",
-    m.email,
+    m.email ?? "",
     m.phone ?? "",
     m.role,
     m.functions.join(", "),
