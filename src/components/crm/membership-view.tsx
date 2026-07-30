@@ -371,7 +371,14 @@ function TeamsCard({ teams }: { teams: TeamRegistryRow[] }) {
             {namedTeams.length > 0 ? (
               <p className="text-xs text-muted-foreground">
                 From the sheet:{" "}
-                {namedTeams.map((t) => `${t.type}${t.function_key ? ` ${t.function_key}` : ""} = ${t.name}`).join(" · ")}
+                {namedTeams
+                  .map(
+                    (t) =>
+                      `${t.type === "MM" ? "Function leaders" : t.type}${
+                        t.function_key && !["EB", "LB"].includes(t.function_key) ? ` ${t.function_key}` : ""
+                      } = ${t.name}`
+                  )
+                  .join(" · ")}
               </p>
             ) : null}
           </div>

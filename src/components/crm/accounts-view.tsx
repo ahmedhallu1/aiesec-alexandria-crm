@@ -490,13 +490,23 @@ export function AccountsView({
         type="button"
         onClick={() => sortBy(field, defaultDir)}
         className={cn(
-          "inline-flex items-center gap-1 transition-colors hover:text-foreground",
+          "group/sort -mx-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 transition-all duration-150 hover:bg-muted hover:text-foreground active:scale-95",
           filters.sort === field && "font-bold text-primary"
         )}
         title="Sort by this column"
       >
         {children}
-        {filters.sort === field ? (filters.dir === "asc" ? " ↑" : " ↓") : null}
+        {filters.sort === field ? (
+          <span>{filters.dir === "asc" ? "↑" : "↓"}</span>
+        ) : (
+          // ghost arrows fade + drop in on hover — "you can click me"
+          <span
+            aria-hidden
+            className="-translate-y-0.5 opacity-0 transition-all duration-150 group-hover/sort:translate-y-0 group-hover/sort:opacity-60"
+          >
+            ↕
+          </span>
+        )}
       </button>
     </TableHead>
   );

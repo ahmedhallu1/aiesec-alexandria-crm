@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getViewer } from "@/server/data";
 import { OgtMailView } from "@/components/crm/ogt-mail-view";
 
-export const metadata = { title: "OGT mail" };
+export const metadata = { title: "Expectation mail" };
 
 /** OGT "Home Entity Expectation Setting Mail" — OGT VPs/Directors (+ LCP and
  *  admin) compose the standardized pre-approval email to a hosting entity;

@@ -1249,7 +1249,8 @@ export async function bulkReassignAccounts(
           .maybeSingle<{ id: string; name: string; nickname: string | null; email: string | null; role: string }>(),
         db().from("accounts").select("name").in("id", doneIds).order("name"),
       ]);
-      if (target) {
+      // assigning accounts to YOURSELF needs no heads-up
+      if (target && target.id !== viewer.id) {
         const names = ((accounts ?? []) as { name: string }[]).map((a) => a.name);
         const { notifyMembers } = await import("./notify");
         await notifyMembers(

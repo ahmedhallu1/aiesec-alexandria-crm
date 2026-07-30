@@ -68,7 +68,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
         ]
       : []),
     ...(nav.planning ? [{ href: "/planning", label: "Planning", icon: Target }] : []),
-    ...(nav.ogtMail ? [{ href: "/ogt-mail", label: "OGT mail", icon: MailPlus }] : []),
+    ...(nav.ogtMail ? [{ href: "/ogt-mail", label: "Expectation mail", icon: MailPlus }] : []),
     ...(nav.tm ? [{ href: "/members", label: "Talent Management", icon: UsersRound }] : []),
     ...(nav.membership ? [{ href: "/membership", label: "Membership", icon: Users }] : []),
     { href: "/playbook", label: "Playbook", icon: BookOpen },
