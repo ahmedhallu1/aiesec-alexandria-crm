@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v25";
+export const PLAYBOOK_VERSION = "v26";
 
 interface Props {
   role: string;
@@ -15,6 +15,7 @@ interface Props {
   isB2C: boolean;
   isTm: boolean;
   isOgx: boolean;
+  isConsideration: boolean;
 }
 
 interface Section {
@@ -29,7 +30,7 @@ interface Section {
 /** Which sections THIS member needs — the playbook renders only these. */
 function sectionsForRole(
   role: string, isAdmin: boolean, isB2B: boolean, isB2C: boolean, isTm: boolean,
-  isOgx: boolean
+  isOgx: boolean, isConsideration: boolean
 ): Set<string> {
   const mine = new Set(["what", "start", "rules"]);
   if (role === "Member" || role === "Coordinator") mine.add("raising");
@@ -39,6 +40,7 @@ function sectionsForRole(
   if (isB2C) mine.add("b2c-module");
   if (isTm) mine.add("tm");
   if (isOgx) mine.add("ogx");
+  if (isConsideration) mine.add("consideration");
   if (isAdmin) { mine.add("im"); mine.add("data"); }
   return mine;
 }
@@ -174,13 +176,28 @@ const SECTIONS: Section[] = [
     color: "#0CB9C1",
     points: [
       <><b>Sign-ups</b> (sidebar) is your workspace: every sign-up from your tracker sheet lives here, <b>two-way synced</b> — the sheet imports every 15 minutes and every edit you make in Sodio lands back on the sheet instantly. Same data, two doors.</>,
-      <>The main view is the <b>🆕 Unassigned pool</b>: open a fresh sign-up, contact them (the WhatsApp/call buttons are right in the row), then hit <b>Claim</b> — it&apos;s yours and your name is on the sheet.</>,
+      <>The main view is the <b>🆕 Unassigned pool</b>: open a fresh sign-up, reach them (the WhatsApp/call buttons are right in the row), then hit <b>Contact</b> — it&apos;s yours, your name is on the sheet, and the details open right away so you can log everything (v26).</>,
+      <><b>Leaders bulk-assign</b> (v26): select several sign-ups → <b>Assign to…</b> a member or <b>Unassign</b> back to the pool. Filters gained <b>📵 Missing phone</b> to spot sign-ups with no number.</>,
+      <><b>Your plan, live</b> (v26): if you filed an MM plan, a card above the list shows this month&apos;s <b>Applicants / Accepted / Approvals plan vs your current pipeline</b> — the Approvals bar is your MOS race.</>,
       <>Views: <b>Unassigned · My sign-ups · My team</b> (Team Leaders) · <b>All</b> (VPs/Directors) · <b>Archived</b>. Members see their own + the pool; TLs their team; leaders everything in their function.</>,
       <>You edit <b>Contacted</b> (Yes/No), <b>Interested</b> (Yes/No) and <b>comments</b> — everything else (phone, email, program, referral, university…) is the sign-up&apos;s own data, read-only in the details.</>,
       <>Comments are an <b>organized log</b>: yours land in the sheet&apos;s Comment cell, the VP&apos;s in the VP Comment cell — each entry stamped with the author and time. Assigned/contacted dates stamp themselves.</>,
       <><b>VP/Director only</b>: VP comments, <b>Country</b> (autocomplete), <b>Sub Product</b> (OGT: GTa/GTe), <b>Status</b> — Parents Approval → Applied → Accepted → <b>Approved</b> — and <b>Out of Process</b> (archives the sign-up with a reason; revivable).</>,
       <><b>Approved is the MOS</b> 🏆 — accepted by the host entity, paid, contract signed, ready to start the travel process. Your real Approvals count shows in the members directory.</>,
       <>VPs/Directors: the <b>Expectation mail</b> tab builds the pre-approval &quot;Home Entity Expectation Setting&quot; email — review the final version, edit inline, and send it from your own Gmail (EP + IR in To, customer support in CC, your signature at the end).</>,
+    ],
+  },
+  {
+    id: "consideration",
+    emoji: "🌍",
+    title: "Consideration — IR calls & the CV pool",
+    audience: "Consideration crew",
+    color: "#F48924",
+    points: [
+      <><b>Consideration</b> (sidebar) has two tabs. <b>IR calls</b>: record every International-Relations call — pick the partner LC (or add a new one on the spot), the date &amp; time default to now, drop the call screenshot and it lands named in the system&apos;s Drive folder. The whole crew sees the shared call log.</>,
+      <><b>CVs</b>: upload a CV in any format and tag its LC — the AI reads it and extracts the <b>name, phone (with country code), email, industry match and skills</b> automatically. Fix any field by hand; open the original file any time.</>,
+      <><b>Ask The Blue Man about the pool</b> 🤖: &quot;give me the CVs with C# in their skills&quot; or &quot;who has ERP experience?&quot; — he searches every extracted CV and answers with the matches.</>,
+      <>PDFs and images get the full AI read; exotic formats are stored anyway and you fill the fields manually.</>,
     ],
   },
   {
@@ -243,8 +260,8 @@ const SECTIONS: Section[] = [
   },
 ];
 
-export function PlaybookView({ role, isAdmin, isB2B, isB2C, isTm, isOgx }: Props) {
-  const mine = sectionsForRole(role, isAdmin, isB2B, isB2C, isTm, isOgx);
+export function PlaybookView({ role, isAdmin, isB2B, isB2C, isTm, isOgx, isConsideration }: Props) {
+  const mine = sectionsForRole(role, isAdmin, isB2B, isB2C, isTm, isOgx, isConsideration);
   // the playbook is DYNAMIC: it renders only what THIS member needs to know
   const sections = SECTIONS.filter((s) => mine.has(s.id));
 
@@ -265,7 +282,10 @@ export function PlaybookView({ role, isAdmin, isB2B, isB2C, isTm, isOgx }: Props
           Alexandria. 💙
         </p>
         <p className="mt-3 max-w-xl text-xs leading-relaxed text-white/75">
-          <b>New in v25:</b> THE OGX MODULE — sign-ups for OGV &amp; OGT,
+          <b>New in v26:</b> THE CONSIDERATION MODULE — IR calls with Drive
+          screenshots &amp; an AI-read CV pool The Blue Man can search · bulk
+          assign on sign-ups · arrange your own sidebar · plan-vs-achieved
+          cards. v25: THE OGX MODULE — sign-ups for OGV &amp; OGT,
           two-way synced with the tracker sheets · claim-from-the-pool flow ·
           Approved = the OGX MOS · Expectation mail v2 (review, edit, send
           from your Gmail) · click-to-sort on every table · planning privacy

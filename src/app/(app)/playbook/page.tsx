@@ -1,5 +1,5 @@
 import { getViewer } from "@/server/data";
-import { hasOgxAccess, hasTmAccess } from "@/lib/rbac";
+import { hasConsiderationAccess, hasOgxAccess, hasTmAccess } from "@/lib/rbac";
 import { memberIsB2B, memberIsB2C } from "@/lib/types";
 import { PlaybookView } from "@/components/crm/playbook-view";
 
@@ -19,6 +19,7 @@ export default async function PlaybookPage() {
       isB2C={memberIsB2C(viewer)}
       isTm={hasTmAccess(viewer)}
       isOgx={hasOgxAccess(viewer)}
+      isConsideration={hasConsiderationAccess(viewer)}
     />
   );
 }

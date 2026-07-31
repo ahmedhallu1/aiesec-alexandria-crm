@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
-import { getViewer, listSignupsPage, signupReassignTargets, signupViewsFor } from "@/server/data";
+import {
+  getViewer, listSignupsPage, ogxPlanCard, signupReassignTargets, signupViewsFor,
+} from "@/server/data";
 import { hasOgxAccess, ogxFunctions } from "@/lib/rbac";
 import { SignupsView } from "@/components/crm/signups-view";
 import type { OgxFunction } from "@/lib/types";
@@ -7,7 +9,7 @@ import type { OgxFunction } from "@/lib/types";
 export const metadata = { title: "Sign-ups" };
 
 /** THE OGX WORKSPACE (v25): OGT & OGV sign-ups, two-way synced with the LC's
- *  tracker sheets. Main view = the unassigned pool — contact one, claim it. */
+ *  tracker sheets. Main view = the unassigned pool — contact one, it's yours. */
 export default async function SignupsPage({
   searchParams,
 }: {
@@ -23,23 +25,27 @@ export default async function SignupsPage({
     : fns[0];
 
   const page = Math.max(0, (parseInt(sp.page ?? "1", 10) || 1) - 1);
-  const result = await listSignupsPage(
-    viewer,
-    {
-      view: sp.view,
-      fn: activeFn,
-      batch: sp.batch,
-      program: sp.program,
-      status: sp.status,
-      interested: sp.interested,
-      contacted: sp.contacted,
-      country: sp.country,
-      q: sp.q,
-      sort: sp.sort,
-      dir: sp.dir === "asc" ? "asc" : sp.dir === "desc" ? "desc" : undefined,
-    },
-    page
-  );
+  const [result, planCard] = await Promise.all([
+    listSignupsPage(
+      viewer,
+      {
+        view: sp.view,
+        fn: activeFn,
+        batch: sp.batch,
+        program: sp.program,
+        status: sp.status,
+        interested: sp.interested,
+        contacted: sp.contacted,
+        country: sp.country,
+        noPhone: sp.nophone === "1",
+        q: sp.q,
+        sort: sp.sort,
+        dir: sp.dir === "asc" ? "asc" : sp.dir === "desc" ? "desc" : undefined,
+      },
+      page
+    ),
+    ogxPlanCard(viewer),
+  ]);
 
   const isLeader = viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
   const targets = isLeader || viewer.role === "Team Leader"
@@ -57,6 +63,7 @@ export default async function SignupsPage({
       fns={fns}
       activeFn={activeFn}
       targets={targets}
+      planCard={planCard}
       viewer={{
         id: viewer.id,
         name: viewer.nickname || viewer.name,
@@ -74,6 +81,7 @@ export default async function SignupsPage({
         status: sp.status ?? "",
         interested: sp.interested ?? "",
         contacted: sp.contacted ?? "",
+        nophone: sp.nophone ?? "",
         sort: sp.sort ?? "",
         dir: sp.dir ?? "",
       }}

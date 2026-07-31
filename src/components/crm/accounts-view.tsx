@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { StageBadge } from "./stage-badge";
 import { ContactDialog, type ContactTarget } from "./contact-dialog";
 import { AddAccountDialog, type MemberOption } from "./add-account-dialog";
+import { AskBlueMan } from "./ask-blue-man";
 import { Hint } from "./hint";
 import { QuickActions } from "./quick-actions";
 import { SortHeader, useTableSort } from "./sort-header";
@@ -608,6 +609,13 @@ export function AccountsView({
               ? `${(total + manualArchived.length).toLocaleString("en")} archived name${total + manualArchived.length === 1 ? "" : "s"} — none of them can ever be re-added`
               : `${total.toLocaleString("en")} account${total === 1 ? "" : "s"} in your scope`}
           </p>
+          {!archived ? (
+            <AskBlueMan
+              className="mt-1.5"
+              hint="Ask The Blue Man for insights — or accounts matching any criteria"
+              prefill="Give me the accounts where "
+            />
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           {/* desktop selects directly via the always-on row checkboxes; the

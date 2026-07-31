@@ -436,3 +436,13 @@ html body[data-scroll-locked] {
       border-color 0.15s ease, box-shadow 0.15s ease;
   }
 }
+
+/* the walking-man asset is WHITE on transparency — tint it AIESEC blue on
+   light backgrounds; dark mode keeps the white original */
+.walkman-tint {
+  filter: brightness(0) invert(38%) sepia(93%) saturate(4184%) hue-rotate(199deg)
+    brightness(99%) contrast(98%);
+}
+.dark .walkman-tint {
+  filter: none;
+}

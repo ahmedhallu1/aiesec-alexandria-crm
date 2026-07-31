@@ -3686,7 +3686,8 @@ export async function claimSignup(id: string): Promise<ActionResult> {
 /** TL/VP re-assignment (or un-assignment with null). */
 export async function reassignSignup(
   id: string,
-  memberId: string | null
+  memberId: string | null,
+  opts?: { skipSheetPush?: boolean }
 ): Promise<ActionResult> {
   const viewer = await getViewer();
   const signup = await loadSignup(id);
@@ -3730,6 +3731,11 @@ export async function reassignSignup(
       return fail("Team Leaders assign within their own team.", "forbidden");
     target = data;
   }
+  // a true no-op (same assignee, same display name) must not touch the row —
+  // flipping sodio_touched would mute future sheet-side edits for nothing
+  const newName = target ? target.nickname || target.name : null;
+  if ((target?.id ?? null) === signup.assigned_to && newName === signup.assigned_name)
+    return { ok: true };
   await snapshotForUndo("signups", id);
   const { error } = await db()
     .from("signups")
@@ -3745,9 +3751,67 @@ export async function reassignSignup(
   await logAudit(viewer.id, "signup_reassign", "signup", id, {
     to: target?.id ?? null,
   });
-  await pushSignupToSheet(id);
+  if (!opts?.skipSheetPush) await pushSignupToSheet(id);
   refresh();
   return { ok: true };
+}
+
+/** Bulk assign (memberId) or unassign-back-to-the-pool (null) — ≤50 per call,
+ *  the client chunks bigger selections. Loops reassignSignup so EVERY row
+ *  re-checks scope (VP/Director/LCP-admin: anything in their fn; TL: only
+ *  unassigned/own/team rows), keeps sodio_touched, and pushes to the sheet. */
+export async function bulkReassignSignups(
+  ids: string[],
+  memberId: string | null
+): Promise<ActionResult<{ done: number; failed: number }>> {
+  if (!Array.isArray(ids) || ids.length === 0) return fail("Select at least one sign-up.");
+  if (ids.length > 50)
+    return fail("Max 50 sign-ups per bulk call — run it in batches.");
+  let done = 0;
+  let failed = 0;
+  const doneIds: string[] = [];
+  for (const id of ids) {
+    // per-row RBAC/scope re-runs inside; the sheet push is batched below
+    const res = await reassignSignup(id, memberId, { skipSheetPush: true });
+    if (res.ok) { done += 1; doneIds.push(id); }
+    else failed += 1;
+  }
+
+  // ONE tab read + ONE batch write per sheet instead of ~3 calls per row
+  if (doneIds.length > 0) {
+    try {
+      const [{ data: signups }, { data: comments }] = await Promise.all([
+        db().from("signups").select("*").in("id", doneIds),
+        db()
+          .from("signup_comments")
+          .select("*")
+          .in("signup_id", doneIds)
+          .order("created_at"),
+      ]);
+      const byId = new Map<string, SignupComment[]>();
+      for (const c of (comments ?? []) as SignupComment[]) {
+        const list = byId.get(c.signup_id) ?? [];
+        list.push(c);
+        byId.set(c.signup_id, list);
+      }
+      const { writeSignupsBackBatch } = await import("@/lib/google/signups");
+      const missed = await writeSignupsBackBatch(
+        ((signups ?? []) as SignupRow[]).map((s) => ({
+          signup: s,
+          comments: byId.get(s.id) ?? [],
+          assignedDisplay: s.assigned_name,
+        }))
+      );
+      if (missed.length > 0)
+        console.warn(`[signups] batch write-back missed ${missed.length} rows:`, missed.join(", "));
+    } catch (e) {
+      // the DB is right either way — the 15-min import reconciles the sheet
+      console.error("[signups] batch write-back failed:", e);
+    }
+  }
+
+  refresh();
+  return { ok: true, data: { done, failed } };
 }
 
 /** Member/MM workflow edits: Contacted (Yes/No) + Interested (Yes/No). */
@@ -3921,4 +3985,441 @@ export async function openSignupDetail(
   const detail = await getSignupDetail(viewer, id);
   if (!detail) return fail("Sign-up not found — or outside your scope.", "forbidden");
   return { ok: true, data: detail };
+}
+
+// ================================================================== consideration (v26)
+
+import { hasConsiderationAccess } from "@/lib/rbac";
+import { CV_INDUSTRIES } from "@/lib/cv-extract";
+import type { CvRow, PartnerLc } from "./data";
+import type { Viewer } from "@/lib/rbac";
+
+/** IR calls (International Relations): video calls with partner LCs abroad
+ *  marketing our city's opens — the screenshot lands in the "CRM — IR Calls"
+ *  folder on the system Drive. CVs: the consideration CV pool (private `cvs`
+ *  storage bucket + Gemini auto-extraction). */
+
+// the screenshot travels base64 inside the action body: 3.2 MB decoded ≈
+// 4.27 MB base64 + JSON envelope — under Vercel's hard 4.5 MB request cap
+// AND next.config.ts's serverActions bodySizeLimit (the client enforces 3 MB)
+const IR_SCREENSHOT_MAX_BYTES = Math.floor(3.2 * 1024 * 1024);
+const CV_MAX_SIZE = 25 * 1024 * 1024; // per file, any format
+// base64 (~4/3) + prompt must stay under Gemini's 20 MB request cap
+const CV_EXTRACT_MAX = 14 * 1024 * 1024;
+
+const considerationFail = () =>
+  fail("The Consideration module is outside your access.", "forbidden");
+
+/** Uploader, VP/Director of the module, LCP or admin. */
+const canManageCv = (viewer: Viewer, cv: { uploaded_by: string | null }) =>
+  viewer.isAdmin ||
+  viewer.role === "LCP" ||
+  cv.uploaded_by === viewer.id ||
+  ((viewer.role === "LCVP" || viewer.role === "Director") && hasConsiderationAccess(viewer));
+
+/** "+ Add new LC" (inline in the combobox): creates a partner LC — the name
+ *  is unique case-insensitively; hitting an existing one just returns it. */
+export async function addPartnerLc(input: {
+  name: string;
+  country?: string | null;
+}): Promise<ActionResult<PartnerLc>> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  const name = input.name?.trim();
+  if (!name) return fail("The partner LC needs a name.");
+  const country = input.country?.trim() || null;
+  const { data: created, error } = await db()
+    .from("partner_lcs")
+    .insert({ name, country, created_by: viewer.id })
+    .select("id, name, country")
+    .single();
+  if (error) {
+    if (error.code === "23505") {
+      const { data: existing } = await db()
+        .from("partner_lcs")
+        .select("id, name, country")
+        .ilike("name", name.replaceAll("%", "\\%").replaceAll("_", "\\_"))
+        .maybeSingle<PartnerLc>();
+      if (existing) return { ok: true, data: existing };
+      return fail("That partner LC already exists.");
+    }
+    return fail(error.message);
+  }
+  await recordUndo("partner_lcs", created.id, "insert");
+  await logAudit(viewer.id, "partner_lc_add", "partner_lc", created.id, { name });
+  return { ok: true, data: created as PartnerLc };
+}
+
+async function resolvePartnerLc(input: {
+  partnerLcId?: string | null;
+  newLc?: { name: string; country?: string | null } | null;
+}): Promise<{ lc: PartnerLc } | { error: ActionResult<never> }> {
+  if (input.partnerLcId) {
+    const { data } = await db()
+      .from("partner_lcs")
+      .select("id, name, country")
+      .eq("id", input.partnerLcId)
+      .maybeSingle<PartnerLc>();
+    if (!data) return { error: fail("That partner LC no longer exists — pick another.") };
+    return { lc: data };
+  }
+  if (input.newLc?.name?.trim()) {
+    const res = await addPartnerLc(input.newLc);
+    if (!res.ok) return { error: res as ActionResult<never> };
+    return { lc: res.data! };
+  }
+  return { error: fail("Pick the partner LC (or add it) first.") };
+}
+
+/** Records one IR call. The screenshot upload is BEST-EFFORT: a Drive hiccup
+ *  never loses the call — the row lands without it + a warning in the result.
+ *  Sandbox: the Drive upload is suppressed, the insert is journaled. */
+export async function recordIrCall(input: {
+  partnerLcId?: string | null;
+  newLc?: { name: string; country?: string | null } | null;
+  calledAt: string;
+  notes?: string | null;
+  screenshot?: { name: string; mimeType: string; dataBase64: string } | null;
+}): Promise<ActionResult<{ id: string; screenshotWarning?: string }>> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+
+  const resolved = await resolvePartnerLc(input);
+  if ("error" in resolved) return resolved.error;
+  const lc = resolved.lc;
+
+  const calledAt = new Date(input.calledAt);
+  if (!input.calledAt || Number.isNaN(calledAt.getTime()))
+    return fail("Pick the call's date and time.");
+
+  let screenshot: { id: string; name: string; link: string } | null = null;
+  let warning: string | undefined;
+  const shot = input.screenshot;
+  if (shot?.dataBase64) {
+    if (!(shot.mimeType || "").toLowerCase().startsWith("image/"))
+      return fail("The screenshot must be an image (png/jpg/webp…).");
+    let bytes: Buffer;
+    try {
+      bytes = Buffer.from(shot.dataBase64, "base64");
+    } catch {
+      return fail("The screenshot upload was corrupted — try again.");
+    }
+    if (bytes.byteLength === 0) return fail("The screenshot file is empty.");
+    if (bytes.byteLength > IR_SCREENSHOT_MAX_BYTES)
+      return fail("The screenshot is over 3 MB — compress or crop it and try again.");
+    // trust the CONTENT, not the declared mime (the client falls back to
+    // image/png for unknown types): PNG / JPEG / WebP / GIF / HEIC magics
+    const isImage =
+      (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) ||
+      (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) ||
+      (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+        bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) ||
+      (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) ||
+      (bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70);
+    if (!isImage) return fail("The screenshot must be an image (png/jpg/webp…).");
+    const fileName =
+      shot.name?.trim() ||
+      `IR call — ${lc.name} — ${calledAt.toISOString().slice(0, 10)}`;
+    if (await sandboxSuppressed("IR-call screenshot Drive upload")) {
+      warning = "Sandbox test view — the Drive upload was skipped.";
+    } else {
+      try {
+        const { uploadToDriveFolder } = await import("@/lib/google/drive-upload");
+        const up = await uploadToDriveFolder({
+          folderName: "CRM — IR Calls",
+          fileName,
+          mimeType: shot.mimeType,
+          data: bytes,
+        });
+        screenshot = { id: up.id, name: fileName, link: up.webViewLink };
+      } catch (e) {
+        console.error("[ir-calls] Drive upload failed:", e);
+        warning =
+          "The call was recorded, but the screenshot could not reach Drive — try again later or ping the IM team.";
+      }
+    }
+  }
+
+  const { data: created, error } = await db()
+    .from("ir_calls")
+    .insert({
+      partner_lc_id: lc.id,
+      partner_lc_name: lc.name,
+      called_at: calledAt.toISOString(),
+      notes: input.notes?.trim() || null,
+      screenshot_drive_id: screenshot?.id ?? null,
+      screenshot_name: screenshot?.name ?? null,
+      screenshot_link: screenshot?.link ?? null,
+      member_id: viewer.id,
+      member_name: viewer.nickname || viewer.name,
+    })
+    .select("id")
+    .single();
+  if (error) return fail(error.message);
+
+  await recordUndo("ir_calls", created.id, "insert");
+  await logAudit(viewer.id, "ir_call", "ir_call", created.id, { lc: lc.name });
+  refresh();
+  return { ok: true, data: { id: created.id, screenshotWarning: warning } };
+}
+
+// ------------------------------------------------------------------ CV pool
+
+/** Step 1 — signed upload URL for the CV file (browser PUTs straight to the
+ *  private `cvs` bucket; the bytes never touch a server action). */
+export async function requestCvUpload(file: {
+  name: string;
+  type: string;
+  size: number;
+}): Promise<ActionResult<{ path: string; signedUrl: string }>> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  // the uploaded storage object + the Gemini call can't be undone on exit
+  if (viewer.sandbox)
+    return fail("CV uploads are disabled in the sandbox test view — the file and AI extraction can't be undone on exit.");
+  if (!file?.name) return fail("Pick the CV file first.");
+  if (file.size > CV_MAX_SIZE)
+    return fail(`"${file.name}" is over 25 MB — compress it and try again.`);
+
+  const safeName = file.name.replace(/[^\w.\- ()]+/g, "_").slice(-80);
+  const path = `${Date.now()}-${crypto.randomUUID()}-${safeName}`;
+  const { data, error } = await db().storage.from("cvs").createSignedUploadUrl(path);
+  if (error || !data) {
+    if (error?.message?.toLowerCase().includes("bucket"))
+      return fail("The cvs storage bucket isn't set up yet — run migration 0026 in the Supabase SQL editor.");
+    return fail(error?.message ?? "Could not prepare the upload — try again.");
+  }
+  return { ok: true, data: { path: data.path, signedUrl: data.signedUrl } };
+}
+
+/** Runs (or re-runs) the Gemini extraction for one CV row and stamps the
+ *  result. Returns the final status + a human error when it didn't stick. */
+async function runCvExtraction(id: string): Promise<{ status: string; note?: string }> {
+  const { data: cv } = await db().from("cvs").select("*").eq("id", id).maybeSingle<CvRow>();
+  if (!cv) return { status: "failed", note: "CV not found." };
+
+  const finish = async (patch: Record<string, unknown>) => {
+    await snapshotForUndo("cvs", id);
+    const { error } = await db().from("cvs").update(patch).eq("id", id);
+    if (error) console.error(`[cvs] status write for ${id}:`, error.message);
+    return error;
+  };
+
+  if ((cv.size_bytes ?? 0) > CV_EXTRACT_MAX) {
+    await finish({ extraction_status: "unsupported" });
+    return {
+      status: "unsupported",
+      note: "The file is too big for the AI to read (14 MB max) — fill the fields manually.",
+    };
+  }
+  const { data: file, error: dlError } = await db().storage.from("cvs").download(cv.file_path);
+  if (dlError || !file) {
+    await finish({ extraction_status: "failed" });
+    return { status: "failed", note: "Could not read the uploaded file back from storage." };
+  }
+  const buf = Buffer.from(await file.arrayBuffer());
+  if (buf.byteLength > CV_EXTRACT_MAX) {
+    await finish({ extraction_status: "unsupported" });
+    return {
+      status: "unsupported",
+      note: "The file is too big for the AI to read (14 MB max) — fill the fields manually.",
+    };
+  }
+
+  const { extractCv } = await import("@/lib/cv-extract");
+  const result = await extractCv({
+    mimeType: cv.mime_type || file.type || "application/octet-stream",
+    dataBase64: buf.toString("base64"),
+  });
+
+  if (result.status === "done") {
+    const saveErr = await finish({
+      // AI fills only what a human hasn't already fixed by hand
+      person_name: cv.person_name ?? result.fields.person_name,
+      phone: cv.phone ?? result.fields.phone,
+      email: cv.email ?? result.fields.email,
+      industry: cv.industry ?? result.fields.industry,
+      skills: cv.skills ?? result.fields.skills,
+      summary: result.fields.summary,
+      extracted_text: result.fields.full_text,
+      extraction_status: "done",
+    });
+    // a silent lost write would show "done" while the row stays pending
+    if (saveErr)
+      return { status: "failed", note: "The AI read it but saving failed — hit Re-run." };
+    return { status: "done" };
+  }
+  await finish({ extraction_status: result.status });
+  return {
+    status: result.status,
+    note:
+      result.status === "failed"
+        ? result.error
+        : "This format can't be auto-read (e.g. docx) — fill the fields manually.",
+  };
+}
+
+/** Step 2 — after the browser PUT: record the CV row, then IMMEDIATELY run
+ *  the AI extraction (name/phone/email/industry/skills/summary/full text). */
+export async function confirmCvUpload(input: {
+  path: string;
+  name: string;
+  type: string;
+  size: number;
+  partnerLcId?: string | null;
+  newLc?: { name: string; country?: string | null } | null;
+}): Promise<ActionResult<{ id: string; status: string; note?: string }>> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  if (viewer.sandbox)
+    return fail("CV uploads are disabled in the sandbox test view — the file and AI extraction can't be undone on exit.");
+  // only paths shaped like the ones requestCvUpload issues are recordable
+  if (!/^\d{10,}-[0-9a-f][0-9a-f-]{30,40}-/.test(input.path ?? ""))
+    return fail("Nothing was uploaded.");
+
+  let lc: PartnerLc | null = null;
+  if (input.partnerLcId || input.newLc?.name?.trim()) {
+    const resolved = await resolvePartnerLc(input);
+    if ("error" in resolved) return resolved.error;
+    lc = resolved.lc;
+  }
+
+  const { data: created, error } = await db()
+    .from("cvs")
+    .insert({
+      partner_lc_id: lc?.id ?? null,
+      partner_lc_name: lc?.name ?? null,
+      file_path: input.path,
+      file_name: (input.name || "CV").slice(0, 200),
+      mime_type: input.type || "application/octet-stream",
+      size_bytes: input.size,
+      extraction_status: "pending",
+      uploaded_by: viewer.id,
+      uploader_name: viewer.nickname || viewer.name,
+    })
+    .select("id")
+    .single();
+  if (error) return fail(error.message);
+
+  await recordUndo("cvs", created.id, "insert");
+  await logAudit(viewer.id, "cv_upload", "cv", created.id, { file: input.name });
+  const result = await runCvExtraction(created.id);
+  refresh();
+  return { ok: true, data: { id: created.id, status: result.status, note: result.note } };
+}
+
+/** Manual re-run for failed/unsupported (or stuck-pending) extractions. */
+export async function rerunCvExtraction(
+  id: string
+): Promise<ActionResult<{ status: string; note?: string }>> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  // a real Gemini call burns real quota — nothing to undo, so refuse
+  if (viewer.sandbox)
+    return fail("AI extraction is disabled in the sandbox test view.");
+  const { data: cv } = await db().from("cvs").select("id").eq("id", id).maybeSingle();
+  if (!cv) return fail("That CV no longer exists.");
+  const result = await runCvExtraction(id);
+  await logAudit(viewer.id, "cv_extract_rerun", "cv", id, { status: result.status });
+  refresh();
+  return { ok: true, data: result };
+}
+
+/** Fix the extracted fields by hand — the uploader or a VP/Director/LCP. */
+export async function updateCvFields(
+  id: string,
+  patch: {
+    person_name?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    industry?: string | null;
+    skills?: string | null;
+    partnerLcId?: string | null;
+  }
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  const { data: cv } = await db().from("cvs").select("*").eq("id", id).maybeSingle<CvRow>();
+  if (!cv) return fail("That CV no longer exists.");
+  if (!canManageCv(viewer, cv))
+    return fail("Only the uploader or a VP/Director can edit this CV's fields.", "forbidden");
+
+  const clean = (v: string | null | undefined, max: number) => {
+    if (v === undefined) return undefined;
+    const t = (v ?? "").trim();
+    return t ? t.slice(0, max) : null;
+  };
+  const update: Record<string, unknown> = {};
+  const name = clean(patch.person_name, 200);
+  if (name !== undefined) update.person_name = name;
+  const phone = clean(patch.phone, 40);
+  if (phone !== undefined) update.phone = phone;
+  const email = clean(patch.email, 200);
+  if (email !== undefined) {
+    if (email && !EMAIL_RE.test(email)) return fail("That email doesn't look right.");
+    update.email = email;
+  }
+  if (patch.industry !== undefined) {
+    const ind = (patch.industry ?? "").trim();
+    if (ind && !(CV_INDUSTRIES as readonly string[]).includes(ind))
+      return fail("Pick an industry from the list.");
+    update.industry = ind || null;
+  }
+  const skills = clean(patch.skills, 2000);
+  if (skills !== undefined) update.skills = skills;
+  if (patch.partnerLcId !== undefined) {
+    if (patch.partnerLcId) {
+      const resolved = await resolvePartnerLc({ partnerLcId: patch.partnerLcId });
+      if ("error" in resolved) return resolved.error;
+      update.partner_lc_id = resolved.lc.id;
+      update.partner_lc_name = resolved.lc.name;
+    } else {
+      update.partner_lc_id = null;
+      update.partner_lc_name = null;
+    }
+  }
+  if (Object.keys(update).length === 0) return { ok: true };
+
+  await snapshotForUndo("cvs", id);
+  const { error } = await db().from("cvs").update(update).eq("id", id);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "cv_update", "cv", id, { fields: Object.keys(update) });
+  refresh();
+  return { ok: true };
+}
+
+/** 10-minute signed link to view/download the CV file (bucket stays private). */
+export async function getCvFileUrl(id: string): Promise<ActionResult<{ url: string }>> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  const { data: cv } = await db()
+    .from("cvs")
+    .select("file_path")
+    .eq("id", id)
+    .maybeSingle<{ file_path: string }>();
+  if (!cv) return fail("That CV no longer exists.");
+  const { data, error } = await db().storage.from("cvs").createSignedUrl(cv.file_path, 600);
+  if (error || !data) return fail(error?.message ?? "Could not open the file — try again.");
+  return { ok: true, data: { url: data.signedUrl } };
+}
+
+/** Delete a CV (row + the stored file) — the uploader or a VP/Director/LCP.
+ *  Refused in the sandbox: a removed storage object can't be undone on exit. */
+export async function deleteCv(id: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  const { data: cv } = await db().from("cvs").select("*").eq("id", id).maybeSingle<CvRow>();
+  if (!cv) return fail("That CV no longer exists.");
+  if (!canManageCv(viewer, cv))
+    return fail("Only the uploader or a VP/Director can delete this CV.", "forbidden");
+  if (viewer.sandbox)
+    return fail("Deleting CVs is disabled in the sandbox test view — the file removal can't be undone on exit.");
+
+  const { error } = await db().from("cvs").delete().eq("id", id);
+  if (error) return fail(error.message);
+  const { error: rmError } = await db().storage.from("cvs").remove([cv.file_path]);
+  if (rmError) console.error("[cvs] storage removal failed:", rmError.message);
+  await logAudit(viewer.id, "cv_delete", "cv", id, { file: cv.file_name });
+  refresh();
+  return { ok: true };
 }

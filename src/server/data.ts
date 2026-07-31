@@ -2329,6 +2329,8 @@ export interface SignupFilters {
   interested?: string;
   contacted?: string;
   country?: string;
+  /** rows with a missing/unusable phone (null, empty or "deleted…") */
+  noPhone?: boolean;
   q?: string;
   sort?: string;
   dir?: "asc" | "desc";
@@ -2398,6 +2400,10 @@ export async function listSignupsPage(
     if (filters.interested) q = q.ilike("interested", ynPat(filters.interested));
     if (filters.contacted) q = q.ilike("contact_status", ynPat(filters.contacted));
     if (filters.country) q = q.ilike("country", `%${filters.country}%`);
+    // "Missing phone" worklist: null, empty, or the sheets' "deleted phone
+    // number" placeholder — the rows you can't contact until someone digs
+    if (filters.noPhone)
+      q = q.or("phone.is.null,phone.eq.,phone.ilike.%deleted%");
     if (filters.q) {
       const safe = filters.q.replaceAll(",", " ").replaceAll("(", "").replaceAll(")", "");
       q = q.or(`name.ilike.%${safe}%,ep_id.ilike.%${safe}%,phone.ilike.%${safe}%`);
@@ -2487,4 +2493,216 @@ export async function signupReassignTargets(
   else if (!viewer.isAdmin && !["LCP", "LCVP", "Director"].includes(viewer.role))
     pool = pool.filter((m) => m.id === viewer.id);
   return pool.map((m) => ({ id: m.id, label: m.nickname || m.name }));
+}
+
+export interface OgxPlanCard {
+  /** first day of the current month (YYYY-MM-01) — the mm_plans key */
+  month: string;
+  plan: { applicants: number; accepted: number; approvals: number };
+  /** the viewer's CURRENT pipeline: their live sign-ups bucketed by status
+   *  (Applied → applicants; Accepted → applicants+accepted; Approved → all
+   *  three; "Parents Approval" counts toward none) — an honest "where you
+   *  stand now" next to the month's plan, not a this-month delta */
+  actual: { applicants: number; accepted: number; approvals: number };
+}
+
+/** The /signups motivation card: an OGX MM's (TL/Coordinator of OGT/OGV)
+ *  filed mm_plan for the CURRENT month vs their live sign-up pipeline.
+ *  Null when the viewer isn't an OGX MM or has no plan row this month. */
+export async function ogxPlanCard(viewer: Viewer): Promise<OgxPlanCard | null> {
+  if (viewer.role !== "Team Leader" && viewer.role !== "Coordinator") return null;
+  if (_ogxFunctions(viewer).length === 0) return null;
+  const month = monthOf().start; // Cairo-derived YYYY-MM-01, like every period helper
+  const { data: plan } = await db()
+    .from("mm_plans")
+    .select("applicants, accepted, approvals")
+    .eq("member_id", viewer.id)
+    .eq("month", month)
+    .maybeSingle<{ applicants: number; accepted: number; approvals: number }>();
+  if (!plan) return null;
+  const { data: rows } = await db()
+    .from("signups")
+    .select("status")
+    .eq("assigned_to", viewer.id)
+    .eq("out_of_process", false)
+    .in("status", ["Applied", "Accepted", "Approved"]);
+  const actual = { applicants: 0, accepted: 0, approvals: 0 };
+  for (const r of (rows ?? []) as { status: string | null }[]) {
+    if (r.status === "Approved") {
+      actual.applicants += 1;
+      actual.accepted += 1;
+      actual.approvals += 1;
+    } else if (r.status === "Accepted") {
+      actual.applicants += 1;
+      actual.accepted += 1;
+    } else if (r.status === "Applied") actual.applicants += 1;
+  }
+  return {
+    month,
+    plan: {
+      applicants: plan.applicants ?? 0,
+      accepted: plan.accepted ?? 0,
+      approvals: plan.approvals ?? 0,
+    },
+    actual,
+  };
+}
+
+// ================================================================== consideration (v26)
+
+import { hasConsiderationAccess as _hasConsiderationAccess } from "@/lib/rbac";
+
+export interface PartnerLc {
+  id: string;
+  name: string;
+  country: string | null;
+}
+
+/** Partner LCs abroad (the IR-call & CV combobox). Any module member may add
+ *  one inline; the list is shared. */
+export async function listPartnerLcs(viewer: Viewer): Promise<PartnerLc[]> {
+  if (!_hasConsiderationAccess(viewer)) return [];
+  const { data } = await db()
+    .from("partner_lcs")
+    .select("id, name, country")
+    .order("name");
+  return (data ?? []) as PartnerLc[];
+}
+
+export interface IrCallRow {
+  id: string;
+  partner_lc_id: string | null;
+  partner_lc_name: string;
+  called_at: string;
+  notes: string | null;
+  screenshot_drive_id: string | null;
+  screenshot_name: string | null;
+  screenshot_link: string | null;
+  member_id: string | null;
+  member_name: string;
+  created_at: string;
+}
+
+/** Recent IR calls — one SHARED international-relations effort: every module
+ *  member sees ALL calls. Paged 50, newest first. */
+export async function listIrCalls(
+  viewer: Viewer,
+  page = 0,
+  pageSize = 50
+): Promise<{ rows: IrCallRow[]; total: number; page: number }> {
+  if (!_hasConsiderationAccess(viewer)) return { rows: [], total: 0, page: 0 };
+  const from = Math.max(0, page) * pageSize;
+  const { data, count, error } = await db()
+    .from("ir_calls")
+    .select("*", { count: "exact" })
+    .order("called_at", { ascending: false })
+    .order("id")
+    .range(from, from + pageSize - 1);
+  if (error) return { rows: [], total: 0, page: 0 };
+  return { rows: (data ?? []) as IrCallRow[], total: count ?? 0, page };
+}
+
+export interface CvRow {
+  id: string;
+  partner_lc_id: string | null;
+  partner_lc_name: string | null;
+  file_path: string;
+  file_name: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+  person_name: string | null;
+  phone: string | null;
+  email: string | null;
+  industry: string | null;
+  skills: string | null;
+  summary: string | null;
+  extracted_text: string | null;
+  extraction_status: "pending" | "done" | "failed" | "unsupported";
+  uploaded_by: string | null;
+  uploader_name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** ilike-safe fragment for a PostgREST .or() chain. */
+const _cvSafe = (s: string) =>
+  s.replaceAll(",", " ").replaceAll("(", "").replaceAll(")", "").trim();
+
+/** The consideration CV pool, searchable server-side (name / skills /
+ *  extracted text / industry / file name / LC / summary). Paged 50. */
+export async function listCvsPage(
+  viewer: Viewer,
+  filters: { q?: string; lc?: string },
+  page = 0,
+  pageSize = 50
+): Promise<{ rows: CvRow[]; total: number; page: number }> {
+  if (!_hasConsiderationAccess(viewer)) return { rows: [], total: 0, page: 0 };
+  const build = () => {
+    let q = db().from("cvs").select("*", { count: "exact" });
+    if (filters.lc) q = q.eq("partner_lc_id", filters.lc);
+    if (filters.q) {
+      // every word must match at least one field (AND across .or() calls)
+      const words = _cvSafe(filters.q).split(/\s+/).filter(Boolean).slice(0, 6);
+      for (const w of words) {
+        q = q.or(
+          `person_name.ilike.%${w}%,skills.ilike.%${w}%,extracted_text.ilike.%${w}%,industry.ilike.%${w}%,file_name.ilike.%${w}%,partner_lc_name.ilike.%${w}%,summary.ilike.%${w}%`
+        );
+      }
+    }
+    return q.order("created_at", { ascending: false }).order("id");
+  };
+  const from = Math.max(0, page) * pageSize;
+  const { data, count, error } = await build().range(from, from + pageSize - 1);
+  if (error) return { rows: [], total: 0, page: 0 };
+  return { rows: (data ?? []) as CvRow[], total: count ?? 0, page };
+}
+
+/** The Blue Man's CV search (v26): the query is split into words and EVERY
+ *  word must match at least one of name / skills / industry / summary / full
+ *  text. Up to 8 hits — RBAC-gated to the Consideration module. */
+export async function searchCvs(
+  viewer: Viewer,
+  query: string
+): Promise<
+  | { error: string }
+  | {
+      matches: {
+        name: string; lc: string | null; industry: string | null;
+        phone: string | null; email: string | null; skills: string | null;
+        summary: string | null; file: string;
+      }[];
+    }
+> {
+  if (!_hasConsiderationAccess(viewer))
+    return { error: "The consideration CV pool is outside this user's access." };
+  const words = _cvSafe(query)
+    .split(/\s+/)
+    .filter((w) => w.length >= 2)
+    .slice(0, 6);
+  if (words.length === 0) return { error: "query too short" };
+  let q = db()
+    .from("cvs")
+    .select(
+      "person_name, file_name, partner_lc_name, industry, phone, email, skills, summary"
+    );
+  for (const w of words) {
+    q = q.or(
+      `person_name.ilike.%${w}%,skills.ilike.%${w}%,industry.ilike.%${w}%,summary.ilike.%${w}%,extracted_text.ilike.%${w}%`
+    );
+  }
+  const { data, error } = await q.order("created_at", { ascending: false }).limit(8);
+  if (error) return { error: error.message };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return {
+    matches: ((data ?? []) as any[]).map((c) => ({
+      name: c.person_name || c.file_name,
+      lc: c.partner_lc_name ?? null,
+      industry: c.industry ?? null,
+      phone: c.phone ?? null,
+      email: c.email ?? null,
+      skills: c.skills ?? null,
+      summary: c.summary ?? null,
+      file: c.file_name,
+    })),
+  };
 }

@@ -458,30 +458,12 @@ const colLetter = (idx: number): string => {
 /** Writes ONE sign-up's workflow cells back to its sheet row (located by EP
  *  ID at write time — sheet-side row inserts can't break it). Best-effort:
  *  callers .catch() and keep going; the DB row is already saved. */
-export async function writeSignupBack(
+function signupCellValues(
   signup: SignupRow,
   comments: SignupComment[],
   assignedDisplay: string | null
-): Promise<void> {
-  if (await sandboxSuppressed("signup sheet write-back")) return;
-  const cfg = SIGNUP_TABS.find((t) => t.source === signup.source);
-  if (!cfg) return;
-  const { sheets } = clients();
-
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: cfg.spreadsheetId,
-    range: `'${cfg.tab}'!A1:AC20000`,
-    majorDimension: "ROWS",
-  });
-  const rows = (res.data.values ?? []) as string[][];
-  const H = mapHeaders(rows[0] ?? []);
-  if (H.ep_id === undefined) return;
-  const rowIdx = rows.findIndex(
-    (r, i) => i > 0 && (r[H.ep_id] ?? "").trim() === signup.ep_id
-  );
-  if (rowIdx < 0) return; // row vanished sheet-side — the import will recreate it
-
-  const values: { field: string; value: string }[] = [
+): { field: string; value: string }[] {
+  return [
     { field: "assigned_name", value: assignedDisplay ?? signup.assigned_name ?? "" },
     { field: "contact_status", value: signup.contact_status ?? "" },
     { field: "interested", value: signup.interested ?? "" },
@@ -511,8 +493,99 @@ export async function writeSignupBack(
       ? [{ field: "contacted_date", value: fmtStamp(new Date(signup.contacted_at)) }]
       : []),
   ];
+}
 
-  const data = values
+export interface SignupBackEntry {
+  signup: SignupRow;
+  comments: SignupComment[];
+  assignedDisplay: string | null;
+}
+
+/** Batched write-back (v26): bulk assigns push MANY rows — one tab read +
+ *  ONE batchUpdate per tab instead of a full read/verify/write per row
+ *  (50 rows would otherwise be ~150 Sheets calls). Returns the ep_ids it
+ *  could NOT place (vanished rows — the import recreates them). */
+export async function writeSignupsBackBatch(entries: SignupBackEntry[]): Promise<string[]> {
+  if (entries.length === 0) return [];
+  if (await sandboxSuppressed("signup sheet write-back (batch)")) return [];
+  const { sheets } = clients();
+  const missed: string[] = [];
+
+  const bySource = new Map<string, SignupBackEntry[]>();
+  for (const e of entries) {
+    const list = bySource.get(e.signup.source) ?? [];
+    list.push(e);
+    bySource.set(e.signup.source, list);
+  }
+
+  for (const [source, group] of bySource) {
+    const cfg = SIGNUP_TABS.find((t) => t.source === source);
+    if (!cfg) continue;
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: cfg.spreadsheetId,
+      range: `'${cfg.tab}'!A1:AC20000`,
+      majorDimension: "ROWS",
+    });
+    const rows = (res.data.values ?? []) as string[][];
+    const H = mapHeaders(rows[0] ?? []);
+    if (H.ep_id === undefined) continue;
+    const rowByEp = new Map<string, number>();
+    rows.forEach((r, i) => {
+      if (i > 0) {
+        const ep = (r[H.ep_id] ?? "").trim();
+        if (ep && !rowByEp.has(ep)) rowByEp.set(ep, i);
+      }
+    });
+
+    const data: { range: string; values: string[][] }[] = [];
+    for (const e of group) {
+      const rowIdx = rowByEp.get(e.signup.ep_id);
+      if (rowIdx === undefined) {
+        missed.push(e.signup.ep_id);
+        continue;
+      }
+      for (const v of signupCellValues(e.signup, e.comments, e.assignedDisplay)) {
+        if (H[v.field] === undefined) continue;
+        data.push({
+          range: `'${cfg.tab}'!${colLetter(H[v.field])}${rowIdx + 1}`,
+          values: [[v.value]],
+        });
+      }
+    }
+    if (data.length > 0) {
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId: cfg.spreadsheetId,
+        requestBody: { valueInputOption: "RAW", data },
+      });
+    }
+  }
+  return missed;
+}
+
+export async function writeSignupBack(
+  signup: SignupRow,
+  comments: SignupComment[],
+  assignedDisplay: string | null
+): Promise<void> {
+  if (await sandboxSuppressed("signup sheet write-back")) return;
+  const cfg = SIGNUP_TABS.find((t) => t.source === signup.source);
+  if (!cfg) return;
+  const { sheets } = clients();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: cfg.spreadsheetId,
+    range: `'${cfg.tab}'!A1:AC20000`,
+    majorDimension: "ROWS",
+  });
+  const rows = (res.data.values ?? []) as string[][];
+  const H = mapHeaders(rows[0] ?? []);
+  if (H.ep_id === undefined) return;
+  const rowIdx = rows.findIndex(
+    (r, i) => i > 0 && (r[H.ep_id] ?? "").trim() === signup.ep_id
+  );
+  if (rowIdx < 0) return; // row vanished sheet-side — the import will recreate it
+
+  const data = signupCellValues(signup, comments, assignedDisplay)
     .filter((v) => H[v.field] !== undefined)
     .map((v) => ({
       range: `'${cfg.tab}'!${colLetter(H[v.field])}${rowIdx + 1}`,

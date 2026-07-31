@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { ArrowLeft, Eye, Mail, Plus, Send, X } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -67,9 +67,11 @@ function YesNoField({
 export function OgtMailView({
   hasGoogle,
   programs,
+  viewerId,
 }: {
   hasGoogle: boolean;
   programs: Program[];
+  viewerId: string;
 }) {
   const [pending, startTransition] = useTransition();
 
@@ -107,12 +109,56 @@ export function OgtMailView({
   const [accommodationDetail, setAccommodationDetail] = useState("");
   const [meals, setMeals] = useState("");
 
+  // the built preview survives navigation (v26): everything the review step
+  // needs is mirrored to sessionStorage and restored on mount
+  // per-viewer key: a shared computer / admin View-As must never leak one
+  // person's built email into another's session
+  const CACHE_KEY = `sodio-expectation-preview:${viewerId}`;
   // review step: the built email — subject stays editable state, the body is
   // an in-place contentEditable div read back at send time
   const [review, setReview] = useState<{ subject: string; html: string } | null>(null);
   const [subject, setSubject] = useState("");
   const [reviewEpoch, setReviewEpoch] = useState(0);
   const bodyRef = useRef<HTMLDivElement>(null);
+
+  // restore a cached preview (tab switches must not cost the VP their work)
+  useEffect(() => {
+    try {
+      sessionStorage.removeItem("sodio-expectation-preview"); // legacy unscoped key
+      const raw = sessionStorage.getItem(CACHE_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as {
+        review: { subject: string; html: string };
+        subject: string;
+        toEp: string;
+        toIr: string;
+        variant: Program;
+      };
+      if (!saved?.review?.html) return;
+      setReview(saved.review);
+      setSubject(saved.subject || saved.review.subject);
+      if (saved.toEp) setToEp(saved.toEp);
+      if (saved.toIr) setToIr(saved.toIr);
+      if (saved.variant && programs.includes(saved.variant)) setVariant(saved.variant);
+      setReviewEpoch((e) => e + 1);
+    } catch {
+      /* corrupt cache — ignore */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const cachePreview = (r: { subject: string; html: string } | null, subj?: string) => {
+    try {
+      if (!r) sessionStorage.removeItem(CACHE_KEY);
+      else
+        sessionStorage.setItem(
+          CACHE_KEY,
+          JSON.stringify({ review: r, subject: subj ?? r.subject, toEp, toIr, variant })
+        );
+    } catch {
+      /* storage full/blocked — the preview just won't survive navigation */
+    }
+  };
 
   const digitsOnly = (v: string) => v.replace(/\D+/g, "");
 
@@ -214,6 +260,7 @@ export function OgtMailView({
         setReview(res.data);
         setSubject(res.data.subject);
         setReviewEpoch((e) => e + 1);
+        cachePreview(res.data);
       } else if (!res.ok) {
         toast.error(res.error);
       }
@@ -237,6 +284,7 @@ export function OgtMailView({
       if (res.ok) {
         toast.success("Sent ✈️ — it's in your Gmail Sent folder.");
         setReview(null);
+        cachePreview(null);
       } else {
         toast.error(res.error);
       }
@@ -259,6 +307,7 @@ export function OgtMailView({
           "Draft created! Open your Gmail Drafts to review it and hit send yourself. 💙"
         );
         setReview(null);
+        cachePreview(null);
       } else {
         toast.error(res.error);
       }
@@ -296,7 +345,13 @@ export function OgtMailView({
             </div>
             <div className="grid gap-2">
               <Label>Subject</Label>
-              <Input value={subject} onChange={(e) => setSubject(e.target.value)} />
+              <Input
+                value={subject}
+                onChange={(e) => {
+                  setSubject(e.target.value);
+                  cachePreview({ subject: e.target.value, html: currentHtml() }, e.target.value);
+                }}
+              />
             </div>
             <div className="grid gap-2">
               <Label>Email body — click in to edit any text</Label>
@@ -310,6 +365,7 @@ export function OgtMailView({
                 aria-multiline="true"
                 aria-label="Email body"
                 className="max-h-[60vh] overflow-y-auto rounded-lg border bg-white p-4 text-sm leading-relaxed text-neutral-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onBlur={() => cachePreview({ subject, html: currentHtml() }, subject)}
                 dangerouslySetInnerHTML={{ __html: review.html }}
               />
             </div>
@@ -319,7 +375,11 @@ export function OgtMailView({
         <div className="flex flex-wrap items-center gap-3">
           <Button
             variant="ghost"
-            onClick={() => setReview(null)}
+            onClick={() => {
+              // keep the (possibly edited) preview cached — the VP can come back
+              cachePreview({ subject, html: currentHtml() }, subject);
+              setReview(null);
+            }}
             disabled={pending}
           >
             <ArrowLeft className="size-4" /> Back to the form
