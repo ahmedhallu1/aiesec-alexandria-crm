@@ -25,6 +25,8 @@ import type { DrillGroup, FunnelStats, LanePlan, TeamPlan } from "@/server/data"
 export interface DashboardScopeView { key: string; label: string }
 
 interface Props {
+  /** the Consideration lane (v27): IR calls + CV pool — set only on ?fn=CONS */
+  consideration?: import("@/server/data").ConsiderationStats | null;
   total: FunnelStats;
   byFunction: DrillGroup[];
   byTeam: DrillGroup[];
@@ -84,6 +86,7 @@ function sprintRange(): { from: string; to: string } {
 }
 
 export function DashboardView({
+  consideration,
   total, byFunction, byTeam, memberBoard, mmBoard, teamBoard,
   views, activeFn, laneLabel, scopeLabel,
   showTeamDrill, teamOptions, memberOptions, filters, viewerId, showMyNumbers,
@@ -148,7 +151,6 @@ export function DashboardView({
             hint="Ask The Blue Man about your numbers"
             prefill="How is my funnel doing this month? "
           />
-          <p className="text-sm text-muted-foreground">{scopeLabel}</p>
         </div>
         {views.length > 1 ? (
           <div className="flex flex-wrap gap-1 rounded-lg bg-muted p-1">
@@ -170,6 +172,10 @@ export function DashboardView({
         ) : null}
       </div>
 
+      {activeFn === "CONS" && consideration ? (
+        <ConsiderationPanel stats={consideration} />
+      ) : (
+        <>
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-2 rise-in rise-in-1">
         <Hint label="Show only this calendar month's accounts">
@@ -355,6 +361,8 @@ export function DashboardView({
         </Card>
       ) : null}
 
+        </>
+      )}
     </div>
   );
 }
@@ -364,6 +372,64 @@ export function DashboardView({
 /** The viewer's TEAM goal (v22): the Team Leader's filed opens plan for the
  *  current month vs what the team actually raised. Nothing is set here — the
  *  TL files/updates the plan from their profile. */
+/** The Consideration lane (v27): the IR-call + CV-pool pulse for ICX
+ *  VPs/Directors, the crew and the LCP. */
+function ConsiderationPanel({ stats }: { stats: import("@/server/data").ConsiderationStats }) {
+  const kpi = (label: string, value: number, sub?: string) => (
+    <Card className="rise-in">
+      <CardContent className="pt-4">
+        <p className="text-xs font-medium text-muted-foreground">{label}</p>
+        <p className="mt-1 text-3xl font-bold">{value.toLocaleString("en")}</p>
+        {sub ? <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p> : null}
+      </CardContent>
+    </Card>
+  );
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        {kpi("IR calls — total", stats.irTotal, `${stats.irThisMonth} this month`)}
+        {kpi("Upcoming booked calls", stats.irUpcoming)}
+        {kpi("Partner LCs reached", stats.partnerLcsContacted)}
+        {kpi("CVs in the pool", stats.cvTotal, `${stats.cvThisMonth} this month`)}
+      </div>
+      {stats.plan ? (
+        <Card className="rise-in rise-in-1">
+          <CardContent className="pt-4">
+            <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <Target className="size-3.5" /> Consideration plan — this month
+            </p>
+            <div className="mt-2 flex flex-wrap gap-4 text-sm">
+              <span><b>{stats.plan.applicants}</b> applicants planned</span>
+              <span><b>{stats.plan.accepted}</b> accepted planned</span>
+              <span><b>{stats.plan.approvals}</b> approvals planned 🏆</span>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+      {stats.cvByIndustry.length > 0 ? (
+        <Card className="rise-in rise-in-2">
+          <CardContent className="pt-4">
+            <p className="text-xs font-medium text-muted-foreground">CV pool by industry</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {stats.cvByIndustry.map((i) => (
+                <span
+                  key={i.industry}
+                  className="rounded-full border bg-muted px-2.5 py-1 text-xs font-medium"
+                >
+                  {i.industry} <b>{i.count}</b>
+                </span>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+      <p className="text-xs text-muted-foreground">
+        The full log lives in the <Link href="/consideration" className="font-medium text-primary hover:underline">Consideration module</Link> — calls, screenshots and the searchable CV pool.
+      </p>
+    </div>
+  );
+}
+
 function TeamPlanCard({
   plan, teamLabel, isOwnPlan,
 }: {

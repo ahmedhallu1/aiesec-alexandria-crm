@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAccount, getViewer, listAccounts, searchCvs } from "@/server/data";
 import type { PipelineRow } from "@/server/data";
-import { hasConsiderationAccess } from "@/lib/rbac";
+import { canSeeCvPool } from "@/lib/rbac";
 import { BLUE_MAN_SYSTEM_PROMPT, buildAssistantContext } from "@/lib/assistant";
 import { accountSlug } from "@/lib/types";
 
@@ -224,8 +224,8 @@ export async function POST(req: Request) {
     }
     if (name === "webInfo") return { answer: await webInfo(String(args?.question ?? "")) };
     if (name === "searchCvs") {
-      // searchCvs re-checks hasConsiderationAccess server-side too
-      if (!hasConsiderationAccess(viewer))
+      // searchCvs re-checks canSeeCvPool server-side too (IGT-only since v27)
+      if (!canSeeCvPool(viewer))
         return { error: "The consideration CV pool is outside this user's access." };
       const q = String(args?.query ?? "").trim();
       if (q.length < 2) return { error: "query too short" };
@@ -241,7 +241,7 @@ export async function POST(req: Request) {
   }));
 
   // the CV-pool tool exists only for Consideration-module viewers (v26)
-  const functionDecls = hasConsiderationAccess(viewer)
+  const functionDecls = canSeeCvPool(viewer)
     ? [...FUNCTION_DECLS, SEARCH_CVS_DECL]
     : FUNCTION_DECLS;
 

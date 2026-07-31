@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-07-31 · Version: v26
+Last updated: 2026-08-01 · Version: v27
 
 ---
 
@@ -32,7 +32,7 @@ the blueprint for future OGX/other-function modules.
 | Stack | Next.js 16 (App Router, Turbopack) · React 19 · Tailwind v4 · shadcn/ui · Supabase (Postgres, project `iesrpuuoduxtihuaqfic`) |
 | Auth | Auth.js v5: **FIRST sign-in is Google-only** (grants `calendar` + `gmail.compose`) → onboarding sets a password → afterwards **email OR phone + password**, or Google, all work. **Members with NO email yet (v24) sign in with their phone in BOTH fields** until a password is set; adding their email closes that door (Google once, then password). Deactivated members land on **/inactive**. **Forgot password emails a fresh password** (`issueTempPassword` in `server/password.ts`); the old password still works until the member changes it (no lockouts) |
 | Google | Service account (Sheets sync) · Gmail API from `ahmedhallul@aiesec.net` · Calendar events on each member's own calendar |
-| Cron | Supabase `pg_cron` + `pg_net` → `/api/cron/*` (visit-followups 15 min · membership-import 30 min · sheets-export hourly · goal-reminders daily 06:00 UTC) |
+| Cron | Supabase `pg_cron` + `pg_net` → `/api/cron/*` (visit-followups 15 min · membership-import 30 min · sheets-export hourly · goal-reminders daily 06:00 UTC · signups-import 15 min · podio-updates daily 05:00 · period-reports daily 07:00 · streak-nags daily 17:00 UTC) |
 | Admin | `ADMIN_EMAILS` env (= IM director, treated as LCP) |
 
 **Migrations** live in `supabase/migrations/` and are run **manually** in the
@@ -585,6 +585,72 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-01 · v27** — BOOKING, STREAKS & a 16-item polish batch.
+  ① **IR-call BOOKING** (migration **0027 applied**: `ir_booking_settings`
+  member-keyed slug/slot/availability-jsonb(Cairo)/active; `ir_calls` gains
+  status(scheduled/completed/cancelled)/demand/b2c_campaigns/booker_name/
+  booked_at/calendar_event_id): every consideration member sets weekly
+  availability + slot length on the **"My booking link" card** and shares
+  `sodio.vercel.app/book/<slug>` — a **PUBLIC Sodio-branded page**
+  (`/book/[slug]`, proxy-exempt, force-dynamic) where an IR abroad picks a
+  free Cairo-time slot (14-day strip; overlaps + past excluded) + their LC
+  (resolved/created in `partner_lcs`) → `bookIrCall` (hardened public
+  action: input sanitation, 10-future-calls rate limit, fresh overlap
+  re-check) inserts the scheduled call, best-effort creates the event on the
+  OWNER's Google Calendar (`createIrCallEvent`), bell + `irCallBookedEmail`.
+  Scheduled calls list soonest-first with an **in-call notes dialog** —
+  demand (industry chips + Other), **"When are your B2C campaigns?"**, free
+  notes, screenshot → `completeIrCall`; `cancelIrCall` removes the calendar
+  event. Manual past-call recording collapses behind a toggle (with the new
+  fields). ② **CV pool is IGT-only** (`canSeeCvPool` — IGV-only VPs keep IR
+  calls, lose CVs; upload/list actions re-gated). ③ **OGV STREAKS**
+  (`signup_activity(member_id, day)` + `members.streak_reminded_on`):
+  claim/contact/comment stamp the Cairo day (`stampSignupActivity`,
+  sandbox-skipped); `streakStats` → **StreakCard** on /signups (🔥 current,
+  best, saved-today state, LC top-3); **streak-nags cron** (daily 17:00 UTC
+  = 19:00 Cairo, scheduled in pg_cron) emails a 3-tier escalating funny nag
+  (`streakNagEmail`) to OGV MMs with a ≥3-day streak and no save today —
+  once per day (`streak_reminded_on`). ④ **The Blue Man v3**: chat HISTORY
+  (localStorage `sodio-blueman-chats:<email>`, 8 most recent, validated +
+  self-healing), history list + 🗑 + **New chat**, and **role/module-based
+  suggested-question chips** on fresh chats. ⑤ **FileDrop everywhere**
+  (`src/components/crm/file-drop.tsx`, single+multi): visible drag-and-drop
+  zones on Deal contracts, archived import, market-research import, CV
+  upload, IR screenshot — and the avatar tile accepts drops. ⑥ **Sign-ups
+  phone filter is two-way** (`?phone=has|missing` Select replacing the
+  nophone chip). ⑦ **"Soon" is unreachable for module-owners**: GateClient
+  gained `hasModule` — a non-allowed route bounces to "/" (their workspace)
+  instead of rendering ComingSoon (copy refreshed for the truly
+  module-less). ⑧ **Dashboard "Consideration" lane** (`?fn=CONS`,
+  `considerationStats` + ConsiderationPanel): IR calls (total/month/
+  upcoming), partner LCs reached, CV pool (+by industry), consideration
+  plan chips — for `hasConsiderationAccess` viewers. ⑨ **Global smooth
+  scrolling** (`scroll-behavior: smooth`, reduced-motion-safe) — playbook
+  index jumps glide. ⑩ Polish: consideration tab switches show the
+  walking-man/nav-pending shimmer; dashboard lost the redundant
+  "{fn} function" subtitle; planning lost the dead **Re-import** button;
+  profile "Wrong info?" now opens **WhatsApp to the admin**
+  (wa.me/201099019374); both URLs (sodio.vercel.app + the long one) are
+  project domains tracking every deploy. ⑪ **26-agent adversarial review →
+  20 confirmed findings fixed pre-ship**, the big ones: the public booking
+  endpoint got REAL race protection (**0028 applied**: unique partial index
+  `ir_calls_member_slot_key (member_id, called_at) where scheduled` — 23505
+  = "slot just taken"; + `duration_minutes` so cadence changes never
+  mis-compute overlaps), a 3-bookings/hour per-IP throttle
+  (app_settings `bookrl:*`), country validated against the real list and
+  anonymous input can no longer mutate existing partner_lcs rows, sandbox
+  test views can't book; the IGT-only CV gate now covers EVERY path
+  (searchCvs, the Blue Man tool declaration+handler, rerun/update/get/delete
+  actions); streak stamps run in Next's `after()` (Vercel could drop the
+  floating promise), streak windows widened to 400 days, `streakStats`
+  fails CLOSED (no lying 0-day card), the nag cron moved to **16:00 UTC**
+  (19:00 Cairo in DST); `cairoToUtc` became two-pass (DST-evening slots were
+  an hour off) and the 14-day strip iterates CALENDAR days; `recordIrCall`
+  rejects future timestamps server-side; `considerationStats` pages past the
+  1000-row cap; the CONS lane header reads "Consideration Dashboard";
+  phone-only members got a stable Blue-Man chat key. Playbook v27; the Blue
+  Man teaches all of it.
 
 - **2026-07-31 · v26** — THE CONSIDERATION RELEASE + a 16-item polish batch.
   ① **Consideration module** (`/consideration`, sidebar "Consideration",

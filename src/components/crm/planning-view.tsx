@@ -224,12 +224,7 @@ export function PlanningView({
             The VP plan vs reality — sprints, months, quarters and the MM plans behind them.
           </p>
         </div>
-        <Hint label="Needs the planning sheet shared with the CRM service account">
-          <Button variant="outline" size="sm" disabled={pending} onClick={reimport}>
-            {pending ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-            Re-import from the sheet
-          </Button>
-        </Hint>
+
       </div>
 
       {/* function switcher */}

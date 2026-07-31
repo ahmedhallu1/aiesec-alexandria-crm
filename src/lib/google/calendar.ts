@@ -381,3 +381,40 @@ export async function deleteFollowupEvent(
 ): Promise<void> {
   return deleteVisitEvent(refreshToken, eventId);
 }
+
+// ------------------------------------------------------------------ IR-call bookings (v27)
+
+/** Creates a booked IR call on the OWNER's own calendar ("IR call — {LC}",
+ *  slot-length duration, 1h + 10min pings). Called from the PUBLIC booking
+ *  action (no viewer → no sandbox), best-effort: returns null without a
+ *  grant and throws on API errors so the caller can log-and-continue. */
+export async function createIrCallEvent(
+  refreshToken: string | null,
+  input: {
+    partnerLc: string;
+    start: Date;
+    minutes: number;
+    description?: string | null;
+  }
+): Promise<string | null> {
+  if (!refreshToken || !env.googleClientId) return null;
+  const end = new Date(input.start.getTime() + input.minutes * 60_000);
+  const res = await calendarFor(refreshToken).events.insert({
+    calendarId: "primary",
+    requestBody: {
+      summary: `IR call — ${input.partnerLc}`,
+      ...(input.description ? { description: input.description } : {}),
+      start: { dateTime: input.start.toISOString(), timeZone: LC_TIMEZONE },
+      end: { dateTime: end.toISOString(), timeZone: LC_TIMEZONE },
+      reminders: {
+        useDefault: false,
+        overrides: [
+          { method: "popup", minutes: 60 },
+          { method: "email", minutes: 60 },
+          { method: "popup", minutes: 10 },
+        ],
+      },
+    },
+  });
+  return res.data.id ?? null;
+}

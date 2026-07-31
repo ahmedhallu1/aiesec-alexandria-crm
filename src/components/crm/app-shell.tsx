@@ -339,8 +339,18 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
 
       <main className="min-w-0 flex-1 px-4 pb-24 pt-[calc(4rem+env(safe-area-inset-top))] md:ml-60 md:px-8 md:pt-14">{children}</main>
 
-      {/* The Blue Man — Sodio's assistant */}
-      <BlueManChat />
+      {/* The Blue Man — Sodio's assistant (persistent per-user chats +
+          role/module-aware suggested questions) */}
+      <BlueManChat
+        userEmail={user.email}
+        role={user.role}
+        modules={{
+          raising: nav.raising,
+          signups: nav.signups,
+          consideration: nav.consideration,
+          tm: nav.tm,
+        }}
+      />
     </div>
   );
 }

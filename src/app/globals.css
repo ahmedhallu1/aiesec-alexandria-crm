@@ -446,3 +446,13 @@ html body[data-scroll-locked] {
 .dark .walkman-tint {
   filter: none;
 }
+
+/* anchor jumps (playbook index, deep links) glide instead of teleporting */
+html {
+  scroll-behavior: smooth;
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}

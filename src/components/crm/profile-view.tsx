@@ -216,11 +216,15 @@ export function ProfileView({
               <ReadRow label="Manager" value={member.stakeholderName} />
             ) : null}
             <a
-              href={fixInfoMailto}
+              href={`https://wa.me/201099019374?text=${encodeURIComponent(
+                `Hey! My Sodio profile info needs a fix — ${member.name}`
+              )}`}
+              target="_blank"
+              rel="noreferrer"
               className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
             >
-              <Mail className="size-3.5" />
-              Wrong info? Click to email the admin to fix it
+              <WhatsAppIcon className="size-3.5" />
+              Wrong info? WhatsApp the admin to fix it
             </a>
           </CardContent>
         </Card>
@@ -722,12 +726,18 @@ function AvatarDialog({
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const f = e.dataTransfer.files?.[0];
+                  if (f && !busy) onUpload(f);
+                }}
                 disabled={busy}
                 className="flex aspect-square flex-col items-center justify-center gap-1 rounded-full border-2 border-dashed border-primary/40 text-primary transition hover:scale-105 hover:border-primary"
-                title="Upload your own picture"
+                title="Upload your own picture — or drop an image here"
               >
                 <Upload className="size-4" />
-                <span className="text-[9px] font-semibold">{busy ? "…" : "Upload"}</span>
+                <span className="text-[9px] font-semibold">{busy ? "…" : "Drop/📁"}</span>
               </button>
               {uploaded ? optionBtn(uploaded, "uploaded", "Your uploaded picture") : null}
               {optionBtn(null, "google", "Your Google photo / initials")}

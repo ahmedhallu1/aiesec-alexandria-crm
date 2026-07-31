@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/supabase";
 import { env } from "@/lib/env";
 import {
+  hasConsiderationAccess,
   accountScope,
   canViewAccount,
   hasRaisingAccess,
@@ -225,6 +226,77 @@ export async function listTeamsRegistry(): Promise<TeamRegistryRow[]> {
     .order("function_key")
     .order("name");
   return (data ?? []) as TeamRegistryRow[];
+}
+
+// -------------------------------------------------- consideration dashboard (v27)
+
+export interface ConsiderationStats {
+  irTotal: number;
+  irThisMonth: number;
+  irUpcoming: number;
+  partnerLcsContacted: number;
+  cvTotal: number;
+  cvThisMonth: number;
+  cvByIndustry: { industry: string; count: number }[];
+  plan: { applicants: number; accepted: number; approvals: number } | null;
+}
+
+/** The Consideration lane on the ICX dashboard (v27): IR-call + CV-pool
+ *  volume for IGV/IGT VPs/Directors, the crew and the LCP. */
+export async function considerationStats(viewer: Viewer): Promise<ConsiderationStats | null> {
+  if (!hasConsiderationAccess(viewer)) return null;
+  const monthStart = monthOf().start;
+  const [callRowsAll, cvRowsAll, plans] = await Promise.all([
+    fetchAll<{ called_at: string; status: string; partner_lc_name: string }>(() =>
+      db().from("ir_calls").select("called_at, status, partner_lc_name").order("id")
+    ),
+    fetchAll<{ created_at: string; industry: string | null }>(() =>
+      db().from("cvs").select("created_at, industry").order("id")
+    ),
+    db()
+      .from("mm_plans")
+      .select("applicants, accepted, approvals, month, member:members!mm_plans_member_id_fkey(functions, sub_functions)")
+      .eq("month", monthStart),
+  ]);
+  const now = new Date();
+  const callRows = callRowsAll;
+  const cvRows = cvRowsAll;
+  const inMonth = (iso: string) => iso >= monthStart;
+  const industries = new Map<string, number>();
+  for (const c of cvRows) {
+    const key = c.industry || "Unsorted";
+    industries.set(key, (industries.get(key) ?? 0) + 1);
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const considerationPlans = ((plans.data ?? []) as any[]).filter((p) =>
+    [...(p.member?.functions ?? []), ...(p.member?.sub_functions ?? [])].includes("Consideration")
+  );
+  const plan =
+    considerationPlans.length > 0
+      ? considerationPlans.reduce(
+          (acc, p) => ({
+            applicants: acc.applicants + (p.applicants ?? 0),
+            accepted: acc.accepted + (p.accepted ?? 0),
+            approvals: acc.approvals + (p.approvals ?? 0),
+          }),
+          { applicants: 0, accepted: 0, approvals: 0 }
+        )
+      : null;
+  return {
+    irTotal: callRows.filter((c) => c.status !== "cancelled").length,
+    irThisMonth: callRows.filter((c) => c.status !== "cancelled" && inMonth(c.called_at)).length,
+    irUpcoming: callRows.filter(
+      (c) => c.status === "scheduled" && new Date(c.called_at) >= now
+    ).length,
+    partnerLcsContacted: new Set(callRows.map((c) => c.partner_lc_name.toLowerCase())).size,
+    cvTotal: cvRows.length,
+    cvThisMonth: cvRows.filter((c) => inMonth(c.created_at)).length,
+    cvByIndustry: [...industries.entries()]
+      .map(([industry, count]) => ({ industry, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 6),
+    plan,
+  };
 }
 
 // ------------------------------------------------------------------ scope helpers
@@ -2330,7 +2402,8 @@ export interface SignupFilters {
   contacted?: string;
   country?: string;
   /** rows with a missing/unusable phone (null, empty or "deleted…") */
-  noPhone?: boolean;
+  /** "missing" = no usable number · "has" = a number exists */
+  phone?: "missing" | "has";
   q?: string;
   sort?: string;
   dir?: "asc" | "desc";
@@ -2400,10 +2473,12 @@ export async function listSignupsPage(
     if (filters.interested) q = q.ilike("interested", ynPat(filters.interested));
     if (filters.contacted) q = q.ilike("contact_status", ynPat(filters.contacted));
     if (filters.country) q = q.ilike("country", `%${filters.country}%`);
-    // "Missing phone" worklist: null, empty, or the sheets' "deleted phone
-    // number" placeholder — the rows you can't contact until someone digs
-    if (filters.noPhone)
+    // phone filter (v27, both directions): "missing" = null / empty / the
+    // sheets' "deleted phone number" placeholder; "has" = a usable number
+    if (filters.phone === "missing")
       q = q.or("phone.is.null,phone.eq.,phone.ilike.%deleted%");
+    else if (filters.phone === "has")
+      q = q.not("phone", "is", null).neq("phone", "").not("phone", "ilike", "%deleted%");
     if (filters.q) {
       const safe = filters.q.replaceAll(",", " ").replaceAll("(", "").replaceAll(")", "");
       q = q.or(`name.ilike.%${safe}%,ep_id.ilike.%${safe}%,phone.ilike.%${safe}%`);
@@ -2550,7 +2625,10 @@ export async function ogxPlanCard(viewer: Viewer): Promise<OgxPlanCard | null> {
 
 // ================================================================== consideration (v26)
 
-import { hasConsiderationAccess as _hasConsiderationAccess } from "@/lib/rbac";
+import {
+  hasConsiderationAccess as _hasConsiderationAccess,
+  canSeeCvPool as _canSeeCvPool,
+} from "@/lib/rbac";
 
 export interface PartnerLc {
   id: string;
@@ -2581,25 +2659,50 @@ export interface IrCallRow {
   member_id: string | null;
   member_name: string;
   created_at: string;
+  /** v27 booking: 'scheduled' rows come from /book/<slug>, in-call notes
+   *  flip them to 'completed'; manual records are born 'completed'. */
+  status: "scheduled" | "completed" | "cancelled";
+  demand: string | null;
+  b2c_campaigns: string | null;
+  booker_name: string | null;
+  booked_at: string | null;
+  calendar_event_id: string | null;
 }
 
-/** Recent IR calls — one SHARED international-relations effort: every module
- *  member sees ALL calls. Paged 50, newest first. */
+/** IR calls — one SHARED international-relations effort: every module member
+ *  sees ALL calls. v27: SCHEDULED (booked) calls ride on top soonest-first;
+ *  the completed/cancelled log stays paged 50, newest first. */
 export async function listIrCalls(
   viewer: Viewer,
   page = 0,
   pageSize = 50
-): Promise<{ rows: IrCallRow[]; total: number; page: number }> {
-  if (!_hasConsiderationAccess(viewer)) return { rows: [], total: 0, page: 0 };
+): Promise<{ scheduled: IrCallRow[]; rows: IrCallRow[]; total: number; page: number }> {
+  if (!_hasConsiderationAccess(viewer))
+    return { scheduled: [], rows: [], total: 0, page: 0 };
   const from = Math.max(0, page) * pageSize;
-  const { data, count, error } = await db()
-    .from("ir_calls")
-    .select("*", { count: "exact" })
-    .order("called_at", { ascending: false })
-    .order("id")
-    .range(from, from + pageSize - 1);
-  if (error) return { rows: [], total: 0, page: 0 };
-  return { rows: (data ?? []) as IrCallRow[], total: count ?? 0, page };
+  const [sched, log] = await Promise.all([
+    db()
+      .from("ir_calls")
+      .select("*")
+      .eq("status", "scheduled")
+      .order("called_at", { ascending: true })
+      .order("id")
+      .limit(500),
+    db()
+      .from("ir_calls")
+      .select("*", { count: "exact" })
+      .neq("status", "scheduled")
+      .order("called_at", { ascending: false })
+      .order("id")
+      .range(from, from + pageSize - 1),
+  ]);
+  if (log.error) return { scheduled: [], rows: [], total: 0, page: 0 };
+  return {
+    scheduled: (sched.data ?? []) as IrCallRow[],
+    rows: (log.data ?? []) as IrCallRow[],
+    total: log.count ?? 0,
+    page,
+  };
 }
 
 export interface CvRow {
@@ -2636,7 +2739,8 @@ export async function listCvsPage(
   page = 0,
   pageSize = 50
 ): Promise<{ rows: CvRow[]; total: number; page: number }> {
-  if (!_hasConsiderationAccess(viewer)) return { rows: [], total: 0, page: 0 };
+  // v27: the CV pool is an IGT hunt — Consideration crew + IGT leaders only
+  if (!_canSeeCvPool(viewer)) return { rows: [], total: 0, page: 0 };
   const build = () => {
     let q = db().from("cvs").select("*", { count: "exact" });
     if (filters.lc) q = q.eq("partner_lc_id", filters.lc);
@@ -2673,7 +2777,7 @@ export async function searchCvs(
       }[];
     }
 > {
-  if (!_hasConsiderationAccess(viewer))
+  if (!_canSeeCvPool(viewer))
     return { error: "The consideration CV pool is outside this user's access." };
   const words = _cvSafe(query)
     .split(/\s+/)
@@ -2692,9 +2796,13 @@ export async function searchCvs(
   }
   const { data, error } = await q.order("created_at", { ascending: false }).limit(8);
   if (error) return { error: error.message };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  type CvHit = Pick<
+    CvRow,
+    | "person_name" | "file_name" | "partner_lc_name" | "industry"
+    | "phone" | "email" | "skills" | "summary"
+  >;
   return {
-    matches: ((data ?? []) as any[]).map((c) => ({
+    matches: ((data ?? []) as CvHit[]).map((c) => ({
       name: c.person_name || c.file_name,
       lc: c.partner_lc_name ?? null,
       industry: c.industry ?? null,
@@ -2705,4 +2813,342 @@ export async function searchCvs(
       file: c.file_name,
     })),
   };
+}
+
+// ---------------------------------------------------- IR-call booking (v27)
+
+export interface IrAvailabilityRow {
+  /** 0 = Sunday … 6 = Saturday (Cairo time) */
+  day: number;
+  from: string; // "18:00"
+  to: string; // "21:00"
+}
+
+export interface IrBookingSettings {
+  member_id: string;
+  slug: string;
+  slot_minutes: number;
+  availability: IrAvailabilityRow[];
+  active: boolean;
+}
+
+export interface MyIrBooking {
+  settings: IrBookingSettings | null;
+  /** prefilled from the nickname/name for a first-time setup */
+  suggestedSlug: string;
+}
+
+const SLUG_RE = /^[a-z0-9-]{3,40}$/;
+
+/** The viewer's own booking-link settings + a slug suggestion. */
+export async function myIrBooking(viewer: Viewer): Promise<MyIrBooking | null> {
+  if (!_hasConsiderationAccess(viewer)) return null;
+  const { data } = await db()
+    .from("ir_booking_settings")
+    .select("member_id, slug, slot_minutes, availability, active")
+    .eq("member_id", viewer.id)
+    .maybeSingle<IrBookingSettings>();
+  let suggested = (viewer.nickname || viewer.name || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  if (suggested.length < 3) suggested = `ir-${suggested || "call"}`.slice(0, 40);
+  return {
+    settings: data
+      ? { ...data, availability: sanitizeAvailability(data.availability) }
+      : null,
+    suggestedSlug: data?.slug ?? suggested,
+  };
+}
+
+/** Defensive read of the jsonb availability — malformed rows are dropped. */
+function sanitizeAvailability(raw: unknown): IrAvailabilityRow[] {
+  if (!Array.isArray(raw)) return [];
+  const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+  return raw
+    .filter(
+      (r): r is IrAvailabilityRow =>
+        !!r &&
+        typeof r === "object" &&
+        Number.isInteger((r as IrAvailabilityRow).day) &&
+        (r as IrAvailabilityRow).day >= 0 &&
+        (r as IrAvailabilityRow).day <= 6 &&
+        TIME_RE.test(String((r as IrAvailabilityRow).from)) &&
+        TIME_RE.test(String((r as IrAvailabilityRow).to))
+    )
+    .map((r) => ({ day: r.day, from: r.from, to: r.to }));
+}
+
+export interface BookingSlot {
+  /** UTC instant — the booking key */
+  iso: string;
+  /** Cairo wall-clock label, 12-hour ("6:00 PM") */
+  label: string;
+}
+
+export interface BookingDay {
+  date: string; // Cairo YYYY-MM-DD
+  label: string; // "Sat, Aug 2"
+  slots: BookingSlot[];
+}
+
+const _cairoYmd = (d: Date): string =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Cairo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+
+const _slotLabel = (hh: number, mm: number): string => {
+  const h12 = hh % 12 === 0 ? 12 : hh % 12;
+  return `${h12}:${String(mm).padStart(2, "0")} ${hh >= 12 ? "PM" : "AM"}`;
+};
+
+/** The FREE slots of the next 14 Cairo days: availability windows ÷
+ *  slot_minutes, minus already-booked scheduled calls (± overlap), minus
+ *  past times. All Cairo wall-clock; each slot's key is its UTC instant.
+ *  Shared by the public /book page AND bookIrCall's re-validation. */
+export async function freeBookingSlots(s: IrBookingSettings): Promise<BookingDay[]> {
+  const { cairoToUtc } = await import("@/lib/time");
+  const availability = sanitizeAvailability(s.availability);
+  if (availability.length === 0) return [];
+  const slotMin = Math.min(120, Math.max(10, s.slot_minutes || 30));
+  const slotMs = slotMin * 60_000;
+  const now = Date.now();
+  const notBefore = now + 10 * 60_000; // 10-min lead — no booking "right now"
+
+  // every scheduled call blocks the span it was BOOKED with — an existing
+  // 60-min call must still block fully after the member switches to 30-min
+  const { data: bookedRows } = await db()
+    .from("ir_calls")
+    .select("called_at, duration_minutes")
+    .eq("member_id", s.member_id)
+    .eq("status", "scheduled")
+    .gte("called_at", new Date(now - 3 * 3_600_000).toISOString())
+    .lte("called_at", new Date(now + 15 * 86_400_000).toISOString());
+  const busy = (bookedRows ?? [])
+    .map((r) => ({
+      start: new Date(r.called_at as string).getTime(),
+      ms: Math.max(10, Math.min(120, (r.duration_minutes as number) || slotMin)) * 60_000,
+    }))
+    .filter((b) => !Number.isNaN(b.start));
+
+  const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  const days: BookingDay[] = [];
+  // iterate CALENDAR days from today's Cairo date — stepping raw 24h epochs
+  // would skip/duplicate a day across a DST transition
+  const [y0, m0, d0] = _cairoYmd(new Date(now)).split("-").map(Number);
+  for (let i = 0; i < 14; i++) {
+    const utcNoon = new Date(Date.UTC(y0, m0 - 1, d0 + i));
+    const ymd = utcNoon.toISOString().slice(0, 10);
+    const dow = utcNoon.getUTCDay();
+    const windows = availability.filter((w) => w.day === dow);
+    if (windows.length === 0) continue;
+    const seen = new Set<string>();
+    const slots: BookingSlot[] = [];
+    for (const w of windows) {
+      const from = toMin(w.from);
+      const to = toMin(w.to);
+      for (let m = from; m + slotMin <= to; m += slotMin) {
+        const hh = Math.floor(m / 60);
+        const mm = m % 60;
+        const hhmm = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+        const start = cairoToUtc(ymd, hhmm);
+        const startMs = start.getTime();
+        if (startMs < notBefore) continue;
+        if (busy.some((b) => startMs < b.start + b.ms && b.start < startMs + slotMs)) continue;
+        const iso = start.toISOString();
+        if (seen.has(iso)) continue;
+        seen.add(iso);
+        slots.push({ iso, label: _slotLabel(hh, mm) });
+      }
+    }
+    if (slots.length === 0) continue;
+    slots.sort((a, b) => a.iso.localeCompare(b.iso));
+    days.push({
+      date: ymd,
+      label: utcNoon.toLocaleDateString("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      }),
+      slots,
+    });
+  }
+  return days;
+}
+
+/** PUBLIC (no viewer): everything the /book/<slug> page renders. Returns null
+ *  for unknown/inactive links (the page shows a branded "not active" card). */
+export async function getBookingPage(slug: string): Promise<{
+  memberName: string;
+  slotMinutes: number;
+  days: BookingDay[];
+} | null> {
+  const clean = (slug ?? "").trim().toLowerCase();
+  if (!SLUG_RE.test(clean)) return null;
+  // the slug charset has no % or _ — ilike is a safe case-insensitive equal
+  const { data: s } = await db()
+    .from("ir_booking_settings")
+    .select("member_id, slug, slot_minutes, availability, active")
+    .ilike("slug", clean)
+    .maybeSingle<IrBookingSettings>();
+  if (!s || !s.active) return null;
+  const { data: member } = await db()
+    .from("members")
+    .select("name, nickname, is_active")
+    .eq("id", s.member_id)
+    .maybeSingle<{ name: string; nickname: string | null; is_active: boolean }>();
+  if (!member?.is_active) return null;
+  return {
+    memberName: member.nickname || member.name,
+    slotMinutes: s.slot_minutes,
+    days: await freeBookingSlots(s),
+  };
+}
+
+// ================================================================== OGV contact streaks (v27)
+
+/** Cairo "today" as YYYY-MM-DD (mirrors src/lib/plan.ts's cairo() shift). */
+export function cairoDayIso(d = new Date()): string {
+  const c = new Date(d.toLocaleString("en-US", { timeZone: "Africa/Cairo" }));
+  return `${c.getFullYear()}-${String(c.getMonth() + 1).padStart(2, "0")}-${String(
+    c.getDate()
+  ).padStart(2, "0")}`;
+}
+
+/** The Cairo day before `day` (pure YYYY-MM-DD math, UTC-anchored). */
+const prevDayIso = (day: string): string =>
+  new Date(new Date(`${day}T00:00:00Z`).getTime() - 86_400_000).toISOString().slice(0, 10);
+
+/** Length of the consecutive activity run ending exactly at `end`. */
+export function streakEndingAt(days: ReadonlySet<string>, end: string): number {
+  let n = 0;
+  let cursor = end;
+  while (days.has(cursor)) {
+    n += 1;
+    cursor = prevDayIso(cursor);
+  }
+  return n;
+}
+
+/** Classic streak rule: a run ending today — or, until today's save lands, a
+ *  run ending YESTERDAY still counts as alive (tonight decides its fate). */
+export function currentStreak(days: ReadonlySet<string>, today: string): number {
+  const viaToday = streakEndingAt(days, today);
+  return viaToday > 0 ? viaToday : streakEndingAt(days, prevDayIso(today));
+}
+
+/** The streak game's audience: a Team Leader / Coordinator / Member with OGV
+ *  in functions OR sub_functions. (Activity is STAMPED for anyone working
+ *  sign-ups — the UI and nags are OGV-only.) */
+export function isOgvMm(m: {
+  role: string;
+  functions?: string[] | null;
+  sub_functions?: string[] | null;
+}): boolean {
+  return (
+    ["Team Leader", "Coordinator", "Member"].includes(m.role) &&
+    [...(m.functions ?? []), ...(m.sub_functions ?? [])].includes("OGV")
+  );
+}
+
+export interface StreakStats {
+  /** consecutive days ending today (or yesterday, until today's save) */
+  current: number;
+  /** longest run in the fetched window (~last 400 activity days) */
+  best: number;
+  savedToday: boolean;
+  /** top 3 CURRENT streaks among active OGV MMs (ties broken by name) */
+  topStreaks: { name: string; current: number }[];
+}
+
+/** The /signups streak card (v27): the viewer's contact streak — ≥1 sign-up
+ *  contact action per Cairo day keeps the flame alive — plus the LC's top 3.
+ *  Null unless the viewer is an OGV MM. */
+export async function streakStats(viewer: Viewer): Promise<StreakStats | null> {
+  if (!isOgvMm(viewer)) return null;
+  const today = cairoDayIso();
+
+  const fetchAllRecent = async () => {
+    // last ~400 days of EVERYONE's activity — matches the personal window so
+    // long streaks never get clamped; paged past the 1000-row response cap
+    const cutoff = cairoDayIso(new Date(Date.now() - 400 * 86_400_000));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows: any[] = [];
+    const PAGE = 1000;
+    for (let off = 0; off < 20000; off += PAGE) {
+      const { data, error } = await db()
+        .from("signup_activity")
+        .select(
+          "member_id, day, member:members(name, nickname, role, functions, sub_functions, is_active)"
+        )
+        .gte("day", cutoff)
+        .order("member_id")
+        .order("day")
+        .range(off, off + PAGE - 1);
+      if (error) throw new Error(error.message);
+      rows.push(...(data ?? []));
+      if ((data ?? []).length < PAGE) break;
+    }
+    return rows;
+  };
+
+  // fail CLOSED: a transient DB error must hide the card, not render a lying
+  // 0-day streak that panics the member
+  let ownRes, recent;
+  try {
+    [ownRes, recent] = await Promise.all([
+      db()
+        .from("signup_activity")
+        .select("day")
+        .eq("member_id", viewer.id)
+        .order("day", { ascending: false })
+        .limit(400),
+      fetchAllRecent(),
+    ]);
+    if (ownRes.error) throw new Error(ownRes.error.message);
+  } catch (e) {
+    console.error("[streaks] stats fetch failed:", e);
+    return null;
+  }
+
+  const mine = new Set(
+    ((ownRes.data ?? []) as { day: string }[]).map((r) => String(r.day).slice(0, 10))
+  );
+  const current = currentStreak(mine, today);
+
+  // best = longest consecutive run anywhere in the fetched window
+  let best = 0;
+  let run = 0;
+  let prev: string | null = null;
+  for (const d of [...mine].sort()) {
+    run = prev !== null && prevDayIso(d) === prev ? run + 1 : 1;
+    if (run > best) best = run;
+    prev = d;
+  }
+
+  // per-member day sets → each active OGV MM's current streak
+  const byMember = new Map<string, { name: string; days: Set<string> }>();
+  for (const r of recent) {
+    const m = r.member;
+    if (!m || !m.is_active || !isOgvMm(m)) continue;
+    const entry = byMember.get(r.member_id) ?? {
+      name: (m.nickname || m.name) as string,
+      days: new Set<string>(),
+    };
+    entry.days.add(String(r.day).slice(0, 10));
+    byMember.set(r.member_id, entry);
+  }
+  const topStreaks = [...byMember.values()]
+    .map((e) => ({ name: e.name, current: currentStreak(e.days, today) }))
+    .filter((e) => e.current > 0)
+    .sort((a, b) => b.current - a.current || a.name.localeCompare(b.name))
+    .slice(0, 3);
+
+  return { current, best, savedToday: mine.has(today), topStreaks };
 }

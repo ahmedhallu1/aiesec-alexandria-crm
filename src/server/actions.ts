@@ -1,6 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import crypto from "node:crypto";
+import { after } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/supabase";
@@ -17,7 +19,7 @@ import {
   commentLabel,
   reassignTargetScope,
 } from "@/lib/rbac";
-import { checkAccountName, getViewer, logAudit, type PipelineRow } from "./data";
+import { cairoDayIso, checkAccountName, getViewer, logAudit, type PipelineRow } from "./data";
 import { recordUndo, sandboxSuppressed, snapshotForUndo } from "./sandbox";
 import { sendEmail } from "@/lib/google/gmail";
 import { visitReportEmail } from "@/lib/email/templates";
@@ -3645,6 +3647,29 @@ const touchSignup = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
+/** v27 streaks: stamp "worked sign-ups today" — ONE row per member per Cairo
+ *  day, the raw material of the OGV contact-streak game (stamped for ANY
+ *  member; the card/nags are OGV-only). Fire-and-forget: a stamp failure must
+ *  never break the contact action that earned it. */
+function stampSignupActivity(viewer: { id: string; sandbox?: boolean }): void {
+  if (viewer.sandbox) return; // a test view must not fabricate streak days
+  // after(): Vercel may freeze the lambda right after the response — a bare
+  // floating promise can silently vanish, losing the member's streak day
+  after(async () => {
+    try {
+      const { error } = await db()
+        .from("signup_activity")
+        .upsert(
+          { member_id: viewer.id, day: cairoDayIso() },
+          { onConflict: "member_id,day", ignoreDuplicates: true }
+        );
+      if (error) console.error("[signups] streak stamp failed:", error.message);
+    } catch (e) {
+      console.error("[signups] streak stamp failed:", e);
+    }
+  });
+}
+
 /** "This one's mine": a member claims an UNASSIGNED sign-up of their
  *  function — the core motion of the main (unassigned) view. */
 export async function claimSignup(id: string): Promise<ActionResult> {
@@ -3679,6 +3704,7 @@ export async function claimSignup(id: string): Promise<ActionResult> {
     return fail("Someone already took this one — refresh the list.");
   await logAudit(viewer.id, "signup_claim", "signup", id, { ep_id: signup.ep_id });
   await pushSignupToSheet(id);
+  stampSignupActivity(viewer); // claiming = today's streak saved
   refresh();
   return { ok: true };
 }
@@ -3851,6 +3877,7 @@ export async function updateSignupContact(
   if (error) return fail(error.message);
   await logAudit(viewer.id, "signup_contact", "signup", id, input);
   await pushSignupToSheet(id);
+  stampSignupActivity(viewer); // contact update = today's streak saved
   refresh();
   return { ok: true };
 }
@@ -3884,6 +3911,7 @@ export async function addSignupComment(id: string, body: string): Promise<Action
   await db().from("signups").update(touchSignup()).eq("id", id);
   await logAudit(viewer.id, "signup_comment", "signup", id);
   await pushSignupToSheet(id);
+  stampSignupActivity(viewer); // commenting = today's streak saved
   refresh();
   return { ok: true };
 }
@@ -3989,9 +4017,10 @@ export async function openSignupDetail(
 
 // ================================================================== consideration (v26)
 
-import { hasConsiderationAccess } from "@/lib/rbac";
+import { canSeeCvPool, hasConsiderationAccess } from "@/lib/rbac";
 import { CV_INDUSTRIES } from "@/lib/cv-extract";
-import type { CvRow, PartnerLc } from "./data";
+import { freeBookingSlots } from "./data";
+import type { CvRow, IrBookingSettings, IrCallRow, PartnerLc } from "./data";
 import type { Viewer } from "@/lib/rbac";
 
 /** IR calls (International Relations): video calls with partner LCs abroad
@@ -4016,6 +4045,85 @@ const canManageCv = (viewer: Viewer, cv: { uploaded_by: string | null }) =>
   viewer.role === "LCP" ||
   cv.uploaded_by === viewer.id ||
   ((viewer.role === "LCVP" || viewer.role === "Director") && hasConsiderationAccess(viewer));
+
+/** VP-and-above inside the module: LCP/admin + LCVPs/Directors with access. */
+const isConsiderationLead = (viewer: Viewer) =>
+  viewer.isAdmin ||
+  viewer.role === "LCP" ||
+  ((viewer.role === "LCVP" || viewer.role === "Director") &&
+    hasConsiderationAccess(viewer));
+
+/** Builds the stored demand text from the multi-pick chips (CV_INDUSTRIES)
+ *  + the "Other…" free text. */
+function buildDemand(
+  picks: string[] | null | undefined,
+  other: string | null | undefined
+): { value: string | null } | { error: ActionResult<never> } {
+  const chosen = [...new Set((picks ?? []).map((p) => String(p)))].slice(0, 12);
+  for (const p of chosen)
+    if (!(CV_INDUSTRIES as readonly string[]).includes(p))
+      return { error: fail("Pick demand domains from the list.") };
+  const extra = (other ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
+  const parts = chosen.filter((p) => p !== "Other");
+  if (extra) parts.push(extra);
+  else if (chosen.includes("Other")) parts.push("Other");
+  return { value: parts.length ? parts.join(" · ") : null };
+}
+
+/** Validates + uploads an IR-call screenshot to the "CRM — IR Calls" Drive
+ *  folder. BEST-EFFORT past validation: a Drive hiccup returns a warning, not
+ *  an error, so the call is never lost. Shared by record + complete. */
+async function uploadIrScreenshot(
+  shot: { name: string; mimeType: string; dataBase64: string },
+  fallbackName: string
+): Promise<
+  | { error: ActionResult<never> }
+  | { file: { id: string; name: string; link: string } | null; warning?: string }
+> {
+  if (!(shot.mimeType || "").toLowerCase().startsWith("image/"))
+    return { error: fail("The screenshot must be an image (png/jpg/webp…).") };
+  let bytes: Buffer;
+  try {
+    bytes = Buffer.from(shot.dataBase64, "base64");
+  } catch {
+    return { error: fail("The screenshot upload was corrupted — try again.") };
+  }
+  if (bytes.byteLength === 0) return { error: fail("The screenshot file is empty.") };
+  if (bytes.byteLength > IR_SCREENSHOT_MAX_BYTES)
+    return {
+      error: fail("The screenshot is over 3 MB — compress or crop it and try again."),
+    };
+  // trust the CONTENT, not the declared mime (the client falls back to
+  // image/png for unknown types): PNG / JPEG / WebP / GIF / HEIC magics
+  const isImage =
+    (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) ||
+    (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) ||
+    (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+      bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) ||
+    (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) ||
+    (bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70);
+  if (!isImage) return { error: fail("The screenshot must be an image (png/jpg/webp…).") };
+  const fileName = shot.name?.trim() || fallbackName;
+  if (await sandboxSuppressed("IR-call screenshot Drive upload"))
+    return { file: null, warning: "Sandbox test view — the Drive upload was skipped." };
+  try {
+    const { uploadToDriveFolder } = await import("@/lib/google/drive-upload");
+    const up = await uploadToDriveFolder({
+      folderName: "CRM — IR Calls",
+      fileName,
+      mimeType: shot.mimeType,
+      data: bytes,
+    });
+    return { file: { id: up.id, name: fileName, link: up.webViewLink } };
+  } catch (e) {
+    console.error("[ir-calls] Drive upload failed:", e);
+    return {
+      file: null,
+      warning:
+        "The call was saved, but the screenshot could not reach Drive — try again later or ping the IM team.",
+    };
+  }
+}
 
 /** "+ Add new LC" (inline in the combobox): creates a partner LC — the name
  *  is unique case-insensitively; hitting an existing one just returns it. */
@@ -4071,14 +4179,18 @@ async function resolvePartnerLc(input: {
   return { error: fail("Pick the partner LC (or add it) first.") };
 }
 
-/** Records one IR call. The screenshot upload is BEST-EFFORT: a Drive hiccup
- *  never loses the call — the row lands without it + a warning in the result.
- *  Sandbox: the Drive upload is suppressed, the insert is journaled. */
+/** Records one PAST IR call manually (born 'completed' — booked calls arrive
+ *  through bookIrCall instead). The screenshot upload is BEST-EFFORT: a Drive
+ *  hiccup never loses the call — the row lands without it + a warning in the
+ *  result. Sandbox: the Drive upload is suppressed, the insert is journaled. */
 export async function recordIrCall(input: {
   partnerLcId?: string | null;
   newLc?: { name: string; country?: string | null } | null;
   calledAt: string;
   notes?: string | null;
+  demand?: string[] | null;
+  demandOther?: string | null;
+  b2cCampaigns?: string | null;
   screenshot?: { name: string; mimeType: string; dataBase64: string } | null;
 }): Promise<ActionResult<{ id: string; screenshotWarning?: string }>> {
   const viewer = await getViewer();
@@ -4091,53 +4203,24 @@ export async function recordIrCall(input: {
   const calledAt = new Date(input.calledAt);
   if (!input.calledAt || Number.isNaN(calledAt.getTime()))
     return fail("Pick the call's date and time.");
+  // manual recording is for calls that HAPPENED — future ones come from the
+  // booking link (5-min grace for clock skew)
+  if (calledAt.getTime() > Date.now() + 5 * 60 * 1000)
+    return fail("That call is in the future — future calls come from your booking link.");
+
+  const demand = buildDemand(input.demand, input.demandOther);
+  if ("error" in demand) return demand.error;
 
   let screenshot: { id: string; name: string; link: string } | null = null;
   let warning: string | undefined;
-  const shot = input.screenshot;
-  if (shot?.dataBase64) {
-    if (!(shot.mimeType || "").toLowerCase().startsWith("image/"))
-      return fail("The screenshot must be an image (png/jpg/webp…).");
-    let bytes: Buffer;
-    try {
-      bytes = Buffer.from(shot.dataBase64, "base64");
-    } catch {
-      return fail("The screenshot upload was corrupted — try again.");
-    }
-    if (bytes.byteLength === 0) return fail("The screenshot file is empty.");
-    if (bytes.byteLength > IR_SCREENSHOT_MAX_BYTES)
-      return fail("The screenshot is over 3 MB — compress or crop it and try again.");
-    // trust the CONTENT, not the declared mime (the client falls back to
-    // image/png for unknown types): PNG / JPEG / WebP / GIF / HEIC magics
-    const isImage =
-      (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) ||
-      (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) ||
-      (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
-        bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) ||
-      (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) ||
-      (bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70);
-    if (!isImage) return fail("The screenshot must be an image (png/jpg/webp…).");
-    const fileName =
-      shot.name?.trim() ||
-      `IR call — ${lc.name} — ${calledAt.toISOString().slice(0, 10)}`;
-    if (await sandboxSuppressed("IR-call screenshot Drive upload")) {
-      warning = "Sandbox test view — the Drive upload was skipped.";
-    } else {
-      try {
-        const { uploadToDriveFolder } = await import("@/lib/google/drive-upload");
-        const up = await uploadToDriveFolder({
-          folderName: "CRM — IR Calls",
-          fileName,
-          mimeType: shot.mimeType,
-          data: bytes,
-        });
-        screenshot = { id: up.id, name: fileName, link: up.webViewLink };
-      } catch (e) {
-        console.error("[ir-calls] Drive upload failed:", e);
-        warning =
-          "The call was recorded, but the screenshot could not reach Drive — try again later or ping the IM team.";
-      }
-    }
+  if (input.screenshot?.dataBase64) {
+    const up = await uploadIrScreenshot(
+      input.screenshot,
+      `IR call — ${lc.name} — ${calledAt.toISOString().slice(0, 10)}`
+    );
+    if ("error" in up) return up.error;
+    screenshot = up.file;
+    warning = up.warning;
   }
 
   const { data: created, error } = await db()
@@ -4147,6 +4230,9 @@ export async function recordIrCall(input: {
       partner_lc_name: lc.name,
       called_at: calledAt.toISOString(),
       notes: input.notes?.trim() || null,
+      status: "completed",
+      demand: demand.value,
+      b2c_campaigns: input.b2cCampaigns?.trim().slice(0, 2000) || null,
       screenshot_drive_id: screenshot?.id ?? null,
       screenshot_name: screenshot?.name ?? null,
       screenshot_link: screenshot?.link ?? null,
@@ -4163,6 +4249,409 @@ export async function recordIrCall(input: {
   return { ok: true, data: { id: created.id, screenshotWarning: warning } };
 }
 
+// ------------------------------------------------------------ booking (v27)
+
+const BOOKING_SLUG_RE = /^[a-z0-9-]{3,40}$/;
+const BOOKING_SLOT_CHOICES = [15, 30, 45, 60];
+const BOOKING_TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** "My booking link": each consideration member publishes /book/<slug> built
+ *  from their weekly Cairo-time availability. Upserted on member_id; the slug
+ *  is unique case-insensitively across members. Sandbox-refused: the table is
+ *  keyed by member_id (no `id` column), so the undo replay can't restore it. */
+export async function saveIrBookingSettings(input: {
+  slug: string;
+  slotMinutes: number;
+  availability: { day: number; from: string; to: string }[];
+  active: boolean;
+}): Promise<ActionResult<{ slug: string }>> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  if (viewer.sandbox)
+    return fail("Booking settings are disabled in the sandbox test view.");
+
+  const slug = (input.slug ?? "").trim().toLowerCase();
+  if (!BOOKING_SLUG_RE.test(slug))
+    return fail(
+      "The link name must be 3–40 characters — lowercase letters, numbers and dashes only."
+    );
+  const slotMinutes = Number(input.slotMinutes);
+  if (!BOOKING_SLOT_CHOICES.includes(slotMinutes))
+    return fail("Pick a slot length from the list (15 / 30 / 45 / 60 minutes).");
+
+  const raw = Array.isArray(input.availability) ? input.availability.slice(0, 21) : [];
+  const availability: { day: number; from: string; to: string }[] = [];
+  for (const w of raw) {
+    const day = Number(w?.day);
+    const from = String(w?.from ?? "");
+    const to = String(w?.to ?? "");
+    if (!Number.isInteger(day) || day < 0 || day > 6)
+      return fail("Each availability row needs a day of the week.");
+    if (!BOOKING_TIME_RE.test(from) || !BOOKING_TIME_RE.test(to))
+      return fail("Each availability row needs a from and to time (e.g. 18:00 → 21:00).");
+    const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+    if (mins(to) - mins(from) < slotMinutes)
+      return fail(
+        `The ${from} → ${to} window is shorter than one ${slotMinutes}-minute slot — widen it or drop it.`
+      );
+    availability.push({ day, from, to });
+  }
+  if (input.active && availability.length === 0)
+    return fail("Add at least one weekly availability window — or switch the link off.");
+
+  const { error } = await db().from("ir_booking_settings").upsert({
+    member_id: viewer.id,
+    slug,
+    slot_minutes: slotMinutes,
+    availability,
+    active: !!input.active,
+  });
+  if (error) {
+    if (error.code === "23505")
+      return fail(`"${slug}" is already taken by another member — pick a different link name.`);
+    return fail(error.message);
+  }
+  await logAudit(viewer.id, "ir_booking_save", "ir_booking", viewer.id, {
+    slug,
+    slotMinutes,
+    windows: availability.length,
+    active: !!input.active,
+  });
+  refresh();
+  return { ok: true, data: { slug } };
+}
+
+/** PUBLIC — the /book/<slug> submit. No viewer, no session: inputs are
+ *  validated hard (length caps, tags stripped), the slot is re-validated
+ *  against the availability AND a fresh overlap query (race guard), and the
+ *  member gets a calendar event (best-effort), a bell and a branded email.
+ *  Journals nothing — there is no sandbox without a viewer. */
+export async function bookIrCall(input: {
+  slug: string;
+  startIso: string;
+  lcName: string;
+  country?: string | null;
+  bookerName?: string | null;
+}): Promise<ActionResult<{ memberName: string; whenLabel: string }>> {
+  const plain = (v: unknown, max: number) =>
+    String(v ?? "")
+      .replace(/<[^>]*>/g, " ")
+      .replace(/[<>]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, max);
+
+  const slug = plain(input.slug, 40).toLowerCase();
+  if (!BOOKING_SLUG_RE.test(slug)) return fail("This booking link is not valid.");
+  const lcName = plain(input.lcName, 120);
+  if (!lcName) return fail("Tell us your LC's name first.");
+  // country only counts when it IS a country — public input never gets to
+  // store free text (CountryInput is client-side sugar, not validation)
+  const countryRaw = plain(input.country, 60);
+  const { COUNTRIES } = await import("@/lib/countries");
+  const country =
+    COUNTRIES.find((c) => c.toLowerCase() === countryRaw.toLowerCase()) ?? null;
+  const bookerName = plain(input.bookerName, 100) || null;
+  const start = new Date(String(input.startIso ?? ""));
+  if (!input.startIso || Number.isNaN(start.getTime()))
+    return fail("Pick a time slot first.");
+
+  // an admin's sandbox test view must not create real bookings (calendar
+  // events + emails can't be undone); real external bookers never carry the
+  // sandbox cookie, so this only ever fires for the tester themself
+  if (await sandboxSuppressed("public IR booking"))
+    return fail("Sandbox test view is active in this browser — exit it to test bookings.");
+
+  // per-caller throttle: 3 bookings/hour per IP — a public endpoint must not
+  // let one visitor flood a member's calendar or the partner-LC list
+  try {
+    const { headers } = await import("next/headers");
+    const ip =
+      (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const ipHash = crypto.createHash("sha256").update(ip).digest("hex").slice(0, 16);
+    const hourKey = `bookrl:${ipHash}:${new Date().toISOString().slice(0, 13)}`;
+    const { data: bucket } = await db()
+      .from("app_settings")
+      .select("value")
+      .eq("key", hourKey)
+      .maybeSingle<{ value: { n: number } }>();
+    const n = (bucket?.value?.n ?? 0) + 1;
+    await db()
+      .from("app_settings")
+      .upsert({ key: hourKey, value: { n }, updated_at: new Date().toISOString() });
+    if (n > 3) return fail("Too many booking attempts from your network — try again later.");
+  } catch (e) {
+    console.error("[ir-booking] rate limit check failed:", e);
+  }
+
+  // the slug charset has no % or _ — ilike is a safe case-insensitive equal
+  const { data: settings } = await db()
+    .from("ir_booking_settings")
+    .select("member_id, slug, slot_minutes, availability, active")
+    .ilike("slug", slug)
+    .maybeSingle<IrBookingSettings>();
+  if (!settings?.active) return fail("This booking link is not active.");
+  const { data: owner } = await db()
+    .from("members")
+    .select("id, name, nickname, email, google_refresh_token, is_active")
+    .eq("id", settings.member_id)
+    .maybeSingle<{
+      id: string;
+      name: string;
+      nickname: string | null;
+      email: string | null;
+      google_refresh_token: string | null;
+      is_active: boolean;
+    }>();
+  if (!owner?.is_active) return fail("This booking link is not active.");
+  const memberName = owner.nickname || owner.name;
+
+  // light rate limit: a fully-booked fortnight closes the link
+  const { count: futureCount } = await db()
+    .from("ir_calls")
+    .select("id", { count: "exact", head: true })
+    .eq("member_id", owner.id)
+    .eq("status", "scheduled")
+    .gte("called_at", new Date().toISOString());
+  if ((futureCount ?? 0) >= 10)
+    return fail(
+      `${memberName}'s calendar is fully booked for now — try again in a few days.`
+    );
+
+  // the slot must be one the page offers RIGHT NOW: inside the availability,
+  // in the future, and (fresh overlap query inside freeBookingSlots) not
+  // clashing with another scheduled call
+  const startIso = start.toISOString();
+  const days = await freeBookingSlots(settings);
+  const day = days.find((d) => d.slots.some((sl) => sl.iso === startIso));
+  const slot = day?.slots.find((sl) => sl.iso === startIso);
+  if (!day || !slot)
+    return fail("That slot was just taken (or is no longer offered) — pick another one.");
+  const whenLabel = `${day.label} · ${slot.label} (Cairo time)`;
+
+  // resolve / create the partner LC by name, case-insensitively
+  const esc = lcName.replaceAll("%", "\\%").replaceAll("_", "\\_");
+  let lc: PartnerLc | null = null;
+  const { data: existingLc } = await db()
+    .from("partner_lcs")
+    .select("id, name, country")
+    .ilike("name", esc)
+    .maybeSingle<PartnerLc>();
+  if (existingLc) {
+    // anonymous input never MUTATES an existing internal record — the crew
+    // sets/corrects an LC's country from inside Sodio
+    lc = existingLc;
+  } else {
+    const ins = await db()
+      .from("partner_lcs")
+      .insert({ name: lcName, country })
+      .select("id, name, country")
+      .single();
+    if (ins.error) {
+      if (ins.error.code === "23505") {
+        const { data: raced } = await db()
+          .from("partner_lcs")
+          .select("id, name, country")
+          .ilike("name", esc)
+          .maybeSingle<PartnerLc>();
+        lc = raced;
+      }
+      if (!lc) return fail("Could not save your LC — try again.");
+    } else lc = ins.data as PartnerLc;
+  }
+
+  const { data: created, error } = await db()
+    .from("ir_calls")
+    .insert({
+      partner_lc_id: lc.id,
+      partner_lc_name: lc.name,
+      called_at: startIso,
+      status: "scheduled",
+      booker_name: bookerName,
+      booked_at: new Date().toISOString(),
+      duration_minutes: settings.slot_minutes,
+      member_id: owner.id,
+      member_name: memberName,
+    })
+    .select("id")
+    .single();
+  if (error) {
+    // the unique (member_id, called_at where scheduled) index is the REAL
+    // race guard — a concurrent booking of the same slot lands here
+    if (error.code === "23505")
+      return fail("That slot was just taken — pick another one.");
+    return fail("Could not book the slot — try again.");
+  }
+
+  // best-effort calendar event on the OWNER's own calendar (a dead grant
+  // must never fail the booking)
+  try {
+    const { createIrCallEvent } = await import("@/lib/google/calendar");
+    const eventId = await createIrCallEvent(owner.google_refresh_token, {
+      partnerLc: lc.name,
+      start,
+      minutes: settings.slot_minutes,
+      description: `IR call booked via your Sodio link.\nPartner LC: ${lc.name}${
+        country ? ` (${country})` : ""
+      }${bookerName ? `\nBooked by: ${bookerName}` : ""}\n${env.appUrl}/consideration`,
+    });
+    if (eventId)
+      await db().from("ir_calls").update({ calendar_event_id: eventId }).eq("id", created.id);
+  } catch (e) {
+    console.error("[ir-booking] calendar event failed:", e);
+  }
+
+  // bell + branded email to the owner — best-effort
+  try {
+    const { notifyMembers } = await import("./notify");
+    await notifyMembers(
+      [owner.id],
+      "info",
+      `📅 IR call booked — ${lc.name}`,
+      `${bookerName ? `${bookerName} of ` : ""}${lc.name} booked ${whenLabel}.`,
+      null,
+      "/consideration"
+    );
+  } catch (e) {
+    console.error("[ir-booking] notification failed:", e);
+  }
+  if (owner.email) {
+    try {
+      const { irCallBookedEmail } = await import("@/lib/email/templates");
+      const mail = irCallBookedEmail({
+        memberFirstName: (owner.nickname || owner.name).split(" ")[0],
+        partnerLc: lc.name,
+        country,
+        bookerName,
+        whenLabel,
+        slotMinutes: settings.slot_minutes,
+        considerationUrl: `${env.appUrl}/consideration`,
+      });
+      await sendEmail({ to: [owner.email], subject: mail.subject, html: mail.html });
+    } catch (e) {
+      console.error("[ir-booking] owner email failed:", e);
+    }
+  }
+
+  await logAudit(null, "ir_call_booked", "ir_call", created.id, {
+    lc: lc.name,
+    slug,
+    when: whenLabel,
+  });
+  return { ok: true, data: { memberName, whenLabel } };
+}
+
+/** The in-call notes: demand domains + "when are your B2C campaigns?" + free
+ *  notes + screenshot — saving flips a SCHEDULED call to 'completed'. Only
+ *  the call's owner or a VP/Director/LCP. */
+export async function completeIrCall(
+  id: string,
+  input: {
+    demand?: string[] | null;
+    demandOther?: string | null;
+    b2cCampaigns?: string | null;
+    notes?: string | null;
+    screenshot?: { name: string; mimeType: string; dataBase64: string } | null;
+  }
+): Promise<ActionResult<{ screenshotWarning?: string }>> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  const { data: call } = await db()
+    .from("ir_calls")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle<IrCallRow>();
+  if (!call) return fail("That call no longer exists.");
+  if (call.status !== "scheduled")
+    return fail(`This call is already ${call.status}.`);
+  if (call.member_id !== viewer.id && !isConsiderationLead(viewer))
+    return fail("Only the call's owner or a VP/Director can fill its notes.", "forbidden");
+
+  const demand = buildDemand(input.demand, input.demandOther);
+  if ("error" in demand) return demand.error;
+
+  let screenshot: { id: string; name: string; link: string } | null = null;
+  let warning: string | undefined;
+  if (input.screenshot?.dataBase64) {
+    const up = await uploadIrScreenshot(
+      input.screenshot,
+      `IR call — ${call.partner_lc_name} — ${call.called_at.slice(0, 10)}`
+    );
+    if ("error" in up) return up.error;
+    screenshot = up.file;
+    warning = up.warning;
+  }
+
+  await snapshotForUndo("ir_calls", id);
+  const { error } = await db()
+    .from("ir_calls")
+    .update({
+      status: "completed",
+      demand: demand.value,
+      b2c_campaigns: input.b2cCampaigns?.trim().slice(0, 2000) || null,
+      notes: input.notes?.trim().slice(0, 5000) || null,
+      ...(screenshot
+        ? {
+            screenshot_drive_id: screenshot.id,
+            screenshot_name: screenshot.name,
+            screenshot_link: screenshot.link,
+          }
+        : {}),
+    })
+    .eq("id", id);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "ir_call_complete", "ir_call", id, {
+    lc: call.partner_lc_name,
+  });
+  refresh();
+  return { ok: true, data: { screenshotWarning: warning } };
+}
+
+/** Cancels a SCHEDULED call (owner or VP/Director/LCP) — frees the slot and
+ *  best-effort removes the owner's calendar event. */
+export async function cancelIrCall(id: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  const { data: call } = await db()
+    .from("ir_calls")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle<IrCallRow>();
+  if (!call) return fail("That call no longer exists.");
+  if (call.status !== "scheduled") return fail("Only scheduled calls can be cancelled.");
+  if (call.member_id !== viewer.id && !isConsiderationLead(viewer))
+    return fail("Only the call's owner or a VP/Director can cancel it.", "forbidden");
+
+  await snapshotForUndo("ir_calls", id);
+  const { error } = await db()
+    .from("ir_calls")
+    .update({ status: "cancelled" })
+    .eq("id", id);
+  if (error) return fail(error.message);
+
+  if (
+    call.calendar_event_id &&
+    call.member_id &&
+    !(await sandboxSuppressed("IR-call calendar event delete"))
+  ) {
+    try {
+      const { data: owner } = await db()
+        .from("members")
+        .select("google_refresh_token")
+        .eq("id", call.member_id)
+        .maybeSingle<{ google_refresh_token: string | null }>();
+      await deleteVisitEvent(owner?.google_refresh_token ?? null, call.calendar_event_id);
+    } catch (e) {
+      console.error("[ir-calls] calendar delete failed:", e);
+    }
+  }
+  await logAudit(viewer.id, "ir_call_cancel", "ir_call", id, {
+    lc: call.partner_lc_name,
+  });
+  refresh();
+  return { ok: true };
+}
+
 // ------------------------------------------------------------------ CV pool
 
 /** Step 1 — signed upload URL for the CV file (browser PUTs straight to the
@@ -4173,7 +4662,8 @@ export async function requestCvUpload(file: {
   size: number;
 }): Promise<ActionResult<{ path: string; signedUrl: string }>> {
   const viewer = await getViewer();
-  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  // v27: the CV pool is IGT-only — Consideration crew + IGT leaders
+  if (!canSeeCvPool(viewer)) return considerationFail();
   // the uploaded storage object + the Gemini call can't be undone on exit
   if (viewer.sandbox)
     return fail("CV uploads are disabled in the sandbox test view — the file and AI extraction can't be undone on exit.");
@@ -4270,7 +4760,8 @@ export async function confirmCvUpload(input: {
   newLc?: { name: string; country?: string | null } | null;
 }): Promise<ActionResult<{ id: string; status: string; note?: string }>> {
   const viewer = await getViewer();
-  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  // v27: the CV pool is IGT-only — Consideration crew + IGT leaders
+  if (!canSeeCvPool(viewer)) return considerationFail();
   if (viewer.sandbox)
     return fail("CV uploads are disabled in the sandbox test view — the file and AI extraction can't be undone on exit.");
   // only paths shaped like the ones requestCvUpload issues are recordable
@@ -4313,7 +4804,7 @@ export async function rerunCvExtraction(
   id: string
 ): Promise<ActionResult<{ status: string; note?: string }>> {
   const viewer = await getViewer();
-  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  if (!canSeeCvPool(viewer)) return considerationFail();
   // a real Gemini call burns real quota — nothing to undo, so refuse
   if (viewer.sandbox)
     return fail("AI extraction is disabled in the sandbox test view.");
@@ -4338,7 +4829,7 @@ export async function updateCvFields(
   }
 ): Promise<ActionResult> {
   const viewer = await getViewer();
-  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  if (!canSeeCvPool(viewer)) return considerationFail();
   const { data: cv } = await db().from("cvs").select("*").eq("id", id).maybeSingle<CvRow>();
   if (!cv) return fail("That CV no longer exists.");
   if (!canManageCv(viewer, cv))
@@ -4391,7 +4882,7 @@ export async function updateCvFields(
 /** 10-minute signed link to view/download the CV file (bucket stays private). */
 export async function getCvFileUrl(id: string): Promise<ActionResult<{ url: string }>> {
   const viewer = await getViewer();
-  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  if (!canSeeCvPool(viewer)) return considerationFail();
   const { data: cv } = await db()
     .from("cvs")
     .select("file_path")
@@ -4407,7 +4898,7 @@ export async function getCvFileUrl(id: string): Promise<ActionResult<{ url: stri
  *  Refused in the sandbox: a removed storage object can't be undone on exit. */
 export async function deleteCv(id: string): Promise<ActionResult> {
   const viewer = await getViewer();
-  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  if (!canSeeCvPool(viewer)) return considerationFail();
   const { data: cv } = await db().from("cvs").select("*").eq("id", id).maybeSingle<CvRow>();
   if (!cv) return fail("That CV no longer exists.");
   if (!canManageCv(viewer, cv))

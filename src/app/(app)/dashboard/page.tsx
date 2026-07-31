@@ -1,6 +1,8 @@
-import { getViewer, getDashboard, listTeamLeaders, listVisibleMembers } from "@/server/data";
+import {
+  considerationStats, getViewer, getDashboard, listTeamLeaders, listVisibleMembers } from "@/server/data";
 import type { AccountFilters } from "@/server/data";
-import { accountScope, icxFunctions, isB2B, isB2C } from "@/lib/rbac";
+import {
+  hasConsiderationAccess, accountScope, icxFunctions, isB2B, isB2C } from "@/lib/rbac";
 import { memberIsB2C } from "@/lib/types";
 import { DashboardView, type DashboardScopeView } from "@/components/crm/dashboard-view";
 
@@ -53,6 +55,11 @@ export default async function DashboardPage({
   if (master || isB2C(viewer)) {
     views.push({ key: "B2C", label: "B2C" });
   }
+  // Consideration (v27): IR calls + the CV pool — ICX VPs/Directors, the
+  // consideration crew and the LCP get the lane
+  if (hasConsiderationAccess(viewer)) {
+    views.push({ key: "CONS", label: "Consideration" });
+  }
 
   const defaultView = views[0]?.key ?? "all";
   const requestedFn =
@@ -66,10 +73,11 @@ export default async function DashboardPage({
     to: params.to || undefined,
   };
 
-  const [data, teamLeaders, members] = await Promise.all([
-    getDashboard(viewer, filters, activeFn),
+  const [data, teamLeaders, members, consideration] = await Promise.all([
+    getDashboard(viewer, filters, activeFn === "CONS" ? views[0]?.key ?? "all" : activeFn),
     listTeamLeaders(viewer),
     listVisibleMembers(viewer),
+    activeFn === "CONS" ? considerationStats(viewer) : Promise.resolve(null),
   ]);
 
   // Member filter: only people with access to the active lane — and never the
@@ -125,6 +133,7 @@ export default async function DashboardPage({
 
   return (
     <DashboardView
+      consideration={consideration}
       total={data.total}
       byFunction={data.byFunction}
       byTeam={data.byTeam}
@@ -136,7 +145,7 @@ export default async function DashboardPage({
       teamLabel={teamLabel}
       views={views}
       activeFn={activeFn}
-      laneLabel={activeFn === "all" ? "ICX" : activeFn}
+      laneLabel={activeFn === "all" ? "ICX" : activeFn === "CONS" ? "Consideration" : activeFn}
       scopeLabel={scopeLabel}
       showTeamDrill={members.some(
         (m) => m.role === "Team Leader" || m.role === "Coordinator"

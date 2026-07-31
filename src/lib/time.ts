@@ -20,6 +20,9 @@ function tzOffsetMs(timeZone: string, utcDate: Date): number {
 /** Converts a local Alexandria (Africa/Cairo) date + time into a UTC Date,
  *  DST-aware. Used to know when a visit actually happens. */
 export function cairoToUtc(date: string, time: string): Date {
+  // two-pass: the offset must be evaluated AT the resulting instant, or
+  // slots on a DST-transition evening land one hour off
   const guess = new Date(`${date}T${time.slice(0, 5)}:00Z`);
-  return new Date(guess.getTime() - tzOffsetMs(LC_TIMEZONE, guess));
+  const first = new Date(guess.getTime() - tzOffsetMs(LC_TIMEZONE, guess));
+  return new Date(guess.getTime() - tzOffsetMs(LC_TIMEZONE, first));
 }

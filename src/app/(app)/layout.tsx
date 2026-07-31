@@ -60,7 +60,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <AppShell
       user={{
         name: viewer.nickname || viewer.name,
-        email: viewer.email ?? "",
+        email: viewer.email ?? viewer.id,
         role: viewer.role,
         functions: viewer.functions,
         photoUrl: viewer.avatar_url || viewer.photo_url,
@@ -91,7 +91,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <GateClient mode="allowed" extra={extraRoutes}>
             {children}
           </GateClient>
-          <GateClient mode="soon" extra={extraRoutes}>
+          <GateClient mode="soon" extra={extraRoutes} hasModule={extraRoutes.length > 0}>
             <ComingSoon functions={viewer.functions} />
           </GateClient>
         </>
