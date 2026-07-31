@@ -538,8 +538,12 @@ function MemberDialog({
         .map((t) => t.name);
     return [...new Set(list)];
   })();
-  const teamIsCustom = !!form.team_name && !teamChoices.includes(form.team_name);
-  const [customTeam, setCustomTeam] = useState(teamIsCustom);
+  // "add a NEW team" is only meaningful for TL teams (Member / Team Leader) —
+  // the structural teams (EB, Function leaders…) come from the Teams card
+  const canCreateTeam = form.role === "Member" || form.role === "Team Leader";
+  const [creatingTeam, setCreatingTeam] = useState(false);
+  const [newTeamName, setNewTeamName] = useState("");
+  const [newTeamFn, setNewTeamFn] = useState("");
 
   const save = () =>
     start(async () => {
@@ -647,37 +651,77 @@ function MemberDialog({
             </div>
             <div className="grid gap-1.5">
               <Label>Team name</Label>
-              {customTeam || teamChoices.length === 0 ? (
-                <div className="flex gap-1.5">
-                  <Input
-                    value={form.team_name}
-                    placeholder="Type the team's name"
-                    onChange={(e) => setForm((f) => ({ ...f, team_name: e.target.value }))}
-                  />
-                  {teamChoices.length > 0 ? (
-                    <Button
-                      type="button" variant="ghost" size="sm" className="shrink-0 px-2 text-xs"
-                      onClick={() => { setCustomTeam(false); setForm((f) => ({ ...f, team_name: "" })); }}
-                    >
-                      List
-                    </Button>
+              {creatingTeam ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {form.functions.length !== 1 ? (
+                    <Select value={newTeamFn || undefined} onValueChange={setNewTeamFn}>
+                      <SelectTrigger className="w-24 shrink-0"><SelectValue placeholder="Fn" /></SelectTrigger>
+                      <SelectContent>
+                        {(form.functions.length ? form.functions : [...LC_FUNCTIONS]).map((f) => (
+                          <SelectItem key={f} value={f}>{f}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   ) : null}
+                  <Input
+                    value={newTeamName}
+                    placeholder="New team's name"
+                    className="min-w-32 flex-1"
+                    onChange={(e) => setNewTeamName(e.target.value)}
+                  />
+                  <Button
+                    type="button" size="sm" className="shrink-0"
+                    disabled={pending || newTeamName.trim().length < 2}
+                    onClick={() =>
+                      start(async () => {
+                        const fnKey =
+                          form.functions.length === 1 ? form.functions[0] : newTeamFn;
+                        if (!fnKey) { toast.error("Pick the team's function."); return; }
+                        const res = await saveTeamEntry({
+                          type: "Team",
+                          functionKey: fnKey,
+                          name: newTeamName.trim(),
+                        });
+                        if (res.ok) {
+                          setForm((f) => ({ ...f, team_name: newTeamName.trim() }));
+                          toast.success(`Team "${newTeamName.trim()}" registered 🏷️`);
+                          setCreatingTeam(false);
+                          setNewTeamName("");
+                          router.refresh();
+                        } else toast.error(res.error);
+                      })
+                    }
+                  >
+                    Create
+                  </Button>
+                  <Button
+                    type="button" variant="ghost" size="sm" className="shrink-0 px-2 text-xs"
+                    onClick={() => setCreatingTeam(false)}
+                  >
+                    Cancel
+                  </Button>
                 </div>
               ) : (
                 <Select
                   value={form.team_name || "__none"}
                   onValueChange={(v) => {
-                    if (v === "__custom") { setCustomTeam(true); return; }
+                    if (v === "__new") { setCreatingTeam(true); return; }
                     setForm((f) => ({ ...f, team_name: v === "__none" ? "" : v }));
                   }}
                 >
                   <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none">—</SelectItem>
+                    {/* a stored name outside the registry stays selectable */}
+                    {form.team_name && !teamChoices.includes(form.team_name) ? (
+                      <SelectItem value={form.team_name}>{form.team_name}</SelectItem>
+                    ) : null}
                     {teamChoices.map((n) => (
                       <SelectItem key={n} value={n}>{n}</SelectItem>
                     ))}
-                    <SelectItem value="__custom">✏️ Other…</SelectItem>
+                    {canCreateTeam ? (
+                      <SelectItem value="__new">➕ New team…</SelectItem>
+                    ) : null}
                   </SelectContent>
                 </Select>
               )}

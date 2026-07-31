@@ -24,5 +24,5 @@ export default async function OgtMailPage() {
       ? ["OGT", "OGV"]
       : [...ownPrograms];
 
-  return <OgtMailView hasGoogle={!!viewer.google_refresh_token} programs={programs} />;
+  return <OgtMailView viewerId={viewer.id} hasGoogle={!!viewer.google_refresh_token} programs={programs} />;
 }

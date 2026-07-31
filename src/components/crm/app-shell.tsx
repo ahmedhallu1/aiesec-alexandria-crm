@@ -5,8 +5,11 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
+  ChevronUp,
+  ChevronDown,
   Building2,
   CalendarDays,
+  Globe2,
   Users,
   UsersRound,
   MailPlus,
@@ -37,7 +40,7 @@ interface ShellProps {
     photoUrl: string | null;
     isAdmin: boolean;
   };
-  nav: { raising: boolean; tm: boolean; membership: boolean; planning: boolean; ogtMail: boolean; signups: boolean };
+  nav: { raising: boolean; tm: boolean; membership: boolean; planning: boolean; ogtMail: boolean; signups: boolean; consideration: boolean };
   signOutAction: () => Promise<void>;
   children: React.ReactNode;
 }
@@ -69,6 +72,9 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
         ]
       : []),
     ...(nav.signups ? [{ href: "/signups", label: "Sign-ups", icon: UserRoundPlus }] : []),
+    ...(nav.consideration
+      ? [{ href: "/consideration", label: "Consideration", icon: Globe2 }]
+      : []),
     ...(nav.planning ? [{ href: "/planning", label: "Planning", icon: Target }] : []),
     ...(nav.ogtMail ? [{ href: "/ogt-mail", label: "Expectation mail", icon: MailPlus }] : []),
     ...(nav.tm ? [{ href: "/members", label: "Talent Management", icon: UsersRound }] : []),
@@ -80,17 +86,55 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
     ...(user.isAdmin ? [{ href: "/admin", label: "Health & Logs", icon: Activity }] : []),
   ];
 
+  // v26: members arrange their OWN sidebar — order persisted per browser
+  const [navOrder, setNavOrder] = useState<string[] | null>(null);
+  const [sortMode, setSortMode] = useState(false);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("sodio-nav-order");
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.every((x) => typeof x === "string"))
+        setNavOrder(parsed);
+      else localStorage.removeItem("sodio-nav-order"); // self-heal a poisoned key
+    } catch {
+      /* corrupt — default order */
+    }
+  }, []);
+  const orderedItems = (() => {
+    if (!navOrder) return items;
+    const pos = new Map(navOrder.map((h, i) => [h, i]));
+    return [...items].sort((a, b) => {
+      const pa = pos.get(a.href) ?? 1000 + items.findIndex((x) => x.href === a.href);
+      const pb = pos.get(b.href) ?? 1000 + items.findIndex((x) => x.href === b.href);
+      return pa - pb;
+    });
+  })();
+  const moveItem = (href: string, dir: -1 | 1) => {
+    const hrefs = orderedItems.map((i) => i.href);
+    const idx = hrefs.indexOf(href);
+    const to = idx + dir;
+    if (idx < 0 || to < 0 || to >= hrefs.length) return;
+    [hrefs[idx], hrefs[to]] = [hrefs[to], hrefs[idx]];
+    setNavOrder(hrefs);
+    try {
+      localStorage.setItem("sodio-nav-order", JSON.stringify(hrefs));
+    } catch {
+      /* private mode — order just won't persist */
+    }
+  };
+
   const navList = (
     <nav className="flex flex-1 flex-col gap-1 p-3">
-      {items.map((item) => {
+      {orderedItems.map((item) => {
         const active =
           pathname === item.href ||
           (item.href === "/accounts" && pathname === "/") ||
           (item.href !== "/feedback" && pathname.startsWith(item.href + "/")) ||
           (item.href === "/feedback" && pathname === "/feedback");
         return (
+          <div key={item.href} className="flex items-center gap-1">
           <Link
-            key={item.href}
             href={item.href}
             onClick={(e) => {
               setOpen(false);
@@ -100,16 +144,62 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
               if (!active && !modified) setNavTarget(item.href);
             }}
             className={cn(
-              "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground/80 transition-all hover:translate-x-0.5 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground motion-reduce:hover:translate-x-0",
+              "group flex min-w-0 flex-1 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground/80 transition-all hover:translate-x-0.5 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground motion-reduce:hover:translate-x-0",
               active &&
                 "bg-sidebar-primary text-sidebar-primary-foreground shadow-[0_0_18px_-6px_rgb(3_126_243/0.8)] hover:translate-x-0 hover:bg-sidebar-primary"
             )}
           >
             <item.icon className="size-4.5 transition-transform group-hover:scale-110 motion-reduce:group-hover:scale-100" />
-            {item.label}
+            <span className="min-w-0 flex-1 truncate">{item.label}</span>
           </Link>
+          {sortMode ? (
+            <span className="flex shrink-0 items-center gap-0.5 pr-1">
+              <button
+                type="button"
+                aria-label={`Move ${item.label} up`}
+                className="rounded p-0.5 text-sidebar-foreground/70 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                onClick={() => moveItem(item.href, -1)}
+              >
+                <ChevronUp className="size-3.5" />
+              </button>
+              <button
+                type="button"
+                aria-label={`Move ${item.label} down`}
+                className="rounded p-0.5 text-sidebar-foreground/70 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                onClick={() => moveItem(item.href, 1)}
+              >
+                <ChevronDown className="size-3.5" />
+              </button>
+            </span>
+          ) : null}
+          </div>
         );
       })}
+      <div className="mt-0.5 flex items-center gap-2 px-3">
+        <button
+          type="button"
+          className="text-[11px] font-medium text-sidebar-foreground/45 transition-colors hover:text-sidebar-foreground/80"
+          onClick={() => setSortMode((s) => !s)}
+        >
+          {sortMode ? "✓ Done arranging" : "↕ Arrange tabs"}
+        </button>
+        {sortMode && navOrder ? (
+          <button
+            type="button"
+            className="text-[11px] text-sidebar-foreground/45 transition-colors hover:text-sidebar-foreground/80"
+            onClick={() => {
+              setNavOrder(null);
+              try {
+                localStorage.removeItem("sodio-nav-order");
+              } catch {
+                /* noop */
+              }
+            }}
+          >
+            Reset
+          </button>
+        ) : null}
+      </div>
       <p className="mt-1 px-3 text-[11px] leading-snug text-sidebar-foreground/45">
         Your feedback builds this system for <b>YOU</b> — every idea or bug you
         report makes it better and more reliable. 💙

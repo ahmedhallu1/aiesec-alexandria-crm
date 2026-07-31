@@ -1,20 +1,21 @@
 "use client";
 
-import { useCallback, useState, useTransition } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
-  Archive, Hand, Loader2, Phone, RefreshCw, RotateCcw, Search, UserRound, X,
+  Archive, Check, Loader2, Phone, RefreshCw, RotateCcw, Search, UserMinus,
+  UserRound, Users2, X,
 } from "lucide-react";
 import {
-  addSignupComment, claimSignup, openSignupDetail, reassignSignup,
-  reviveSignup, runSignupsImport, setSignupOop, updateSignupContact,
-  updateSignupVpFields,
+  addSignupComment, bulkReassignSignups, claimSignup, openSignupDetail,
+  reassignSignup, reviveSignup, runSignupsImport, setSignupOop,
+  updateSignupContact, updateSignupVpFields,
 } from "@/server/actions";
-import type { SignupDetail } from "@/server/data";
-import { COUNTRIES } from "@/lib/countries";
+import type { OgxPlanCard, SignupDetail } from "@/server/data";
 import { fmtDateTime, SIGNUP_STATUSES, type OgxFunction, type SignupRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { CountryInput } from "./country-input";
 import { Hint } from "./hint";
 import { WhatsAppIcon } from "./icons";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +48,129 @@ const VIEW_LABELS: Record<string, string> = {
   archived: "🗄️ Archived",
 };
 
+// Official AIESEC product colors (same as the accounts module's badges).
+const PROGRAM_COLORS: { key: string; label: string; color: string }[] = [
+  { key: "gta", label: "GTa", color: "#0CB9C1" },
+  { key: "gte", label: "GTe", color: "#F48924" },
+  { key: "gv", label: "GV", color: "#F85A40" },
+];
+
+/** "GV New" / "GV" → GV red, GTa → teal, GTe → orange; unmatched OGT rows
+ *  fall back to the generic GT teal, OGV rows to the GV red. */
+function programColor(program: string | null, fn: OgxFunction): { label: string; color: string } {
+  const p = (program ?? "").toLowerCase();
+  for (const { key, label, color } of PROGRAM_COLORS)
+    if (p.includes(key)) return { label, color };
+  if (program) return { label: program, color: fn === "OGV" ? "#F85A40" : "#0CB9C1" };
+  return fn === "OGV"
+    ? { label: "GV", color: "#F85A40" }
+    : { label: "GT", color: "#0CB9C1" };
+}
+
+function ProgramBadge({
+  program, fn, className,
+}: {
+  program: string | null;
+  fn: OgxFunction;
+  className?: string;
+}) {
+  const b = programColor(program, fn);
+  return (
+    <Badge
+      className={cn("border-transparent text-white", className)}
+      style={{ backgroundColor: b.color }}
+    >
+      {b.label}
+    </Badge>
+  );
+}
+
+/** Minimal round checkbox for the bulk-selection mode (accounts-list pattern). */
+function SelectDot({ checked, onToggle }: { checked: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={checked}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      className={cn(
+        "inline-flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors",
+        checked
+          ? "border-primary bg-primary text-primary-foreground"
+          : "border-input bg-background hover:border-primary/60"
+      )}
+    >
+      {checked ? <Check className="size-3.5" /> : null}
+    </button>
+  );
+}
+
+/** The OGX MM's motivation card: this month's filed mm_plan vs their live
+ *  sign-up pipeline — Approvals (the MOS) front and center. */
+function MmPlanCard({ plan }: { plan: OgxPlanCard }) {
+  const monthLabel = new Date(`${plan.month}T00:00:00`).toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
+  const mosPct =
+    plan.plan.approvals > 0
+      ? Math.min(100, Math.round((plan.actual.approvals / plan.plan.approvals) * 100))
+      : plan.actual.approvals > 0
+        ? 100
+        : 0;
+  const pair = (actual: number, planned: number) => (
+    <p className="text-lg font-semibold tabular-nums">
+      {actual}
+      <span className="text-sm font-normal text-muted-foreground"> / {planned}</span>
+    </p>
+  );
+  return (
+    <Card className="rise-in border-primary/30">
+      <CardContent className="space-y-2.5 p-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+          <p className="text-sm font-semibold">🎯 My plan · {monthLabel}</p>
+          <p className="text-xs text-muted-foreground">
+            your current pipeline vs this month&apos;s plan
+          </p>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              Applicants
+            </p>
+            {pair(plan.actual.applicants, plan.plan.applicants)}
+            <p className="text-[10px] text-muted-foreground">Applied or beyond</p>
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              Accepted
+            </p>
+            {pair(plan.actual.accepted, plan.plan.accepted)}
+            <p className="text-[10px] text-muted-foreground">Accepted or beyond</p>
+          </div>
+          <div className="rounded-lg border border-primary/40 bg-primary/5 px-2.5 py-1.5">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">
+              Approvals · MOS
+            </p>
+            <p className="text-xl font-bold tabular-nums text-primary">
+              {plan.actual.approvals}
+              <span className="text-sm font-normal text-primary/70"> / {plan.plan.approvals}</span>
+            </p>
+            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-primary/15">
+              <div
+                className="h-full rounded-full bg-primary transition-all"
+                style={{ width: `${mosPct}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 interface ViewerInfo {
   id: string;
   name: string;
@@ -56,7 +180,8 @@ interface ViewerInfo {
 }
 
 export function SignupsView({
-  rows, total, page, pageSize, activeView, views, fns, activeFn, targets, viewer, filters,
+  rows, total, page, pageSize, activeView, views, fns, activeFn, targets, planCard,
+  viewer, filters,
 }: {
   rows: SignupRow[];
   total: number;
@@ -67,10 +192,11 @@ export function SignupsView({
   fns: OgxFunction[];
   activeFn: OgxFunction;
   targets: { id: string; label: string }[];
+  planCard: OgxPlanCard | null;
   viewer: ViewerInfo;
   filters: {
     q: string; batch: string; program: string; status: string;
-    interested: string; contacted: string; sort: string; dir: string;
+    interested: string; contacted: string; nophone: string; sort: string; dir: string;
   };
 }) {
   const router = useRouter();
@@ -80,6 +206,27 @@ export function SignupsView({
   const [q, setQ] = useState(filters.q);
   const [detail, setDetail] = useState<SignupDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState<string | null>(null);
+
+  // bulk selection (TL/VP/Director/LCP-admin): assign to a member or send
+  // back to the pool — the archived view is read-only, no selection there
+  const canBulk = (viewer.isLeader || viewer.isTl) && activeView !== "archived";
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assignTarget, setAssignTarget] = useState("");
+  const [unassignOpen, setUnassignOpen] = useState(false);
+  // a filter/search/page change redefines what "selected" means — start over
+  // (order-independent key: re-sorting the same rows must NOT clear it)
+  const idsKey = rows.map((r) => r.id).sort().join(",");
+  useEffect(() => {
+    setSelected(new Set());
+  }, [idsKey]);
+  const toggle = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const setParams = useCallback(
     (patch: Record<string, string | null>) => {
@@ -149,13 +296,41 @@ export function SignupsView({
     });
   };
 
-  const claim = (row: SignupRow) =>
+  // Contact = the claim motion: you contact the sign-up, it becomes yours —
+  // then the detail dialog opens right away so you log what happened.
+  const contact = (row: SignupRow) =>
     start(async () => {
       const res = await claimSignup(row.id);
       if (res.ok) {
-        toast.success(`"${row.name}" is yours now — go get them! 🙌`);
+        toast.success("It's yours — log the contact ✍️");
         router.refresh();
+        openDetail(row.id);
       } else toast.error(res.error);
+    });
+
+  const runBulk = (memberId: string | null) =>
+    start(async () => {
+      const ids = [...selected];
+      let done = 0;
+      let failed = 0;
+      // the server caps one call at 50 — feed it in chunks so select-all works
+      for (let i = 0; i < ids.length; i += 50) {
+        const res = await bulkReassignSignups(ids.slice(i, i + 50), memberId);
+        if (!res.ok) { toast.error(res.error); return; }
+        done += res.data?.done ?? 0;
+        failed += res.data?.failed ?? 0;
+      }
+      const label = memberId
+        ? `assigned to ${targets.find((t) => t.id === memberId)?.label ?? "them"} 👥`
+        : "back in the pool 🆕";
+      toast.success(
+        `${done} sign-up${done === 1 ? "" : "s"} ${label}${failed ? ` — ${failed} skipped (outside your scope)` : ""}`
+      );
+      setSelected(new Set());
+      setAssignOpen(false);
+      setUnassignOpen(false);
+      setAssignTarget("");
+      router.refresh();
     });
 
   const syncNow = () =>
@@ -187,8 +362,8 @@ export function SignupsView({
         <div>
           <h1 className="text-2xl font-bold">Sign-ups</h1>
           <p className="text-sm text-muted-foreground">
-            Two-way synced with the {activeFn} tracker sheet — claim from the
-            unassigned pool, contact, and move them down the funnel.
+            Two-way synced with the {activeFn} tracker sheet — contact one from
+            the unassigned pool, it&apos;s yours, move them down the funnel.
           </p>
         </div>
         {viewer.isLeader ? (
@@ -197,6 +372,8 @@ export function SignupsView({
           </Button>
         ) : null}
       </div>
+
+      {planCard ? <MmPlanCard plan={planCard} /> : null}
 
       {/* function + view chips */}
       <div className="flex flex-wrap items-center gap-2">
@@ -305,6 +482,19 @@ export function SignupsView({
             ))}
           </SelectContent>
         </Select>
+        <button
+          type="button"
+          onClick={() => setParams({ nophone: filters.nophone === "1" ? null : "1" })}
+          title="Only sign-ups with no usable phone number"
+          className={cn(
+            "h-9 rounded-full border px-3 text-sm font-medium transition-colors",
+            filters.nophone === "1"
+              ? "border-primary bg-primary text-primary-foreground"
+              : "border-border bg-card text-muted-foreground hover:border-primary/50"
+          )}
+        >
+          📵 Missing phone
+        </button>
         <span className="ml-auto text-sm text-muted-foreground">
           {total} sign-up{total === 1 ? "" : "s"}
         </span>
@@ -322,12 +512,15 @@ export function SignupsView({
           rows.map((r) => (
             <Card key={r.id} onClick={() => openDetail(r.id)}>
               <CardContent className="space-y-1.5 p-3.5">
-                <p className="flex items-center justify-between gap-2 font-semibold">
+                <p className="flex items-center gap-2 font-semibold">
+                  {canBulk ? (
+                    <SelectDot checked={selected.has(r.id)} onToggle={() => toggle(r.id)} />
+                  ) : null}
                   <span className="min-w-0 flex-1 truncate" dir="auto">{r.name}</span>
-                  {detailLoading === r.id ? <Loader2 className="size-4 animate-spin" /> : null}
+                  {detailLoading === r.id ? <Loader2 className="size-4 shrink-0 animate-spin" /> : null}
                 </p>
                 <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                  <Badge variant="outline" className="text-[10px]">{r.program ?? r.fn}</Badge>
+                  <ProgramBadge program={r.program} fn={r.fn} className="text-[10px]" />
                   <Badge variant="outline" className="text-[10px]">{r.batch === "new" ? "New" : "Old"}</Badge>
                   {r.status ? <Badge className="text-[10px]">{r.status}</Badge> : null}
                   <span className="text-muted-foreground">
@@ -353,9 +546,9 @@ export function SignupsView({
                   <Button
                     size="sm" className="w-full"
                     disabled={pending}
-                    onClick={(e) => { e.stopPropagation(); claim(r); }}
+                    onClick={(e) => { e.stopPropagation(); contact(r); }}
                   >
-                    <Hand className="size-4" /> Claim it
+                    <Phone className="size-4" /> Contact
                   </Button>
                 ) : null}
               </CardContent>
@@ -370,6 +563,20 @@ export function SignupsView({
           <Table>
             <TableHeader>
               <TableRow>
+                {canBulk ? (
+                  <TableHead className="w-8">
+                    <SelectDot
+                      checked={rows.length > 0 && selected.size >= rows.length}
+                      onToggle={() =>
+                        setSelected(
+                          selected.size >= rows.length
+                            ? new Set()
+                            : new Set(rows.map((r) => r.id))
+                        )
+                      }
+                    />
+                  </TableHead>
+                ) : null}
                 <SortHead field="signed_up_at">Signed up</SortHead>
                 <SortHead field="name" defaultDir="asc">Sign-up</SortHead>
                 <SortHead field="program" defaultDir="asc">Program</SortHead>
@@ -385,13 +592,18 @@ export function SignupsView({
             <TableBody>
               {rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="py-12 text-center text-muted-foreground">
+                  <TableCell colSpan={canBulk ? 11 : 10} className="py-12 text-center text-muted-foreground">
                     Nothing here — try another view or filter.
                   </TableCell>
                 </TableRow>
               ) : (
                 rows.map((r) => (
                   <TableRow key={r.id} className="cursor-pointer" onClick={() => openDetail(r.id)}>
+                    {canBulk ? (
+                      <TableCell className="w-8" onClick={(e) => e.stopPropagation()}>
+                        <SelectDot checked={selected.has(r.id)} onToggle={() => toggle(r.id)} />
+                      </TableCell>
+                    ) : null}
                     <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                       {r.signed_up_at ?? "—"}
                       <span className="block text-[10px] opacity-70">
@@ -403,7 +615,7 @@ export function SignupsView({
                       <p className="text-xs text-muted-foreground">EP {r.ep_id}</p>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">{r.program ?? r.fn}</Badge>
+                      <ProgramBadge program={r.program} fn={r.fn} />
                     </TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       {r.phone ? (
@@ -457,8 +669,8 @@ export function SignupsView({
                     </TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       {!r.assigned_to && !r.assigned_name && !r.out_of_process ? (
-                        <Button size="sm" variant="outline" disabled={pending} onClick={() => claim(r)}>
-                          <Hand className="size-3.5" /> Claim
+                        <Button size="sm" variant="outline" disabled={pending} onClick={() => contact(r)}>
+                          <Phone className="size-3.5" /> Contact
                         </Button>
                       ) : detailLoading === r.id ? (
                         <Loader2 className="size-4 animate-spin" />
@@ -489,6 +701,117 @@ export function SignupsView({
           </Button>
         </div>
       ) : null}
+
+      {/* bulk-selection action bar — shows once anything is selected */}
+      {canBulk && selected.size > 0 ? (
+        <div className="pointer-events-none fixed inset-x-0 bottom-[calc(1.25rem+env(safe-area-inset-bottom))] z-40 flex justify-center px-3">
+          <div className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-2 rounded-full border bg-card px-4 py-2 shadow-xl">
+            <span className="text-sm font-semibold">{selected.size} selected</span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                setSelected(
+                  selected.size >= rows.length ? new Set() : new Set(rows.map((r) => r.id))
+                )
+              }
+            >
+              {selected.size >= rows.length && rows.length > 0
+                ? "Clear"
+                : `All (${rows.length})`}
+            </Button>
+            {targets.length > 0 ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={pending}
+                onClick={() => setAssignOpen(true)}
+              >
+                <Users2 className="size-3.5" /> Assign to…
+              </Button>
+            ) : null}
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={pending}
+              onClick={() => setUnassignOpen(true)}
+            >
+              <UserMinus className="size-3.5" /> Unassign
+            </Button>
+            <Button
+              size="sm" variant="ghost" aria-label="Clear selection"
+              onClick={() => setSelected(new Set())}
+            >
+              <X className="size-3.5" />
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {/* bulk assign confirm */}
+      <Dialog
+        open={assignOpen}
+        onOpenChange={(o) => { if (!o) { setAssignOpen(false); setAssignTarget(""); } }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              Assign {selected.size} sign-up{selected.size === 1 ? "" : "s"}
+            </DialogTitle>
+            <DialogDescription>
+              They land on the member&apos;s &quot;My sign-ups&quot; list. Every row is
+              re-checked against your scope and synced back to the sheet.
+            </DialogDescription>
+          </DialogHeader>
+          <Select value={assignTarget || undefined} onValueChange={setAssignTarget}>
+            <SelectTrigger><SelectValue placeholder="Pick a member…" /></SelectTrigger>
+            <SelectContent>
+              {targets.map((t) => (
+                <SelectItem key={t.id} value={t.id}>{t.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => { setAssignOpen(false); setAssignTarget(""); }}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!assignTarget || pending}
+              onClick={() => runBulk(assignTarget)}
+            >
+              {pending ? <Loader2 className="size-4 animate-spin" /> : <Users2 className="size-4" />}
+              Assign
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* bulk unassign confirm */}
+      <Dialog open={unassignOpen} onOpenChange={setUnassignOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              Unassign {selected.size} sign-up{selected.size === 1 ? "" : "s"}?
+            </DialogTitle>
+            <DialogDescription>
+              They go back to the 🆕 Unassigned pool — anyone in the function can
+              contact them again. Synced back to the sheet row by row.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setUnassignOpen(false)}>
+              Cancel
+            </Button>
+            <Button disabled={pending} onClick={() => runBulk(null)}>
+              {pending ? <Loader2 className="size-4 animate-spin" /> : <UserMinus className="size-4" />}
+              Unassign
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {detail ? (
         <SignupDetailDialog
@@ -547,11 +870,19 @@ function SignupDetailDialog({
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) { setOopMode(false); setComment(""); setCountry(null); onClose(); } }}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent
+        className="max-h-[92vh] overflow-y-auto sm:max-w-2xl"
+        onEscapeKeyDown={(e) => {
+          // Escape with the country suggestions open closes THE LIST, not the
+          // whole dialog (Radix fires this before React's own handlers)
+          const t = e.target as HTMLElement | null;
+          if (t?.closest('[role="combobox"][aria-expanded="true"]')) e.preventDefault();
+        }}
+      >
         <DialogHeader>
           <DialogTitle className="flex flex-wrap items-center gap-2" dir="auto">
             {s.name}
-            <Badge variant="outline">{s.program ?? s.fn}</Badge>
+            <ProgramBadge program={s.program} fn={s.fn} />
             <Badge variant="outline">{s.batch === "new" ? "New" : "Old"} SUs</Badge>
             {s.out_of_process ? (
               <Badge variant="destructive">Out of Process</Badge>
@@ -618,9 +949,9 @@ function SignupDetailDialog({
           {!s.assigned_to && !s.assigned_name && !s.out_of_process ? (
             <Button
               size="sm" disabled={pending}
-              onClick={() => run(() => claimSignup(s.id), "It's yours — go get them! 🙌")}
+              onClick={() => run(() => claimSignup(s.id), "It's yours — log the contact ✍️")}
             >
-              <Hand className="size-4" /> Claim it
+              <Phone className="size-4" /> Contact
             </Button>
           ) : null}
           {targets.length > 0 && !s.out_of_process ? (
@@ -692,19 +1023,15 @@ function SignupDetailDialog({
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-1.5">
                 <Label>Country</Label>
-                <Input
-                  list="signup-countries"
-                  defaultValue={s.country ?? ""}
-                  placeholder="Start typing…"
-                  onChange={(e) => setCountry(e.target.value)}
-                  onBlur={() => {
-                    if (country !== null && country !== (s.country ?? ""))
-                      run(() => updateSignupVpFields(s.id, { country }), "Country saved 🌍");
+                <CountryInput
+                  value={country ?? s.country ?? ""}
+                  onChange={setCountry}
+                  onCommit={(v) => {
+                    const next = v.trim();
+                    if (next !== (s.country ?? ""))
+                      run(() => updateSignupVpFields(s.id, { country: next }), "Country saved 🌍");
                   }}
                 />
-                <datalist id="signup-countries">
-                  {COUNTRIES.map((c) => <option key={c} value={c} />)}
-                </datalist>
               </div>
               {s.fn === "OGT" ? (
                 <div className="grid gap-1.5">

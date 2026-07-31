@@ -100,6 +100,18 @@ export function BlueManChat() {
     if (open) inputRef.current?.focus();
   }, [open]);
 
+  // "Ask the Blue Man" callouts anywhere in the app open the chat via a
+  // window event (optionally pre-filling a question)
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const prefill = (e as CustomEvent<{ prefill?: string }>).detail?.prefill;
+      setOpen(true);
+      if (prefill) setInput(prefill);
+    };
+    window.addEventListener("sodio:ask-blue-man", onOpen);
+    return () => window.removeEventListener("sodio:ask-blue-man", onOpen);
+  }, []);
+
   const ask = async (text: string) => {
     const q = text.trim();
     if (!q || busy) return;

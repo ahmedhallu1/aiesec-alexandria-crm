@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { AskBlueMan } from "./ask-blue-man";
 import { Hint } from "./hint";
 import { CountUp } from "./count-up";
 import { cn } from "@/lib/utils";
@@ -142,6 +143,11 @@ export function DashboardView({
             {laneLabel} Dashboard{" "}
             {navPending ? <Loader2 className="ml-1 inline size-4 animate-spin text-primary" /> : null}
           </h1>
+          <AskBlueMan
+            className="mt-1.5"
+            hint="Ask The Blue Man about your numbers"
+            prefill="How is my funnel doing this month? "
+          />
           <p className="text-sm text-muted-foreground">{scopeLabel}</p>
         </div>
         {views.length > 1 ? (

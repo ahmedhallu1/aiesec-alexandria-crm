@@ -21,7 +21,9 @@ export function WalkingLoader({
         src="/brand/walk.png"
         alt=""
         aria-hidden
-        className="h-24 w-auto select-none"
+        // the brand figure is WHITE — invisible on light backgrounds, so
+        // light mode tints it AIESEC blue (.walkman-tint in globals.css)
+        className="walkman-tint h-24 w-auto select-none"
         draggable={false}
       />
       {label ? <p className="text-sm font-medium text-muted-foreground">{label}</p> : null}

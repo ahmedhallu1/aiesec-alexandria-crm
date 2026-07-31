@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-07-31 · Version: v25
+Last updated: 2026-07-31 · Version: v26
 
 ---
 
@@ -26,7 +26,7 @@ the blueprint for future OGX/other-function modules.
 
 | | |
 |---|---|
-| Live URL | https://aiesec-alexandria-crm.vercel.app |
+| Live URL | https://sodio.vercel.app (alias of aiesec-alexandria-crm.vercel.app) |
 | Repo | github.com/ahmedhallu1/aiesec-alexandria-crm (private) |
 | Vercel project | `aiesec-alexandria-crm` (scope `ahmedhallu1s-projects`) — deploy with `vercel deploy --prod` |
 | Stack | Next.js 16 (App Router, Turbopack) · React 19 · Tailwind v4 · shadcn/ui · Supabase (Postgres, project `iesrpuuoduxtihuaqfic`) |
@@ -585,6 +585,70 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-07-31 · v26** — THE CONSIDERATION RELEASE + a 16-item polish batch.
+  ① **Consideration module** (`/consideration`, sidebar "Consideration",
+  `hasConsiderationAccess` = Consideration in functions/subs + IGV/IGT
+  VPs/Directors + LCP/admin; migration **0026 applied**: `partner_lcs`
+  (unique lower(name)) · `ir_calls` · `cvs` + private storage bucket `cvs`).
+  **IR calls tab**: record-call form — partner LC combobox with inline
+  "+ Add new LC", datetime defaulting to now, notes, screenshot ≤3MB →
+  uploaded to the Drive subfolder **"CRM — IR Calls"** (created/cached at
+  app_settings `drive:ir-calls`; upload best-effort — a Drive failure keeps
+  the call recorded) — shared crew-wide log, paged 50. **CVs tab**: any-format
+  upload via the contracts-style signed-URL flow → `confirmCvUpload` runs
+  **Gemini extraction** (`src/lib/cv-extract.ts`: PDF/images inline, text
+  formats as text, others `unsupported` for manual fill) extracting
+  name/phone/email/industry/skills/summary/full text; editable fields
+  (uploader or VP+), 10-min signed file links, re-run button, delete
+  (sandbox-refused); server-side search. **The Blue Man reads the pool**:
+  `searchCvs` Gemini tool (declared only for consideration viewers) — "CVs
+  with C# in skills" works. ② **Sign-ups UX**: Claim → **Contact** (auto-opens
+  the detail dialog after claiming), **bulk select + Assign to… / Unassign**
+  (`bulkReassignSignups` loops `reassignSignup` so scope rules re-run per
+  row), **📵 Missing phone** filter (`?nophone=1`), program badges in the
+  official **GTa/GTe/GV brand colors**, the country field became the branded
+  `CountryInput` autocomplete (datalist gone), and **`MmPlanCard`** — an OGX
+  MM with a current-month `mm_plans` row sees Applicants/Accepted/Approvals
+  **plan vs live pipeline** (Approved = MOS, progress bar; `ogxPlanCard` in
+  data.ts). ③ **Home routing**: "/" lands on the viewer's FIRST live module
+  (accounts → sign-ups → consideration → members → membership → planning) —
+  nobody with a built module ever meets "coming soon" at home.
+  ④ **Walking man visible in light mode**: the brand APNG is WHITE — a
+  `.walkman-tint` CSS filter paints it AIESEC blue on light backgrounds
+  (dark keeps white). ⑤ **Expectation mail**: subject defaults to
+  **"Home Entity Expectation Setting Mail"**; the review step (subject,
+  edited body, recipients, variant) is cached in sessionStorage
+  (`sodio-expectation-preview`) so tab switches never lose the built email —
+  cleared on send/draft. ⑥ **Team field = list-or-create**: the member
+  dialog's team picker lost its free-text fallback — pick from the registry
+  or "➕ New team…" (creates a type-Team registry row inline, Member/TL roles).
+  ⑦ **Sidebar "Arrange tabs"** (bottom of the nav): ↑/↓ reorder per member,
+  persisted in localStorage (`sodio-nav-order`), Reset available.
+  ⑧ **Ask-the-Blue-Man callouts** (`AskBlueMan` + window event
+  `sodio:ask-blue-man` opening the chat pre-filled) on the accounts header
+  ("accounts matching any criteria") and dashboard. ⑨ **sodio.vercel.app**
+  aliased to production (permanent — tracks every deploy).
+  ⑩ **30-agent adversarial review → 22 confirmed findings fixed pre-ship**,
+  the big ones: Next 16's DEFAULT 1 MB server-action body cap would have
+  rejected every IR screenshot (next.config now sets
+  `serverActions.bodySizeLimit: "4.5mb"`; server guard 3.2 MB decoded);
+  CV uploads/extraction are sandbox-refused (storage + Gemini quota can't be
+  undone); `runCvExtraction` surfaces lost DB writes instead of reporting
+  "done"; bulk sign-up reassign batches the sheet write-back (ONE tab
+  read + ONE batchUpdate per sheet via `writeSignupsBackBatch` instead of
+  ~3 calls per row) and a no-op unassign no longer flips `sodio_touched`;
+  `ogxPlanCard` uses the Cairo month key (`monthOf().start`); CountryInput
+  floats the exact-typed country above substring matches and Escape closes
+  the suggestion list, not the whole dialog; CV "Open file" opens the window
+  BEFORE the await (Safari popup rule); wa.me links only for
+  `normalizePhone`-valid extracted numbers; screenshot content checked by
+  magic bytes; Drive folder cache self-heals; the edit dialog rehydrates on
+  reopen; sidebar chevrons un-nested from the nav links + nav-order key
+  self-heals; the expectation-preview cache is per-viewer
+  (`sodio-expectation-preview:<id>`); Tour counts Consideration as a live
+  module. Playbook v26 (+ Consideration section); the Blue Man teaches all
+  of it.
 
 - **2026-07-31 · v25** — **THE OGX RELEASE.**
   ① **Sign-ups module** (`/signups`, sidebar "Sign-ups", `hasOgxAccess` =

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { getAccount, getViewer, listAccounts } from "@/server/data";
+import { getAccount, getViewer, listAccounts, searchCvs } from "@/server/data";
 import type { PipelineRow } from "@/server/data";
+import { hasConsiderationAccess } from "@/lib/rbac";
 import { BLUE_MAN_SYSTEM_PROMPT, buildAssistantContext } from "@/lib/assistant";
 import { accountSlug } from "@/lib/types";
 
@@ -49,6 +50,18 @@ const FUNCTION_DECLS = [
     },
   },
 ];
+
+/** v26 — only offered to viewers with the Consideration module. */
+const SEARCH_CVS_DECL = {
+  name: "searchCvs",
+  description:
+    "Search the consideration CV pool by skills, industry, name or any text from the CVs (e.g. 'C#', 'ERP', 'marketing Tunisia'). Every word must match; returns up to 8 CVs with name, partner LC, industry, phone, email, skills and summary.",
+  parameters: {
+    type: "object",
+    properties: { query: { type: "string", description: "Skills / keywords to look for" } },
+    required: ["query"],
+  },
+};
 
 /** Compact, token-friendly summary of a pipeline row for tool results. */
 function rowSummary(a: PipelineRow) {
@@ -210,6 +223,14 @@ export async function POST(req: Request) {
       };
     }
     if (name === "webInfo") return { answer: await webInfo(String(args?.question ?? "")) };
+    if (name === "searchCvs") {
+      // searchCvs re-checks hasConsiderationAccess server-side too
+      if (!hasConsiderationAccess(viewer))
+        return { error: "The consideration CV pool is outside this user's access." };
+      const q = String(args?.query ?? "").trim();
+      if (q.length < 2) return { error: "query too short" };
+      return await searchCvs(viewer, q);
+    }
     return { error: `unknown tool ${name}` };
   };
 
@@ -219,6 +240,11 @@ export async function POST(req: Request) {
     parts: [{ text: m.content.slice(0, 4000) }],
   }));
 
+  // the CV-pool tool exists only for Consideration-module viewers (v26)
+  const functionDecls = hasConsiderationAccess(viewer)
+    ? [...FUNCTION_DECLS, SEARCH_CVS_DECL]
+    : FUNCTION_DECLS;
+
   let text = "";
   try {
     // tool loop: up to 3 rounds of function calls, then the final answer
@@ -226,7 +252,7 @@ export async function POST(req: Request) {
       const data = (await callGemini({
         system_instruction: { parts: [{ text: `${BLUE_MAN_SYSTEM_PROMPT}\n\n${context}` }] },
         contents,
-        tools: [{ function_declarations: FUNCTION_DECLS }],
+        tools: [{ function_declarations: functionDecls }],
         generationConfig: {
           temperature: 0.6, maxOutputTokens: 1024,
           // 2.5-flash "thinks" by default — with up to 5 sequential calls per
@@ -278,7 +304,7 @@ export async function POST(req: Request) {
   const STATIC_PATHS = new Set([
     "/accounts", "/accounts/import", "/dashboard", "/calendar", "/playbook",
     "/profile", "/planning", "/members", "/lc-feedback", "/feedback",
-    "/feedback/inbox", "/membership", "/admin",
+    "/feedback/inbox", "/membership", "/admin", "/consideration",
   ]);
   text = text.replace(
     /\[([^\]]+)\]\((\/[^)\s]*)\)/g,

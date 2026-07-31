@@ -263,6 +263,22 @@ export function canViewSignup(v: Viewer, s: SignupRow): boolean {
   return canWorkSignup(v, s);
 }
 
+/** The Consideration module (v26): IR calls with partner LCs + the CV pool.
+ *  LCP/admin, anyone with "Consideration" in functions OR sub_functions, and
+ *  IGV/IGT LCVPs & Directors (consideration feeds their pipelines). */
+export function hasConsiderationAccess(v: Viewer): boolean {
+  if (master(v)) return true;
+  if (
+    v.functions.includes("Consideration") ||
+    v.sub_functions.includes("Consideration")
+  )
+    return true;
+  return (
+    (v.role === "LCVP" || v.role === "Director") &&
+    v.functions.some((f) => f === "IGV" || f === "IGT")
+  );
+}
+
 /** Feedback inbox: ONLY the IM director (admin) and the IM coach. */
 export function canSeeFeedbackInbox(v: Viewer): boolean {
   const email = (v.email ?? "").toLowerCase();

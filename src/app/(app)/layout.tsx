@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
 import { getViewer, listViewAsTargets, needsMmPlan, needsTlPlan } from "@/server/data";
 import {
-  hasRaisingAccess, hasTmAccess, hasOgxAccess, canManageMembership, canSeePlanning,
+  hasRaisingAccess, hasTmAccess, hasOgxAccess, hasConsiderationAccess,
+  canManageMembership, canSeePlanning,
 } from "@/lib/rbac";
 import { signOut } from "@/lib/auth";
 import { AppShell } from "@/components/crm/app-shell";
@@ -31,6 +32,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const tm = hasTmAccess(viewer);
   // the OGX workspace (v25): OGT/OGV crews live in /signups
   const ogx = hasOgxAccess(viewer);
+  // the Consideration module (v26): IR calls + the CV pool
+  const consideration = hasConsiderationAccess(viewer);
   const membership = canManageMembership(viewer);
   const planning = canSeePlanning(viewer);
   // OGT & OGV VPs/Directors (+ LCP/admin): the Expectation-Setting mail composer
@@ -49,6 +52,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     ...(membership ? ["/membership"] : []),
     ...(planning ? ["/planning"] : []),
     ...(ogx ? ["/signups"] : []),
+    ...(consideration ? ["/consideration"] : []),
     ...(ogtMail ? ["/ogt-mail"] : []),
   ];
 
@@ -69,6 +73,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         planning,
         ogtMail,
         signups: ogx,
+        consideration,
       }}
       signOutAction={async () => {
         "use server";
@@ -95,7 +100,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         email={viewer.email ?? viewer.id}
         role={viewer.isAdmin && viewer.role !== "LCP" ? "LCP" : viewer.role}
         functions={viewer.functions}
-        hasModule={raising || tm || ogx}
+        hasModule={raising || tm || ogx || consideration}
       />
       {viewer.impersonated ? (
         <ViewAsBanner

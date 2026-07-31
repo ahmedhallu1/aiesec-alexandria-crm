@@ -710,7 +710,8 @@ export function ogtExpectationEmail(opts: {
 </div>`;
 
   return {
-    subject: `Expectation Setting | ${opts.epName} — EP ${opts.epId} / OPP ${opts.oppId}`,
+    // the LC's standard subject (editable in the review step)
+    subject: "Home Entity Expectation Setting Mail",
     html,
   };
 }
