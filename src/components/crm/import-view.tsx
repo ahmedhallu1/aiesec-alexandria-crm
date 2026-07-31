@@ -9,6 +9,7 @@ import { importAccountsBulk, type ImportRowResult } from "@/server/actions";
 import { cleanPhone, EMAIL_RE, IGV_PROJECTS, PHONE_RE } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { FileDrop } from "./file-drop";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -253,7 +254,13 @@ export function ImportView({
       {rows.length === 0 ? (
         <Card className="rise-in rise-in-1">
           <CardContent className="space-y-3 py-8 text-center text-sm text-muted-foreground">
-            <p className="text-4xl">📄</p>
+            <FileDrop
+              accept=".csv,.xlsx,.xls"
+              onFile={(f) => parseFile(f)}
+              disabled={parsing}
+              label="Drop your .csv / .xlsx here — or click to browse"
+              className="mx-auto max-w-xl"
+            />
             <p>
               Expected columns (any order, extra columns are ignored):
             </p>

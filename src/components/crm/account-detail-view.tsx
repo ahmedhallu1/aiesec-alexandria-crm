@@ -23,6 +23,7 @@ import {
   OOP_REASONS, podioDefaultDays, productBadge,
 } from "@/lib/types";
 import type { AccountContact } from "@/lib/types";
+import { FileDrop } from "./file-drop";
 import { Hint } from "./hint";
 import { MultiPick } from "./multi-pick";
 import { ContactsEditor, contactsValid } from "./contacts-editor";
@@ -1851,14 +1852,14 @@ function DealDialog({
             <Label className="flex items-center gap-1.5">
               <Paperclip className="size-3.5" /> Contract file(s) — optional
             </Label>
-            <Input
-              type="file"
+            <FileDrop
               multiple
-              onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+              onFiles={(f) => setFiles(f)}
+              label="Drop the contract file(s) here — or click to browse"
+              hint="Any format works (PDF, photo, scan, doc…) — you can also add them later from the deal in History."
+              fileName={files.length > 0 ? files.map((f) => f.name).join(" · ") : null}
+              className="py-4"
             />
-            <p className="text-xs text-muted-foreground">
-              Any format works (PDF, photo, scan, doc…). You can also add them later from the deal in History.
-            </p>
           </div>
           ) : null}
         </div>

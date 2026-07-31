@@ -60,3 +60,12 @@ select cron.schedule(
   '*/15 * * * *',
   $$ select net.http_get(url := '<APP_URL>/api/cron/signups-import?key=<CRON_SECRET>') $$
 );
+
+-- v27: OGV contact streaks — end-of-day "save your streak!" nag, daily at
+-- 16:00 UTC (19:00 Cairo in DST, 18:00 in winter): any OGV MM with a ≥3-day streak and no sign-up
+-- contact yet today gets the funny email + bell (once per day).
+select cron.schedule(
+  'streak-nags',
+  '0 16 * * *',
+  $$ select net.http_get(url := '<APP_URL>/api/cron/streak-nags?key=<CRON_SECRET>') $$
+);

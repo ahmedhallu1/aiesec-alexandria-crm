@@ -715,3 +715,85 @@ export function ogtExpectationEmail(opts: {
     html,
   };
 }
+
+// ------------------------------------------------- IR-call booking (v27)
+
+/** Sent to the booking link's OWNER the moment an IR abroad books a slot on
+ *  /book/<slug> — who booked, which LC, when (Cairo), jump to /consideration. */
+export function irCallBookedEmail(opts: {
+  memberFirstName: string;
+  partnerLc: string;
+  country: string | null;
+  bookerName: string | null;
+  /** already formatted, e.g. "Sat, Aug 2 · 6:00 PM (Cairo time)" */
+  whenLabel: string;
+  slotMinutes: number;
+  considerationUrl: string;
+}): { subject: string; html: string } {
+  return {
+    subject: `📅 IR call booked — ${opts.partnerLc} · ${opts.whenLabel}`,
+    html: emailLayout({
+      preheader: `${opts.partnerLc} booked an IR call with you — ${opts.whenLabel}.`,
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">An IR call just landed on your calendar, ${escapeHtml(opts.memberFirstName)} 🌍</h1>
+        <p>Someone abroad picked a slot on your Sodio booking link:</p>
+        ${detailsTable([
+          ["Partner LC", opts.partnerLc],
+          ["Country", opts.country],
+          ["Booked by", opts.bookerName],
+          ["When", opts.whenLabel],
+          ["Duration", `${opts.slotMinutes} minutes`],
+        ])}
+        <p>It's on your Google Calendar (if your grant is live) and pinned to the
+        top of the IR-calls tab. During the call, open it there and fill the
+        in-call notes — their <b>demand</b>, their <b>B2C campaign dates</b> and
+        a screenshot.</p>
+        ${button("Open the Consideration module", opts.considerationUrl)}
+        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">Can't make it? Cancel the call from the IR-calls tab so the slot opens up again.</p>`,
+    }),
+  };
+}
+
+/** v27 — the OGV contact-streak game's end-of-day nag (19:00 Cairo): the
+ *  member's ≥3-day streak dies at Cairo midnight unless ONE sign-up contact
+ *  action lands today. The comedy escalates with the stakes. */
+export function streakNagEmail(opts: { firstName: string; streak: number }) {
+  const n = opts.streak;
+  const tier =
+    n >= 14
+      ? {
+          subject: `🚨 ${n} days. Do NOT let it end tonight.`,
+          headline: `${n} days. We're in awe. And in danger. 🚨`,
+          body: `<b>${n} consecutive days</b> of contacting sign-ups. People write
+            theses about less. Statues get raised for less. And tonight at midnight,
+            all of it can quietly become a <b>zero</b> — over ONE quiet day.`,
+        }
+      : n >= 7
+        ? {
+            subject: `😱 ${n} days of fire — and it dies at midnight`,
+            headline: `${n === 7 ? "SEVEN" : n} days. Legends have fallen for less. 😱`,
+            body: `your <b>${n}-day streak</b> is pacing the room and checking the
+              clock. Empires have crumbled over one missed day — don't let a
+              perfectly good streak join the history books tonight.`,
+          }
+        : {
+            subject: `🔥 Your ${n}-day streak is about to sleep hungry`,
+            headline: `The flame is getting sleepy 🔥😴`,
+            body: `your <b>${n}-day streak</b> is about to sleep hungry — no sign-up
+              has heard from you today, and streaks are famously dramatic about
+              that sort of thing.`,
+          };
+  return {
+    subject: tier.subject,
+    html: emailLayout({
+      preheader: `No sign-up contact today — your ${n}-day streak ends at Cairo midnight`,
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">${tier.headline}</h1>
+        <p>Hey ${escapeHtml(opts.firstName)} — ${tier.body}</p>
+        <p>Saving it takes <b>one contact action</b> before midnight: claim a sign-up
+        from the pool, update a Contacted / Interested, or drop a comment. That's
+        it — the flame lives another day.</p>
+        ${button("Save my streak", `${env.appUrl}/signups`)}`,
+    }),
+  };
+}

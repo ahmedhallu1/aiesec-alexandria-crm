@@ -279,6 +279,21 @@ export function hasConsiderationAccess(v: Viewer): boolean {
   );
 }
 
+/** The CV pool inside Consideration is an IGT hunt (v27): companies want
+ *  talent, not volunteers. LCP/admin, the Consideration crew, and IGT
+ *  LCVPs/Directors see it — an IGV-only VP gets just the IR-calls tab. */
+export function canSeeCvPool(v: Viewer): boolean {
+  if (master(v)) return true;
+  if (
+    v.functions.includes("Consideration") ||
+    v.sub_functions.includes("Consideration")
+  )
+    return true;
+  return (
+    (v.role === "LCVP" || v.role === "Director") && v.functions.includes("IGT")
+  );
+}
+
 /** Feedback inbox: ONLY the IM director (admin) and the IM coach. */
 export function canSeeFeedbackInbox(v: Viewer): boolean {
   const email = (v.email ?? "").toLowerCase();

@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v26";
+export const PLAYBOOK_VERSION = "v27";
 
 interface Props {
   role: string;
@@ -72,9 +72,11 @@ const SECTIONS: Section[] = [
       <>Deactivated members never chase a login loop (v24): a clear <b>&quot;your account is inactive&quot;</b> screen says to contact your manager or the IM team.</>,
       <>Forgot the password? The login page emails you a fresh one instantly. Your old one keeps working until you change it.</>,
       <>Signing in lands you on <b>Accounts</b> — your daily workspace; the Dashboard, Calendar and the rest live in the sidebar.</>,
-      <>Meet <b>The Blue Man</b> 🚶 (bottom-right) — he answers questions using your real CRM data and AIESEC sources.</>,
+      <>Meet <b>The Blue Man</b> 🚶 (bottom-right) — he answers questions using your real CRM data and AIESEC sources. He <b>remembers your recent chats</b> now (v27): reopen the popup and pick a past conversation from the history, or start fresh with the new-chat button — a fresh chat greets you with <b>ready questions tuned to your role</b>.</>,
       <>The first-run <b>tour</b> walks you through your workspace. Rewatch it any time from your Profile.</>,
       <>Make the avatar YOURS (v24): the profile avatar dialog has a <b>🎨 Create your own</b> builder — style, seed text, a dice randomizer, flip, background gradients — and <b>The Blue Man himself</b> is pickable.</>,
+      <><b>Drag &amp; drop works everywhere</b> (v27): drop a file straight onto any attachment spot — deal contracts, bulk-import files, CV uploads, IR-call screenshots, even your avatar tile. Browsing for the file still works too.</>,
+      <>Small joys (v27): anyone with a live module <b>never meets &quot;coming soon&quot;</b> anymore, in-page jumps <b>glide smoothly</b> instead of teleporting, and spotting <b>wrong info on your Profile</b> now opens WhatsApp straight to the admin to get it fixed.</>,
     ],
   },
   {
@@ -125,6 +127,7 @@ const SECTIONS: Section[] = [
     color: "#037EF3",
     points: [
       <>Dashboards run per lane: <b>IGV / IGTa / IGTe</b> (All-IGT shows IGTa + IGTe combined).</>,
+      <><b>Consideration lane</b> (v27, IGV/IGT VPs &amp; Directors): your dashboard gained the consideration pulse next to the raising lanes — IR calls happening and the CV pool growing — so the supply side is visible right where you steer. (The CV pool itself is IGT-only; IGV sees the IR-call side.)</>,
       <><b>Goals come from planning</b> (v22): the lane goal card shows YOUR planned opens (from the LC&apos;s planning sheet) against what the lane actually raised, per sprint or month. Nothing is set in-app — update the planning sheet and re-import instead.</>,
       <>The <b>Planning</b> tab (v21) carries the term plan from the LC&apos;s planning sheet: opens per month, the consideration funnel per <b>sprint</b> (half-months — 1–15 and 16–end), conversions, quarter totals, and every MM&apos;s filed plan. The dashboard&apos;s product lanes show the current sprint&apos;s plan vs achieved (toggle to month), and the Planning board lists every TL&apos;s and MM&apos;s filed plan.</>,
       <><b>Unassigned accounts</b> (v22): the old sheets&apos; market research was imported with no owner — filter Responsible → <b>Unassigned</b> and hand them out with reassign / bulk-reassign. Members see an account once it&apos;s theirs. (v24: tick <b>&quot;Email them about it&quot;</b> when bulk-reassigning and each new responsible gets a bell + a branded email listing their new accounts.)</>,
@@ -177,8 +180,9 @@ const SECTIONS: Section[] = [
     points: [
       <><b>Sign-ups</b> (sidebar) is your workspace: every sign-up from your tracker sheet lives here, <b>two-way synced</b> — the sheet imports every 15 minutes and every edit you make in Sodio lands back on the sheet instantly. Same data, two doors.</>,
       <>The main view is the <b>🆕 Unassigned pool</b>: open a fresh sign-up, reach them (the WhatsApp/call buttons are right in the row), then hit <b>Contact</b> — it&apos;s yours, your name is on the sheet, and the details open right away so you can log everything (v26).</>,
-      <><b>Leaders bulk-assign</b> (v26): select several sign-ups → <b>Assign to…</b> a member or <b>Unassign</b> back to the pool. Filters gained <b>📵 Missing phone</b> to spot sign-ups with no number.</>,
+      <><b>Leaders bulk-assign</b> (v26): select several sign-ups → <b>Assign to…</b> a member or <b>Unassign</b> back to the pool. The phone filter goes <b>both ways</b> now (v27): show only sign-ups <b>with a phone</b>, or only the <b>📵 missing-phone</b> ones.</>,
       <><b>Your plan, live</b> (v26): if you filed an MM plan, a card above the list shows this month&apos;s <b>Applicants / Accepted / Approvals plan vs your current pipeline</b> — the Approvals bar is your MOS race.</>,
+      <><b>OGV keeps a daily 🔥 streak</b> (v27): at least one sign-up contact action a day — a <b>Contact</b>, a status change or a comment — saves it. The streak card on Sign-ups shows your <b>current + best streak</b> and the LC&apos;s <b>top-3</b>; sit on a 3+ day streak with nothing logged by <b>19:00</b> and a (funny) reminder email lands before the day kills it.</>,
       <>Views: <b>Unassigned · My sign-ups · My team</b> (Team Leaders) · <b>All</b> (VPs/Directors) · <b>Archived</b>. Members see their own + the pool; TLs their team; leaders everything in their function.</>,
       <>You edit <b>Contacted</b> (Yes/No), <b>Interested</b> (Yes/No) and <b>comments</b> — everything else (phone, email, program, referral, university…) is the sign-up&apos;s own data, read-only in the details.</>,
       <>Comments are an <b>organized log</b>: yours land in the sheet&apos;s Comment cell, the VP&apos;s in the VP Comment cell — each entry stamped with the author and time. Assigned/contacted dates stamp themselves.</>,
@@ -195,7 +199,9 @@ const SECTIONS: Section[] = [
     color: "#F48924",
     points: [
       <><b>Consideration</b> (sidebar) has two tabs. <b>IR calls</b>: record every International-Relations call — pick the partner LC (or add a new one on the spot), the date &amp; time default to now, drop the call screenshot and it lands named in the system&apos;s Drive folder. The whole crew sees the shared call log.</>,
-      <><b>CVs</b>: upload a CV in any format and tag its LC — the AI reads it and extracts the <b>name, phone (with country code), email, industry match and skills</b> automatically. Fix any field by hand; open the original file any time.</>,
+      <><b>Your personal booking link</b> (v27): every consideration member has one. On the <b>My booking link</b> card set your <b>weekly availability + slot length</b>, copy <b>sodio.vercel.app/book/your-name</b> and send it to IRs abroad — their booking lands in Sodio automatically as a <b>scheduled call</b>, on your <b>Google Calendar</b>, with a bell + email to you.</>,
+      <>When the call happens, open its <b>notes dialog</b>: their demand (domain chips), <b>&quot;When are your B2C campaigns?&quot;</b>, free notes and the screenshot — <b>saving completes the call</b>. Manual recording still exists for calls that already happened.</>,
+      <><b>CVs</b> (IGT-only since v27 — IGV VPs see just the IR calls): upload a CV in any format and tag its LC — the AI reads it and extracts the <b>name, phone (with country code), email, industry match and skills</b> automatically. Fix any field by hand; open the original file any time.</>,
       <><b>Ask The Blue Man about the pool</b> 🤖: &quot;give me the CVs with C# in their skills&quot; or &quot;who has ERP experience?&quot; — he searches every extracted CV and answers with the matches.</>,
       <>PDFs and images get the full AI read; exotic formats are stored anyway and you fill the fields manually.</>,
     ],
@@ -282,14 +288,15 @@ export function PlaybookView({ role, isAdmin, isB2B, isB2C, isTm, isOgx, isConsi
           Alexandria. 💙
         </p>
         <p className="mt-3 max-w-xl text-xs leading-relaxed text-white/75">
-          <b>New in v26:</b> THE CONSIDERATION MODULE — IR calls with Drive
-          screenshots &amp; an AI-read CV pool The Blue Man can search · bulk
-          assign on sign-ups · arrange your own sidebar · plan-vs-achieved
-          cards. v25: THE OGX MODULE — sign-ups for OGV &amp; OGT,
-          two-way synced with the tracker sheets · claim-from-the-pool flow ·
-          Approved = the OGX MOS · Expectation mail v2 (review, edit, send
-          from your Gmail) · click-to-sort on every table · planning privacy
-          (your plan vs your numbers).
+          <b>New in v27:</b> IR-call <b>booking links</b> — IRs abroad book you
+          at sodio.vercel.app/book/your-name and the call lands in Sodio + your
+          calendar by itself · OGV daily 🔥 streaks with an LC top-3 · The Blue
+          Man remembers your chats &amp; suggests questions · drag &amp; drop on
+          every upload spot · a Consideration lane on ICX VPs&apos; dashboards ·
+          the sign-ups phone filter goes both ways. v26: THE CONSIDERATION
+          MODULE — IR calls with Drive screenshots &amp; an AI-read CV pool The
+          Blue Man can search · bulk assign on sign-ups · arrange your own
+          sidebar · plan-vs-achieved cards.
         </p>
         <div className="mt-4 flex items-start gap-2.5 rounded-xl bg-white/10 p-3 text-sm leading-relaxed text-white/90">
           <span className="text-lg">🚶</span>

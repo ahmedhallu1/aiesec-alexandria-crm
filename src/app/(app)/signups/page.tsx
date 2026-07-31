@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import {
   getViewer, listSignupsPage, ogxPlanCard, signupReassignTargets, signupViewsFor,
+  streakStats,
 } from "@/server/data";
 import { hasOgxAccess, ogxFunctions } from "@/lib/rbac";
 import { SignupsView } from "@/components/crm/signups-view";
@@ -25,7 +26,7 @@ export default async function SignupsPage({
     : fns[0];
 
   const page = Math.max(0, (parseInt(sp.page ?? "1", 10) || 1) - 1);
-  const [result, planCard] = await Promise.all([
+  const [result, planCard, streak] = await Promise.all([
     listSignupsPage(
       viewer,
       {
@@ -37,7 +38,7 @@ export default async function SignupsPage({
         interested: sp.interested,
         contacted: sp.contacted,
         country: sp.country,
-        noPhone: sp.nophone === "1",
+        phone: sp.phone === "missing" || sp.phone === "has" ? sp.phone : undefined,
         q: sp.q,
         sort: sp.sort,
         dir: sp.dir === "asc" ? "asc" : sp.dir === "desc" ? "desc" : undefined,
@@ -45,6 +46,7 @@ export default async function SignupsPage({
       page
     ),
     ogxPlanCard(viewer),
+    streakStats(viewer),
   ]);
 
   const isLeader = viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
@@ -64,6 +66,7 @@ export default async function SignupsPage({
       activeFn={activeFn}
       targets={targets}
       planCard={planCard}
+      streak={streak}
       viewer={{
         id: viewer.id,
         name: viewer.nickname || viewer.name,
@@ -81,7 +84,7 @@ export default async function SignupsPage({
         status: sp.status ?? "",
         interested: sp.interested ?? "",
         contacted: sp.contacted ?? "",
-        nophone: sp.nophone ?? "",
+        phone: sp.phone ?? "",
         sort: sp.sort ?? "",
         dir: sp.dir ?? "",
       }}

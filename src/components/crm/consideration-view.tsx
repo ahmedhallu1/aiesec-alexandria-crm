@@ -1,21 +1,26 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState, useTransition, useEffect } from "react";
+import { useCallback, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
-  ExternalLink, FileText, Globe2, ImagePlus, Loader2, Mail, Pencil, Phone,
-  Plus, Search, Sparkles, Trash2, Upload,
+  CalendarClock, Check, ChevronDown, ClipboardCheck, Copy, ExternalLink,
+  FileText, Globe2, ImagePlus, Link2, Loader2, Mail, Pencil, Phone, Plus,
+  Search, Sparkles, Trash2, Upload, X,
 } from "lucide-react";
 import {
-  addPartnerLc, confirmCvUpload, deleteCv, getCvFileUrl, recordIrCall,
-  requestCvUpload, rerunCvExtraction, updateCvFields,
+  addPartnerLc, cancelIrCall, completeIrCall, confirmCvUpload, deleteCv,
+  getCvFileUrl, recordIrCall, requestCvUpload, rerunCvExtraction,
+  saveIrBookingSettings, updateCvFields,
 } from "@/server/actions";
-import type { CvRow, IrCallRow, PartnerLc } from "@/server/data";
-import {
-  normalizePhone, fmtDateTime } from "@/lib/types";
+import type {
+  CvRow, IrAvailabilityRow, IrCallRow, MyIrBooking, PartnerLc,
+} from "@/server/data";
+import { normalizePhone, fmtDateTime } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { FileDrop } from "./file-drop";
 import { Hint } from "./hint";
+import { WalkingLoader } from "./walking-loader";
 import { WhatsAppIcon } from "./icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,6 +33,7 @@ import { Label } from "@/components/ui/label";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -38,10 +44,23 @@ const IR_SHOT_MAX = 3 * 1024 * 1024; // 3 MB — base64 rides the action body
 const CV_MAX = 25 * 1024 * 1024;
 
 /** UI copy of the extractor's pick-list (server validates against the real
- *  one in src/lib/cv-extract.ts — keep in sync). */
+ *  one in src/lib/cv-extract.ts — keep in sync). Doubles as the in-call
+ *  "What is their demand?" domain chips (v27). */
 const INDUSTRY_OPTIONS = [
   "Marketing", "IT/Software", "Engineering", "Education", "Healthcare",
   "Law", "Finance", "Business", "Design", "Other",
+];
+
+/** Saturday-first, like every Sodio calendar. Values = 0-Sunday…6-Saturday
+ *  (the ir_booking_settings jsonb shape). */
+const WEEK_DAYS: { value: number; label: string }[] = [
+  { value: 6, label: "Saturday" },
+  { value: 0, label: "Sunday" },
+  { value: 1, label: "Monday" },
+  { value: 2, label: "Tuesday" },
+  { value: 3, label: "Wednesday" },
+  { value: 4, label: "Thursday" },
+  { value: 5, label: "Friday" },
 ];
 
 const waDigits = (phone: string | null) => {
@@ -70,6 +89,16 @@ interface PageData<T> {
   rows: T[];
   total: number;
   page: number;
+}
+
+interface CallsData extends PageData<IrCallRow> {
+  scheduled: IrCallRow[];
+}
+
+interface ViewerInfo {
+  id: string;
+  isVp: boolean;
+  showCvs: boolean;
 }
 
 // ------------------------------------------------------------ partner LC picker
@@ -157,14 +186,16 @@ function PartnerLcPicker({
 // ------------------------------------------------------------------ main view
 
 export function ConsiderationView({
-  tab, lcs, calls, cvs, q, viewer,
+  tab, lcs, calls, cvs, q, viewer, booking, origin,
 }: {
   tab: "calls" | "cvs";
   lcs: PartnerLc[];
-  calls: PageData<IrCallRow>;
+  calls: CallsData;
   cvs: PageData<CvRow>;
   q: string;
-  viewer: { id: string; isVp: boolean };
+  viewer: ViewerInfo;
+  booking: MyIrBooking | null;
+  origin: string;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -192,24 +223,25 @@ export function ConsiderationView({
     [router, searchParams]
   );
 
+  const tabs = [
+    { key: "calls", label: "IR calls", icon: Globe2 },
+    ...(viewer.showCvs ? [{ key: "cvs", label: "CVs", icon: FileText }] : []),
+  ] as const;
+
   return (
     <div className={cn("rise-in mx-auto max-w-6xl space-y-4", navPending && "nav-pending")}>
       <div>
         <h1 className="text-2xl font-bold">Consideration</h1>
         <p className="text-sm text-muted-foreground">
-          International Relations calls with partner LCs abroad + the shared CV
-          pool — market our opens, collect the CVs, let the AI read them.
+          International Relations calls with partner LCs abroad
+          {viewer.showCvs ? " + the shared CV pool" : ""} — market our opens,
+          book the calls{viewer.showCvs ? ", collect the CVs, let the AI read them" : ""}.
         </p>
       </div>
 
       {/* segmented tab control (like the accounts mobile view switcher) */}
       <div className="flex w-fit items-center gap-1 rounded-lg bg-muted p-1">
-        {(
-          [
-            { key: "calls", label: "IR calls", icon: Globe2 },
-            { key: "cvs", label: "CVs", icon: FileText },
-          ] as const
-        ).map((t) => (
+        {tabs.map((t) => (
           <button
             key={t.key}
             type="button"
@@ -227,53 +259,595 @@ export function ConsiderationView({
         ))}
       </div>
 
-      {tab === "calls" ? (
-        <IrCallsTab
-          data={calls}
-          lcs={allLcs}
-          onLcCreated={lcAdded}
-          goPage={(p) => setParams({ page: String(p + 1) })}
-        />
-      ) : (
-        <CvsTab
-          data={cvs}
-          lcs={allLcs}
-          onLcCreated={lcAdded}
-          q={q}
-          viewer={viewer}
-          setParams={setParams}
-        />
-      )}
+      {/* the tab content — the walking man walks while a tab/page/filter
+          switch is in flight (v27) */}
+      <div className="relative">
+        {navPending ? (
+          <div className="absolute inset-0 z-10 flex items-start justify-center rounded-xl bg-background/60 pt-10 backdrop-blur-[1px]">
+            <WalkingLoader label="Loading…" />
+          </div>
+        ) : null}
+        {tab === "calls" || !viewer.showCvs ? (
+          <IrCallsTab
+            data={calls}
+            lcs={allLcs}
+            onLcCreated={lcAdded}
+            goPage={(p) => setParams({ page: String(p + 1) })}
+            viewer={viewer}
+            booking={booking}
+            origin={origin}
+          />
+        ) : (
+          <CvsTab
+            data={cvs}
+            lcs={allLcs}
+            onLcCreated={lcAdded}
+            q={q}
+            viewer={viewer}
+            setParams={setParams}
+          />
+        )}
+      </div>
     </div>
+  );
+}
+
+// ------------------------------------------------------------ demand chips
+
+/** "What is their demand?" — multi-pick domain chips + an Other free text. */
+function DemandPicker({
+  picks, setPicks, other, setOther,
+}: {
+  picks: string[];
+  setPicks: (v: string[]) => void;
+  other: string;
+  setOther: (v: string) => void;
+}) {
+  const toggle = (p: string) =>
+    setPicks(picks.includes(p) ? picks.filter((x) => x !== p) : [...picks, p]);
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-1.5">
+        {INDUSTRY_OPTIONS.map((p) => {
+          const on = picks.includes(p);
+          return (
+            <button
+              key={p}
+              type="button"
+              onClick={() => toggle(p)}
+              className={cn(
+                "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
+                on
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "bg-background text-muted-foreground hover:border-primary/50 hover:text-foreground"
+              )}
+            >
+              {on ? <Check className="mr-1 inline size-3" /> : null}
+              {p === "Other" ? "Other…" : p}
+            </button>
+          );
+        })}
+      </div>
+      {picks.includes("Other") ? (
+        <Input
+          dir="auto"
+          value={other}
+          onChange={(e) => setOther(e.target.value)}
+          placeholder="What else are they looking for?"
+          className="h-9"
+          maxLength={200}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------ booking link card
+
+/** "My booking link" — the member's public /book/<slug> page: slug, slot
+ *  length, weekly Cairo-time availability rows and the ON/OFF switch. */
+function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: string }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const s = booking.settings;
+  const [slug, setSlug] = useState(s?.slug ?? booking.suggestedSlug);
+  const [slot, setSlot] = useState(String(s?.slot_minutes ?? 30));
+  const [rows, setRows] = useState<IrAvailabilityRow[]>(
+    s?.availability?.length ? s.availability : [{ day: 6, from: "18:00", to: "21:00" }]
+  );
+  const [active, setActive] = useState(s?.active ?? true);
+  const [open, setOpen] = useState(!s); // first-timers see the setup expanded
+  const [copied, setCopied] = useState(false);
+
+  const savedLink = s ? `${origin}/book/${s.slug}` : null;
+
+  const setRow = (i: number, patch: Partial<IrAvailabilityRow>) =>
+    setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+
+  const copy = async () => {
+    if (!savedLink) return;
+    try {
+      await navigator.clipboard.writeText(savedLink);
+      setCopied(true);
+      toast.success("Booking link copied — send it to the IRs abroad 🌍");
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("Could not copy — long-press / select the link instead.");
+    }
+  };
+
+  const save = () =>
+    start(async () => {
+      const res = await saveIrBookingSettings({
+        slug,
+        slotMinutes: Number(slot),
+        availability: rows,
+        active,
+      });
+      if (res.ok) {
+        toast.success(active ? "Booking link saved — it's live ✨" : "Booking link saved (switched off).");
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
+  return (
+    <Card className="rise-in">
+      <CardHeader className="pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Link2 className="size-4 text-primary" /> My booking link
+            {s ? (
+              <span
+                className={cn(
+                  "rounded-full px-2 py-0.5 text-[11px] font-medium",
+                  s.active
+                    ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                    : "bg-muted text-muted-foreground"
+                )}
+              >
+                {s.active ? "Live" : "Off"}
+              </span>
+            ) : null}
+          </CardTitle>
+          <Button variant="ghost" size="sm" onClick={() => setOpen((o) => !o)}>
+            {open ? "Hide" : s ? "Edit" : "Set up"}
+            <ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} />
+          </Button>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          IRs abroad pick a free slot on your public page — the call lands here
+          as <b>scheduled</b> and on your Google Calendar. Times are Cairo time.
+        </p>
+        {savedLink ? (
+          <div className="flex flex-wrap items-center gap-1.5 pt-1">
+            <code className="max-w-full truncate rounded-md bg-muted px-2.5 py-1.5 text-xs font-semibold">
+              {savedLink}
+            </code>
+            <Hint label="Copy the link">
+              <Button variant="outline" size="sm" onClick={copy}>
+                {copied ? <Check className="size-4 text-emerald-600" /> : <Copy className="size-4" />}
+                Copy
+              </Button>
+            </Hint>
+            <Hint label="Open your public booking page">
+              <a
+                href={savedLink}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-8 items-center gap-1 rounded-md border px-2.5 text-sm font-medium transition-colors hover:bg-muted"
+              >
+                <ExternalLink className="size-3.5" /> Open
+              </a>
+            </Hint>
+          </div>
+        ) : null}
+      </CardHeader>
+      {open ? (
+        <CardContent className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="bk-slug">Link name</Label>
+              <div className="flex items-center gap-1">
+                <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
+                  {origin.replace(/^https?:\/\//, "")}/book/
+                </span>
+                <Input
+                  id="bk-slug"
+                  value={slug}
+                  onChange={(e) => setSlug(e.target.value.toLowerCase())}
+                  placeholder="your-name"
+                  className="h-9"
+                  maxLength={40}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                3–40 characters: lowercase letters, numbers and dashes.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Slot length</Label>
+              <Select value={slot} onValueChange={setSlot}>
+                <SelectTrigger className="h-9 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[15, 30, 45, 60].map((m) => (
+                    <SelectItem key={m} value={String(m)}>
+                      {m} minutes
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Weekly availability (Cairo time)</Label>
+            <div className="space-y-2">
+              {rows.map((r, i) => (
+                <div key={i} className="flex flex-wrap items-center gap-2">
+                  <Select
+                    value={String(r.day)}
+                    onValueChange={(v) => setRow(i, { day: Number(v) })}
+                  >
+                    <SelectTrigger className="h-9 w-32">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {WEEK_DAYS.map((d) => (
+                        <SelectItem key={d.value} value={String(d.value)}>
+                          {d.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    type="time"
+                    value={r.from}
+                    onChange={(e) => setRow(i, { from: e.target.value })}
+                    className="h-9 w-28"
+                    aria-label="From"
+                  />
+                  <span className="text-sm text-muted-foreground">→</span>
+                  <Input
+                    type="time"
+                    value={r.to}
+                    onChange={(e) => setRow(i, { to: e.target.value })}
+                    className="h-9 w-28"
+                    aria-label="To"
+                  />
+                  <Hint label="Remove this window">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-9 text-muted-foreground hover:text-destructive"
+                      onClick={() => setRows(rows.filter((_, j) => j !== i))}
+                    >
+                      <X className="size-4" />
+                    </Button>
+                  </Hint>
+                </div>
+              ))}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setRows([...rows, { day: 6, from: "18:00", to: "21:00" }])}
+                disabled={rows.length >= 21}
+              >
+                <Plus className="size-4" /> Add hours
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <Switch checked={active} onCheckedChange={setActive} />
+              {active ? "Link is ON — bookable" : "Link is OFF — nobody can book"}
+            </label>
+            <Hint label="Saves the link — the public page updates instantly">
+              <Button onClick={save} disabled={pending || !slug.trim()}>
+                {pending ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+                Save link
+              </Button>
+            </Hint>
+          </div>
+        </CardContent>
+      ) : null}
+    </Card>
   );
 }
 
 // ------------------------------------------------------------------ IR calls
 
+const CALL_STATUS_CHIP: Record<
+  IrCallRow["status"],
+  { label: string; className: string }
+> = {
+  scheduled: { label: "Scheduled", className: "bg-blue-500/15 text-blue-600 dark:text-blue-400" },
+  completed: { label: "Completed", className: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" },
+  cancelled: { label: "Cancelled", className: "bg-muted text-muted-foreground line-through" },
+};
+
 function IrCallsTab({
-  data, lcs, onLcCreated, goPage,
+  data, lcs, onLcCreated, goPage, viewer, booking, origin,
 }: {
-  data: PageData<IrCallRow>;
+  data: CallsData;
   lcs: PartnerLc[];
   onLcCreated: (lc: PartnerLc) => void;
   goPage: (p: number) => void;
+  viewer: ViewerInfo;
+  booking: MyIrBooking | null;
+  origin: string;
+}) {
+  const [completing, setCompleting] = useState<IrCallRow | null>(null);
+  const [cancelling, setCancelling] = useState<IrCallRow | null>(null);
+  const [manualOpen, setManualOpen] = useState(false);
+
+  const canTouch = (c: IrCallRow) => viewer.isVp || c.member_id === viewer.id;
+  const pages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
+
+  return (
+    <div className="space-y-4">
+      {booking ? <BookingLinkCard booking={booking} origin={origin} /> : null}
+
+      {data.scheduled.length > 0 ? (
+        <Card className="rise-in border-primary/30">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CalendarClock className="size-4 text-primary" /> Scheduled calls
+              <Badge variant="secondary">{data.scheduled.length}</Badge>
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Booked through the links — soonest first. During the call, open it
+              and fill the in-call notes.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {data.scheduled.map((c) => (
+              <div
+                key={c.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-semibold" dir="auto">{c.partner_lc_name}</p>
+                    <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", CALL_STATUS_CHIP.scheduled.className)}>
+                      {CALL_STATUS_CHIP.scheduled.label}
+                    </span>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {fmtDateTime(c.called_at)}
+                    {c.booker_name ? ` · booked by ${c.booker_name}` : ""}
+                    {" · with "}
+                    <span dir="auto">{c.member_name}</span>
+                  </p>
+                </div>
+                {canTouch(c) ? (
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <Hint label="Fill the in-call notes — demand, B2C campaigns, screenshot">
+                      <Button size="sm" onClick={() => setCompleting(c)}>
+                        <ClipboardCheck className="size-4" /> Fill call notes
+                      </Button>
+                    </Hint>
+                    <Hint label="Cancel this call (frees the slot)">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-9 text-muted-foreground hover:text-destructive"
+                        onClick={() => setCancelling(c)}
+                      >
+                        <X className="size-4" />
+                      </Button>
+                    </Hint>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* manual record — for calls that were never booked */}
+      <div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setManualOpen((o) => !o)}
+          className="w-full justify-between sm:w-auto"
+        >
+          <span className="flex items-center gap-1.5">
+            <Globe2 className="size-4" /> Record a past call manually
+          </span>
+          <ChevronDown className={cn("size-4 transition-transform", manualOpen && "rotate-180")} />
+        </Button>
+        {manualOpen ? (
+          <div className="mt-2">
+            <ManualCallForm lcs={lcs} onLcCreated={onLcCreated} />
+          </div>
+        ) : null}
+      </div>
+
+      <Card className="rise-in">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">
+            Call log{data.total ? ` (${data.total})` : ""}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {data.rows.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              No completed IR calls yet — book one via your link or record one
+              manually above. 🌍
+            </p>
+          ) : (
+            <>
+              {/* desktop table */}
+              <div className="hidden overflow-x-auto md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>When</TableHead>
+                      <TableHead>Partner LC</TableHead>
+                      <TableHead>By</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Notes</TableHead>
+                      <TableHead className="text-right">Screenshot</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {data.rows.map((c) => {
+                      const chip = CALL_STATUS_CHIP[c.status] ?? CALL_STATUS_CHIP.completed;
+                      return (
+                        <TableRow key={c.id}>
+                          <TableCell className="whitespace-nowrap text-sm">
+                            {fmtDateTime(c.called_at)}
+                          </TableCell>
+                          <TableCell className="font-medium" dir="auto">
+                            {c.partner_lc_name}
+                          </TableCell>
+                          <TableCell dir="auto">{c.member_name}</TableCell>
+                          <TableCell>
+                            <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", chip.className)}>
+                              {chip.label}
+                            </span>
+                          </TableCell>
+                          <TableCell className="max-w-64">
+                            {c.demand ? (
+                              <p className="line-clamp-1 text-xs font-medium" dir="auto">
+                                Demand: {c.demand}
+                              </p>
+                            ) : null}
+                            {c.b2c_campaigns ? (
+                              <p className="line-clamp-1 text-xs text-muted-foreground" dir="auto">
+                                B2C: {c.b2c_campaigns}
+                              </p>
+                            ) : null}
+                            <span className="line-clamp-2 text-sm text-muted-foreground" dir="auto">
+                              {c.notes || (c.demand || c.b2c_campaigns ? "" : "—")}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {c.screenshot_link ? (
+                              <a
+                                href={c.screenshot_link}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+                              >
+                                Open in Drive <ExternalLink className="size-3.5" />
+                              </a>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+              {/* mobile cards */}
+              <div className="space-y-2 md:hidden">
+                {data.rows.map((c) => {
+                  const chip = CALL_STATUS_CHIP[c.status] ?? CALL_STATUS_CHIP.completed;
+                  return (
+                    <div key={c.id} className="rounded-lg border p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-semibold" dir="auto">{c.partner_lc_name}</p>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {fmtDateTime(c.called_at)}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                        <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", chip.className)}>
+                          {chip.label}
+                        </span>
+                        <p className="text-xs text-muted-foreground" dir="auto">by {c.member_name}</p>
+                      </div>
+                      {c.demand ? (
+                        <p className="mt-1 text-xs font-medium" dir="auto">Demand: {c.demand}</p>
+                      ) : null}
+                      {c.b2c_campaigns ? (
+                        <p className="text-xs text-muted-foreground" dir="auto">
+                          B2C campaigns: {c.b2c_campaigns}
+                        </p>
+                      ) : null}
+                      {c.notes ? (
+                        <p className="mt-1 line-clamp-3 text-sm" dir="auto">{c.notes}</p>
+                      ) : null}
+                      {c.screenshot_link ? (
+                        <a
+                          href={c.screenshot_link}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-1.5 inline-flex items-center gap-1 text-sm font-medium text-primary"
+                        >
+                          <ImagePlus className="size-3.5" /> Open screenshot in Drive
+                        </a>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+              {pages > 1 ? (
+                <div className="flex items-center justify-between border-t pt-3 text-sm">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={data.page === 0}
+                    onClick={() => goPage(data.page - 1)}
+                  >
+                    Prev
+                  </Button>
+                  <span className="text-muted-foreground">
+                    Page {data.page + 1} of {pages} · {data.total} calls
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={data.page + 1 >= pages}
+                    onClick={() => goPage(data.page + 1)}
+                  >
+                    Next
+                  </Button>
+                </div>
+              ) : null}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <CompleteCallDialog call={completing} onClose={() => setCompleting(null)} />
+      <CancelCallDialog call={cancelling} onClose={() => setCancelling(null)} />
+    </div>
+  );
+}
+
+// ------------------------------------------------------------ manual record form
+
+function ManualCallForm({
+  lcs, onLcCreated,
+}: {
+  lcs: PartnerLc[];
+  onLcCreated: (lc: PartnerLc) => void;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [lcId, setLcId] = useState("");
   const [calledAt, setCalledAt] = useState(nowLocal());
   const [notes, setNotes] = useState("");
+  const [demand, setDemand] = useState<string[]>([]);
+  const [demandOther, setDemandOther] = useState("");
+  const [b2c, setB2c] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [shotName, setShotName] = useState("");
-  const fileRef = useRef<HTMLInputElement>(null);
 
   const lcName = lcs.find((l) => l.id === lcId)?.name ?? "";
   const defaultShotName = `IR call — ${lcName || "LC"} — ${(calledAt || "").slice(0, 10)}`;
 
-  const pickFile = (f: File | null) => {
-    if (f && f.size > IR_SHOT_MAX) {
+  const pickFile = (f: File) => {
+    if (f.size > IR_SHOT_MAX) {
       toast.error("The screenshot is over 3 MB — compress or crop it, then re-pick.");
-      if (fileRef.current) fileRef.current.value = "";
       setFile(null);
       return;
     }
@@ -307,214 +881,280 @@ function IrCallsTab({
         partnerLcId: lcId,
         calledAt: new Date(calledAt).toISOString(),
         notes: notes || null,
+        demand,
+        demandOther: demandOther || null,
+        b2cCampaigns: b2c || null,
         screenshot,
       });
       if (res.ok) {
         toast.success(`IR call with ${lcName} recorded 🌍`);
         if (res.data?.screenshotWarning) toast(res.data.screenshotWarning);
         setNotes("");
+        setDemand([]);
+        setDemandOther("");
+        setB2c("");
         setFile(null);
         setShotName("");
         setCalledAt(nowLocal());
-        if (fileRef.current) fileRef.current.value = "";
         router.refresh();
       } else toast.error(res.error);
     });
 
-  const pages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
-
   return (
-    <div className="space-y-4">
-      <Card className="rise-in">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Globe2 className="size-4 text-primary" /> Record an IR call
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Video calls with partner LCs abroad marketing our city&apos;s opens —
-            log every one, screenshot included.
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid gap-3 md:grid-cols-2">
+    <Card className="rise-in">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Globe2 className="size-4 text-primary" /> Record a past call
+        </CardTitle>
+        <p className="text-sm text-muted-foreground">
+          For calls that happened outside the booking link — log every one,
+          screenshot included.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label>Partner LC</Label>
+            <PartnerLcPicker lcs={lcs} value={lcId} onChange={setLcId} onCreated={onLcCreated} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="ir-when">When</Label>
+            <Input
+              id="ir-when"
+              type="datetime-local"
+              value={calledAt}
+              max={nowLocal()}
+              onChange={(e) => setCalledAt(e.target.value)}
+              className="h-9"
+            />
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <Label>What is their demand? (domains — optional)</Label>
+          <DemandPicker picks={demand} setPicks={setDemand} other={demandOther} setOther={setDemandOther} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="ir-b2c">When are their B2C campaigns? (optional)</Label>
+          <Input
+            id="ir-b2c"
+            dir="auto"
+            value={b2c}
+            onChange={(e) => setB2c(e.target.value)}
+            placeholder="e.g. September + February peaks"
+            className="h-9"
+            maxLength={2000}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="ir-notes">Notes (optional)</Label>
+          <Textarea
+            id="ir-notes"
+            dir="auto"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="What was discussed, agreements, follow-ups…"
+            rows={2}
+          />
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label>Screenshot (optional, encouraged)</Label>
+            <FileDrop
+              onFile={pickFile}
+              accept="image/*"
+              label="Drop the screenshot here — or click to browse"
+              hint="image · up to 3 MB"
+              fileName={file?.name ?? null}
+            />
+          </div>
+          {file ? (
             <div className="space-y-1.5">
-              <Label>Partner LC</Label>
-              <PartnerLcPicker lcs={lcs} value={lcId} onChange={setLcId} onCreated={onLcCreated} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="ir-when">When</Label>
+              <Label htmlFor="ir-shot-name">Screenshot name on Drive</Label>
               <Input
-                id="ir-when"
-                type="datetime-local"
-                value={calledAt}
-                max={nowLocal()}
-                onChange={(e) => setCalledAt(e.target.value)}
+                id="ir-shot-name"
+                dir="auto"
+                value={shotName}
+                onChange={(e) => setShotName(e.target.value)}
+                placeholder={defaultShotName}
                 className="h-9"
               />
             </div>
+          ) : null}
+        </div>
+        <div className="flex justify-end">
+          <Hint label="Saves the call — the screenshot lands in the CRM — IR Calls folder on Drive">
+            <Button onClick={submit} disabled={pending}>
+              {pending ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+              Record call
+            </Button>
+          </Hint>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ------------------------------------------------------------ in-call dialogs
+
+/** The in-call notes: fills demand + B2C campaigns + notes + screenshot and
+ *  flips the scheduled call to completed. */
+function CompleteCallDialog({ call, onClose }: { call: IrCallRow | null; onClose: () => void }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [demand, setDemand] = useState<string[]>([]);
+  const [demandOther, setDemandOther] = useState("");
+  const [b2c, setB2c] = useState("");
+  const [notes, setNotes] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+
+  // closed → forget which call we loaded, so reopening always rehydrates
+  if (!call && loadedFor !== null) setLoadedFor(null);
+  if (call && loadedFor !== call.id) {
+    setDemand([]);
+    setDemandOther("");
+    setB2c(call.b2c_campaigns ?? "");
+    setNotes(call.notes ?? "");
+    setFile(null);
+    setLoadedFor(call.id);
+  }
+
+  const pickFile = (f: File) => {
+    if (f.size > IR_SHOT_MAX) {
+      toast.error("The screenshot is over 3 MB — compress or crop it, then re-pick.");
+      setFile(null);
+      return;
+    }
+    setFile(f);
+  };
+
+  const save = () => {
+    if (!call) return;
+    start(async () => {
+      let screenshot: { name: string; mimeType: string; dataBase64: string } | undefined;
+      if (file) {
+        try {
+          screenshot = {
+            name: `IR call — ${call.partner_lc_name} — ${call.called_at.slice(0, 10)}`,
+            mimeType: file.type || "image/png",
+            dataBase64: await fileToBase64(file),
+          };
+        } catch {
+          toast.error("Could not read the screenshot file — try re-picking it.");
+          return;
+        }
+      }
+      const res = await completeIrCall(call.id, {
+        demand,
+        demandOther: demandOther || null,
+        b2cCampaigns: b2c || null,
+        notes: notes || null,
+        screenshot,
+      });
+      if (res.ok) {
+        toast.success(`Call with ${call.partner_lc_name} completed ✅`);
+        if (res.data?.screenshotWarning) toast(res.data.screenshotWarning);
+        onClose();
+        router.refresh();
+      } else toast.error(res.error);
+    });
+  };
+
+  return (
+    <Dialog open={!!call} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-h-[90dvh] max-w-lg overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>In-call notes — {call?.partner_lc_name}</DialogTitle>
+          <DialogDescription>
+            {call ? fmtDateTime(call.called_at) : ""} · saving marks the call
+            completed.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label>What is their demand?</Label>
+            <DemandPicker picks={demand} setPicks={setDemand} other={demandOther} setOther={setDemandOther} />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="ir-notes">Notes (optional)</Label>
+            <Label htmlFor="cc-b2c">When are your B2C campaigns?</Label>
+            <Input
+              id="cc-b2c"
+              dir="auto"
+              value={b2c}
+              onChange={(e) => setB2c(e.target.value)}
+              placeholder="e.g. September + February peaks"
+              className="h-9"
+              maxLength={2000}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="cc-notes">Notes</Label>
             <Textarea
-              id="ir-notes"
+              id="cc-notes"
               dir="auto"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="What was discussed, agreements, follow-ups…"
-              rows={2}
+              rows={3}
             />
           </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="ir-shot">Screenshot (optional, encouraged — image ≤ 3 MB)</Label>
-              <Input
-                id="ir-shot"
-                ref={fileRef}
-                type="file"
-                accept="image/*"
-                onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
-                className="h-9 pt-1.5"
-              />
-            </div>
-            {file ? (
-              <div className="space-y-1.5">
-                <Label htmlFor="ir-shot-name">Screenshot name on Drive</Label>
-                <Input
-                  id="ir-shot-name"
-                  dir="auto"
-                  value={shotName}
-                  onChange={(e) => setShotName(e.target.value)}
-                  placeholder={defaultShotName}
-                  className="h-9"
-                />
-              </div>
-            ) : null}
+          <div className="space-y-1.5">
+            <Label>Screenshot</Label>
+            <FileDrop
+              onFile={pickFile}
+              accept="image/*"
+              label="Drop the call screenshot here — or click to browse"
+              hint="image · up to 3 MB"
+              fileName={file?.name ?? null}
+            />
           </div>
-          <div className="flex justify-end">
-            <Hint label="Saves the call — the screenshot lands in the CRM — IR Calls folder on Drive">
-              <Button onClick={submit} disabled={pending}>
-                {pending ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-                Record call
-              </Button>
-            </Hint>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button onClick={save} disabled={pending}>
+              {pending ? <Loader2 className="size-4 animate-spin" /> : <ClipboardCheck className="size-4" />}
+              Save — mark completed
+            </Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
-      <Card className="rise-in">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">
-            Recent calls{data.total ? ` (${data.total})` : ""}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {data.rows.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              No IR calls yet — record the first one above. 🌍
-            </p>
-          ) : (
-            <>
-              {/* desktop table */}
-              <div className="hidden overflow-x-auto md:block">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>When</TableHead>
-                      <TableHead>Partner LC</TableHead>
-                      <TableHead>By</TableHead>
-                      <TableHead>Notes</TableHead>
-                      <TableHead className="text-right">Screenshot</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {data.rows.map((c) => (
-                      <TableRow key={c.id}>
-                        <TableCell className="whitespace-nowrap text-sm">
-                          {fmtDateTime(c.called_at)}
-                        </TableCell>
-                        <TableCell className="font-medium" dir="auto">
-                          {c.partner_lc_name}
-                        </TableCell>
-                        <TableCell dir="auto">{c.member_name}</TableCell>
-                        <TableCell className="max-w-64">
-                          <span className="line-clamp-2 text-sm text-muted-foreground" dir="auto">
-                            {c.notes || "—"}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {c.screenshot_link ? (
-                            <a
-                              href={c.screenshot_link}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
-                            >
-                              Open in Drive <ExternalLink className="size-3.5" />
-                            </a>
-                          ) : (
-                            <span className="text-sm text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-              {/* mobile cards */}
-              <div className="space-y-2 md:hidden">
-                {data.rows.map((c) => (
-                  <div key={c.id} className="rounded-lg border p-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="font-semibold" dir="auto">{c.partner_lc_name}</p>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {fmtDateTime(c.called_at)}
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground" dir="auto">by {c.member_name}</p>
-                    {c.notes ? (
-                      <p className="mt-1 line-clamp-3 text-sm" dir="auto">{c.notes}</p>
-                    ) : null}
-                    {c.screenshot_link ? (
-                      <a
-                        href={c.screenshot_link}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-1.5 inline-flex items-center gap-1 text-sm font-medium text-primary"
-                      >
-                        <ImagePlus className="size-3.5" /> Open screenshot in Drive
-                      </a>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-              {pages > 1 ? (
-                <div className="flex items-center justify-between border-t pt-3 text-sm">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={data.page === 0}
-                    onClick={() => goPage(data.page - 1)}
-                  >
-                    Prev
-                  </Button>
-                  <span className="text-muted-foreground">
-                    Page {data.page + 1} of {pages} · {data.total} calls
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={data.page + 1 >= pages}
-                    onClick={() => goPage(data.page + 1)}
-                  >
-                    Next
-                  </Button>
-                </div>
-              ) : null}
-            </>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+function CancelCallDialog({ call, onClose }: { call: IrCallRow | null; onClose: () => void }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const cancel = () => {
+    if (!call) return;
+    start(async () => {
+      const res = await cancelIrCall(call.id);
+      if (res.ok) {
+        toast.success("Call cancelled — the slot is free again.");
+        onClose();
+        router.refresh();
+      } else toast.error(res.error);
+    });
+  };
+  return (
+    <Dialog open={!!call} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Cancel this call?</DialogTitle>
+          <DialogDescription dir="auto">
+            The {call ? fmtDateTime(call.called_at) : ""} call with{" "}
+            {call?.partner_lc_name} will be cancelled and its slot opens up on
+            your booking page again. The calendar event is removed too.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose}>Keep it</Button>
+          <Button variant="destructive" onClick={cancel} disabled={pending}>
+            {pending ? <Loader2 className="size-4 animate-spin" /> : <X className="size-4" />}
+            Cancel the call
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -537,28 +1177,29 @@ function CvsTab({
   lcs: PartnerLc[];
   onLcCreated: (lc: PartnerLc) => void;
   q: string;
-  viewer: { id: string; isVp: boolean };
+  viewer: ViewerInfo;
   setParams: (patch: Record<string, string | null>) => void;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [search, setSearch] = useState(q);
   // URL is the source of truth — chip clears / back-nav must reflect here
-  useEffect(() => {
+  // (adjust-during-render, no effect: https://react.dev/learn/you-might-not-need-an-effect)
+  const [lastQ, setLastQ] = useState(q);
+  if (q !== lastQ) {
+    setLastQ(q);
     setSearch(q);
-  }, [q]);
+  }
   const [file, setFile] = useState<File | null>(null);
   const [lcId, setLcId] = useState("");
   const [phase, setPhase] = useState<"idle" | "uploading" | "analyzing">("idle");
   const [editing, setEditing] = useState<CvRow | null>(null);
   const [deleting, setDeleting] = useState<CvRow | null>(null);
   const [rerunning, setRerunning] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
 
-  const pickFile = (f: File | null) => {
-    if (f && f.size > CV_MAX) {
+  const pickFile = (f: File) => {
+    if (f.size > CV_MAX) {
       toast.error(`"${f.name}" is over 25 MB — compress it and try again.`);
-      if (fileRef.current) fileRef.current.value = "";
       setFile(null);
       return;
     }
@@ -615,7 +1256,6 @@ function CvsTab({
         else
           toast(`CV uploaded, but the AI extraction didn't stick: ${confirm.data?.note ?? "try Re-run."}`);
         setFile(null);
-        if (fileRef.current) fileRef.current.value = "";
         router.refresh();
       } finally {
         setPhase("idle");
@@ -673,13 +1313,13 @@ function CvsTab({
         <CardContent className="space-y-3">
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="cv-file">CV file</Label>
-              <Input
-                id="cv-file"
-                ref={fileRef}
-                type="file"
-                onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
-                className="h-9 pt-1.5"
+              <Label>CV file</Label>
+              <FileDrop
+                onFile={pickFile}
+                label="Drop the CV here — or click to browse"
+                hint="any format · up to 25 MB"
+                fileName={file?.name ?? null}
+                disabled={phase !== "idle"}
               />
             </div>
             <div className="space-y-1.5">

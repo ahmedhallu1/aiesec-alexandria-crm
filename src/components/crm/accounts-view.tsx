@@ -24,6 +24,7 @@ import { StageBadge } from "./stage-badge";
 import { ContactDialog, type ContactTarget } from "./contact-dialog";
 import { AddAccountDialog, type MemberOption } from "./add-account-dialog";
 import { AskBlueMan } from "./ask-blue-man";
+import { FileDrop } from "./file-drop";
 import { Hint } from "./hint";
 import { QuickActions } from "./quick-actions";
 import { SortHeader, useTableSort } from "./sort-header";
@@ -1952,18 +1953,20 @@ function ImportArchivedDialog({
             if (f) parseFile(f);
           }}
         />
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={parsing}>
-            {parsing ? <Loader2 className="size-4 animate-spin" /> : <FileUp className="size-4" />}
-            {rows.length > 0 ? "Choose another file" : "Choose file"}
-          </Button>
-          {rows.length > 0 ? (
-            <p className="text-sm text-muted-foreground">
-              <b>{fileName}</b> · {rows.length} name{rows.length === 1 ? "" : "s"}
-              {invalid > 0 ? <span className="ml-2 text-destructive">{invalid} need fixes</span> : null}
-            </p>
-          ) : null}
-        </div>
+        <FileDrop
+          accept=".csv,.xlsx,.xls"
+          onFile={(f) => parseFile(f)}
+          disabled={parsing}
+          label={rows.length > 0 ? "Drop another file — or click to browse" : "Drop the .csv / .xlsx here — or click to browse"}
+          fileName={rows.length > 0 ? fileName : null}
+          className="py-4"
+        />
+        {rows.length > 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {rows.length} name{rows.length === 1 ? "" : "s"}
+            {invalid > 0 ? <span className="ml-2 text-destructive">{invalid} need fixes</span> : null}
+          </p>
+        ) : null}
 
         {rows.length > 0 ? (
           <div className="max-h-80 overflow-y-auto rounded-lg border">

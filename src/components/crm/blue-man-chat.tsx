@@ -12,18 +12,138 @@ interface Msg {
   content: string;
 }
 
+/** A saved conversation — localStorage, per user, the 8 most recent. */
+interface StoredChat {
+  id: string;
+  title: string;
+  messages: Msg[];
+  at: number; // last-activity timestamp (ms)
+}
+
+const MAX_CHATS = 8;
+const storageKey = (email: string) => `sodio-blueman-chats:${email}`;
+
 const OPENERS = [
   "Ahlan! I'm The Blue Man 🚶 — ask me about your accounts, your numbers, or anything AIESEC.",
   "The Blue Man has arrived 🚶💙 What are we raising today?",
   "I walk, therefore I am. Also I know your pipeline. Ask away 🚶",
 ];
 
-const SUGGESTIONS = [
-  "How am I doing this month?",
-  "Which accounts need a next step?",
-  "What is EXPA?",
-  "How do deals & slots count?",
-];
+/** Role + live-module aware question chips for a fresh chat (max 3, the
+ *  viewer's PRIMARY module first: raising > signups > consideration > tm). */
+function suggestionsFor(
+  role: string,
+  modules: { raising: boolean; signups: boolean; consideration: boolean; tm: boolean }
+): string[] {
+  const leader = role === "LCP" || role === "LCVP" || role === "Director";
+  const out: string[] = [];
+  if (modules.raising) {
+    if (leader) {
+      out.push(
+        "How is my function's funnel this month?",
+        "Who are my top performers?",
+        "Which accounts are stuck after a visit?"
+      );
+    } else if (role === "Team Leader") {
+      out.push(
+        "How is my team doing this month?",
+        "Which of my accounts are waiting for a next step?",
+        "Give me my accounts I haven't contacted in 2 weeks"
+      );
+    } else {
+      out.push(
+        "Which of my accounts are waiting for a next step?",
+        "Give me my accounts I haven't contacted in 2 weeks",
+        "How do I record a deal with split opens?"
+      );
+    }
+  }
+  if (modules.signups) {
+    out.push("How many unassigned sign-ups are waiting?", "What does Approved mean exactly?");
+  }
+  if (modules.consideration) {
+    out.push("Find CVs with C# in their skills", "How do I record an IR call?");
+  }
+  if (modules.tm) {
+    out.push("Who are the most active members this month?");
+  }
+  if (out.length === 0) {
+    // no live module yet — keep the generic AIESEC ice-breakers
+    out.push("What is EXPA?", "How do deals & slots count?", "What can you help me with?");
+  }
+  return out.slice(0, 3);
+}
+
+function isMsg(x: unknown): x is Msg {
+  if (!x || typeof x !== "object") return false;
+  const m = x as Record<string, unknown>;
+  return (m.role === "user" || m.role === "assistant") && typeof m.content === "string";
+}
+
+function chatTitle(messages: Msg[]): string {
+  const first = messages.find((m) => m.role === "user")?.content.trim() || "New chat";
+  return first.length > 40 ? `${first.slice(0, 40).trimEnd()}…` : first;
+}
+
+/** Read + validate the saved chats; a corrupt key self-heals (removed). */
+function loadChats(key: string): StoredChat[] {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) throw new Error("not an array");
+    const chats: StoredChat[] = [];
+    for (const c of parsed) {
+      if (!c || typeof c !== "object") continue;
+      const o = c as Record<string, unknown>;
+      if (typeof o.id !== "string" || !Array.isArray(o.messages)) continue;
+      const messages = (o.messages as unknown[]).filter(isMsg);
+      if (messages.length === 0) continue;
+      chats.push({
+        id: o.id,
+        title: typeof o.title === "string" && o.title ? o.title : chatTitle(messages),
+        messages,
+        at: typeof o.at === "number" ? o.at : 0,
+      });
+    }
+    return chats.sort((a, b) => b.at - a.at).slice(0, MAX_CHATS);
+  } catch {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      /* noop */
+    }
+    return [];
+  }
+}
+
+function saveChats(key: string, chats: StoredChat[]) {
+  try {
+    localStorage.setItem(key, JSON.stringify(chats.slice(0, MAX_CHATS)));
+  } catch {
+    /* private mode / quota — chats just won't persist */
+  }
+}
+
+function newId(): string {
+  try {
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  } catch {
+    /* fall through */
+  }
+  return `c${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function relTime(ts: number): string {
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
 
 /** Very small markdown-ish renderer: **bold**, bullets, line breaks, and
  *  [label](url) links — internal ones render as tappable ACTION CHIPS (the
@@ -83,7 +203,15 @@ function renderLite(text: string) {
   });
 }
 
-export function BlueManChat() {
+export function BlueManChat({
+  userEmail,
+  role,
+  modules,
+}: {
+  userEmail: string;
+  role: string;
+  modules: { raising: boolean; signups: boolean; consideration: boolean; tm: boolean };
+}) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
@@ -91,6 +219,62 @@ export function BlueManChat() {
   const [opener] = useState(() => OPENERS[Math.floor(Math.random() * OPENERS.length)]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // persistent chats (v26): the active chat auto-saves after every exchange
+  const key = storageKey(userEmail);
+  const [chats, setChats] = useState<StoredChat[]>([]);
+  const [activeId, setActiveId] = useState<string>(() => newId());
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const chatsRef = useRef<StoredChat[]>([]);
+
+  // restore on mount: open with the most recent chat loaded (or fresh)
+  useEffect(() => {
+    const loaded = loadChats(key);
+    chatsRef.current = loaded;
+    setChats(loaded);
+    if (loaded.length > 0) {
+      setActiveId(loaded[0].id);
+      setMessages(loaded[0].messages);
+    }
+  }, [key]);
+
+  const updateChats = (fn: (prev: StoredChat[]) => StoredChat[]) => {
+    const next = fn(chatsRef.current).slice(0, MAX_CHATS);
+    chatsRef.current = next;
+    setChats(next);
+    saveChats(key, next);
+  };
+
+  /** Upsert the active chat with the given messages (most recent first). */
+  const persist = (msgs: Msg[]) => {
+    if (msgs.length === 0) return;
+    const entry: StoredChat = { id: activeId, title: chatTitle(msgs), messages: msgs, at: Date.now() };
+    updateChats((prev) => [entry, ...prev.filter((c) => c.id !== activeId)]);
+  };
+
+  const startNewChat = () => {
+    if (busy) return; // the in-flight exchange belongs to the current chat
+    setHistoryOpen(false);
+    if (messages.length === 0) return; // already fresh (and already saved)
+    setActiveId(newId());
+    setMessages([]);
+  };
+
+  const openChat = (c: StoredChat) => {
+    if (busy) return;
+    setActiveId(c.id);
+    setMessages(c.messages);
+    setHistoryOpen(false);
+  };
+
+  const deleteChat = (id: string) => {
+    if (busy) return;
+    updateChats((prev) => prev.filter((c) => c.id !== id));
+    if (id === activeId) {
+      setActiveId(newId());
+      setMessages([]);
+    }
+  };
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -101,7 +285,7 @@ export function BlueManChat() {
   }, [open]);
 
   // "Ask the Blue Man" callouts anywhere in the app open the chat via a
-  // window event (optionally pre-filling a question)
+  // window event (optionally pre-filling a question into the CURRENT chat)
   useEffect(() => {
     const onOpen = (e: Event) => {
       const prefill = (e as CustomEvent<{ prefill?: string }>).detail?.prefill;
@@ -117,8 +301,10 @@ export function BlueManChat() {
     if (!q || busy) return;
     const next: Msg[] = [...messages, { role: "user", content: q }];
     setMessages(next);
+    persist(next);
     setInput("");
     setBusy(true);
+    let reply: Msg;
     try {
       const res = await fetch("/api/assistant", {
         method: "POST",
@@ -126,19 +312,17 @@ export function BlueManChat() {
         body: JSON.stringify({ messages: next }),
       });
       const data = (await res.json()) as { text?: string; error?: string };
-      setMessages((m) => [
-        ...m,
-        { role: "assistant", content: data.text || data.error || "Something broke 🫠" },
-      ]);
+      reply = { role: "assistant", content: data.text || data.error || "Something broke 🫠" };
     } catch {
-      setMessages((m) => [
-        ...m,
-        { role: "assistant", content: "Network hiccup — the Blue Man lost signal 📶. Try again." },
-      ]);
-    } finally {
-      setBusy(false);
+      reply = { role: "assistant", content: "Network hiccup — the Blue Man lost signal 📶. Try again." };
     }
+    const done = [...next, reply];
+    setMessages(done);
+    persist(done);
+    setBusy(false);
   };
+
+  const suggestions = suggestionsFor(role, modules);
 
   return (
     <>
@@ -199,24 +383,76 @@ export function BlueManChat() {
           </Button>
         </div>
 
+        {/* chat switcher row */}
+        <div className="flex items-center gap-1.5 border-b bg-muted/40 px-2 py-1">
+          <button
+            type="button"
+            onClick={() => setHistoryOpen((h) => !h)}
+            className={cn(
+              "rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+              historyOpen && "bg-muted text-foreground"
+            )}
+          >
+            🕘 History{chats.length > 0 ? ` (${chats.length})` : ""}
+          </button>
+          <button
+            type="button"
+            onClick={startNewChat}
+            disabled={busy}
+            className="ml-auto rounded-md px-2 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10 disabled:opacity-50"
+          >
+            ＋ New chat
+          </button>
+        </div>
+
+        {/* recent chats list */}
+        {historyOpen ? (
+          <div className="max-h-44 shrink-0 overflow-y-auto border-b bg-muted/20 p-1.5">
+            {chats.length === 0 ? (
+              <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                No saved chats yet — they save automatically as you talk.
+              </p>
+            ) : (
+              chats.map((c) => (
+                <div
+                  key={c.id}
+                  className={cn(
+                    "flex items-center gap-1 rounded-lg px-2 py-1",
+                    c.id === activeId ? "bg-primary/10" : "hover:bg-muted/60"
+                  )}
+                >
+                  <button
+                    type="button"
+                    onClick={() => openChat(c)}
+                    disabled={busy}
+                    className="min-w-0 flex-1 text-start disabled:opacity-50"
+                  >
+                    <span dir="auto" className="block truncate text-xs font-medium">
+                      {c.title}
+                    </span>
+                    <span className="block text-[10px] text-muted-foreground">{relTime(c.at)}</span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Delete chat: ${c.title}`}
+                    title="Delete chat"
+                    onClick={() => deleteChat(c.id)}
+                    disabled={busy}
+                    className="shrink-0 rounded p-1 text-xs opacity-60 transition-opacity hover:opacity-100 disabled:opacity-30"
+                  >
+                    🗑
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        ) : null}
+
         {/* messages */}
         <div className="flex-1 space-y-2.5 overflow-y-auto p-3 text-sm">
           <div dir="auto" className="max-w-[85%] rounded-2xl rounded-tl-sm bg-muted px-3 py-2 text-start">
             {opener}
           </div>
-          {messages.length === 0 ? (
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              {SUGGESTIONS.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => ask(s)}
-                  className="rounded-full border border-primary/30 px-2.5 py-1 text-xs text-primary transition-colors hover:bg-primary/10"
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          ) : null}
           {messages.map((m, i) => (
             <div
               key={i}
@@ -238,6 +474,22 @@ export function BlueManChat() {
           ) : null}
           <div ref={bottomRef} />
         </div>
+
+        {/* suggested questions — fresh chats only, right above the input */}
+        {messages.length === 0 ? (
+          <div className="flex flex-wrap gap-1.5 px-3 pb-2">
+            {suggestions.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => ask(s)}
+                className="rounded-full border border-primary/30 px-2.5 py-1 text-xs text-primary transition-colors hover:bg-primary/10"
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        ) : null}
 
         {/* input */}
         <form

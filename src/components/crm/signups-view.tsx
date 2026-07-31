@@ -12,7 +12,7 @@ import {
   reassignSignup, reviveSignup, runSignupsImport, setSignupOop,
   updateSignupContact, updateSignupVpFields,
 } from "@/server/actions";
-import type { OgxPlanCard, SignupDetail } from "@/server/data";
+import type { OgxPlanCard, SignupDetail, StreakStats } from "@/server/data";
 import { fmtDateTime, SIGNUP_STATUSES, type OgxFunction, type SignupRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { CountryInput } from "./country-input";
@@ -171,6 +171,72 @@ function MmPlanCard({ plan }: { plan: OgxPlanCard }) {
   );
 }
 
+/** v27 — the OGV contact-streak game: ≥1 sign-up contact action per Cairo day
+ *  keeps the flame alive. Dimmed flame until today's save lands. */
+function StreakCard({ streak }: { streak: StreakStats }) {
+  const medals = ["🥇", "🥈", "🥉"];
+  const dayWord = (n: number) => `day${n === 1 ? "" : "s"}`;
+  return (
+    <Card className="rise-in border-orange-400/40">
+      <CardContent className="space-y-2.5 p-4">
+        <div className="flex items-center gap-3">
+          <span
+            aria-hidden
+            className={cn(
+              "text-4xl leading-none transition-all",
+              !streak.savedToday && "opacity-40 grayscale"
+            )}
+          >
+            🔥
+          </span>
+          <div className="min-w-0">
+            <p className="text-xl font-bold tabular-nums">
+              {streak.current}-day streak
+            </p>
+            <p
+              className={cn(
+                "text-xs",
+                streak.savedToday
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-muted-foreground"
+              )}
+            >
+              {streak.savedToday
+                ? "Streak saved for today ✅"
+                : "Save today's streak — contact a sign-up!"}
+            </p>
+          </div>
+          <p className="ml-auto shrink-0 text-xs text-muted-foreground">
+            Best:{" "}
+            <span className="font-semibold text-foreground tabular-nums">
+              {streak.best}
+            </span>{" "}
+            {dayWord(streak.best)}
+          </p>
+        </div>
+        {streak.topStreaks.length > 0 ? (
+          <div className="border-t pt-2">
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              LC top streaks
+            </p>
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5">
+              {streak.topStreaks.map((t, i) => (
+                <p key={`${t.name}-${i}`} className="text-sm">
+                  {medals[i] ?? "•"} {t.name}
+                  <span className="text-muted-foreground">
+                    {" "}
+                    — {t.current} {dayWord(t.current)}
+                  </span>
+                </p>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 interface ViewerInfo {
   id: string;
   name: string;
@@ -181,7 +247,7 @@ interface ViewerInfo {
 
 export function SignupsView({
   rows, total, page, pageSize, activeView, views, fns, activeFn, targets, planCard,
-  viewer, filters,
+  streak, viewer, filters,
 }: {
   rows: SignupRow[];
   total: number;
@@ -193,10 +259,11 @@ export function SignupsView({
   activeFn: OgxFunction;
   targets: { id: string; label: string }[];
   planCard: OgxPlanCard | null;
+  streak: StreakStats | null;
   viewer: ViewerInfo;
   filters: {
     q: string; batch: string; program: string; status: string;
-    interested: string; contacted: string; nophone: string; sort: string; dir: string;
+    interested: string; contacted: string; phone: string; sort: string; dir: string;
   };
 }) {
   const router = useRouter();
@@ -373,7 +440,12 @@ export function SignupsView({
         ) : null}
       </div>
 
-      {planCard ? <MmPlanCard plan={planCard} /> : null}
+      {planCard || streak ? (
+        <div className={cn("grid gap-4", planCard && streak && "lg:grid-cols-2")}>
+          {planCard ? <MmPlanCard plan={planCard} /> : null}
+          {streak ? <StreakCard streak={streak} /> : null}
+        </div>
+      ) : null}
 
       {/* function + view chips */}
       <div className="flex flex-wrap items-center gap-2">
@@ -482,19 +554,19 @@ export function SignupsView({
             ))}
           </SelectContent>
         </Select>
-        <button
-          type="button"
-          onClick={() => setParams({ nophone: filters.nophone === "1" ? null : "1" })}
-          title="Only sign-ups with no usable phone number"
-          className={cn(
-            "h-9 rounded-full border px-3 text-sm font-medium transition-colors",
-            filters.nophone === "1"
-              ? "border-primary bg-primary text-primary-foreground"
-              : "border-border bg-card text-muted-foreground hover:border-primary/50"
-          )}
+        <Select
+          value={filters.phone || "all"}
+          onValueChange={(v) => setParams({ phone: v === "all" ? null : v })}
         >
-          📵 Missing phone
-        </button>
+          <SelectTrigger className="h-9 w-36">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">📱 Any phone</SelectItem>
+            <SelectItem value="has">✅ Has phone</SelectItem>
+            <SelectItem value="missing">📵 Missing phone</SelectItem>
+          </SelectContent>
+        </Select>
         <span className="ml-auto text-sm text-muted-foreground">
           {total} sign-up{total === 1 ? "" : "s"}
         </span>
