@@ -130,7 +130,7 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
   const exportNow = () =>
     start(async () => {
       const res = await runSheetsExport();
-      if (res.ok) toast.success("Sodio data exported to the Google Sheets mirrors");
+      if (res.ok) toast.success("Elevate data exported to the Google Sheets mirrors");
       else toast.error(res.error);
     });
 
@@ -585,7 +585,7 @@ function MemberDialog({
         <DialogHeader>
           <DialogTitle>{member ? `Edit ${member.nickname || member.name}` : "Add member"}</DialogTitle>
           <DialogDescription>
-            Changes are saved to Sodio and written back to the Membership sheet.
+            Changes are saved to Elevate and written back to the Membership sheet.
           </DialogDescription>
         </DialogHeader>
 

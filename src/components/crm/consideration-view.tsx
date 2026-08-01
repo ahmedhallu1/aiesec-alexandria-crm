@@ -6,12 +6,13 @@ import { toast } from "sonner";
 import {
   CalendarClock, Check, ChevronDown, ClipboardCheck, Copy, ExternalLink,
   FileText, Globe2, ImagePlus, Link2, Loader2, Mail, Pencil, Phone, Plus,
-  Search, Sparkles, Trash2, Upload, X,
+  Search, Settings2, Sparkles, Trash2, Upload, Video, X,
 } from "lucide-react";
 import {
   addPartnerLc, cancelIrCall, completeIrCall, confirmCvUpload, deleteCv,
-  getCvFileUrl, recordIrCall, requestCvUpload, rerunCvExtraction,
-  saveIrBookingSettings, updateCvFields,
+  deletePartnerLc, getCvFileUrl, recordIrCall, requestCvUpload,
+  requestIrReschedule, rerunCvExtraction, saveIrBookingSettings,
+  updateCvFields, updatePartnerLc,
 } from "@/server/actions";
 import type {
   CvRow, IrAvailabilityRow, IrCallRow, MyIrBooking, PartnerLc,
@@ -103,19 +104,23 @@ interface ViewerInfo {
 
 // ------------------------------------------------------------ partner LC picker
 
-/** Branded combobox over the partner LCs with an inline "+ Add new LC". */
+/** Branded combobox over the partner LCs with an inline "+ Add new LC" and
+ *  (v28) an optional ⚙ manage affordance opening the registry dialog. */
 function PartnerLcPicker({
-  lcs, value, onChange, onCreated, allowNone,
+  lcs, value, onChange, onCreated, allowNone, manage,
 }: {
   lcs: PartnerLc[];
   value: string;
   onChange: (id: string) => void;
   onCreated: (lc: PartnerLc) => void;
   allowNone?: boolean;
+  /** shows the ⚙ Partner-LCs dialog; canEdit unlocks rename/delete (VP+) */
+  manage?: { canEdit: boolean };
 }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [country, setCountry] = useState("");
+  const [managing, setManaging] = useState(false);
   const [pending, start] = useTransition();
 
   const create = () =>
@@ -133,30 +138,45 @@ function PartnerLcPicker({
 
   return (
     <div className="space-y-2">
-      <Select
-        value={adding ? "__new" : value || (allowNone ? "__none" : "")}
-        onValueChange={(v) => {
-          if (v === "__new") setAdding(true);
-          else {
-            setAdding(false);
-            onChange(v === "__none" ? "" : v);
-          }
-        }}
-      >
-        <SelectTrigger className="h-9 w-full">
-          <SelectValue placeholder="Pick the partner LC…" />
-        </SelectTrigger>
-        <SelectContent>
-          {allowNone ? <SelectItem value="__none">— No LC yet</SelectItem> : null}
-          {lcs.map((lc) => (
-            <SelectItem key={lc.id} value={lc.id}>
-              {lc.name}
-              {lc.country ? ` · ${lc.country}` : ""}
-            </SelectItem>
-          ))}
-          <SelectItem value="__new">＋ Add new LC…</SelectItem>
-        </SelectContent>
-      </Select>
+      <div className="flex items-center gap-1.5">
+        <Select
+          value={adding ? "__new" : value || (allowNone ? "__none" : "")}
+          onValueChange={(v) => {
+            if (v === "__new") setAdding(true);
+            else {
+              setAdding(false);
+              onChange(v === "__none" ? "" : v);
+            }
+          }}
+        >
+          <SelectTrigger className="h-9 w-full">
+            <SelectValue placeholder="Pick the partner LC…" />
+          </SelectTrigger>
+          <SelectContent>
+            {allowNone ? <SelectItem value="__none">— No LC yet</SelectItem> : null}
+            {lcs.map((lc) => (
+              <SelectItem key={lc.id} value={lc.id}>
+                {lc.name}
+                {lc.country ? ` · ${lc.country}` : ""}
+              </SelectItem>
+            ))}
+            <SelectItem value="__new">＋ Add new LC…</SelectItem>
+          </SelectContent>
+        </Select>
+        {manage ? (
+          <Hint label="Manage the partner LCs list">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-9 shrink-0 text-muted-foreground hover:text-foreground"
+              onClick={() => setManaging(true)}
+            >
+              <Settings2 className="size-4" />
+            </Button>
+          </Hint>
+        ) : null}
+      </div>
       {adding ? (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed p-2">
           <Input
@@ -179,7 +199,203 @@ function PartnerLcPicker({
           </Button>
         </div>
       ) : null}
+      {manage ? (
+        <PartnerLcManageDialog
+          open={managing}
+          onClose={() => setManaging(false)}
+          lcs={lcs}
+          canEdit={manage.canEdit}
+          onCreated={onCreated}
+        />
+      ) : null}
     </div>
+  );
+}
+
+/** The Partner-LCs registry (v28): everyone browses + adds; VP/Director/LCP
+ *  rename (name/country) and delete unused entries — an LC with IR calls or
+ *  CVs on record refuses to go (friendly server error). */
+function PartnerLcManageDialog({
+  open, onClose, lcs, canEdit, onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  lcs: PartnerLc[];
+  canEdit: boolean;
+  onCreated: (lc: PartnerLc) => void;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [country, setCountry] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newCountry, setNewCountry] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState<PartnerLc | null>(null);
+
+  const startEdit = (lc: PartnerLc) => {
+    setEditingId(lc.id);
+    setName(lc.name);
+    setCountry(lc.country ?? "");
+  };
+
+  const saveEdit = () => {
+    if (!editingId) return;
+    start(async () => {
+      const res = await updatePartnerLc(editingId, { name, country: country || null });
+      if (res.ok) {
+        toast.success("Partner LC updated.");
+        setEditingId(null);
+        router.refresh();
+      } else toast.error(res.error);
+    });
+  };
+
+  const doDelete = () => {
+    if (!confirmDelete) return;
+    start(async () => {
+      const res = await deletePartnerLc(confirmDelete.id);
+      if (res.ok) {
+        toast.success(`"${confirmDelete.name}" removed from the list.`);
+        setConfirmDelete(null);
+        router.refresh();
+      } else {
+        toast.error(res.error);
+        setConfirmDelete(null);
+      }
+    });
+  };
+
+  const add = () =>
+    start(async () => {
+      const res = await addPartnerLc({ name: newName, country: newCountry || null });
+      if (res.ok && res.data) {
+        toast.success(`Partner LC "${res.data.name}" added 🌍`);
+        onCreated(res.data);
+        setNewName("");
+        setNewCountry("");
+        router.refresh();
+      } else if (!res.ok) toast.error(res.error);
+    });
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) { setEditingId(null); setConfirmDelete(null); onClose(); } }}>
+      <DialogContent className="max-h-[85dvh] max-w-lg overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Partner LCs</DialogTitle>
+          <DialogDescription>
+            The shared registry behind every IR call and CV.
+            {canEdit
+              ? " Rename or remove entries — deleting only works when nothing references the LC."
+              : " Ask a VP/Director to fix or remove an entry."}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1.5">
+          {lcs.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">
+              No partner LCs yet — add the first one below. 🌍
+            </p>
+          ) : (
+            lcs.map((lc) =>
+              editingId === lc.id ? (
+                <div key={lc.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/40 p-2">
+                  <Input
+                    dir="auto"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="h-9 min-w-36 flex-1"
+                    maxLength={120}
+                    aria-label="LC name"
+                  />
+                  <Input
+                    dir="auto"
+                    value={country}
+                    onChange={(e) => setCountry(e.target.value)}
+                    placeholder="Country"
+                    className="h-9 w-32"
+                    maxLength={60}
+                    aria-label="Country"
+                  />
+                  <Button size="sm" onClick={saveEdit} disabled={pending || !name.trim()}>
+                    {pending ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setEditingId(null)}>
+                    <X className="size-4" />
+                  </Button>
+                </div>
+              ) : (
+                <div key={lc.id} className="flex items-center justify-between gap-2 rounded-lg border p-2">
+                  <p className="min-w-0 truncate text-sm font-medium" dir="auto">
+                    {lc.name}
+                    {lc.country ? (
+                      <span className="text-muted-foreground"> · {lc.country}</span>
+                    ) : null}
+                  </p>
+                  {canEdit ? (
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Hint label="Edit the name / country">
+                        <Button variant="ghost" size="icon" className="size-8" onClick={() => startEdit(lc)}>
+                          <Pencil className="size-3.5" />
+                        </Button>
+                      </Hint>
+                      <Hint label="Delete (only when unused)">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 text-muted-foreground hover:text-destructive"
+                          onClick={() => setConfirmDelete(lc)}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </Hint>
+                    </div>
+                  ) : null}
+                </div>
+              )
+            )
+          )}
+        </div>
+        {confirmDelete ? (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm">
+            <p dir="auto">
+              Delete <b>{confirmDelete.name}</b> from the registry? Only works
+              when no IR calls or CVs reference it.
+            </p>
+            <div className="mt-2 flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setConfirmDelete(null)}>
+                Keep it
+              </Button>
+              <Button variant="destructive" size="sm" onClick={doDelete} disabled={pending}>
+                {pending ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+                Delete
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed p-2">
+          <Input
+            dir="auto"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="New LC name (e.g. AIESEC in Tunis)"
+            className="h-9 min-w-40 flex-1"
+            maxLength={120}
+          />
+          <Input
+            dir="auto"
+            value={newCountry}
+            onChange={(e) => setNewCountry(e.target.value)}
+            placeholder="Country (optional)"
+            className="h-9 w-36"
+            maxLength={60}
+          />
+          <Button type="button" size="sm" onClick={add} disabled={pending || !newName.trim()}>
+            {pending ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+            Add
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -344,8 +560,31 @@ function DemandPicker({
 
 // ------------------------------------------------------------ booking link card
 
+/** Option lists for the scheduling controls (v28 — Google-Calendar parity).
+ *  A stored custom value not in the list is appended so it never disappears. */
+const SLOT_CHOICES = [15, 30, 45, 60, 90, 120];
+const BUFFER_CHOICES = [0, 10, 15, 30];
+const NOTICE_CHOICES: { value: number; label: string }[] = [
+  { value: 15, label: "15 minutes" },
+  { value: 60, label: "1 hour" },
+  { value: 240, label: "4 hours" },
+  { value: 1440, label: "1 day" },
+];
+const ADVANCE_CHOICES = [7, 14, 30, 60];
+
+const withCurrent = (choices: number[], current: number) =>
+  choices.includes(current) ? choices : [...choices, current].sort((a, b) => a - b);
+
+const todayYmd = () =>
+  // Cairo-pinned — the browser's local date is the wrong calendar here
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
+
 /** "My booking link" — the member's public /book/<slug> page: slug, slot
- *  length, weekly Cairo-time availability rows and the ON/OFF switch. */
+ *  length, availability (weekly rows + one-off dates) and — v28 — buffer,
+ *  minimum notice, maximum advance, an active date range and the guests-can-
+ *  invite toggle. All times Cairo. */
 function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: string }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -356,6 +595,12 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
     s?.availability?.length ? s.availability : [{ day: 6, from: "18:00", to: "21:00" }]
   );
   const [active, setActive] = useState(s?.active ?? true);
+  const [buffer, setBuffer] = useState(String(s?.buffer_minutes ?? 0));
+  const [notice, setNotice] = useState(String(s?.min_notice_minutes ?? 60));
+  const [advance, setAdvance] = useState(String(s?.max_advance_days ?? 14));
+  const [startDate, setStartDate] = useState(s?.start_date ?? "");
+  const [endDate, setEndDate] = useState(s?.end_date ?? "");
+  const [guestsInvite, setGuestsInvite] = useState(s?.guests_can_invite ?? true);
   const [open, setOpen] = useState(!s); // first-timers see the setup expanded
   const [copied, setCopied] = useState(false);
 
@@ -363,6 +608,16 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
 
   const setRow = (i: number, patch: Partial<IrAvailabilityRow>) =>
     setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const setRowMode = (i: number, mode: "weekly" | "date") =>
+    setRows(
+      rows.map((r, j) =>
+        j === i
+          ? mode === "date"
+            ? { date: r.date ?? todayYmd(), from: r.from, to: r.to }
+            : { day: r.day ?? 6, from: r.from, to: r.to }
+          : r
+      )
+    );
 
   const copy = async () => {
     if (!savedLink) return;
@@ -383,12 +638,24 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
         slotMinutes: Number(slot),
         availability: rows,
         active,
+        bufferMinutes: Number(buffer),
+        minNoticeMinutes: Number(notice),
+        maxAdvanceDays: Number(advance),
+        startDate: startDate || null,
+        endDate: endDate || null,
+        guestsCanInvite: guestsInvite,
       });
       if (res.ok) {
         toast.success(active ? "Booking link saved — it's live ✨" : "Booking link saved (switched off).");
         router.refresh();
       } else toast.error(res.error);
     });
+
+  const noticeChoices = NOTICE_CHOICES.some((c) => c.value === Number(notice))
+    ? NOTICE_CHOICES
+    : [...NOTICE_CHOICES, { value: Number(notice), label: `${notice} minutes` }].sort(
+        (a, b) => a.value - b.value
+      );
 
   return (
     <Card className="rise-in">
@@ -416,7 +683,8 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
         </div>
         <p className="text-sm text-muted-foreground">
           IRs abroad pick a free slot on your public page — the call lands here
-          as <b>scheduled</b> and on your Google Calendar. Times are Cairo time.
+          as <b>scheduled</b>, on your Google Calendar with a <b>Meet link</b>,
+          and they get the invite by email. Times are Cairo time.
         </p>
         {savedLink ? (
           <div className="flex flex-wrap items-center gap-1.5 pt-1">
@@ -471,7 +739,7 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {[15, 30, 45, 60].map((m) => (
+                  {withCurrent(SLOT_CHOICES, Number(slot)).map((m) => (
                     <SelectItem key={m} value={String(m)}>
                       {m} minutes
                     </SelectItem>
@@ -481,53 +749,150 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
             </div>
           </div>
 
+          {/* v28 scheduling controls — Google-Calendar appointment parity */}
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label>Buffer between calls</Label>
+              <Select value={buffer} onValueChange={setBuffer}>
+                <SelectTrigger className="h-9 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {withCurrent(BUFFER_CHOICES, Number(buffer)).map((m) => (
+                    <SelectItem key={m} value={String(m)}>
+                      {m === 0 ? "No buffer" : `${m} minutes`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Minimum notice</Label>
+              <Select value={notice} onValueChange={setNotice}>
+                <SelectTrigger className="h-9 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {noticeChoices.map((c) => (
+                    <SelectItem key={c.value} value={String(c.value)}>
+                      {c.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Book up to</Label>
+              <Select value={advance} onValueChange={setAdvance}>
+                <SelectTrigger className="h-9 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {withCurrent(ADVANCE_CHOICES, Number(advance)).map((d) => (
+                    <SelectItem key={d} value={String(d)}>
+                      {d} days ahead
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="bk-start">Schedule starts (optional)</Label>
+              <Input
+                id="bk-start"
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="h-9"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="bk-end">Schedule ends (optional)</Label>
+              <Input
+                id="bk-end"
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="h-9"
+              />
+            </div>
+          </div>
+
           <div className="space-y-1.5">
-            <Label>Weekly availability (Cairo time)</Label>
+            <Label>Availability (Cairo time)</Label>
             <div className="space-y-2">
-              {rows.map((r, i) => (
-                <div key={i} className="flex flex-wrap items-center gap-2">
-                  <Select
-                    value={String(r.day)}
-                    onValueChange={(v) => setRow(i, { day: Number(v) })}
-                  >
-                    <SelectTrigger className="h-9 w-32">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {WEEK_DAYS.map((d) => (
-                        <SelectItem key={d.value} value={String(d.value)}>
-                          {d.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    type="time"
-                    value={r.from}
-                    onChange={(e) => setRow(i, { from: e.target.value })}
-                    className="h-9 w-28"
-                    aria-label="From"
-                  />
-                  <span className="text-sm text-muted-foreground">→</span>
-                  <Input
-                    type="time"
-                    value={r.to}
-                    onChange={(e) => setRow(i, { to: e.target.value })}
-                    className="h-9 w-28"
-                    aria-label="To"
-                  />
-                  <Hint label="Remove this window">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-9 text-muted-foreground hover:text-destructive"
-                      onClick={() => setRows(rows.filter((_, j) => j !== i))}
+              {rows.map((r, i) => {
+                const isDate = r.date != null;
+                return (
+                  <div key={i} className="flex flex-wrap items-center gap-2">
+                    <Select
+                      value={isDate ? "date" : "weekly"}
+                      onValueChange={(v) => setRowMode(i, v as "weekly" | "date")}
                     >
-                      <X className="size-4" />
-                    </Button>
-                  </Hint>
-                </div>
-              ))}
+                      <SelectTrigger className="h-9 w-32">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="weekly">Every week</SelectItem>
+                        <SelectItem value="date">One date only</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {isDate ? (
+                      <Input
+                        type="date"
+                        value={r.date ?? ""}
+                        onChange={(e) => setRow(i, { date: e.target.value })}
+                        className="h-9 w-36"
+                        aria-label="Date"
+                      />
+                    ) : (
+                      <Select
+                        value={String(r.day ?? 6)}
+                        onValueChange={(v) => setRow(i, { day: Number(v) })}
+                      >
+                        <SelectTrigger className="h-9 w-32">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {WEEK_DAYS.map((d) => (
+                            <SelectItem key={d.value} value={String(d.value)}>
+                              {d.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    <Input
+                      type="time"
+                      value={r.from}
+                      onChange={(e) => setRow(i, { from: e.target.value })}
+                      className="h-9 w-28"
+                      aria-label="From"
+                    />
+                    <span className="text-sm text-muted-foreground">→</span>
+                    <Input
+                      type="time"
+                      value={r.to}
+                      onChange={(e) => setRow(i, { to: e.target.value })}
+                      className="h-9 w-28"
+                      aria-label="To"
+                    />
+                    <Hint label="Remove this window">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-9 text-muted-foreground hover:text-destructive"
+                        onClick={() => setRows(rows.filter((_, j) => j !== i))}
+                      >
+                        <X className="size-4" />
+                      </Button>
+                    </Hint>
+                  </div>
+                );
+              })}
               <Button
                 variant="outline"
                 size="sm"
@@ -540,10 +905,16 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">
-            <label className="flex items-center gap-2 text-sm font-medium">
-              <Switch checked={active} onCheckedChange={setActive} />
-              {active ? "Link is ON — bookable" : "Link is OFF — nobody can book"}
-            </label>
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <Switch checked={guestsInvite} onCheckedChange={setGuestsInvite} />
+                Guests can invite others to the Meet
+              </label>
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <Switch checked={active} onCheckedChange={setActive} />
+                {active ? "Link is ON — bookable" : "Link is OFF — nobody can book"}
+              </label>
+            </div>
             <Hint label="Saves the link — the public page updates instantly">
               <Button onClick={save} disabled={pending || !slug.trim()}>
                 {pending ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
@@ -581,6 +952,7 @@ function IrCallsTab({
 }) {
   const [completing, setCompleting] = useState<IrCallRow | null>(null);
   const [cancelling, setCancelling] = useState<IrCallRow | null>(null);
+  const [rescheduling, setRescheduling] = useState<IrCallRow | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
 
   const canTouch = (c: IrCallRow) => viewer.isVp || c.member_id === viewer.id;
@@ -614,6 +986,11 @@ function IrCallsTab({
                     <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", CALL_STATUS_CHIP.scheduled.className)}>
                       {CALL_STATUS_CHIP.scheduled.label}
                     </span>
+                    {c.reschedule_requested_at ? (
+                      <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                        Reschedule asked
+                      </span>
+                    ) : null}
                   </div>
                   <p className="text-sm text-muted-foreground">
                     {fmtDateTime(c.called_at)}
@@ -621,6 +998,16 @@ function IrCallsTab({
                     {" · with "}
                     <span dir="auto">{c.member_name}</span>
                   </p>
+                  {c.meet_link ? (
+                    <a
+                      href={c.meet_link}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-0.5 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+                    >
+                      <Video className="size-3.5" /> Join the Google Meet
+                    </a>
+                  ) : null}
                 </div>
                 {canTouch(c) ? (
                   <div className="flex shrink-0 items-center gap-1.5">
@@ -629,7 +1016,26 @@ function IrCallsTab({
                         <ClipboardCheck className="size-4" /> Fill call notes
                       </Button>
                     </Hint>
-                    <Hint label="Cancel this call (frees the slot)">
+                    {c.has_manage_link && c.booker_email ? (
+                      <Hint
+                        label={
+                          c.reschedule_requested_at
+                            ? "Already asked — the IR picks the new time from their email"
+                            : "Can't make it? Email the IR to pick a new time"
+                        }
+                      >
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={!!c.reschedule_requested_at}
+                          onClick={() => setRescheduling(c)}
+                        >
+                          <CalendarClock className="size-4" />
+                          {c.reschedule_requested_at ? "Asked ✓" : "Reschedule"}
+                        </Button>
+                      </Hint>
+                    ) : null}
+                    <Hint label="Cancel this call — the IR gets your reason by email">
                       <Button
                         variant="ghost"
                         size="icon"
@@ -662,7 +1068,7 @@ function IrCallsTab({
         </Button>
         {manualOpen ? (
           <div className="mt-2">
-            <ManualCallForm lcs={lcs} onLcCreated={onLcCreated} />
+            <ManualCallForm lcs={lcs} onLcCreated={onLcCreated} canManageLcs={viewer.isVp} />
           </div>
         ) : null}
       </div>
@@ -819,6 +1225,7 @@ function IrCallsTab({
 
       <CompleteCallDialog call={completing} onClose={() => setCompleting(null)} />
       <CancelCallDialog call={cancelling} onClose={() => setCancelling(null)} />
+      <RequestRescheduleDialog call={rescheduling} onClose={() => setRescheduling(null)} />
     </div>
   );
 }
@@ -826,10 +1233,11 @@ function IrCallsTab({
 // ------------------------------------------------------------ manual record form
 
 function ManualCallForm({
-  lcs, onLcCreated,
+  lcs, onLcCreated, canManageLcs,
 }: {
   lcs: PartnerLc[];
   onLcCreated: (lc: PartnerLc) => void;
+  canManageLcs?: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -915,7 +1323,13 @@ function ManualCallForm({
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-1.5">
             <Label>Partner LC</Label>
-            <PartnerLcPicker lcs={lcs} value={lcId} onChange={setLcId} onCreated={onLcCreated} />
+            <PartnerLcPicker
+              lcs={lcs}
+              value={lcId}
+              onChange={setLcId}
+              onCreated={onLcCreated}
+              manage={{ canEdit: !!canManageLcs }}
+            />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="ir-when">When</Label>
@@ -1124,12 +1538,22 @@ function CompleteCallDialog({ call, onClose }: { call: IrCallRow | null; onClose
 function CancelCallDialog({ call, onClose }: { call: IrCallRow | null; onClose: () => void }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  const [reason, setReason] = useState("");
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+
+  // reopening always starts with a fresh reason
+  if (!call && loadedFor !== null) setLoadedFor(null);
+  if (call && loadedFor !== call.id) {
+    setReason("");
+    setLoadedFor(call.id);
+  }
+
   const cancel = () => {
-    if (!call) return;
+    if (!call || !reason.trim()) return;
     start(async () => {
-      const res = await cancelIrCall(call.id);
+      const res = await cancelIrCall(call.id, reason);
       if (res.ok) {
-        toast.success("Call cancelled — the slot is free again.");
+        toast.success("Call cancelled — the slot is free again and the IR was told why.");
         onClose();
         router.refresh();
       } else toast.error(res.error);
@@ -1143,14 +1567,73 @@ function CancelCallDialog({ call, onClose }: { call: IrCallRow | null; onClose: 
           <DialogDescription dir="auto">
             The {call ? fmtDateTime(call.called_at) : ""} call with{" "}
             {call?.partner_lc_name} will be cancelled and its slot opens up on
-            your booking page again. The calendar event is removed too.
+            your booking page again. The calendar event is removed, and the IR
+            gets your reason by email with a link to rebook.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1.5">
+          <Label htmlFor="cx-reason">Why? (the IR reads this) *</Label>
+          <Textarea
+            id="cx-reason"
+            dir="auto"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g. An urgent LC event landed on that evening…"
+            rows={2}
+            maxLength={500}
+          />
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose}>Keep it</Button>
+          <Button variant="destructive" onClick={cancel} disabled={pending || !reason.trim()}>
+            {pending ? <Loader2 className="size-4 animate-spin" /> : <X className="size-4" />}
+            Cancel the call
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** v28 — "can't make it, let THEM pick": emails the IR their manage link so
+ *  they choose the new time from the live availability. */
+function RequestRescheduleDialog({
+  call, onClose,
+}: {
+  call: IrCallRow | null;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const ask = () => {
+    if (!call) return;
+    start(async () => {
+      const res = await requestIrReschedule(call.id);
+      if (res.ok) {
+        toast.success("The IR got an email — they'll pick the new time. 📧");
+        onClose();
+        router.refresh();
+      } else toast.error(res.error);
+    });
+  };
+  return (
+    <Dialog open={!!call} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Ask to move this call?</DialogTitle>
+          <DialogDescription dir="auto">
+            {call?.booker_name ? `${call.booker_name} of ` : ""}
+            {call?.partner_lc_name} gets an email saying you can&apos;t make{" "}
+            {call ? fmtDateTime(call.called_at) : ""} — with a link to pick a
+            new time from your live availability. The current time stays booked
+            until they choose.
           </DialogDescription>
         </DialogHeader>
         <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>Keep it</Button>
-          <Button variant="destructive" onClick={cancel} disabled={pending}>
-            {pending ? <Loader2 className="size-4 animate-spin" /> : <X className="size-4" />}
-            Cancel the call
+          <Button variant="outline" onClick={onClose}>Never mind</Button>
+          <Button onClick={ask} disabled={pending}>
+            {pending ? <Loader2 className="size-4 animate-spin" /> : <CalendarClock className="size-4" />}
+            Send the ask
           </Button>
         </div>
       </DialogContent>
@@ -1330,6 +1813,7 @@ function CvsTab({
                 onChange={setLcId}
                 onCreated={onLcCreated}
                 allowNone
+                manage={{ canEdit: viewer.isVp }}
               />
             </div>
           </div>

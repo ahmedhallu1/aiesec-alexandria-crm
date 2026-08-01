@@ -8,7 +8,7 @@ export const env = {
   googleClientId: process.env.AUTH_GOOGLE_ID ?? "",
   googleClientSecret: process.env.AUTH_GOOGLE_SECRET ?? "",
   gmailSender: process.env.GMAIL_SENDER ?? "",
-  gmailSenderName: process.env.GMAIL_SENDER_NAME ?? "Sodio · AIESEC in Alexandria",
+  gmailSenderName: process.env.GMAIL_SENDER_NAME ?? "Elevate · AIESEC in Alexandria",
   gmailRefreshToken: process.env.GMAIL_REFRESH_TOKEN ?? "",
   serviceAccountKeyBase64: process.env.GOOGLE_SERVICE_ACCOUNT_KEY_BASE64 ?? "",
   driveFolderId: process.env.DRIVE_FOLDER_ID ?? "",

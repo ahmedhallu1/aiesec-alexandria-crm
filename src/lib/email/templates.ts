@@ -28,7 +28,7 @@ export function emailLayout(opts: { preheader?: string; body: string }): string 
         </tr>
         <tr>
           <td style="padding:20px 32px;color:#5c6b80;font-size:12px;text-align:center;line-height:1.7;">
-            Sent automatically by Sodio · AIESEC in Alexandria ·
+            Sent automatically by Elevate · AIESEC in Alexandria ·
             <a href="${env.appUrl}" style="color:#037EF3;text-decoration:none;font-weight:bold;">Open the CRM</a><br>
             <span style="color:#93a5bc;">This system is built for you — reply with feedback anytime. 💙</span>
           </td>
@@ -76,18 +76,85 @@ export function welcomeEmail(member: {
   nickname: string | null;
   role: string;
   functions?: string[] | null;
+  sub_functions?: string[] | null;
 }) {
   const first = member.nickname || member.name.split(" ")[0];
+
+  // module detection — mirrors the rbac.ts viewer predicates closely enough
+  // for copy (the member row has no Viewer wrapper here)
+  const fns = member.functions ?? [];
+  const subs = member.sub_functions ?? [];
+  const all = [...fns, ...subs];
+  const fnLead = member.role === "LCVP" || member.role === "Director";
+  const raising =
+    member.role === "LCP" ||
+    all.some((f) => f === "B2B" || f === "BD" || f === "B2C") ||
+    (fns.some((f) => f === "IGV" || f === "IGT") &&
+      (fnLead || subs.some((s) => s === "Raising" || s === "ICX")));
+  const ogx = all.includes("OGT") || all.includes("OGV");
+  const consideration = all.includes("Consideration");
+  const tm = all.includes("TM");
+
+  // ONE primary workspace names the email (same priority as the home routing)
+  const workspace = raising
+    ? {
+        intro: `This is where your <b>accounts, contacts, visits and pipeline</b> live from now on.`,
+        blurb: ROLE_BLURBS[member.role] ?? ROLE_BLURBS.Member,
+        rules: [
+          `Log <b>every contact attempt</b> from the account's Contact button.`,
+          `After a first contact without a visit, always set a <b>next step with a date</b>.`,
+          `Visits you schedule land on your <b>Google Calendar</b> with reminders 24h and 1h before.`,
+        ],
+      }
+    : ogx
+      ? {
+          intro: `This is where your <b>sign-ups</b> live from now on — the Sign-ups tab is your workspace, two-way synced with the tracker sheet.`,
+          blurb: "Your OGX workspace is ready — the sign-ups pool, the funnel, and Approved as the finish line.",
+          rules: [
+            `Contact a sign-up from the <b>Unassigned</b> pool and hit <b>Claim</b> — it's yours.`,
+            `Mark <b>Contacted</b> and <b>Interested</b> and log comments — everything writes back to the sheet.`,
+            `<b>Approved</b> is the goal — keep every claimed sign-up moving down the funnel.`,
+          ],
+        }
+      : consideration
+        ? {
+            intro: `This is where your <b>IR calls</b> live from now on — the Consideration tab is your workspace.`,
+            blurb: "Your Consideration workspace is ready — IR calls with partner LCs and your personal booking link.",
+            rules: [
+              `Set your <b>availability + slot length</b> on the "My booking link" card and share your link with IRs abroad.`,
+              `Booked calls land on your <b>Google Calendar</b> automatically, with a bell + email.`,
+              `Saving a call's <b>notes</b> (demand, campaigns, screenshot) completes it.`,
+            ],
+          }
+        : tm
+          ? {
+              intro: `The <b>Members</b> tab is your workspace — the whole LC's directory in one place.`,
+              blurb: "Your Talent Management workspace is ready — the whole LC's directory, KPIs and contact shortcuts.",
+              rules: [
+                `Every member's <b>info, team and manager</b> at a glance.`,
+                `Per-member <b>KPIs and MOS</b>, live from the pipelines.`,
+                `One-tap <b>email / call / WhatsApp</b> shortcuts on every row.`,
+              ],
+            }
+          : {
+              intro: `Your function's workspace is <b>on the way</b> — your Profile, the Playbook and Feedback are already live, and you'll get an email the moment your module opens.`,
+              blurb: "Welcome aboard — your workspace is being built on the same engine the live modules run on.",
+              rules: [
+                `Complete your <b>profile</b> on first sign-in.`,
+                `Skim the <b>Playbook</b> — it's the manual for the whole system.`,
+                `Ideas? The <b>Feedback</b> card on your Profile goes straight to the IM team.`,
+              ],
+            };
+
   return {
-    subject: "Welcome to Sodio 🎉",
+    subject: "Welcome to Elevate 🎉",
     html: emailLayout({
       preheader: "Your CRM access is ready",
       body: `
         <h1 style="margin:0 0 16px;font-size:22px;color:#0A2540;">Welcome aboard, ${escapeHtml(first)}!</h1>
-        <p>Your account on <b>Sodio</b> — the ICX CRM of AIESEC in Alexandria — is active. This is where your
-        accounts, contacts, visits and pipeline live from now on.</p>
+        <p>Your account on <b>Elevate</b> — the CRM of AIESEC in Alexandria — is active. ${workspace.intro}</p>
         <p style="border-left:4px solid #037EF3;background:#f0f7ff;border-radius:0 8px 8px 0;padding:12px 16px;font-weight:600;">
-          ${escapeHtml(ROLE_BLURBS[member.role] ?? ROLE_BLURBS.Member)}
+          ${escapeHtml(workspace.blurb)}
         </p>
         ${detailsTable([
           ["Role", member.role],
@@ -95,12 +162,10 @@ export function welcomeEmail(member: {
         ])}
         <p style="margin-bottom:0;">A few ground rules the CRM will help you keep:</p>
         <ul style="margin-top:8px;">
-          <li>Log <b>every contact attempt</b> from the account's Contact button.</li>
-          <li>After a first contact without a visit, always set a <b>next step with a date</b>.</li>
-          <li>Visits you schedule land on your <b>Google Calendar</b> with reminders 24h and 1h before.</li>
+          ${workspace.rules.map((r) => `<li>${r}</li>`).join("\n          ")}
         </ul>
         ${button("Open the CRM", env.appUrl)}
-        <p style="color:#5c6b80;font-size:13px;">Spotted a bug or have an idea? Open <b>Feedback</b> in the CRM sidebar — your feedback builds this system for you.</p>`,
+        <p style="color:#5c6b80;font-size:13px;">Spotted a bug or have an idea? Open the <b>Feedback</b> card on your Profile — your feedback builds this system for you.</p>`,
     }),
   };
 }
@@ -302,19 +367,19 @@ export function newPasswordEmail(opts: {
   password: string;
 }) {
   return {
-    subject: "🔑 Your new Sodio password",
+    subject: "🔑 Your new Elevate password",
     html: emailLayout({
       preheader: "Sign in with this password — you can change it anytime",
       body: `
         <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Here you go, ${escapeHtml(opts.memberFirstName)} 🔑</h1>
-        <p>You asked for a new Sodio password. Use this one to sign in:</p>
+        <p>You asked for a new Elevate password. Use this one to sign in:</p>
         <p style="margin:20px 0;text-align:center;">
           <span style="display:inline-block;background:#f0f7ff;border:2px dashed #037EF3;border-radius:12px;padding:14px 26px;font-family:Consolas,Menlo,monospace;font-size:20px;font-weight:bold;letter-spacing:1px;color:#0A2540;">${escapeHtml(opts.password)}</span>
         </p>
         <p>Your old password (if you had one) still works too — nothing breaks
         until <i>you</i> change it. You can set a password you'll remember from
         <b>Profile → Change password</b>.</p>
-        ${button("Sign in to Sodio", `${env.appUrl}/login`)}
+        ${button("Sign in to Elevate", `${env.appUrl}/login`)}
         <p style="color:#5c6b80;font-size:13px;">Didn't request this? You can ignore it — your old password keeps working.</p>`,
     }),
   };
@@ -353,7 +418,7 @@ export function moduleReadyEmail(opts: {
       body: `
         <h1 style="margin:0 0 16px;font-size:22px;color:#0A2540;">It's live, ${escapeHtml(opts.memberFirstName)}! 🎉</h1>
         <p>Your <b>${escapeHtml(opts.functions.join(" & ") || "AIESEC")}</b> workspace on the
-        <b>Sodio</b> is ready to use.</p>
+        <b>Elevate</b> is ready to use.</p>
         <ul style="margin-top:8px;">
           <li><b>Sign in</b> with your AIESEC email — first time, any password works, then you set your own.</li>
           <li><b>Add your accounts</b> (or import a whole sheet of market research).</li>
@@ -371,7 +436,7 @@ export function feedbackThanksEmail(opts: {
   feedbackSnippet: string;
 }) {
   return {
-    subject: "Your feedback just made Sodio better 💙",
+    subject: "Your feedback just made Elevate better 💙",
     html: emailLayout({
       preheader: "Thank you from the IM team",
       body: `
@@ -380,8 +445,8 @@ export function feedbackThanksEmail(opts: {
         <p style="border-left:4px solid #0CB9C1;background:#f0fdfd;border-radius:0 8px 8px 0;padding:12px 16px;font-style:italic;">
           "${escapeHtml(opts.feedbackSnippet)}"
         </p>
-        <p>Sodio is built for you, by you — keep it coming. 💙</p>
-        ${button("Open Sodio", env.appUrl)}`,
+        <p>Elevate is built for you, by you — keep it coming. 💙</p>
+        ${button("Open Elevate", env.appUrl)}`,
     }),
   };
 }
@@ -467,7 +532,7 @@ export function accountsAssignedEmail(opts: {
   return {
     subject: `📋 ${opts.managerName} assigned you ${n} account${n === 1 ? "" : "s"}`,
     html: emailLayout({
-      preheader: `${n} account${n === 1 ? "" : "s"} just landed on your plate — open Sodio and start raising`,
+      preheader: `${n} account${n === 1 ? "" : "s"} just landed on your plate — open Elevate and start raising`,
       body: `
         <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Fresh accounts for you 📋</h1>
         <p>Hey ${escapeHtml(opts.memberName)} — <b>${escapeHtml(opts.managerName)}</b> just made you
@@ -496,8 +561,8 @@ export function broadcastEmail(opts: {
       body: `
         <h1 style="margin:0 0 16px;font-size:22px;color:#0A2540;">${escapeHtml(opts.title)}</h1>
         <p style="white-space:pre-wrap;">${escapeHtml(opts.body)}</p>
-        <p style="color:#5c6b80;font-size:13px;">— ${escapeHtml(opts.senderName)}, via Sodio</p>
-        ${button("Open Sodio", env.appUrl)}`,
+        <p style="color:#5c6b80;font-size:13px;">— ${escapeHtml(opts.senderName)}, via Elevate</p>
+        ${button("Open Elevate", env.appUrl)}`,
     }),
   };
 }
@@ -729,6 +794,9 @@ export function irCallBookedEmail(opts: {
   whenLabel: string;
   slotMinutes: number;
   considerationUrl: string;
+  /** v28: the Meet room + the IR's email */
+  meetLink?: string | null;
+  bookerEmail?: string | null;
 }): { subject: string; html: string } {
   return {
     subject: `📅 IR call booked — ${opts.partnerLc} · ${opts.whenLabel}`,
@@ -736,20 +804,176 @@ export function irCallBookedEmail(opts: {
       preheader: `${opts.partnerLc} booked an IR call with you — ${opts.whenLabel}.`,
       body: `
         <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">An IR call just landed on your calendar, ${escapeHtml(opts.memberFirstName)} 🌍</h1>
-        <p>Someone abroad picked a slot on your Sodio booking link:</p>
+        <p>Someone abroad picked a slot on your Elevate booking link:</p>
         ${detailsTable([
           ["Partner LC", opts.partnerLc],
           ["Country", opts.country],
           ["Booked by", opts.bookerName],
+          ["Their email", opts.bookerEmail],
           ["When", opts.whenLabel],
           ["Duration", `${opts.slotMinutes} minutes`],
+          ["Google Meet", opts.meetLink],
         ])}
-        <p>It's on your Google Calendar (if your grant is live) and pinned to the
-        top of the IR-calls tab. During the call, open it there and fill the
-        in-call notes — their <b>demand</b>, their <b>B2C campaign dates</b> and
-        a screenshot.</p>
+        <p>It's on your Google Calendar (if your grant is live) with the IR
+        invited${opts.meetLink ? " and a Meet room attached" : ""}, and pinned
+        to the top of the IR-calls tab. During the call, open it there and fill
+        the in-call notes — their <b>demand</b>, their <b>B2C campaign
+        dates</b> and a screenshot.</p>
         ${button("Open the Consideration module", opts.considerationUrl)}
-        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">Can't make it? Cancel the call from the IR-calls tab so the slot opens up again.</p>`,
+        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">Can't make it? Cancel the call from the IR-calls tab (with a reason) so the slot opens up again — or ask them to reschedule.</p>`,
+    }),
+  };
+}
+
+/** v28 — the IR's confirmation, sent to booker_email from the system sender:
+ *  when, with whom, the Meet link and the public manage link (reschedule or
+ *  cancel without an account). */
+export function irBookingConfirmEmail(opts: {
+  bookerName: string | null;
+  memberName: string;
+  partnerLc: string;
+  whenLabel: string;
+  slotMinutes: number;
+  meetLink: string | null;
+  manageUrl: string;
+  /** true when this confirmation follows a reschedule */
+  rescheduled?: boolean;
+}): { subject: string; html: string } {
+  const verb = opts.rescheduled ? "moved" : "confirmed";
+  return {
+    subject: `${opts.rescheduled ? "🔁 IR call rescheduled" : "✅ IR call confirmed"} — ${opts.memberName} · ${opts.whenLabel}`,
+    html: emailLayout({
+      preheader: `Your IR call with ${opts.memberName} (AIESEC in Alexandria) is ${verb} — ${opts.whenLabel}.`,
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Your IR call is ${verb} 🌍</h1>
+        <p>Hi${opts.bookerName ? ` ${escapeHtml(opts.bookerName)}` : ""} — your call
+        with <b>${escapeHtml(opts.memberName)}</b> of AIESEC in Alexandria is
+        booked. A Google Calendar invite is on its way to this address.</p>
+        ${detailsTable([
+          ["With", opts.memberName],
+          ["Your LC", opts.partnerLc],
+          ["When", opts.whenLabel],
+          ["Duration", `${opts.slotMinutes} minutes`],
+          ["Google Meet", opts.meetLink],
+        ])}
+        ${opts.meetLink ? button("Join the Google Meet", opts.meetLink) : ""}
+        <p>Plans changed? You can move or cancel this call yourself — no
+        account needed:</p>
+        ${button(opts.rescheduled ? "Manage this booking" : "Reschedule or cancel", opts.manageUrl)}
+        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">All times are Cairo time (GMT+2/+3). Booked through Elevate — AIESEC in Alexandria.</p>`,
+    }),
+  };
+}
+
+/** v28 — the OWNER's heads-up when the IR moves the call from the public
+ *  manage page. */
+export function irCallRescheduledOwnerEmail(opts: {
+  memberFirstName: string;
+  partnerLc: string;
+  bookerName: string | null;
+  oldWhenLabel: string;
+  newWhenLabel: string;
+  considerationUrl: string;
+}): { subject: string; html: string } {
+  return {
+    subject: `🔁 IR call moved — ${opts.partnerLc} · now ${opts.newWhenLabel}`,
+    html: emailLayout({
+      preheader: `${opts.partnerLc} moved your IR call to ${opts.newWhenLabel}.`,
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">${escapeHtml(opts.partnerLc)} moved your IR call 🔁</h1>
+        <p>Hey ${escapeHtml(opts.memberFirstName)} — ${opts.bookerName ? `<b>${escapeHtml(opts.bookerName)}</b> of ` : ""}${escapeHtml(opts.partnerLc)} picked a new time on your booking link:</p>
+        ${detailsTable([
+          ["Was", opts.oldWhenLabel],
+          ["Now", opts.newWhenLabel],
+        ])}
+        <p>Your Google Calendar event was moved too (if your grant is live) —
+        same Meet link, new time.</p>
+        ${button("Open the Consideration module", opts.considerationUrl)}`,
+    }),
+  };
+}
+
+/** v28 — the OWNER's heads-up when the IR cancels from the manage page
+ *  (reason included; the slot is free again). */
+export function irCallCancelledByBookerEmail(opts: {
+  memberFirstName: string;
+  partnerLc: string;
+  bookerName: string | null;
+  whenLabel: string;
+  reason: string;
+  considerationUrl: string;
+}): { subject: string; html: string } {
+  return {
+    subject: `❌ IR call cancelled — ${opts.partnerLc} · ${opts.whenLabel}`,
+    html: emailLayout({
+      preheader: `${opts.partnerLc} cancelled the ${opts.whenLabel} IR call.`,
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">${escapeHtml(opts.partnerLc)} cancelled the call ❌</h1>
+        <p>Hey ${escapeHtml(opts.memberFirstName)} — ${opts.bookerName ? `<b>${escapeHtml(opts.bookerName)}</b> of ` : ""}${escapeHtml(opts.partnerLc)} cancelled your <b>${escapeHtml(opts.whenLabel)}</b> IR call.</p>
+        ${detailsTable([["Their reason", opts.reason]])}
+        <p>The slot is open on your booking link again, and the calendar event
+        was removed.</p>
+        ${button("Open the Consideration module", opts.considerationUrl)}`,
+    }),
+  };
+}
+
+/** v28 — sent to the IR when the MEMBER cancels a booked call: the reason +
+ *  a link to book a fresh slot. */
+export function irCallCancelledByMemberEmail(opts: {
+  bookerName: string | null;
+  memberName: string;
+  partnerLc: string;
+  whenLabel: string;
+  reason: string;
+  /** the member's live booking page — omitted when the link is off */
+  bookingUrl: string | null;
+}): { subject: string; html: string } {
+  return {
+    subject: `❌ IR call cancelled — ${opts.memberName} · ${opts.whenLabel}`,
+    html: emailLayout({
+      preheader: `${opts.memberName} had to cancel your ${opts.whenLabel} IR call.`,
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Your IR call was cancelled 😔</h1>
+        <p>Hi${opts.bookerName ? ` ${escapeHtml(opts.bookerName)}` : ""} —
+        <b>${escapeHtml(opts.memberName)}</b> of AIESEC in Alexandria had to
+        cancel your <b>${escapeHtml(opts.whenLabel)}</b> call
+        (${escapeHtml(opts.partnerLc)}). Sorry about that!</p>
+        ${detailsTable([["Reason", opts.reason]])}
+        ${
+          opts.bookingUrl
+            ? `<p>Their calendar is still open — pick a fresh slot whenever suits you:</p>
+        ${button("Book a new time", opts.bookingUrl)}`
+            : `<p>Reach back out to them to line up a new time.</p>`
+        }
+        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">All times are Cairo time (GMT+2/+3). Sent via Elevate — AIESEC in Alexandria.</p>`,
+    }),
+  };
+}
+
+/** v28 — sent to the IR when the MEMBER asks to move the call: the IR picks
+ *  the new time themselves on the public manage page. */
+export function irRescheduleRequestEmail(opts: {
+  bookerName: string | null;
+  memberName: string;
+  partnerLc: string;
+  whenLabel: string;
+  manageUrl: string;
+}): { subject: string; html: string } {
+  return {
+    subject: `🔁 ${opts.memberName} asked to move your IR call (${opts.whenLabel})`,
+    html: emailLayout({
+      preheader: `${opts.memberName} can't make ${opts.whenLabel} — pick a new time that suits you.`,
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Can we move the call? 🔁</h1>
+        <p>Hi${opts.bookerName ? ` ${escapeHtml(opts.bookerName)}` : ""} —
+        <b>${escapeHtml(opts.memberName)}</b> of AIESEC in Alexandria can't make
+        your <b>${escapeHtml(opts.whenLabel)}</b> IR call
+        (${escapeHtml(opts.partnerLc)}) and asked to move it.</p>
+        <p>Pick whichever new time suits you from their live availability — it
+        takes a few seconds and the current time stays booked until you do:</p>
+        ${button("Pick a new time", opts.manageUrl)}
+        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">All times are Cairo time (GMT+2/+3). Sent via Elevate — AIESEC in Alexandria.</p>`,
     }),
   };
 }

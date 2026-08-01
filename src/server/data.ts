@@ -2389,6 +2389,7 @@ import {
   canViewSignup as _canViewSignup,
   ogxFunctions as _ogxFunctions,
 } from "@/lib/rbac";
+import { SIGNUP_STATUSES } from "@/lib/types";
 import type { OgxFunction, SignupComment, SignupRow } from "@/lib/types";
 
 export interface SignupFilters {
@@ -2404,6 +2405,8 @@ export interface SignupFilters {
   /** rows with a missing/unusable phone (null, empty or "deleted…") */
   /** "missing" = no usable number · "has" = a number exists */
   phone?: "missing" | "has";
+  /** v28 potential pipeline: a status value, or "none" = plain sign-ups */
+  potential?: string;
   q?: string;
   sort?: string;
   dir?: "asc" | "desc";
@@ -2468,6 +2471,13 @@ export async function listSignupsPage(
     if (filters.batch === "new" || filters.batch === "old") q = q.eq("batch", filters.batch);
     if (filters.program) q = q.ilike("program", filters.program);
     if (filters.status) q = q.eq("status", filters.status);
+    // 🎯 Potential (v28): a specific stage, or "none" = no stage set yet
+    if (filters.potential === "none") q = q.is("status", null);
+    else if (
+      filters.potential &&
+      (SIGNUP_STATUSES as readonly string[]).includes(filters.potential)
+    )
+      q = q.eq("status", filters.potential);
     // the display treats any y*/n* as Yes/No — the filter must match it
     const ynPat = (v: string) => (v === "Yes" ? "y%" : v === "No" ? "n%" : v);
     if (filters.interested) q = q.ilike("interested", ynPat(filters.interested));
@@ -2623,6 +2633,240 @@ export async function ogxPlanCard(viewer: Viewer): Promise<OgxPlanCard | null> {
   };
 }
 
+// -------------------------------------------------- OGX dashboard (v28)
+
+/** The OGX funnel — a status LADDER: Approved implies Accepted implies
+ *  Applied (an approved sign-up counts in all three columns). */
+export interface OgxFunnel {
+  signups: number;
+  contacted: number;
+  interested: number;
+  applied: number;
+  accepted: number;
+  /** the OGX MOS */
+  approved: number;
+}
+
+export interface OgxBoardRow extends OgxFunnel {
+  key: string;
+  label: string;
+}
+
+export interface OgxDashboardFilters {
+  /** signed_up_at range (YYYY-MM-DD) */
+  from?: string;
+  to?: string;
+  /** a Team Leader's member id — their team's assigned sign-ups */
+  team?: string;
+  /** scopes the KPI TOTALS only (like the ICX "My numbers") */
+  member?: string;
+}
+
+export interface OgxDashboardData {
+  fn: OgxFunction;
+  total: OgxFunnel;
+  /** Members & Coordinators only (the raising leaderboard rule) — ranked by
+   *  Approvals, every funnel number per person */
+  board: OgxBoardRow[];
+  /** per-TL-team drill (the assigned member's team) — [] when no teams exist */
+  byTeam: OgxBoardRow[];
+  /** the fn's filed mm_plans for the current month vs the LIVE pipeline
+   *  (all-time standing, like the /signups MmPlanCard) — null when nobody
+   *  filed a plan this month */
+  plan: {
+    monthLabel: string;
+    plan: { applicants: number; accepted: number; approvals: number };
+    actual: { applicants: number; accepted: number; approvals: number };
+  } | null;
+  /** lane-scoped filter options (OGX crews are invisible to the ICX pickers) */
+  teamOptions: { id: string; label: string }[];
+  memberOptions: { id: string; label: string }[];
+}
+
+const emptyOgxFunnel = (): OgxFunnel => ({
+  signups: 0, contacted: 0, interested: 0, applied: 0, accepted: 0, approved: 0,
+});
+
+const _ogxYes = (v: string | null) => !!v && /^y/i.test(v.trim());
+
+/** signed_up_at is free sheet TEXT ("2/9/2026", "2025-12-03", …) — normalize
+ *  to YYYY-MM-DD for range filtering; unparseable → null (only matches when
+ *  no date filter is active). M/D/YYYY, mirroring the importer's reader. */
+export function signupDayIso(v: string | null): string | null {
+  if (!v) return null;
+  const t = v.trim();
+  const mdy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(t);
+  if (mdy) {
+    const [, m, d, y] = mdy;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(t);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const parsed = new Date(t);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
+}
+
+function addOgxRow(
+  s: OgxFunnel,
+  r: { contact_status: string | null; interested: string | null; status: string | null }
+) {
+  s.signups += 1;
+  if (_ogxYes(r.contact_status)) s.contacted += 1;
+  if (_ogxYes(r.interested)) s.interested += 1;
+  // the ladder: Approved ⊂ Accepted ⊂ Applied
+  if (r.status === "Applied" || r.status === "Accepted" || r.status === "Approved")
+    s.applied += 1;
+  if (r.status === "Accepted" || r.status === "Approved") s.accepted += 1;
+  if (r.status === "Approved") s.approved += 1;
+}
+
+interface OgxDashSignup {
+  assigned_to: string | null;
+  contact_status: string | null;
+  interested: string | null;
+  status: string | null;
+  out_of_process: boolean;
+  signed_up_at: string | null;
+}
+
+/** The OGT / OGV dashboard lane (v28). Aggregates are FUNCTION-wide for
+ *  everyone in the fn (like the ICX lanes — the numbers are a shared
+ *  trigger); rows themselves stay scoped on /signups. Date + team filters
+ *  shape everything; the member filter scopes the KPI totals only. */
+export async function ogxDashboard(
+  viewer: Viewer,
+  fn: OgxFunction,
+  filters: OgxDashboardFilters = {}
+): Promise<OgxDashboardData | null> {
+  if (!_ogxFunctions(viewer).includes(fn)) return null;
+
+  const [rows, memberRes] = await Promise.all([
+    fetchAll<OgxDashSignup>(() =>
+      db()
+        .from("signups")
+        .select("assigned_to, contact_status, interested, status, out_of_process, signed_up_at")
+        .eq("fn", fn)
+        .order("id")
+    ),
+    db()
+      .from("members")
+      .select("id, name, nickname, role, stakeholder_id, team_name, functions, sub_functions")
+      .eq("is_active", true),
+  ]);
+  if (memberRes.error) throw new Error(memberRes.error.message);
+  interface MemberLiteRow {
+    id: string; name: string; nickname: string | null; role: string;
+    stakeholder_id: string | null; team_name: string | null;
+    functions: string[] | null; sub_functions: string[] | null;
+  }
+  const members = (memberRes.data ?? []) as MemberLiteRow[];
+  const byId = new Map(members.map((m) => [m.id, m]));
+  const inFn = (m: MemberLiteRow) =>
+    [...(m.functions ?? []), ...(m.sub_functions ?? [])].includes(fn);
+
+  // the assigned member's Team Leader: themself, or their manager IF that
+  // manager is a real Team Leader (the EB is never a team — raising rule)
+  const tlOf = (memberId: string | null): MemberLiteRow | null => {
+    if (!memberId) return null;
+    const m = byId.get(memberId);
+    if (!m) return null;
+    if (m.role === "Team Leader") return m;
+    const mgr = m.stakeholder_id ? byId.get(m.stakeholder_id) : undefined;
+    return mgr?.role === "Team Leader" ? mgr : null;
+  };
+
+  const total = emptyOgxFunnel();
+  const board = new Map<string, OgxBoardRow>();
+  const byTeam = new Map<string, OgxBoardRow>();
+  const init = (map: Map<string, OgxBoardRow>, key: string, label: string) => {
+    let g = map.get(key);
+    if (!g) {
+      g = { key, label, ...emptyOgxFunnel() };
+      map.set(key, g);
+    }
+    return g;
+  };
+
+  for (const r of rows) {
+    if (r.out_of_process) continue; // archived sign-ups leave every KPI
+    // date + team filters shape the WHOLE lane (KPIs, boards, drills)
+    if (filters.from || filters.to) {
+      const day = signupDayIso(r.signed_up_at);
+      if (!day) continue;
+      if (filters.from && day < filters.from) continue;
+      if (filters.to && day > filters.to) continue;
+    }
+    const tl = tlOf(r.assigned_to);
+    if (filters.team && tl?.id !== filters.team) continue;
+
+    // KPI totals — the member filter ("My numbers") scopes these ONLY
+    if (!filters.member || r.assigned_to === filters.member) addOgxRow(total, r);
+
+    const m = r.assigned_to ? byId.get(r.assigned_to) : undefined;
+    if (m && (m.role === "Member" || m.role === "Coordinator"))
+      addOgxRow(init(board, m.id, m.nickname || m.name), r);
+    if (tl)
+      addOgxRow(
+        init(byTeam, tl.id, tl.team_name || `Team ${tl.nickname || tl.name}`),
+        r
+      );
+  }
+
+  const rank = (a: OgxBoardRow, b: OgxBoardRow) =>
+    b.approved - a.approved ||
+    b.accepted - a.accepted ||
+    b.applied - a.applied ||
+    b.contacted - a.contacted ||
+    b.signups - a.signups;
+
+  // ---- the fn's plan (mm_plans, current month) vs the LIVE pipeline -----
+  const month = monthOf();
+  const { data: planRows } = await db()
+    .from("mm_plans")
+    .select(
+      "applicants, accepted, approvals, member:members!mm_plans_member_id_fkey(functions, sub_functions)"
+    )
+    .eq("month", month.start);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fnPlans = ((planRows ?? []) as any[]).filter((p) =>
+    [...(p.member?.functions ?? []), ...(p.member?.sub_functions ?? [])].includes(fn)
+  );
+  let plan: OgxDashboardData["plan"] = null;
+  if (fnPlans.length > 0) {
+    const planned = fnPlans.reduce(
+      (acc, p) => ({
+        applicants: acc.applicants + (p.applicants ?? 0),
+        accepted: acc.accepted + (p.accepted ?? 0),
+        approvals: acc.approvals + (p.approvals ?? 0),
+      }),
+      { applicants: 0, accepted: 0, approvals: 0 }
+    );
+    // standing pipeline, fn-wide (live rows only — OOP left the process)
+    const actual = { applicants: 0, accepted: 0, approvals: 0 };
+    for (const r of rows) {
+      if (r.out_of_process) continue;
+      if (r.status === "Applied" || r.status === "Accepted" || r.status === "Approved")
+        actual.applicants += 1;
+      if (r.status === "Accepted" || r.status === "Approved") actual.accepted += 1;
+      if (r.status === "Approved") actual.approvals += 1;
+    }
+    plan = { monthLabel: month.label, plan: planned, actual };
+  }
+
+  const fnMembers = members.filter((m) => inFn(m) && m.role !== "LCP");
+  return {
+    fn,
+    total,
+    board: [...board.values()].sort(rank),
+    byTeam: [...byTeam.values()].sort(rank),
+    plan,
+    teamOptions: fnMembers
+      .filter((m) => m.role === "Team Leader")
+      .map((m) => ({ id: m.id, label: m.team_name || `Team ${m.nickname || m.name}` })),
+    memberOptions: fnMembers.map((m) => ({ id: m.id, label: m.nickname || m.name })),
+  };
+}
+
 // ================================================================== consideration (v26)
 
 import {
@@ -2667,6 +2911,14 @@ export interface IrCallRow {
   booker_name: string | null;
   booked_at: string | null;
   calendar_event_id: string | null;
+  /** v28 booking parity (migration 0029) */
+  booker_email: string | null;
+  meet_link: string | null;
+  /** the raw token NEVER leaves the server — the UI only needs the flag */
+  has_manage_link: boolean;
+  cancel_reason: string | null;
+  reschedule_requested_at: string | null;
+  duration_minutes: number | null;
 }
 
 /** IR calls — one SHARED international-relations effort: every module member
@@ -2697,9 +2949,17 @@ export async function listIrCalls(
       .range(from, from + pageSize - 1),
   ]);
   if (log.error) return { scheduled: [], rows: [], total: 0, page: 0 };
+  // the manage token is an email-held capability for the IR — shipping it to
+  // every crew member's browser would let anyone drive the public
+  // reschedule/cancel endpoints on teammates' calls
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const scrub = (r: any): IrCallRow => {
+    const { manage_token, ...rest } = r;
+    return { ...rest, has_manage_link: !!manage_token } as IrCallRow;
+  };
   return {
-    scheduled: (sched.data ?? []) as IrCallRow[],
-    rows: (log.data ?? []) as IrCallRow[],
+    scheduled: (sched.data ?? []).map(scrub),
+    rows: (log.data ?? []).map(scrub),
     total: log.count ?? 0,
     page,
   };
@@ -2815,11 +3075,13 @@ export async function searchCvs(
   };
 }
 
-// ---------------------------------------------------- IR-call booking (v27)
+// ---------------------------------------------------- IR-call booking (v27/v28)
 
 export interface IrAvailabilityRow {
-  /** 0 = Sunday … 6 = Saturday (Cairo time) */
-  day: number;
+  /** 0 = Sunday … 6 = Saturday (Cairo time) — weekly repeat rows */
+  day?: number;
+  /** one-off Cairo date "YYYY-MM-DD" — replaces `day` (v28 "one date only") */
+  date?: string;
   from: string; // "18:00"
   to: string; // "21:00"
 }
@@ -2830,7 +3092,19 @@ export interface IrBookingSettings {
   slot_minutes: number;
   availability: IrAvailabilityRow[];
   active: boolean;
+  /** v28 Calendar-parity scheduling controls (migration 0029) */
+  buffer_minutes: number;
+  min_notice_minutes: number;
+  max_advance_days: number;
+  start_date: string | null;
+  end_date: string | null;
+  guests_can_invite: boolean;
 }
+
+/** every column freeBookingSlots/getBookingPage need — one place to keep the
+ *  selects in sync with the interface */
+const BOOKING_SETTINGS_COLS =
+  "member_id, slug, slot_minutes, availability, active, buffer_minutes, min_notice_minutes, max_advance_days, start_date, end_date, guests_can_invite";
 
 export interface MyIrBooking {
   settings: IrBookingSettings | null;
@@ -2845,7 +3119,7 @@ export async function myIrBooking(viewer: Viewer): Promise<MyIrBooking | null> {
   if (!_hasConsiderationAccess(viewer)) return null;
   const { data } = await db()
     .from("ir_booking_settings")
-    .select("member_id, slug, slot_minutes, availability, active")
+    .select(BOOKING_SETTINGS_COLS)
     .eq("member_id", viewer.id)
     .maybeSingle<IrBookingSettings>();
   let suggested = (viewer.nickname || viewer.name || "")
@@ -2863,22 +3137,28 @@ export async function myIrBooking(viewer: Viewer): Promise<MyIrBooking | null> {
   };
 }
 
-/** Defensive read of the jsonb availability — malformed rows are dropped. */
-function sanitizeAvailability(raw: unknown): IrAvailabilityRow[] {
+/** Defensive read of the jsonb availability — malformed rows are dropped.
+ *  v28: accepts BOTH shapes — weekly {day,from,to} and one-off {date,from,to}. */
+export function sanitizeAvailability(raw: unknown): IrAvailabilityRow[] {
   if (!Array.isArray(raw)) return [];
   const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
-  return raw
-    .filter(
-      (r): r is IrAvailabilityRow =>
-        !!r &&
-        typeof r === "object" &&
-        Number.isInteger((r as IrAvailabilityRow).day) &&
-        (r as IrAvailabilityRow).day >= 0 &&
-        (r as IrAvailabilityRow).day <= 6 &&
-        TIME_RE.test(String((r as IrAvailabilityRow).from)) &&
-        TIME_RE.test(String((r as IrAvailabilityRow).to))
-    )
-    .map((r) => ({ day: r.day, from: r.from, to: r.to }));
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  const out: IrAvailabilityRow[] = [];
+  for (const r of raw) {
+    if (!r || typeof r !== "object") continue;
+    const row = r as IrAvailabilityRow;
+    if (!TIME_RE.test(String(row.from)) || !TIME_RE.test(String(row.to))) continue;
+    if (
+      typeof row.date === "string" &&
+      DATE_RE.test(row.date) &&
+      !Number.isNaN(new Date(`${row.date}T00:00:00Z`).getTime())
+    ) {
+      out.push({ date: row.date, from: row.from, to: row.to });
+    } else if (Number.isInteger(row.day) && row.day! >= 0 && row.day! <= 6) {
+      out.push({ day: row.day, from: row.from, to: row.to });
+    }
+  }
+  return out;
 }
 
 export interface BookingSlot {
@@ -2907,28 +3187,42 @@ const _slotLabel = (hh: number, mm: number): string => {
   return `${h12}:${String(mm).padStart(2, "0")} ${hh >= 12 ? "PM" : "AM"}`;
 };
 
-/** The FREE slots of the next 14 Cairo days: availability windows ÷
- *  slot_minutes, minus already-booked scheduled calls (± overlap), minus
- *  past times. All Cairo wall-clock; each slot's key is its UTC instant.
- *  Shared by the public /book page AND bookIrCall's re-validation. */
-export async function freeBookingSlots(s: IrBookingSettings): Promise<BookingDay[]> {
+/** The FREE slots of the member's booking horizon (max_advance_days Cairo
+ *  days): availability windows ÷ slot_minutes, minus already-booked scheduled
+ *  calls (± overlap, padded by buffer_minutes on BOTH sides), minus times
+ *  inside the minimum notice, clipped to the optional start/end dates. All
+ *  Cairo wall-clock; each slot's key is its UTC instant. Shared by the public
+ *  /book page, the manage page's reschedule picker (which excludes the call
+ *  being moved) AND bookIrCall's re-validation. */
+export async function freeBookingSlots(
+  s: IrBookingSettings,
+  opts?: { excludeCallId?: string }
+): Promise<BookingDay[]> {
   const { cairoToUtc } = await import("@/lib/time");
   const availability = sanitizeAvailability(s.availability);
   if (availability.length === 0) return [];
   const slotMin = Math.min(120, Math.max(10, s.slot_minutes || 30));
   const slotMs = slotMin * 60_000;
+  const bufferMs = Math.min(60, Math.max(0, s.buffer_minutes ?? 0)) * 60_000;
+  const horizon = Math.min(90, Math.max(1, s.max_advance_days ?? 14));
   const now = Date.now();
-  const notBefore = now + 10 * 60_000; // 10-min lead — no booking "right now"
+  // minimum notice replaces the old hardcoded 10-min lead (10-min floor kept
+  // so nobody can book a call that starts "right now")
+  const noticeMin = Math.min(10_080, Math.max(0, s.min_notice_minutes ?? 60));
+  const notBefore = now + Math.max(10, noticeMin) * 60_000;
 
   // every scheduled call blocks the span it was BOOKED with — an existing
   // 60-min call must still block fully after the member switches to 30-min
-  const { data: bookedRows } = await db()
+  let bookedQ = db()
     .from("ir_calls")
-    .select("called_at, duration_minutes")
+    .select("id, called_at, duration_minutes")
     .eq("member_id", s.member_id)
     .eq("status", "scheduled")
     .gte("called_at", new Date(now - 3 * 3_600_000).toISOString())
-    .lte("called_at", new Date(now + 15 * 86_400_000).toISOString());
+    .lte("called_at", new Date(now + (horizon + 1) * 86_400_000).toISOString());
+  // the manage page's reschedule picker must not let the call block ITSELF
+  if (opts?.excludeCallId) bookedQ = bookedQ.neq("id", opts.excludeCallId);
+  const { data: bookedRows } = await bookedQ;
   const busy = (bookedRows ?? [])
     .map((r) => ({
       start: new Date(r.called_at as string).getTime(),
@@ -2941,11 +3235,17 @@ export async function freeBookingSlots(s: IrBookingSettings): Promise<BookingDay
   // iterate CALENDAR days from today's Cairo date — stepping raw 24h epochs
   // would skip/duplicate a day across a DST transition
   const [y0, m0, d0] = _cairoYmd(new Date(now)).split("-").map(Number);
-  for (let i = 0; i < 14; i++) {
+  for (let i = 0; i < horizon; i++) {
     const utcNoon = new Date(Date.UTC(y0, m0 - 1, d0 + i));
     const ymd = utcNoon.toISOString().slice(0, 10);
+    // the schedule only runs inside the optional start/end date range
+    if (s.start_date && ymd < s.start_date) continue;
+    if (s.end_date && ymd > s.end_date) continue;
     const dow = utcNoon.getUTCDay();
-    const windows = availability.filter((w) => w.day === dow);
+    // weekly rows match the day-of-week; one-off rows match their exact day
+    const windows = availability.filter((w) =>
+      w.date ? w.date === ymd : w.day === dow
+    );
     if (windows.length === 0) continue;
     const seen = new Set<string>();
     const slots: BookingSlot[] = [];
@@ -2959,7 +3259,16 @@ export async function freeBookingSlots(s: IrBookingSettings): Promise<BookingDay
         const start = cairoToUtc(ymd, hhmm);
         const startMs = start.getTime();
         if (startMs < notBefore) continue;
-        if (busy.some((b) => startMs < b.start + b.ms && b.start < startMs + slotMs)) continue;
+        // buffer pads every existing call on BOTH sides — back-to-back slots
+        // within the buffer of a booked call are excluded
+        if (
+          busy.some(
+            (b) =>
+              startMs < b.start + b.ms + bufferMs &&
+              b.start - bufferMs < startMs + slotMs
+          )
+        )
+          continue;
         const iso = start.toISOString();
         if (seen.has(iso)) continue;
         seen.add(iso);
@@ -2994,7 +3303,7 @@ export async function getBookingPage(slug: string): Promise<{
   // the slug charset has no % or _ — ilike is a safe case-insensitive equal
   const { data: s } = await db()
     .from("ir_booking_settings")
-    .select("member_id, slug, slot_minutes, availability, active")
+    .select(BOOKING_SETTINGS_COLS)
     .ilike("slug", clean)
     .maybeSingle<IrBookingSettings>();
   if (!s || !s.active) return null;
@@ -3008,6 +3317,111 @@ export async function getBookingPage(slug: string): Promise<{
     memberName: member.nickname || member.name,
     slotMinutes: s.slot_minutes,
     days: await freeBookingSlots(s),
+  };
+}
+
+/** "Sat, Aug 2 · 6:00 PM (Cairo time)" for a stored UTC instant — the one
+ *  label format every booking surface (emails, manage page, bells) shares. */
+export function cairoWhenLabel(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const date = d.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    timeZone: "Africa/Cairo",
+  });
+  const time = d.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "Africa/Cairo",
+  });
+  return `${date} · ${time} (Cairo time)`;
+}
+
+const MANAGE_TOKEN_RE = /^[0-9a-f-]{20,64}$/i;
+
+/** Everything the PUBLIC /book/manage/<token> page renders: the booking's
+ *  state + (while it's still scheduled) the member's CURRENT free slots for a
+ *  reschedule — the call being moved doesn't block itself. Null for unknown
+ *  tokens. */
+export interface ManageBookingData {
+  callId: string;
+  memberName: string;
+  partnerLc: string;
+  status: "scheduled" | "completed" | "cancelled";
+  whenLabel: string;
+  durationMinutes: number;
+  meetLink: string | null;
+  cancelReason: string | null;
+  /** the member asked to move this call — the manage page nudges a pick */
+  rescheduleRequested: boolean;
+  /** the member's live /book/<slug> page (for rebooking after a cancel) */
+  bookingUrl: string | null;
+  days: BookingDay[];
+}
+
+export async function getManageBooking(token: string): Promise<ManageBookingData | null> {
+  const clean = (token ?? "").trim();
+  if (!MANAGE_TOKEN_RE.test(clean)) return null;
+  const { data: call } = await db()
+    .from("ir_calls")
+    .select(
+      "id, member_id, member_name, partner_lc_name, called_at, status, duration_minutes, meet_link, cancel_reason, reschedule_requested_at"
+    )
+    .eq("manage_token", clean)
+    .maybeSingle<{
+      id: string;
+      member_id: string | null;
+      member_name: string;
+      partner_lc_name: string;
+      called_at: string;
+      status: "scheduled" | "completed" | "cancelled";
+      duration_minutes: number | null;
+      meet_link: string | null;
+      cancel_reason: string | null;
+      reschedule_requested_at: string | null;
+    }>();
+  if (!call) return null;
+
+  let settings: IrBookingSettings | null = null;
+  let memberName = call.member_name;
+  if (call.member_id) {
+    const [{ data: s }, { data: member }] = await Promise.all([
+      db()
+        .from("ir_booking_settings")
+        .select(BOOKING_SETTINGS_COLS)
+        .eq("member_id", call.member_id)
+        .maybeSingle<IrBookingSettings>(),
+      db()
+        .from("members")
+        .select("name, nickname, is_active")
+        .eq("id", call.member_id)
+        .maybeSingle<{ name: string; nickname: string | null; is_active: boolean }>(),
+    ]);
+    if (member?.is_active) {
+      memberName = member.nickname || member.name;
+      settings = s ?? null;
+    }
+  }
+  const linkLive = !!settings?.active;
+
+  return {
+    callId: call.id,
+    memberName,
+    partnerLc: call.partner_lc_name,
+    status: call.status,
+    whenLabel: cairoWhenLabel(call.called_at),
+    durationMinutes: call.duration_minutes ?? settings?.slot_minutes ?? 30,
+    meetLink: call.meet_link,
+    cancelReason: call.cancel_reason,
+    rescheduleRequested: !!call.reschedule_requested_at,
+    bookingUrl: linkLive ? `${env.appUrl}/book/${settings!.slug}` : null,
+    days:
+      call.status === "scheduled" && linkLive
+        ? await freeBookingSlots(settings!, { excludeCallId: call.id })
+        : [],
   };
 }
 

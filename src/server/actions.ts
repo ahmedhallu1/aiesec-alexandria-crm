@@ -1808,7 +1808,7 @@ export async function scheduleVisit(
         notes,
         detailsUrl,
         organizerEmail: env.gmailSender || viewer.email || "",
-        organizerName: "Sodio · AIESEC in Alexandria",
+        organizerName: "Elevate · AIESEC in Alexandria",
         attendeeEmails: inviteTo,
         method: "REQUEST",
       });
@@ -3090,8 +3090,8 @@ export async function thankFeedback(feedbackId: string): Promise<ActionResult> {
   await notifyMembers(
     [f.member.id],
     "thanks",
-    "Your feedback made Sodio better 💙",
-    `The IM team applied your feedback — thank you for building Sodio with us! ("${f.message.slice(0, 120)}")`,
+    "Your feedback made Elevate better 💙",
+    `The IM team applied your feedback — thank you for building Elevate with us! ("${f.message.slice(0, 120)}")`,
     viewer.id
   );
 
@@ -3359,7 +3359,7 @@ export async function runPlanningImport(): Promise<ActionResult<{ cells: number;
     const msg = e instanceof Error ? e.message : "Import failed.";
     if (msg.includes("permission") || msg.includes("PERMISSION") || msg.includes("caller does not have"))
       return fail(
-        "The planning sheet isn't shared with Sodio's service account yet — share it (Viewer) with crm-sheets@gen-lang-client-0055329754.iam.gserviceaccount.com and retry."
+        "The planning sheet isn't shared with Elevate's service account yet — share it (Viewer) with crm-sheets@gen-lang-client-0055329754.iam.gserviceaccount.com and retry."
       );
     return fail(msg);
   }
@@ -3916,6 +3916,47 @@ export async function addSignupComment(id: string, body: string): Promise<Action
   return { ok: true };
 }
 
+/** The POTENTIAL pipeline (v28): whoever OWNS a sign-up (the assigned
+ *  member, their TL, the fn's VP/Director, LCP/admin — canWorkSignup) moves
+ *  it Sign-up → Applied → Accepted → Approved (and back). These stages are
+ *  SYSTEM-ONLY: the sheet write-back no longer carries them (its status cell
+ *  only ever says "Out of Process"). "Parents Approval" stays VP-set. */
+export async function setSignupPotential(
+  id: string,
+  status: string | null
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const signup = await loadSignup(id);
+  if (!signup || !canWorkSignup(viewer, signup))
+    return fail("You are not allowed to work this sign-up.", "forbidden");
+  if (signup.out_of_process) return fail("This sign-up is archived (Out of Process).");
+  const POTENTIAL: readonly string[] = ["Applied", "Accepted", "Approved"];
+  const next = status?.trim() || null;
+  if (next !== null && !POTENTIAL.includes(next))
+    return fail("Pick a valid potential stage.");
+  // moving OFF the VP-set "Parents Approval" stays a VP move
+  if (signup.status === "Parents Approval" && !canEditSignupVpFields(viewer, signup))
+    return fail(
+      '"Parents Approval" is VP-set — ask your VP/Director to move this one.',
+      "forbidden"
+    );
+  if (next === signup.status) return { ok: true };
+  await snapshotForUndo("signups", id);
+  const { error } = await db()
+    .from("signups")
+    .update(touchSignup({ status: next }))
+    .eq("id", id);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "signup_potential", "signup", id, {
+    from: signup.status,
+    to: next,
+  });
+  // the push stamps Time Stamp etc. — the status cell itself stays system-only
+  await pushSignupToSheet(id);
+  refresh();
+  return { ok: true };
+}
+
 /** VP-only fields: Country (autocomplete text), Sub Product (OGT), Status. */
 export async function updateSignupVpFields(
   id: string,
@@ -4021,6 +4062,9 @@ import { canSeeCvPool, hasConsiderationAccess } from "@/lib/rbac";
 import { CV_INDUSTRIES } from "@/lib/cv-extract";
 import { freeBookingSlots } from "./data";
 import type { CvRow, IrBookingSettings, IrCallRow, PartnerLc } from "./data";
+/** server-side ir_call rows (own select) still carry the raw token */
+type IrCallServerRow = IrCallRow & { manage_token: string | null };
+
 import type { Viewer } from "@/lib/rbac";
 
 /** IR calls (International Relations): video calls with partner LCs abroad
@@ -4249,21 +4293,31 @@ export async function recordIrCall(input: {
   return { ok: true, data: { id: created.id, screenshotWarning: warning } };
 }
 
-// ------------------------------------------------------------ booking (v27)
+// ------------------------------------------------------------ booking (v27/v28)
 
 const BOOKING_SLUG_RE = /^[a-z0-9-]{3,40}$/;
-const BOOKING_SLOT_CHOICES = [15, 30, 45, 60];
+const BOOKING_SLOT_CHOICES = [15, 30, 45, 60, 90, 120];
 const BOOKING_TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const BOOKING_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** "My booking link": each consideration member publishes /book/<slug> built
- *  from their weekly Cairo-time availability. Upserted on member_id; the slug
- *  is unique case-insensitively across members. Sandbox-refused: the table is
- *  keyed by member_id (no `id` column), so the undo replay can't restore it. */
+ *  from their Cairo-time availability (weekly rows + one-off dates). v28 adds
+ *  Calendar-appointment parity: buffer between calls, minimum notice, maximum
+ *  advance, an active date range and the guests-can-invite toggle. Upserted
+ *  on member_id; the slug is unique case-insensitively across members.
+ *  Sandbox-refused: the table is keyed by member_id (no `id` column), so the
+ *  undo replay can't restore it. */
 export async function saveIrBookingSettings(input: {
   slug: string;
   slotMinutes: number;
-  availability: { day: number; from: string; to: string }[];
+  availability: { day?: number; date?: string; from: string; to: string }[];
   active: boolean;
+  bufferMinutes?: number;
+  minNoticeMinutes?: number;
+  maxAdvanceDays?: number;
+  startDate?: string | null;
+  endDate?: string | null;
+  guestsCanInvite?: boolean;
 }): Promise<ActionResult<{ slug: string }>> {
   const viewer = await getViewer();
   if (!hasConsiderationAccess(viewer)) return considerationFail();
@@ -4277,16 +4331,37 @@ export async function saveIrBookingSettings(input: {
     );
   const slotMinutes = Number(input.slotMinutes);
   if (!BOOKING_SLOT_CHOICES.includes(slotMinutes))
-    return fail("Pick a slot length from the list (15 / 30 / 45 / 60 minutes).");
+    return fail("Pick a slot length from the list (15 / 30 / 45 / 60 / 90 / 120 minutes).");
+
+  const bufferMinutes = Number(input.bufferMinutes ?? 0);
+  if (!Number.isInteger(bufferMinutes) || bufferMinutes < 0 || bufferMinutes > 60)
+    return fail("The buffer between calls must be between 0 and 60 minutes.");
+  const minNoticeMinutes = Number(input.minNoticeMinutes ?? 60);
+  if (!Number.isInteger(minNoticeMinutes) || minNoticeMinutes < 0 || minNoticeMinutes > 10_080)
+    return fail("The minimum notice must be between 0 minutes and 7 days.");
+  const maxAdvanceDays = Number(input.maxAdvanceDays ?? 14);
+  if (!Number.isInteger(maxAdvanceDays) || maxAdvanceDays < 1 || maxAdvanceDays > 90)
+    return fail("The maximum advance must be between 1 and 90 days.");
+
+  const cleanDate = (v: string | null | undefined, label: string) => {
+    const t = (v ?? "").trim();
+    if (!t) return { value: null as string | null };
+    if (!BOOKING_DATE_RE.test(t) || Number.isNaN(new Date(`${t}T00:00:00Z`).getTime()))
+      return { error: fail(`The ${label} date doesn't look right (YYYY-MM-DD).`) };
+    return { value: t as string | null };
+  };
+  const startD = cleanDate(input.startDate, "start");
+  if ("error" in startD) return startD.error!;
+  const endD = cleanDate(input.endDate, "end");
+  if ("error" in endD) return endD.error!;
+  if (startD.value && endD.value && startD.value > endD.value)
+    return fail("The schedule's start date must come before its end date.");
 
   const raw = Array.isArray(input.availability) ? input.availability.slice(0, 21) : [];
-  const availability: { day: number; from: string; to: string }[] = [];
+  const availability: { day?: number; date?: string; from: string; to: string }[] = [];
   for (const w of raw) {
-    const day = Number(w?.day);
     const from = String(w?.from ?? "");
     const to = String(w?.to ?? "");
-    if (!Number.isInteger(day) || day < 0 || day > 6)
-      return fail("Each availability row needs a day of the week.");
     if (!BOOKING_TIME_RE.test(from) || !BOOKING_TIME_RE.test(to))
       return fail("Each availability row needs a from and to time (e.g. 18:00 → 21:00).");
     const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
@@ -4294,10 +4369,57 @@ export async function saveIrBookingSettings(input: {
       return fail(
         `The ${from} → ${to} window is shorter than one ${slotMinutes}-minute slot — widen it or drop it.`
       );
-    availability.push({ day, from, to });
+    const rawDate = w?.date;
+    const date = String(rawDate ?? "").trim();
+    // a row explicitly in "one date only" mode with the date left empty must
+    // not silently fall through to the weekly branch's confusing error
+    if (rawDate != null && !date)
+      return fail("A 'One date only' row is missing its date — pick it or switch the row to weekly.");
+    if (date) {
+      if (!BOOKING_DATE_RE.test(date) || Number.isNaN(new Date(`${date}T00:00:00Z`).getTime()))
+        return fail("Each one-date row needs a real date (YYYY-MM-DD).");
+      availability.push({ date, from, to });
+    } else {
+      const day = Number(w?.day);
+      if (!Number.isInteger(day) || day < 0 || day > 6)
+        return fail("Each weekly availability row needs a day of the week.");
+      availability.push({ day, from, to });
+    }
   }
   if (input.active && availability.length === 0)
-    return fail("Add at least one weekly availability window — or switch the link off.");
+    return fail("Add at least one availability window — or switch the link off.");
+
+  // overlapping windows on the same day would mint overlapping slot grids the
+  // unique (member, called_at) index cannot race-guard — reject them
+  {
+    const toM = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+    type Win = { from: number; to: number; label: string };
+    const overlapIn = (list: Win[]): string | null => {
+      const s = [...list].sort((a, b) => a.from - b.from);
+      for (let i = 1; i < s.length; i++)
+        if (s[i].from < s[i - 1].to) return `${s[i].label} overlaps ${s[i - 1].label}`;
+      return null;
+    };
+    const win = (w: { from: string; to: string }): Win => ({
+      from: toM(w.from), to: toM(w.to), label: `${w.from} → ${w.to}`,
+    });
+    const weekly = new Map<number, Win[]>();
+    const dated = new Map<string, Win[]>();
+    for (const w of availability) {
+      if (w.date) dated.set(w.date, [...(dated.get(w.date) ?? []), win(w)]);
+      else weekly.set(w.day!, [...(weekly.get(w.day!) ?? []), win(w)]);
+    }
+    for (const list of weekly.values()) {
+      const clash = overlapIn(list);
+      if (clash) return fail(`Weekly windows overlap: ${clash} — merge or separate them.`);
+    }
+    for (const [date, list] of dated) {
+      // a one-off day also carries that weekday's weekly windows
+      const dow = new Date(`${date}T12:00:00Z`).getUTCDay();
+      const clash = overlapIn([...list, ...(weekly.get(dow) ?? [])]);
+      if (clash) return fail(`Windows on ${date} overlap: ${clash} — merge or separate them.`);
+    }
+  }
 
   const { error } = await db().from("ir_booking_settings").upsert({
     member_id: viewer.id,
@@ -4305,6 +4427,12 @@ export async function saveIrBookingSettings(input: {
     slot_minutes: slotMinutes,
     availability,
     active: !!input.active,
+    buffer_minutes: bufferMinutes,
+    min_notice_minutes: minNoticeMinutes,
+    max_advance_days: maxAdvanceDays,
+    start_date: startD.value,
+    end_date: endD.value,
+    guests_can_invite: input.guestsCanInvite ?? true,
   });
   if (error) {
     if (error.code === "23505")
@@ -4321,30 +4449,62 @@ export async function saveIrBookingSettings(input: {
   return { ok: true, data: { slug } };
 }
 
+/** Neutral input scrub for the PUBLIC booking surfaces. */
+const bookingPlain = (v: unknown, max: number) =>
+  String(v ?? "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/[<>]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max);
+
+/** Shared per-IP throttle for EVERY public booking mutation (book, reschedule,
+ *  cancel): 3 actions/hour per IP. Returns a fail() when over, null when OK —
+ *  and never blocks the action on a throttle-infra error. */
+async function bookingThrottle(): Promise<ActionResult<never> | null> {
+  try {
+    const { headers } = await import("next/headers");
+    const ip =
+      (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const ipHash = crypto.createHash("sha256").update(ip).digest("hex").slice(0, 16);
+    const hourKey = `bookrl:${ipHash}:${new Date().toISOString().slice(0, 13)}`;
+    // atomic increment (0030 RPC) — read-then-upsert let parallel bursts by
+    const { data: n, error } = await db().rpc("bump_rate_bucket", { k: hourKey });
+    if (error) console.error("[ir-booking] rate bucket failed:", error.message);
+    else if ((n ?? 0) > 3)
+      return fail("Too many booking attempts from your network — try again later.");
+  } catch (e) {
+    console.error("[ir-booking] rate limit check failed:", e);
+  }
+  return null;
+}
+
 /** PUBLIC — the /book/<slug> submit. No viewer, no session: inputs are
- *  validated hard (length caps, tags stripped), the slot is re-validated
- *  against the availability AND a fresh overlap query (race guard), and the
- *  member gets a calendar event (best-effort), a bell and a branded email.
- *  Journals nothing — there is no sandbox without a viewer. */
+ *  validated hard (length caps, tags stripped, email format), the slot is
+ *  re-validated against the availability AND a fresh overlap query (race
+ *  guard). v28: the IR's email is REQUIRED — they're invited as a calendar
+ *  attendee (Google sends the invite), a Meet room rides on the event, and a
+ *  confirmation email carries the public manage link. Journals nothing —
+ *  there is no sandbox without a viewer. */
 export async function bookIrCall(input: {
   slug: string;
   startIso: string;
   lcName: string;
+  bookerEmail: string;
   country?: string | null;
   bookerName?: string | null;
-}): Promise<ActionResult<{ memberName: string; whenLabel: string }>> {
-  const plain = (v: unknown, max: number) =>
-    String(v ?? "")
-      .replace(/<[^>]*>/g, " ")
-      .replace(/[<>]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, max);
+}): Promise<
+  ActionResult<{ memberName: string; whenLabel: string; meetLink: string | null }>
+> {
+  const plain = bookingPlain;
 
   const slug = plain(input.slug, 40).toLowerCase();
   if (!BOOKING_SLUG_RE.test(slug)) return fail("This booking link is not valid.");
   const lcName = plain(input.lcName, 120);
   if (!lcName) return fail("Tell us your LC's name first.");
+  const bookerEmail = plain(input.bookerEmail, 200).toLowerCase();
+  if (!bookerEmail || !EMAIL_RE.test(bookerEmail))
+    return fail("We need a valid email — the calendar invite and Meet link go there.");
   // country only counts when it IS a country — public input never gets to
   // store free text (CountryInput is client-side sugar, not validation)
   const countryRaw = plain(input.country, 60);
@@ -4364,30 +4524,15 @@ export async function bookIrCall(input: {
 
   // per-caller throttle: 3 bookings/hour per IP — a public endpoint must not
   // let one visitor flood a member's calendar or the partner-LC list
-  try {
-    const { headers } = await import("next/headers");
-    const ip =
-      (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-    const ipHash = crypto.createHash("sha256").update(ip).digest("hex").slice(0, 16);
-    const hourKey = `bookrl:${ipHash}:${new Date().toISOString().slice(0, 13)}`;
-    const { data: bucket } = await db()
-      .from("app_settings")
-      .select("value")
-      .eq("key", hourKey)
-      .maybeSingle<{ value: { n: number } }>();
-    const n = (bucket?.value?.n ?? 0) + 1;
-    await db()
-      .from("app_settings")
-      .upsert({ key: hourKey, value: { n }, updated_at: new Date().toISOString() });
-    if (n > 3) return fail("Too many booking attempts from your network — try again later.");
-  } catch (e) {
-    console.error("[ir-booking] rate limit check failed:", e);
-  }
+  const throttled = await bookingThrottle();
+  if (throttled) return throttled;
 
   // the slug charset has no % or _ — ilike is a safe case-insensitive equal
   const { data: settings } = await db()
     .from("ir_booking_settings")
-    .select("member_id, slug, slot_minutes, availability, active")
+    .select(
+      "member_id, slug, slot_minutes, availability, active, buffer_minutes, min_notice_minutes, max_advance_days, start_date, end_date, guests_can_invite"
+    )
     .ilike("slug", slug)
     .maybeSingle<IrBookingSettings>();
   if (!settings?.active) return fail("This booking link is not active.");
@@ -4460,6 +4605,9 @@ export async function bookIrCall(input: {
     } else lc = ins.data as PartnerLc;
   }
 
+  // the public manage link's key — lets the IR reschedule/cancel accountless
+  const manageToken = crypto.randomBytes(16).toString("hex");
+
   const { data: created, error } = await db()
     .from("ir_calls")
     .insert({
@@ -4468,6 +4616,8 @@ export async function bookIrCall(input: {
       called_at: startIso,
       status: "scheduled",
       booker_name: bookerName,
+      booker_email: bookerEmail,
+      manage_token: manageToken,
       booked_at: new Date().toISOString(),
       duration_minutes: settings.slot_minutes,
       member_id: owner.id,
@@ -4484,19 +4634,28 @@ export async function bookIrCall(input: {
   }
 
   // best-effort calendar event on the OWNER's own calendar (a dead grant
-  // must never fail the booking)
+  // must never fail the booking): the IR is a real attendee (Google emails
+  // the invite) and a Meet room is provisioned
+  let meetLink: string | null = null;
   try {
     const { createIrCallEvent } = await import("@/lib/google/calendar");
-    const eventId = await createIrCallEvent(owner.google_refresh_token, {
+    const event = await createIrCallEvent(owner.google_refresh_token, {
       partnerLc: lc.name,
       start,
       minutes: settings.slot_minutes,
-      description: `IR call booked via your Sodio link.\nPartner LC: ${lc.name}${
+      attendeeEmail: bookerEmail,
+      guestsCanInvite: settings.guests_can_invite ?? true,
+      description: `IR call booked via your Elevate link.\nPartner LC: ${lc.name}${
         country ? ` (${country})` : ""
-      }${bookerName ? `\nBooked by: ${bookerName}` : ""}\n${env.appUrl}/consideration`,
+      }${bookerName ? `\nBooked by: ${bookerName}` : ""} <${bookerEmail}>\n${env.appUrl}/consideration`,
     });
-    if (eventId)
-      await db().from("ir_calls").update({ calendar_event_id: eventId }).eq("id", created.id);
+    if (event) {
+      meetLink = event.meetLink;
+      await db()
+        .from("ir_calls")
+        .update({ calendar_event_id: event.id, meet_link: event.meetLink })
+        .eq("id", created.id);
+    }
   } catch (e) {
     console.error("[ir-booking] calendar event failed:", e);
   }
@@ -4523,8 +4682,10 @@ export async function bookIrCall(input: {
         partnerLc: lc.name,
         country,
         bookerName,
+        bookerEmail,
         whenLabel,
         slotMinutes: settings.slot_minutes,
+        meetLink,
         considerationUrl: `${env.appUrl}/consideration`,
       });
       await sendEmail({ to: [owner.email], subject: mail.subject, html: mail.html });
@@ -4533,12 +4694,29 @@ export async function bookIrCall(input: {
     }
   }
 
+  // the IR's confirmation — when/who/Meet + the accountless manage link
+  try {
+    const { irBookingConfirmEmail } = await import("@/lib/email/templates");
+    const confirm = irBookingConfirmEmail({
+      bookerName,
+      memberName,
+      partnerLc: lc.name,
+      whenLabel,
+      slotMinutes: settings.slot_minutes,
+      meetLink,
+      manageUrl: `${env.appUrl}/book/manage/${manageToken}`,
+    });
+    await sendEmail({ to: [bookerEmail], subject: confirm.subject, html: confirm.html });
+  } catch (e) {
+    console.error("[ir-booking] booker confirmation email failed:", e);
+  }
+
   await logAudit(null, "ir_call_booked", "ir_call", created.id, {
     lc: lc.name,
     slug,
     when: whenLabel,
   });
-  return { ok: true, data: { memberName, whenLabel } };
+  return { ok: true, data: { memberName, whenLabel, meetLink } };
 }
 
 /** The in-call notes: demand domains + "when are your B2C campaigns?" + free
@@ -4560,7 +4738,7 @@ export async function completeIrCall(
     .from("ir_calls")
     .select("*")
     .eq("id", id)
-    .maybeSingle<IrCallRow>();
+    .maybeSingle<IrCallServerRow>();
   if (!call) return fail("That call no longer exists.");
   if (call.status !== "scheduled")
     return fail(`This call is already ${call.status}.`);
@@ -4607,16 +4785,22 @@ export async function completeIrCall(
   return { ok: true, data: { screenshotWarning: warning } };
 }
 
-/** Cancels a SCHEDULED call (owner or VP/Director/LCP) — frees the slot and
- *  best-effort removes the owner's calendar event. */
-export async function cancelIrCall(id: string): Promise<ActionResult> {
+/** Cancels a SCHEDULED call (owner or VP/Director/LCP) — v28: a short reason
+ *  is REQUIRED, the calendar event is removed (attendees notified), and the
+ *  IR who booked it gets the reason by email + a link to rebook. */
+export async function cancelIrCall(id: string, reason: string): Promise<ActionResult> {
   const viewer = await getViewer();
   if (!hasConsiderationAccess(viewer)) return considerationFail();
+  if (viewer.sandbox)
+    return fail("Cancelling calls is disabled in the sandbox test view — exit it to test cancellations.");
+  const cleanReason = (reason ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
+  if (!cleanReason)
+    return fail("Give the IR a short reason — it goes into their cancellation email.");
   const { data: call } = await db()
     .from("ir_calls")
     .select("*")
     .eq("id", id)
-    .maybeSingle<IrCallRow>();
+    .maybeSingle<IrCallServerRow>();
   if (!call) return fail("That call no longer exists.");
   if (call.status !== "scheduled") return fail("Only scheduled calls can be cancelled.");
   if (call.member_id !== viewer.id && !isConsiderationLead(viewer))
@@ -4625,9 +4809,28 @@ export async function cancelIrCall(id: string): Promise<ActionResult> {
   await snapshotForUndo("ir_calls", id);
   const { error } = await db()
     .from("ir_calls")
-    .update({ status: "cancelled" })
+    .update({ status: "cancelled", cancel_reason: cleanReason })
     .eq("id", id);
   if (error) return fail(error.message);
+
+  let ownerToken: string | null = null;
+  let bookingSlug: { slug: string; active: boolean } | null = null;
+  if (call.member_id) {
+    const [{ data: owner }, { data: s }] = await Promise.all([
+      db()
+        .from("members")
+        .select("google_refresh_token")
+        .eq("id", call.member_id)
+        .maybeSingle<{ google_refresh_token: string | null }>(),
+      db()
+        .from("ir_booking_settings")
+        .select("slug, active")
+        .eq("member_id", call.member_id)
+        .maybeSingle<{ slug: string; active: boolean }>(),
+    ]);
+    ownerToken = owner?.google_refresh_token ?? null;
+    bookingSlug = s ?? null;
+  }
 
   if (
     call.calendar_event_id &&
@@ -4635,19 +4838,462 @@ export async function cancelIrCall(id: string): Promise<ActionResult> {
     !(await sandboxSuppressed("IR-call calendar event delete"))
   ) {
     try {
-      const { data: owner } = await db()
-        .from("members")
-        .select("google_refresh_token")
-        .eq("id", call.member_id)
-        .maybeSingle<{ google_refresh_token: string | null }>();
-      await deleteVisitEvent(owner?.google_refresh_token ?? null, call.calendar_event_id);
+      const { deleteIrCallEvent } = await import("@/lib/google/calendar");
+      await deleteIrCallEvent(ownerToken, call.calendar_event_id);
     } catch (e) {
       console.error("[ir-calls] calendar delete failed:", e);
     }
   }
+
+  // the IR's cancellation email — reason + a rebook link (best-effort; the
+  // sendEmail helper itself is sandbox-suppressed)
+  if (call.booker_email) {
+    try {
+      const { irCallCancelledByMemberEmail } = await import("@/lib/email/templates");
+      const { cairoWhenLabel } = await import("./data");
+      const mail = irCallCancelledByMemberEmail({
+        bookerName: call.booker_name,
+        memberName: call.member_name,
+        partnerLc: call.partner_lc_name,
+        whenLabel: cairoWhenLabel(call.called_at),
+        reason: cleanReason,
+        bookingUrl: bookingSlug?.active ? `${env.appUrl}/book/${bookingSlug.slug}` : null,
+      });
+      await sendEmail({ to: [call.booker_email], subject: mail.subject, html: mail.html });
+    } catch (e) {
+      console.error("[ir-calls] booker cancel email failed:", e);
+    }
+  }
+
   await logAudit(viewer.id, "ir_call_cancel", "ir_call", id, {
     lc: call.partner_lc_name,
+    reason: cleanReason,
   });
+  refresh();
+  return { ok: true };
+}
+
+/** v28 — the member can't make a BOOKED call and wants the IR to pick a new
+ *  time: stamps reschedule_requested_at and emails the IR their manage link
+ *  ("pick a new time"). Owner or VP/Director/LCP; no bells to anyone else. */
+export async function requestIrReschedule(id: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  if (viewer.sandbox)
+    return fail("Reschedule requests are disabled in the sandbox test view.");
+  const { data: call } = await db()
+    .from("ir_calls")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle<IrCallServerRow>();
+  if (!call) return fail("That call no longer exists.");
+  if (call.status !== "scheduled")
+    return fail("Only scheduled calls can be rescheduled.");
+  if (call.member_id !== viewer.id && !isConsiderationLead(viewer))
+    return fail(
+      "Only the call's owner or a VP/Director can request a reschedule.",
+      "forbidden"
+    );
+  if (!call.manage_token || !call.booker_email)
+    return fail(
+      "This call wasn't booked through a link — there's no IR email to reach. Agree on a new time directly, then cancel and rebook."
+    );
+
+  // email FIRST (it's the whole point) — the stamp only lands after it sends;
+  // in the sandbox test view sendEmail is suppressed and the stamp is journaled
+  try {
+    const { irRescheduleRequestEmail } = await import("@/lib/email/templates");
+    const { cairoWhenLabel } = await import("./data");
+    const mail = irRescheduleRequestEmail({
+      bookerName: call.booker_name,
+      memberName: call.member_name,
+      partnerLc: call.partner_lc_name,
+      whenLabel: cairoWhenLabel(call.called_at),
+      manageUrl: `${env.appUrl}/book/manage/${call.manage_token}`,
+    });
+    await sendEmail({ to: [call.booker_email], subject: mail.subject, html: mail.html });
+  } catch (e) {
+    console.error("[ir-calls] reschedule request email failed:", e);
+    return fail("Could not email the IR — try again in a moment.");
+  }
+
+  await snapshotForUndo("ir_calls", id);
+  const { error } = await db()
+    .from("ir_calls")
+    .update({ reschedule_requested_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "ir_call_reschedule_request", "ir_call", id, {
+    lc: call.partner_lc_name,
+  });
+  refresh();
+  return { ok: true };
+}
+
+// ------------------------------------------------- public manage page (v28)
+
+/** Loads a manage-token's call + its owner's settings/grant for the public
+ *  reschedule/cancel actions. */
+async function loadManagedCall(token: string): Promise<
+  | { error: ActionResult<never> }
+  | {
+      call: IrCallServerRow;
+      owner: {
+        id: string;
+        name: string;
+        nickname: string | null;
+        email: string | null;
+        google_refresh_token: string | null;
+        is_active: boolean;
+      } | null;
+      settings: IrBookingSettings | null;
+    }
+> {
+  const clean = bookingPlain(token, 64);
+  if (!/^[0-9a-f-]{20,64}$/i.test(clean))
+    return { error: fail("This manage link is not valid.") };
+  const { data: call } = await db()
+    .from("ir_calls")
+    .select("*")
+    .eq("manage_token", clean)
+    .maybeSingle<IrCallServerRow>();
+  if (!call) return { error: fail("This manage link is not valid.") };
+  let owner = null;
+  let settings: IrBookingSettings | null = null;
+  if (call.member_id) {
+    const [o, s] = await Promise.all([
+      db()
+        .from("members")
+        .select("id, name, nickname, email, google_refresh_token, is_active")
+        .eq("id", call.member_id)
+        .maybeSingle<{
+          id: string;
+          name: string;
+          nickname: string | null;
+          email: string | null;
+          google_refresh_token: string | null;
+          is_active: boolean;
+        }>(),
+      db()
+        .from("ir_booking_settings")
+        .select(
+          "member_id, slug, slot_minutes, availability, active, buffer_minutes, min_notice_minutes, max_advance_days, start_date, end_date, guests_can_invite"
+        )
+        .eq("member_id", call.member_id)
+        .maybeSingle<IrBookingSettings>(),
+    ]);
+    owner = o.data ?? null;
+    settings = s.data ?? null;
+  }
+  return { call, owner, settings };
+}
+
+/** PUBLIC — the manage page's Reschedule: the IR picks one of the member's
+ *  CURRENT free slots and the call moves — DB first (the unique scheduled
+ *  index is the race guard), then the calendar event, then emails both ways. */
+export async function rescheduleBookedCall(input: {
+  token: string;
+  startIso: string;
+}): Promise<ActionResult<{ whenLabel: string }>> {
+  if (await sandboxSuppressed("public IR reschedule"))
+    return fail("Sandbox test view is active in this browser — exit it to test rescheduling.");
+  const throttled = await bookingThrottle();
+  if (throttled) return throttled;
+
+  const loaded = await loadManagedCall(input.token);
+  if ("error" in loaded) return loaded.error;
+  const { call, owner, settings } = loaded;
+  if (call.status === "cancelled")
+    return fail("This booking was cancelled — book a fresh slot instead.");
+  if (call.status !== "scheduled")
+    return fail("This call already happened — nothing to reschedule.");
+  if (!owner?.is_active || !settings?.active)
+    return fail("Rescheduling is unavailable right now — reply to your confirmation email instead.");
+
+  const start = new Date(String(input.startIso ?? ""));
+  if (!input.startIso || Number.isNaN(start.getTime()))
+    return fail("Pick a new time slot first.");
+  const startIso = start.toISOString();
+
+  // the new slot must be one the member offers RIGHT NOW — the call being
+  // moved doesn't block itself
+  const days = await freeBookingSlots(settings, { excludeCallId: call.id });
+  const day = days.find((d) => d.slots.some((sl) => sl.iso === startIso));
+  const slot = day?.slots.find((sl) => sl.iso === startIso);
+  if (!day || !slot)
+    return fail("That slot was just taken (or is no longer offered) — pick another one.");
+  const newWhen = `${day.label} · ${slot.label} (Cairo time)`;
+  const { cairoWhenLabel } = await import("./data");
+  const oldWhen = cairoWhenLabel(call.called_at);
+
+  const { data: movedRows, error } = await db()
+    .from("ir_calls")
+    .update({
+      called_at: startIso,
+      duration_minutes: settings.slot_minutes,
+      reschedule_requested_at: null,
+    })
+    .eq("id", call.id)
+    .eq("status", "scheduled")
+    .select("id");
+  if (error) {
+    // unique (member_id, called_at where scheduled) — a concurrent booking
+    // of the same slot lands here
+    if (error.code === "23505")
+      return fail("That slot was just taken — pick another one.");
+    return fail("Could not move the call — try again.");
+  }
+  // 0-row = the status flipped mid-flight — never touch the calendar then
+  if (!movedRows?.length)
+    return fail("This booking just changed on the other side — reload the page and try again.");
+
+  // move the calendar event (attendees get Google's update) — best-effort
+  if (call.calendar_event_id) {
+    try {
+      const { updateIrCallEvent } = await import("@/lib/google/calendar");
+      await updateIrCallEvent(
+        owner.google_refresh_token,
+        call.calendar_event_id,
+        start,
+        settings.slot_minutes
+      );
+    } catch (e) {
+      console.error("[ir-booking] calendar reschedule failed:", e);
+    }
+  }
+
+  // owner: bell + email · IR: fresh confirmation — all best-effort
+  try {
+    const { notifyMembers } = await import("./notify");
+    await notifyMembers(
+      [owner.id],
+      "info",
+      `🔁 IR call moved — ${call.partner_lc_name}`,
+      `${call.booker_name ? `${call.booker_name} of ` : ""}${call.partner_lc_name} moved the call from ${oldWhen} to ${newWhen}.`,
+      null,
+      "/consideration"
+    );
+  } catch (e) {
+    console.error("[ir-booking] reschedule notification failed:", e);
+  }
+  if (owner.email) {
+    try {
+      const { irCallRescheduledOwnerEmail } = await import("@/lib/email/templates");
+      const mail = irCallRescheduledOwnerEmail({
+        memberFirstName: (owner.nickname || owner.name).split(" ")[0],
+        partnerLc: call.partner_lc_name,
+        bookerName: call.booker_name,
+        oldWhenLabel: oldWhen,
+        newWhenLabel: newWhen,
+        considerationUrl: `${env.appUrl}/consideration`,
+      });
+      await sendEmail({ to: [owner.email], subject: mail.subject, html: mail.html });
+    } catch (e) {
+      console.error("[ir-booking] owner reschedule email failed:", e);
+    }
+  }
+  if (call.booker_email) {
+    try {
+      const { irBookingConfirmEmail } = await import("@/lib/email/templates");
+      const mail = irBookingConfirmEmail({
+        bookerName: call.booker_name,
+        memberName: owner.nickname || owner.name,
+        partnerLc: call.partner_lc_name,
+        whenLabel: newWhen,
+        slotMinutes: settings.slot_minutes,
+        meetLink: call.meet_link,
+        manageUrl: `${env.appUrl}/book/manage/${call.manage_token}`,
+        rescheduled: true,
+      });
+      await sendEmail({ to: [call.booker_email], subject: mail.subject, html: mail.html });
+    } catch (e) {
+      console.error("[ir-booking] booker reschedule email failed:", e);
+    }
+  }
+
+  await logAudit(null, "ir_call_rescheduled", "ir_call", call.id, {
+    lc: call.partner_lc_name,
+    from: oldWhen,
+    to: newWhen,
+  });
+  return { ok: true, data: { whenLabel: newWhen } };
+}
+
+/** PUBLIC — the manage page's Cancel: a short reason is required; the call is
+ *  cancelled, the calendar event removed, and the owner notified (bell +
+ *  email with the reason). */
+export async function cancelBookedCall(input: {
+  token: string;
+  reason: string;
+}): Promise<ActionResult> {
+  if (await sandboxSuppressed("public IR booking cancel"))
+    return fail("Sandbox test view is active in this browser — exit it to test cancelling.");
+  const throttled = await bookingThrottle();
+  if (throttled) return throttled;
+
+  const reason = bookingPlain(input.reason, 500);
+  if (!reason) return fail("Tell them briefly why — it goes into their heads-up email.");
+
+  const loaded = await loadManagedCall(input.token);
+  if ("error" in loaded) return loaded.error;
+  const { call, owner } = loaded;
+  if (call.status === "cancelled") return fail("This booking is already cancelled.");
+  if (call.status !== "scheduled")
+    return fail("This call already happened — nothing to cancel.");
+
+  const { data: cancelledRows, error } = await db()
+    .from("ir_calls")
+    .update({ status: "cancelled", cancel_reason: reason })
+    .eq("id", call.id)
+    .eq("status", "scheduled")
+    .select("id");
+  if (error) return fail("Could not cancel the booking — try again.");
+  // 0-row = the status flipped mid-flight — leave the calendar alone
+  if (!cancelledRows?.length)
+    return fail("This booking just changed — reload the page.");
+
+  if (call.calendar_event_id && owner) {
+    try {
+      const { deleteIrCallEvent } = await import("@/lib/google/calendar");
+      await deleteIrCallEvent(owner.google_refresh_token, call.calendar_event_id);
+    } catch (e) {
+      console.error("[ir-booking] calendar cancel failed:", e);
+    }
+  }
+
+  const { cairoWhenLabel } = await import("./data");
+  const whenLabel = cairoWhenLabel(call.called_at);
+  if (owner) {
+    try {
+      const { notifyMembers } = await import("./notify");
+      await notifyMembers(
+        [owner.id],
+        "info",
+        `❌ IR call cancelled — ${call.partner_lc_name}`,
+        `${call.booker_name ? `${call.booker_name} of ` : ""}${call.partner_lc_name} cancelled ${whenLabel}: "${reason}"`,
+        null,
+        "/consideration"
+      );
+    } catch (e) {
+      console.error("[ir-booking] cancel notification failed:", e);
+    }
+    if (owner.email) {
+      try {
+        const { irCallCancelledByBookerEmail } = await import("@/lib/email/templates");
+        const mail = irCallCancelledByBookerEmail({
+          memberFirstName: (owner.nickname || owner.name).split(" ")[0],
+          partnerLc: call.partner_lc_name,
+          bookerName: call.booker_name,
+          whenLabel,
+          reason,
+          considerationUrl: `${env.appUrl}/consideration`,
+        });
+        await sendEmail({ to: [owner.email], subject: mail.subject, html: mail.html });
+      } catch (e) {
+        console.error("[ir-booking] owner cancel email failed:", e);
+      }
+    }
+  }
+
+  await logAudit(null, "ir_call_cancelled_by_booker", "ir_call", call.id, {
+    lc: call.partner_lc_name,
+    reason,
+  });
+  return { ok: true };
+}
+
+// ------------------------------------------------- partner LC registry (v28)
+
+/** VP/Director/LCP fix a partner LC's name or country. The denormalized
+ *  partner_lc_name snapshots on IR calls and CVs follow the rename so the
+ *  logs read consistently. Sandbox-refused: the fan-out to child rows can't
+ *  be journaled row-by-row. */
+export async function updatePartnerLc(
+  id: string,
+  patch: { name: string; country?: string | null }
+): Promise<ActionResult<PartnerLc>> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  if (!isConsiderationLead(viewer))
+    return fail("Only a VP/Director or the LCP can edit a partner LC.", "forbidden");
+  if (viewer.sandbox)
+    return fail("Partner-LC edits are disabled in the sandbox test view.");
+
+  const name = (patch.name ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+  if (!name) return fail("The partner LC needs a name.");
+  const country = (patch.country ?? "").trim().slice(0, 60) || null;
+
+  const { data: existing } = await db()
+    .from("partner_lcs")
+    .select("id, name, country")
+    .eq("id", id)
+    .maybeSingle<PartnerLc>();
+  if (!existing) return fail("That partner LC no longer exists.");
+
+  const { data: updated, error } = await db()
+    .from("partner_lcs")
+    .update({ name, country })
+    .eq("id", id)
+    .select("id, name, country")
+    .single();
+  if (error) {
+    if (error.code === "23505")
+      return fail(`An LC named "${name}" already exists — merge by hand instead.`);
+    return fail(error.message);
+  }
+
+  // keep the denormalized snapshots readable after a rename — best-effort
+  if (existing.name !== name) {
+    const { error: e1 } = await db()
+      .from("ir_calls")
+      .update({ partner_lc_name: name })
+      .eq("partner_lc_id", id);
+    const { error: e2 } = await db()
+      .from("cvs")
+      .update({ partner_lc_name: name })
+      .eq("partner_lc_id", id);
+    if (e1 || e2)
+      console.error("[partner-lcs] denormalized rename failed:", e1?.message, e2?.message);
+  }
+
+  await logAudit(viewer.id, "partner_lc_update", "partner_lc", id, {
+    from: existing.name,
+    to: name,
+  });
+  refresh();
+  return { ok: true, data: updated as PartnerLc };
+}
+
+/** VP/Director/LCP delete a partner LC — only when NO IR calls or CVs point
+ *  at it (else a friendly error). Sandbox-refused. */
+export async function deletePartnerLc(id: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  if (!isConsiderationLead(viewer))
+    return fail("Only a VP/Director or the LCP can delete a partner LC.", "forbidden");
+  if (viewer.sandbox)
+    return fail("Partner-LC edits are disabled in the sandbox test view.");
+
+  const { data: lc } = await db()
+    .from("partner_lcs")
+    .select("id, name")
+    .eq("id", id)
+    .maybeSingle<{ id: string; name: string }>();
+  if (!lc) return fail("That partner LC no longer exists.");
+
+  const [{ count: callCount }, { count: cvCount }] = await Promise.all([
+    db().from("ir_calls").select("id", { count: "exact", head: true }).eq("partner_lc_id", id)
+    .neq("status", "cancelled"),
+    db().from("cvs").select("id", { count: "exact", head: true }).eq("partner_lc_id", id),
+  ]);
+  if ((callCount ?? 0) > 0 || (cvCount ?? 0) > 0)
+    return fail(
+      `"${lc.name}" is referenced by ${callCount ?? 0} IR call(s) and ${cvCount ?? 0} CV(s) — it stays in the list as history. Rename it instead if the name is wrong.`
+    );
+
+  const { error } = await db().from("partner_lcs").delete().eq("id", id);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "partner_lc_delete", "partner_lc", id, { name: lc.name });
   refresh();
   return { ok: true };
 }

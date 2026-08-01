@@ -12,7 +12,7 @@ export function generatePassword(): string {
   globalThis.crypto.getRandomValues(bytes);
   let out = "";
   for (const b of bytes) out += chars[b % chars.length];
-  return `Sodio-${out}`;
+  return `Elevate-${out}`;
 }
 
 /** "Forgot password" flow: generates a fresh password, stores its hash as the

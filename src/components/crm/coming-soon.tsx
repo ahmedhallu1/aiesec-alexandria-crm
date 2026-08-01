@@ -13,7 +13,7 @@ const LINES = [
   "Breaking news: your module is stuck in traffic on the Corniche. ETA: soon™.",
   "We asked the Blue Man for an ETA. He just kept walking. Legend.",
   "Your dashboard is still in the oven. Opening it early would deflate it, like a cheesecake.",
-  "Rome wasn't built in a day. Neither was Sodio. Rome also didn't have dark mode.",
+  "Rome wasn't built in a day. Neither was Elevate. Rome also didn't have dark mode.",
 ];
 
 /** Blurred mock workspace shown to members whose function has no module yet. */
@@ -68,7 +68,7 @@ export function ComingSoon({ functions }: { functions: string[] }) {
           {LINES[idx]}
         </p>
         <p className="max-w-md text-xs text-muted-foreground">
-          {`Sodio covers ICX Raising (IGV · IGT · B2B & BD), B2C, OGX sign-ups, Consideration and Talent Management. The ${label} workspace is on the roadmap — you'll get an email the moment it opens. 💙`}
+          {`Elevate covers ICX Raising (IGV · IGT · B2B & BD), B2C, OGX sign-ups, Consideration and Talent Management. The ${label} workspace is on the roadmap — you'll get an email the moment it opens. 💙`}
         </p>
       </div>
     </div>

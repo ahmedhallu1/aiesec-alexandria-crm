@@ -1,4 +1,4 @@
-# AI_CONTEXT.md — Single Source of Truth (Sodio — AIESEC in Alexandria ICX CRM)
+# AI_CONTEXT.md — Single Source of Truth (Elevate — AIESEC in Alexandria CRM)
 
 > **⚠️ LIVING DOCUMENT.** Update this file **in the same commit** as any change
 > to the system (feature, rule, route, schema, env var, deployment fact).
@@ -10,23 +10,25 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-01 · Version: v27
+Last updated: 2026-08-01 · Version: v28
 
 ---
 
 ## 1. What this is
 
-**Sodio** — a **100% free** CRM for AIESEC in Alexandria: the ICX functions
+**Elevate** (renamed from **Sodio** in v28 — internal keys/cookies keep the
+sodio-* names to preserve user state) — a **100% free** CRM for AIESEC in
+Alexandria: the ICX functions
 (**IGV** & **IGT** raising, **B2B/BD**, **B2C**) plus — since v25 — the **OGX
 sign-ups module** (OGT & OGV, two-way synced with the LC's tracker sheets). The brand name is
-**Sodio** (shown in the sidebar, tab titles, manifest, emails); the built-in
+**Elevate** (shown in the sidebar, tab titles, manifest, emails); the built-in
 AI assistant is **The Blue Man**. Members log accounts, contacts, visits and
 deals; leaders steer with goals, leaderboards and dashboards. The RBAC engine is
 the blueprint for future OGX/other-function modules.
 
 | | |
 |---|---|
-| Live URL | https://sodio.vercel.app (alias of aiesec-alexandria-crm.vercel.app) |
+| Live URL | https://elevate-alex.vercel.app (+ legacy sodio.vercel.app & aiesec-alexandria-crm.vercel.app — all project domains) |
 | Repo | github.com/ahmedhallu1/aiesec-alexandria-crm (private) |
 | Vercel project | `aiesec-alexandria-crm` (scope `ahmedhallu1s-projects`) — deploy with `vercel deploy --prod` |
 | Stack | Next.js 16 (App Router, Turbopack) · React 19 · Tailwind v4 · shadcn/ui · Supabase (Postgres, project `iesrpuuoduxtihuaqfic`) |
@@ -585,6 +587,57 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-08 · v28** — **ELEVATE + BOOKING v2 + OGX DASHBOARDS.**
+  ① **Renamed Sodio → Elevate** (~120 user-visible strings: sidebar, titles,
+  manifest, ALL emails, Playbook, Blue Man, login, tour; internal `sodio-*`
+  storage keys/cookies/events + the "Sodio — LC Visits" Google calendar name
+  deliberately KEPT so no user state breaks). New primary URL
+  **elevate-alex.vercel.app** (elevate.vercel.app was taken; sodio.vercel.app
+  + the long domain still work). ② **Booking v2** (migration **0029
+  applied**): the IR's **email is required** → invited as an attendee to a
+  real **Google Meet** on the owner's calendar (`conferenceData` +
+  `sendUpdates: all`, `guests_can_invite` honored); confirmation email with a
+  **manage link** (`/book/manage/<token>`, public, unique manage_token) where
+  the IR **reschedules** (live slots, 23505 = just-taken) or **cancels with a
+  required reason**; owner-side `cancelIrCall(id, reason)` emails the IR +
+  `requestIrReschedule` sends them the manage link; settings gained Calendar
+  parity — slots 15m–2h, **buffer**, **min notice**, **max advance**,
+  **start/end dates**, weekly OR **one-date** availability rows; partner-LC
+  registry dialog (⚙): crew adds, VP+ renames (cascades to denormalized
+  snapshots) / deletes (refused while referenced). Booking pages: favicon +
+  "Created by 2.0" credit + "Powered by Elevate"; the double "Cairo time"
+  fixed. ③ **OGX DASHBOARDS**: OGT/OGV lanes on /dashboard (`ogxDashboard`
+  in data.ts — status-ladder funnel Sign-ups→Contacted→Interested→Applied→
+  Accepted→**Approved**, capped conversions, Members+Coordinators leaderboard
+  by Approvals with FLIP re-sort, team drill, mm-plan vs pipeline, date/team/
+  member filters; `SPECIAL_LANES` guard keeps getDashboard off pseudo-lanes);
+  /signups gained a Dashboard button. ④ **Potential flow**:
+  `setSignupPotential` — the sign-up's OWNER (+TL/VP/LCP) moves it
+  Applied→Accepted→Approved (Parents Approval stays VP-only); these statuses
+  are **system-only** — the sheet's Status cell now carries ONLY "Out of
+  Process"/empty; 🎯 Potential filter (`?potential=`, replaces ?status).
+  ⑤ **Onboarding fixed for every module**: tour.tsx rewritten module-aware
+  (no more "Your ICX workspace" for everyone), `welcomeEmail` branches per
+  module, /welcome blurbs gated. ⑥ **Blank home fixed**: "/" was blocked by
+  GateClient on CLIENT navigations (the logo click) — "/" is ALWAYS_ALLOWED
+  (exact match) and the logo now links straight to the viewer's `homeHref`;
+  /dashboard added to OGX extraRoutes. ⑦ **19-agent adversarial review → 14
+  confirmed findings fixed pre-ship**, the big ones: `listIrCalls` was
+  shipping every call's **manage_token to every crew member's browser**
+  (scrubbed to a `has_manage_link` boolean; the raw token lives server-side
+  only via `IrCallServerRow`); the public reschedule/cancel updates now
+  `.select("id")` and fail on 0 rows (a mid-flight status flip no longer
+  moves/deletes the REAL calendar event); the booking throttle became an
+  atomic **`bump_rate_bucket` RPC** (migration **0030 applied** — parallel
+  bursts bypassed the read-then-upsert counter); overlapping availability
+  windows are rejected (they minted racing slot grids); `ogxDashboard`
+  excludes OOP rows and fails CLOSED; lane-chip switches across ICX↔OGX drop
+  stale team/member params in ONE navigation; sandbox guards on
+  cancelIrCall/requestIrReschedule; deletePartnerLc ignores cancelled spam
+  bookings; one-date rows validate properly + default to the CAIRO date; the
+  tour teaches the v28 permission model and matches rbac's sub_functions;
+  the drafts script wordmark says ELEVATE.
 
 - **2026-08-01 · v27** — BOOKING, STREAKS & a 16-item polish batch.
   ① **IR-call BOOKING** (migration **0027 applied**: `ir_booking_settings`

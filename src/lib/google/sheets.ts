@@ -191,7 +191,7 @@ async function ensureTab(
  *  write-only exports: deleting/editing rows there never touches Sodio.
  *  (A user once cleared the accounts sheet expecting Sodio to empty itself.) */
 const MIRROR_NOTE =
-  "⚠ MIRROR — Sodio overwrites this sheet hourly. Edit/delete IN SODIO, not here.";
+  "⚠ MIRROR — Elevate overwrites this sheet hourly. Edit/delete IN ELEVATE, not here.";
 
 async function overwriteSheet(title: string, headers: string[], rows: (string | number | boolean | null)[][]) {
   const id = await ensureSpreadsheet(title, headers);

@@ -1,5 +1,8 @@
 import { redirect } from "next/navigation";
 import { getViewer } from "@/server/data";
+import {
+  hasRaisingAccess, hasOgxAccess, hasConsiderationAccess, hasTmAccess,
+} from "@/lib/rbac";
 import { ROLE_BLURBS } from "@/lib/types";
 import { OnboardingForm } from "@/components/crm/onboarding-form";
 import { ThemeToggle } from "@/components/crm/theme-toggle";
@@ -11,6 +14,17 @@ export default async function WelcomePage() {
   if (viewer.profile_completed_at) redirect("/");
   // the admin test view never onboards on someone's behalf
   if (viewer.impersonated) redirect("/");
+
+  // name THEIR workspace — the raising role blurbs only fit raising members
+  const blurb = hasRaisingAccess(viewer)
+    ? ROLE_BLURBS[viewer.role] ?? ROLE_BLURBS.Member
+    : hasOgxAccess(viewer)
+      ? "Your OGX workspace is ready — the sign-ups pool, the funnel, and Approved as the finish line."
+      : hasConsiderationAccess(viewer)
+        ? "Your Consideration workspace is ready — IR calls with partner LCs and your personal booking link."
+        : hasTmAccess(viewer)
+          ? "Your Talent Management workspace is ready — the whole LC's directory, KPIs and contact shortcuts."
+          : "Your Profile, the Playbook and Feedback are live today — your function's workspace is on the way.";
 
   return (
     <main className="relative flex min-h-screen items-center justify-center bg-sidebar p-4">
@@ -25,7 +39,7 @@ export default async function WelcomePage() {
             Welcome, {viewer.nickname || viewer.name.split(" ")[0]} 👋
           </h1>
           <p className="mt-1 text-sm font-medium text-primary">
-            {ROLE_BLURBS[viewer.role] ?? ROLE_BLURBS.Member}
+            {blurb}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
             First login — confirm your info and set your own password.

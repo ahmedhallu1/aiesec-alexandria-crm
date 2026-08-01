@@ -1,16 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
-  Archive, Check, Loader2, Phone, RefreshCw, RotateCcw, Search, UserMinus,
-  UserRound, Users2, X,
+  Archive, Check, LayoutDashboard, Loader2, Phone, RefreshCw, RotateCcw,
+  Search, UserMinus, UserRound, Users2, X,
 } from "lucide-react";
 import {
   addSignupComment, bulkReassignSignups, claimSignup, openSignupDetail,
   reassignSignup, reviveSignup, runSignupsImport, setSignupOop,
-  updateSignupContact, updateSignupVpFields,
+  setSignupPotential, updateSignupContact, updateSignupVpFields,
 } from "@/server/actions";
 import type { OgxPlanCard, SignupDetail, StreakStats } from "@/server/data";
 import { fmtDateTime, SIGNUP_STATUSES, type OgxFunction, type SignupRow } from "@/lib/types";
@@ -39,6 +40,10 @@ const waDigits = (phone: string | null) => {
   if (!d) return null;
   return d.startsWith("20") ? d : d.startsWith("0") ? `2${d}` : `20${d}`;
 };
+
+/** The member-movable "potential" pipeline (v28) — "Parents Approval" stays
+ *  VP-set and lives only in the VP fields' status select. */
+const POTENTIAL_STAGES = ["Applied", "Accepted", "Approved"];
 
 const VIEW_LABELS: Record<string, string> = {
   unassigned: "🆕 Unassigned",
@@ -262,7 +267,7 @@ export function SignupsView({
   streak: StreakStats | null;
   viewer: ViewerInfo;
   filters: {
-    q: string; batch: string; program: string; status: string;
+    q: string; batch: string; program: string; status: string; potential: string;
     interested: string; contacted: string; phone: string; sort: string; dir: string;
   };
 }) {
@@ -433,11 +438,20 @@ export function SignupsView({
             the unassigned pool, it&apos;s yours, move them down the funnel.
           </p>
         </div>
-        {viewer.isLeader ? (
-          <Button variant="outline" onClick={syncNow} disabled={pending}>
-            <RefreshCw className={pending ? "size-4 animate-spin" : "size-4"} /> Sync now
-          </Button>
-        ) : null}
+        <div className="flex items-center gap-2">
+          <Hint label={`The ${activeFn} funnel dashboard — KPIs, conversions, leaderboard`}>
+            <Button variant="outline" asChild>
+              <Link href={`/dashboard?fn=${activeFn}`}>
+                <LayoutDashboard className="size-4" /> Dashboard
+              </Link>
+            </Button>
+          </Hint>
+          {viewer.isLeader ? (
+            <Button variant="outline" onClick={syncNow} disabled={pending}>
+              <RefreshCw className={pending ? "size-4 animate-spin" : "size-4"} /> Sync now
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       {planCard || streak ? (
@@ -542,16 +556,21 @@ export function SignupsView({
             <SelectItem value="No">Not interested</SelectItem>
           </SelectContent>
         </Select>
+        {/* 🎯 Potential (v28): the pipeline stage — replaces the old Status
+            filter (same column; "None" = plain sign-ups, no stage yet) */}
         <Select
-          value={filters.status || "all"}
-          onValueChange={(v) => setParams({ status: v === "all" ? null : v })}
+          value={filters.potential || "all"}
+          onValueChange={(v) =>
+            setParams({ potential: v === "all" ? null : v, status: null })
+          }
         >
-          <SelectTrigger className="h-9 w-40"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Status: any</SelectItem>
+            <SelectItem value="all">🎯 Potential: any</SelectItem>
             {SIGNUP_STATUSES.map((s) => (
               <SelectItem key={s} value={s}>{s}</SelectItem>
             ))}
+            <SelectItem value="none">— None yet</SelectItem>
           </SelectContent>
         </Select>
         <Select
@@ -1046,7 +1065,7 @@ function SignupDetailDialog({
 
         {/* member workflow */}
         {detail.canWork && !s.out_of_process ? (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <div className="grid gap-1.5">
               <Label>Contacted</Label>
               <Select
@@ -1084,6 +1103,39 @@ function SignupDetailDialog({
                   <SelectItem value="No">No</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            {/* 🎯 Potential (v28): whoever owns the sign-up moves it down the
+                pipeline — system-only stages, never written to the sheet */}
+            <div className="grid gap-1.5">
+              <Label>🎯 Potential</Label>
+              <Select
+                value={POTENTIAL_STAGES.includes(s.status ?? "") ? s.status! : "__none"}
+                onValueChange={(v) =>
+                  run(
+                    () => setSignupPotential(s.id, v === "__none" ? null : v),
+                    v === "Approved"
+                      ? "APPROVED — that's the MOS! 🎉"
+                      : v === "__none"
+                        ? "Back to plain sign-up"
+                        : `Moved to ${v} 📈`
+                  )
+                }
+              >
+                <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">— Sign-up</SelectItem>
+                  {POTENTIAL_STAGES.map((st) => (
+                    <SelectItem key={st} value={st}>
+                      {st === "Approved" ? "Approved 🏆" : st}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {s.status === "Parents Approval" && !detail.canVp ? (
+                <p className="text-[10px] text-muted-foreground">
+                  Currently &quot;Parents Approval&quot; — VP-set, ask your VP to move it.
+                </p>
+              ) : null}
             </div>
           </div>
         ) : null}

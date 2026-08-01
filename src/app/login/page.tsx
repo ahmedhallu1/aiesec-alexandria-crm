@@ -26,7 +26,7 @@ export default async function LoginPage({
           <h1 className="text-2xl font-bold text-card-foreground">
             AIESEC <span className="text-primary">in Alexandria</span>
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground"><span className="font-bold text-foreground">Sodio</span></p>
+          <p className="mt-1 text-sm text-muted-foreground"><span className="font-bold text-foreground">Elevate</span></p>
         </div>
 
         {error ? (

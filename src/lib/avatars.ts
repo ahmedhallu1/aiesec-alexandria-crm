@@ -5,7 +5,7 @@
 const DICEBEAR = "https://api.dicebear.com/9.x";
 
 const SEEDS = [
-  "Sodio", "Bluey", "Nova", "Comet", "Delta", "Pixel", "Mango", "Kiwi",
+  "Elevate", "Bluey", "Nova", "Comet", "Delta", "Pixel", "Mango", "Kiwi",
   "Cosmo", "Echo", "Zippy", "Juno", "Milo", "Nori", "Pepper", "Sunny",
 ];
 
@@ -51,7 +51,7 @@ export function avatarUrl(style: AvatarStyle, seed: string): string {
   return buildAvatarUrl(style, seed);
 }
 
-/** The Blue Man — Sodio's mascot as an avatar. Deliberately a SITE-RELATIVE
+/** The Blue Man — Elevate's mascot as an avatar. Deliberately a SITE-RELATIVE
  *  path (the APNG lives in /public/brand); updateAvatar whitelists this exact
  *  literal. The picker renders it inverted-white on a blue circle (like the
  *  floating assistant button); elsewhere it shows as the blue walking figure. */
