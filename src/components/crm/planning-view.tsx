@@ -96,7 +96,7 @@ function PeriodCard({
               <span className="text-base font-semibold text-muted-foreground"> {leadLabel} planned</span>
             </p>
             <Badge variant="outline" className="mt-2.5 text-[10px] text-muted-foreground">
-              plan only — no actuals tracked in Sodio yet
+              plan only — no actuals tracked in Elevate yet
             </Badge>
           </>
         ) : (

@@ -382,12 +382,15 @@ export async function deleteFollowupEvent(
   return deleteVisitEvent(refreshToken, eventId);
 }
 
-// ------------------------------------------------------------------ IR-call bookings (v27)
+// ------------------------------------------------------------------ IR-call bookings (v27/v28)
 
 /** Creates a booked IR call on the OWNER's own calendar ("IR call — {LC}",
- *  slot-length duration, 1h + 10min pings). Called from the PUBLIC booking
- *  action (no viewer → no sandbox), best-effort: returns null without a
- *  grant and throws on API errors so the caller can log-and-continue. */
+ *  slot-length duration, 1h + 10min pings). v28: the booker rides along as a
+ *  real ATTENDEE (Google emails them the invite), a Meet room is provisioned
+ *  (conferenceDataVersion 1) and guestsCanInviteOthers follows the member's
+ *  booking settings. Called from the PUBLIC booking action (no viewer → no
+ *  sandbox), best-effort: returns null without a grant and throws on API
+ *  errors so the caller can log-and-continue. */
 export async function createIrCallEvent(
   refreshToken: string | null,
   input: {
@@ -395,17 +398,30 @@ export async function createIrCallEvent(
     start: Date;
     minutes: number;
     description?: string | null;
+    /** the IR's email — invited as an attendee (Google sends the invite) */
+    attendeeEmail?: string | null;
+    guestsCanInvite?: boolean;
   }
-): Promise<string | null> {
+): Promise<{ id: string; meetLink: string | null } | null> {
   if (!refreshToken || !env.googleClientId) return null;
   const end = new Date(input.start.getTime() + input.minutes * 60_000);
   const res = await calendarFor(refreshToken).events.insert({
     calendarId: "primary",
+    conferenceDataVersion: 1,
+    sendUpdates: input.attendeeEmail ? "all" : "none",
     requestBody: {
       summary: `IR call — ${input.partnerLc}`,
       ...(input.description ? { description: input.description } : {}),
       start: { dateTime: input.start.toISOString(), timeZone: LC_TIMEZONE },
       end: { dateTime: end.toISOString(), timeZone: LC_TIMEZONE },
+      ...(input.attendeeEmail ? { attendees: [{ email: input.attendeeEmail }] } : {}),
+      guestsCanInviteOthers: input.guestsCanInvite ?? true,
+      conferenceData: {
+        createRequest: {
+          requestId: `ir-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+          conferenceSolutionKey: { type: "hangoutsMeet" },
+        },
+      },
       reminders: {
         useDefault: false,
         overrides: [
@@ -416,5 +432,50 @@ export async function createIrCallEvent(
       },
     },
   });
-  return res.data.id ?? null;
+  const id = res.data.id ?? null;
+  if (!id) return null;
+  const meetLink =
+    res.data.hangoutLink ??
+    res.data.conferenceData?.entryPoints?.find((e) => e.entryPointType === "video")?.uri ??
+    null;
+  return { id, meetLink };
+}
+
+/** Moves a booked IR call to a new time (public reschedule) — attendees get
+ *  Google's update email. Best-effort: no grant / no event id → no-op. */
+export async function updateIrCallEvent(
+  refreshToken: string | null,
+  eventId: string | null,
+  start: Date,
+  minutes: number
+): Promise<void> {
+  if (!refreshToken || !env.googleClientId || !eventId) return;
+  const end = new Date(start.getTime() + minutes * 60_000);
+  await calendarFor(refreshToken).events.patch({
+    calendarId: "primary",
+    eventId,
+    sendUpdates: "all",
+    requestBody: {
+      start: { dateTime: start.toISOString(), timeZone: LC_TIMEZONE },
+      end: { dateTime: end.toISOString(), timeZone: LC_TIMEZONE },
+    },
+  });
+}
+
+/** Deletes a booked IR call's event and lets Google notify the attendees
+ *  (unlike deleteVisitEvent, which removes silently). */
+export async function deleteIrCallEvent(
+  refreshToken: string | null,
+  eventId: string
+): Promise<void> {
+  if (!refreshToken || !env.googleClientId) return;
+  try {
+    await calendarFor(refreshToken).events.delete({
+      calendarId: "primary",
+      eventId,
+      sendUpdates: "all",
+    });
+  } catch {
+    // already deleted — nothing to do
+  }
 }

@@ -472,8 +472,12 @@ function signupCellValues(
     { field: "country", value: signup.country ?? "" },
     { field: "sub_product", value: signup.sub_product ?? "" },
     {
+      // v28: Applied/Accepted/Approved are SYSTEM-ONLY (the "potential"
+      // pipeline lives in Elevate) — the sheet's status cell only ever
+      // carries the OOP stamp now. Legacy sheet statuses still IMPORT fine
+      // (the reader above is unchanged).
       field: "status",
-      value: signup.out_of_process ? "Out of Process" : signup.status ?? "",
+      value: signup.out_of_process ? "Out of Process" : "",
     },
     {
       field: "out_of_process",

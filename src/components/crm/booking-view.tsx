@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { CalendarCheck2, Clock, Globe2, Loader2 } from "lucide-react";
+import { CalendarCheck2, Clock, Globe2, Mail, Video, Loader2 } from "lucide-react";
 import { bookIrCall } from "@/server/actions";
 import type { BookingDay } from "@/server/data";
 import { cn } from "@/lib/utils";
@@ -11,9 +11,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-/** The PUBLIC /book/<slug> experience (v27): a 14-day Cairo-time date strip →
- *  the free slots of the picked day → LC name (+ optional country & name) →
- *  bookIrCall. Everything time-related arrives precomputed from the server. */
+const EMAIL_RE = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]{2,}$/;
+
+/** The PUBLIC /book/<slug> experience (v27, upgraded v28): a Cairo-time date
+ *  strip (length = the member's max-advance setting) → the free slots of the
+ *  picked day → LC name + the IR's EMAIL (calendar invite + Meet land there)
+ *  → bookIrCall. Everything time-related arrives precomputed from the server. */
 export function BookingView({
   slug, memberName, slotMinutes, days,
 }: {
@@ -26,12 +29,18 @@ export function BookingView({
   const [dayIdx, setDayIdx] = useState(0);
   const [slotIso, setSlotIso] = useState<string | null>(null);
   const [lcName, setLcName] = useState("");
+  const [email, setEmail] = useState("");
   const [country, setCountry] = useState("");
   const [bookerName, setBookerName] = useState("");
-  const [done, setDone] = useState<{ memberName: string; whenLabel: string } | null>(null);
+  const [done, setDone] = useState<{
+    memberName: string;
+    whenLabel: string;
+    meetLink: string | null;
+  } | null>(null);
 
   const day = days[Math.min(dayIdx, Math.max(0, days.length - 1))];
   const slot = day?.slots.find((s) => s.iso === slotIso) ?? null;
+  const emailOk = EMAIL_RE.test(email.trim());
 
   const submit = () =>
     start(async () => {
@@ -43,10 +52,15 @@ export function BookingView({
         toast.error("Tell us your LC's name first.");
         return;
       }
+      if (!emailOk) {
+        toast.error("Enter a valid email — the calendar invite and Meet link go there.");
+        return;
+      }
       const res = await bookIrCall({
         slug,
         startIso: slotIso,
         lcName,
+        bookerEmail: email.trim(),
         country: country || null,
         bookerName: bookerName || null,
       });
@@ -64,12 +78,24 @@ export function BookingView({
         <h1 className="text-2xl font-bold text-card-foreground">Booked! 🎉</h1>
         <p className="mt-3 text-sm text-muted-foreground">
           <b className="text-card-foreground">{done.memberName}</b> will meet
-          you on <b className="text-card-foreground">{done.whenLabel}</b> —
-          Cairo time. See you there! 🌍
+          you on <b className="text-card-foreground">{done.whenLabel}</b>. See
+          you there! 🌍
         </p>
+        {done.meetLink ? (
+          <a
+            href={done.meetLink}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-4 inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-bold text-primary-foreground transition-opacity hover:opacity-90"
+          >
+            <Video className="size-4" /> Google Meet link
+          </a>
+        ) : null}
         <p className="mt-4 text-xs text-muted-foreground">
-          Powered by Sodio · AIESEC in Alexandria
+          A confirmation with the calendar invite, the Meet link and a
+          reschedule/cancel link is on its way to <b>{email.trim()}</b>.
         </p>
+        <BookingFooter />
       </div>
     );
   }
@@ -89,12 +115,12 @@ export function BookingView({
 
       {days.length === 0 ? (
         <p className="mt-8 pb-2 text-center text-sm text-muted-foreground">
-          No free slots in the next two weeks — {memberName}&apos;s calendar is
-          full. Check back in a few days. 😴
+          No free slots right now — {memberName}&apos;s calendar is full. Check
+          back in a few days. 😴
         </p>
       ) : (
         <>
-          {/* 14-day date strip — only days with availability */}
+          {/* date strip — only days with availability */}
           <div className="mt-5 flex gap-2 overflow-x-auto pb-1">
             {days.map((d, i) => {
               const on = i === dayIdx;
@@ -146,19 +172,39 @@ export function BookingView({
 
           {/* booker details */}
           <div className="mt-5 space-y-3 border-t pt-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="bk-lc">Your LC (local committee) *</Label>
-              <div className="relative">
-                <Globe2 className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="bk-lc"
-                  dir="auto"
-                  value={lcName}
-                  onChange={(e) => setLcName(e.target.value)}
-                  placeholder="e.g. AIESEC in Tunis"
-                  className="h-10 pl-8"
-                  maxLength={120}
-                />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="bk-lc">Your LC (local committee) *</Label>
+                <div className="relative">
+                  <Globe2 className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="bk-lc"
+                    dir="auto"
+                    value={lcName}
+                    onChange={(e) => setLcName(e.target.value)}
+                    placeholder="e.g. AIESEC in Tunis"
+                    className="h-10 pl-8"
+                    maxLength={120}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="bk-email">Your email *</Label>
+                <div className="relative">
+                  <Mail className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="bk-email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@aiesec.net"
+                    className="h-10 pl-8"
+                    maxLength={200}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  You&apos;ll get the calendar invite + Meet link here.
+                </p>
               </div>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -187,7 +233,7 @@ export function BookingView({
             <Button
               className="h-11 w-full text-base font-bold"
               onClick={submit}
-              disabled={pending || !slotIso || !lcName.trim()}
+              disabled={pending || !slotIso || !lcName.trim() || !emailOk}
             >
               {pending ? (
                 <Loader2 className="size-4 animate-spin" />
@@ -200,9 +246,7 @@ export function BookingView({
         </>
       )}
 
-      <p className="mt-4 text-center text-xs text-muted-foreground">
-        Powered by Sodio · AIESEC in Alexandria
-      </p>
+      <BookingFooter />
     </div>
   );
 }
@@ -215,5 +259,38 @@ function BrandHeader() {
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/brand/aiesec-white.png" alt="AIESEC" className="mx-auto mb-4 hidden h-10 w-auto dark:block" />
     </>
+  );
+}
+
+function BookingFooter() {
+  return (
+    <>
+      <p className="mt-4 text-center text-xs text-muted-foreground">
+        Powered by Elevate · AIESEC in Alexandria
+      </p>
+      <BookingCredit />
+    </>
+  );
+}
+
+/** The "Created by 2.0" credit — same look as the login card's, theme-aware
+ *  (black mark on light surfaces, white on dark). Shared by the public
+ *  booking + manage pages. */
+export function BookingCredit() {
+  return (
+    <a
+      href="http://elevate2point0.com/"
+      target="_blank"
+      rel="noreferrer"
+      className="mt-3 flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground transition-opacity hover:opacity-80"
+      title="Created by 2.0 — elevate2point0.com"
+    >
+      <span>Created by</span>
+      {/* theme-swap: black mark on light bg, white mark on dark bg */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/brand/2.0-light.png" alt="2.0" className="block h-4 w-auto dark:hidden" />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/brand/2.0-dark.png" alt="2.0" className="hidden h-4 w-auto dark:block" />
+    </a>
   );
 }

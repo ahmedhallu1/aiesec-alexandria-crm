@@ -20,13 +20,18 @@ import { Hint } from "./hint";
 import { CountUp } from "./count-up";
 import { cn } from "@/lib/utils";
 import { FUNCTION_COLORS } from "@/lib/types";
-import type { DrillGroup, FunnelStats, LanePlan, TeamPlan } from "@/server/data";
+import type {
+  DrillGroup, FunnelStats, LanePlan, OgxBoardRow, OgxDashboardData, OgxFunnel,
+  TeamPlan,
+} from "@/server/data";
 
 export interface DashboardScopeView { key: string; label: string }
 
 interface Props {
   /** the Consideration lane (v27): IR calls + CV pool — set only on ?fn=CONS */
   consideration?: import("@/server/data").ConsiderationStats | null;
+  /** the OGT/OGV sign-up lane (v28) — set only on ?fn=OGT / ?fn=OGV */
+  ogx?: OgxDashboardData | null;
   total: FunnelStats;
   byFunction: DrillGroup[];
   byTeam: DrillGroup[];
@@ -86,7 +91,7 @@ function sprintRange(): { from: string; to: string } {
 }
 
 export function DashboardView({
-  consideration,
+  consideration, ogx,
   total, byFunction, byTeam, memberBoard, mmBoard, teamBoard,
   views, activeFn, laneLabel, scopeLabel,
   showTeamDrill, teamOptions, memberOptions, filters, viewerId, showMyNumbers,
@@ -137,6 +142,9 @@ export function DashboardView({
   const thisSprintActive = filters.from === sprint.from && filters.to === sprint.to;
   const myNumbersActive = filters.member === viewerId;
   const anyFilter = Object.values(filters).some(Boolean);
+  // OGX pseudo-lanes (v28): same filter bar, sign-up funnel instead of accounts
+  const isOgxLane = activeFn === "OGT" || activeFn === "OGV";
+  const noun = isOgxLane ? "sign-ups" : "accounts";
 
   return (
     <div className={cn("mx-auto max-w-6xl space-y-5", navPending && "nav-pending")}>
@@ -157,7 +165,19 @@ export function DashboardView({
             {views.map((v) => (
               <button
                 key={v.key}
-                onClick={() => setParam("fn", v.key === views[0].key ? "" : v.key)}
+                onClick={() =>
+                  go((p) => {
+                    // ICX member/team ids mean nothing on OGX lanes (and vice
+                    // versa) — stale params would silently zero the dashboard
+                    const isOgx = (k: string) => k === "OGT" || k === "OGV";
+                    if (isOgx(v.key) !== isOgx(activeFn)) {
+                      p.delete("team");
+                      p.delete("member");
+                    }
+                    if (v.key === views[0].key) p.delete("fn");
+                    else p.set("fn", v.key);
+                  })
+                }
                 className={cn(
                   "rounded-md px-3 py-1.5 text-sm font-medium transition-all",
                   activeFn === v.key
@@ -178,7 +198,7 @@ export function DashboardView({
         <>
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-2 rise-in rise-in-1">
-        <Hint label="Show only this calendar month's accounts">
+        <Hint label={`Show only this calendar month's ${noun}`}>
           <Button
             variant={thisMonthActive ? "default" : "outline"}
             className="h-9"
@@ -193,7 +213,7 @@ export function DashboardView({
             <CalendarRange className="size-4" /> This month
           </Button>
         </Hint>
-        <Hint label="Only this sprint's accounts — the current half of the month (1–15 / 16–end)">
+        <Hint label={`Only this sprint's ${noun} — the current half of the month (1–15 / 16–end)`}>
           <Button
             variant={thisSprintActive ? "default" : "outline"}
             className="h-9"
@@ -209,7 +229,7 @@ export function DashboardView({
           </Button>
         </Hint>
         {showMyNumbers ? (
-          <Hint label="Track your own KPIs & MOS — every number counts only the accounts you're responsible for">
+          <Hint label={`Track your own KPIs & MOS — every number counts only the ${noun} assigned to you`}>
             <Button
               variant={myNumbersActive ? "default" : "outline"}
               className="h-9"
@@ -254,12 +274,14 @@ export function DashboardView({
         ) : null}
         {/* one h-9 group so the whole bar sits on a single baseline */}
         <div className="flex h-9 items-center gap-1.5 rounded-md border border-input bg-transparent px-2.5 dark:bg-input/30">
-          <span className="hidden text-xs font-medium text-muted-foreground min-[400px]:inline">Added</span>
+          <span className="hidden text-xs font-medium text-muted-foreground min-[400px]:inline">
+            {isOgxLane ? "Signed up" : "Added"}
+          </span>
           <Input
             type="date"
             max={today}
             className="h-7 w-[6.6rem] min-[400px]:w-[7.9rem] border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
-            aria-label="Added from"
+            aria-label={isOgxLane ? "Signed up from" : "Added from"}
             value={filters.from}
             onChange={(e) => setParam("from", e.target.value)}
           />
@@ -268,7 +290,7 @@ export function DashboardView({
             type="date"
             max={today}
             className="h-7 w-[6.6rem] min-[400px]:w-[7.9rem] border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
-            aria-label="Added to"
+            aria-label={isOgxLane ? "Signed up to" : "Added to"}
             value={filters.to}
             onChange={(e) => setParam("to", e.target.value)}
           />
@@ -284,6 +306,10 @@ export function DashboardView({
         ) : null}
       </div>
 
+      {isOgxLane && ogx ? (
+        <OgxPanel data={ogx} />
+      ) : (
+        <>
       {/* Goals = the plans (v22): the lane goal comes from the VPs' planning
           sheet, the team goal from the TL's filed plan — nothing is set here. */}
       {lanePlan ? <PlanCard plan={lanePlan} /> : null}
@@ -360,6 +386,8 @@ export function DashboardView({
           </CardContent>
         </Card>
       ) : null}
+        </>
+      )}
 
         </>
       )}
@@ -427,6 +455,315 @@ function ConsiderationPanel({ stats }: { stats: import("@/server/data").Consider
         The full log lives in the <Link href="/consideration" className="font-medium text-primary hover:underline">Consideration module</Link> — calls, screenshots and the searchable CV pool.
       </p>
     </div>
+  );
+}
+
+// ------------------------------------------------------------------ OGX (v28)
+
+/** OGX leaderboard metrics, in funnel order — Approvals (the MOS) is the
+ *  default sort. */
+const OGX_METRICS: { key: keyof OgxFunnel; label: string; short: string }[] = [
+  { key: "signups", label: "Sign-ups", short: "SUs" },
+  { key: "contacted", label: "Contacted", short: "Cont." },
+  { key: "interested", label: "Interested", short: "Int." },
+  { key: "applied", label: "Applied", short: "Appl." },
+  { key: "accepted", label: "Accepted", short: "Acc." },
+  { key: "approved", label: "Approvals", short: "Appr." },
+];
+
+/** The OGT/OGV lane (v28): the sign-up funnel — Sign-ups → Contacted →
+ *  Interested → Applied → Accepted → Approved (the MOS), with the fn's MM
+ *  plans, a Members & Coordinators leaderboard and a per-team drill. */
+function OgxPanel({ data }: { data: OgxDashboardData }) {
+  const t = data.total;
+  const kpis = [
+    { label: "Sign-ups", value: t.signups, hint: "everyone who signed up" },
+    { label: "Contacted", value: t.contacted, hint: "sign-ups marked Contacted" },
+    { label: "Interested", value: t.interested, hint: "said Yes to interest" },
+    { label: "Applied", value: t.applied, hint: "applied — or further down the funnel" },
+    { label: "Accepted", value: t.accepted, hint: "accepted — or already approved" },
+    { label: "Approved", value: t.approved, hint: "the OGX MOS 🏆" },
+  ];
+  const conversions = [
+    { label: "Sign-ups → Contacted", value: pct(t.contacted, t.signups) },
+    { label: "Contacted → Interested", value: pct(t.interested, t.contacted) },
+    { label: "Interested → Applied", value: pct(t.applied, t.interested) },
+    { label: "Applied → Accepted", value: pct(t.accepted, t.applied) },
+    { label: "Accepted → Approved", value: pct(t.approved, t.accepted) },
+  ];
+  return (
+    <>
+      {data.plan ? <OgxPlanBar fn={data.fn} plan={data.plan} /> : null}
+
+      {/* KPI row — the sign-up funnel, in order */}
+      <div className="stagger grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {kpis.map((k) => (
+          <KpiCard key={k.label} label={k.label} value={k.value} sub={k.hint} />
+        ))}
+      </div>
+
+      {/* step-to-step conversion strip */}
+      <Card className="rise-in rise-in-2">
+        <CardContent className="grid grid-cols-2 gap-3 pt-4 sm:grid-cols-3 lg:grid-cols-5">
+          {conversions.map((c) => (
+            <div key={c.label} className="text-center">
+              <p className="text-xl font-bold text-primary">{c.value}</p>
+              <p className="text-xs text-muted-foreground">{c.label}</p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4 rise-in rise-in-3">
+        <OgxLeaderboard
+          title={`${data.fn} — Members & Coordinators`}
+          groups={data.board}
+        />
+      </div>
+
+      {data.byTeam.length > 0 ? (
+        <Card className="rise-in rise-in-4">
+          <CardHeader>
+            <CardTitle className="text-base">By team</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="-mx-2 overflow-x-auto px-2">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead></TableHead>
+                    {OGX_METRICS.map((m) => (
+                      <TableHead key={m.key} className="text-right">{m.label}</TableHead>
+                    ))}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.byTeam.map((g) => (
+                    <TableRow key={g.key}>
+                      <TableCell className="font-medium">{g.label}</TableCell>
+                      {OGX_METRICS.map((m) => (
+                        <TableCell
+                          key={m.key}
+                          className={cn(
+                            "text-right",
+                            m.key === "approved" && "font-semibold"
+                          )}
+                        >
+                          {g[m.key]}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+    </>
+  );
+}
+
+/** The fn's plan (mm_plans totals for the current month) vs the LIVE
+ *  pipeline — Approvals (the MOS) carry the bar. */
+function OgxPlanBar({
+  fn, plan,
+}: {
+  fn: string;
+  plan: NonNullable<OgxDashboardData["plan"]>;
+}) {
+  const progress =
+    plan.plan.approvals > 0
+      ? Math.min(1, plan.actual.approvals / plan.plan.approvals)
+      : plan.actual.approvals > 0
+        ? 1
+        : 0;
+  return (
+    <Card className="relative overflow-hidden rise-in rise-in-2">
+      <CardContent className="pt-4">
+        <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <Target className="size-3.5" /> {fn} plan · {plan.monthLabel}
+        </p>
+        <p className="mt-1 text-2xl font-bold">
+          {plan.actual.approvals.toLocaleString("en")}
+          <span className="text-base font-semibold text-muted-foreground">
+            {" "}/ {plan.plan.approvals.toLocaleString("en")} approvals planned
+          </span>
+        </p>
+        <div className="mt-3 h-2 w-full rounded-full bg-muted">
+          <div
+            className={cn(
+              "h-full rounded-full transition-all duration-700",
+              progress >= 1 ? "bg-success" : "bg-primary",
+              progress > 0 && "goal-fill goal-striped"
+            )}
+            style={{ width: `${progress * 100}%` }}
+          />
+        </div>
+        <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
+          <span>
+            Applicants: <b className="text-foreground">{plan.actual.applicants}</b>
+            {" "}/ {plan.plan.applicants}
+          </span>
+          <span>
+            Accepted: <b className="text-foreground">{plan.actual.accepted}</b>
+            {" "}/ {plan.plan.accepted}
+          </span>
+          <span className="text-muted-foreground/60">
+            — the {fn} MMs&apos; filed plans vs the live pipeline
+          </span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** ONE wide OGX board: every funnel number per member, click a KPI header to
+ *  re-rank (FLIP glide). Members & Coordinators only, default Approvals. */
+function OgxLeaderboard({
+  title, groups,
+}: {
+  title: string;
+  groups: OgxBoardRow[];
+}) {
+  const [metricKey, setMetricKey] = useState<keyof OgxFunnel>("approved");
+  const ranked = [...groups].sort(
+    (a, b) =>
+      b[metricKey] - a[metricKey] ||
+      b.approved - a.approved ||
+      b.applied - a.applied ||
+      b.contacted - a.contacted
+  );
+  const flipRef = useFlipReorder(metricKey + ":" + groups.map((g) => g.key).join(","));
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Trophy className="size-4 text-warning" /> {title}
+          <span className="text-xs font-normal text-muted-foreground">· tap a metric to rank by it</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="px-2 sm:px-4">
+        {/* phones: compact board — metric chips + rank/name/value */}
+        <div className="md:hidden">
+          <div className="mb-2 flex flex-wrap gap-1">
+            {OGX_METRICS.map((m) => (
+              <button
+                key={m.key}
+                onClick={() => setMetricKey(m.key)}
+                className={cn(
+                  "rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors",
+                  metricKey === m.key
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:border-primary/50"
+                )}
+              >
+                {m.short}
+              </button>
+            ))}
+          </div>
+          <div className="space-y-1">
+            {ranked.length === 0 ? (
+              <p className="py-4 text-center text-sm text-muted-foreground">No members yet.</p>
+            ) : (
+              ranked.slice(0, 8).map((g, i) => {
+                const active = g[metricKey];
+                return (
+                  <div
+                    key={g.key}
+                    className={cn(
+                      "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm",
+                      i === 0 && active > 0 ? "bg-warning/10" : i % 2 ? "bg-muted/30" : ""
+                    )}
+                  >
+                    <span className="w-7 shrink-0 text-center text-base">
+                      {active > 0 && MEDALS[i] ? MEDALS[i] : (
+                        <span className="text-xs text-muted-foreground">#{i + 1}</span>
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate font-medium">{g.label}</span>
+                    <span className="shrink-0 font-bold tabular-nums text-primary">{active}</span>
+                    <span className="w-16 shrink-0 text-right text-[10px] text-muted-foreground">
+                      {OGX_METRICS.find((m) => m.key === metricKey)?.label}
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+        {/* ≥md: the full wide board */}
+        <div className="hidden overflow-x-auto md:block">
+          <div className="min-w-[34rem]">
+            <div className="flex items-center gap-2 border-b px-2 pb-2 text-xs font-semibold text-muted-foreground">
+              <span className="w-7 shrink-0" />
+              <span className="min-w-0 flex-1">Member</span>
+              {OGX_METRICS.map((m) => (
+                <button
+                  key={m.key}
+                  onClick={() => setMetricKey(m.key)}
+                  className={cn(
+                    "w-14 shrink-0 rounded-md py-1 text-center transition-colors",
+                    metricKey === m.key
+                      ? "bg-primary/10 font-bold text-primary"
+                      : "hover:bg-muted hover:text-foreground"
+                  )}
+                  title={`Rank by ${m.label}`}
+                >
+                  {m.short}
+                  <span className={cn("mx-auto mt-0.5 block h-0.5 w-4 rounded-full transition-all", metricKey === m.key ? "bg-primary" : "bg-transparent")} />
+                </button>
+              ))}
+            </div>
+
+            <div ref={flipRef} className="pt-1">
+              {ranked.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">No members yet.</p>
+              ) : (
+                ranked.slice(0, 12).map((g, i) => {
+                  const active = g[metricKey];
+                  return (
+                    <div
+                      key={g.key}
+                      data-flip-key={g.key}
+                      className={cn(
+                        "flex items-center gap-2 rounded-lg px-2 py-2 text-sm",
+                        i === 0 && active > 0 ? "bg-warning/10" : i % 2 ? "bg-muted/30" : ""
+                      )}
+                    >
+                      <span className="w-7 shrink-0 text-center text-base">
+                        {active > 0 && MEDALS[i] ? MEDALS[i] : <span className="text-xs text-muted-foreground">#{i + 1}</span>}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate font-medium">{g.label}</span>
+                      {OGX_METRICS.map((m) => {
+                        const v = g[m.key];
+                        const isActive = m.key === metricKey;
+                        return (
+                          <span
+                            key={m.key}
+                            className={cn(
+                              "w-14 shrink-0 text-center tabular-nums transition-colors",
+                              isActive
+                                ? "font-bold text-primary"
+                                : v > 0
+                                  ? "text-foreground"
+                                  : "text-muted-foreground/50"
+                            )}
+                          >
+                            {v}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

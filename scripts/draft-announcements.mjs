@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Draft the Sodio v24 announcement emails — ONE personalized DRAFT per
+ * Draft the Elevate v24 announcement emails — ONE personalized DRAFT per
  * active member, created in the IM mailbox (GMAIL_SENDER) so Ahmed can review
  * and send them by hand. NOTHING is sent by this script; it only creates
  * Gmail drafts.
@@ -64,10 +64,10 @@ const CLIENT_ID = get("AUTH_GOOGLE_ID");
 const CLIENT_SECRET = get("AUTH_GOOGLE_SECRET");
 const REFRESH = get("GMAIL_REFRESH_TOKEN");
 const SENDER = get("GMAIL_SENDER");
-const SENDER_NAME = get("GMAIL_SENDER_NAME") || "Sodio · AIESEC in Alexandria";
+const SENDER_NAME = get("GMAIL_SENDER_NAME") || "Elevate · AIESEC in Alexandria";
 const SUPA_URL = get("SUPABASE_URL");
 const SUPA_KEY = get("SUPABASE_SERVICE_ROLE_KEY");
-const APP_URL = (get("NEXT_PUBLIC_APP_URL") || "https://aiesec-alexandria-crm.vercel.app").replace(/\/$/, "");
+const APP_URL = (get("NEXT_PUBLIC_APP_URL") || "https://elevate-alex.vercel.app").replace(/\/$/, "");
 const ADMINS = get("ADMIN_EMAILS").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
 
 for (const [k, v] of [["AUTH_GOOGLE_ID", CLIENT_ID], ["AUTH_GOOGLE_SECRET", CLIENT_SECRET], ["SUPABASE_URL", SUPA_URL], ["SUPABASE_SERVICE_ROLE_KEY", SUPA_KEY]]) {
@@ -124,11 +124,11 @@ ${preheader ? `<div style="display:none;max-height:0;overflow:hidden;">${prehead
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
 <tr><td style="background-color:#0A2540;background-image:linear-gradient(135deg,#0A2540 0%,#0d3a6e 60%,#037EF3 140%);border-radius:16px 16px 0 0;padding:26px 32px;">
 <span style="color:#ffffff;font-size:21px;font-weight:800;letter-spacing:0.5px;">AIESEC <span style="color:#5db4ff;">in Alexandria</span></span>
-<span style="float:right;color:#9db8d4;font-size:12px;padding-top:8px;letter-spacing:1px;">SODIO</span></td></tr>
+<span style="float:right;color:#9db8d4;font-size:12px;padding-top:8px;letter-spacing:1px;">ELEVATE</span></td></tr>
 <tr><td style="height:4px;background-image:linear-gradient(90deg,#037EF3,#0CB9C1 45%,#F48924 75%,#F85A40);font-size:0;line-height:0;">&nbsp;</td></tr>
 <tr><td style="background-color:#ffffff;padding:32px;border-radius:0 0 16px 16px;color:#0A2540;font-size:15px;line-height:1.65;">${bodyHtml}</td></tr>
 <tr><td style="padding:20px 32px;color:#5c6b80;font-size:12px;text-align:center;line-height:1.7;">
-Sodio · AIESEC in Alexandria · <a href="${APP_URL}" style="color:#037EF3;text-decoration:none;font-weight:bold;">Open the CRM</a><br>
+Elevate · AIESEC in Alexandria · <a href="${APP_URL}" style="color:#037EF3;text-decoration:none;font-weight:bold;">Open the CRM</a><br>
 <span style="color:#93a5bc;">Built for you — reply anytime, or roast us in the feedback tab. 💙</span></td></tr>
 </table></td></tr></table></body></html>`;
 }
@@ -145,7 +145,7 @@ const callout = (html, color = "#037EF3", bg = "#f0f7ff") =>
 // ── shared content bricks ───────────────────────────────────────────────────
 const blueMan = () =>
   h("Meet The Blue Man 🔵🚶") +
-  `<p style="margin:6px 0;">See the little walking guy in the corner? That's <strong>The Blue Man</strong> — Sodio's built-in AI. Ask him <em>anything</em>, in English or fluent Egyptian Arabic:</p>` +
+  `<p style="margin:6px 0;">See the little walking guy in the corner? That's <strong>The Blue Man</strong> — Elevate's built-in AI. Ask him <em>anything</em>, in English or fluent Egyptian Arabic:</p>` +
   ul([
     `"مين الأول في الـ oGV في تركيا دلوقتي؟" — he reads AIESEC <strong>CORE</strong> live, whole world, real time.`,
     `"فين حساب فلان؟" — he now <strong>searches every account you're allowed to see</strong>, on demand, and opens the right one for you.`,
@@ -179,16 +179,16 @@ const b2cStunners = () =>
 
 const feedbackPS = `<p style="margin:20px 0 0;color:#5c6b80;font-size:13px;">P.S. Found a bug or have a wild idea? Tell The Blue Man, or hit the feedback tab — the anonymous mask 🎭 is there if you want to speak freely.</p>`;
 
-const openBtn = button("Open Sodio", APP_URL);
+const openBtn = button("Open Elevate", APP_URL);
 
 // ── per-segment body builders ───────────────────────────────────────────────
 const SEG = {
   lcp: (m) => ({
-    subject: `Sodio is live, ${m.nick} — the whole LC's raising, in one screen 🚀`,
+    subject: `Elevate is live, ${m.nick} — the whole LC's raising, in one screen 🚀`,
     pre: "Your command deck for ICX raising is live.",
     body:
       `<p>Yalla ${m.nick} 👋</p>` +
-      `<p>Remember the 47 WhatsApp groups, the three half-dead Google Sheets, and that one voice note where someone listed all our accounts? May they rest in peace. <strong>Sodio is live.</strong></p>` +
+      `<p>Remember the 47 WhatsApp groups, the three half-dead Google Sheets, and that one voice note where someone listed all our accounts? May they rest in peace. <strong>Elevate is live.</strong></p>` +
       callout(`<strong>The big idea:</strong> one free CRM that runs the entire ICX <strong>Raising</strong> process — from "just found this company" to "deal signed 🏆" — for everyone, on their phones.`) +
       h("Your command deck, President") +
       ul([
@@ -197,7 +197,7 @@ const SEG = {
         `<strong>Leaderboards that re-sort with an animation</strong> when you tap a column — and when a deal's opens were a group effort, the split credits each member's share.`,
         `<strong>Test view</strong> — become any member for a moment to see <em>exactly</em> what they see. Debugging trust, not accounts.`,
         `<strong>Broadcasts</strong> from the bell 🔔 to the whole LC, one function, or hand-picked people.`,
-        `And you never get the visit-reminder spam — Sodio knows the LCP steers, not chases.`,
+        `And you never get the visit-reminder spam — Elevate knows the LCP steers, not chases.`,
       ]) +
       blueMan() + stunners() + openBtn + feedbackPS,
   }),
@@ -208,10 +208,10 @@ const SEG = {
     body:
       `<p>Yalla ${m.nick} 👋</p>` +
       `<p>The IGV raising machine now has a dashboard, and it's yours to drive.</p>` +
-      callout(`<strong>Sodio</strong> is our free CRM for the whole ICX Raising process — one place, on everyone's phone.`) +
+      callout(`<strong>Elevate</strong> is our free CRM for the whole ICX Raising process — one place, on everyone's phone.`) +
       h("What's now yours as IGV VP") +
       ul([
-        `Nobody "sets goals" in Sodio — <strong>goals come from planning</strong>. Your lane's goal card reads YOUR planning-sheet opens vs what's actually raised, with a sprint / month toggle.`,
+        `Nobody "sets goals" in Elevate — <strong>goals come from planning</strong>. Your lane's goal card reads YOUR planning-sheet opens vs what's actually raised, with a sprint / month toggle.`,
         `Every raising TL <em>and</em> Coordinator files an <strong>opens plan</strong> on first sign-in (and edits it from the profile "My plan" card, per-month actuals included) — a TL's plan becomes the team card on the dashboard.`,
         `<strong>~3,800 imported companies</strong> — the actives landed <strong>Unassigned</strong>. Filter Responsible → "— Unassigned" and carve up the market with <strong>bulk reassign</strong>.`,
         `One <strong>wide leaderboard</strong> of your Members & Coordinators: MR · Contacted · Visits · Done · Deals · Opens, tap any column to re-sort — split deals credit each member's share.`,
@@ -226,11 +226,11 @@ const SEG = {
     pre: "IGTa + IGTe tracked automatically, plan vs raised, the feedback inbox.",
     body:
       `<p>Yalla ${m.nick} 👋</p>` +
-      `<p>Your IGT raising world now lives in Sodio — and it does the annoying math for you.</p>` +
-      callout(`<strong>Sodio</strong> is our free CRM running the whole ICX Raising process in one place.`) +
+      `<p>Your IGT raising world now lives in Elevate — and it does the annoying math for you.</p>` +
+      callout(`<strong>Elevate</strong> is our free CRM running the whole ICX Raising process in one place.`) +
       h("What's now yours as IGT VP") +
       ul([
-        `Nobody "sets goals" in Sodio — <strong>goals come from planning</strong>. The IGTa and IGTe lane cards read YOUR planning-sheet opens vs what's actually raised (sprint / month toggle); All-IGT is just the sum, tracked for you.`,
+        `Nobody "sets goals" in Elevate — <strong>goals come from planning</strong>. The IGTa and IGTe lane cards read YOUR planning-sheet opens vs what's actually raised (sprint / month toggle); All-IGT is just the sum, tracked for you.`,
         `Every raising TL <em>and</em> Coordinator files an <strong>opens plan</strong> on first sign-in (editable from the profile "My plan" card, per-month actuals included) — a TL's plan becomes the team card on the dashboard.`,
         `<strong>~3,800 imported companies</strong> — the actives landed <strong>Unassigned</strong>. Filter Responsible → "— Unassigned" and distribute them with <strong>bulk reassign</strong>.`,
         `The full <strong>wide leaderboard</strong> for your crew (split deals credit each share) + <strong>in-app membership editing</strong> that writes back to the sheet.`,
@@ -246,7 +246,7 @@ const SEG = {
     body:
       `<p>Yalla ${m.nick} 👋</p>` +
       `<p>The Suits now have a proper cockpit — and it counts EGP, not vibes.</p>` +
-      callout(`<strong>Sodio</strong> is our free CRM for the entire ICX Raising process. Your crew raises for the <em>whole</em> ICX — opens split across IGV / IGTa / IGTe.`) +
+      callout(`<strong>Elevate</strong> is our free CRM for the entire ICX Raising process. Your crew raises for the <em>whole</em> ICX — opens split across IGV / IGTa / IGTe.`) +
       h(`What's now yours as ${m.role === "Director" ? "B2B & BD Director" : "B2B & BD VP"}`) +
       ul([
         `Your <strong>own B2B lane</strong>, isolated and yours — the crew sees their world, not the whole ICX noise.`,
@@ -264,15 +264,15 @@ const SEG = {
     pre: "Your own deals-centric lane, Podio countdowns, one-tap deals.",
     body:
       `<p>Yalla ${m.nick} 👋</p>` +
-      `<p>Courses, events, student activities — your world now has its own lane in Sodio, built around YOUR process, isolated from the raising noise.</p>` +
-      callout(`<strong>Sodio</strong> is our free CRM — and <strong>B2C is now a full module</strong>: your accounts, your lane, your rules.`) +
+      `<p>Courses, events, student activities — your world now has its own lane in Elevate, built around YOUR process, isolated from the raising noise.</p>` +
+      callout(`<strong>Elevate</strong> is our free CRM — and <strong>B2C is now a full module</strong>: your accounts, your lane, your rules.`) +
       h(`What's now yours as B2C ${m.role === "Director" ? "Director" : "VP"}`) +
       ul([
         `Your <strong>own B2C dashboard lane</strong> — deals-centric: MR · Contacted · Visits · Done · <strong>Deals</strong> (no opens anywhere), with the <strong>leaderboard ranked by Deals</strong>.`,
         `B2C accounts carry one <strong>Type</strong> — Courses / Events / Student activities — no products, no industries, no clutter.`,
         `<strong>Podio continuous updates</strong>: every account shows a countdown (every 10 days by default, tweakable per account). When it runs out, the reminder lands on the responsible <em>and you</em> — "Updated on Podio" resets the clock. Nothing goes stale on your watch.`,
         `<strong>Deals are one tap</strong>: the Record-deal popup links the contract Google Form and offers a single "Deal signed" button — no opens, no splits, no amounts, no paperwork in the CRM.`,
-        `<strong>No proposal emails in B2C</strong> — your pitch happens your way; Sodio stays out of it.`,
+        `<strong>No proposal emails in B2C</strong> — your pitch happens your way; Elevate stays out of it.`,
       ]) +
       blueMan() + b2cStunners() + openBtn + feedbackPS,
   }),
@@ -283,7 +283,7 @@ const SEG = {
     body:
       `<p>Yalla ${m.nick} 👋</p>` +
       `<p>Leading an IGV team used to mean chasing people for updates. Not anymore.</p>` +
-      callout(`<strong>Sodio</strong> is our free CRM for the whole ICX Raising process — one place, on your team's phones.`) +
+      callout(`<strong>Elevate</strong> is our free CRM for the whole ICX Raising process — one place, on your team's phones.`) +
       h("What's now yours as an IGV Team Leader") +
       ul([
         `<strong>Your team's accounts</strong> in one view; pick who's <strong>Responsible</strong> (you or a teammate).`,
@@ -296,12 +296,12 @@ const SEG = {
   }),
 
   "igt-tl": (m) => ({
-    subject: `${m.nick}, ${m.team ? `${m.team} ` : "your IGT team "}now runs on Sodio ⚙️`,
+    subject: `${m.nick}, ${m.team ? `${m.team} ` : "your IGT team "}now runs on Elevate ⚙️`,
     pre: "Team accounts, your filed plan as the team goal, self-reminding visits.",
     body:
       `<p>Yalla ${m.nick} 👋</p>` +
       `<p>Your IGT squad just traded the group chat for a real cockpit.</p>` +
-      callout(`<strong>Sodio</strong> is our free CRM for the whole ICX Raising process, on everyone's phone.`) +
+      callout(`<strong>Elevate</strong> is our free CRM for the whole ICX Raising process, on everyone's phone.`) +
       h("What's now yours as an IGT Team Leader") +
       ul([
         `${m.team ? `<strong>${m.team}</strong> gets` : "Your team gets"} its own <strong>leaderboard</strong> — and its goal card is <strong>the plan you file</strong>: opens per month of the peak, filed on first sign-in, editable any time from your profile's <strong>"My plan"</strong> card, per-month actuals included. Your Coordinators file theirs too.`,
@@ -317,7 +317,7 @@ const SEG = {
     body:
       `<p>Yalla ${m.nick} 👋</p>` +
       `<p>The Suits' team lane is live — and it speaks money.</p>` +
-      callout(`<strong>Sodio</strong> is our free CRM for the whole ICX Raising process. Your crew raises for the <em>whole</em> ICX — opens split across IGV / IGTa / IGTe.`) +
+      callout(`<strong>Elevate</strong> is our free CRM for the whole ICX Raising process. Your crew raises for the <em>whole</em> ICX — opens split across IGV / IGTa / IGTe.`) +
       h("What's now yours as a B2B & BD Team Leader") +
       ul([
         `Your team's <strong>B2B/BD accounts</strong>; pick the Responsible — and your <strong>team goal = the plan you file</strong>: opens per month of the peak, filed on first sign-in, editable from your profile's <strong>"My plan"</strong> card with per-month actuals.`,
@@ -334,7 +334,7 @@ const SEG = {
     body:
       `<p>Yalla ${m.nick} 👋</p>` +
       `<p>Everything you raise now lives in one place — and it reminds <em>you</em>, not the other way round.</p>` +
-      callout(`<strong>Sodio</strong> is our free CRM for the whole ICX Raising process.`) +
+      callout(`<strong>Elevate</strong> is our free CRM for the whole ICX Raising process.`) +
       h("Your daily flow") +
       ul([
         `Add an account → log every contact → "Visit Scheduled" books it with <strong>calendar reminders</strong> → report it → <strong>Record deal 🏆</strong>.`,
@@ -358,8 +358,8 @@ const SEG = {
     pre: "Your accounts, Podio countdowns, one-tap deals.",
     body:
       `<p>Yalla ${m.nick} 👋</p>` +
-      `<p>Courses, events, student activities — your accounts now live in Sodio, in a lane built just for B2C.</p>` +
-      callout(`<strong>Sodio</strong> is our free CRM — and <strong>B2C is now a full module</strong>, isolated from the raising lanes and shaped around your process.`) +
+      `<p>Courses, events, student activities — your accounts now live in Elevate, in a lane built just for B2C.</p>` +
+      callout(`<strong>Elevate</strong> is our free CRM — and <strong>B2C is now a full module</strong>, isolated from the raising lanes and shaped around your process.`) +
       h("Your daily flow") +
       ul([
         `Add an account with its <strong>Type</strong> (Courses / Events / Student activities) → log every contact → book visits with <strong>calendar reminders</strong> → <strong>"Deal signed" 🏆</strong>.`,
@@ -372,12 +372,12 @@ const SEG = {
 
   // ── stay-tuned ──
   "soon-tm": (m) => ({
-    subject: `${m.nick}, your Sodio module is warming up 👀 (peek inside)`,
+    subject: `${m.nick}, your Elevate module is warming up 👀 (peek inside)`,
     pre: "TM directory + Playbook are already live; the full module is next.",
     body:
       `<p>Yalla ${m.nick} 👋</p>` +
       `<p>You've probably heard the IGV / IGT / B2B / B2C crews bragging about their shiny new CRM. Here's the deal: <strong>yours is coming</strong> — and you already get a head start.</p>` +
-      callout(`<strong>Sodio</strong> is our own free CRM. Right now it runs ICX <strong>Raising</strong> + <strong>B2C</strong>; the full <strong>Talent Management</strong> module is next on the runway.`) +
+      callout(`<strong>Elevate</strong> is our own free CRM. Right now it runs ICX <strong>Raising</strong> + <strong>B2C</strong>; the full <strong>Talent Management</strong> module is next on the runway.`) +
       h("You can already peek") +
       ul([
         `The <strong>Members directory</strong> — the whole LC, teams, managers, per-member KPIs, with call / WhatsApp / email shortcuts.`,
@@ -385,16 +385,16 @@ const SEG = {
         `And <strong>The Blue Man</strong> 🔵 — our AI agent who reads AIESEC CORE live and talks fluent Egyptian Arabic.`,
       ]) +
       `<p style="margin:14px 0 0;">The full TM module (pipelines, MOS, the works) is being built. We'll ping you the second it lands.</p>` +
-      button("Peek at Sodio", APP_URL) +
+      button("Peek at Elevate", APP_URL) +
       `<p style="margin:20px 0 0;color:#5c6b80;font-size:13px;">P.S. Pinky promise you'll be the first to know. 🤙</p>`,
   }),
   "soon-fl": (m) => ({
-    subject: `${m.nick}, Sodio has a seat reserved for F&L 👀`,
+    subject: `${m.nick}, Elevate has a seat reserved for F&L 👀`,
     pre: "ICX raising + B2C are live; your finance module is on the plan.",
     body:
       `<p>Yalla ${m.nick} 👋</p>` +
       `<p>The ICX crews are already living in our new CRM. F&L, your module is on the plan.</p>` +
-      callout(`<strong>Sodio</strong> is our own free CRM. Today it runs ICX <strong>Raising</strong> + <strong>B2C</strong>; more functions — yours included — are being built on the same engine.`) +
+      callout(`<strong>Elevate</strong> is our own free CRM. Today it runs ICX <strong>Raising</strong> + <strong>B2C</strong>; more functions — yours included — are being built on the same engine.`) +
       h("What's coming your way") +
       ul([
         `Your workflow in one place, on your phone.`,
@@ -402,7 +402,7 @@ const SEG = {
         `Clean dashboards and one-click branded emails.`,
       ]) +
       `<p style="margin:14px 0 0;">Sign in anytime to explore the Playbook and meet The Blue Man.</p>` +
-      button("Explore Sodio", APP_URL) +
+      button("Explore Elevate", APP_URL) +
       `<p style="margin:20px 0 0;color:#5c6b80;font-size:13px;">P.S. You'll be the first to know. 🤙</p>`,
   }),
   // soon-cxp / soon-generic are assigned just below (they reuse the
@@ -411,12 +411,12 @@ const SEG = {
 
 function soonGeneric(fn) {
   return (m) => ({
-    subject: `${m.nick}, your Sodio module is on the way 👀`,
+    subject: `${m.nick}, your Elevate module is on the way 👀`,
     pre: "ICX raising + B2C are live; your module is being built next.",
     body:
       `<p>Yalla ${m.nick} 👋</p>` +
       `<p>The ICX raising crews just got a brand-new CRM and won't stop talking about it. ${fn ? `${fn}, your` : "Your"} module is being built.</p>` +
-      callout(`<strong>Sodio</strong> is our own free CRM. Today it runs ICX <strong>Raising</strong> + <strong>B2C</strong>; more functions are coming on the same engine — yours included.`) +
+      callout(`<strong>Elevate</strong> is our own free CRM. Today it runs ICX <strong>Raising</strong> + <strong>B2C</strong>; more functions are coming on the same engine — yours included.`) +
       h("What you'll get") +
       ul([
         `Your whole process in one place, on your phone.`,
@@ -424,7 +424,7 @@ function soonGeneric(fn) {
         `Dashboards, leaderboards, calendar reminders, and one-click branded emails.`,
       ]) +
       `<p style="margin:14px 0 0;">Meanwhile, sign in to explore the Playbook and say hi to The Blue Man.</p>` +
-      button("Explore Sodio", APP_URL) +
+      button("Explore Elevate", APP_URL) +
       `<p style="margin:20px 0 0;color:#5c6b80;font-size:13px;">P.S. We'll email you the moment it's live. 🤙</p>`,
   });
 }

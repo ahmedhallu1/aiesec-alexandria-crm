@@ -1,10 +1,10 @@
 import { cache } from "react";
 import { getBookingPage } from "@/server/data";
 import { ThemeToggle } from "@/components/crm/theme-toggle";
-import { BookingView } from "@/components/crm/booking-view";
+import { BookingView, BookingCredit } from "@/components/crm/booking-view";
 
 /** PUBLIC (v27, no auth — exempted in src/proxy.ts like /inactive): the
- *  Sodio-branded booking page an IR abroad opens from a member's link. All
+ *  Elevate-branded booking page an IR abroad opens from a member's link. All
  *  slot math happens server-side in Cairo time (getBookingPage); the client
  *  only renders precomputed days/slots and submits bookIrCall. */
 
@@ -15,6 +15,13 @@ export const dynamic = "force-dynamic";
 // one fetch per request — generateMetadata and the page share it
 const load = cache(getBookingPage);
 
+// the public pages carry the app's own AIESEC favicon (same file the PWA
+// manifest uses — public/icons)
+const BOOK_ICONS = {
+  icon: "/icons/icon-192.png",
+  apple: "/icons/icon-192.png",
+};
+
 export async function generateMetadata({
   params,
 }: {
@@ -24,6 +31,7 @@ export async function generateMetadata({
   const data = await load(slug);
   return {
     title: data ? `Book an IR call with ${data.memberName}` : "Book an IR call",
+    icons: BOOK_ICONS,
   };
 }
 
@@ -58,6 +66,7 @@ export default async function BookPage({
             The link may have been switched off or renamed. Ask the AIESEC in
             Alexandria member who sent it for a fresh one.
           </p>
+          <BookingCredit />
         </div>
       )}
     </main>

@@ -75,7 +75,7 @@ export async function loginWithPassword(
         if (probe && probe.email && !probe.password_hash && !probe.temp_password_hash)
           return {
             error:
-              "Your AIESEC email is on Sodio now 🎉 — sign in with GOOGLE once to unlock everything (calendar, Gmail drafts). After that you can set a password from your Profile.",
+              "Your AIESEC email is on Elevate now 🎉 — sign in with GOOGLE once to unlock everything (calendar, Gmail drafts). After that you can set a password from your Profile.",
           };
         // the phone tip keys off the identifier SHAPE, not the probe — the
         // login form must not confirm who is or isn't a member

@@ -25,7 +25,7 @@ export default function InactivePage() {
           Your account is <span className="text-destructive">inactive</span> 😴
         </h1>
         <p className="mt-3 text-sm text-muted-foreground">
-          Your Sodio membership is currently marked inactive, so the workspace
+          Your Elevate membership is currently marked inactive, so the workspace
           is closed for you. If you think this is a mistake — or you&apos;re
           coming back — talk to <b>your manager</b> or the{" "}
           <b>IM team (admin)</b> and they&apos;ll switch you back on.

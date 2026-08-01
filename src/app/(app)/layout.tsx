@@ -51,7 +51,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     ...(tm ? ["/members"] : []),
     ...(membership ? ["/membership"] : []),
     ...(planning ? ["/planning"] : []),
-    ...(ogx ? ["/signups"] : []),
+    // OGX crews get the OGT/OGV dashboard lanes too (v28)
+    ...(ogx ? ["/signups", "/dashboard"] : []),
     ...(consideration ? ["/consideration"] : []),
     ...(ogtMail ? ["/ogt-mail"] : []),
   ];
@@ -97,10 +98,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </>
       )}
       <Tour
+        subFunctions={viewer.sub_functions}
         email={viewer.email ?? viewer.id}
         role={viewer.isAdmin && viewer.role !== "LCP" ? "LCP" : viewer.role}
         functions={viewer.functions}
-        hasModule={raising || tm || ogx || consideration}
+        modules={{ raising, tm, ogx, consideration }}
       />
       {viewer.impersonated ? (
         <ViewAsBanner

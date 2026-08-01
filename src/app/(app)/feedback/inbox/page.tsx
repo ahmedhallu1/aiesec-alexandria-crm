@@ -21,7 +21,7 @@ export default async function FeedbackInboxPage() {
       <div className="rise-in">
         <h1 className="text-2xl font-bold">Feedback inbox</h1>
         <p className="text-sm text-muted-foreground">
-          The people spoke — thank them, act, archive. Sodio grows one idea at a time.
+          The people spoke — thank them, act, archive. Elevate grows one idea at a time.
         </p>
       </div>
       <FeedbackInboxView

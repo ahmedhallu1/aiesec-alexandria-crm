@@ -99,7 +99,7 @@ export function FeedbackInboxView({ items }: { items: FeedbackItem[] }) {
             <Inbox className="size-8" />
             <p className="text-sm">
               {filter === "new"
-                ? "Inbox zero! Either Sodio is perfect or everyone's on a visit 🏃"
+                ? "Inbox zero! Either Elevate is perfect or everyone's on a visit 🏃"
                 : "Nothing here."}
             </p>
           </CardContent>
@@ -211,7 +211,7 @@ export function FeedbackInboxView({ items }: { items: FeedbackItem[] }) {
             <DialogTitle>💙 Send the thank-you?</DialogTitle>
             <DialogDescription>
               <b>{thankTarget?.member?.nickname || thankTarget?.member?.name}</b> gets a
-              bell notification next time they open Sodio AND a branded email —
+              bell notification next time they open Elevate AND a branded email —
               telling them their feedback was applied.
             </DialogDescription>
           </DialogHeader>

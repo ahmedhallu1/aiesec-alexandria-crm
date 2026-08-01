@@ -62,6 +62,24 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
   // admin + the EB (LCP / LCVPs) can broadcast messages to members
   const canBroadcast = user.isAdmin || user.role === "LCP" || user.role === "LCVP";
 
+  // The logo lands DIRECTLY on the viewer's home module (v28) — mirrors the
+  // "/" redirect priority. Never "/": for non-raising viewers "/" renders as
+  // a never-mounted child of the GateClient, so its redirect could never fire
+  // on client navigation (the blank-home bug).
+  const homeHref = nav.raising
+    ? "/accounts"
+    : nav.signups
+      ? "/signups"
+      : nav.consideration
+        ? "/consideration"
+        : nav.tm
+          ? "/members"
+          : nav.membership
+            ? "/membership"
+            : nav.planning
+              ? "/planning"
+              : "/accounts";
+
   // Accounts is the daily workspace — it leads, and "/" lands on it
   const items = [
     ...(nav.raising
@@ -271,15 +289,15 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
 
   const brand = (
     <Link
-      href="/"
+      href={homeHref}
       onClick={() => setOpen(false)}
-      title="Home — your accounts"
+      title="Home — your workspace"
       className="flex items-center gap-2.5 px-5 py-5 transition-opacity hover:opacity-80"
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/brand/aiesec-white.png" alt="AIESEC" className="h-7 w-auto" />
       <div className="leading-tight">
-        <p className="text-sm font-black tracking-tight text-sidebar-foreground">Sodio</p>
+        <p className="text-sm font-black tracking-tight text-sidebar-foreground">Elevate</p>
         <p className="text-[10px] text-sidebar-foreground/60">AIESEC in Alexandria</p>
       </div>
     </Link>
@@ -325,10 +343,10 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
             {credit}
           </SheetContent>
         </Sheet>
-        <Link href="/" className="flex items-center gap-2" title="Home — your accounts">
+        <Link href={homeHref} className="flex items-center gap-2" title="Home — your workspace">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/aiesec-white.png" alt="AIESEC" className="h-6 w-auto" />
-          <p className="text-sm font-black tracking-tight text-sidebar-foreground">Sodio</p>
+          <p className="text-sm font-black tracking-tight text-sidebar-foreground">Elevate</p>
         </Link>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <NotificationsBell canBroadcast={canBroadcast} />
@@ -339,7 +357,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
 
       <main className="min-w-0 flex-1 px-4 pb-24 pt-[calc(4rem+env(safe-area-inset-top))] md:ml-60 md:px-8 md:pt-14">{children}</main>
 
-      {/* The Blue Man — Sodio's assistant (persistent per-user chats +
+      {/* The Blue Man — Elevate's assistant (persistent per-user chats +
           role/module-aware suggested questions) */}
       <BlueManChat
         userEmail={user.email}

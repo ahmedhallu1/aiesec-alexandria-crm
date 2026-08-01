@@ -101,7 +101,7 @@ export function NotificationsBell({ canBroadcast }: { canBroadcast: boolean }) {
               <Bell className="size-5 text-primary" /> Notifications
             </DialogTitle>
             <DialogDescription>
-              Everything Sodio wants you to know — freshest first.
+              Everything Elevate wants you to know — freshest first.
             </DialogDescription>
           </DialogHeader>
 

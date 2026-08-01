@@ -1,9 +1,11 @@
 import {
-  considerationStats, getViewer, getDashboard, listTeamLeaders, listVisibleMembers } from "@/server/data";
+  considerationStats, getViewer, getDashboard, listTeamLeaders, listVisibleMembers,
+  ogxDashboard } from "@/server/data";
 import type { AccountFilters } from "@/server/data";
 import {
-  hasConsiderationAccess, accountScope, icxFunctions, isB2B, isB2C } from "@/lib/rbac";
-import { memberIsB2C } from "@/lib/types";
+  hasConsiderationAccess, accountScope, icxFunctions, isB2B, isB2C,
+  ogxFunctions } from "@/lib/rbac";
+import { memberIsB2C, type OgxFunction } from "@/lib/types";
 import { DashboardView, type DashboardScopeView } from "@/components/crm/dashboard-view";
 
 export const metadata = { title: "Dashboard" };
@@ -55,6 +57,10 @@ export default async function DashboardPage({
   if (master || isB2C(viewer)) {
     views.push({ key: "B2C", label: "B2C" });
   }
+  // OGX (v28): OGT / OGV sign-up funnel lanes for the OGX crews (dual-access
+  // viewers + LCP/admin get both chips)
+  const ogxFns = ogxFunctions(viewer);
+  for (const f of ogxFns) views.push({ key: f, label: f });
   // Consideration (v27): IR calls + the CV pool — ICX VPs/Directors, the
   // consideration crew and the LCP get the lane
   if (hasConsiderationAccess(viewer)) {
@@ -73,11 +79,26 @@ export default async function DashboardPage({
     to: params.to || undefined,
   };
 
-  const [data, teamLeaders, members, consideration] = await Promise.all([
-    getDashboard(viewer, filters, activeFn === "CONS" ? views[0]?.key ?? "all" : activeFn),
+  // CONS / OGT / OGV are pseudo-lanes — getDashboard never receives them:
+  // it runs on the viewer's first REAL account lane (or "all", which for a
+  // pure-OGX viewer scopes to their own — empty — accounts and returns fast)
+  const SPECIAL_LANES = new Set(["CONS", "OGT", "OGV"]);
+  const baseLane = views.find((v) => !SPECIAL_LANES.has(v.key))?.key ?? "all";
+  const isOgxLane = activeFn === "OGT" || activeFn === "OGV";
+
+  const [data, teamLeaders, members, consideration, ogx] = await Promise.all([
+    getDashboard(viewer, filters, SPECIAL_LANES.has(activeFn) ? baseLane : activeFn),
     listTeamLeaders(viewer),
     listVisibleMembers(viewer),
     activeFn === "CONS" ? considerationStats(viewer) : Promise.resolve(null),
+    isOgxLane
+      ? ogxDashboard(viewer, activeFn as OgxFunction, {
+          from: params.from || undefined,
+          to: params.to || undefined,
+          team: params.team || undefined,
+          member: params.member || undefined,
+        })
+      : Promise.resolve(null),
   ]);
 
   // Member filter: only people with access to the active lane — and never the
@@ -105,6 +126,7 @@ export default async function DashboardPage({
     ...icxFunctions(viewer),
     ...(isB2B(viewer) ? ["B2B"] : []),
     ...(isB2C(viewer) ? ["B2C"] : []),
+    ...ogxFns,
   ];
   const scopeLabel =
     viewer.isAdmin || viewer.role === "LCP"
@@ -134,6 +156,7 @@ export default async function DashboardPage({
   return (
     <DashboardView
       consideration={consideration}
+      ogx={ogx}
       total={data.total}
       byFunction={data.byFunction}
       byTeam={data.byTeam}
@@ -150,11 +173,15 @@ export default async function DashboardPage({
       showTeamDrill={members.some(
         (m) => m.role === "Team Leader" || m.role === "Coordinator"
       )}
-      teamOptions={teamLeaders.map((t) => ({
-        id: t.id,
-        label: t.team_name || `Team ${t.nickname || t.name}`,
-      }))}
-      memberOptions={memberOptions}
+      teamOptions={
+        isOgxLane && ogx
+          ? ogx.teamOptions
+          : teamLeaders.map((t) => ({
+              id: t.id,
+              label: t.team_name || `Team ${t.nickname || t.name}`,
+            }))
+      }
+      memberOptions={isOgxLane && ogx ? ogx.memberOptions : memberOptions}
       viewerId={viewer.id}
       showMyNumbers={showMyNumbers}
       isB2cLane={activeFn === "B2C"}
