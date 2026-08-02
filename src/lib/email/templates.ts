@@ -40,6 +40,42 @@ export function emailLayout(opts: { preheader?: string; body: string }): string 
 </html>`;
 }
 
+/** The layout for emails that leave the LC — IRs abroad booking calls (v29).
+ *  They are not Elevate users: never mention the CRM, never link into it. */
+export function externalEmailLayout(opts: { preheader?: string; body: string }): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
+<body style="margin:0;padding:0;background-color:#eef3fa;font-family:'Segoe UI',Arial,Helvetica,sans-serif;">
+  ${opts.preheader ? `<div style="display:none;max-height:0;overflow:hidden;">${opts.preheader}</div>` : ""}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#eef3fa;padding:28px 12px;">
+    <tr><td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+        <tr>
+          <td style="background-color:#0A2540;background-image:linear-gradient(135deg,#0A2540 0%,#0d3a6e 60%,#037EF3 140%);border-radius:16px 16px 0 0;padding:26px 32px;">
+            <span style="color:#ffffff;font-size:21px;font-weight:800;letter-spacing:0.5px;">AIESEC <span style="color:#5db4ff;">in Alexandria</span></span>
+          </td>
+        </tr>
+        <tr>
+          <td style="height:4px;background-image:linear-gradient(90deg,#037EF3,#0CB9C1 45%,#F48924 75%,#F85A40);font-size:0;line-height:0;">&nbsp;</td>
+        </tr>
+        <tr>
+          <td style="background-color:#ffffff;padding:32px;border-radius:0 0 16px 16px;color:#0A2540;font-size:15px;line-height:1.65;">
+            ${opts.body}
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:20px 32px;color:#5c6b80;font-size:12px;text-align:center;line-height:1.7;">
+            Sent by Elevate · AIESEC in Alexandria
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}
+
 export function button(label: string, url: string): string {
   return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:22px 0;"><tr>
     <td style="background-color:#037EF3;background-image:linear-gradient(135deg,#037EF3,#0a66d0);border-radius:10px;">
@@ -842,7 +878,7 @@ export function irBookingConfirmEmail(opts: {
   const verb = opts.rescheduled ? "moved" : "confirmed";
   return {
     subject: `${opts.rescheduled ? "🔁 IR call rescheduled" : "✅ IR call confirmed"} — ${opts.memberName} · ${opts.whenLabel}`,
-    html: emailLayout({
+    html: externalEmailLayout({
       preheader: `Your IR call with ${opts.memberName} (AIESEC in Alexandria) is ${verb} — ${opts.whenLabel}.`,
       body: `
         <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Your IR call is ${verb} 🌍</h1>
@@ -931,7 +967,7 @@ export function irCallCancelledByMemberEmail(opts: {
 }): { subject: string; html: string } {
   return {
     subject: `❌ IR call cancelled — ${opts.memberName} · ${opts.whenLabel}`,
-    html: emailLayout({
+    html: externalEmailLayout({
       preheader: `${opts.memberName} had to cancel your ${opts.whenLabel} IR call.`,
       body: `
         <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Your IR call was cancelled 😔</h1>
@@ -958,11 +994,13 @@ export function irRescheduleRequestEmail(opts: {
   memberName: string;
   partnerLc: string;
   whenLabel: string;
+  /** why they can't make it — written by the member, shown verbatim (v29) */
+  reason?: string | null;
   manageUrl: string;
 }): { subject: string; html: string } {
   return {
     subject: `🔁 ${opts.memberName} asked to move your IR call (${opts.whenLabel})`,
-    html: emailLayout({
+    html: externalEmailLayout({
       preheader: `${opts.memberName} can't make ${opts.whenLabel} — pick a new time that suits you.`,
       body: `
         <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Can we move the call? 🔁</h1>
@@ -970,6 +1008,11 @@ export function irRescheduleRequestEmail(opts: {
         <b>${escapeHtml(opts.memberName)}</b> of AIESEC in Alexandria can't make
         your <b>${escapeHtml(opts.whenLabel)}</b> IR call
         (${escapeHtml(opts.partnerLc)}) and asked to move it.</p>
+        ${
+          opts.reason
+            ? `<p style="border-left:4px solid #037EF3;background:#f0f7ff;border-radius:0 8px 8px 0;padding:12px 16px;margin:16px 0;"><b>Their reason:</b> ${escapeHtml(opts.reason)}</p>`
+            : ""
+        }
         <p>Pick whichever new time suits you from their live availability — it
         takes a few seconds and the current time stays booked until you do:</p>
         ${button("Pick a new time", opts.manageUrl)}

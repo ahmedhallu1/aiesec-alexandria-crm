@@ -64,11 +64,8 @@ export function ManageBookingView({
 
   const doCancel = () =>
     start(async () => {
-      if (!reason.trim()) {
-        toast.error("Tell them briefly why — it goes into their heads-up email.");
-        return;
-      }
-      const res = await cancelBookedCall({ token, reason });
+      // v29: the IR owes nobody an explanation — the note is optional
+      const res = await cancelBookedCall({ token, reason: reason.trim() });
       if (res.ok) {
         setCancelled(true);
         setMode("none");
@@ -245,13 +242,13 @@ export function ManageBookingView({
 
           {mode === "cancel" ? (
             <div className="mt-4 space-y-2">
-              <Label htmlFor="mb-reason">Why are you cancelling? *</Label>
+              <Label htmlFor="mb-reason">Anything you’d like them to know? (optional)</Label>
               <Textarea
                 id="mb-reason"
                 dir="auto"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                placeholder="A short reason for the team in Alexandria…"
+                placeholder="Optional — a word for the team in Alexandria"
                 rows={2}
                 maxLength={500}
               />
@@ -259,7 +256,7 @@ export function ManageBookingView({
                 variant="destructive"
                 className="h-11 w-full text-base font-bold"
                 onClick={doCancel}
-                disabled={pending || !reason.trim()}
+                disabled={pending}
               >
                 {pending ? <Loader2 className="size-4 animate-spin" /> : <X className="size-4" />}
                 Cancel this call

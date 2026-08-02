@@ -47,7 +47,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // routes a non-raising member still gets: their TM module, the membership
   // editor for EB members of other functions (e.g. an OGX LCVP), and the
   // planning board for OGX VPs/Directors
+  // the calendar belongs to every module member now (touch points, v29)
+  const calendar = raising || consideration || ogx || tm;
   const extraRoutes = [
+    ...(calendar ? ["/calendar"] : []),
     ...(tm ? ["/members"] : []),
     ...(membership ? ["/membership"] : []),
     ...(planning ? ["/planning"] : []),
@@ -56,6 +59,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     ...(consideration ? ["/consideration"] : []),
     ...(ogtMail ? ["/ogt-mail"] : []),
   ];
+  // v29: /attendance belongs to EVERY member, module or not — but it must not
+  // count as "having a module" (that flag is what decides Soon vs bounce-home,
+  // and a module-less viewer bouncing home would loop through "/" → /accounts)
+  const gateRoutes = ["/attendance", ...extraRoutes];
 
   return (
     <AppShell
@@ -68,6 +75,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         isAdmin: viewer.isAdmin,
       }}
       nav={{
+        calendar,
         raising,
         tm,
         membership,
@@ -89,10 +97,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         children
       ) : (
         <>
-          <GateClient mode="allowed" extra={extraRoutes}>
+          <GateClient mode="allowed" extra={gateRoutes}>
             {children}
           </GateClient>
-          <GateClient mode="soon" extra={extraRoutes} hasModule={extraRoutes.length > 0}>
+          <GateClient mode="soon" extra={gateRoutes} hasModule={extraRoutes.length > 0}>
             <ComingSoon functions={viewer.functions} />
           </GateClient>
         </>

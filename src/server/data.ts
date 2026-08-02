@@ -1264,7 +1264,35 @@ export interface MemberDirectoryEntry {
     planApprovals: number;
     /** OGX only (v25): REAL approvals — sign-ups they own with status Approved */
     signupApprovals: number;
+    /** OGX only (v29): the member's own slice of the sign-up funnel — the SAME
+     *  ladder the OGX dashboard lane draws (Approved ⊂ Accepted ⊂ Applied),
+     *  counted over the live (non-OOP) sign-ups assigned to them */
+    signupTotal: number;
+    signupContacted: number;
+    signupInterested: number;
+    signupApplied: number;
+    signupAccepted: number;
   };
+}
+
+/** v29 — the directory exists to REVIEW performance, so it lists only the
+ *  people whose performance is reviewed here. Dropped:
+ *  · the LCP (nobody's MOS rolls up to this tab),
+ *  · the F&L VP/Director (money, reviewed in their own board),
+ *  · CXP's MMs, VPs and Directors (CXP reviews CXP),
+ *  · TM's OWN MMs — TM runs this tab, so its VP/Director stays. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function reviewedInDirectory(m: any): boolean {
+  const role: string = m.role;
+  if (role === "LCP") return false;
+  const all: string[] = [...(m.functions ?? []), ...(m.sub_functions ?? [])];
+  const has = (...keys: string[]) => keys.some((k) => all.includes(k));
+  const isLead = role === "LCVP" || role === "Director";
+  const isMm = role === "Team Leader" || role === "Coordinator";
+  if (isLead && has("F&L", "Finance")) return false;
+  if (has("CXP") && (isLead || isMm)) return false;
+  if (has("TM") && isMm) return false;
+  return true;
 }
 
 /** The TM module's whole-LC members directory: every active member with their
@@ -1274,7 +1302,7 @@ export async function listMembersDirectory(
 ): Promise<MemberDirectoryEntry[]> {
   if (!hasTmAccess(viewer)) return [];
 
-  const [{ data: membersData }, accountsData, { data: bdDeals }, { data: mmPlans }, approvedSignups, allocations] =
+  const [{ data: membersData }, accountsData, { data: bdDeals }, { data: mmPlans }, ogxSignups, allocations] =
     await Promise.all([
       db()
         .from("members")
@@ -1298,15 +1326,16 @@ export async function listMembersDirectory(
         .eq("account.function", "BD")
         .eq("account.is_test", false),
       db().from("mm_plans").select("member_id, applicants, accepted, approvals"),
-      // v25: real OGX approvals — Approved sign-ups per assigned member
-      // (fetchAll pages past the 1000-row response cap)
+      // v29: the WHOLE live sign-up funnel per assigned member (v25 only read
+      // the Approved rows) — the directory's OGX row now mirrors the dashboard
+      // lane exactly. fetchAll pages past the 1000-row response cap.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       fetchAll<any>(() =>
         db()
           .from("signups")
-          .select("assigned_to, id")
-          .eq("status", "Approved")
+          .select("assigned_to, contact_status, interested, status")
           .eq("out_of_process", false)
+          .not("assigned_to", "is", null)
           .order("id")
       ).catch(() => []),
       // per-member opens = deal allocations (v22 — split deals count correctly)
@@ -1326,7 +1355,8 @@ export async function listMembersDirectory(
   const emptyAgg = (): Agg => ({
     mr: 0, contacted: 0, visits: 0, visitsDone: 0, deals: 0, slots: 0,
     egp: 0, planApplicants: 0, planAccepted: 0, planApprovals: 0,
-    signupApprovals: 0,
+    signupApprovals: 0, signupTotal: 0, signupContacted: 0,
+    signupInterested: 0, signupApplied: 0, signupAccepted: 0,
   });
   const kpisById = new Map<string, Agg>();
   const agg = (id: string) => {
@@ -1365,9 +1395,19 @@ export async function listMembersDirectory(
     k.planAccepted += p.accepted ?? 0;
     k.planApprovals += p.approvals ?? 0;
   }
+  // the OGX ladder, exactly as ogxDashboard counts it: Contacted/Interested are
+  // the sheet's yes-ish text, and Approved ⊂ Accepted ⊂ Applied.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const s of approvedSignups as any[]) {
-    if (s.assigned_to) agg(s.assigned_to).signupApprovals += 1;
+  for (const s of ogxSignups as any[]) {
+    if (!s.assigned_to) continue;
+    const k = agg(s.assigned_to);
+    k.signupTotal += 1;
+    if (_ogxYes(s.contact_status)) k.signupContacted += 1;
+    if (_ogxYes(s.interested)) k.signupInterested += 1;
+    if (s.status === "Applied" || s.status === "Accepted" || s.status === "Approved")
+      k.signupApplied += 1;
+    if (s.status === "Accepted" || s.status === "Approved") k.signupAccepted += 1;
+    if (s.status === "Approved") k.signupApprovals += 1;
   }
 
   /** MOS classification (v21) — mirrors the function definitions in rbac.ts,
@@ -1404,8 +1444,10 @@ export async function listMembersDirectory(
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const members = (membersData ?? []) as any[];
+  // names resolve over EVERY active member (a dropped person can still be
+  // someone's manager) — only the listed ROWS are filtered
   const nameById = new Map(members.map((m) => [m.id, m.nickname || m.name]));
-  return members.map((m) => ({
+  return members.filter(reviewedInDirectory).map((m) => ({
     id: m.id,
     name: m.name,
     nickname: m.nickname,
@@ -2891,6 +2933,60 @@ export async function listPartnerLcs(viewer: Viewer): Promise<PartnerLc[]> {
   return (data ?? []) as PartnerLc[];
 }
 
+/** What the IR calls have taught us about each partner LC (v29): the people
+ *  who booked from it, plus how much history it carries. Shown in the LC
+ *  registry so a name isn't just a name. */
+export interface PartnerLcDetail extends PartnerLc {
+  calls: number;
+  cvs: number;
+  lastCallAt: string | null;
+  contacts: { name: string | null; role: string | null; email: string | null }[];
+}
+
+export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDetail[]> {
+  if (!_hasConsiderationAccess(viewer)) return [];
+  const [lcs, callRes, cvRes] = await Promise.all([
+    listPartnerLcs(viewer),
+    db()
+      .from("ir_calls")
+      .select("partner_lc_id, called_at, booker_name, booker_role, booker_email, status")
+      .order("called_at", { ascending: false }),
+    db().from("cvs").select("partner_lc_id"),
+  ]);
+  const calls = (callRes.data ?? []) as {
+    partner_lc_id: string | null;
+    called_at: string;
+    booker_name: string | null;
+    booker_role: string | null;
+    booker_email: string | null;
+    status: string;
+  }[];
+  const cvCounts = new Map<string, number>();
+  for (const c of (cvRes.data ?? []) as { partner_lc_id: string | null }[]) {
+    if (c.partner_lc_id) cvCounts.set(c.partner_lc_id, (cvCounts.get(c.partner_lc_id) ?? 0) + 1);
+  }
+  return lcs.map((lc) => {
+    const mine = calls.filter((c) => c.partner_lc_id === lc.id && c.status !== "cancelled");
+    // one entry per person (most recent first), so the crew knows who to reach
+    const seen = new Set<string>();
+    const contacts: PartnerLcDetail["contacts"] = [];
+    for (const c of mine) {
+      const key = (c.booker_email || c.booker_name || "").toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      contacts.push({ name: c.booker_name, role: c.booker_role, email: c.booker_email });
+      if (contacts.length >= 5) break;
+    }
+    return {
+      ...lc,
+      calls: mine.length,
+      cvs: cvCounts.get(lc.id) ?? 0,
+      lastCallAt: mine[0]?.called_at ?? null,
+      contacts,
+    };
+  });
+}
+
 export interface IrCallRow {
   id: string;
   partner_lc_id: string | null;
@@ -3418,9 +3514,14 @@ export async function getManageBooking(token: string): Promise<ManageBookingData
     cancelReason: call.cancel_reason,
     rescheduleRequested: !!call.reschedule_requested_at,
     bookingUrl: linkLive ? `${env.appUrl}/book/${settings!.slug}` : null,
+    // excludeCallId frees THIS call's own slot so the grid isn't blocked by
+    // itself — but the IR must never "move" to the time they already have,
+    // so that exact slot is dropped from the offer (v29)
     days:
       call.status === "scheduled" && linkLive
-        ? await freeBookingSlots(settings!, { excludeCallId: call.id })
+        ? (await freeBookingSlots(settings!, { excludeCallId: call.id }))
+            .map((d) => ({ ...d, slots: d.slots.filter((s) => s.iso !== call.called_at) }))
+            .filter((d) => d.slots.length > 0)
         : [],
   };
 }

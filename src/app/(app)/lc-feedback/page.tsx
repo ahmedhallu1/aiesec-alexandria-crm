@@ -1,7 +1,7 @@
 import { getViewer, listAllMembers, listLcFeedback, type LcFeedbackRow } from "@/server/data";
 import { LcFeedbackView } from "@/components/crm/lc-feedback-view";
 
-export const metadata = { title: "LC Feedback" };
+export const metadata = { title: "Feedback" };
 
 export default async function LcFeedbackPage() {
   const viewer = await getViewer();

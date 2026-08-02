@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import {
-  getViewer, listCvsPage, listIrCalls, listPartnerLcs, myIrBooking,
+  getViewer, listCvsPage, listIrCalls, listPartnerLcDetails, myIrBooking,
 } from "@/server/data";
 import { canSeeCvPool, hasConsiderationAccess } from "@/lib/rbac";
 import { env } from "@/lib/env";
@@ -28,7 +28,7 @@ export default async function ConsiderationPage({
   const page = Math.max(0, (parseInt(sp.page ?? "1", 10) || 1) - 1);
 
   const [lcs, calls, cvs, booking] = await Promise.all([
-    listPartnerLcs(viewer),
+    listPartnerLcDetails(viewer),
     listIrCalls(viewer, tab === "calls" ? page : 0),
     showCvs
       ? listCvsPage(viewer, { q: sp.q }, tab === "cvs" ? page : 0)

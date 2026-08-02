@@ -151,16 +151,24 @@ interface MemberLite {
 export function matchMemberByName(raw: string | null, members: MemberLite[]): string | null {
   const q = norm(raw ?? "");
   if (!q) return null;
+  // full name or nickname, exactly
   const exact = members.find((m) => norm(m.name) === q || norm(m.nickname ?? "") === q);
   if (exact) return exact.id;
-  const firstTok = q.split(" ")[0].replace(/[.]/g, "");
-  if (firstTok.length < 3) return null;
-  const hits = members.filter(
-    (m) =>
-      norm(m.name).startsWith(firstTok) ||
-      norm(m.nickname ?? "").startsWith(firstTok) ||
-      norm(m.name).split(" ")[0] === firstTok
-  );
+
+  // v29: a BARE FIRST NAME is never enough. "Ahmed" on a tracker row used to
+  // resolve to whichever Ahmed happened to be the only prefix hit — which
+  // handed 100 OGV sign-ups to the wrong person. A multi-token name may still
+  // match on first+last tokens; a single token is left UNMATCHED (the row
+  // keeps its raw assigned_name until a leader assigns it properly).
+  const toks = q.split(" ").filter(Boolean);
+  if (toks.length < 2) return null;
+  const first = toks[0];
+  const last = toks[toks.length - 1];
+  const hits = members.filter((m) => {
+    const mt = norm(m.name).split(" ").filter(Boolean);
+    if (mt.length < 2) return false;
+    return mt[0] === first && mt[mt.length - 1] === last;
+  });
   return hits.length === 1 ? hits[0].id : null;
 }
 

@@ -44,10 +44,15 @@ function mosMetrics(m: MemberDirectoryEntry): { label: string; value: string }[]
     return [...funnel, { label: "Opens", value: String(k.slots) },
       { label: "EGP ★", value: k.egp.toLocaleString("en") }];
   if (m.mos === "ogx")
-    // v25: the sign-ups module is live — approvals are REAL now
+    // v29: the OGX row IS the dashboard funnel — Sign-ups → Contacted →
+    // Interested → Applied → Accepted → Approved (the MOS), all live numbers
     return [
+      { label: "SUs", value: String(k.signupTotal) },
+      { label: "Cont.", value: String(k.signupContacted) },
+      { label: "Int.", value: String(k.signupInterested) },
+      { label: "Appl.", value: String(k.signupApplied) },
+      { label: "Acc.", value: String(k.signupAccepted) },
       { label: "Approvals ★", value: String(k.signupApprovals) },
-      { label: "APD (plan)", value: String(k.planApprovals) },
     ];
   if (m.mos === "consideration")
     return [
@@ -57,6 +62,11 @@ function mosMetrics(m: MemberDirectoryEntry): { label: string; value: string }[]
     ];
   return [];
 }
+
+/** v29 — "MMs" is one filter for both middle-management roles (Team Leaders
+ *  and Coordinators); the individual roles stay in the list. */
+const MM_FILTER = "__mm";
+const MM_ROLES = ["Team Leader", "Coordinator"];
 
 const MOS_TAG: Record<MemberDirectoryEntry["mos"], string | null> = {
   raising: "MOS: Opens",
@@ -168,7 +178,9 @@ export function MembersView({ members }: { members: MemberDirectoryEntry[] }) {
     )
       return false;
     if (fn && !m.functions.includes(fn) && !m.sub_functions.includes(fn)) return false;
-    if (role && m.role !== role) return false;
+    if (role === MM_FILTER) {
+      if (!MM_ROLES.includes(m.role)) return false;
+    } else if (role && m.role !== role) return false;
     return true;
   });
 
@@ -201,6 +213,11 @@ export function MembersView({ members }: { members: MemberDirectoryEntry[] }) {
         <p className="text-sm text-muted-foreground">
           The whole LC in one view — info, MOS/KPIs and a direct line to everyone.
         </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Only the people whose performance is reviewed here are listed — the
+          LCP, the F&amp;L VP/Director, CXP&apos;s MMs &amp; leaders and TM&apos;s own MMs
+          are left out.
+        </p>
       </div>
 
       {/* filters */}
@@ -231,6 +248,9 @@ export function MembersView({ members }: { members: MemberDirectoryEntry[] }) {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__all">Role: all</SelectItem>
+            {roles.some((r) => MM_ROLES.includes(r)) ? (
+              <SelectItem value={MM_FILTER}>MMs (Team Leaders &amp; Coordinators)</SelectItem>
+            ) : null}
             {roles.map((r) => (
               <SelectItem key={r} value={r}>{r}</SelectItem>
             ))}

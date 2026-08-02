@@ -1,4 +1,9 @@
-import { FEEDBACK_INBOX_EMAILS, type AccountFunction, type Member } from "./types";
+import {
+  FEEDBACK_INBOX_EMAILS,
+  type AccountFunction,
+  type Member,
+  type TouchPointScope,
+} from "./types";
 
 /** The RBAC engine. Every read is filtered through `accountScope` and every
  *  mutation is checked with a `can*` predicate — server-side, before any query.
@@ -181,6 +186,73 @@ export function hasTmAccess(v: Viewer): boolean {
   return (
     master(v) || v.functions.includes("TM") || v.sub_functions.includes("TM")
   );
+}
+
+/** TM's own crew — the people who run LC-wide touch points and own the
+ *  attendance system end to end (VP/Director/TL/Coordinator of TM). */
+export function isTmCore(v: Viewer): boolean {
+  return (
+    master(v) ||
+    ((v.functions.includes("TM") || v.sub_functions.includes("TM")) &&
+      ["LCVP", "Director", "Team Leader", "Coordinator"].includes(v.role))
+  );
+}
+
+/** Which touch-point scopes THIS viewer may book (v29):
+ *  Team Leader → team · VP/Director → function (+ their teams') ·
+ *  TM core → lc · LCP/admin → everything. */
+export function bookableTouchPointScopes(v: Viewer): TouchPointScope[] {
+  if (master(v)) return ["team", "function", "lc"];
+  const out: TouchPointScope[] = [];
+  if (v.role === "Team Leader") out.push("team");
+  if (v.role === "LCVP" || v.role === "Director") out.push("team", "function");
+  if (isTmCore(v)) out.push("lc");
+  return [...new Set(out)];
+}
+
+export function canBookTouchPoint(v: Viewer, scope: TouchPointScope): boolean {
+  return bookableTouchPointScopes(v).includes(scope);
+}
+
+export interface TouchPointRef {
+  scope: TouchPointScope;
+  function_key: string | null;
+  team_name: string | null;
+  owner_id: string | null;
+}
+
+/** Edit / cancel a touch point: its owner, the function's VP/Director for a
+ *  team or function point, TM core for LC points, LCP/admin always. */
+export function canEditTouchPoint(v: Viewer, tp: TouchPointRef): boolean {
+  if (master(v)) return true;
+  if (tp.owner_id && tp.owner_id === v.id) return true;
+  if (tp.scope === "lc") return isTmCore(v);
+  const inFn =
+    !!tp.function_key &&
+    [...v.functions, ...v.sub_functions].some((f) => f === tp.function_key);
+  return (v.role === "LCVP" || v.role === "Director") && inFn;
+}
+
+/** Record / edit attendance. Team point → its Team Leader (+ the function's
+ *  VP/Director, TM core). Function point → the VP/Director and its MMs (never
+ *  their OWN row — see canEditOwnAttendanceRow), TM core. LC point → TM core
+ *  only. */
+export function canRecordAttendance(v: Viewer, tp: TouchPointRef): boolean {
+  if (master(v) || isTmCore(v)) return true;
+  if (tp.scope === "lc") return false;
+  const fnMatch =
+    !!tp.function_key &&
+    [...v.functions, ...v.sub_functions].some((f) => f === tp.function_key);
+  if (tp.scope === "function")
+    return fnMatch && ["LCVP", "Director", "Team Leader", "Coordinator"].includes(v.role);
+  if (tp.owner_id === v.id) return true;
+  return fnMatch && ["LCVP", "Director"].includes(v.role);
+}
+
+/** Nobody marks THEMSELF present on a point they only got edit rights to —
+ *  the owner (and TM core) still can, so a TL can record their own team. */
+export function canEditOwnAttendanceRow(v: Viewer, tp: TouchPointRef): boolean {
+  return master(v) || isTmCore(v) || tp.owner_id === v.id;
 }
 
 /** The Podio-submission worklist ("Podio pending" filter + "Ask to submit"):

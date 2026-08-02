@@ -15,10 +15,12 @@ import {
   updateCvFields, updatePartnerLc,
 } from "@/server/actions";
 import type {
+  PartnerLcDetail,
   CvRow, IrAvailabilityRow, IrCallRow, MyIrBooking, PartnerLc,
 } from "@/server/data";
 import { normalizePhone, fmtDateTime } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { CountryInput } from "./country-input";
 import { FileDrop } from "./file-drop";
 import { Hint } from "./hint";
 import { WalkingLoader } from "./walking-loader";
@@ -109,7 +111,7 @@ interface ViewerInfo {
 function PartnerLcPicker({
   lcs, value, onChange, onCreated, allowNone, manage,
 }: {
-  lcs: PartnerLc[];
+  lcs: (PartnerLc | PartnerLcDetail)[];
   value: string;
   onChange: (id: string) => void;
   onCreated: (lc: PartnerLc) => void;
@@ -186,10 +188,9 @@ function PartnerLcPicker({
             placeholder="LC name (e.g. AIESEC in Tunis)"
             className="h-9 min-w-40 flex-1"
           />
-          <Input
-            dir="auto"
+          <CountryInput
             value={country}
-            onChange={(e) => setCountry(e.target.value)}
+            onChange={setCountry}
             placeholder="Country (optional)"
             className="h-9 w-36"
           />
@@ -220,7 +221,7 @@ function PartnerLcManageDialog({
 }: {
   open: boolean;
   onClose: () => void;
-  lcs: PartnerLc[];
+  lcs: (PartnerLc | PartnerLcDetail)[];
   canEdit: boolean;
   onCreated: (lc: PartnerLc) => void;
 }) {
@@ -307,14 +308,11 @@ function PartnerLcManageDialog({
                     maxLength={120}
                     aria-label="LC name"
                   />
-                  <Input
-                    dir="auto"
+                  <CountryInput
                     value={country}
-                    onChange={(e) => setCountry(e.target.value)}
+                    onChange={setCountry}
                     placeholder="Country"
                     className="h-9 w-32"
-                    maxLength={60}
-                    aria-label="Country"
                   />
                   <Button size="sm" onClick={saveEdit} disabled={pending || !name.trim()}>
                     {pending ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
@@ -324,13 +322,44 @@ function PartnerLcManageDialog({
                   </Button>
                 </div>
               ) : (
-                <div key={lc.id} className="flex items-center justify-between gap-2 rounded-lg border p-2">
-                  <p className="min-w-0 truncate text-sm font-medium" dir="auto">
-                    {lc.name}
-                    {lc.country ? (
-                      <span className="text-muted-foreground"> · {lc.country}</span>
+                <div key={lc.id} className="flex items-start justify-between gap-2 rounded-lg border p-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium" dir="auto">
+                      {lc.name}
+                      {lc.country ? (
+                        <span className="text-muted-foreground"> · {lc.country}</span>
+                      ) : null}
+                    </p>
+                    {"calls" in lc ? (
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {(lc as PartnerLcDetail).calls} call
+                        {(lc as PartnerLcDetail).calls === 1 ? "" : "s"} ·{" "}
+                        {(lc as PartnerLcDetail).cvs} CV
+                        {(lc as PartnerLcDetail).cvs === 1 ? "" : "s"}
+                        {(lc as PartnerLcDetail).lastCallAt
+                          ? ` · last ${fmtDateTime((lc as PartnerLcDetail).lastCallAt!).slice(0, 12)}`
+                          : ""}
+                      </p>
                     ) : null}
-                  </p>
+                    {"contacts" in lc && (lc as PartnerLcDetail).contacts.length > 0 ? (
+                      <ul className="mt-1 space-y-0.5">
+                        {(lc as PartnerLcDetail).contacts.map((c, i) => (
+                          <li key={i} className="truncate text-xs text-muted-foreground" dir="auto">
+                            👤 {c.name || "—"}
+                            {c.role ? ` · ${c.role}` : ""}
+                            {c.email ? (
+                              <>
+                                {" · "}
+                                <a href={`mailto:${c.email}`} className="text-primary hover:underline">
+                                  {c.email}
+                                </a>
+                              </>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
                   {canEdit ? (
                     <div className="flex shrink-0 items-center gap-1">
                       <Hint label="Edit the name / country">
@@ -405,7 +434,7 @@ export function ConsiderationView({
   tab, lcs, calls, cvs, q, viewer, booking, origin,
 }: {
   tab: "calls" | "cvs";
-  lcs: PartnerLc[];
+  lcs: (PartnerLc | PartnerLcDetail)[];
   calls: CallsData;
   cvs: PageData<CvRow>;
   q: string;
@@ -563,7 +592,7 @@ function DemandPicker({
 /** Option lists for the scheduling controls (v28 — Google-Calendar parity).
  *  A stored custom value not in the list is appended so it never disappears. */
 const SLOT_CHOICES = [15, 30, 45, 60, 90, 120];
-const BUFFER_CHOICES = [0, 10, 15, 30];
+const BUFFER_CHOICES = [0, 5, 10, 15, 30];
 const NOTICE_CHOICES: { value: number; label: string }[] = [
   { value: 15, label: "15 minutes" },
   { value: 60, label: "1 hour" },
@@ -867,6 +896,7 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
                     )}
                     <Input
                       type="time"
+                      step={900}
                       value={r.from}
                       onChange={(e) => setRow(i, { from: e.target.value })}
                       className="h-9 w-28"
@@ -875,6 +905,7 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
                     <span className="text-sm text-muted-foreground">→</span>
                     <Input
                       type="time"
+                      step={900}
                       value={r.to}
                       onChange={(e) => setRow(i, { to: e.target.value })}
                       className="h-9 w-28"
@@ -943,7 +974,7 @@ function IrCallsTab({
   data, lcs, onLcCreated, goPage, viewer, booking, origin,
 }: {
   data: CallsData;
-  lcs: PartnerLc[];
+  lcs: (PartnerLc | PartnerLcDetail)[];
   onLcCreated: (lc: PartnerLc) => void;
   goPage: (p: number) => void;
   viewer: ViewerInfo;
@@ -1011,7 +1042,7 @@ function IrCallsTab({
                 </div>
                 {canTouch(c) ? (
                   <div className="flex shrink-0 items-center gap-1.5">
-                    <Hint label="Fill the in-call notes — demand, B2C campaigns, screenshot">
+                    <Hint label="Fill the in-call notes — demand, notes, screenshot">
                       <Button size="sm" onClick={() => setCompleting(c)}>
                         <ClipboardCheck className="size-4" /> Fill call notes
                       </Button>
@@ -1123,13 +1154,8 @@ function IrCallsTab({
                                 Demand: {c.demand}
                               </p>
                             ) : null}
-                            {c.b2c_campaigns ? (
-                              <p className="line-clamp-1 text-xs text-muted-foreground" dir="auto">
-                                B2C: {c.b2c_campaigns}
-                              </p>
-                            ) : null}
                             <span className="line-clamp-2 text-sm text-muted-foreground" dir="auto">
-                              {c.notes || (c.demand || c.b2c_campaigns ? "" : "—")}
+                              {c.notes || (c.demand ? "" : "—")}
                             </span>
                           </TableCell>
                           <TableCell className="text-right">
@@ -1172,11 +1198,6 @@ function IrCallsTab({
                       </div>
                       {c.demand ? (
                         <p className="mt-1 text-xs font-medium" dir="auto">Demand: {c.demand}</p>
-                      ) : null}
-                      {c.b2c_campaigns ? (
-                        <p className="text-xs text-muted-foreground" dir="auto">
-                          B2C campaigns: {c.b2c_campaigns}
-                        </p>
                       ) : null}
                       {c.notes ? (
                         <p className="mt-1 line-clamp-3 text-sm" dir="auto">{c.notes}</p>
@@ -1235,7 +1256,7 @@ function IrCallsTab({
 function ManualCallForm({
   lcs, onLcCreated, canManageLcs,
 }: {
-  lcs: PartnerLc[];
+  lcs: (PartnerLc | PartnerLcDetail)[];
   onLcCreated: (lc: PartnerLc) => void;
   canManageLcs?: boolean;
 }) {
@@ -1246,7 +1267,6 @@ function ManualCallForm({
   const [notes, setNotes] = useState("");
   const [demand, setDemand] = useState<string[]>([]);
   const [demandOther, setDemandOther] = useState("");
-  const [b2c, setB2c] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [shotName, setShotName] = useState("");
 
@@ -1291,7 +1311,6 @@ function ManualCallForm({
         notes: notes || null,
         demand,
         demandOther: demandOther || null,
-        b2cCampaigns: b2c || null,
         screenshot,
       });
       if (res.ok) {
@@ -1300,7 +1319,6 @@ function ManualCallForm({
         setNotes("");
         setDemand([]);
         setDemandOther("");
-        setB2c("");
         setFile(null);
         setShotName("");
         setCalledAt(nowLocal());
@@ -1346,18 +1364,6 @@ function ManualCallForm({
         <div className="space-y-1.5">
           <Label>What is their demand? (domains — optional)</Label>
           <DemandPicker picks={demand} setPicks={setDemand} other={demandOther} setOther={setDemandOther} />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="ir-b2c">When are their B2C campaigns? (optional)</Label>
-          <Input
-            id="ir-b2c"
-            dir="auto"
-            value={b2c}
-            onChange={(e) => setB2c(e.target.value)}
-            placeholder="e.g. September + February peaks"
-            className="h-9"
-            maxLength={2000}
-          />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="ir-notes">Notes (optional)</Label>
@@ -1410,14 +1416,13 @@ function ManualCallForm({
 
 // ------------------------------------------------------------ in-call dialogs
 
-/** The in-call notes: fills demand + B2C campaigns + notes + screenshot and
+/** The in-call notes: fills demand + notes + screenshot and
  *  flips the scheduled call to completed. */
 function CompleteCallDialog({ call, onClose }: { call: IrCallRow | null; onClose: () => void }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [demand, setDemand] = useState<string[]>([]);
   const [demandOther, setDemandOther] = useState("");
-  const [b2c, setB2c] = useState("");
   const [notes, setNotes] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
@@ -1427,7 +1432,6 @@ function CompleteCallDialog({ call, onClose }: { call: IrCallRow | null; onClose
   if (call && loadedFor !== call.id) {
     setDemand([]);
     setDemandOther("");
-    setB2c(call.b2c_campaigns ?? "");
     setNotes(call.notes ?? "");
     setFile(null);
     setLoadedFor(call.id);
@@ -1461,7 +1465,6 @@ function CompleteCallDialog({ call, onClose }: { call: IrCallRow | null; onClose
       const res = await completeIrCall(call.id, {
         demand,
         demandOther: demandOther || null,
-        b2cCampaigns: b2c || null,
         notes: notes || null,
         screenshot,
       });
@@ -1488,18 +1491,6 @@ function CompleteCallDialog({ call, onClose }: { call: IrCallRow | null; onClose
           <div className="space-y-1.5">
             <Label>What is their demand?</Label>
             <DemandPicker picks={demand} setPicks={setDemand} other={demandOther} setOther={setDemandOther} />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="cc-b2c">When are your B2C campaigns?</Label>
-            <Input
-              id="cc-b2c"
-              dir="auto"
-              value={b2c}
-              onChange={(e) => setB2c(e.target.value)}
-              placeholder="e.g. September + February peaks"
-              className="h-9"
-              maxLength={2000}
-            />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="cc-notes">Notes</Label>
@@ -1605,10 +1596,15 @@ function RequestRescheduleDialog({
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  const [why, setWhy] = useState("");
   const ask = () => {
     if (!call) return;
+    if (why.trim().length < 3) {
+      toast.error("Add a short reason — the IR reads it.");
+      return;
+    }
     start(async () => {
-      const res = await requestIrReschedule(call.id);
+      const res = await requestIrReschedule(call.id, why.trim());
       if (res.ok) {
         toast.success("The IR got an email — they'll pick the new time. 📧");
         onClose();
@@ -1629,6 +1625,21 @@ function RequestRescheduleDialog({
             until they choose.
           </DialogDescription>
         </DialogHeader>
+        <div className="grid gap-1.5">
+          <Label htmlFor="resched-why">Why? *</Label>
+          <Textarea
+            id="resched-why"
+            dir="auto"
+            rows={2}
+            value={why}
+            onChange={(e) => setWhy(e.target.value)}
+            placeholder="e.g. A clash came up on my side — sorry!"
+            maxLength={500}
+          />
+          <p className="text-xs text-muted-foreground">
+            This goes to them word for word — be kind and specific.
+          </p>
+        </div>
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={onClose}>Never mind</Button>
           <Button onClick={ask} disabled={pending}>
@@ -1657,7 +1668,7 @@ function CvsTab({
   data, lcs, onLcCreated, q, viewer, setParams,
 }: {
   data: PageData<CvRow>;
-  lcs: PartnerLc[];
+  lcs: (PartnerLc | PartnerLcDetail)[];
   onLcCreated: (lc: PartnerLc) => void;
   q: string;
   viewer: ViewerInfo;
@@ -1693,6 +1704,10 @@ function CvsTab({
     start(async () => {
       if (!file) {
         toast.error("Pick the CV file first.");
+        return;
+      }
+      if (!lcId) {
+        toast.error("Pick the partner LC this CV came from.");
         return;
       }
       setPhase("uploading");
@@ -1819,7 +1834,7 @@ function CvsTab({
           </div>
           <div className="flex justify-end">
             <Hint label="Uploads to the private CV pool, then the AI extracts the fields">
-              <Button onClick={upload} disabled={pending || !file}>
+              <Button onClick={upload} disabled={pending || !file || !lcId}>
                 {phase === "idle" ? (
                   <>
                     <Upload className="size-4" /> Upload CV
@@ -2029,7 +2044,7 @@ function CvEditDialog({
   cv, lcs, onLcCreated, onClose,
 }: {
   cv: CvRow | null;
-  lcs: PartnerLc[];
+  lcs: (PartnerLc | PartnerLcDetail)[];
   onLcCreated: (lc: PartnerLc) => void;
   onClose: () => void;
 }) {
