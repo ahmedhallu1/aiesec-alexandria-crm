@@ -15,7 +15,6 @@ import { LC_FUNCTIONS, NO_WORKING_HOURS_FUNCTIONS, touchPointLabel } from "@/lib
 import { audienceLabel, expandTouchPointFns } from "@/lib/touch-points";
 import { cairoToUtc } from "@/lib/time";
 import { CalendarView } from "@/components/crm/calendar-view";
-import { TouchPointDialog } from "@/components/crm/touch-point-dialog";
 
 export const metadata = { title: "Calendar" };
 
@@ -136,13 +135,11 @@ export default async function CalendarPage({
   );
   // ONLY a function-wide booker picks someone else's team — a Team Leader
   // books for their OWN team (the server refuses anything else)
-  const picksAnyTeam =
-    viewer.isAdmin ||
-    viewer.role === "LCP" ||
-    viewer.role === "LCVP" ||
-    viewer.role === "Director";
+  const picksAnyTeam = viewer.isAdmin || viewer.role === "LCP";
 
   const scope = accountScope(viewer);
+  // `booking` travels as plain DATA, not a rendered element: the calendar
+  // opens that same dialog from a day cell with the day already filled in.
   return (
     <CalendarView
       visits={visits}
@@ -152,17 +149,17 @@ export default async function CalendarPage({
       viewerId={viewer.id}
       openableMemberIds={scope.kind === "members" ? scope.ids : null}
       showFunction={scope.kind === "all" || isTmCore(viewer)}
-      bookSlot={
-        scopes.length > 0 ? (
-          <TouchPointDialog
-            scopes={scopes}
-            functions={ownFns}
-            teams={picksAnyTeam ? allTeams : viewer.team_name ? [viewer.team_name] : []}
-            myTeam={viewer.team_name}
-            siblingTeams={siblingTeams}
-            otherFunctions={otherFunctions}
-          />
-        ) : null
+      booking={
+        scopes.length > 0
+          ? {
+              scopes,
+              functions: ownFns,
+              teams: picksAnyTeam ? allTeams : viewer.team_name ? [viewer.team_name] : [],
+              myTeam: viewer.team_name,
+              siblingTeams,
+              otherFunctions,
+            }
+          : null
       }
     />
   );

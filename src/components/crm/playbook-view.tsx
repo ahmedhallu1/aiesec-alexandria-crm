@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v29";
+export const PLAYBOOK_VERSION = "v30";
 
 interface Props {
   role: string;
@@ -220,10 +220,10 @@ const SECTIONS: Section[] = [
     audience: "Everyone",
     color: "#8E44AD",
     points: [
-      <><b>Touch points</b> are the LC&apos;s moments: <b>meetings, working hours and outings</b> at team, function or LC level. Your Team Leader books the team&apos;s, your VP/Director the function&apos;s, TM the LC&apos;s — and everyone invited gets an email + a bell (the TM VP is always CC&apos;d).</>,
+      <><b>Touch points</b> are the LC&apos;s moments: <b>meetings, working hours and outings</b>. Who books what: a <b>Team Leader</b> books their team&apos;s (and may invite sibling teams of the same function), a <b>VP/Director</b> the function&apos;s (and may invite another function), <b>TM</b> the LC-wide ones — the LCP books anything. You set a date and a START time (no end time) plus an optional note; everyone invited gets an email + a bell, with the TM VP always CC&apos;d. </>,
       <>They all land on <b>Calendar</b> — together with visits and IR calls. You see what you belong to: your team&apos;s, your function&apos;s (yes, including other teams&apos; points), and every LC-wide one.</>,
       <><b>Attendance is taken afterwards</b> — attended · late · absent, with a &quot;valid excuse?&quot; box. Team points are recorded by the Team Leader, function points by the VP/Director (MMs can edit, but never their own row), LC points by TM.</>,
-      <><b>Working hours record themselves</b> 🤖: you&apos;re marked attended when you did at least <b>two real actions at least 10 minutes apart</b> during the session (log a contact, book a visit, record a deal, work a sign-up, log an IR call…). Two clicks in a row won&apos;t fool it; one call plus a comment a quarter of an hour later counts.</>,
+      <><b>Working hours record themselves</b> 🤖 — <b>then a human confirms</b>: you&apos;re pre-filled as attended when you did at least <b>two real actions at least 10 minutes apart</b> during the session (log a contact, book a visit, record a deal, work a sign-up, log an IR call, add or update an account). Two clicks in a row won&apos;t fool it. The AI&apos;s answer is a <b>proposal</b> — your TL (team) / VP (function) / TM (LC) reviews it and hits <b>Confirm attendance</b>. Until they do, it counts as unrecorded and keeps reminding them. </>,
       <>Plans change: whoever booked a touch point (plus the function&apos;s VP/Director and TM) can <b>move it or cancel it</b> from the calendar — tap it and pick <b>Move or cancel</b>. A cancel needs a reason, and either way everyone invited is emailed again. </>,
       <>Check <b>Attendance</b> any time — your own history and rate, your team&apos;s if you lead one, your function&apos;s if you run one. Disagree with a mark? Hit <b>Appeal</b> and whoever recorded it hears from you, with TM on CC.</>,
       <>Owed a record? Elevate reminds you daily — and after <b>three reminders</b> it greets you with a prompt you can&apos;t wave away. Just fill it. 💙</>,

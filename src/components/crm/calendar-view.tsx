@@ -3,12 +3,18 @@
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, ChevronLeft, ChevronRight, Loader2, Pencil } from "lucide-react";
+import {
+  CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, Loader2, Pencil,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import { Hint } from "./hint";
 import { TouchPointManageDialog } from "./touch-point-manage-dialog";
+import { TouchPointDialog } from "./touch-point-dialog";
 import type { CalendarVisit } from "@/server/data";
 
 /** Distinct, readable chip colors — one per member, assigned in a stable order. */
@@ -30,6 +36,21 @@ function shiftMonth(month: string, by: number): string {
   const d = new Date(y, m - 1 + by, 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
+
+/** "Saturday, 2 August 2026" — the day panel's title. */
+function dayLabel(date: string): string {
+  return new Date(`${date}T00:00:00`).toLocaleDateString("en", {
+    weekday: "long", day: "numeric", month: "long", year: "numeric",
+  });
+}
+
+/** Everything TouchPointDialog needs, minus what the day panel drives itself —
+ *  the page hands this over as plain data so the calendar can open the SAME
+ *  dialog with a date already filled in. */
+export type CalendarBooking = Omit<
+  React.ComponentProps<typeof TouchPointDialog>,
+  "defaultDate" | "open" | "onOpenChange"
+>;
 
 export interface CalendarTouchPoint {
   id: string;
@@ -60,15 +81,15 @@ export interface CalendarIrCall {
 
 export function CalendarView({
   visits, touchPoints = [], irCalls = [], month, viewerId, openableMemberIds,
-  showFunction = false, bookSlot,
+  showFunction = false, booking = null,
 }: {
   visits: CalendarVisit[];
   /** TM touch points the viewer belongs to (v29) */
   touchPoints?: CalendarTouchPoint[];
   /** consideration IR calls, for viewers with that access (v29) */
   irCalls?: CalendarIrCall[];
-  /** the "Book a touch point" control, rendered by the page (server-fed) */
-  bookSlot?: React.ReactNode;
+  /** what this viewer may book — null when they may book nothing (v29.4) */
+  booking?: CalendarBooking | null;
   month: string;
   viewerId: string;
   /** member ids whose accounts the viewer may open — null = everyone shown */
@@ -80,6 +101,19 @@ export function CalendarView({
   const [navPending, startNav] = useTransition();
   // the touch point being moved / cancelled (v29)
   const [manage, setManage] = useState<CalendarTouchPoint | null>(null);
+  // the day whose panel is open (Cairo YYYY-MM-DD) — v29.4
+  const [day, setDay] = useState<string | null>(null);
+  // the day a touch point is being booked ON, driving TouchPointDialog
+  const [bookDate, setBookDate] = useState<string | null>(null);
+  const [bookOpen, setBookOpen] = useState(false);
+
+  /** Book on a chosen day: hand the date to TouchPointDialog and step out of
+   *  the way (two stacked dialogs fight over the focus trap). */
+  const bookOn = (date: string) => {
+    setBookDate(date);
+    setBookOpen(true);
+    setDay(null);
+  };
 
   const goMonth = (m: string) =>
     startNav(() => router.replace(`/calendar?m=${m}`));
@@ -110,6 +144,9 @@ export function CalendarView({
       list.push(t);
       map.set(t.date, list);
     }
+    // earliest first — the 24h value sorts lexically, the human one doesn't
+    for (const list of map.values())
+      list.sort((a, b) => a.timeValue.localeCompare(b.timeValue));
     return map;
   }, [touchPoints]);
 
@@ -144,11 +181,18 @@ export function CalendarView({
   ];
   while (cells.length % 7 !== 0) cells.push(null);
 
-  const today = (() => {
-    const n = new Date();
-    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
-  })();
+  // CAIRO's today — the grid, the "book ahead" gate and the server all speak
+  // Cairo; the browser's local date would disagree for anyone travelling (and
+  // with the UTC server render, mid-evening)
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
   const thisMonth = today.slice(0, 7);
+
+  const dayTps = day ? tpByDate.get(day) ?? [] : [];
+  const dayIr = day ? irByDate.get(day) ?? [] : [];
+  const dayVisits = day ? byDate.get(day) ?? [] : [];
+  const dayCount = dayTps.length + dayIr.length + dayVisits.length;
 
   const chip = (v: CalendarVisit, full = false) => {
     const color = colorOf.get(v.member.id) ?? "#037EF3";
@@ -198,11 +242,12 @@ export function CalendarView({
           </h1>
           <p className="text-sm text-muted-foreground">
             Everything you&apos;re part of: touch points, visits and IR calls —
-            colour-coded. Click a visit to open its account.
+            colour-coded. Click any day to see it in full
+            {booking ? " and book a touch point on it" : ""}.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1">
-          {bookSlot}
+          {booking ? <TouchPointDialog {...booking} /> : null}
           <Button variant="outline" size="icon" className="size-9" onClick={() => goMonth(shiftMonth(month, -1))} aria-label="Previous month">
             <ChevronLeft className="size-4" />
           </Button>
@@ -249,20 +294,37 @@ export function CalendarView({
               <div
                 key={i}
                 className={cn(
-                  "min-h-24 rounded-lg border p-1.5",
+                  "relative min-h-24 rounded-lg border p-1.5",
                   date ? "bg-card" : "border-transparent bg-muted/30",
                   date === today && "border-primary ring-1 ring-primary/40"
                 )}
               >
                 {date ? (
                   <>
+                    {/* the whole cell opens the day — a SIBLING button under
+                        the chips, so the links/buttons above it keep working
+                        (no nested interactive elements) */}
+                    <Hint
+                      label={`${dayLabel(date)} — see everything on this day${
+                        booking && date >= today ? " or book a touch point on it" : ""
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        aria-label={`Open ${dayLabel(date)}`}
+                        onClick={() => setDay(date)}
+                        className="absolute inset-0 z-0 rounded-lg transition-colors hover:bg-primary/5 focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:outline-none"
+                      />
+                    </Hint>
                     <p className={cn(
-                      "mb-1 text-right text-xs font-semibold",
+                      // above the overlay to stay readable, transparent to
+                      // clicks so the day number opens the day too
+                      "pointer-events-none relative z-10 mb-1 text-right text-xs font-semibold",
                       date === today ? "text-primary" : "text-muted-foreground"
                     )}>
                       {Number(date.slice(8))}
                     </p>
-                    <div className="space-y-1">
+                    <div className="relative z-10 space-y-1">
                       {(tpByDate.get(date) ?? []).map((t) => {
                         const editable = t.canEdit && !t.cancelled;
                         const cls = cn(
@@ -322,12 +384,20 @@ export function CalendarView({
             return (
           <Card key={date} className={cn(date === today && "border-primary")}>
             <CardContent className="space-y-1.5 p-3">
-              <p className={cn("text-sm font-bold", date === today && "text-primary")}>
-                {new Date(`${date}T00:00:00`).toLocaleDateString("en", {
-                  weekday: "long", day: "numeric", month: "short",
-                })}
-                {date === today ? " · Today" : ""}
-              </p>
+              {/* the heading opens the same day panel the grid opens */}
+              <button
+                type="button"
+                onClick={() => setDay(date)}
+                className="flex w-full items-center justify-between gap-2 text-start"
+              >
+                <span className={cn("min-w-0 flex-1 text-sm font-bold", date === today && "text-primary")}>
+                  {new Date(`${date}T00:00:00`).toLocaleDateString("en", {
+                    weekday: "long", day: "numeric", month: "short",
+                  })}
+                  {date === today ? " · Today" : ""}
+                </span>
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+              </button>
               {(tpByDate.get(date) ?? []).map((t) => (
                 <div key={t.id} className="min-w-0 rounded-lg border p-2">
                   <p className="break-words text-sm font-semibold" dir="auto">
@@ -361,6 +431,16 @@ export function CalendarView({
                 </div>
               ))}
               {list.map((v) => chip(v, true))}
+              {booking && date >= today ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-1 h-8 w-full"
+                  onClick={() => bookOn(date)}
+                >
+                  <CalendarPlus className="size-3.5" /> Book on this day
+                </Button>
+              ) : null}
             </CardContent>
           </Card>
             );
@@ -375,8 +455,174 @@ export function CalendarView({
       {visits.length + touchPoints.length + irCalls.length === 0 ? (
         <p className="hidden py-6 text-center text-sm text-muted-foreground sm:block">
           Nothing booked in {monthLabel(month)} yet — visits come from account
-          pages, touch points from the button above. 🗓️
+          pages{booking ? ", touch points from any day you click" : ""}. 🗓️
         </p>
+      ) : null}
+
+      {/* THE DAY PANEL (v29.4): everything on one Cairo day, plus the way to
+          book a touch point straight onto it */}
+      {day ? (
+      <Dialog open onOpenChange={(v) => !v && setDay(null)}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {dayLabel(day)}
+              {day === today ? " · Today" : ""}
+            </DialogTitle>
+            <DialogDescription>
+              {dayCount === 0
+                ? "Nothing booked on this day yet."
+                : `${dayCount} thing${dayCount === 1 ? "" : "s"} on this day — Cairo time.`}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            {dayTps.map((t) => (
+              <div key={t.id} className="min-w-0 rounded-lg border p-2.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="shrink-0 rounded-full bg-[#8E44AD]/15 px-2 py-0.5 text-xs font-bold text-[#8E44AD]">
+                    {t.time}
+                  </span>
+                  <p
+                    className={cn(
+                      "min-w-0 flex-1 break-words text-sm font-semibold",
+                      t.cancelled && "text-muted-foreground line-through"
+                    )}
+                    dir="auto"
+                  >
+                    {t.label}
+                  </p>
+                </div>
+                <p className="mt-1 break-words text-xs text-muted-foreground" dir="auto">
+                  {t.audience} · booked by {t.ownerName}
+                  {t.cancelled
+                    ? " · cancelled"
+                    : t.recorded
+                      ? " · attendance taken"
+                      : ""}
+                </p>
+                {t.note ? (
+                  <p className="mt-0.5 break-words text-xs text-muted-foreground" dir="auto">
+                    {t.note}
+                  </p>
+                ) : null}
+                {t.canEdit && !t.cancelled ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-2 h-8"
+                    onClick={() => {
+                      setDay(null);
+                      setManage(t);
+                    }}
+                  >
+                    <Pencil className="size-3.5" /> Move or cancel
+                  </Button>
+                ) : null}
+              </div>
+            ))}
+
+            {dayIr.map((c) => (
+              <div key={c.id} className="min-w-0 rounded-lg border p-2.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="shrink-0 rounded-full bg-[#0CB9C1]/15 px-2 py-0.5 text-xs font-bold text-[#0CB9C1]">
+                    {c.time}
+                  </span>
+                  <p
+                    className={cn(
+                      "min-w-0 flex-1 break-words text-sm font-semibold",
+                      c.status === "cancelled" && "text-muted-foreground line-through"
+                    )}
+                    dir="auto"
+                  >
+                    🌍 {c.partnerLc}
+                  </p>
+                </div>
+                <p className="mt-1 break-words text-xs text-muted-foreground" dir="auto">
+                  IR call · {c.memberName}
+                  {c.status === "cancelled" ? " · cancelled" : ""}
+                </p>
+              </div>
+            ))}
+
+            {dayVisits.map((v) => {
+              const color = colorOf.get(v.member.id) ?? "#037EF3";
+              const who = v.member.nickname || v.member.name;
+              const openable =
+                openableMemberIds === null || openableMemberIds.includes(v.member.id);
+              const body = (
+                <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className="shrink-0 rounded-full px-2 py-0.5 text-xs font-bold"
+                      style={{ backgroundColor: `${color}1a`, color }}
+                    >
+                      {v.visit_time?.slice(0, 5)}
+                    </span>
+                    <p className="min-w-0 flex-1 break-words text-sm font-semibold" dir="auto">
+                      {v.account.name}
+                    </p>
+                  </div>
+                  <p className="mt-1 break-words text-xs text-muted-foreground">
+                    Visit · {who}
+                    {showFunction ? ` · ${v.account.function}` : ""} ·{" "}
+                    {v.done === null
+                      ? "pending report"
+                      : v.done
+                        ? "done ✅"
+                        : "not completed ❌"}
+                  </p>
+                </>
+              );
+              return openable ? (
+                <Link
+                  key={v.id}
+                  href={`/accounts/${v.account.id}`}
+                  className="block min-w-0 rounded-lg border p-2.5 transition-colors hover:border-primary/50 hover:bg-muted/40"
+                >
+                  {body}
+                </Link>
+              ) : (
+                <div key={v.id} className="min-w-0 rounded-lg border p-2.5">
+                  {body}
+                </div>
+              );
+            })}
+
+            {dayCount === 0 ? (
+              <p className="py-4 text-center text-sm text-muted-foreground">
+                A clean day. 🌤️
+              </p>
+            ) : null}
+          </div>
+
+          {booking ? (
+            <DialogFooter className="sm:justify-end">
+              {day >= today ? (
+                <Button onClick={() => bookOn(day)}>
+                  <CalendarPlus className="size-4" /> Book a touch point on this day
+                </Button>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Touch points are booked ahead — pick today or a later day.
+                </p>
+              )}
+            </DialogFooter>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+      ) : null}
+
+      {/* the SAME booking dialog as the header's, driven by the day panel —
+          re-keyed so a new day re-seeds its Date field */}
+      {booking ? (
+        <TouchPointDialog
+          key={bookDate ?? "no-day"}
+          {...booking}
+          defaultDate={bookDate ?? undefined}
+          open={bookOpen}
+          onOpenChange={setBookOpen}
+        />
       ) : null}
 
       {manage ? (

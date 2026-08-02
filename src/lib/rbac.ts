@@ -199,16 +199,25 @@ export function isTmCore(v: Viewer): boolean {
   );
 }
 
-/** Which touch-point scopes THIS viewer may book (v29):
- *  Team Leader → team · VP/Director → function (+ their teams') ·
- *  TM core → lc · LCP/admin → everything. */
+/** Which touch-point scopes THIS viewer may book (v29.3) — ONE scope per role,
+ *  no overlap:
+ *
+ *    Team Leader   → team points ONLY (their own team; sibling teams of their
+ *                    own function can be invited)
+ *    LCVP/Director → function points ONLY (their own function; another
+ *                    function can be invited). A VP does NOT book a team's
+ *                    touch point — that is the Team Leader's call.
+ *    TM core       → LC points ONLY. TM runs the LC's touch points; it does
+ *                    not book for a function or for a team.
+ *    LCP / admin   → everything, as always.
+ *
+ *  The order matters: a TM VP is TM core FIRST (lc), not an LCVP (function). */
 export function bookableTouchPointScopes(v: Viewer): TouchPointScope[] {
   if (master(v)) return ["team", "function", "lc"];
-  const out: TouchPointScope[] = [];
-  if (v.role === "Team Leader") out.push("team");
-  if (v.role === "LCVP" || v.role === "Director") out.push("team", "function");
-  if (isTmCore(v)) out.push("lc");
-  return [...new Set(out)];
+  if (isTmCore(v)) return ["lc"];
+  if (v.role === "LCVP" || v.role === "Director") return ["function"];
+  if (v.role === "Team Leader") return ["team"];
+  return [];
 }
 
 export function canBookTouchPoint(v: Viewer, scope: TouchPointScope): boolean {

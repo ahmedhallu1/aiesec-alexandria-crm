@@ -16,7 +16,7 @@ import {
 import { audienceLabel, cairoWhen } from "@/lib/touch-points";
 import { getViewer, logAudit } from "./data";
 import { recordUndo, sandboxSuppressed, snapshotForUndo } from "./sandbox";
-import { notifyMembers } from "./notify";
+import { notifyTouchPointAudience } from "./tm-notify";
 import { sendEmail } from "@/lib/google/gmail";
 import { getTouchPoint, touchPointAudience } from "./touch-points-read";
 import {
@@ -33,12 +33,15 @@ import {
   type PendingPromptRow,
 } from "./attendance-read";
 
-/** ATTENDANCE actions (v29).
+/** ATTENDANCE actions (v29 · confirmation added in v29.3).
  *
  *  Meetings and outings are recorded by a human (`saveAttendance`); WORKING
- *  HOURS record themselves from the work every member already does — every
+ *  HOURS are PRE-FILLED from the work every member already does — every
  *  meaningful action stamps `work_activity` through `stampWork`, and the
- *  engine in `attendance-read.ts` turns those stamps into attended/absent. */
+ *  engine in `attendance-read.ts` turns those stamps into attended/absent.
+ *  The pre-fill is a proposal, not a record: the responsible must still open
+ *  the sheet and CONFIRM it (`saveAttendance`, the only stamper of
+ *  `attendance_recorded_at`) or the nightly reminder ladder keeps asking. */
 
 type Result<T = undefined> =
   | { ok: true; data?: T }
@@ -175,12 +178,15 @@ export interface AttendanceInputRow {
   excuse?: string | null;
 }
 
-/** Record (or correct) attendance. Editable later by exactly the same people
- *  — the predicate is the single gate. */
+/** Record (or correct) attendance — and, for WORKING HOURS, the human
+ *  CONFIRMATION of what the engine pre-filled (v29.3): this is the only path
+ *  that stamps `attendance_recorded_at`, whether the responsible changed a row
+ *  or simply agreed with all of them. Editable later by exactly the same
+ *  people — the predicate is the single gate. */
 export async function saveAttendance(
   touchPointId: string,
   rows: AttendanceInputRow[]
-): Promise<Result<{ saved: number }>> {
+): Promise<Result<{ saved: number; confirmed: boolean }>> {
   const viewer = await getViewer();
   const tp = await getTouchPoint(touchPointId);
   if (!tp) return fail("That touch point no longer exists.");
@@ -188,12 +194,12 @@ export async function saveAttendance(
     return fail("Recording this one's attendance is above your access.", "forbidden");
   if (tp.status !== "scheduled")
     return fail("This touch point is cancelled — there is nothing to record.");
-  // working hours are EVIDENCE-based: hand-writing them before the session has
+  // working hours are EVIDENCE-based: confirming them before the session has
   // even finished would let anyone mark a whole team present in advance AND
   // permanently lock the engine out of every row it touched
   if (tp.kind === "working_hours" && !workWindowClosed(tp.starts_at))
     return fail(
-      "Working hours record themselves — you can correct them once the session's window closes."
+      "This session is still running — it gets pre-filled and can be confirmed once its window closes."
     );
 
   const audience = await touchPointAudience(tp);
@@ -238,35 +244,43 @@ export async function saveAttendance(
       };
     })
     .filter((p): p is NonNullable<typeof p> => p !== null);
-  // a pure review of the engine's own rows changes nothing — that's a success,
-  // not "you forgot to set someone"
-  if (payload.length === 0 && unchanged > 0) return { ok: true, data: { saved: 0 } };
-  if (payload.length === 0)
+  // a PURE REVIEW of the engine's pre-filled rows writes nothing — but it is
+  // still the human confirmation working hours now require, so it must fall
+  // through to the stamp below instead of returning early
+  if (payload.length === 0 && unchanged === 0)
     return fail("Set at least one person's attendance first.");
 
-  // journal the rows that already existed, so a sandbox exit can restore them
-  for (const p of payload) {
-    const prior = byMember.get(p.member_id);
-    if (prior) await snapshotForUndo("touch_point_attendance", prior.id);
+  if (payload.length > 0) {
+    // journal the rows that already existed, so a sandbox exit can restore them
+    for (const p of payload) {
+      const prior = byMember.get(p.member_id);
+      if (prior) await snapshotForUndo("touch_point_attendance", prior.id);
+    }
+
+    const { data: saved, error } = await db()
+      .from("touch_point_attendance")
+      .upsert(payload, { onConflict: "touch_point_id,member_id" })
+      .select("id, member_id");
+    if (error) {
+      if (error.message.includes("touch_point_attendance"))
+        return fail("Attendance needs migration 0031 — run it in the Supabase SQL editor.");
+      return fail(error.message);
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const s of ((saved ?? []) as any[]))
+      if (!byMember.has(s.member_id)) await recordUndo("touch_point_attendance", s.id, "insert");
   }
 
-  const { data: saved, error } = await db()
-    .from("touch_point_attendance")
-    .upsert(payload, { onConflict: "touch_point_id,member_id" })
-    .select("id, member_id");
-  if (error) {
-    if (error.message.includes("touch_point_attendance"))
-      return fail("Attendance needs migration 0031 — run it in the Supabase SQL editor.");
-    return fail(error.message);
-  }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const s of ((saved ?? []) as any[]))
-    if (!byMember.has(s.member_id)) await recordUndo("touch_point_attendance", s.id, "insert");
-
-  // a ONE-PERSON manual fix must not drop a working-hours point out of the
-  // cron's work list — the engine still owes everybody else a row
-  const coversAudience = payload.length + unchanged >= audience.length;
-  if (!tp.attendance_recorded_at && (tp.kind !== "working_hours" || coversAudience)) {
+  // A ONE-PERSON manual fix must not pass for a confirmation: a working-hours
+  // point counts as reviewed only when EVERY person in the audience has a row.
+  // Read them back rather than counting what this save touched — the engine
+  // pre-filled most of them, and the recorder's OWN row may be locked to them.
+  const covered =
+    tp.kind === "working_hours"
+      ? new Set((await listAttendanceFor(touchPointId)).map((r) => r.member_id))
+      : null;
+  const coversAudience = !covered || audience.every((m) => covered.has(m.id));
+  if (!tp.attendance_recorded_at && coversAudience) {
     await snapshotForUndo("touch_points", touchPointId);
     const { error: stampError } = await db()
       .from("touch_points")
@@ -275,16 +289,21 @@ export async function saveAttendance(
     // an unstamped record would keep nagging the recorder every night
     if (stampError) return fail(`Saved, but the touch point could not be stamped: ${stampError.message}`);
   }
-  await resolveAttendancePrompts(touchPointId);
+  const confirmed = !!tp.attendance_recorded_at || coversAudience;
+  // the "you still owe a record" prompt lifts on CONFIRMATION only — a partial
+  // working-hours edit leaves the ladder exactly where it was
+  if (confirmed) await resolveAttendancePrompts(touchPointId);
   await logAudit(viewer.id, "attendance_record", "touch_point", touchPointId, {
     rows: payload.length,
+    confirmed,
   });
   refresh();
-  return { ok: true, data: { saved: payload.length } };
+  return { ok: true, data: { saved: payload.length, confirmed } };
 }
 
 /** The "Recompute" button — the same engine the nightly cron runs, behind the
- *  recording predicate. Idempotent, and human-edited rows survive it. */
+ *  recording predicate. Idempotent, human-edited rows survive it, and it does
+ *  NOT confirm anything: the responsible still presses Confirm afterwards. */
 export async function computeWorkingHoursAttendance(
   touchPointId: string
 ): Promise<Result<ComputeResult>> {
@@ -376,7 +395,9 @@ export async function appealAttendance(
   const label = touchPointLabel(tp.scope, tp.kind);
   const whenLabel = cairoWhen(tp.starts_at);
   if (targetId) {
-    await notifyMembers(
+    // sandbox: the tester gets the bell, the real recorder is left alone
+    await notifyTouchPointAudience(
+      viewer.id,
       [targetId],
       "info",
       `🙋 Attendance appeal — ${viewer.nickname || viewer.name}`,
@@ -386,28 +407,31 @@ export async function appealAttendance(
     );
   }
 
-  const { data: target } = targetId
-    ? await db().from("members").select("email").eq("id", targetId).maybeSingle<{ email: string | null }>()
-    : { data: null };
-  const to = target?.email ? [target.email] : [];
-  const cc = (await tmCcEmails()).filter((e) => !to.includes(e) && e !== viewer.email);
-  const recipients = to.length > 0 ? to : cc;
-  if (recipients.length > 0) {
-    const { attendanceAppealEmail } = await import("@/lib/email/attendance-templates");
-    const mail = attendanceAppealEmail({
-      memberName: viewer.nickname || viewer.name,
-      label,
-      whenLabel,
-      status: row.status,
-      automatic: row.automatic,
-      message: text,
-      touchPointId: tp.id,
-    });
-    await sendEmail({
-      to: recipients,
-      cc: to.length > 0 ? cc : [],
-      ...mail,
-    }).catch((e) => console.error("[attendance] appeal email failed:", e));
+  // …and a TEST appeal must never land in a real inbox (the recorder's or TM's)
+  if (!(await sandboxSuppressed("attendance appeal email"))) {
+    const { data: target } = targetId
+      ? await db().from("members").select("email").eq("id", targetId).maybeSingle<{ email: string | null }>()
+      : { data: null };
+    const to = target?.email ? [target.email] : [];
+    const cc = (await tmCcEmails()).filter((e) => !to.includes(e) && e !== viewer.email);
+    const recipients = to.length > 0 ? to : cc;
+    if (recipients.length > 0) {
+      const { attendanceAppealEmail } = await import("@/lib/email/attendance-templates");
+      const mail = attendanceAppealEmail({
+        memberName: viewer.nickname || viewer.name,
+        label,
+        whenLabel,
+        status: row.status,
+        automatic: row.automatic,
+        message: text,
+        touchPointId: tp.id,
+      });
+      await sendEmail({
+        to: recipients,
+        cc: to.length > 0 ? cc : [],
+        ...mail,
+      }).catch((e) => console.error("[attendance] appeal email failed:", e));
+    }
   }
 
   await logAudit(viewer.id, "attendance_appeal", "touch_point", tp.id, { status: row.status });
@@ -444,7 +468,9 @@ export async function resolveAppeal(appealId: string): Promise<Result> {
     .eq("id", appealId);
   if (error) return fail(error.message);
 
-  await notifyMembers(
+  // sandbox: the member who appealed hears nothing from a test view
+  await notifyTouchPointAudience(
+    viewer.id,
     [appeal.member_id],
     "info",
     "✅ Your attendance appeal was reviewed",

@@ -22,9 +22,9 @@ import {
  *  Everything here is callable from anywhere on the server: the page, the
  *  actions AND the cron route (which has no session, so it can never call a
  *  server action that starts with `getViewer()`). The working-hours engine
- *  lives here for exactly that reason — the cron self-records closed sessions
- *  and the "Recompute" button reaches the same code through an authorised
- *  wrapper in `attendance.ts`. */
+ *  lives here for exactly that reason — the cron PRE-FILLS closed sessions
+ *  (a human still confirms them) and the "Recompute" button reaches the same
+ *  code through an authorised wrapper in `attendance.ts`. */
 
 // ------------------------------------------------------------------ types
 
@@ -111,7 +111,8 @@ export const WORKING_HOURS_RULE =
   `(an account added or edited, a contact, a visit, a deal, a comment, a sign-up ` +
   `or an IR call) inside the ` +
   `${WORK_SESSION_HOURS}-hour session — from ${WORK_GRACE_MINUTES} minutes before it starts — ` +
-  `with at least ${WORK_MIN_GAP_MINUTES} minutes between your first and your last one.`;
+  `with at least ${WORK_MIN_GAP_MINUTES} minutes between your first and your last one. ` +
+  `Whoever runs the session still reviews it and confirms — nothing is final before that.`;
 
 /** The window a working-hours session is judged over. */
 export function workWindow(startsAt: string): { from: string; to: string } {
@@ -503,11 +504,20 @@ export interface ComputeResult {
   skipped: number;
 }
 
-/** AUTOMATIC working-hours attendance. Idempotent, and it NEVER overwrites a
- *  row a human recorded or edited (`automatic = false` or `recorded_by` set).
- *  Called by the nightly cron when a window has closed, and by the
- *  "Recompute" button through `computeWorkingHoursAttendance` in
- *  `attendance.ts`. */
+/** AUTOMATIC working-hours attendance — the PRE-FILL, not the record (v29.3).
+ *
+ *  It writes everyone's attended/absent row from their stamped work activity,
+ *  and that is ALL it does: `attendance_recorded_at` (= "a human confirmed
+ *  this") is deliberately left alone, so the responsible still has to open the
+ *  sheet, review what the engine decided and press Confirm — which is what
+ *  stamps it, through `saveAttendance`. Until then the point keeps showing up
+ *  in "Needs recording" and the reminder ladder keeps nagging, exactly like a
+ *  meeting or an outing.
+ *
+ *  Idempotent, and it NEVER overwrites a row a human recorded or edited
+ *  (`automatic = false` or `recorded_by` set). Called by the nightly cron once
+ *  a window has closed, and by the "Recompute" button through
+ *  `computeWorkingHoursAttendance` in `attendance.ts`. */
 export async function runWorkingHoursAttendance(touchPointId: string): Promise<ComputeResult> {
   const zero: ComputeResult = { ok: false, written: 0, attended: 0, absent: 0, skipped: 0 };
   const tp = await getTouchPoint(touchPointId);
@@ -559,14 +569,8 @@ export async function runWorkingHoursAttendance(touchPointId: string): Promise<C
     }
   }
 
-  if (!tp.attendance_recorded_at) {
-    const { error } = await db()
-      .from("touch_points")
-      .update({ attendance_recorded_at: new Date().toISOString() })
-      .eq("id", touchPointId);
-    if (error) console.error("[attendance] recorded stamp failed:", error.message);
-  }
-  await resolveAttendancePrompts(touchPointId);
+  // NO `attendance_recorded_at` stamp and NO prompt resolving here: the rows
+  // are a proposal until the responsible confirms them in the sheet.
 
   return {
     ok: true,

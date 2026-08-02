@@ -517,26 +517,42 @@ function MemberDialog({
   const hasIdentity = !!form.email.trim() || !!form.phone.trim();
   const ready = form.name.trim().length >= 2 && emailOk && phoneOk && hasIdentity;
 
-  // the team picker offers what makes sense for the ROLE (v24):
-  // Member → a registered TL team · Team Leader → the team they LEAD (their
-  // team_name IS the team's label on every dashboard/drill, so it must stay
-  // the led team, not the MM team) · Coordinator/Director → the function's
-  // MM ("<fn> leaders") team · LCP/LCVP → the EB team
+  // The team picker offers what makes sense for the ROLE — an AUTOMATIC rule,
+  // no registry bookkeeping needed (v29.4):
+  //   LCP / LCVP  → the EB team
+  //   Member      → their function's registered Team rows
+  //   Team Leader → the Team rows they can lead **AND** their function's
+  //                 "Function leaders" team — a TL IS an MM. (Before v29.4 a
+  //                 TL only ever saw type='Team' rows, so in an LC that has
+  //                 registered none the picker was EMPTY even though the
+  //                 function's leaders team existed.)
+  //   Coordinator / Director → their function's "Function leaders" team
+  // B2B and BD are ONE function everywhere, so either key matches either label,
+  // and 'MM' is the pre-v24.2 alias of the 'Function leaders' type.
   const teamChoices = (() => {
+    const isB2bKey = (k: string) => k === "B2B" || k === "BD";
+    const own = [...form.functions, ...form.sub_functions];
     const fnMatch = (key: string) =>
       form.functions.length === 0 ||
-      form.functions.includes(key) ||
-      (key === "B2B" && form.functions.some((f) => f === "BD" || f === "B2B"));
-    let list: string[];
-    if (form.role === "Member" || form.role === "Team Leader")
-      list = teams.filter((t) => t.type === "Team" && fnMatch(t.function_key)).map((t) => t.name);
-    else if (form.role === "LCP" || form.role === "LCVP")
-      list = teams.filter((t) => t.type === "EB").map((t) => t.name);
-    else
-      list = teams
-        .filter((t) => (t.type === "Function leaders" || t.type === "MM") && fnMatch(t.function_key))
+      own.includes(key) ||
+      (isB2bKey(key) && own.some(isB2bKey));
+    const pick = (type: "Team" | "Function leaders") =>
+      teams
+        .filter((t) => {
+          const matchesType =
+            type === "Function leaders"
+              ? t.type === "Function leaders" || t.type === "MM"
+              : t.type === type;
+          return matchesType && fnMatch(t.function_key);
+        })
         .map((t) => t.name);
-    return [...new Set(list)];
+
+    if (form.role === "LCP" || form.role === "LCVP")
+      return [...new Set(teams.filter((t) => t.type === "EB").map((t) => t.name))];
+    if (form.role === "Member") return [...new Set(pick("Team"))];
+    if (form.role === "Team Leader")
+      return [...new Set([...pick("Team"), ...pick("Function leaders")])];
+    return [...new Set(pick("Function leaders"))];
   })();
   // "add a NEW team" is only meaningful for TL teams (Member / Team Leader) —
   // the structural teams (EB, Function leaders…) come from the Teams card

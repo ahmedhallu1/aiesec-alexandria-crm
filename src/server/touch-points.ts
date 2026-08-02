@@ -2,7 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
-import { canBookTouchPoint, canEditTouchPoint } from "@/lib/rbac";
+import {
+  bookableTouchPointScopes,
+  canBookTouchPoint,
+  canEditTouchPoint,
+  type Viewer,
+} from "@/lib/rbac";
 import {
   NO_WORKING_HOURS_FUNCTIONS,
   TOUCH_POINT_KINDS,
@@ -15,7 +20,7 @@ import { audienceLabel, cairoWhen, expandTouchPointFns } from "@/lib/touch-point
 import { cairoToUtc } from "@/lib/time";
 import { getViewer, logAudit } from "./data";
 import { recordUndo, sandboxSuppressed, snapshotForUndo } from "./sandbox";
-import { notifyMembers } from "./notify";
+import { notifyTouchPointAudience } from "./tm-notify";
 import { sendEmail } from "@/lib/google/gmail";
 import { resolveAttendancePrompts } from "./attendance-read";
 import {
@@ -59,9 +64,13 @@ function cairoStart(date: unknown, time: unknown): Date | null {
 }
 
 /** One place decides what the audience is told, so a move and a cancel can
- *  never drift apart. */
+ *  never drift apart — and one place applies the sandbox rule (a test view
+ *  bells the TESTER only and mails nobody: `notifyTouchPointAudience` +
+ *  the `sandboxSuppressed` gate below). */
 async function announce(
   tp: TouchPointRow,
+  /** the member whose click caused this — the sandbox's only recipient */
+  actorId: string,
   mode: "created" | "moved" | "cancelled",
   extra?: { previousWhen?: string; reason?: string }
 ): Promise<void> {
@@ -81,7 +90,8 @@ async function announce(
       ? extra?.reason ?? "It's off."
       : `${who} · booked by ${tp.owner_name}${tp.note ? ` — ${tp.note}` : ""}`;
 
-  await notifyMembers(
+  await notifyTouchPointAudience(
+    actorId,
     audience.map((m) => m.id),
     "broadcast",
     title,
@@ -90,6 +100,7 @@ async function announce(
     "/calendar"
   );
 
+  // …and NO email leaves the building during a test view
   if (await sandboxSuppressed(`touch-point ${mode} email`)) return;
   const to = audience.map((m) => m.email).filter((e): e is string => !!e);
   if (to.length === 0) return;
@@ -135,6 +146,19 @@ export interface CreateTouchPointInput {
   invitedFunctions?: string[];
 }
 
+/** The booking matrix in one sentence — so a refusal explains itself instead
+ *  of saying "above your access" (v29.3: one scope per role). */
+function scopeRefusal(viewer: Viewer): string {
+  const allowed = bookableTouchPointScopes(viewer);
+  if (allowed.length === 0)
+    return "Only Team Leaders (team), VPs & Directors (function) and TM (LC) book touch points.";
+  if (allowed.includes("lc"))
+    return "TM books the LC's touch points — a function's or a team's belong to its VP/Director or its Team Leader.";
+  if (allowed.includes("function"))
+    return "You book FUNCTION touch points — a team's touch point is its Team Leader's call.";
+  return "You book your own TEAM's touch points — function and LC ones aren't yours to book.";
+}
+
 export async function createTouchPoint(
   input: CreateTouchPointInput
 ): Promise<Result<{ id: string }>> {
@@ -143,8 +167,11 @@ export async function createTouchPoint(
   const kind = input.kind;
   if (!TOUCH_POINT_SCOPES.includes(scope) || !TOUCH_POINT_KINDS.includes(kind))
     return fail("Pick a valid touch-point type.");
+  // THE booking gate: exactly one scope per role (LCP/admin excepted). A VP
+  // asking for "team", or TM asking for "function"/"team", stops right here —
+  // the picker hides them, and the server means it.
   if (!canBookTouchPoint(viewer, scope))
-    return fail("That touch-point type is above your access.", "forbidden");
+    return fail(scopeRefusal(viewer), "forbidden");
 
   const startsAt = cairoStart(input.date, input.time);
   if (!startsAt) return fail("Pick the date and start time.");
@@ -176,11 +203,9 @@ export async function createTouchPoint(
       ...(viewer.team_name ? [viewer.team_name] : []), // registry may lag members.team_name
       ...(await invitableTeams(functionKey!, null)),
     ]);
-    const picksAnyTeam =
-      viewer.isAdmin ||
-      viewer.role === "LCP" ||
-      viewer.role === "LCVP" ||
-      viewer.role === "Director";
+    // v29.3: a VP/Director can no longer reach this branch at all (they book
+    // FUNCTION points) — only the LCP/admin still pick any team in the registry
+    const picksAnyTeam = viewer.isAdmin || viewer.role === "LCP";
     const picked = clean(input.teamName, 60) || viewer.team_name || "";
     // a Team Leader / Coordinator owns exactly one team — never someone else's
     teamName = picksAnyTeam
@@ -238,7 +263,7 @@ export async function createTouchPoint(
   if (error || !created) return fail(error?.message ?? "Could not book it — try again.");
 
   await recordUndo("touch_points", created.id, "insert");
-  await announce(created, "created");
+  await announce(created, viewer.id, "created");
   await logAudit(viewer.id, "touch_point_create", "touch_point", created.id, {
     scope,
     kind,
@@ -283,7 +308,7 @@ export async function updateTouchPoint(
   // a MOVE is news — the audience hears about it again
   if (moved) {
     const fresh = await getTouchPoint(id);
-    if (fresh) await announce(fresh, "moved", { previousWhen });
+    if (fresh) await announce(fresh, viewer.id, "moved", { previousWhen });
   }
   await logAudit(viewer.id, "touch_point_update", "touch_point", id, { moved });
   refresh();
@@ -312,7 +337,7 @@ export async function cancelTouchPoint(id: string, reason: string): Promise<Resu
   if (!(await sandboxSuppressed("attendance prompt resolve")))
     await resolveAttendancePrompts(id);
 
-  await announce({ ...tp, status: "cancelled" }, "cancelled", { reason: why });
+  await announce({ ...tp, status: "cancelled" }, viewer.id, "cancelled", { reason: why });
   await logAudit(viewer.id, "touch_point_cancel", "touch_point", id, { reason: why });
   refresh();
   return { ok: true };

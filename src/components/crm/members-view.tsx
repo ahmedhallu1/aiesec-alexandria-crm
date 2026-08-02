@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Mail, Phone, Search, UsersRound } from "lucide-react";
+import { useCallback, useMemo, useState, useTransition } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { CalendarRange, Loader2, Mail, Phone, Search, UsersRound, X } from "lucide-react";
 import type { MemberDirectoryEntry } from "@/server/data";
 import { FUNCTION_COLORS } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
@@ -154,10 +156,65 @@ function FnChips({ functions }: { functions: string[] }) {
   );
 }
 
-export function MembersView({ members }: { members: MemberDirectoryEntry[] }) {
+/** A named date range, computed server-side on the Cairo calendar. */
+export interface DirectoryRange {
+  from: string;
+  to: string;
+  label: string;
+}
+
+export function MembersView({
+  members, filters, ranges,
+}: {
+  members: MemberDirectoryEntry[];
+  /** the ACTIVE window, already clamped by the server */
+  filters: { from: string; to: string };
+  ranges: { month: DirectoryRange; sprint: DirectoryRange; today: string };
+}) {
   const [q, setQ] = useState("");
   const [fn, setFn] = useState("");
   const [role, setRole] = useState("");
+
+  // the date window lives in the URL (?from/&to) — it's a SERVER filter: the
+  // KPIs themselves are recounted, so it can't be done in the browser
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [navPending, startNav] = useTransition();
+  const go = useCallback(
+    (mutate: (p: URLSearchParams) => void) => {
+      const params = new URLSearchParams(searchParams.toString());
+      mutate(params);
+      startNav(() => {
+        router.replace(params.size > 0 ? `/members?${params.toString()}` : "/members");
+      });
+    },
+    [router, searchParams]
+  );
+  const setParam = useCallback(
+    (key: string, value: string) => go((p) => (value ? p.set(key, value) : p.delete(key))),
+    [go]
+  );
+  const setRange = (r: DirectoryRange, active: boolean) =>
+    go((p) => {
+      if (active) { p.delete("from"); p.delete("to"); }
+      else { p.set("from", r.from); p.set("to", r.to); }
+    });
+  const monthActive =
+    filters.from === ranges.month.from && filters.to === ranges.month.to;
+  const sprintActive =
+    filters.from === ranges.sprint.from && filters.to === ranges.sprint.to;
+  const dateActive = !!(filters.from || filters.to);
+  const windowLabel = !dateActive
+    ? "KPIs count everything, all time"
+    : monthActive
+      ? `KPIs count ${ranges.month.label}`
+      : sprintActive
+        ? `KPIs count ${ranges.sprint.label}`
+        : filters.from && filters.to
+          ? `KPIs count work done ${filters.from} → ${filters.to}`
+          : filters.from
+            ? `KPIs count work done from ${filters.from} onwards`
+            : `KPIs count work done up to ${filters.to}`;
 
   const fns = useMemo(
     () => [...new Set(members.flatMap((m) => m.functions))].sort(),
@@ -205,18 +262,19 @@ export function MembersView({ members }: { members: MemberDirectoryEntry[] }) {
   );
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    <div className={cn("mx-auto max-w-6xl space-y-4", navPending && "nav-pending")}>
       <div className="rise-in">
         <h1 className="flex items-center gap-2 text-2xl font-bold">
           <UsersRound className="size-6 text-primary" /> Members
+          {navPending ? <Loader2 className="size-4 animate-spin text-primary" /> : null}
         </h1>
         <p className="text-sm text-muted-foreground">
           The whole LC in one view — info, MOS/KPIs and a direct line to everyone.
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Only the people whose performance is reviewed here are listed — the
-          LCP, the F&amp;L VP/Director, CXP&apos;s MMs &amp; leaders and TM&apos;s own MMs
-          are left out.
+          Only the people whose performance is reviewed here are listed — Members,
+          Coordinators and Team Leaders. The LCP, every LCVP and Director,
+          CXP&apos;s MMs and TM&apos;s own MMs are left out.
         </p>
       </div>
 
@@ -259,6 +317,63 @@ export function MembersView({ members }: { members: MemberDirectoryEntry[] }) {
         <span className="text-sm text-muted-foreground">
           {filtered.length} member{filtered.length === 1 ? "" : "s"}
         </span>
+      </div>
+
+      {/* the DATE window — every KPI/MOS number below is recounted for it */}
+      <div className="flex flex-wrap items-center gap-2 rise-in rise-in-1">
+        <Hint label={`Count only this calendar month's work — ${ranges.month.label}`}>
+          <Button
+            variant={monthActive ? "default" : "outline"}
+            className="h-9"
+            size="sm"
+            onClick={() => setRange(ranges.month, monthActive)}
+          >
+            <CalendarRange className="size-4" /> This month
+          </Button>
+        </Hint>
+        <Hint label={`Only this sprint's work — the current half of the month (1–15 / 16–end) · ${ranges.sprint.label}`}>
+          <Button
+            variant={sprintActive ? "default" : "outline"}
+            className="h-9"
+            size="sm"
+            onClick={() => setRange(ranges.sprint, sprintActive)}
+          >
+            <CalendarRange className="size-4" /> This sprint
+          </Button>
+        </Hint>
+        {/* one h-9 group so the whole bar sits on a single baseline */}
+        <div className="flex h-9 items-center gap-1.5 rounded-md border border-input bg-transparent px-2.5 dark:bg-input/30">
+          <span className="hidden text-xs font-medium text-muted-foreground min-[400px]:inline">
+            Period
+          </span>
+          <Input
+            type="date"
+            max={ranges.today}
+            className="h-7 w-[6.6rem] min-[400px]:w-[7.9rem] border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
+            aria-label="Period from"
+            value={filters.from}
+            onChange={(e) => setParam("from", e.target.value)}
+          />
+          <span className="text-xs text-muted-foreground">→</span>
+          <Input
+            type="date"
+            max={ranges.today}
+            className="h-7 w-[6.6rem] min-[400px]:w-[7.9rem] border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
+            aria-label="Period to"
+            value={filters.to}
+            onChange={(e) => setParam("to", e.target.value)}
+          />
+        </div>
+        {dateActive ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => go((p) => { p.delete("from"); p.delete("to"); })}
+          >
+            <X className="size-4" /> All time
+          </Button>
+        ) : null}
+        <span className="text-xs text-muted-foreground">{windowLabel}</span>
       </div>
 
       {/* phones: cards */}

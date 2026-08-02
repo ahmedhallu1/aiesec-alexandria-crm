@@ -5,7 +5,11 @@ import { CalendarPlus, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { createTouchPoint } from "@/server/touch-points";
-import { touchPointOptions, type TouchPointOption } from "@/lib/touch-points";
+import {
+  TOUCH_POINT_SCOPE_RULE,
+  touchPointOptions,
+  type TouchPointOption,
+} from "@/lib/touch-points";
 import { NO_WORKING_HOURS_FUNCTIONS, type TouchPointScope } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -31,6 +35,7 @@ const cairoTodayIso = () =>
  *  or another function. Everyone invited gets an email + a bell. */
 export function TouchPointDialog({
   scopes, functions, teams, myTeam, siblingTeams, otherFunctions,
+  defaultDate, open: openProp, onOpenChange,
 }: {
   /** what this viewer may book (from rbac's bookableTouchPointScopes) */
   scopes: TouchPointScope[];
@@ -41,15 +46,30 @@ export function TouchPointDialog({
   myTeam: string | null;
   siblingTeams: string[];
   otherFunctions: string[];
+  /** pre-fill the Date field (Cairo YYYY-MM-DD) — the calendar's day panel
+   *  books straight onto the day you clicked. Read once, on mount: give the
+   *  element a `key` when the day changes. */
+  defaultDate?: string;
+  /** CONTROLLED mode (optional): the parent owns the open state AND the
+   *  trigger, so the built-in button is not rendered. Omit both props and the
+   *  dialog stays fully standalone, exactly as before. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const controlled = openProp !== undefined;
+  const [selfOpen, setSelfOpen] = useState(false);
+  const open = controlled ? openProp : selfOpen;
+  const setOpen = (v: boolean) => {
+    if (!controlled) setSelfOpen(v);
+    onOpenChange?.(v);
+  };
   const [pending, start] = useTransition();
   const options = touchPointOptions(scopes);
   const [picked, setPicked] = useState<TouchPointOption | null>(options[0] ?? null);
   const [fn, setFn] = useState(functions[0] ?? "");
   const [team, setTeam] = useState(myTeam ?? teams[0] ?? "");
-  const [date, setDate] = useState("");
+  const [date, setDate] = useState(defaultDate ?? "");
   const [time, setTime] = useState("18:00");
   const [note, setNote] = useState("");
   const [invTeams, setInvTeams] = useState<string[]>([]);
@@ -98,9 +118,11 @@ export function TouchPointDialog({
 
   return (
     <>
-      <Button size="sm" onClick={() => setOpen(true)}>
-        <CalendarPlus className="size-4" /> Book a touch point
-      </Button>
+      {controlled ? null : (
+        <Button size="sm" onClick={() => setOpen(true)}>
+          <CalendarPlus className="size-4" /> Book a touch point
+        </Button>
+      )}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-md">
           <DialogHeader>
@@ -131,6 +153,14 @@ export function TouchPointDialog({
                   </button>
                 ))}
               </div>
+              {/* the picker only ever offers this viewer's OWN scope (v29.3:
+                  Team Leader → team · VP/Director → function · TM → LC), so
+                  say which one it is instead of leaving them guessing */}
+              {picked ? (
+                <p className="text-[11px] text-muted-foreground">
+                  {TOUCH_POINT_SCOPE_RULE[picked.scope]}
+                </p>
+              ) : null}
             </div>
 
             {picked && picked.scope !== "lc" && functions.length > 1 ? (
