@@ -28,6 +28,7 @@ import type {
   OpenAppeal,
 } from "@/server/attendance-read";
 import { ATTENDANCE_STATUSES, type AttendanceStatus } from "@/lib/types";
+import { PageSizePicker } from "./data-table-kit";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -499,6 +500,7 @@ export function AttendanceView({
   total,
   page,
   pageSize,
+  pageSizeOptions,
   totals,
   appeals,
   filters,
@@ -511,6 +513,7 @@ export function AttendanceView({
   /** 0-based */
   page: number;
   pageSize: number;
+  pageSizeOptions: number[];
   totals: AttendanceTotals;
   appeals: OpenAppeal[];
   filters: { from: string; to: string; kind: string; status: string };
@@ -901,6 +904,13 @@ export function AttendanceView({
             </Table>
           </div>
 
+          {total > 0 ? (
+            <PageSizePicker
+              value={pageSize}
+              options={pageSizeOptions}
+              onChange={(n) => setParam("size", String(n))}
+            />
+          ) : null}
           {total > pageSize ? (
             <div className="flex items-center justify-center gap-3 text-sm">
               <Button
