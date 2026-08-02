@@ -267,6 +267,36 @@ export function parsePhoneSessionKey(email: string): string | null {
   return m ? m[1] : null;
 }
 
+// ------------------------------------------------------ TM touch points (v29)
+
+export const TOUCH_POINT_SCOPES = ["team", "function", "lc"] as const;
+export type TouchPointScope = (typeof TOUCH_POINT_SCOPES)[number];
+
+export const TOUCH_POINT_KINDS = ["meeting", "working_hours", "outing"] as const;
+export type TouchPointKind = (typeof TOUCH_POINT_KINDS)[number];
+
+export const ATTENDANCE_STATUSES = ["attended", "absent", "late"] as const;
+export type AttendanceStatus = (typeof ATTENDANCE_STATUSES)[number];
+
+/** "Team working hours" · "Function meeting" · "LC outing" */
+export function touchPointLabel(scope: TouchPointScope, kind: TouchPointKind): string {
+  const s = scope === "lc" ? "LC" : scope === "function" ? "Function" : "Team";
+  const k =
+    kind === "working_hours" ? "working hours" : kind === "meeting" ? "meeting" : "outing";
+  return `${s} ${k}`;
+}
+
+/** Support functions with no raising floor — never booked for, never invited. */
+export const NO_WORKING_HOURS_FUNCTIONS = ["TM", "F&L", "CXP"];
+
+/** AUTOMATIC working-hours attendance (v29): a member is "attended" when they
+ *  did at least WORK_MIN_ACTIONS real work actions inside the session window,
+ *  at least WORK_MIN_GAP_MINUTES apart — act-act spam doesn't pass, one call
+ *  plus a comment a quarter of an hour later does. */
+export const WORK_SESSION_HOURS = 4;
+export const WORK_MIN_ACTIONS = 2;
+export const WORK_MIN_GAP_MINUTES = 10;
+
 /** A tagged phone number, email or link on an account ("CEO", "LinkedIn", …). */
 export interface AccountContact {
   tag: string;

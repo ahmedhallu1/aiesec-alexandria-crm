@@ -68,6 +68,7 @@ const SECTIONS: Section[] = [
     color: "#0CB9C1",
     points: [
       <>First sign-in is <b>Google only</b> (it grants your calendar reminders + Gmail drafts). Onboarding then sets your password.</>,
+      <><b>Put your @aiesec.net mail on your phone</b> 📲 and turn notifications ON. Elevate reaches you by email for the things that actually matter — visit follow-ups, Podio nags, attendance reminders and your streak. Miss the mail, miss the nudge.</>,
       <>After that, sign in with <b>email or phone + password</b>, or Google — whatever you like.</>,
       <>No AIESEC email yet? (v24) Sign in with your <b>phone number typed in BOTH fields</b> — identifier AND password. Once the EB adds your email that door closes: sign in with <b>Google once</b> to unlock everything, then set a password from your Profile.</>,
       <>Deactivated members never chase a login loop (v24): a clear <b>&quot;your account is inactive&quot;</b> screen says to contact your manager or the IM team.</>,

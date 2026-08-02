@@ -277,10 +277,8 @@ export function Tour({
             />
           ))}
         </div>
-        <div className="mt-2 flex items-center justify-between gap-2">
-          <Button variant="ghost" size="sm" onClick={done}>
-            Skip
-          </Button>
+        {/* no Skip (v29): the tour IS the manual — it gets read once */}
+        <div className="mt-2 flex items-center justify-end gap-2">
           <div className="flex gap-2">
             {i > 0 ? (
               <Button variant="outline" size="sm" onClick={() => setI(i - 1)}>

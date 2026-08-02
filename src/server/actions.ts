@@ -21,6 +21,9 @@ import {
 } from "@/lib/rbac";
 import { cairoDayIso, checkAccountName, getViewer, logAudit, type PipelineRow } from "./data";
 import { recordUndo, sandboxSuppressed, snapshotForUndo } from "./sandbox";
+// v29: every real piece of work stamps work_activity — the raw material of
+// AUTOMATIC working-hours attendance (see src/server/attendance.ts)
+import { stampWork } from "./attendance";
 import { sendEmail } from "@/lib/google/gmail";
 import { visitReportEmail } from "@/lib/email/templates";
 import {
@@ -773,6 +776,7 @@ export async function recordDeal(
   await logAudit(viewer.id, "deal", "account", accountId, {
     slots: cleanSlots, igv, igta, igte,
   });
+  await stampWork(viewer.id, "deal"); // v29: counts towards working hours
   refresh(accountId);
   return {
     ok: true,
@@ -1363,6 +1367,7 @@ export async function addComment(
   if (error) return fail(error.message);
   if (newComment) await recordUndo("account_comments", newComment.id, "insert");
   await logAudit(viewer.id, "comment", "account", accountId);
+  await stampWork(viewer.id, "comment"); // v29: counts towards working hours
   refresh(accountId);
   return { ok: true };
 }
@@ -1502,6 +1507,7 @@ export async function logContact(
       );
     return fail(error.message);
   }
+  await stampWork(viewer.id, "contact"); // v29: counts towards working hours
 
   if (notInterested) {
     await snapshotForUndo("accounts", accountId);
@@ -1873,6 +1879,7 @@ export async function scheduleVisit(
   await logAudit(viewer.id, "schedule_visit", "account", accountId, {
     visitDate, visitTime, inviteSent, calendarLinked, announced: recipients.announceIds.length,
   });
+  await stampWork(viewer.id, "visit_scheduled"); // v29: counts towards working hours
   refresh(accountId);
   return { ok: true, data: { inviteSent, calendarLinked, sharedCount: recipients.attendeeEmails.length } };
 }
@@ -1956,6 +1963,7 @@ export async function reportVisit(
   }
 
   await logAudit(viewer.id, "report_visit", "visit", visitId, { done });
+  await stampWork(viewer.id, "visit_reported"); // v29: counts towards working hours
   refresh(visit.account_id);
   return { ok: true };
 }
@@ -3705,6 +3713,7 @@ export async function claimSignup(id: string): Promise<ActionResult> {
   await logAudit(viewer.id, "signup_claim", "signup", id, { ep_id: signup.ep_id });
   await pushSignupToSheet(id);
   stampSignupActivity(viewer); // claiming = today's streak saved
+  await stampWork(viewer.id, "signup_claim"); // v29: counts towards working hours
   refresh();
   return { ok: true };
 }
@@ -3878,6 +3887,7 @@ export async function updateSignupContact(
   await logAudit(viewer.id, "signup_contact", "signup", id, input);
   await pushSignupToSheet(id);
   stampSignupActivity(viewer); // contact update = today's streak saved
+  await stampWork(viewer.id, "signup_contact"); // v29: counts towards working hours
   refresh();
   return { ok: true };
 }
@@ -3912,6 +3922,7 @@ export async function addSignupComment(id: string, body: string): Promise<Action
   await logAudit(viewer.id, "signup_comment", "signup", id);
   await pushSignupToSheet(id);
   stampSignupActivity(viewer); // commenting = today's streak saved
+  await stampWork(viewer.id, "signup_comment"); // v29: counts towards working hours
   refresh();
   return { ok: true };
 }
@@ -4289,6 +4300,7 @@ export async function recordIrCall(input: {
 
   await recordUndo("ir_calls", created.id, "insert");
   await logAudit(viewer.id, "ir_call", "ir_call", created.id, { lc: lc.name });
+  await stampWork(viewer.id, "ir_call"); // v29: counts towards working hours
   refresh();
   return { ok: true, data: { id: created.id, screenshotWarning: warning } };
 }
@@ -4493,6 +4505,7 @@ export async function bookIrCall(input: {
   bookerEmail: string;
   country?: string | null;
   bookerName?: string | null;
+  bookerRole?: string | null;
 }): Promise<
   ActionResult<{ memberName: string; whenLabel: string; meetLink: string | null }>
 > {
@@ -4511,7 +4524,13 @@ export async function bookIrCall(input: {
   const { COUNTRIES } = await import("@/lib/countries");
   const country =
     COUNTRIES.find((c) => c.toLowerCase() === countryRaw.toLowerCase()) ?? null;
-  const bookerName = plain(input.bookerName, 100) || null;
+  // v29: name + role are REQUIRED on the public page (validated here too —
+  // a public endpoint never trusts the client)
+  const bookerName = plain(input.bookerName, 100);
+  if (!bookerName) return fail("Tell us your name.");
+  const BOOKER_ROLES = ["Member", "MM (Team Leader / Coordinator)", "LCVP", "LCP"];
+  const bookerRole = plain(input.bookerRole, 40);
+  if (!BOOKER_ROLES.includes(bookerRole)) return fail("Pick your role in your LC.");
   const start = new Date(String(input.startIso ?? ""));
   if (!input.startIso || Number.isNaN(start.getTime()))
     return fail("Pick a time slot first.");
@@ -4616,6 +4635,7 @@ export async function bookIrCall(input: {
       called_at: startIso,
       status: "scheduled",
       booker_name: bookerName,
+      booker_role: bookerRole,
       booker_email: bookerEmail,
       manage_token: manageToken,
       booked_at: new Date().toISOString(),
@@ -4781,6 +4801,7 @@ export async function completeIrCall(
   await logAudit(viewer.id, "ir_call_complete", "ir_call", id, {
     lc: call.partner_lc_name,
   });
+  await stampWork(viewer.id, "ir_call_completed"); // v29: counts towards working hours
   refresh();
   return { ok: true, data: { screenshotWarning: warning } };
 }
@@ -4876,8 +4897,14 @@ export async function cancelIrCall(id: string, reason: string): Promise<ActionRe
 /** v28 — the member can't make a BOOKED call and wants the IR to pick a new
  *  time: stamps reschedule_requested_at and emails the IR their manage link
  *  ("pick a new time"). Owner or VP/Director/LCP; no bells to anyone else. */
-export async function requestIrReschedule(id: string): Promise<ActionResult> {
+export async function requestIrReschedule(
+  id: string,
+  reason: string
+): Promise<ActionResult> {
   const viewer = await getViewer();
+  // v29: the IR is owed an explanation — the reason is logged AND emailed
+  const why = (reason ?? "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 500);
+  if (why.length < 3) return fail("Add a short reason — the IR gets to read it.");
   if (!hasConsiderationAccess(viewer)) return considerationFail();
   if (viewer.sandbox)
     return fail("Reschedule requests are disabled in the sandbox test view.");
@@ -4909,6 +4936,7 @@ export async function requestIrReschedule(id: string): Promise<ActionResult> {
       memberName: call.member_name,
       partnerLc: call.partner_lc_name,
       whenLabel: cairoWhenLabel(call.called_at),
+      reason: why,
       manageUrl: `${env.appUrl}/book/manage/${call.manage_token}`,
     });
     await sendEmail({ to: [call.booker_email], subject: mail.subject, html: mail.html });
@@ -4920,7 +4948,7 @@ export async function requestIrReschedule(id: string): Promise<ActionResult> {
   await snapshotForUndo("ir_calls", id);
   const { error } = await db()
     .from("ir_calls")
-    .update({ reschedule_requested_at: new Date().toISOString() })
+    .update({ reschedule_requested_at: new Date().toISOString(), reschedule_reason: why })
     .eq("id", id);
   if (error) return fail(error.message);
   await logAudit(viewer.id, "ir_call_reschedule_request", "ir_call", id, {
@@ -5013,6 +5041,9 @@ export async function rescheduleBookedCall(input: {
   const start = new Date(String(input.startIso ?? ""));
   if (!input.startIso || Number.isNaN(start.getTime()))
     return fail("Pick a new time slot first.");
+  // moving to the time you already have is a no-op, not a reschedule (v29)
+  if (new Date(call.called_at).getTime() === start.getTime())
+    return fail("That's the time you already have — pick a different slot.");
   const startIso = start.toISOString();
 
   // the new slot must be one the member offers RIGHT NOW — the call being
@@ -5131,8 +5162,8 @@ export async function cancelBookedCall(input: {
   const throttled = await bookingThrottle();
   if (throttled) return throttled;
 
+  // the IR cancels freely — a note is welcome, never required (v29)
   const reason = bookingPlain(input.reason, 500);
-  if (!reason) return fail("Tell them briefly why — it goes into their heads-up email.");
 
   const loaded = await loadManagedCall(input.token);
   if ("error" in loaded) return loaded.error;
@@ -5214,8 +5245,13 @@ export async function updatePartnerLc(
 ): Promise<ActionResult<PartnerLc>> {
   const viewer = await getViewer();
   if (!hasConsiderationAccess(viewer)) return considerationFail();
-  if (!isConsiderationLead(viewer))
-    return fail("Only a VP/Director or the LCP can edit a partner LC.", "forbidden");
+  // v29: MMs (Team Leaders / Coordinators) fix LC names too — they are the
+  // ones on the calls. Deleting an LC stays VP+.
+  const canRename =
+    isConsiderationLead(viewer) ||
+    ["Team Leader", "Coordinator"].includes(viewer.role);
+  if (!canRename)
+    return fail("Only MMs, VPs/Directors or the LCP can edit a partner LC.", "forbidden");
   if (viewer.sandbox)
     return fail("Partner-LC edits are disabled in the sandbox test view.");
 
@@ -5414,12 +5450,13 @@ export async function confirmCvUpload(input: {
   if (!/^\d{10,}-[0-9a-f][0-9a-f-]{30,40}-/.test(input.path ?? ""))
     return fail("Nothing was uploaded.");
 
-  let lc: PartnerLc | null = null;
-  if (input.partnerLcId || input.newLc?.name?.trim()) {
-    const resolved = await resolvePartnerLc(input);
-    if ("error" in resolved) return resolved.error;
-    lc = resolved.lc;
-  }
+  // v29: every CV belongs to an LC — the pool is worthless without it
+  if (!input.partnerLcId && !input.newLc?.name?.trim())
+    return fail("Pick the partner LC this CV came from.");
+  const resolved = await resolvePartnerLc(input);
+  if ("error" in resolved) return resolved.error;
+  const lc: PartnerLc | null = resolved.lc;
+  if (!lc) return fail("Pick the partner LC this CV came from.");
 
   const { data: created, error } = await db()
     .from("cvs")

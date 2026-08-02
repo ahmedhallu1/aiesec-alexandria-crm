@@ -588,6 +588,53 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 
 ## 10. Changelog
 
+- **2026-08-08 · v29** — **THE TM MODULE** + a 20-item fix batch.
+  ① **Touch points** (migration **0031 applied**: `touch_points`,
+  `touch_point_attendance`, `attendance_appeals`, `work_activity`,
+  `pending_prompts`): Team Leaders book team meetings / working hours /
+  outings, VPs & Directors the function ones, TM core the LC ones (LCP
+  everything — `bookableTouchPointScopes` in rbac). START time only, optional
+  note, invites (sibling teams for a team point, other functions for a
+  function point; TM/F&L/CXP never invited and never run working hours).
+  Create / move / cancel-with-reason each **email + bell the whole audience
+  with the TM VP on CC** (`src/server/touch-points.ts`, audience +
+  visibility in `touch-points-read.ts`, templates in
+  `email/touchpoint-templates.ts`). ② **ONE calendar for everyone**
+  (`/calendar` rewritten): touch points (purple) + IR calls (teal) + visits
+  (per-member colours) in a single month, each viewer seeing what they belong
+  to; TM core sees the LC, a member sees other teams' points inside their own
+  function; nav opened to every module member. ③ **ATTENDANCE**
+  (`/attendance`, everyone): manual attended/absent/late + excuse, scoped
+  reads (self → team → function → LC), appeals (email to the recorder with TM
+  on CC), and **automatic working-hours attendance** — ≥2 real work actions
+  ≥10 min apart inside `starts_at −15min → +4h`, fed by `stampWork` in 10
+  existing actions, never overwriting a human edit. ④ **The general
+  must-do ladder**: `attendance-reminders` cron (daily 21:00 UTC, scheduled
+  in pg_cron) nags the responsible once per Cairo day, and after **3
+  reminders** files a `pending_prompts` row that blocks the app with a prompt
+  on next open (generic kind/ref_id/title/link — reusable). ⑤ **TM
+  directory** honours who is actually reviewed there (LCP, F&L VP/Director,
+  CXP MMs+leaders and TM's own MMs dropped), its **OGX row now mirrors the
+  real funnel** (Sign-ups→Contacted→Interested→Applied→Accepted→Approved★)
+  and the role filter gained **MMs (TLs & Coordinators)**. ⑥ **Booking v3
+  fixes**: booker **name + role are mandatory** (`ir_calls.booker_role`,
+  migration 0032), availability in **15-minute steps**, **5-minute buffer**
+  option, a member's reschedule request needs a **reason** that reaches the
+  IR verbatim, the IR's manage page no longer offers the slot they already
+  have (+ server guard) and their cancel needs **no** reason, the "When are
+  your B2C campaigns?" question is gone, CVs require an LC, LC country is the
+  branded autocomplete, **MMs can rename LCs**, and the LC registry now shows
+  what the calls collected (country, call/CV counts, the IR people with role
+  + email). ⑦ **IR-facing emails never mention the CRM** — new
+  `externalEmailLayout` (no "Open the CRM", no internal wording) on every
+  booker-facing template. ⑧ **Sign-ups name matching fixed**: a bare first
+  name ("Ahmed") no longer resolves to whoever happens to prefix-match — it
+  stays unmatched until a leader assigns it; the **100 rows wrongly assigned
+  to the admin were released** in prod. ⑨ Onboarding **Skip removed** (the
+  tour is the manual), **"LC Feedback" → "Feedback"**, and the Playbook tells
+  members to put their @aiesec.net mail on their phone with notifications on.
+  ⑩ Prod URL env switched to **elevate-alex.vercel.app**.
+
 - **2026-08-08 · v28** — **ELEVATE + BOOKING v2 + OGX DASHBOARDS.**
   ① **Renamed Sodio → Elevate** (~120 user-visible strings: sidebar, titles,
   manifest, ALL emails, Playbook, Blue Man, login, tour; internal `sodio-*`

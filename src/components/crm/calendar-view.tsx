@@ -30,10 +30,38 @@ function shiftMonth(month: string, by: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+export interface CalendarTouchPoint {
+  id: string;
+  label: string;
+  date: string;
+  time: string;
+  note: string | null;
+  ownerName: string;
+  audience: string;
+  cancelled: boolean;
+  recorded: boolean;
+}
+
+export interface CalendarIrCall {
+  id: string;
+  date: string;
+  time: string;
+  partnerLc: string;
+  memberName: string;
+  status: string;
+}
+
 export function CalendarView({
-  visits, month, viewerId, openableMemberIds, showFunction = false,
+  visits, touchPoints = [], irCalls = [], month, viewerId, openableMemberIds,
+  showFunction = false, bookSlot,
 }: {
   visits: CalendarVisit[];
+  /** TM touch points the viewer belongs to (v29) */
+  touchPoints?: CalendarTouchPoint[];
+  /** consideration IR calls, for viewers with that access (v29) */
+  irCalls?: CalendarIrCall[];
+  /** the "Book a touch point" control, rendered by the page (server-fed) */
+  bookSlot?: React.ReactNode;
   month: string;
   viewerId: string;
   /** member ids whose accounts the viewer may open — null = everyone shown */
@@ -65,6 +93,26 @@ export function CalendarView({
     () => new Map(legend.map((l) => [l.id, l.color])),
     [legend]
   );
+
+  const tpByDate = useMemo(() => {
+    const map = new Map<string, CalendarTouchPoint[]>();
+    for (const t of touchPoints) {
+      const list = map.get(t.date) ?? [];
+      list.push(t);
+      map.set(t.date, list);
+    }
+    return map;
+  }, [touchPoints]);
+
+  const irByDate = useMemo(() => {
+    const map = new Map<string, CalendarIrCall[]>();
+    for (const c of irCalls) {
+      const list = map.get(c.date) ?? [];
+      list.push(c);
+      map.set(c.date, list);
+    }
+    return map;
+  }, [irCalls]);
 
   const byDate = useMemo(() => {
     const map = new Map<string, CalendarVisit[]>();
@@ -136,14 +184,16 @@ export function CalendarView({
       <div className="flex flex-wrap items-center justify-between gap-3 rise-in">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold">
-            <CalendarDays className="size-6 text-primary" /> Visits calendar
+            <CalendarDays className="size-6 text-primary" /> Calendar
             {navPending ? <Loader2 className="size-4 animate-spin text-primary" /> : null}
           </h1>
           <p className="text-sm text-muted-foreground">
-            Every visit of your function — one color per member. Click a visit to open its account.
+            Everything you&apos;re part of: touch points, visits and IR calls —
+            colour-coded. Click a visit to open its account.
           </p>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center gap-1">
+          {bookSlot}
           <Button variant="outline" size="icon" className="size-9" onClick={() => goMonth(shiftMonth(month, -1))} aria-label="Previous month">
             <ChevronLeft className="size-4" />
           </Button>
@@ -204,6 +254,37 @@ export function CalendarView({
                       {Number(date.slice(8))}
                     </p>
                     <div className="space-y-1">
+                      {(tpByDate.get(date) ?? []).map((t) => (
+                        <Hint
+                          key={t.id}
+                          label={`${t.label} · ${t.time} — ${t.audience}${t.note ? ` · ${t.note}` : ""}${t.cancelled ? " (cancelled)" : ""}`}
+                        >
+                          <p
+                            className={cn(
+                              "truncate rounded px-1.5 py-0.5 text-[11px] font-semibold text-white",
+                              t.cancelled ? "bg-muted-foreground/50 line-through" : "bg-[#8E44AD]"
+                            )}
+                            dir="auto"
+                          >
+                            {t.time} {t.label}
+                          </p>
+                        </Hint>
+                      ))}
+                      {(irByDate.get(date) ?? []).map((c) => (
+                        <Hint key={c.id} label={`IR call · ${c.partnerLc} · ${c.memberName}`}>
+                          <p
+                            className={cn(
+                              "truncate rounded px-1.5 py-0.5 text-[11px] font-semibold text-white",
+                              c.status === "cancelled"
+                                ? "bg-muted-foreground/50 line-through"
+                                : "bg-[#0CB9C1]"
+                            )}
+                            dir="auto"
+                          >
+                            {c.time} 🌍 {c.partnerLc}
+                          </p>
+                        </Hint>
+                      ))}
                       {(byDate.get(date) ?? []).map((v) => chip(v))}
                     </div>
                   </>
@@ -216,7 +297,11 @@ export function CalendarView({
 
       {/* agenda list (phones) */}
       <div className="space-y-2 rise-in rise-in-2 sm:hidden">
-        {[...byDate.entries()].map(([date, list]) => (
+        {[...new Set([...tpByDate.keys(), ...irByDate.keys(), ...byDate.keys()])]
+          .sort()
+          .map((date) => {
+            const list = byDate.get(date) ?? [];
+            return (
           <Card key={date} className={cn(date === today && "border-primary")}>
             <CardContent className="space-y-1.5 p-3">
               <p className={cn("text-sm font-bold", date === today && "text-primary")}>
@@ -225,20 +310,44 @@ export function CalendarView({
                 })}
                 {date === today ? " · Today" : ""}
               </p>
+              {(tpByDate.get(date) ?? []).map((t) => (
+                <div key={t.id} className="rounded-lg border p-2">
+                  <p className="text-sm font-semibold" dir="auto">
+                    {t.time} · {t.label}
+                    {t.cancelled ? " · cancelled" : ""}
+                  </p>
+                  <p className="text-xs text-muted-foreground" dir="auto">
+                    {t.audience} · booked by {t.ownerName}
+                  </p>
+                  {t.note ? (
+                    <p className="mt-0.5 text-xs text-muted-foreground" dir="auto">{t.note}</p>
+                  ) : null}
+                </div>
+              ))}
+              {(irByDate.get(date) ?? []).map((c) => (
+                <div key={c.id} className="rounded-lg border p-2">
+                  <p className="text-sm font-semibold" dir="auto">
+                    {c.time} · 🌍 IR call — {c.partnerLc}
+                  </p>
+                  <p className="text-xs text-muted-foreground" dir="auto">{c.memberName}</p>
+                </div>
+              ))}
               {list.map((v) => chip(v, true))}
             </CardContent>
           </Card>
-        ))}
-        {byDate.size === 0 ? (
+            );
+          })}
+        {byDate.size + tpByDate.size + irByDate.size === 0 ? (
           <p className="py-10 text-center text-sm text-muted-foreground">
-            No visits booked in {monthLabel(month)} yet.
+            Nothing booked in {monthLabel(month)} yet.
           </p>
         ) : null}
       </div>
 
-      {visits.length === 0 ? (
+      {visits.length + touchPoints.length + irCalls.length === 0 ? (
         <p className="hidden py-6 text-center text-sm text-muted-foreground sm:block">
-          No visits booked in {monthLabel(month)} — schedule one from any account page. 🗓️
+          Nothing booked in {monthLabel(month)} yet — visits come from account
+          pages, touch points from the button above. 🗓️
         </p>
       ) : null}
     </div>

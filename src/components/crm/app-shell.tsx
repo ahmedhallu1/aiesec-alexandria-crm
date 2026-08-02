@@ -8,6 +8,7 @@ import {
   ChevronUp,
   ChevronDown,
   Building2,
+  CalendarCheck2,
   CalendarDays,
   Globe2,
   Users,
@@ -30,6 +31,7 @@ import { NotificationsBell } from "./notifications-bell";
 import { AutoRefresh, RefreshButton } from "./auto-refresh";
 import { WalkingLoader } from "./walking-loader";
 import { BlueManChat } from "./blue-man-chat";
+import { PendingPrompt } from "./pending-prompt";
 
 interface ShellProps {
   user: {
@@ -40,7 +42,7 @@ interface ShellProps {
     photoUrl: string | null;
     isAdmin: boolean;
   };
-  nav: { raising: boolean; tm: boolean; membership: boolean; planning: boolean; ogtMail: boolean; signups: boolean; consideration: boolean };
+  nav: { raising: boolean; tm: boolean; membership: boolean; planning: boolean; ogtMail: boolean; signups: boolean; consideration: boolean; calendar: boolean };
   signOutAction: () => Promise<void>;
   children: React.ReactNode;
 }
@@ -86,9 +88,10 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
       ? [
           { href: "/accounts", label: "Accounts", icon: Building2 },
           { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-          { href: "/calendar", label: "Calendar", icon: CalendarDays },
         ]
       : []),
+    // v29: the calendar carries TM touch points too — everyone with a module
+    ...(nav.calendar ? [{ href: "/calendar", label: "Calendar", icon: CalendarDays }] : []),
     ...(nav.signups ? [{ href: "/signups", label: "Sign-ups", icon: UserRoundPlus }] : []),
     ...(nav.consideration
       ? [{ href: "/consideration", label: "Consideration", icon: Globe2 }]
@@ -97,6 +100,8 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
     ...(nav.ogtMail ? [{ href: "/ogt-mail", label: "Expectation mail", icon: MailPlus }] : []),
     ...(nav.tm ? [{ href: "/members", label: "Talent Management", icon: UsersRound }] : []),
     ...(nav.membership ? [{ href: "/membership", label: "Membership", icon: Users }] : []),
+    // v29: attendance is everybody's — own history, plus whatever you record
+    { href: "/attendance", label: "Attendance", icon: CalendarCheck2 },
     { href: "/playbook", label: "Playbook", icon: BookOpen },
     // system feedback moved to the Profile page (v21) — this is feedback about
     // PEOPLE in the LC: shout-outs & concerns
@@ -356,6 +361,10 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
       </div>
 
       <main className="min-w-0 flex-1 px-4 pb-24 pt-[calc(4rem+env(safe-area-inset-top))] md:ml-60 md:px-8 md:pt-14">{children}</main>
+
+      {/* v29: the must-do prompt — after three ignored reminders it meets the
+          member here, on every app open, until the record lands */}
+      <PendingPrompt />
 
       {/* The Blue Man — Elevate's assistant (persistent per-user chats +
           role/module-aware suggested questions) */}

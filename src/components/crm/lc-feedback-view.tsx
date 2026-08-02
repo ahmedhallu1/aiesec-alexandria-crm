@@ -177,7 +177,7 @@ export function LcFeedbackView({
       {/* ------------------------------------------------------- header */}
       <div className="flex flex-wrap items-start justify-between gap-3 rise-in">
         <div>
-          <h1 className="text-2xl font-bold">LC Feedback 💙</h1>
+          <h1 className="text-2xl font-bold">Feedback 💙</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Appreciate someone — or raise a concern. Positive notes reach the
             person directly; concerns go privately to the LCP only.
@@ -393,7 +393,7 @@ function LcFeedbackInbox({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>LC Feedback inbox</DialogTitle>
+          <DialogTitle>Feedback inbox</DialogTitle>
         </DialogHeader>
         {rows.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">

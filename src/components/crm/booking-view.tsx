@@ -9,6 +9,9 @@ import { cn } from "@/lib/utils";
 import { CountryInput } from "./country-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 
 const EMAIL_RE = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]{2,}$/;
@@ -17,6 +20,9 @@ const EMAIL_RE = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]{2,}$/;
  *  strip (length = the member's max-advance setting) → the free slots of the
  *  picked day → LC name + the IR's EMAIL (calendar invite + Meet land there)
  *  → bookIrCall. Everything time-related arrives precomputed from the server. */
+/** who the IR is inside their own LC — asked on the public page (v29) */
+const BOOKER_ROLES = ["Member", "MM (Team Leader / Coordinator)", "LCVP", "LCP"] as const;
+
 export function BookingView({
   slug, memberName, slotMinutes, days,
 }: {
@@ -32,6 +38,7 @@ export function BookingView({
   const [email, setEmail] = useState("");
   const [country, setCountry] = useState("");
   const [bookerName, setBookerName] = useState("");
+  const [bookerRole, setBookerRole] = useState("");
   const [done, setDone] = useState<{
     memberName: string;
     whenLabel: string;
@@ -56,13 +63,22 @@ export function BookingView({
         toast.error("Enter a valid email — the calendar invite and Meet link go there.");
         return;
       }
+      if (!bookerName.trim()) {
+        toast.error("Tell us your name.");
+        return;
+      }
+      if (!bookerRole) {
+        toast.error("Pick your role in your LC.");
+        return;
+      }
       const res = await bookIrCall({
         slug,
         startIso: slotIso,
         lcName,
         bookerEmail: email.trim(),
         country: country || null,
-        bookerName: bookerName || null,
+        bookerName: bookerName.trim(),
+        bookerRole,
       });
       if (res.ok && res.data) setDone(res.data);
       else if (!res.ok) toast.error(res.error);
@@ -218,7 +234,7 @@ export function BookingView({
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="bk-name">Your name (optional)</Label>
+                <Label htmlFor="bk-name">Your name *</Label>
                 <Input
                   id="bk-name"
                   dir="auto"
@@ -229,11 +245,31 @@ export function BookingView({
                   maxLength={100}
                 />
               </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="bk-role">Your role *</Label>
+                <Select value={bookerRole || undefined} onValueChange={setBookerRole}>
+                  <SelectTrigger id="bk-role" className="h-10">
+                    <SelectValue placeholder="Pick your role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {BOOKER_ROLES.map((r) => (
+                      <SelectItem key={r} value={r}>{r}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <Button
               className="h-11 w-full text-base font-bold"
               onClick={submit}
-              disabled={pending || !slotIso || !lcName.trim() || !emailOk}
+              disabled={
+              pending ||
+              !slotIso ||
+              !lcName.trim() ||
+              !emailOk ||
+              !bookerName.trim() ||
+              !bookerRole
+            }
             >
               {pending ? (
                 <Loader2 className="size-4 animate-spin" />
