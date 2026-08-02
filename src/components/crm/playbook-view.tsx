@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v30";
+export const PLAYBOOK_VERSION = "v31";
 
 interface Props {
   role: string;
@@ -67,6 +67,8 @@ const SECTIONS: Section[] = [
     audience: "Everyone",
     color: "#0CB9C1",
     points: [
+      <><b>Every table is yours to shape</b> 🧩 (v31): hit <b>⚙ Columns</b> on any list — accounts, sign-ups, members, attendance, IR calls, CVs — to <b>drag columns into the order you like</b>, switch extra ones on (project, industry, opens, campaign, person status…) or hide what you don&apos;t use, and <b>Reset</b> when you want the default back. Pick how many rows per page, and click any header to sort. Your layout is remembered on your own device. No more &quot;the sheet was more flexible&quot;.</>,
+      <><b>Contacting someone always gets recorded</b>: tap WhatsApp, Call or Email on an account or a sign-up and the link opens as usual — then Elevate asks how it went, with the method already filled in. One tap to log it, or &quot;Not now&quot; if you mis-clicked.</>,
       <>First sign-in is <b>Google only</b> (it grants your calendar reminders + Gmail drafts). Onboarding then sets your password.</>,
       <><b>Put your @aiesec.net mail on your phone</b> 📲 and turn notifications ON. Elevate reaches you by email for the things that actually matter — visit follow-ups, Podio nags, attendance reminders and your streak. Miss the mail, miss the nudge.</>,
       <>After that, sign in with <b>email or phone + password</b>, or Google — whatever you like.</>,

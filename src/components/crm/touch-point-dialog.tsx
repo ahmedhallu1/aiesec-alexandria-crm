@@ -18,21 +18,32 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 
-/** Today in Cairo — touch points are booked AHEAD (the server refuses the
- *  past), so the picker never offers a day that would bounce. */
+/** Today in Cairo — used to tell "booking ahead" apart from "logging something
+ *  that already happened" (v31: past dates are pickable again). */
 const cairoTodayIso = () =>
   new Intl.DateTimeFormat("en-CA", {
     timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit",
   }).format(new Date());
 
+/** "HH:MM" right now in Cairo (h23 so midnight is 00:00, never 24:00). */
+const cairoNowHm = () =>
+  new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Africa/Cairo", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).format(new Date());
+
+const isPastCairoTime = (t: string) => !!t && t < cairoNowHm();
+
 /** Book a touch point (v29): pick the type your role allows, set the START
  *  time (there is no end), add a note, and optionally pull in sibling teams
- *  or another function. Everyone invited gets an email + a bell. */
+ *  or another function. Everyone invited gets an email + a bell — unless the
+ *  booker switches that off, or the start time is already past (v31: that's a
+ *  touch point being LOGGED after the fact, and it never notifies anyone). */
 export function TouchPointDialog({
   scopes, functions, teams, myTeam, siblingTeams, otherFunctions,
   defaultDate, open: openProp, onOpenChange,
@@ -74,7 +85,11 @@ export function TouchPointDialog({
   const [note, setNote] = useState("");
   const [invTeams, setInvTeams] = useState<string[]>([]);
   const [invFns, setInvFns] = useState<string[]>([]);
+  const [notify, setNotify] = useState(true);
   const todayIso = cairoTodayIso();
+  // a start earlier than right now (Cairo) = logging, not booking. The server
+  // decides for real; this only shapes what the dialog promises.
+  const logging = !!date && (date < todayIso || (date === todayIso && isPastCairoTime(time)));
 
   if (options.length === 0) return null;
 
@@ -100,13 +115,21 @@ export function TouchPointDialog({
         note: note || null,
         invitedTeams: picked.scope === "team" ? invTeams : [],
         invitedFunctions: picked.scope === "function" ? invFns : [],
+        notify,
       });
       if (res.ok) {
-        toast.success(`${picked.label} booked — everyone invited just heard about it 📣`);
+        // the SERVER decides whether anyone was told (a past start always
+        // means nobody was) — report what actually happened, not what we hoped
+        toast.success(
+          res.data?.announced
+            ? `${picked.label} booked — everyone invited just heard about it 📣`
+            : `${picked.label} saved quietly — nobody was notified. Attendance is yours to record.`
+        );
         setOpen(false);
         setNote("");
         setInvTeams([]);
         setInvFns([]);
+        setNotify(true);
         router.refresh();
       } else toast.error(res.error);
     });
@@ -129,7 +152,8 @@ export function TouchPointDialog({
             <DialogTitle>Book a touch point</DialogTitle>
             <DialogDescription>
               Meetings, working hours and outings. Everyone invited gets an
-              email and a bell — attendance is taken afterwards.
+              email and a bell — attendance is taken afterwards. Put a past
+              date to log one that already happened; that one stays silent.
             </DialogDescription>
           </DialogHeader>
 
@@ -194,9 +218,10 @@ export function TouchPointDialog({
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-1.5">
                 <Label>Date *</Label>
+                {/* v31: NO `min` — a past date is how you log a touch point
+                    that already happened (and it notifies nobody) */}
                 <Input
                   type="date"
-                  min={todayIso}
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
                 />
@@ -270,6 +295,26 @@ export function TouchPointDialog({
               </div>
             ) : null}
 
+            {/* v31: notifying is the DEFAULT, not the law — and a touch point
+                whose start time already passed is a log, so it never speaks */}
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">Tell everyone invited</p>
+                <p className="text-xs text-muted-foreground">
+                  {logging
+                    ? "Off — that start time already passed, so this is logged, not announced. Attendance still gets taken."
+                    : notify
+                      ? "An email and a bell go out to everyone invited."
+                      : "Nobody hears about it — it just appears on the calendar."}
+                </p>
+              </div>
+              <Switch
+                checked={notify && !logging}
+                onCheckedChange={setNotify}
+                disabled={logging}
+              />
+            </div>
+
             {noWorkingHours ? (
               <p className="text-xs text-destructive">
                 {fn} doesn&apos;t run working hours — pick a meeting or an outing.
@@ -280,7 +325,7 @@ export function TouchPointDialog({
           <DialogFooter>
             <Button onClick={submit} disabled={pending || !picked || !date || noWorkingHours}>
               {pending ? <Loader2 className="size-4 animate-spin" /> : <CalendarPlus className="size-4" />}
-              Book it
+              {logging ? "Log it" : "Book it"}
             </Button>
           </DialogFooter>
         </DialogContent>

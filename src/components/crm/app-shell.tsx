@@ -42,7 +42,7 @@ interface ShellProps {
     photoUrl: string | null;
     isAdmin: boolean;
   };
-  nav: { raising: boolean; tm: boolean; membership: boolean; planning: boolean; ogtMail: boolean; signups: boolean; consideration: boolean; calendar: boolean };
+  nav: { raising: boolean; dashboard: boolean; tm: boolean; membership: boolean; planning: boolean; ogtMail: boolean; signups: boolean; consideration: boolean; calendar: boolean };
   signOutAction: () => Promise<void>;
   children: React.ReactNode;
 }
@@ -82,13 +82,16 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
               ? "/planning"
               : "/accounts";
 
+  // The Dashboard belongs to ANYONE with a real lane — raising (ICX/B2B/B2C),
+  // OGX (the OGT/OGV sign-up funnels, v28) and Consideration (v27/v29). It used
+  // to be gated on `raising` alone, so OGX/Consideration crews could only reach
+  // their own dashboard through the button on /signups.
+  const dashboardItem = { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard };
+
   // Accounts is the daily workspace — it leads, and "/" lands on it
   const items = [
     ...(nav.raising
-      ? [
-          { href: "/accounts", label: "Accounts", icon: Building2 },
-          { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-        ]
+      ? [{ href: "/accounts", label: "Accounts", icon: Building2 }, dashboardItem]
       : []),
     // v29: the calendar carries TM touch points too — everyone with a module
     ...(nav.calendar ? [{ href: "/calendar", label: "Calendar", icon: CalendarDays }] : []),
@@ -96,6 +99,9 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
     ...(nav.consideration
       ? [{ href: "/consideration", label: "Consideration", icon: Globe2 }]
       : []),
+    // non-raising lane owners: the Dashboard sits right after the module they
+    // actually work in (Sign-ups / Consideration), never above it
+    ...(nav.dashboard && !nav.raising ? [dashboardItem] : []),
     ...(nav.planning ? [{ href: "/planning", label: "Planning", icon: Target }] : []),
     ...(nav.ogtMail ? [{ href: "/ogt-mail", label: "Expectation mail", icon: MailPlus }] : []),
     ...(nav.tm ? [{ href: "/members", label: "Talent Management", icon: UsersRound }] : []),
@@ -324,8 +330,15 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
       <div className="fixed right-4 top-3 z-40 hidden md:block">
         <RefreshButton className="rounded-full border bg-card/85 text-muted-foreground shadow-sm backdrop-blur hover:bg-muted hover:text-foreground" />
       </div>
-      {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col bg-sidebar md:flex">
+      {/* Desktop sidebar — it is `fixed inset-y-0`, so it is exactly one
+          viewport tall and CANNOT scroll with the page. Since v29/v30 the nav
+          carries ~13 items + the arrange row + the feedback note (~850px), so
+          on any window under ~850px tall (every 1366×768 laptop) the bottom of
+          this column — the user block with SIGN OUT, and the 2.0 credit — used
+          to be pushed off-screen and was unreachable. It scrolls itself now;
+          the nav keeps its content height (flex min-height:auto), so items are
+          never squashed. */}
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col overflow-y-auto overscroll-contain bg-sidebar pb-[env(safe-area-inset-bottom)] md:flex">
         {brand}
         {navList}
         {userBlock(false)}
@@ -340,7 +353,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
               <Menu className="size-5" />
             </Button>
           </SheetTrigger>
-          <SheetContent side="left" className="flex w-64 flex-col overflow-y-auto bg-sidebar p-0 border-sidebar-border">
+          <SheetContent side="left" className="flex w-64 flex-col overflow-y-auto overscroll-contain bg-sidebar p-0 pb-[env(safe-area-inset-bottom)] border-sidebar-border">
             <SheetTitle className="sr-only">Navigation</SheetTitle>
             {brand}
             {navList}
@@ -360,7 +373,14 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
         </div>
       </div>
 
-      <main className="min-w-0 flex-1 px-4 pb-24 pt-[calc(4rem+env(safe-area-inset-top))] md:ml-60 md:px-8 md:pt-14">{children}</main>
+      {/* The bottom padding has to clear THREE things at once: the phone's home
+          indicator (safe-area inset — we ship `viewport-fit=cover`, and the PWA
+          runs full-bleed), the floating Blue Man button and the draggable
+          test-view chip. 7rem + the inset keeps the last card of a page (the
+          profile's cards, the dashboard's drill-down) fully readable. */}
+      <main className="min-w-0 flex-1 px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-[calc(4rem+env(safe-area-inset-top))] md:ml-60 md:px-8 md:pt-14">
+        {children}
+      </main>
 
       {/* v29: the must-do prompt — after three ignored reminders it meets the
           member here, on every app open, until the record lands */}

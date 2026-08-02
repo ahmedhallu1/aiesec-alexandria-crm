@@ -80,9 +80,9 @@ export function ManageBookingView({
   return (
     <div className="rise-in relative z-10 w-full max-w-2xl rounded-2xl bg-card p-6 shadow-2xl md:p-8">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/brand/aiesec-blue.png" alt="AIESEC" className="mx-auto mb-4 h-10 w-auto dark:hidden" />
+      <img src="/brand/alex-blue.png" alt="AIESEC in Alexandria" className="mx-auto mb-4 h-16 w-auto dark:hidden" />
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/brand/aiesec-white.png" alt="AIESEC" className="mx-auto mb-4 hidden h-10 w-auto dark:block" />
+      <img src="/brand/alex-white.png" alt="AIESEC in Alexandria" className="mx-auto mb-4 hidden h-16 w-auto dark:block" />
 
       <h1 className="text-center text-2xl font-bold text-card-foreground">
         Your IR call with <span className="text-primary">{data.memberName}</span>

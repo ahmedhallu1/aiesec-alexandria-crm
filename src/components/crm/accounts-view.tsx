@@ -12,12 +12,12 @@ import {
 import type { PipelineRow } from "@/server/data";
 import {
   addArchivedAccount, bulkArchiveAccounts, bulkDeleteArchived, bulkReassignAccounts,
-  bulkReviveAccounts, importArchivedBulk, removeArchivedEntry, requestPodioSubmit,
-  updateAccount,
+  bulkReviveAccounts, importArchivedBulk, logContact, removeArchivedEntry,
+  requestPodioSubmit, updateAccount,
 } from "@/server/actions";
 import {
   accountSlug, fmtDateTime, fmtTime, IGT_SUB_PRODUCTS, IGV_PROJECTS, OOP_REASONS, productBadge,
-  STAGES,
+  STAGES, type ContactMethod,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { StageBadge } from "./stage-badge";
@@ -27,7 +27,10 @@ import { AskBlueMan } from "./ask-blue-man";
 import { FileDrop } from "./file-drop";
 import { Hint } from "./hint";
 import { QuickActions } from "./quick-actions";
-import { SortHeader, useTableSort } from "./sort-header";
+import {
+  PageSizePicker, SortHeader, TableSettings, useTableColumns, useTableSort,
+  type TableColumn,
+} from "./data-table-kit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,6 +45,7 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from "@/components/ui/tooltip";
@@ -416,6 +420,307 @@ function SelectDot({ checked, onToggle }: { checked: boolean; onToggle: () => vo
   );
 }
 
+// ------------------------------------------------- universal table columns
+
+/** Which SERVER sort field each column maps to (the list is server-sorted +
+ *  paginated — the whitelist lives in buildAccountsQuery). Columns absent from
+ *  this map simply render a plain header. */
+const ACCOUNT_SORT: Record<string, { field: string; dir: "asc" | "desc" }> = {
+  created_at: { field: "created_at", dir: "desc" },
+  name: { field: "normalized_name", dir: "asc" },
+  product: { field: "function", dir: "asc" },
+  stage: { field: "stage", dir: "asc" },
+  attempts: { field: "attempts", dir: "desc" },
+  next_step: { field: "next_step_date", dir: "asc" },
+  deals: { field: "deals_count", dir: "desc" },
+  slots: { field: "slots_count", dir: "desc" },
+  last_contact: { field: "last_contact_at", dir: "desc" },
+  updated_at: { field: "updated_at", dir: "desc" },
+};
+
+const ACCOUNT_HEAD_CLASS: Record<string, string> = {
+  attempts: "text-center",
+  deals: "text-center",
+  slots: "text-center",
+};
+
+const ACCOUNT_CELL_CLASS: Record<string, string> = {
+  created_at: "whitespace-nowrap text-sm text-muted-foreground",
+  updated_at: "whitespace-nowrap text-sm text-muted-foreground",
+  last_contact: "whitespace-nowrap text-sm text-muted-foreground",
+  attempts: "text-center",
+  deals: "text-center tabular-nums",
+  slots: "text-center tabular-nums",
+  next_step: "max-w-44 text-sm",
+  responsible: "text-sm text-muted-foreground",
+  account_type: "max-w-40 truncate text-sm text-muted-foreground",
+  industry: "max-w-40 truncate text-sm text-muted-foreground",
+  project: "max-w-40 truncate text-sm text-muted-foreground",
+  sub_product: "text-sm text-muted-foreground",
+  podio: "text-sm text-muted-foreground",
+  proposal: "text-sm text-muted-foreground",
+};
+
+/** Every column the accounts list CAN show — the first seven are the classic
+ *  layout, the rest are the "I used to have this in my sheet" extras, one
+ *  checkbox away in ⚙ Columns. */
+function accountColumns(viewer: ViewerInfo): TableColumn[] {
+  return [
+    { key: "created_at", label: "Date added" },
+    { key: "name", label: "Account", required: true },
+    {
+      key: "product",
+      label: viewer.igvOnly ? "Project" : viewer.b2cOnly ? "Type" : "Product",
+    },
+    { key: "stage", label: "Status" },
+    { key: "attempts", label: "Contacts" },
+    { key: "next_step", label: "Next step" },
+    { key: "quick", label: "Quick actions" },
+    ...(viewer.seesOthers
+      ? [{ key: "responsible", label: "Responsible", defaultHidden: true }]
+      : []),
+    ...(viewer.igvOnly
+      ? []
+      : [{ key: "project", label: "Project", defaultHidden: true }]),
+    ...(viewer.igtAccess
+      ? [{ key: "sub_product", label: "Sub product", defaultHidden: true }]
+      : []),
+    { key: "account_type", label: "Type", defaultHidden: true },
+    { key: "industry", label: "Industry", defaultHidden: true },
+    { key: "deals", label: "Deals", defaultHidden: true },
+    { key: "slots", label: "Opens", defaultHidden: true },
+    { key: "last_contact", label: "Last contact", defaultHidden: true },
+    { key: "updated_at", label: "Updated", defaultHidden: true },
+    { key: "proposal", label: "Proposal", defaultHidden: true },
+    { key: "podio", label: "Podio", defaultHidden: true },
+  ];
+}
+
+// --------------------------------------------- contact-after-click prompt
+
+/** Which contact method a quick-action link stands for — `null` for the
+ *  social links (opening a LinkedIn page is not a contact attempt). */
+function methodFromHref(href: string): ContactMethod | null {
+  const h = href.toLowerCase();
+  if (h.startsWith("tel:")) return "Call";
+  if (h.startsWith("mailto:")) return "Email";
+  if (h.includes("wa.me") || h.includes("whatsapp.com")) return "WhatsApp";
+  return null;
+}
+
+/** Wraps the quick-action icons: the link opens EXACTLY as before (never
+ *  blocked), and the click also asks "did you contact them?" so nobody works
+ *  an account without it landing in the history. One prompt per click. */
+function QuickActionsLogged({
+  row, viewerName, max, onUsed,
+}: {
+  row: PipelineRow;
+  viewerName: string;
+  max?: number;
+  onUsed: (method: ContactMethod) => void;
+}) {
+  return (
+    <span
+      className="contents"
+      onClickCapture={(e) => {
+        const el = (e.target as HTMLElement | null)?.closest?.("a[href]");
+        if (!el) return;
+        const method = methodFromHref(el.getAttribute("href") ?? "");
+        if (method) onUsed(method);
+      }}
+    >
+      <QuickActions
+        contacts={row.contacts}
+        max={max}
+        viewerName={viewerName}
+        accountName={row.name}
+      />
+    </span>
+  );
+}
+
+/** The four results that don't branch into another flow — "Not Interested"
+ *  (archives) and "Visit Scheduled" (books a visit) stay in the full dialog. */
+const QUICK_RESULTS = ["No Response", "Responded", "Interested", "Wrong Contact"] as const;
+
+/** Fires right after a WhatsApp / call / email quick action: the method is
+ *  pre-selected to whatever was clicked, the result + next step are one tap
+ *  away, and "Not now" always gets you out (a mis-click must never trap
+ *  anyone). "More options" hands over to the full ContactDialog. */
+function QuickContactPrompt({
+  row, method, onOpenChange, onFull,
+}: {
+  row: PipelineRow | null;
+  method: ContactMethod;
+  onOpenChange: (open: boolean) => void;
+  onFull: () => void;
+}) {
+  const router = useRouter();
+  const [m, setM] = useState<ContactMethod>(method);
+  const [status, setStatus] = useState<(typeof QUICK_RESULTS)[number]>("Responded");
+  const [comment, setComment] = useState("");
+  const [nextStep, setNextStep] = useState("");
+  const [nextStepDate, setNextStepDate] = useState("");
+  const [pending, start] = useTransition();
+
+  // the clicked channel wins every time the prompt (re)opens
+  const [lastMethod, setLastMethod] = useState(method);
+  if (lastMethod !== method) {
+    setLastMethod(method);
+    setM(method);
+  }
+
+  if (!row) return null;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const hasPendingVisit = !!row.visit_id && row.visit_done === null;
+  const futureStep = !!row.next_step_date && row.next_step_date >= today;
+  // same business rule the server enforces: no account may float without a
+  // dated next step
+  const stepRequired = !hasPendingVisit && !futureStep;
+
+  const close = () => {
+    setStatus("Responded");
+    setComment("");
+    setNextStep("");
+    setNextStepDate("");
+    onOpenChange(false);
+  };
+
+  const submit = () =>
+    start(async () => {
+      const res = await logContact({
+        accountId: row.id,
+        method: m,
+        status,
+        comment: comment || undefined,
+        nextStep: nextStep || undefined,
+        nextStepDate: nextStepDate || undefined,
+      });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success(`Contact #${res.data?.attempts ?? ""} logged — ${m} ✍️`);
+      close();
+      router.refresh();
+    });
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) close(); }}>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            {m === "WhatsApp" ? "💬" : m === "Call" ? "📞" : "✉️"} Did you contact{" "}
+            <span dir="auto">{row.name}</span>?
+          </DialogTitle>
+          <DialogDescription>
+            You just opened <b>{m}</b>. Log it here and the account&apos;s history
+            stays true — no contact without a record.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-1.5">
+              <Label>How?</Label>
+              <Select value={m} onValueChange={(v) => setM(v as ContactMethod)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Call">Call</SelectItem>
+                  <SelectItem value="WhatsApp">WhatsApp</SelectItem>
+                  <SelectItem value="Email">Email</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Result</Label>
+              <Select
+                value={status}
+                onValueChange={(v) => setStatus(v as (typeof QUICK_RESULTS)[number])}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {QUICK_RESULTS.map((s) => (
+                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid gap-1.5">
+            <Label>Comment</Label>
+            <Textarea
+              rows={2}
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder="What was said, who you reached…"
+            />
+          </div>
+          <div className="rounded-lg border p-3">
+            <p className="mb-2 text-sm font-medium">
+              Next step{" "}
+              {stepRequired ? (
+                <span className="text-destructive">*required — no visit is scheduled</span>
+              ) : (
+                <span className="text-muted-foreground">(optional)</span>
+              )}
+            </p>
+            <div className="grid gap-2">
+              <Input
+                value={nextStep}
+                onChange={(e) => setNextStep(e.target.value)}
+                placeholder="e.g. Follow-up call with the manager"
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  type="date"
+                  min={today}
+                  className="w-40"
+                  value={nextStepDate}
+                  onChange={(e) => setNextStepDate(e.target.value)}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const d = new Date();
+                    d.setDate(d.getDate() + 7);
+                    setNextStepDate(
+                      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+                    );
+                  }}
+                >
+                  Next week
+                </Button>
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="text-left text-xs text-muted-foreground underline-offset-2 hover:text-primary hover:underline"
+            onClick={() => { close(); onFull(); }}
+          >
+            Not interested, or booking a visit? Open the full contact form →
+          </button>
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="ghost" onClick={close} disabled={pending}>
+            Not now
+          </Button>
+          <Button
+            onClick={submit}
+            disabled={pending || (stepRequired && (!nextStepDate || !nextStep.trim()))}
+          >
+            {pending ? <Loader2 className="size-4 animate-spin" /> : <Phone className="size-4" />}
+            Log it
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function AccountsView({
   rows, total, page, pageSize, pageSizeOptions, manualArchived, members,
   reassignTargets, respOptions, viewer, filters,
@@ -440,6 +745,10 @@ export function AccountsView({
   const searchParams = useSearchParams();
   const [q, setQ] = useState(filters.q);
   const [contactTarget, setContactTarget] = useState<ContactTarget | null>(null);
+  // v31: a WhatsApp / call / email quick action opens the link AND asks to log
+  // it — the method pre-selected to whatever was clicked
+  const [quickContact, setQuickContact] =
+    useState<{ row: PipelineRow; method: ContactMethod } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [addArchivedOpen, setAddArchivedOpen] = useState(false);
   const [importArchivedOpen, setImportArchivedOpen] = useState(false);
@@ -576,6 +885,137 @@ export function AccountsView({
     hasPendingVisit: !!row.visit_id && row.visit_done === null,
     nextStepDate: row.next_step_date,
   });
+
+  // ⚙ Columns — the member's own order + visibility for THIS table
+  const cols = useTableColumns("accounts", accountColumns(viewer));
+
+  /** One cell of the desktop table, by column key. */
+  const accountCell = (row: PipelineRow, key: string): React.ReactNode => {
+    switch (key) {
+      case "created_at":
+        return (
+          <>
+            <span className="block leading-tight">{row.created_at?.slice(0, 10)}</span>
+            <span className="block text-[10px] opacity-70">{fmtTime(row.created_at)}</span>
+          </>
+        );
+      case "name":
+        return (
+          <>
+            <span className="inline-flex items-center gap-1.5">
+              <Link
+                href={hrefFor(row)}
+                className="font-medium hover:text-primary"
+                dir="auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {row.name}
+              </Link>
+              <PinSign text={row.pinned_comment} />
+              {podioMode ? <CopyNameButton name={row.name} /> : null}
+              {isPinnedForMe(row) ? <PodioPinBadge /> : null}
+            </span>
+            {viewer.seesOthers && !cols.isVisible("responsible") ? (
+              <p className="text-xs text-muted-foreground">
+                {row.responsible_nickname || row.responsible_name || "Unassigned"}
+              </p>
+            ) : null}
+            {podioMode ? <PodioRowTools row={row} /> : null}
+          </>
+        );
+      case "product":
+        return <FnBadge row={row} igvOnly={viewer.igvOnly} b2cOnly={viewer.b2cOnly} />;
+      case "stage":
+        return <StatusCell row={row} />;
+      case "attempts":
+        return <ContactsCell row={row} />;
+      case "next_step":
+        return row.next_step_missing ? (
+          <Badge variant="destructive" className="font-normal">missing</Badge>
+        ) : row.next_step_date ? (
+          <DetailHint
+            rows={[
+              ["Next step", row.next_step],
+              ["Date", row.next_step_date],
+              ["Time", row.next_step_time?.slice(0, 5) ?? "11:00 (default reminder)"],
+            ]}
+          >
+            <span className="text-muted-foreground">
+              {row.next_step_date}
+              {row.next_step ? ` · ${row.next_step.slice(0, 24)}` : ""}
+            </span>
+          </DetailHint>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        );
+      case "quick":
+        return (
+          <div className="flex items-center gap-1.5">
+            <QuickActionsLogged
+              row={row}
+              viewerName={viewer.name}
+              onUsed={(method) => setQuickContact({ row, method })}
+            />
+            {!row.out_of_process ? (
+              <>
+                <Hint label="Log a call / WhatsApp / email attempt on this account">
+                  <Button size="sm" variant="outline" onClick={() => setContactTarget(contactFor(row))}>
+                    <Phone className="size-3.5" /> Log
+                  </Button>
+                </Hint>
+                <Hint label="Archive this account (Out of Process) — right from the list">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => setRowArchive(row)}
+                  >
+                    <XCircle className="size-3.5" />
+                  </Button>
+                </Hint>
+              </>
+            ) : null}
+          </div>
+        );
+      case "responsible":
+        return (
+          <span dir="auto">
+            {row.responsible_nickname || row.responsible_name || "Unassigned"}
+          </span>
+        );
+      case "project":
+        return row.project ?? "—";
+      case "sub_product":
+        return row.sub_product ?? "—";
+      case "account_type":
+        return row.account_type ?? "—";
+      case "industry":
+        return row.industry ?? "—";
+      case "deals":
+        return row.deals_count;
+      case "slots":
+        return row.slots_count;
+      case "last_contact":
+        return row.last_contact_at ? (
+          <>
+            <span className="block leading-tight">{row.last_contact_at.slice(0, 10)}</span>
+            <span className="block text-[10px] opacity-70">
+              {row.last_contact_status ?? row.last_contact_method ?? ""}
+            </span>
+          </>
+        ) : (
+          "—"
+        );
+      case "updated_at":
+        return row.updated_at?.slice(0, 10) ?? "—";
+      case "proposal":
+        return row.proposal_sent ? "✅ sent" : "—";
+      case "podio":
+        return row.request_state ?? (row.requested_podio ? "Requested" : "—");
+      default:
+        return null;
+    }
+  };
 
   // archive = OOP accounts (paginated) + manually added names (shown with the
   // FIRST page only — repeating them on every page would duplicate the list)
@@ -782,6 +1222,13 @@ export function AccountsView({
             <X className="size-4" /> Clear
           </Button>
         ) : null}
+        {/* ⚙ Columns — the table is theirs: reorder, hide, bring back */}
+        {!archived ? (
+          <TableSettings
+            columns={cols}
+            className={cn("ml-auto", mobileView !== "table" && "hidden md:inline-flex")}
+          />
+        ) : null}
       </div>
 
       {archived ? (
@@ -910,7 +1357,16 @@ export function AccountsView({
                         </span>
                       ) : null}
                     </div>
-                    <QuickActions contacts={row.contacts} max={6} viewerName={viewer.name} accountName={row.name} />
+                    {/* the logger wrapper is display:contents — the card's
+                        space-y needs a real box of its own here */}
+                    <div>
+                      <QuickActionsLogged
+                        row={row}
+                        max={6}
+                        viewerName={viewer.name}
+                        onUsed={(method) => setQuickContact({ row, method })}
+                      />
+                    </div>
                   </CardContent>
                 </Card>
               ))
@@ -977,21 +1433,32 @@ export function AccountsView({
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-10" />
-                    <SortHead field="created_at">Date added</SortHead>
-                    <SortHead field="normalized_name" defaultDir="asc">Account</SortHead>
-                    <SortHead field="function" defaultDir="asc">
-                      {viewer.igvOnly ? "Project" : viewer.b2cOnly ? "Type" : "Product"}
-                    </SortHead>
-                    <SortHead field="stage" defaultDir="asc">Status</SortHead>
-                    <SortHead field="attempts" className="text-center">Contacts</SortHead>
-                    <SortHead field="next_step_date" defaultDir="asc">Next step</SortHead>
-                    <TableHead>Quick actions</TableHead>
+                    {cols.visible.map((c) => {
+                      const sort = ACCOUNT_SORT[c.key];
+                      return sort ? (
+                        <SortHead
+                          key={c.key}
+                          field={sort.field}
+                          defaultDir={sort.dir}
+                          className={ACCOUNT_HEAD_CLASS[c.key]}
+                        >
+                          {c.label}
+                        </SortHead>
+                      ) : (
+                        <TableHead key={c.key} className={ACCOUNT_HEAD_CLASS[c.key]}>
+                          {c.label}
+                        </TableHead>
+                      );
+                    })}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {rows.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
+                      <TableCell
+                        colSpan={cols.visible.length + 1}
+                        className="py-12 text-center text-muted-foreground"
+                      >
                         No accounts here yet. Add your first one 🚀
                       </TableCell>
                     </TableRow>
@@ -1008,81 +1475,15 @@ export function AccountsView({
                             onToggle={() => toggleSelected(row.id)}
                           />
                         </TableCell>
-                        <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                          <span className="block leading-tight">{row.created_at?.slice(0, 10)}</span>
-                          <span className="block text-[10px] opacity-70">{fmtTime(row.created_at)}</span>
-                        </TableCell>
-                        <TableCell>
-                          <span className="inline-flex items-center gap-1.5">
-                            <Link
-                              href={hrefFor(row)}
-                              className="font-medium hover:text-primary"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              {row.name}
-                            </Link>
-                            <PinSign text={row.pinned_comment} />
-                            {podioMode ? <CopyNameButton name={row.name} /> : null}
-                            {isPinnedForMe(row) ? <PodioPinBadge /> : null}
-                          </span>
-                          {viewer.seesOthers ? (
-                            <p className="text-xs text-muted-foreground">
-                              {row.responsible_nickname || row.responsible_name || "Unassigned"}
-                            </p>
-                          ) : null}
-                          {podioMode ? <PodioRowTools row={row} /> : null}
-                        </TableCell>
-                        <TableCell><FnBadge row={row} igvOnly={viewer.igvOnly} b2cOnly={viewer.b2cOnly} /></TableCell>
-                        <TableCell><StatusCell row={row} /></TableCell>
-                        <TableCell className="text-center"><ContactsCell row={row} /></TableCell>
-                        <TableCell className="max-w-44 text-sm">
-                          {row.next_step_missing ? (
-                            <Badge variant="destructive" className="font-normal">missing</Badge>
-                          ) : row.next_step_date ? (
-                            <DetailHint
-                              rows={[
-                                ["Next step", row.next_step],
-                                ["Date", row.next_step_date],
-                                ["Time", row.next_step_time?.slice(0, 5) ?? "11:00 (default reminder)"],
-                              ]}
-                            >
-                              <span className="text-muted-foreground">
-                                {row.next_step_date}
-                                {row.next_step ? ` · ${row.next_step.slice(0, 24)}` : ""}
-                              </span>
-                            </DetailHint>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center gap-1.5">
-                            <QuickActions contacts={row.contacts} viewerName={viewer.name} accountName={row.name} />
-                            {!row.out_of_process ? (
-                              <>
-                                <Hint label="Log a call / WhatsApp / email attempt on this account">
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => setContactTarget(contactFor(row))}
-                                  >
-                                    <Phone className="size-3.5" /> Log
-                                  </Button>
-                                </Hint>
-                                <Hint label="Archive this account (Out of Process) — right from the list">
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="text-destructive hover:text-destructive"
-                                    onClick={() => setRowArchive(row)}
-                                  >
-                                    <XCircle className="size-3.5" />
-                                  </Button>
-                                </Hint>
-                              </>
-                            ) : null}
-                          </div>
-                        </TableCell>
+                        {cols.visible.map((c) => (
+                          <TableCell
+                            key={c.key}
+                            className={ACCOUNT_CELL_CLASS[c.key]}
+                            onClick={c.key === "quick" ? (e) => e.stopPropagation() : undefined}
+                          >
+                            {accountCell(row, c.key)}
+                          </TableCell>
+                        ))}
                       </TableRow>
                     ))
                   )}
@@ -1100,19 +1501,12 @@ export function AccountsView({
             Showing {(page * pageSize + 1).toLocaleString("en")}–
             {Math.min(total, (page + 1) * pageSize).toLocaleString("en")} of{" "}
             {total.toLocaleString("en")}
-            <Select
-              value={String(pageSize)}
-              onValueChange={(v) => setParam("size", v === "100" ? "" : v)}
-            >
-              <SelectTrigger className="h-7 w-auto min-w-16 text-xs" aria-label="Accounts per page">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {pageSizeOptions.map((n) => (
-                  <SelectItem key={n} value={String(n)}>{n} / page</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <PageSizePicker
+              value={pageSize}
+              options={pageSizeOptions}
+              label="Accounts per page"
+              onChange={(n) => setParam("size", n === 100 ? "" : String(n))}
+            />
           </span>
           <div className="flex items-center gap-2">
             <Button
@@ -1213,6 +1607,15 @@ export function AccountsView({
         open={!!contactTarget}
         onOpenChange={(o) => !o && setContactTarget(null)}
       />
+      {/* the quick action opened the link — now record it (dismissible) */}
+      {quickContact ? (
+        <QuickContactPrompt
+          row={quickContact.row}
+          method={quickContact.method}
+          onOpenChange={(o) => { if (!o) setQuickContact(null); }}
+          onFull={() => setContactTarget(contactFor(quickContact.row))}
+        />
+      ) : null}
       <AddAccountDialog
         open={addOpen}
         onOpenChange={setAddOpen}
@@ -1271,26 +1674,84 @@ function ArchivedList({
       reason: (i) =>
         i.kind === "account" ? i.row.oop_reason ?? null : i.entry.reason ?? null,
       source: (i) => (i.kind === "account" ? "worked, then archived" : "added manually"),
+      responsible: (i) =>
+        i.kind === "account"
+          ? i.row.responsible_nickname || i.row.responsible_name || null
+          : null,
     }),
     [igvOnly, b2cOnly]
   );
   const { sorted: sortedItems, sortKey, dir, toggle: toggleSort } = useTableSort(items, sorters);
-  const ArchSortHead = ({
-    field, defaultDir = "asc", children,
-  }: {
-    field: string;
-    defaultDir?: "asc" | "desc";
-    children: React.ReactNode;
-  }) => (
-    <TableHead>
-      <SortHeader
-        label={children}
-        onClick={() => toggleSort(field, defaultDir)}
-        active={sortKey === field}
-        dir={dir}
-      />
-    </TableHead>
-  );
+
+  // ⚙ Columns for the archive table (client-side list, client-side sort)
+  const cols = useTableColumns("accounts-archived", [
+    { key: "date", label: "Archived" },
+    { key: "name", label: "Account", required: true },
+    { key: "product", label: igvOnly ? "Project" : b2cOnly ? "Type" : "Product" },
+    { key: "reason", label: "Reason" },
+    { key: "source", label: "Source" },
+    ...(seesOthers
+      ? [{ key: "responsible", label: "Responsible", defaultHidden: true }]
+      : []),
+  ]);
+  const ARCH_SORT: Record<string, "asc" | "desc"> = {
+    date: "desc", name: "asc", product: "asc", reason: "asc", source: "asc",
+  };
+  const ARCH_CELL_CLASS: Record<string, string> = {
+    date: "whitespace-nowrap text-sm text-muted-foreground",
+    reason: "max-w-64 truncate text-sm text-muted-foreground",
+    source: "text-xs text-muted-foreground",
+    responsible: "text-sm text-muted-foreground",
+  };
+
+  /** One archive cell — accounts and manual blacklist entries share the grid. */
+  const archCell = (item: ArchivedItem, key: string): React.ReactNode => {
+    if (key === "date")
+      return (
+        <>
+          <span className="block leading-tight">{item.date?.slice(0, 10)}</span>
+          <span className="block text-[10px] opacity-70">{fmtTime(item.date)}</span>
+        </>
+      );
+    if (item.kind === "account") {
+      const row = item.row;
+      switch (key) {
+        case "name":
+          return (
+            <>
+              <span className="font-medium" dir="auto">{row.name}</span>
+              {seesOthers && !cols.isVisible("responsible") ? (
+                <p className="text-xs text-muted-foreground">
+                  {row.responsible_nickname || row.responsible_name || "Unassigned"}
+                </p>
+              ) : null}
+            </>
+          );
+        case "product":
+          return <FnBadge row={row} igvOnly={igvOnly} b2cOnly={b2cOnly} />;
+        case "reason":
+          return row.oop_reason ?? "—";
+        case "source":
+          return "worked, then archived";
+        case "responsible":
+          return row.responsible_nickname || row.responsible_name || "Unassigned";
+        default:
+          return null;
+      }
+    }
+    switch (key) {
+      case "name":
+        return <span className="font-medium" dir="auto">{item.entry.name}</span>;
+      case "product":
+        return <span className="text-muted-foreground">—</span>;
+      case "reason":
+        return item.entry.reason ?? "—";
+      case "source":
+        return `added manually${item.entry.addedBy ? ` · ${item.entry.addedBy}` : ""}`;
+      default:
+        return <span className="text-muted-foreground">—</span>;
+    }
+  };
 
   // selection only makes sense on ACCOUNT rows (manual entries have their own ✕)
   const selectable = canManage || canRemove;
@@ -1415,6 +1876,9 @@ function ArchivedList({
       </div>
 
       {/* Desktop table */}
+      <div className="hidden justify-end md:flex">
+        <TableSettings columns={cols} />
+      </div>
       <div className="hidden overflow-hidden rounded-xl border bg-card md:block rise-in rise-in-2">
         <div className="overflow-x-auto">
           <Table>
@@ -1432,20 +1896,26 @@ function ArchivedList({
                     />
                   </TableHead>
                 ) : null}
-                <ArchSortHead field="date" defaultDir="desc">Archived</ArchSortHead>
-                <ArchSortHead field="name">Account</ArchSortHead>
-                <ArchSortHead field="product">
-                  {igvOnly ? "Project" : b2cOnly ? "Type" : "Product"}
-                </ArchSortHead>
-                <ArchSortHead field="reason">Reason</ArchSortHead>
-                <ArchSortHead field="source">Source</ArchSortHead>
+                {cols.visible.map((c) => (
+                  <TableHead key={c.key}>
+                    <SortHeader
+                      label={c.label}
+                      onClick={() => toggleSort(c.key, ARCH_SORT[c.key] ?? "asc")}
+                      active={sortKey === c.key}
+                      dir={dir}
+                    />
+                  </TableHead>
+                ))}
                 <TableHead />
               </TableRow>
             </TableHeader>
             <TableBody>
               {items.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={selectable ? 7 : 6} className="py-12 text-center text-muted-foreground">
+                  <TableCell
+                    colSpan={cols.visible.length + (selectable ? 2 : 1)}
+                    className="py-12 text-center text-muted-foreground"
+                  >
                     The archive is empty.
                   </TableCell>
                 </TableRow>
@@ -1462,25 +1932,11 @@ function ArchivedList({
                           <SelectDot checked={selected.has(item.row.id)} onToggle={() => toggle(item.row.id)} />
                         </TableCell>
                       ) : null}
-                      <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                        <span className="block leading-tight">{item.date?.slice(0, 10)}</span>
-                        <span className="block text-[10px] opacity-70">{fmtTime(item.date)}</span>
-                      </TableCell>
-                      <TableCell>
-                        <span className="font-medium">{item.row.name}</span>
-                        {seesOthers ? (
-                          <p className="text-xs text-muted-foreground">
-                            {item.row.responsible_nickname || item.row.responsible_name || "Unassigned"}
-                          </p>
-                        ) : null}
-                      </TableCell>
-                      <TableCell><FnBadge row={item.row} igvOnly={igvOnly} b2cOnly={b2cOnly} /></TableCell>
-                      <TableCell className="max-w-64 truncate text-sm text-muted-foreground">
-                        {item.row.oop_reason ?? "—"}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        worked, then archived
-                      </TableCell>
+                      {cols.visible.map((c) => (
+                        <TableCell key={c.key} className={ARCH_CELL_CLASS[c.key]}>
+                          {archCell(item, c.key)}
+                        </TableCell>
+                      ))}
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         {canManage ? (
                           <Hint label="Back to active — puts it back in the raising process">
@@ -1500,18 +1956,11 @@ function ArchivedList({
                   ) : (
                     <TableRow key={item.entry.id}>
                       {selectable ? <TableCell /> : null}
-                      <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                        <span className="block leading-tight">{item.date?.slice(0, 10)}</span>
-                        <span className="block text-[10px] opacity-70">{fmtTime(item.date)}</span>
-                      </TableCell>
-                      <TableCell className="font-medium">{item.entry.name}</TableCell>
-                      <TableCell><span className="text-muted-foreground">—</span></TableCell>
-                      <TableCell className="max-w-64 truncate text-sm text-muted-foreground">
-                        {item.entry.reason ?? "—"}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        added manually{item.entry.addedBy ? ` · ${item.entry.addedBy}` : ""}
-                      </TableCell>
+                      {cols.visible.map((c) => (
+                        <TableCell key={c.key} className={ARCH_CELL_CLASS[c.key]}>
+                          {archCell(item, c.key)}
+                        </TableCell>
+                      ))}
                       <TableCell>
                         {canRemove ? (
                           <Hint label="Remove this manual entry (typo / wrong import)">

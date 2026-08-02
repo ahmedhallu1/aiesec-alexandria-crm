@@ -49,14 +49,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // planning board for OGX VPs/Directors
   // the calendar belongs to every module member now (touch points, v29)
   const calendar = raising || consideration || ogx || tm;
+  // /dashboard = anyone who owns at least one LANE there — raising (ICX / B2B /
+  // B2C), OGX (the OGT & OGV sign-up funnels, v28) or Consideration (the split
+  // IR-call lanes, v29). Mirrors how dashboard/page.tsx builds `views`, so the
+  // tab never leads someone to an empty page.
+  const dashboard = raising || ogx || consideration;
   const extraRoutes = [
     ...(calendar ? ["/calendar"] : []),
     ...(tm ? ["/members"] : []),
     ...(membership ? ["/membership"] : []),
     ...(planning ? ["/planning"] : []),
-    // OGX crews get the OGT/OGV dashboard lanes too (v28)
-    ...(ogx ? ["/signups", "/dashboard"] : []),
+    ...(ogx ? ["/signups"] : []),
     ...(consideration ? ["/consideration"] : []),
+    ...(dashboard ? ["/dashboard"] : []),
     ...(ogtMail ? ["/ogt-mail"] : []),
   ];
   // v29: /attendance belongs to EVERY member, module or not — but it must not
@@ -77,6 +82,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       nav={{
         calendar,
         raising,
+        dashboard,
         tm,
         membership,
         planning,

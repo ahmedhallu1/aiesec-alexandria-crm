@@ -70,7 +70,9 @@ export default async function AccountsPage({
   const requestedPage = Math.max(0, (Number(params.page) || 1) - 1);
   const [{ rows, total, page }, members, reassignTo, manualArchived] = await Promise.all([
     listAccountsPage(viewer, filters, requestedPage, pageSize),
-    listVisibleMembers(viewer),
+    // narrow to the Function filter that is switched on, so the Responsible
+    // list only offers people who can appear in THIS view
+    listVisibleMembers(viewer, filters.fn ? { fn: filters.fn } : {}),
     listReassignTargetsForViewer(viewer),
     archived ? listManualArchived() : Promise.resolve([]),
   ]);

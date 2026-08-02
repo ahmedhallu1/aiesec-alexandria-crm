@@ -9,6 +9,10 @@ import type { OgxFunction } from "@/lib/types";
 
 export const metadata = { title: "Sign-ups" };
 
+/** Rows per page (?size) — the universal table kit's picker drives it. */
+const PAGE_SIZES = [30, 50, 100, 200];
+const DEFAULT_PAGE_SIZE = 100;
+
 /** THE OGX WORKSPACE (v25): OGT & OGV sign-ups, two-way synced with the LC's
  *  tracker sheets. Main view = the unassigned pool — contact one, it's yours. */
 export default async function SignupsPage({
@@ -26,6 +30,11 @@ export default async function SignupsPage({
     : fns[0];
 
   const page = Math.max(0, (parseInt(sp.page ?? "1", 10) || 1) - 1);
+  // rows per page — anything off the list falls back to the default (a
+  // hand-typed ?size can't ask the DB for 10k rows)
+  const size = PAGE_SIZES.includes(Number(sp.size))
+    ? Number(sp.size)
+    : DEFAULT_PAGE_SIZE;
   const [result, planCard, streak] = await Promise.all([
     listSignupsPage(
       viewer,
@@ -44,7 +53,8 @@ export default async function SignupsPage({
         sort: sp.sort,
         dir: sp.dir === "asc" ? "asc" : sp.dir === "desc" ? "desc" : undefined,
       },
-      page
+      page,
+      size
     ),
     ogxPlanCard(viewer),
     streakStats(viewer),
@@ -60,7 +70,8 @@ export default async function SignupsPage({
       rows={result.rows}
       total={result.total}
       page={result.page}
-      pageSize={100}
+      pageSize={size}
+      pageSizeOptions={PAGE_SIZES}
       activeView={result.view}
       views={signupViewsFor(viewer)}
       fns={fns}

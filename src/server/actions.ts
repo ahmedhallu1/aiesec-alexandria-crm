@@ -45,6 +45,8 @@ import {
   EMAIL_RE,
   FEEDBACK_CATEGORIES,
   FEEDBACK_INBOX_EMAILS,
+  guessEmailTag,
+  guessLinkTag,
   LC_FUNCTIONS,
   MEMBER_ROLES,
   normalizePhone,
@@ -216,8 +218,13 @@ function legacyContactColumns(list: AccountContact[]) {
 
 export async function createAccount(
   input: z.infer<typeof createAccountSchema>,
-  /** the bulk import stamps ONCE for the whole run instead of per row */
-  opts?: { stampActivity?: boolean }
+  opts?: {
+    /** the bulk import stamps ONCE for the whole run instead of per row */
+    stampActivity?: boolean;
+    /** how the account arrived — kept in the audit log so the account's
+     *  History can say "added through the bulk import" (v31) */
+    via?: "manual" | "import";
+  }
 ): Promise<ActionResult<{ id: string; slug: string }>> {
   const viewer = await getViewer();
   const parsed = createAccountSchema.safeParse(input);
@@ -291,15 +298,24 @@ export async function createAccount(
     responsibleId = data.responsible_id;
   }
 
-  // tagged contacts: either the dialog's rows or built from the flat fields (import)
+  // tagged contacts: either the dialog's rows (already auto-tagged in the
+  // editor) or built from the flat fields — an import carries no tags, so the
+  // same rules that run in the browser read the values here (ceo@… → CEO, an
+  // instagram address → Instagram) and fall back to the neutral tag.
   const rawContacts: AccountContact[] =
     data.contacts && data.contacts.length > 0
       ? (data.contacts as AccountContact[])
       : ([
           ...(data.phone ? [{ tag: "Contact", kind: "phone" as const, value: data.phone }] : []),
-          ...(data.email ? [{ tag: "Contact", kind: "email" as const, value: data.email }] : []),
-          ...(data.social_link ? [{ tag: "Other", kind: "link" as const, value: data.social_link }] : []),
-          ...(data.website ? [{ tag: "Website", kind: "link" as const, value: data.website }] : []),
+          ...(data.email
+            ? [{ tag: guessEmailTag(data.email) ?? "Contact", kind: "email" as const, value: data.email }]
+            : []),
+          ...(data.social_link
+            ? [{ tag: guessLinkTag(data.social_link) ?? "Other", kind: "link" as const, value: data.social_link }]
+            : []),
+          ...(data.website
+            ? [{ tag: guessLinkTag(data.website) ?? "Website", kind: "link" as const, value: data.website }]
+            : []),
         ] as AccountContact[]);
   const { list: contacts, error: contactError } = cleanContacts(rawContacts);
   if (contactError) return fail(contactError);
@@ -345,7 +361,22 @@ export async function createAccount(
   }
 
   await recordUndo("accounts", created.id, "insert"); // children cascade on undo
-  await logAudit(viewer.id, "create", "account", created.id, { name: data.name });
+  // v31: the audit row IS the account's first History entry — keep the whole
+  // creation snapshot (what was entered, not what the row looks like today)
+  await logAudit(viewer.id, "create", "account", created.id, {
+    name: data.name,
+    via: opts?.via ?? "manual",
+    function: data.function,
+    product: data.function === "IGT" ? data.product ?? null : null,
+    sub_product: data.function === "IGT" ? data.sub_product || null : null,
+    project: data.function === "IGV" ? data.project ?? null : null,
+    account_type: data.account_type || null,
+    industry: data.function === "B2C" ? null : data.industry || null,
+    responsible_id: responsibleId,
+    requested_podio: data.requested_podio ?? false,
+    contacts: contacts.map((c) => ({ tag: c.tag, kind: c.kind, value: c.value })),
+    comment: data.comment || null,
+  });
   if (opts?.stampActivity !== false)
     await stampWork(viewer.id, "account_created"); // v29: counts towards working hours
   refresh();
@@ -2798,7 +2829,7 @@ export async function importAccountsBulk(
       website: row.website ?? null,
       comment: row.comment ?? null,
       responsible_id: row.responsible_id ?? null,
-    }, { stampActivity: false });
+    }, { stampActivity: false, via: "import" });
     if (res.ok) {
       created += 1;
       results.push({ name: row.name, ok: true });

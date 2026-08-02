@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
-  Archive, Check, LayoutDashboard, Loader2, Phone, RefreshCw, RotateCcw,
+  Archive, Check, LayoutDashboard, Loader2, Mail, Phone, RefreshCw, RotateCcw,
   Search, UserMinus, UserRound, Users2, X,
 } from "lucide-react";
 import {
@@ -17,13 +17,16 @@ import type { OgxPlanCard, SignupDetail, StreakStats } from "@/server/data";
 import { fmtDateTime, SIGNUP_STATUSES, type OgxFunction, type SignupRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { CountryInput } from "./country-input";
+import {
+  PageSizePicker, TableSettings, useTableColumns, type TableColumn,
+} from "./data-table-kit";
 import { Hint } from "./hint";
 import { WhatsAppIcon } from "./icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
-  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -250,14 +253,246 @@ interface ViewerInfo {
   canVp: boolean;
 }
 
+// ------------------------------------------------- universal table columns
+
+/** Server sort fields (SIGNUP_SORTABLE in data.ts) per column key. */
+const SIGNUP_SORT: Record<string, { field: string; dir: "asc" | "desc" }> = {
+  signed_up_at: { field: "signed_up_at", dir: "desc" },
+  name: { field: "name", dir: "asc" },
+  program: { field: "program", dir: "asc" },
+  contacted: { field: "contact_status", dir: "asc" },
+  interested: { field: "interested", dir: "asc" },
+  status: { field: "status", dir: "asc" },
+  country: { field: "country", dir: "asc" },
+};
+
+const SIGNUP_CELL_CLASS: Record<string, string> = {
+  signed_up_at: "whitespace-nowrap text-sm text-muted-foreground",
+  assigned: "text-sm",
+  contacted: "text-sm",
+  interested: "text-sm",
+  status: "text-sm",
+  country: "text-sm text-muted-foreground",
+  person_status: "max-w-40 truncate text-sm text-muted-foreground",
+  campaign: "max-w-44 truncate text-sm text-muted-foreground",
+  email: "max-w-48 truncate text-sm text-muted-foreground",
+  phone: "whitespace-nowrap text-sm text-muted-foreground",
+  ep_id: "text-sm text-muted-foreground",
+  batch: "text-sm text-muted-foreground",
+  university: "max-w-44 truncate text-sm text-muted-foreground",
+  grad_year: "text-sm text-muted-foreground",
+  home_lc: "max-w-40 truncate text-sm text-muted-foreground",
+  gender: "text-sm text-muted-foreground",
+  referral: "max-w-40 truncate text-sm text-muted-foreground",
+  background: "max-w-44 truncate text-sm text-muted-foreground",
+  sub_product: "text-sm text-muted-foreground",
+};
+
+/**
+ * The sign-ups table columns. Every field the tracker carries is available in
+ * ⚙ Columns; what SHOWS by default depends on the view and the function:
+ *  · Unassigned — no Status, no Country (nothing is set there yet) and, for
+ *    OGV, no Program (they're all GV) — instead **Person status** + **Campaign**,
+ *    the two things that actually help you pick who to call.
+ *  · Every other view keeps the classic set.
+ */
+function signupColumns(fn: OgxFunction, view: string): TableColumn[] {
+  const pool = view === "unassigned";
+  return [
+    { key: "signed_up_at", label: "Signed up" },
+    { key: "name", label: "Sign-up", required: true },
+    // OGV sign-ups are ALL GV — the badge is dead weight there (v31)
+    { key: "program", label: "Program", defaultHidden: fn === "OGV" },
+    { key: "contact", label: "Contact" },
+    { key: "assigned", label: "Assigned" },
+    { key: "contacted", label: "Contacted" },
+    { key: "interested", label: "Interested" },
+    { key: "person_status", label: "Person status", defaultHidden: !pool },
+    { key: "campaign", label: "Campaign", defaultHidden: !pool },
+    { key: "status", label: "Status", defaultHidden: pool },
+    { key: "country", label: "Country", defaultHidden: pool },
+    { key: "actions", label: "Actions" },
+    { key: "email", label: "Email", defaultHidden: true },
+    { key: "phone", label: "Phone", defaultHidden: true },
+    { key: "ep_id", label: "EP ID", defaultHidden: true },
+    { key: "batch", label: "Batch", defaultHidden: true },
+    { key: "university", label: "University", defaultHidden: true },
+    { key: "grad_year", label: "Grad year", defaultHidden: true },
+    { key: "home_lc", label: "Home LC", defaultHidden: true },
+    { key: "gender", label: "Gender", defaultHidden: true },
+    { key: "referral", label: "Referral", defaultHidden: true },
+    { key: "background", label: "Background", defaultHidden: true },
+    ...(fn === "OGT"
+      ? [{ key: "sub_product", label: "Sub product", defaultHidden: true }]
+      : []),
+  ];
+}
+
+// --------------------------------------------- contact-after-click prompt
+
+type Channel = "WhatsApp" | "Call" | "Email";
+
+/** Which channel a quick-action link stands for. */
+function channelFromHref(href: string): Channel | null {
+  const h = href.toLowerCase();
+  if (h.startsWith("tel:")) return "Call";
+  if (h.startsWith("mailto:")) return "Email";
+  if (h.includes("wa.me") || h.includes("whatsapp.com")) return "WhatsApp";
+  return null;
+}
+
+/** Wraps the WhatsApp / call / email links: they open exactly as before, and
+ *  the click also raises the "log it" prompt. One prompt per click. */
+function ContactLinks({
+  onUsed, children,
+}: {
+  onUsed: (channel: Channel) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <span
+      className="contents"
+      onClickCapture={(e) => {
+        const el = (e.target as HTMLElement | null)?.closest?.("a[href]");
+        if (!el) return;
+        const channel = channelFromHref(el.getAttribute("href") ?? "");
+        if (channel) onUsed(channel);
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+/** Fires right after a sign-up's WhatsApp / call / email link is opened: the
+ *  same fields the detail dialog carries (Contacted · Interested · comment),
+ *  with the channel already written into the comment. Claims the sign-up on
+ *  the way when it came from the unassigned pool — the exact same motion as
+ *  the Contact button. "Not now" always gets you out. */
+function SignupContactPrompt({
+  row, channel, onClose, onOpenDetail,
+}: {
+  row: SignupRow;
+  channel: Channel;
+  onClose: () => void;
+  onOpenDetail: () => void;
+}) {
+  const router = useRouter();
+  const [contacted, setContacted] = useState("Yes");
+  const [interested, setInterested] = useState("__unset");
+  const [comment, setComment] = useState(`Reached out on ${channel}.`);
+  const [pending, start] = useTransition();
+
+  const unassigned = !row.assigned_to && !row.assigned_name;
+
+  const submit = () =>
+    start(async () => {
+      if (unassigned) {
+        const claim = await claimSignup(row.id);
+        if (!claim.ok) {
+          toast.error(claim.error);
+          return;
+        }
+      }
+      const res = await updateSignupContact(row.id, {
+        contactStatus: contacted,
+        interested: interested === "__unset" ? null : interested,
+      });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      if (comment.trim()) {
+        const c = await addSignupComment(row.id, comment.trim());
+        if (!c.ok) toast.error(c.error);
+      }
+      toast.success(
+        unassigned ? "Logged — and it's yours now ✍️" : "Contact logged ✍️"
+      );
+      onClose();
+      router.refresh();
+    });
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle dir="auto">
+            {channel === "WhatsApp" ? "💬" : channel === "Call" ? "📞" : "✉️"} Did you
+            reach {row.name}?
+          </DialogTitle>
+          <DialogDescription>
+            You just opened <b>{channel}</b>. Log it here — a sign-up contacted
+            without a record is a sign-up nobody follows up.
+            {unassigned ? " Saving also claims them for you." : ""}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-1.5">
+              <Label>Contacted</Label>
+              <Select value={contacted} onValueChange={setContacted}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Yes">Yes</SelectItem>
+                  <SelectItem value="No">No</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Interested</Label>
+              <Select value={interested} onValueChange={setInterested}>
+                <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__unset">— not yet</SelectItem>
+                  <SelectItem value="Yes">Yes</SelectItem>
+                  <SelectItem value="No">No</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid gap-1.5">
+            <Label>Comment</Label>
+            <Textarea
+              dir="auto"
+              rows={2}
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder="What was said…"
+            />
+          </div>
+          <button
+            type="button"
+            className="text-left text-xs text-muted-foreground underline-offset-2 hover:text-primary hover:underline"
+            onClick={() => { onClose(); onOpenDetail(); }}
+          >
+            Need the full record (potential, country, archive)? Open the details →
+          </button>
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={pending}>
+            Not now
+          </Button>
+          <Button onClick={submit} disabled={pending}>
+            {pending ? <Loader2 className="size-4 animate-spin" /> : <Phone className="size-4" />}
+            Log it
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function SignupsView({
-  rows, total, page, pageSize, activeView, views, fns, activeFn, targets, planCard,
-  streak, viewer, filters,
+  rows, total, page, pageSize, pageSizeOptions, activeView, views, fns, activeFn,
+  targets, planCard, streak, viewer, filters,
 }: {
   rows: SignupRow[];
   total: number;
   page: number;
   pageSize: number;
+  /** the sign-ups-per-page choices (?size param) */
+  pageSizeOptions: number[];
   activeView: string;
   views: string[];
   fns: OgxFunction[];
@@ -278,6 +513,9 @@ export function SignupsView({
   const [q, setQ] = useState(filters.q);
   const [detail, setDetail] = useState<SignupDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState<string | null>(null);
+  // v31: opening WhatsApp / a call / an email asks to log it right after
+  const [quickContact, setQuickContact] =
+    useState<{ row: SignupRow; channel: Channel } | null>(null);
 
   // bulk selection (TL/VP/Director/LCP-admin): assign to a member or send
   // back to the pool — the archived view is read-only, no selection there
@@ -427,6 +665,139 @@ export function SignupsView({
     ) : (
       <span className="text-muted-foreground">—</span>
     );
+
+  // ⚙ Columns — one preference per view × function: the unassigned pool wants
+  // different columns from "My sign-ups", and OGV from OGT
+  const cols = useTableColumns(
+    `signups:${activeView}:${activeFn}`,
+    signupColumns(activeFn, activeView)
+  );
+
+  /** The WhatsApp / call / email shortcuts — every click raises the log prompt. */
+  const contactLinks = (r: SignupRow, size: "sm" | "icon" = "icon") => (
+    <ContactLinks onUsed={(channel) => setQuickContact({ row: r, channel })}>
+      {r.phone ? (
+        <>
+          <Hint label={`WhatsApp ${r.phone}`}>
+            <Button asChild variant="outline" size={size === "icon" ? "icon" : "sm"} className={size === "icon" ? "size-7" : "flex-1"}>
+              <a href={`https://wa.me/${waDigits(r.phone)}`} target="_blank" rel="noreferrer">
+                <WhatsAppIcon className={size === "icon" ? "size-3.5" : "size-4"} />
+                {size === "icon" ? null : " WhatsApp"}
+              </a>
+            </Button>
+          </Hint>
+          <Hint label={`Call ${r.phone}`}>
+            <Button asChild variant="outline" size={size === "icon" ? "icon" : "sm"} className={size === "icon" ? "size-7" : "flex-1"}>
+              <a href={`tel:${r.phone}`}>
+                <Phone className={size === "icon" ? "size-3.5" : "size-4"} />
+                {size === "icon" ? null : " Call"}
+              </a>
+            </Button>
+          </Hint>
+        </>
+      ) : null}
+      {r.email ? (
+        <Hint label={`Email ${r.email}`}>
+          <Button asChild variant="outline" size={size === "icon" ? "icon" : "sm"} className={size === "icon" ? "size-7" : "flex-1"}>
+            <a href={`mailto:${r.email}`}>
+              <Mail className={size === "icon" ? "size-3.5" : "size-4"} />
+              {size === "icon" ? null : " Email"}
+            </a>
+          </Button>
+        </Hint>
+      ) : null}
+    </ContactLinks>
+  );
+
+  /** One cell of the desktop table, by column key. */
+  const signupCell = (r: SignupRow, key: string): React.ReactNode => {
+    switch (key) {
+      case "signed_up_at":
+        return (
+          <>
+            {r.signed_up_at ?? "—"}
+            <span className="block text-[10px] opacity-70">
+              {r.batch === "new" ? "New" : "Old"} SUs
+            </span>
+          </>
+        );
+      case "name":
+        return (
+          <>
+            <span className="font-medium" dir="auto">{r.name}</span>
+            <p className="text-xs text-muted-foreground">EP {r.ep_id}</p>
+          </>
+        );
+      case "program":
+        return <ProgramBadge program={r.program} fn={r.fn} />;
+      case "contact":
+        return r.phone || r.email ? (
+          <span className="flex items-center gap-1">{contactLinks(r)}</span>
+        ) : (
+          <span className="text-xs text-muted-foreground">no phone</span>
+        );
+      case "assigned":
+        return r.assigned_to || r.assigned_name ? (
+          <span className="flex items-center gap-1 text-muted-foreground" dir="auto">
+            <UserRound className="size-3.5 shrink-0" /> {r.assigned_name ?? "assigned"}
+          </span>
+        ) : (
+          <Badge variant="outline" className="border-primary/50 text-primary">
+            unassigned
+          </Badge>
+        );
+      case "contacted":
+        return yn(r.contact_status);
+      case "interested":
+        return yn(r.interested);
+      case "status":
+        return r.out_of_process ? (
+          <span className="text-destructive">🗄️ {r.oop_reason ?? "OOP"}</span>
+        ) : r.status ? (
+          <Badge className={r.status === "Approved" ? "bg-emerald-600" : ""}>{r.status}</Badge>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        );
+      case "country":
+        return r.country ?? "—";
+      case "person_status":
+        return <span dir="auto">{r.person_status ?? "—"}</span>;
+      case "campaign":
+        return <span dir="auto">{r.campaign ?? "—"}</span>;
+      case "email":
+        return <span dir="auto">{r.email ?? "—"}</span>;
+      case "phone":
+        return r.phone ?? "—";
+      case "ep_id":
+        return r.ep_id;
+      case "batch":
+        return r.batch === "new" ? "New" : "Old";
+      case "university":
+        return <span dir="auto">{r.university ?? "—"}</span>;
+      case "grad_year":
+        return r.grad_year ?? "—";
+      case "home_lc":
+        return <span dir="auto">{r.home_lc ?? "—"}</span>;
+      case "gender":
+        return r.gender ?? "—";
+      case "referral":
+        return <span dir="auto">{r.referral ?? "—"}</span>;
+      case "background":
+        return <span dir="auto">{r.background ?? "—"}</span>;
+      case "sub_product":
+        return r.sub_product ?? "—";
+      case "actions":
+        return !r.assigned_to && !r.assigned_name && !r.out_of_process ? (
+          <Button size="sm" variant="outline" disabled={pending} onClick={() => contact(r)}>
+            <Phone className="size-3.5" /> Contact
+          </Button>
+        ) : detailLoading === r.id ? (
+          <Loader2 className="size-4 animate-spin" />
+        ) : null;
+      default:
+        return null;
+    }
+  };
 
   return (
     <div className={cn("mx-auto max-w-6xl space-y-4", navPending && "nav-pending")}>
@@ -589,6 +960,8 @@ export function SignupsView({
         <span className="ml-auto text-sm text-muted-foreground">
           {total} sign-up{total === 1 ? "" : "s"}
         </span>
+        {/* ⚙ Columns — this view's own layout (the pool ≠ "My sign-ups") */}
+        <TableSettings columns={cols} className="hidden md:inline-flex" />
       </div>
 
       {/* mobile cards */}
@@ -621,16 +994,9 @@ export function SignupsView({
                 <p className="text-xs text-muted-foreground">
                   {r.signed_up_at ?? ""} · EP {r.ep_id}
                 </p>
-                {r.phone ? (
-                  <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-                    <Button asChild variant="outline" size="sm" className="flex-1">
-                      <a href={`https://wa.me/${waDigits(r.phone)}`} target="_blank" rel="noreferrer">
-                        <WhatsAppIcon className="size-4" /> WhatsApp
-                      </a>
-                    </Button>
-                    <Button asChild variant="outline" size="sm" className="flex-1">
-                      <a href={`tel:${r.phone}`}><Phone className="size-4" /> Call</a>
-                    </Button>
+                {r.phone || r.email ? (
+                  <div className="flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
+                    {contactLinks(r, "sm")}
                   </div>
                 ) : null}
                 {!r.assigned_to && !r.assigned_name && !r.out_of_process ? (
@@ -668,22 +1034,25 @@ export function SignupsView({
                     />
                   </TableHead>
                 ) : null}
-                <SortHead field="signed_up_at">Signed up</SortHead>
-                <SortHead field="name" defaultDir="asc">Sign-up</SortHead>
-                <SortHead field="program" defaultDir="asc">Program</SortHead>
-                <TableHead>Contact</TableHead>
-                <TableHead>Assigned</TableHead>
-                <SortHead field="contact_status" defaultDir="asc">Contacted</SortHead>
-                <SortHead field="interested" defaultDir="asc">Interested</SortHead>
-                <SortHead field="status" defaultDir="asc">Status</SortHead>
-                <SortHead field="country" defaultDir="asc">Country</SortHead>
-                <TableHead />
+                {cols.visible.map((c) => {
+                  const sort = SIGNUP_SORT[c.key];
+                  return sort ? (
+                    <SortHead key={c.key} field={sort.field} defaultDir={sort.dir}>
+                      {c.label}
+                    </SortHead>
+                  ) : (
+                    <TableHead key={c.key}>{c.label}</TableHead>
+                  );
+                })}
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={canBulk ? 11 : 10} className="py-12 text-center text-muted-foreground">
+                  <TableCell
+                    colSpan={cols.visible.length + (canBulk ? 1 : 0)}
+                    className="py-12 text-center text-muted-foreground"
+                  >
                     Nothing here — try another view or filter.
                   </TableCell>
                 </TableRow>
@@ -695,78 +1064,19 @@ export function SignupsView({
                         <SelectDot checked={selected.has(r.id)} onToggle={() => toggle(r.id)} />
                       </TableCell>
                     ) : null}
-                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                      {r.signed_up_at ?? "—"}
-                      <span className="block text-[10px] opacity-70">
-                        {r.batch === "new" ? "New" : "Old"} SUs
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <span className="font-medium" dir="auto">{r.name}</span>
-                      <p className="text-xs text-muted-foreground">EP {r.ep_id}</p>
-                    </TableCell>
-                    <TableCell>
-                      <ProgramBadge program={r.program} fn={r.fn} />
-                    </TableCell>
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      {r.phone ? (
-                        <span className="flex items-center gap-1">
-                          <Hint label={`WhatsApp ${r.phone}`}>
-                            <Button asChild variant="outline" size="icon" className="size-7">
-                              <a
-                                href={`https://wa.me/${waDigits(r.phone)}`}
-                                target="_blank" rel="noreferrer"
-                              >
-                                <WhatsAppIcon className="size-3.5" />
-                              </a>
-                            </Button>
-                          </Hint>
-                          <Hint label={`Call ${r.phone}`}>
-                            <Button asChild variant="outline" size="icon" className="size-7">
-                              <a href={`tel:${r.phone}`}><Phone className="size-3.5" /></a>
-                            </Button>
-                          </Hint>
-                        </span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">no phone</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {r.assigned_to || r.assigned_name ? (
-                        <span className="flex items-center gap-1 text-muted-foreground">
-                          <UserRound className="size-3.5" /> {r.assigned_name ?? "assigned"}
-                        </span>
-                      ) : (
-                        <Badge variant="outline" className="border-primary/50 text-primary">
-                          unassigned
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-sm">{yn(r.contact_status)}</TableCell>
-                    <TableCell className="text-sm">{yn(r.interested)}</TableCell>
-                    <TableCell className="text-sm">
-                      {r.out_of_process ? (
-                        <span className="text-destructive">🗄️ {r.oop_reason ?? "OOP"}</span>
-                      ) : r.status ? (
-                        <Badge className={r.status === "Approved" ? "bg-emerald-600" : ""}>
-                          {r.status}
-                        </Badge>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {r.country ?? "—"}
-                    </TableCell>
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      {!r.assigned_to && !r.assigned_name && !r.out_of_process ? (
-                        <Button size="sm" variant="outline" disabled={pending} onClick={() => contact(r)}>
-                          <Phone className="size-3.5" /> Contact
-                        </Button>
-                      ) : detailLoading === r.id ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : null}
-                    </TableCell>
+                    {cols.visible.map((c) => (
+                      <TableCell
+                        key={c.key}
+                        className={SIGNUP_CELL_CLASS[c.key]}
+                        onClick={
+                          c.key === "contact" || c.key === "actions"
+                            ? (e) => e.stopPropagation()
+                            : undefined
+                        }
+                      >
+                        {signupCell(r, c.key)}
+                      </TableCell>
+                    ))}
                   </TableRow>
                 ))
               )}
@@ -775,21 +1085,31 @@ export function SignupsView({
         </div>
       </div>
 
-      {/* pagination */}
-      {pages > 1 ? (
-        <div className="flex items-center justify-center gap-3 text-sm">
-          <Button variant="outline" size="sm" disabled={page <= 0} onClick={() => goPage(page - 1)}>
-            ← Prev
-          </Button>
-          <span className="text-muted-foreground">
-            Page {page + 1} of {pages}
-          </span>
-          <Button
-            variant="outline" size="sm" disabled={page + 1 >= pages}
-            onClick={() => goPage(page + 1)}
-          >
-            Next →
-          </Button>
+      {/* pagination + rows per page */}
+      {total > Math.min(...pageSizeOptions) ? (
+        <div className="flex flex-wrap items-center justify-center gap-3 text-sm">
+          <PageSizePicker
+            value={pageSize}
+            options={pageSizeOptions}
+            label="Sign-ups per page"
+            onChange={(n) => setParams({ size: n === 100 ? null : String(n) })}
+          />
+          {pages > 1 ? (
+            <>
+              <Button variant="outline" size="sm" disabled={page <= 0} onClick={() => goPage(page - 1)}>
+                ← Prev
+              </Button>
+              <span className="text-muted-foreground">
+                Page {page + 1} of {pages}
+              </span>
+              <Button
+                variant="outline" size="sm" disabled={page + 1 >= pages}
+                onClick={() => goPage(page + 1)}
+              >
+                Next →
+              </Button>
+            </>
+          ) : null}
         </div>
       ) : null}
 
@@ -911,6 +1231,17 @@ export function SignupsView({
           targets={targets}
           onClose={() => setDetail(null)}
           onChanged={(id) => { openDetail(id); router.refresh(); }}
+        />
+      ) : null}
+
+      {/* the WhatsApp / call / email link opened — now record it (dismissible) */}
+      {quickContact ? (
+        <SignupContactPrompt
+          key={`${quickContact.row.id}:${quickContact.channel}`}
+          row={quickContact.row}
+          channel={quickContact.channel}
+          onClose={() => setQuickContact(null)}
+          onOpenDetail={() => openDetail(quickContact.row.id)}
         />
       ) : null}
     </div>

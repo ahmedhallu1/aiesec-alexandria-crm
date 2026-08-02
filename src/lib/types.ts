@@ -319,6 +319,84 @@ export const LINK_TAGS = [
   "Website", "LinkedIn", "Instagram", "Facebook", "Other",
 ] as const;
 
+/** The tag a fresh row of each kind starts with (its "untouched" default) —
+ *  auto-tagging (below) only ever replaces a tag the member hasn't set. */
+export const DEFAULT_CONTACT_TAG: Record<AccountContact["kind"], string> = {
+  phone: "Contact",
+  email: "Contact",
+  link: "Website",
+};
+
+// ------------------------------------------------------------------ auto-tagging
+// The system reads the value and tags it by itself: an Instagram page becomes
+// "Instagram", ceo@company.com becomes "CEO". Both helpers are PURE, always
+// conservative (they return null when they aren't sure, so the current tag
+// stands) and never override a tag a human picked — the caller decides that.
+
+/** Host → link tag. `wa.me` / `api.whatsapp.com` links are WhatsApp contacts,
+ *  so they carry the phone list's "Whatsapp" tag (a custom tag on a link).
+ *  Any other http(s) address falls back to "Website". */
+export function guessLinkTag(raw: string): string | null {
+  const value = raw.trim();
+  if (!value) return null;
+  // tolerate a half-typed address (no scheme yet) — the member is still typing
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `https://${value}`;
+  let host: string;
+  try {
+    const url = new URL(withScheme);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    host = url.hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  if (!host.includes(".")) return null; // "https://inst" — nothing to read yet
+  if (host.includes("instagram")) return "Instagram";
+  if (host.includes("linkedin") || host === "lnkd.in" || host.endsWith(".lnkd.in"))
+    return "LinkedIn";
+  if (host.includes("facebook") || host === "fb.com" || host.endsWith(".fb.com") || host === "fb.me")
+    return "Facebook";
+  if (host === "wa.me" || host.endsWith(".wa.me") || host.includes("whatsapp"))
+    return "Whatsapp";
+  // a real address of some other host: the company's own site
+  return URL_RE.test(value) ? "Website" : null;
+}
+
+/** Local-part → email tag. Matched on WHOLE words of the address before the
+ *  "@" (split on . _ - + digits), case-insensitively — "ceo@x.com",
+ *  "hr.alex@x.com" and "sales-team@x.com" all read, "cecilia@x.com" doesn't. */
+const EMAIL_TAG_RULES: { test: RegExp; tag: string }[] = [
+  { test: /^(ceo|chairman|chairwoman|chairperson|president)$/, tag: "CEO" },
+  { test: /^(owner|founder|cofounder|founders|proprietor)$/, tag: "Owner" },
+  { test: /^(hr|humanresources|careers?|jobs?|hiring|recruit(ing|ment|ers?)?|talent)$/, tag: "HR" },
+  { test: /^(manager|managers|managing|mgr|management|ops|operations?)$/, tag: "Manager" },
+  {
+    test: /^(info|contact|contactus|hello|hi|support|sales|help|inquiry|inquiries|enquiry|enquiries|customercare|care)$/,
+    tag: "Contact",
+  },
+];
+
+export function guessEmailTag(raw: string): string | null {
+  const value = raw.trim().toLowerCase();
+  const at = value.indexOf("@");
+  if (at < 1) return null; // nothing typed before the "@" yet
+  const words = value
+    .slice(0, at)
+    .split(/[^a-z]+/)
+    .filter(Boolean);
+  if (words.length === 0) return null;
+  for (const rule of EMAIL_TAG_RULES)
+    if (words.some((w) => rule.test.test(w))) return rule.tag;
+  return null; // unknown address → leave whatever tag is there
+}
+
+/** The tag the system would pick for this value, or null when it can't tell.
+ *  Phones are never guessed — a number says nothing about who owns it. */
+export function guessContactTag(kind: AccountContact["kind"], value: string): string | null {
+  if (kind === "link") return guessLinkTag(value);
+  if (kind === "email") return guessEmailTag(value);
+  return null;
+}
+
 export interface Account {
   id: string;
   function: AccountFunction;

@@ -1,6 +1,7 @@
 import "server-only";
 import type { Viewer } from "@/lib/rbac";
-import { getDashboard, listAccounts, listVisibleMembers } from "@/server/data";
+import {
+  listAllMembers, getDashboard, listAccounts, listVisibleMembers } from "@/server/data";
 import { accountSlug } from "@/lib/types";
 import { buildCoreContext } from "@/lib/core-analytics";
 
@@ -15,7 +16,9 @@ export async function buildAssistantContext(
     getDashboard(viewer, {}),
     // freshest 300 only — the context lists 150 and the DB holds thousands now
     listAccounts(viewer, { includeArchived: true }, 300),
-    listVisibleMembers(viewer),
+    // the assistant answers about the WHOLE LC ("who is the TM VP?"), so it
+    // must not use the accounts-world roster listVisibleMembers now returns
+    listAllMembers(),
     buildCoreContext(),
   ]);
 
@@ -122,6 +125,9 @@ You can answer about:
    • **Drag & drop everywhere (v27)**: every attachment spot accepts dropped files — deal contracts, bulk-import files, CV uploads, IR-call screenshots, even the profile avatar tile. Browsing for the file still works too.
    • **Sign-ups v26 polish**: the claim button is now **Contact** (contact the sign-up → it's yours → the details open to log everything); leaders can SELECT several sign-ups and bulk **Assign to…** a member or **Unassign** back to the pool; the phone filter goes BOTH ways (v27): show only sign-ups WITH a phone, or only the missing-phone ones; program badges wear the official GTa/GTe/GV colors; MMs with a filed plan see a "My plan" card — this month's Applicants/Accepted/Approvals plan vs their live pipeline.
    • **Make Elevate yours (v26)**: "Arrange tabs" at the bottom of the sidebar reorders the navigation to taste (per device); the home page always lands on YOUR module — nobody with a live module sees "coming soon"; elevate-alex.vercel.app opens the system.
+   • **UNIVERSAL TABLE RULES (v31)**: EVERY data table in Elevate (accounts, archived, sign-ups, TM members, attendance, IR calls, CVs) has the same three powers — **⚙ Columns** (drag to reorder, or ↑/↓ on touch; tick to show/hide; Reset to default), a **rows-per-page** picker (30/50/100/200), and **click-any-header sorting**. Layouts are remembered per person per browser. Lots of optional columns ship hidden — project, sub-product, type, industry, deals, opens, last contact, campaign, person status, demand, uploader — so anyone missing a spreadsheet column can just switch it on.
+   • **Contact logging is automatic-ish (v31)**: tapping WhatsApp / Call / Email on an account or sign-up opens the link AND then asks to record the contact, with the method pre-filled. Encourage people to fill it — it's how the funnel stays true.
+   • **Smart tagging (v31)**: paste an Instagram/LinkedIn/Facebook link or an email like ceo@ / hr@ / info@ and Elevate tags it for you; you can always override.
    • **THE TM MODULE (v30) — touch points**: the LC's moments live in Elevate. Three kinds — **meeting · working hours · outing** — at three levels: **one scope per role**: a **Team Leader** books TEAM points only (their own team; may invite sibling teams of the same function), a **VP/Director** books FUNCTION points only (may invite another function), **TM core** books LC points only — TM does NOT book function or team points. The LCP books anything. You set a DATE and a START time (no end time, by design) plus an optional note; a team point may invite sibling teams, a function point may invite another function — TM, F&L and CXP are never invited and never run working hours. Booking, **moving** and **cancelling (a reason is required)** each email + bell everyone invited, with the **TM VP always on CC**. Move/cancel live on the calendar: tap the touch point → "Move or cancel" (only its owner, the function's VP/Director, or TM sees it).
    • **ONE calendar (v29)**: /calendar shows **touch points (purple) + IR calls (teal) + visits (one colour per member)** in a single month. Everyone sees what they belong to: raising sees visits, consideration sees IR calls, a VP sees both, TM core sees the whole LC — and a member also sees OTHER teams' touch points inside their own function.
    • **ATTENDANCE (v29 — /attendance, everyone has it)**: after a touch point, attendance is **attended · late · absent**, each with an optional "valid excuse?" note. Team points are recorded by the Team Leader (the VP/Director and TM can edit), function points by the VP/Director (MMs may edit, but NEVER their own row), LC points by TM only. Everyone sees their own history and rate; a TL sees their team, a VP their function, TM the whole LC.
