@@ -45,6 +45,9 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  SortHeader, TableSettings, useTableColumns, useTableSort, type TableColumn,
+} from "./data-table-kit";
 import { Hint } from "./hint";
 
 /** /attendance (v29) — for EVERYONE.
@@ -446,6 +449,48 @@ function AppealDialog({
   );
 }
 
+// ------------------------------------------------- universal table columns
+
+/** Every column the attendance history CAN show. */
+const ATTENDANCE_COLUMNS: TableColumn[] = [
+  { key: "label", label: "Touch point", required: true },
+  { key: "kind", label: "Type" },
+  { key: "when", label: "When" },
+  { key: "member", label: "Member" },
+  { key: "status", label: "Status" },
+  { key: "excuse", label: "Excuse" },
+  { key: "actions", label: "Actions" },
+  { key: "audience", label: "Audience", defaultHidden: true },
+  { key: "owner", label: "Booked by", defaultHidden: true },
+  { key: "recorded", label: "Recorded at", defaultHidden: true },
+];
+
+const ATTENDANCE_CELL_CLASS: Record<string, string> = {
+  label: "max-w-56",
+  kind: "text-xs text-muted-foreground",
+  when: "whitespace-nowrap text-xs",
+  member: "max-w-40 truncate",
+  excuse: "max-w-48 truncate text-xs text-muted-foreground",
+  audience: "max-w-40 truncate text-xs text-muted-foreground",
+  owner: "max-w-40 truncate text-xs text-muted-foreground",
+  recorded: "whitespace-nowrap text-xs text-muted-foreground",
+  actions: "whitespace-nowrap text-right",
+};
+
+/** Client-side sort accessors over the page in hand (the history is paged
+ *  server-side; sorting reorders what you're looking at). */
+const ATTENDANCE_SORTERS: Record<string, (r: AttendanceHistoryRow) => string | number | null> = {
+  label: (r) => r.label,
+  kind: (r) => r.kind,
+  when: (r) => r.startsAt,
+  member: (r) => r.memberName,
+  status: (r) => r.status,
+  excuse: (r) => r.excuse,
+  audience: (r) => r.audience,
+  owner: (r) => r.ownerName,
+  recorded: (r) => r.recordedAt,
+};
+
 // ------------------------------------------------------------------ the page
 
 export function AttendanceView({
@@ -505,6 +550,85 @@ export function AttendanceView({
   };
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
+
+  // ⚙ Columns + click-to-sort over the page in hand
+  const cols = useTableColumns("attendance-history", ATTENDANCE_COLUMNS);
+  const { sorted: sortedHistory, sortKey, dir, toggle: toggleSort } =
+    useTableSort(history, ATTENDANCE_SORTERS);
+
+  /** One history cell, by column key. */
+  const historyCell = (r: AttendanceHistoryRow, key: string): React.ReactNode => {
+    switch (key) {
+      case "label":
+        return (
+          <>
+            <span className="block truncate font-medium" dir="auto">{r.label}</span>
+            {cols.isVisible("audience") ? null : (
+              <span className="block truncate text-xs text-muted-foreground" dir="auto">
+                {r.audience}
+              </span>
+            )}
+          </>
+        );
+      case "kind":
+        return KIND_LABEL[r.kind] ?? r.kind;
+      case "when":
+        return (
+          <>
+            {cairoDay(r.startsAt)}
+            <span className="block text-muted-foreground">{cairoTime(r.startsAt)}</span>
+          </>
+        );
+      case "member":
+        return (
+          <>
+            {r.mine ? <b>You</b> : r.memberName}
+            {r.automatic ? (
+              <Hint label="Recorded automatically from this member's work activity">
+                <span className="ml-1 text-[10px] text-muted-foreground">auto</span>
+              </Hint>
+            ) : null}
+          </>
+        );
+      case "status":
+        return <StatusChip status={r.status} excused={r.excused} />;
+      case "excuse":
+        return <span dir="auto">{r.excuse ?? "—"}</span>;
+      case "audience":
+        return <span dir="auto">{r.audience}</span>;
+      case "owner":
+        return <span dir="auto">{r.ownerName}</span>;
+      case "recorded":
+        return r.recordedAt ? cairoDay(r.recordedAt) : "—";
+      case "actions":
+        return (
+          <>
+            {r.mine && !r.appeal ? (
+              <Button size="sm" variant="outline" onClick={() => setAppealing(r)}>
+                <Hand className="size-3.5" /> Appeal
+              </Button>
+            ) : null}
+            {r.appeal ? (
+              <Badge variant="outline" className="text-[10px]">
+                {r.appeal.resolved ? "Appeal resolved" : "Appeal open"}
+              </Badge>
+            ) : null}
+            {r.canRecord ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="ml-1"
+                onClick={() => setRecording(r.touchPointId)}
+              >
+                Edit
+              </Button>
+            ) : null}
+          </>
+        );
+      default:
+        return null;
+    }
+  };
 
   const kpi = [
     { label: "Records", value: totals.total, icon: ClipboardList },
@@ -698,7 +822,7 @@ export function AttendanceView({
         <>
           {/* phones: cards */}
           <div className="space-y-2 rise-in rise-in-3 md:hidden">
-            {history.map((r) => (
+            {sortedHistory.map((r) => (
               <Card key={r.id}>
                 <CardContent className="space-y-1.5 p-3">
                   <div className="flex items-start justify-between gap-2">
@@ -740,69 +864,37 @@ export function AttendanceView({
           </div>
 
           {/* desktop: one wide table */}
+          <div className="hidden justify-end rise-in rise-in-3 md:flex">
+            <TableSettings columns={cols} />
+          </div>
           <div className="hidden overflow-x-auto rounded-lg border rise-in rise-in-3 md:block">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Touch point</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>When</TableHead>
-                  <TableHead>Member</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Excuse</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  {cols.visible.map((c) =>
+                    c.key === "actions" ? (
+                      <TableHead key={c.key} className="text-right">{c.label}</TableHead>
+                    ) : (
+                      <TableHead key={c.key}>
+                        <SortHeader
+                          label={c.label}
+                          onClick={() => toggleSort(c.key, c.key === "when" ? "desc" : "asc")}
+                          active={sortKey === c.key}
+                          dir={dir}
+                        />
+                      </TableHead>
+                    )
+                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {history.map((r) => (
+                {sortedHistory.map((r) => (
                   <TableRow key={r.id}>
-                    <TableCell className="max-w-56">
-                      <span className="block truncate font-medium" dir="auto">{r.label}</span>
-                      <span className="block truncate text-xs text-muted-foreground" dir="auto">
-                        {r.audience}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {KIND_LABEL[r.kind] ?? r.kind}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap text-xs">
-                      {cairoDay(r.startsAt)}
-                      <span className="block text-muted-foreground">{cairoTime(r.startsAt)}</span>
-                    </TableCell>
-                    <TableCell className="max-w-40 truncate" dir="auto">
-                      {r.mine ? <b>You</b> : r.memberName}
-                      {r.automatic ? (
-                        <Hint label="Recorded automatically from this member's work activity">
-                          <span className="ml-1 text-[10px] text-muted-foreground">auto</span>
-                        </Hint>
-                      ) : null}
-                    </TableCell>
-                    <TableCell><StatusChip status={r.status} excused={r.excused} /></TableCell>
-                    <TableCell className="max-w-48 truncate text-xs text-muted-foreground" dir="auto">
-                      {r.excuse ?? "—"}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap text-right">
-                      {r.mine && !r.appeal ? (
-                        <Button size="sm" variant="outline" onClick={() => setAppealing(r)}>
-                          <Hand className="size-3.5" /> Appeal
-                        </Button>
-                      ) : null}
-                      {r.appeal ? (
-                        <Badge variant="outline" className="text-[10px]">
-                          {r.appeal.resolved ? "Appeal resolved" : "Appeal open"}
-                        </Badge>
-                      ) : null}
-                      {r.canRecord ? (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="ml-1"
-                          onClick={() => setRecording(r.touchPointId)}
-                        >
-                          Edit
-                        </Button>
-                      ) : null}
-                    </TableCell>
+                    {cols.visible.map((c) => (
+                      <TableCell key={c.key} className={ATTENDANCE_CELL_CLASS[c.key]}>
+                        {historyCell(r, c.key)}
+                      </TableCell>
+                    ))}
                   </TableRow>
                 ))}
               </TableBody>

@@ -107,9 +107,28 @@ export function mapHeaders(headerRow: string[]): Record<string, number> {
   return map;
 }
 
+/** How far right and down a tracker tab is read. The trackers are LIVING
+ *  sheets — columns get appended (OGV Main is already 24 wide). The old bound
+ *  stopped at AC/29, so the day someone adds five columns, everything past the
+ *  edge would import as NULL with no error anywhere: exactly the shape of
+ *  "the emails sometimes don't get parsed". Sheets only returns the cells that
+ *  exist, so a generous bound costs nothing. Import and write-back share it —
+ *  a narrower write-back range would leave rows the import can see unwritable. */
+const TAB_RANGE = "A1:BZ30000";
+
+/** Invisible junk that rides along with pasted values (zero-width space, ZWNJ,
+ *  ZWJ, BOM) and non-breaking spaces. Left in place they make a value fail to
+ *  compare equal to itself, so a row "changes" on every single import run. */
+const stripInvisibles = (s: string) =>
+  s.replace(/[\u200B-\u200D\uFEFF]/g, "").replace(/[\u00A0\u202F]/g, " ");
+
+/** One sheet cell → a stored value. NEVER shortens: whatever length the sheet
+ *  holds is what lands in Postgres (`text`, no limit). Only the ends are
+ *  trimmed and invisible characters dropped — an email like
+ *  `p_<40 hex>@inbound.aiesec.org` (61 chars) arrives whole. */
 const cell = (row: string[], idx: number | undefined): string | null => {
   if (idx === undefined) return null;
-  const v = (row[idx] ?? "").trim();
+  const v = stripInvisibles(String(row[idx] ?? "")).trim();
   return v === "" ? null : v;
 };
 
@@ -189,7 +208,7 @@ export async function importSignups(): Promise<{ imported: number; created: numb
   for (const cfg of SIGNUP_TABS) {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: cfg.spreadsheetId,
-      range: `'${cfg.tab}'!A1:AC30000`,
+      range: `'${cfg.tab}'!${TAB_RANGE}`,
     });
     const rows = (res.data.values ?? []) as string[][];
     if (rows.length < 2) continue;
@@ -453,6 +472,22 @@ export function buildCommentCell(comments: SignupComment[], cls: "member" | "vp"
     .join("\n");
 }
 
+/** A Google Sheets CELL tops out at 50,000 characters and the API rejects the
+ *  WHOLE batchUpdate when one value is over — a single sign-up with a very
+ *  long comment log would silently kill the write-back for every row in the
+ *  batch. Cap just under the limit, and say so in the cell so nobody thinks
+ *  the log ended there (Elevate keeps the full history either way). */
+const SHEET_CELL_MAX = 49_000;
+const OVERFLOW_NOTE = "\n… (older entries are in Elevate — this cell is full)";
+
+const fitCell = (value: string): string =>
+  value.length <= SHEET_CELL_MAX
+    ? value
+    : // keep the NEWEST text: the log grows downwards, so trim from the top
+      OVERFLOW_NOTE.trimStart() +
+      "\n" +
+      value.slice(value.length - (SHEET_CELL_MAX - OVERFLOW_NOTE.length));
+
 const colLetter = (idx: number): string => {
   let s = "";
   let n = idx;
@@ -467,6 +502,20 @@ const colLetter = (idx: number): string => {
  *  ID at write time — sheet-side row inserts can't break it). Best-effort:
  *  callers .catch() and keep going; the DB row is already saved. */
 function signupCellValues(
+  signup: SignupRow,
+  comments: SignupComment[],
+  assignedDisplay: string | null
+): { field: string; value: string }[] {
+  return rawCellValues(signup, comments, assignedDisplay).map((v) => ({
+    field: v.field,
+    // every written value passes the 50k cell ceiling — one oversized comment
+    // log must not fail the batch for the rows next to it
+    value: fitCell(v.value),
+  }));
+}
+
+/** The workflow cells as Elevate knows them, before the length guard. */
+function rawCellValues(
   signup: SignupRow,
   comments: SignupComment[],
   assignedDisplay: string | null
@@ -535,7 +584,7 @@ export async function writeSignupsBackBatch(entries: SignupBackEntry[]): Promise
     if (!cfg) continue;
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: cfg.spreadsheetId,
-      range: `'${cfg.tab}'!A1:AC20000`,
+      range: `'${cfg.tab}'!${TAB_RANGE}`,
       majorDimension: "ROWS",
     });
     const rows = (res.data.values ?? []) as string[][];
@@ -586,7 +635,7 @@ export async function writeSignupBack(
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: cfg.spreadsheetId,
-    range: `'${cfg.tab}'!A1:AC20000`,
+    range: `'${cfg.tab}'!${TAB_RANGE}`,
     majorDimension: "ROWS",
   });
   const rows = (res.data.values ?? []) as string[][];

@@ -34,6 +34,28 @@ import { monthOf, sprintOf } from "@/lib/plan";
 export interface PipelineRow extends AccountPipeline {
   responsible_role: MemberRole;
   responsible_team_name: string | null;
+  /** the account's own birth as a History entry (v31) — only `getAccount`
+   *  fills it; list reads leave it undefined (one row = one extra query). */
+  creation?: AccountCreationEntry;
+}
+
+/** The FIRST entry of an account's History: the account being added. */
+export interface AccountCreationEntry {
+  /** accounts.created_at — when the row was really born */
+  at: string;
+  /** who added it; null when it genuinely can't be recovered (never guessed) */
+  by: string | null;
+  /** how it arrived — only known for accounts added after v31 */
+  via: "manual" | "import" | null;
+  /** label → value pairs of what the account was filed as */
+  facts: [string, string][];
+  /** the tagged contacts filed WITH the account (creation snapshot only) */
+  contacts: { tag: string; kind: string; value: string }[];
+  /** the comment written while adding it */
+  comment: string | null;
+  /** true when `facts`/`contacts` come from the creation snapshot in the audit
+   *  log; false when they're read off the account row (older accounts) */
+  snapshot: boolean;
 }
 
 // ------------------------------------------------------------------ viewer
@@ -623,13 +645,121 @@ export async function getAccount(viewer: Viewer, idOrSlug: string) {
         .order("created_at", { ascending: true }),
       fetchDeals(),
     ]);
+  const commentRows = (comments ?? []) as CommentWithMember[];
   return {
-    account,
+    account: {
+      ...account,
+      creation: await accountCreationEntry(account, commentRows),
+    },
     attempts: attempts ?? [],
     visits: visits ?? [],
-    comments: (comments ?? []) as CommentWithMember[],
+    comments: commentRows,
     deals: (deals ?? []) as DealWithMember[],
   };
+}
+
+/** The account's creation, rebuilt as the oldest History entry.
+ *
+ *  SOURCES, honest ones only:
+ *   1. the audit_log "create" row — since v31 it carries the full snapshot of
+ *      what was entered (function/product/project, type, industry, the
+ *      contacts, the first comment, and whether the row came from the bulk
+ *      import), plus the actor who added it;
+ *   2. otherwise the account row itself — `created_at`, `created_by` and the
+ *      account's current classification.
+ *  Nothing is invented: an account whose creator can't be recovered (the v22
+ *  market-research import ran outside the app) renders without a name. */
+async function accountCreationEntry(
+  account: PipelineRow,
+  comments: CommentWithMember[]
+): Promise<AccountCreationEntry> {
+  const { data: auditRow } = await db()
+    .from("audit_log")
+    .select("actor_id, details, created_at, actor:members!actor_id(name, nickname)")
+    .eq("entity", "account")
+    .eq("entity_id", account.id)
+    .eq("action", "create")
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const audit = auditRow as any;
+  const details: Record<string, unknown> | null =
+    audit?.details && typeof audit.details === "object" ? audit.details : null;
+  const snapshot = !!details && "function" in details;
+  const str = (k: string): string | null => {
+    const v = details?.[k];
+    return typeof v === "string" && v.trim() ? v.trim() : null;
+  };
+
+  // ---- who added it
+  let by: string | null = audit?.actor ? audit.actor.nickname || audit.actor.name : null;
+  if (!by && account.created_by) {
+    const { data: creator } = await db()
+      .from("members")
+      .select("name, nickname")
+      .eq("id", account.created_by)
+      .maybeSingle<{ name: string; nickname: string | null }>();
+    by = creator ? creator.nickname || creator.name : null;
+  }
+
+  // ---- what it was filed as (the snapshot when we have it, else the row)
+  const fn = (snapshot ? str("function") : account.function) ?? account.function;
+  const facts: [string, string][] = [["Function", fn]];
+  const product = snapshot ? str("product") : account.product;
+  const subProduct = snapshot ? str("sub_product") : account.sub_product;
+  const project = snapshot ? str("project") : account.project;
+  const accountType = snapshot ? str("account_type") : account.account_type;
+  const industry = snapshot ? str("industry") : account.industry;
+  if (product) facts.push(["Product", product]);
+  if (subProduct) facts.push(["Sub product", subProduct]);
+  if (project) facts.push(["Project", project]);
+  if (accountType) facts.push([fn === "B2C" ? "Type" : "Account type", accountType]);
+  if (industry) facts.push(["Industry", industry]);
+  if (snapshot && details?.requested_podio === true)
+    facts.push(["Podio", "already submitted"]);
+
+  // the responsible AT CREATION — only from the snapshot (today's responsible
+  // may be a later reassignment, and claiming otherwise would be a lie)
+  const responsibleId = snapshot ? str("responsible_id") : null;
+  if (responsibleId) {
+    const { data: owner } = await db()
+      .from("members")
+      .select("name, nickname")
+      .eq("id", responsibleId)
+      .maybeSingle<{ name: string; nickname: string | null }>();
+    if (owner) facts.push(["Responsible", owner.nickname || owner.name]);
+  }
+
+  // ---- the contacts filed with it (snapshot only — today's list has changed)
+  const rawContacts = snapshot ? details?.contacts : null;
+  const contacts = Array.isArray(rawContacts)
+    ? rawContacts
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((c: any) => ({
+          tag: typeof c?.tag === "string" ? c.tag : "",
+          kind: typeof c?.kind === "string" ? c.kind : "",
+          value: typeof c?.value === "string" ? c.value : "",
+        }))
+        .filter((c) => c.value)
+    : [];
+
+  // ---- the comment written while adding it. The snapshot holds it verbatim;
+  // for older accounts the opening comment is the first one filed by the
+  // creator within a couple of minutes of the row itself.
+  let comment = snapshot ? str("comment") : null;
+  if (!comment && !snapshot && account.created_by) {
+    const bornAt = new Date(account.created_at).getTime();
+    const opening = comments.find(
+      (c) =>
+        c.member_id === account.created_by &&
+        Math.abs(new Date(c.created_at).getTime() - bornAt) <= 2 * 60 * 1000
+    );
+    comment = opening?.body ?? null;
+  }
+
+  const via = details?.via === "import" ? "import" : details?.via === "manual" ? "manual" : null;
+  return { at: account.created_at, by, via, facts, contacts, comment, snapshot };
 }
 
 export interface DealAllocation {
@@ -701,21 +831,53 @@ export async function checkAccountName(
 
 // ------------------------------------------------------------------ members
 
-export async function listVisibleMembers(viewer: Viewer): Promise<Member[]> {
+/** Every function whose people can own an ACCOUNT. Filter option lists are
+ *  built from this world only — a Responsible picker on the accounts list must
+ *  never offer OGX / TM / F&L people, who can't appear in it (v31). */
+const ACCOUNT_WORLD_FNS: AccountFunction[] = ["IGV", "IGT", "B2B", "BD", "B2C"];
+
+/** Restrict a `members` query to people who work `fns`. B2B/BD and B2C are
+ *  often carried as a SUB-function only, so both columns are matched. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function membersInFunctions<T extends { or: any; overlaps: any }>(query: T, fns: string[]): T {
+  const subFns = fns.filter((f) => f === "B2B" || f === "BD" || f === "B2C");
+  return subFns.length > 0
+    ? query.or(`functions.ov.{${fns.join(",")}},sub_functions.ov.{${subFns.join(",")}}`)
+    : query.overlaps("functions", fns);
+}
+
+/** The account functions a given view can actually contain: the viewer's own
+ *  scope, optionally narrowed to the Function filter that is switched on. */
+function viewAccountFunctions(viewer: Viewer, fn?: AccountFunction): AccountFunction[] {
+  const scope = accountScope(viewer);
+  const base = scope.kind === "functions" ? scope.fns : ACCOUNT_WORLD_FNS;
+  if (!fn) return base;
+  // B2B and BD are ONE crew wearing two labels
+  const wanted: AccountFunction[] = fn === "B2B" || fn === "BD" ? ["B2B", "BD"] : [fn];
+  const narrowed = wanted.filter((f) => base.includes(f));
+  return narrowed.length > 0 ? narrowed : base;
+}
+
+/** The members who can appear in this viewer's ACCOUNTS views — the source of
+ *  every Responsible/member filter list. Two rules, both server-side:
+ *   • the viewer's account scope (function-wide leader, TL's team, own row);
+ *   • the account world — an OGX or TM member never owns a raising account, so
+ *     they are never an option (the v30 bug: the LCP/admin's "all" scope had
+ *     no function filter at all and listed the whole LC).
+ *  Pass `fn` to narrow further to the Function filter that is switched on. */
+export async function listVisibleMembers(
+  viewer: Viewer,
+  opts: { fn?: AccountFunction } = {}
+): Promise<Member[]> {
   let query = db().from("members").select("*").eq("is_active", true);
   const scope = accountScope(viewer);
-  if (scope.kind === "functions") {
-    // B2B/BD (and B2C) people may carry those names as sub-functions only —
-    // match both columns
-    const subFns = scope.fns.filter((f) => f === "B2B" || f === "BD" || f === "B2C");
-    query =
-      subFns.length > 0
-        ? query.or(
-            `functions.ov.{${scope.fns.join(",")}},sub_functions.ov.{${subFns.join(",")}}`
-          )
-        : query.overlaps("functions", scope.fns);
+  if (scope.kind === "members") {
+    // a member/TL sees themself + their team: already the tightest list there
+    // is, and every one of them can hold an account of this viewer's world
+    query = query.in("id", scope.ids);
+  } else {
+    query = membersInFunctions(query, viewAccountFunctions(viewer, opts.fn));
   }
-  if (scope.kind === "members") query = query.in("id", scope.ids);
   const { data } = await query.order("name");
   return (data ?? []) as Member[];
 }
@@ -728,18 +890,16 @@ export async function listReassignTargetsForViewer(viewer: Viewer): Promise<Memb
   const scope = reassignTargetScope(viewer);
   if (scope.kind === "members" && scope.ids.length === 0) return [];
   let query = db().from("members").select("*").eq("is_active", true);
-  if (scope.kind === "functions") {
-    // any of the viewer's functions — B2B/BD/B2C folks may sit in sub-functions
-    const fns = scope.fns;
-    const subFns = fns.filter((f) => f === "B2B" || f === "BD" || f === "B2C");
-    query =
-      subFns.length > 0
-        ? query.or(`functions.ov.{${fns.join(",")}},sub_functions.ov.{${subFns.join(",")}}`)
-        : query.overlaps("functions", fns);
-  } else if (scope.kind === "members") {
+  if (scope.kind === "members") {
     query = query.in("id", scope.ids);
+  } else {
+    // any of the viewer's functions — and, for the LCP/admin's "all" scope,
+    // still only people who can HOLD an account (never OGX/TM/F&L)
+    query = membersInFunctions(
+      query,
+      scope.kind === "functions" ? scope.fns : ACCOUNT_WORLD_FNS
+    );
   }
-  // scope.kind === "all" → no filter (every active member)
   const { data } = await query.order("name");
   return (data ?? []) as Member[];
 }

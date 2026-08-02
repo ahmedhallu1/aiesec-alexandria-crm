@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-08 · Version: v30
+Last updated: 2026-08-09 · Version: v31
 
 ---
 
@@ -587,6 +587,45 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-09 · v31** — **THE TABLES RELEASE** + smart contacts, branding and
+  dashboard fixes. ① **Universal table kit** (`src/components/crm/data-table-kit.tsx`):
+  `useTableColumns(tableId, cols)` (order + visibility persisted under
+  `elevate-table:<id>`, self-healing against corrupt/stale keys, new columns
+  appear at their defined position), `<TableSettings>` (drag + ↑/↓ reorder,
+  show/hide, Reset), `<PageSizePicker>`, and a re-export of the v25 sorting
+  kit — wired into **7 tables**: accounts, archived, sign-ups, TM directory,
+  attendance history, IR-call log and a NEW desktop CV table. Dozens of
+  optional columns ship default-hidden. ② **Sign-ups columns**: the Unassigned
+  view drops Status + Country, drops Program on **OGV** (all GV), and adds
+  **Person status** + **Campaign**; sign-ups gained `?size` (30/50/100/200).
+  ③ **Contact-after-click**: tapping WhatsApp/Call/Email on an account or
+  sign-up opens the link AND prompts to log the contact with the method
+  pre-selected (`QuickContactPrompt` / `SignupContactPrompt`, dismissible).
+  ④ **Smart tagging** (`guessLinkTag`/`guessEmailTag` in types.ts, wired into
+  ContactsEditor): instagram/linkedin/facebook/whatsapp links and
+  ceo@/hr@/manager@/info@ addresses tag themselves, always overridable.
+  ⑤ **Account creation is the first History entry** (`accountCreationEntry`
+  in data.ts — who/when/what, incl. bulk-import provenance).
+  ⑥ **BD deal dialog simplified**: the per-product opens breakdown is behind
+  a switch, OFF by default (amount + benefits stay the BD MOS).
+  ⑦ **Filter options match the view**: `listVisibleMembers` now applies the
+  account WORLD as well as the scope (the LCP/admin's "all" scope used to
+  list the whole LC, so OGX/TM people appeared in the raising Responsible
+  filter) and takes `{ fn }`, wired from the accounts page. **Regression
+  caught in review**: the Blue Man's roster used that same function, so the
+  admin's assistant lost every TM/OGX/CXP/F&L member — it now uses
+  `listAllMembers`. ⑧ **OGX Dashboard tab** appears for OGX/consideration
+  (was raising-only), **profile page no longer clipped**, the **OGV streak
+  card moved onto the dashboard for every OGV member** (not just MMs), and
+  **KPI cards** moved their explanatory line into the hover tooltip with a
+  louder label/value. ⑨ **Real AIESEC-Alexandria branding** on every external
+  surface: new `brand/alex-blue.png`+`alex-white.png` (716×408), icons
+  192/512 + a true full-bleed maskable 512, app icon + apple-icon — wired
+  into the manifest, login, both /book pages and /inactive.
+  ⑩ **Touch points**: a PAST start is now allowed (logging something that
+  already happened) and sends **nothing**; every touch point gained a
+  **"tell everyone invited"** switch (default ON).
 
 - **2026-08-08 · v30** — **TM CORRECTIONS** (the v29 module shipped with the
   wrong booking matrix and no confirmation step — all found by the user).

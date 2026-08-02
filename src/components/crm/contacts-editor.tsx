@@ -1,8 +1,10 @@
 "use client";
 
-import { Globe, Mail, Phone, Plus, Trash2 } from "lucide-react";
+import { useRef } from "react";
+import { Globe, Mail, Phone, Plus, Sparkles, Trash2 } from "lucide-react";
 import {
-  CONTACT_TAGS, EMAIL_RE, EMAIL_TAGS, LINK_TAGS, normalizePhone, URL_RE,
+  CONTACT_TAGS, DEFAULT_CONTACT_TAG, EMAIL_RE, EMAIL_TAGS, guessContactTag,
+  LINK_TAGS, normalizePhone, URL_RE,
   type AccountContact,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -49,7 +51,10 @@ export function contactsValid(rows: AccountContact[]): boolean {
 }
 
 /** Tagged phones / emails / links editor — the tag is a curated list with a
- *  free-text "Other". Used on the account page AND the add-account dialog. */
+ *  free-text "Other". Used on the account page AND the add-account dialog.
+ *  Links and emails TAG THEMSELVES as they're typed or pasted (an Instagram
+ *  page → Instagram, ceo@… → CEO) — until the member picks a tag by hand, and
+ *  from then on their choice is never overwritten. */
 export function ContactsEditor({
   rows, onChange, disabled,
 }: {
@@ -57,14 +62,46 @@ export function ContactsEditor({
   onChange: (rows: AccountContact[]) => void;
   disabled?: boolean;
 }) {
+  // rows whose tag the MEMBER set — auto-tagging keeps its hands off these.
+  // Rows have no id, so the set holds indices and follows removals.
+  const manualTags = useRef<Set<number>>(new Set());
+
   const update = (i: number, patch: Partial<AccountContact>) =>
     onChange(rows.map((c, j) => (j === i ? { ...c, ...patch } : c)));
-  const remove = (i: number) => onChange(rows.filter((_, j) => j !== i));
+  const remove = (i: number) => {
+    const next = new Set<number>();
+    for (const j of manualTags.current) {
+      if (j < i) next.add(j);
+      else if (j > i) next.add(j - 1);
+    }
+    manualTags.current = next;
+    onChange(rows.filter((_, j) => j !== i));
+  };
   const add = (kind: AccountContact["kind"]) =>
-    onChange([
-      ...rows,
-      { tag: kind === "link" ? "Website" : "Contact", kind, value: "" },
-    ]);
+    onChange([...rows, { tag: DEFAULT_CONTACT_TAG[kind], kind, value: "" }]);
+
+  /** Auto-tagging only writes into an UNTOUCHED tag: the kind's default, or
+   *  one the system itself put there (it still equals the guess for the value
+   *  that was in the field a keystroke ago). A tag a human chose — now or in
+   *  an earlier session — is left exactly as it is. */
+  const setValue = (i: number, value: string) => {
+    const row = rows[i];
+    const patch: Partial<AccountContact> = { value };
+    const untouched =
+      !manualTags.current.has(i) &&
+      (row.tag === DEFAULT_CONTACT_TAG[row.kind] ||
+        !row.value.trim() || // emptied field: the old auto tag means nothing
+        row.tag === guessContactTag(row.kind, row.value));
+    if (untouched) {
+      const guess = guessContactTag(row.kind, value);
+      if (guess && guess !== row.tag) patch.tag = guess;
+    }
+    update(i, patch);
+  };
+  const setTagByHand = (i: number, tag: string) => {
+    manualTags.current.add(i);
+    update(i, { tag });
+  };
 
   return (
     <div className="space-y-2">
@@ -85,9 +122,7 @@ export function ContactsEditor({
               <Select
                 value={isCustomTag ? "Other" : c.tag}
                 disabled={disabled}
-                onValueChange={(v) =>
-                  update(i, { tag: v === "Other" ? "" : v })
-                }
+                onValueChange={(v) => setTagByHand(i, v === "Other" ? "" : v)}
               >
                 <SelectTrigger className="h-8 w-full"><SelectValue placeholder="Tag" /></SelectTrigger>
                 <SelectContent>
@@ -102,7 +137,7 @@ export function ContactsEditor({
                   value={c.tag}
                   disabled={disabled}
                   placeholder="Custom tag"
-                  onChange={(e) => update(i, { tag: e.target.value })}
+                  onChange={(e) => setTagByHand(i, e.target.value)}
                 />
               ) : null}
             </div>
@@ -113,7 +148,7 @@ export function ContactsEditor({
                 disabled={disabled}
                 inputMode={meta.inputMode}
                 placeholder={meta.placeholder}
-                onChange={(e) => update(i, { value: e.target.value })}
+                onChange={(e) => setValue(i, e.target.value)}
                 onBlur={() => {
                   // pasted numbers auto-clean to the canonical format
                   if (c.kind !== "phone" || !c.value.trim()) return;
@@ -137,6 +172,15 @@ export function ContactsEditor({
           </div>
         );
       })}
+      {!disabled && rows.some((c) => c.kind !== "phone") ? (
+        <p className="flex items-start gap-1.5 pt-0.5 text-xs text-muted-foreground">
+          <Sparkles className="mt-0.5 size-3 shrink-0" />
+          <span className="min-w-0">
+            Links and emails tag themselves (an Instagram page → Instagram,
+            ceo@… → CEO) — change any tag and it stays yours.
+          </span>
+        </p>
+      ) : null}
       {!disabled ? (
         <div className="flex flex-wrap gap-2 pt-1">
           <Button size="sm" variant="outline" onClick={() => add("phone")}>

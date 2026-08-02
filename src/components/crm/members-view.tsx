@@ -16,9 +16,12 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import {
+  SortHeader, TableSettings, useTableColumns, useTableSort,
+  type SortDir, type TableColumn,
+} from "./data-table-kit";
 import { Hint } from "./hint";
 import { WhatsAppIcon } from "./icons";
-import { SortHeader, useTableSort, type SortDir } from "./sort-header";
 
 /** v21 — each function has its own MOS, so the KPI set adapts per member:
  *  raising (ICX raising / B2B) → the funnel with OPENS as MOS ·
@@ -95,7 +98,41 @@ const DIRECTORY_SORTERS: Record<string, (m: MemberDirectoryEntry) => string | nu
     : m.mos === "ogx" ? m.kpis.signupApprovals
     : m.mos === "consideration" ? m.kpis.planApprovals
     : null,
+  email: (m) => m.email,
+  phone: (m) => m.phone,
+  sub_functions: (m) => (m.sub_functions.length ? m.sub_functions.join(", ") : null),
+  mr: (m) => m.kpis.mr,
+  deals: (m) => m.kpis.deals,
 };
+
+/** Every column the directory CAN show — ⚙ Columns picks the order + which. */
+const DIRECTORY_COLUMNS: TableColumn[] = [
+  { key: "member", label: "Member", required: true },
+  { key: "role", label: "Role" },
+  { key: "functions", label: "Functions" },
+  { key: "team", label: "Team" },
+  { key: "manager", label: "Manager" },
+  { key: "mos", label: "MOS / KPIs" },
+  { key: "contact", label: "Contact" },
+  { key: "sub_functions", label: "Sub functions", defaultHidden: true },
+  { key: "email", label: "Email", defaultHidden: true },
+  { key: "phone", label: "Phone", defaultHidden: true },
+  { key: "mr", label: "Market research", defaultHidden: true },
+  { key: "deals", label: "Deals", defaultHidden: true },
+];
+
+const DIRECTORY_CELL_CLASS: Record<string, string> = {
+  team: "text-sm text-muted-foreground",
+  manager: "text-sm text-muted-foreground",
+  sub_functions: "max-w-40 truncate text-sm text-muted-foreground",
+  email: "max-w-48 truncate text-sm text-muted-foreground",
+  phone: "whitespace-nowrap text-sm text-muted-foreground",
+  mr: "text-sm tabular-nums",
+  deals: "text-sm tabular-nums",
+};
+
+/** Columns whose header sorts descending on the first click (numbers). */
+const DIRECTORY_DESC_FIRST = new Set(["mos", "mr", "deals"]);
 
 /** email / call / WhatsApp shortcuts for one member. */
 function ContactButtons({ m }: { m: MemberDirectoryEntry }) {
@@ -261,6 +298,58 @@ export function MembersView({
     </TableHead>
   );
 
+  // ⚙ Columns — order + visibility, kept in this browser
+  const cols = useTableColumns("members-directory", DIRECTORY_COLUMNS);
+
+  /** One directory cell, by column key. */
+  const memberCell = (m: MemberDirectoryEntry, key: string): React.ReactNode => {
+    switch (key) {
+      case "member":
+        return (
+          <>
+            <p className="font-medium" dir="auto">{m.nickname || m.name}</p>
+            {cols.isVisible("email") ? null : (
+              <p className="text-xs text-muted-foreground">{m.email}</p>
+            )}
+          </>
+        );
+      case "role":
+        return <Badge variant="outline">{m.role}</Badge>;
+      case "functions":
+        return <FnChips functions={m.functions} />;
+      case "sub_functions":
+        return m.sub_functions.length ? m.sub_functions.join(", ") : "—";
+      case "team":
+        return m.team_name ?? "—";
+      case "manager":
+        return m.manager ?? "—";
+      case "mos":
+        return mosMetrics(m).length > 0 ? (
+          <div className="flex max-w-md flex-wrap gap-x-3 gap-y-0.5">
+            {mosMetrics(m).map((c) => (
+              <span key={c.label} className="whitespace-nowrap text-xs text-muted-foreground">
+                {c.label} <b className="text-sm text-foreground">{c.value}</b>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        );
+      case "contact":
+        return <ContactButtons m={m} />;
+      case "email":
+        return m.email;
+      case "phone":
+        return m.phone ?? "—";
+      case "mr":
+        return m.kpis.mr;
+      case "deals":
+        return m.kpis.deals;
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className={cn("mx-auto max-w-6xl space-y-4", navPending && "nav-pending")}>
       <div className="rise-in">
@@ -317,6 +406,8 @@ export function MembersView({
         <span className="text-sm text-muted-foreground">
           {filtered.length} member{filtered.length === 1 ? "" : "s"}
         </span>
+        {/* ⚙ Columns — the directory is a table like any other now */}
+        <TableSettings columns={cols} className="ml-auto hidden md:inline-flex" />
       </div>
 
       {/* the DATE window — every KPI/MOS number below is recounted for it */}
@@ -433,45 +524,37 @@ export function MembersView({
           <Table>
             <TableHeader>
               <TableRow>
-                <SortHead field="member">Member</SortHead>
-                <SortHead field="role">Role</SortHead>
-                <SortHead field="functions">Functions</SortHead>
-                <SortHead field="team">Team</SortHead>
-                <SortHead field="manager">Manager</SortHead>
-                <SortHead field="mos" defaultDir="desc">MOS / KPIs</SortHead>
-                <TableHead>Contact</TableHead>
+                {cols.visible.map((c) =>
+                  c.key === "contact" ? (
+                    <TableHead key={c.key}>{c.label}</TableHead>
+                  ) : (
+                    <SortHead
+                      key={c.key}
+                      field={c.key}
+                      defaultDir={DIRECTORY_DESC_FIRST.has(c.key) ? "desc" : "asc"}
+                    >
+                      {c.label}
+                    </SortHead>
+                  )
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
               {sorted.map((m) => (
                 <TableRow key={m.id}>
-                  <TableCell>
-                    <p className="font-medium">{m.nickname || m.name}</p>
-                    <p className="text-xs text-muted-foreground">{m.email}</p>
-                  </TableCell>
-                  <TableCell><Badge variant="outline">{m.role}</Badge></TableCell>
-                  <TableCell><FnChips functions={m.functions} /></TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{m.team_name ?? "—"}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{m.manager ?? "—"}</TableCell>
-                  <TableCell>
-                    {mosMetrics(m).length > 0 ? (
-                      <div className="flex max-w-md flex-wrap gap-x-3 gap-y-0.5">
-                        {mosMetrics(m).map((c) => (
-                          <span key={c.label} className="whitespace-nowrap text-xs text-muted-foreground">
-                            {c.label} <b className="text-sm text-foreground">{c.value}</b>
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell><ContactButtons m={m} /></TableCell>
+                  {cols.visible.map((c) => (
+                    <TableCell key={c.key} className={DIRECTORY_CELL_CLASS[c.key]}>
+                      {memberCell(m, c.key)}
+                    </TableCell>
+                  ))}
                 </TableRow>
               ))}
               {filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
+                  <TableCell
+                    colSpan={cols.visible.length}
+                    className="py-10 text-center text-sm text-muted-foreground"
+                  >
                     No members match.
                   </TableCell>
                 </TableRow>

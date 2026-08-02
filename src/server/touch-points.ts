@@ -32,8 +32,15 @@ import {
 } from "./touch-points-read";
 
 /** TM TOUCH POINTS (v29) — the LC's meetings, working hours and outings.
- *  Booking rights come from rbac (`bookableTouchPointScopes`); every create,
- *  move and cancel emails + bells the whole audience with the TM VP on CC. */
+ *  Booking rights come from rbac (`bookableTouchPointScopes`); a create, move
+ *  or cancel emails + bells the whole audience with the TM VP on CC.
+ *
+ *  v31 — the announcement is a DECISION, not a reflex. It is off when the
+ *  start time is already past (that's a touch point being LOGGED, not booked)
+ *  or when the booker unticked "Tell everyone invited", and the answer is
+ *  stored on the row (`announced`, migration 0033) so a later move or cancel
+ *  stays just as quiet. Attendance is unaffected — recording it is the whole
+ *  reason a past touch point gets logged. */
 
 type Result<T = undefined> =
   | { ok: true; data?: T }
@@ -49,8 +56,16 @@ function refresh() {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^\d{2}:\d{2}/;
-/** A few minutes of slack for clock skew between the booker and the server. */
+/** A few minutes of slack for clock skew between the booker and the server —
+ *  a start "two minutes ago" is still NOW, not a past log. */
 const PAST_GRACE_MS = 5 * 60_000;
+const isPastStart = (at: Date) => at.getTime() < Date.now() - PAST_GRACE_MS;
+
+/** `touch_points.announced` (migration 0033). The read layer's TouchPointRow
+ *  predates the column, so read it defensively — anything older than 0033 was
+ *  announced, because announcing was the only behaviour there was. */
+const wasAnnounced = (tp: TouchPointRow): boolean =>
+  (tp as TouchPointRow & { announced?: boolean }).announced !== false;
 
 /** The LC lives on CAIRO wall-clock: the browser sends the date and the time
  *  it typed, the server decides which instant that is (DST-aware). Never
@@ -144,6 +159,11 @@ export interface CreateTouchPointInput {
   note?: string | null;
   invitedTeams?: string[];
   invitedFunctions?: string[];
+  /** Tell everyone invited (email + bell). DEFAULT TRUE — only an explicit
+   *  `false` mutes it. A start time in the PAST mutes it regardless: that's a
+   *  touch point being LOGGED after the fact, and nobody wants an invitation
+   *  to a meeting they already sat through. */
+  notify?: boolean;
 }
 
 /** The booking matrix in one sentence — so a refusal explains itself instead
@@ -161,7 +181,7 @@ function scopeRefusal(viewer: Viewer): string {
 
 export async function createTouchPoint(
   input: CreateTouchPointInput
-): Promise<Result<{ id: string }>> {
+): Promise<Result<{ id: string; announced: boolean }>> {
   const viewer = await getViewer();
   const scope = input.scope;
   const kind = input.kind;
@@ -175,10 +195,11 @@ export async function createTouchPoint(
 
   const startsAt = cairoStart(input.date, input.time);
   if (!startsAt) return fail("Pick the date and start time.");
-  // an invite to something that already happened nags the booker from the very
-  // next cron run — and auto-marks a whole audience absent for working hours
-  if (startsAt.getTime() < Date.now() - PAST_GRACE_MS)
-    return fail("That start time is in the past — touch points are booked ahead.");
+  // v31: a start in the PAST is legal — it means "I'm logging a touch point
+  // that already happened" (attendance is still taken on it, which is the
+  // whole point). What it must NEVER do is invite people to it, so the
+  // announcement is off for past points no matter what the booker ticked.
+  const announced = input.notify !== false && !isPastStart(startsAt);
 
   const ownFns = [...viewer.functions, ...viewer.sub_functions];
   const functionKey =
@@ -257,20 +278,24 @@ export async function createTouchPoint(
       invited_functions: invitedFunctions,
       owner_id: viewer.id,
       owner_name: viewer.nickname || viewer.name,
+      // remembered on the row (0033) so a later move/cancel can't mail people
+      // who were never told this touch point existed
+      announced,
     })
     .select("*")
     .single<TouchPointRow>();
   if (error || !created) return fail(error?.message ?? "Could not book it — try again.");
 
   await recordUndo("touch_points", created.id, "insert");
-  await announce(created, viewer.id, "created");
+  if (announced) await announce(created, viewer.id, "created");
   await logAudit(viewer.id, "touch_point_create", "touch_point", created.id, {
     scope,
     kind,
     fn: functionKey,
+    announced,
   });
   refresh();
-  return { ok: true, data: { id: created.id } };
+  return { ok: true, data: { id: created.id, announced } };
 }
 
 export async function updateTouchPoint(
@@ -284,13 +309,21 @@ export async function updateTouchPoint(
     return fail("Only its owner, the function's VP/Director or TM can change it.", "forbidden");
   if (tp.status !== "scheduled") return fail("This touch point is cancelled.");
 
+  // was anyone ever invited to this? A LOGGED point (past start, or the booker
+  // switched the announcement off) has an audience that never heard of it —
+  // moving or cancelling it must stay just as quiet.
+  const announced = wasAnnounced(tp);
+
   const next: Record<string, unknown> = {};
   let moved = false;
   const previousWhen = cairoWhen(tp.starts_at);
   if (patch.date || patch.time) {
     const d = cairoStart(patch.date, patch.time);
     if (!d) return fail("That date and time don't look right.");
-    if (d.getTime() < Date.now() - PAST_GRACE_MS)
+    // an ANNOUNCED point is a real appointment people are holding — it can't
+    // be dragged into the past. A logged one is a record: correcting when it
+    // actually happened is exactly what editing it is for.
+    if (announced && isPastStart(d))
       return fail("You can't move a touch point into the past.");
     // the stored value comes back with a "+00:00" offset — compare instants
     if (d.getTime() !== new Date(tp.starts_at).getTime()) {
@@ -305,12 +338,13 @@ export async function updateTouchPoint(
   const { error } = await db().from("touch_points").update(next).eq("id", id);
   if (error) return fail(error.message);
 
-  // a MOVE is news — the audience hears about it again
-  if (moved) {
+  // a MOVE is news — the audience hears about it again (unless they were
+  // never told about the touch point in the first place)
+  if (moved && announced) {
     const fresh = await getTouchPoint(id);
     if (fresh) await announce(fresh, viewer.id, "moved", { previousWhen });
   }
-  await logAudit(viewer.id, "touch_point_update", "touch_point", id, { moved });
+  await logAudit(viewer.id, "touch_point_update", "touch_point", id, { moved, announced });
   refresh();
   return { ok: true };
 }
@@ -337,7 +371,9 @@ export async function cancelTouchPoint(id: string, reason: string): Promise<Resu
   if (!(await sandboxSuppressed("attendance prompt resolve")))
     await resolveAttendancePrompts(id);
 
-  await announce({ ...tp, status: "cancelled" }, viewer.id, "cancelled", { reason: why });
+  // …and a point nobody was ever invited to is dropped in silence
+  if (wasAnnounced(tp))
+    await announce({ ...tp, status: "cancelled" }, viewer.id, "cancelled", { reason: why });
   await logAudit(viewer.id, "touch_point_cancel", "touch_point", id, { reason: why });
   refresh();
   return { ok: true };

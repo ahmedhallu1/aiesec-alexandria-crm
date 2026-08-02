@@ -21,6 +21,9 @@ import type {
 import { normalizePhone, fmtDateTime } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { CountryInput } from "./country-input";
+import {
+  SortHeader, TableSettings, useTableColumns, useTableSort, type TableColumn,
+} from "./data-table-kit";
 import { FileDrop } from "./file-drop";
 import { Hint } from "./hint";
 import { WalkingLoader } from "./walking-loader";
@@ -970,6 +973,94 @@ const CALL_STATUS_CHIP: Record<
   cancelled: { label: "Cancelled", className: "bg-muted text-muted-foreground line-through" },
 };
 
+// ------------------------------------------------- universal table columns
+
+/** The IR call log's columns — the classic five plus everything the booking
+ *  flow collects, one checkbox away in ⚙ Columns. */
+const CALL_COLUMNS: TableColumn[] = [
+  { key: "when", label: "When" },
+  { key: "lc", label: "Partner LC", required: true },
+  { key: "by", label: "By" },
+  { key: "status", label: "Status" },
+  { key: "notes", label: "Notes" },
+  { key: "screenshot", label: "Screenshot" },
+  { key: "demand", label: "Demand", defaultHidden: true },
+  { key: "campaigns", label: "B2C campaigns", defaultHidden: true },
+  { key: "booker", label: "Booked by", defaultHidden: true },
+  { key: "booker_email", label: "Booker email", defaultHidden: true },
+  { key: "duration", label: "Duration", defaultHidden: true },
+];
+
+const CALL_CELL_CLASS: Record<string, string> = {
+  when: "whitespace-nowrap text-sm",
+  lc: "font-medium",
+  notes: "max-w-64",
+  screenshot: "text-right",
+  demand: "max-w-40 truncate text-xs",
+  campaigns: "max-w-40 truncate text-xs text-muted-foreground",
+  booker: "max-w-40 truncate text-sm",
+  booker_email: "max-w-48 truncate text-xs text-muted-foreground",
+  duration: "whitespace-nowrap text-sm text-muted-foreground",
+};
+
+const CALL_SORTERS: Record<string, (c: IrCallRow) => string | number | null> = {
+  when: (c) => c.called_at,
+  lc: (c) => c.partner_lc_name,
+  by: (c) => c.member_name,
+  status: (c) => c.status,
+  notes: (c) => c.notes,
+  demand: (c) => c.demand,
+  campaigns: (c) => c.b2c_campaigns,
+  booker: (c) => c.booker_name,
+  booker_email: (c) => c.booker_email,
+  duration: (c) => c.duration_minutes,
+  screenshot: (c) => (c.screenshot_link ? 1 : 0),
+};
+
+/** The CV pool's columns (the desktop table — phones keep the cards). */
+const CV_COLUMNS: TableColumn[] = [
+  { key: "person", label: "Person", required: true },
+  { key: "lc", label: "Partner LC" },
+  { key: "industry", label: "Industry" },
+  { key: "skills", label: "Skills" },
+  { key: "summary", label: "Summary" },
+  { key: "status", label: "AI status" },
+  { key: "contact", label: "Contact" },
+  { key: "created", label: "Uploaded" },
+  { key: "actions", label: "Actions" },
+  { key: "uploader", label: "Uploaded by", defaultHidden: true },
+  { key: "email", label: "Email", defaultHidden: true },
+  { key: "phone", label: "Phone", defaultHidden: true },
+  { key: "file", label: "File name", defaultHidden: true },
+];
+
+const CV_CELL_CLASS: Record<string, string> = {
+  person: "max-w-48",
+  lc: "max-w-36 truncate text-sm text-muted-foreground",
+  skills: "max-w-56",
+  summary: "max-w-64",
+  created: "whitespace-nowrap text-xs text-muted-foreground",
+  uploader: "max-w-36 truncate text-sm text-muted-foreground",
+  email: "max-w-48 truncate text-sm text-muted-foreground",
+  phone: "whitespace-nowrap text-sm text-muted-foreground",
+  file: "max-w-48 truncate text-xs text-muted-foreground",
+  actions: "text-right",
+};
+
+const CV_SORTERS: Record<string, (c: CvRow) => string | number | null> = {
+  person: (c) => c.person_name || c.file_name,
+  lc: (c) => c.partner_lc_name,
+  industry: (c) => c.industry,
+  skills: (c) => c.skills,
+  summary: (c) => c.summary,
+  status: (c) => c.extraction_status,
+  created: (c) => c.created_at,
+  uploader: (c) => c.uploader_name,
+  email: (c) => c.email,
+  phone: (c) => c.phone,
+  file: (c) => c.file_name,
+};
+
 function IrCallsTab({
   data, lcs, onLcCreated, goPage, viewer, booking, origin,
 }: {
@@ -988,6 +1079,68 @@ function IrCallsTab({
 
   const canTouch = (c: IrCallRow) => viewer.isVp || c.member_id === viewer.id;
   const pages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
+
+  // ⚙ Columns + click-to-sort over the page in hand
+  const cols = useTableColumns("consideration-calls", CALL_COLUMNS);
+  const { sorted: sortedCalls, sortKey, dir, toggle: toggleSort } =
+    useTableSort(data.rows, CALL_SORTERS);
+
+  /** One call-log cell, by column key. */
+  const callCell = (c: IrCallRow, key: string): React.ReactNode => {
+    const chip = CALL_STATUS_CHIP[c.status] ?? CALL_STATUS_CHIP.completed;
+    switch (key) {
+      case "when":
+        return fmtDateTime(c.called_at);
+      case "lc":
+        return <span dir="auto">{c.partner_lc_name}</span>;
+      case "by":
+        return <span dir="auto">{c.member_name}</span>;
+      case "status":
+        return (
+          <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", chip.className)}>
+            {chip.label}
+          </span>
+        );
+      case "notes":
+        return (
+          <>
+            {c.demand && !cols.isVisible("demand") ? (
+              <p className="line-clamp-1 text-xs font-medium" dir="auto">
+                Demand: {c.demand}
+              </p>
+            ) : null}
+            <span className="line-clamp-2 text-sm text-muted-foreground" dir="auto">
+              {c.notes || (c.demand ? "" : "—")}
+            </span>
+          </>
+        );
+      case "screenshot":
+        return c.screenshot_link ? (
+          <a
+            href={c.screenshot_link}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+          >
+            Open in Drive <ExternalLink className="size-3.5" />
+          </a>
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
+        );
+      case "demand":
+        return <span dir="auto">{c.demand ?? "—"}</span>;
+      case "campaigns":
+        return <span dir="auto">{c.b2c_campaigns ?? "—"}</span>;
+      case "booker":
+        return <span dir="auto">{c.booker_name ?? "—"}</span>;
+      case "booker_email":
+        return c.booker_email ?? "—";
+      case "duration":
+        return c.duration_minutes ? `${c.duration_minutes} min` : "—";
+      default:
+        return null;
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -1119,68 +1272,44 @@ function IrCallsTab({
           ) : (
             <>
               {/* desktop table */}
+              <div className="hidden justify-end md:flex">
+                <TableSettings columns={cols} />
+              </div>
               <div className="hidden overflow-x-auto md:block">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>When</TableHead>
-                      <TableHead>Partner LC</TableHead>
-                      <TableHead>By</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Notes</TableHead>
-                      <TableHead className="text-right">Screenshot</TableHead>
+                      {cols.visible.map((c) => (
+                        <TableHead
+                          key={c.key}
+                          className={c.key === "screenshot" ? "text-right" : undefined}
+                        >
+                          <SortHeader
+                            label={c.label}
+                            onClick={() => toggleSort(c.key, c.key === "when" ? "desc" : "asc")}
+                            active={sortKey === c.key}
+                            dir={dir}
+                          />
+                        </TableHead>
+                      ))}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {data.rows.map((c) => {
-                      const chip = CALL_STATUS_CHIP[c.status] ?? CALL_STATUS_CHIP.completed;
-                      return (
-                        <TableRow key={c.id}>
-                          <TableCell className="whitespace-nowrap text-sm">
-                            {fmtDateTime(c.called_at)}
+                    {sortedCalls.map((c) => (
+                      <TableRow key={c.id}>
+                        {cols.visible.map((col) => (
+                          <TableCell key={col.key} className={CALL_CELL_CLASS[col.key]}>
+                            {callCell(c, col.key)}
                           </TableCell>
-                          <TableCell className="font-medium" dir="auto">
-                            {c.partner_lc_name}
-                          </TableCell>
-                          <TableCell dir="auto">{c.member_name}</TableCell>
-                          <TableCell>
-                            <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", chip.className)}>
-                              {chip.label}
-                            </span>
-                          </TableCell>
-                          <TableCell className="max-w-64">
-                            {c.demand ? (
-                              <p className="line-clamp-1 text-xs font-medium" dir="auto">
-                                Demand: {c.demand}
-                              </p>
-                            ) : null}
-                            <span className="line-clamp-2 text-sm text-muted-foreground" dir="auto">
-                              {c.notes || (c.demand ? "" : "—")}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {c.screenshot_link ? (
-                              <a
-                                href={c.screenshot_link}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
-                              >
-                                Open in Drive <ExternalLink className="size-3.5" />
-                              </a>
-                            ) : (
-                              <span className="text-sm text-muted-foreground">—</span>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
+                        ))}
+                      </TableRow>
+                    ))}
                   </TableBody>
                 </Table>
               </div>
               {/* mobile cards */}
               <div className="space-y-2 md:hidden">
-                {data.rows.map((c) => {
+                {sortedCalls.map((c) => {
                   const chip = CALL_STATUS_CHIP[c.status] ?? CALL_STATUS_CHIP.completed;
                   return (
                     <div key={c.id} className="rounded-lg border p-3">
@@ -1798,6 +1927,155 @@ function CvsTab({
 
   const pages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
 
+  // ⚙ Columns + click-to-sort for the desktop table (phones keep the cards)
+  const cols = useTableColumns("consideration-cvs", CV_COLUMNS);
+  const { sorted: sortedCvs, sortKey, dir, toggle: toggleSort } =
+    useTableSort(data.rows, CV_SORTERS);
+
+  /** The WhatsApp / call / email shortcuts of one CV. */
+  const cvContacts = (cv: CvRow) => {
+    const wa = waDigits(cv.phone);
+    const btn =
+      "inline-flex size-8 items-center justify-center rounded-md border transition-colors hover:bg-muted";
+    return (
+      <span className="flex items-center gap-1">
+        {wa ? (
+          <Hint label={`WhatsApp ${cv.phone}`}>
+            <a
+              href={`https://wa.me/${wa}`}
+              target="_blank"
+              rel="noreferrer"
+              className={cn(btn, "text-emerald-600 dark:text-emerald-400")}
+              aria-label="WhatsApp"
+            >
+              <WhatsAppIcon className="size-3.5" />
+            </a>
+          </Hint>
+        ) : null}
+        {cv.phone ? (
+          <Hint label={`Call ${cv.phone}`}>
+            <a href={`tel:${cv.phone}`} className={btn} aria-label="Call">
+              <Phone className="size-3.5" />
+            </a>
+          </Hint>
+        ) : null}
+        {cv.email ? (
+          <Hint label={cv.email}>
+            <a href={`mailto:${cv.email}`} className={btn} aria-label="Email">
+              <Mail className="size-3.5" />
+            </a>
+          </Hint>
+        ) : null}
+        {!cv.phone && !cv.email ? (
+          <span className="text-xs text-muted-foreground">—</span>
+        ) : null}
+      </span>
+    );
+  };
+
+  /** One CV cell of the desktop table, by column key. */
+  const cvCell = (cv: CvRow, key: string): React.ReactNode => {
+    const canManage = viewer.isVp || cv.uploaded_by === viewer.id;
+    switch (key) {
+      case "person":
+        return (
+          <>
+            <span className="block truncate font-medium" dir="auto">
+              {cv.person_name || cv.file_name}
+            </span>
+            {cols.isVisible("uploader") ? null : (
+              <span className="block truncate text-xs text-muted-foreground" dir="auto">
+                by {cv.uploader_name}
+              </span>
+            )}
+          </>
+        );
+      case "lc":
+        return <span dir="auto">{cv.partner_lc_name ?? "—"}</span>;
+      case "industry":
+        return cv.industry ? <Badge variant="secondary">{cv.industry}</Badge> : "—";
+      case "skills":
+        return (
+          <span className="line-clamp-2 text-xs" dir="auto">
+            {cv.skills || "—"}
+          </span>
+        );
+      case "summary":
+        return (
+          <span className="line-clamp-2 text-sm text-muted-foreground" dir="auto">
+            {cv.summary || "—"}
+          </span>
+        );
+      case "status": {
+        const chip = STATUS_CHIP[cv.extraction_status];
+        return (
+          <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", chip.className)}>
+            {chip.label}
+          </span>
+        );
+      }
+      case "contact":
+        return cvContacts(cv);
+      case "created":
+        return fmtDateTime(cv.created_at);
+      case "uploader":
+        return <span dir="auto">{cv.uploader_name}</span>;
+      case "email":
+        return cv.email ?? "—";
+      case "phone":
+        return cv.phone ?? "—";
+      case "file":
+        return <span dir="auto">{cv.file_name}</span>;
+      case "actions":
+        return (
+          <span className="flex items-center justify-end gap-1">
+            <Hint label="Open the CV file (10-min private link)">
+              <Button variant="outline" size="sm" onClick={() => openFile(cv)}>
+                <FileText className="size-4" /> Open
+              </Button>
+            </Hint>
+            {cv.extraction_status !== "done" ? (
+              <Hint label="Ask the AI to read this CV again">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => rerun(cv)}
+                  disabled={rerunning === cv.id}
+                >
+                  {rerunning === cv.id ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="size-4" />
+                  )}
+                </Button>
+              </Hint>
+            ) : null}
+            {canManage ? (
+              <>
+                <Hint label="Fix the extracted fields">
+                  <Button variant="ghost" size="icon" className="size-8" onClick={() => setEditing(cv)}>
+                    <Pencil className="size-4" />
+                  </Button>
+                </Hint>
+                <Hint label="Delete this CV (file included)">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 text-destructive hover:text-destructive"
+                    onClick={() => setDeleting(cv)}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </Hint>
+              </>
+            ) : null}
+          </span>
+        );
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="space-y-4">
       <Card className="rise-in">
@@ -1870,6 +2148,8 @@ function CvsTab({
         <p className="text-xs text-muted-foreground">
           Searches names, skills, industries and the CVs&apos; full text · {data.total} CV{data.total === 1 ? "" : "s"}
         </p>
+        {/* ⚙ Columns — the pool reads like a sheet on desktop */}
+        <TableSettings columns={cols} className="ml-auto hidden md:inline-flex" />
       </div>
 
       {data.rows.length === 0 ? (
@@ -1879,8 +2159,50 @@ function CvsTab({
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-3 md:grid-cols-2">
-          {data.rows.map((cv) => {
+        <>
+        {/* desktop: one wide table, columns under the member's control */}
+        <div className="hidden overflow-x-auto rounded-xl border bg-card md:block">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                {cols.visible.map((c) =>
+                  c.key === "actions" || c.key === "contact" ? (
+                    <TableHead
+                      key={c.key}
+                      className={c.key === "actions" ? "text-right" : undefined}
+                    >
+                      {c.label}
+                    </TableHead>
+                  ) : (
+                    <TableHead key={c.key}>
+                      <SortHeader
+                        label={c.label}
+                        onClick={() => toggleSort(c.key, c.key === "created" ? "desc" : "asc")}
+                        active={sortKey === c.key}
+                        dir={dir}
+                      />
+                    </TableHead>
+                  )
+                )}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sortedCvs.map((cv) => (
+                <TableRow key={cv.id}>
+                  {cols.visible.map((c) => (
+                    <TableCell key={c.key} className={CV_CELL_CLASS[c.key]}>
+                      {cvCell(cv, c.key)}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+
+        {/* phones: cards */}
+        <div className="grid gap-3 md:hidden">
+          {sortedCvs.map((cv) => {
             const chip = STATUS_CHIP[cv.extraction_status];
             const wa = waDigits(cv.phone);
             const mine = cv.uploaded_by === viewer.id;
@@ -2003,6 +2325,7 @@ function CvsTab({
             );
           })}
         </div>
+        </>
       )}
 
       {pages > 1 ? (

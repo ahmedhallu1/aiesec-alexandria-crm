@@ -291,9 +291,9 @@ function BrandHeader() {
   return (
     <>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/brand/aiesec-blue.png" alt="AIESEC" className="mx-auto mb-4 h-10 w-auto dark:hidden" />
+      <img src="/brand/alex-blue.png" alt="AIESEC in Alexandria" className="mx-auto mb-4 h-16 w-auto dark:hidden" />
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/brand/aiesec-white.png" alt="AIESEC" className="mx-auto mb-4 hidden h-10 w-auto dark:block" />
+      <img src="/brand/alex-white.png" alt="AIESEC in Alexandria" className="mx-auto mb-4 hidden h-16 w-auto dark:block" />
     </>
   );
 }

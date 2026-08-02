@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 import { FUNCTION_COLORS } from "@/lib/types";
 import type {
   DrillGroup, FunnelStats, LanePlan, OgxBoardRow, OgxDashboardData, OgxFunnel,
-  TeamPlan,
+  StreakStats, TeamPlan,
 } from "@/server/data";
 
 export interface DashboardScopeView { key: string; label: string }
@@ -33,6 +33,9 @@ interface Props {
   consideration?: import("@/server/data").ConsiderationStats | null;
   /** the OGT/OGV sign-up lane (v28) — set only on ?fn=OGT / ?fn=OGV */
   ogx?: OgxDashboardData | null;
+  /** the OGV contact streak (v27) — set only on ?fn=OGV, null when the viewer
+   *  isn't a streak player */
+  streak?: StreakStats | null;
   total: FunnelStats;
   byFunction: DrillGroup[];
   byTeam: DrillGroup[];
@@ -92,7 +95,7 @@ function sprintRange(): { from: string; to: string } {
 }
 
 export function DashboardView({
-  consideration, ogx,
+  consideration, ogx, streak,
   total, byFunction, byTeam, memberBoard, mmBoard, teamBoard,
   views, activeFn, laneLabel, scopeLabel,
   showTeamDrill, teamOptions, memberOptions, filters, viewerId, showMyNumbers,
@@ -308,7 +311,7 @@ export function DashboardView({
       </div>
 
       {isOgxLane && ogx ? (
-        <OgxPanel data={ogx} />
+        <OgxPanel data={ogx} streak={streak ?? null} />
       ) : (
         <>
       {/* Goals = the plans (v22): the lane goal comes from the VPs' planning
@@ -405,18 +408,23 @@ export function DashboardView({
  *  function, plus the CV pool on the IGT lane only (the pool is an IGT hunt,
  *  so the IGV lane omits those cards rather than showing zeros). */
 function ConsiderationPanel({ stats }: { stats: import("@/server/data").ConsiderationStats }) {
-  // padding/sizes mirror KpiCard so a 2-up phone grid never clips the number
-  const kpi = (label: string, value: number, sub?: string) => (
-    <Card className="rise-in">
-      <CardContent className="px-4 py-3">
-        <p className="break-words text-xs font-medium text-muted-foreground">{label}</p>
-        <p className="mt-1 text-2xl font-bold tabular-nums xl:text-3xl">
-          {value.toLocaleString("en")}
-        </p>
-        {sub ? <p className="mt-0.5 break-words text-xs text-muted-foreground">{sub}</p> : null}
-      </CardContent>
-    </Card>
-  );
+  // same shape as KpiCard (v30.1): name + number only, the explainer moved into
+  // the hover hint — a 2-up phone grid never clips the number
+  const kpi = (label: string, value: number, sub?: string) => {
+    const card = (
+      <Card className="kpi-card rise-in h-full" title={sub}>
+        <CardContent className="flex h-full flex-col justify-between gap-2 px-4 py-3.5">
+          <p className="kpi-label break-words text-xs font-bold uppercase tracking-wide text-muted-foreground">
+            {label}
+          </p>
+          <p className="kpi-value text-3xl font-black leading-none tabular-nums xl:text-4xl">
+            {value.toLocaleString("en")}
+          </p>
+        </CardContent>
+      </Card>
+    );
+    return sub ? <Hint label={sub}>{card}</Hint> : card;
+  };
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -487,7 +495,7 @@ const OGX_METRICS: { key: keyof OgxFunnel; label: string; short: string }[] = [
 /** The OGT/OGV lane (v28): the sign-up funnel — Sign-ups → Contacted →
  *  Interested → Applied → Accepted → Approved (the MOS), with the fn's MM
  *  plans, a Members & Coordinators leaderboard and a per-team drill. */
-function OgxPanel({ data }: { data: OgxDashboardData }) {
+function OgxPanel({ data, streak }: { data: OgxDashboardData; streak: StreakStats | null }) {
   const t = data.total;
   const kpis = [
     { label: "Sign-ups", value: t.signups, hint: "everyone who signed up" },
@@ -506,6 +514,10 @@ function OgxPanel({ data }: { data: OgxDashboardData }) {
   ];
   return (
     <>
+      {/* the OGV streak sits at the TOP of the lane — it's the daily habit the
+          whole crew (members, coordinators, TLs and their VP) plays */}
+      {streak ? <DashboardStreakCard streak={streak} /> : null}
+
       {data.plan ? <OgxPlanBar fn={data.fn} plan={data.plan} /> : null}
 
       {/* KPI row — the sign-up funnel, in order */}
@@ -574,6 +586,76 @@ function OgxPanel({ data }: { data: OgxDashboardData }) {
         </Card>
       ) : null}
     </>
+  );
+}
+
+/** The OGV contact-streak game (v27) — ≥1 sign-up contact action per Cairo day
+ *  keeps the flame alive. It was only on /signups; it belongs here too, on the
+ *  OGV lane, for every OGV person: members, coordinators, TLs and the VP.
+ *  The flame is dimmed until today's save lands. */
+function DashboardStreakCard({ streak }: { streak: StreakStats }) {
+  const dayWord = (n: number) => `day${n === 1 ? "" : "s"}`;
+  return (
+    <Card className="rise-in rise-in-1 border-orange-400/40">
+      <CardContent className="space-y-2.5 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <span
+            aria-hidden
+            className={cn(
+              "text-4xl leading-none transition-all",
+              !streak.savedToday && "opacity-40 grayscale"
+            )}
+          >
+            🔥
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-2xl font-bold tabular-nums">
+              {streak.current}-day streak
+            </p>
+            <p
+              className={cn(
+                "text-xs",
+                streak.savedToday
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-muted-foreground"
+              )}
+            >
+              {streak.savedToday
+                ? "Streak saved for today ✅"
+                : "Save today's streak — contact a sign-up!"}
+            </p>
+          </div>
+          <p className="shrink-0 text-xs text-muted-foreground">
+            Best:{" "}
+            <span className="font-semibold tabular-nums text-foreground">{streak.best}</span>{" "}
+            {dayWord(streak.best)}
+          </p>
+          {!streak.savedToday ? (
+            <Button size="sm" variant="outline" asChild className="shrink-0">
+              <Link href="/signups">Go contact one</Link>
+            </Button>
+          ) : null}
+        </div>
+        {streak.topStreaks.length > 0 ? (
+          <div className="border-t pt-2">
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              LC top streaks
+            </p>
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5">
+              {streak.topStreaks.map((t, i) => (
+                <p key={`${t.name}-${i}`} className="text-sm">
+                  {MEDALS[i] ?? "•"} {t.name}
+                  <span className="text-muted-foreground">
+                    {" "}
+                    — {t.current} {dayWord(t.current)}
+                  </span>
+                </p>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1103,6 +1185,11 @@ function Leaderboard({
   );
 }
 
+/** A KPI tile: the NAME and the NUMBER, nothing else.
+ *  v30.1 — the little explainer line ("said Yes to interest", "accounts with ≥1
+ *  contact") used to sit under every value and made the row noisy. It now lives
+ *  in the hover hint, with `title` as the touch / no-JS fallback, and the two
+ *  things that matter carry the weight the third line was stealing. */
 function KpiCard({
   label, value, valueText, sub, tone, href,
 }: {
@@ -1110,14 +1197,14 @@ function KpiCard({
   tone?: "warn" | "bad"; href?: string;
 }) {
   const body = (
-    <Card className="kpi-card h-full">
-      <CardContent className="flex h-full flex-col px-4 py-3">
-        <p className="kpi-label min-h-8 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+    <Card className="kpi-card h-full" title={sub}>
+      <CardContent className="flex h-full flex-col justify-between gap-2 px-4 py-3.5">
+        <p className="kpi-label min-h-8 text-xs font-bold uppercase tracking-wide text-muted-foreground">
           {label}
         </p>
         <p
           className={cn(
-            "text-2xl font-bold leading-none xl:text-3xl",
+            "text-3xl font-black leading-none tabular-nums xl:text-4xl",
             // toned values keep their warning/danger color; neutral ones light up blue
             !tone && "kpi-value",
             tone === "warn" && "text-warning",
@@ -1126,15 +1213,17 @@ function KpiCard({
         >
           <CountUp value={value} text={valueText} />
         </p>
-        {sub ? (
-          <p className="mt-1.5 line-clamp-2 text-[10px] leading-tight text-muted-foreground">
-            {sub}
-          </p>
-        ) : null}
       </CardContent>
     </Card>
   );
-  return href ? <Link href={href}>{body}</Link> : body;
+  const card = href ? (
+    <Link href={href} className="block h-full">
+      {body}
+    </Link>
+  ) : (
+    body
+  );
+  return sub ? <Hint label={sub}>{card}</Hint> : card;
 }
 
 function DrillTable({ groups, colorKeys }: { groups: DrillGroup[]; colorKeys?: boolean }) {

@@ -3,7 +3,11 @@ import { auth } from "@/lib/auth";
 import { LoginForm } from "@/components/crm/login-form";
 import { ThemeToggle } from "@/components/crm/theme-toggle";
 
-export const metadata = { title: "Sign in" };
+export const metadata = {
+  title: "Sign in",
+  // the LC's own lighthouse mark, same file the PWA manifest uses
+  icons: { icon: "/icons/icon-192.png", apple: "/icons/icon-192.png" },
+};
 
 export default async function LoginPage({
   searchParams,
@@ -19,10 +23,11 @@ export default async function LoginPage({
       <ThemeToggle className="absolute right-4 top-4 z-10 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
       <div className="rise-in relative z-10 w-full max-w-md rounded-2xl bg-card p-8 shadow-2xl">
         <div className="mb-8 text-center">
+          {/* the LC's OWN logo (v31) — this page is externally reachable */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/aiesec-blue.png" alt="AIESEC" className="mx-auto mb-4 h-10 w-auto dark:hidden" />
+          <img src="/brand/alex-blue.png" alt="AIESEC in Alexandria" className="mx-auto mb-4 h-16 w-auto dark:hidden" />
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/aiesec-white.png" alt="AIESEC" className="mx-auto mb-4 hidden h-10 w-auto dark:block" />
+          <img src="/brand/alex-white.png" alt="AIESEC in Alexandria" className="mx-auto mb-4 hidden h-16 w-auto dark:block" />
           <h1 className="text-2xl font-bold text-card-foreground">
             AIESEC <span className="text-primary">in Alexandria</span>
           </h1>

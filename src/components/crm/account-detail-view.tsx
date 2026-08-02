@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Archive, ArchiveRestore, ArrowLeft, CalendarPlus, CheckCircle2, FileText, Loader2, Mail,
-  MessageSquareText, Paperclip, Phone, Pin, PinOff, Plus, RotateCcw, Trophy, Upload, X,
+  MessageSquareText, Paperclip, Phone, Pin, PinOff, Plus, RotateCcw, Sparkles, Trophy, Upload, X,
   XCircle,
 } from "lucide-react";
 import {
@@ -15,7 +15,9 @@ import {
   scheduleVisit, setOutOfProcess, setPodioUpdateCadence, setPodioUpdateEnabled,
   toggleCommentPin, toggleCommentArchive, updateAccount, updateAccountContacts,
 } from "@/server/actions";
-import type { CommentWithMember, DealWithMember, PipelineRow } from "@/server/data";
+import type {
+  AccountCreationEntry, CommentWithMember, DealWithMember, PipelineRow,
+} from "@/server/data";
 import type { ContactAttempt, Visit } from "@/lib/types";
 import {
   ACCOUNT_TYPES, B2C_CONTRACT_FORM_URL, B2C_TYPES,
@@ -249,6 +251,7 @@ export function AccountDetailView({
         attempts={attempts}
         visits={visits}
         deals={deals}
+        creation={account.creation ?? null}
         canEdit={caps.edit}
         onReportVisit={caps.edit && active ? setReportVisitId : undefined}
       />
@@ -1218,11 +1221,13 @@ function DealContracts({ deal, canEdit }: { deal: DealWithMember; canEdit: boole
 }
 
 function TimelineCard({
-  attempts, visits, deals, canEdit, onReportVisit,
+  attempts, visits, deals, creation, canEdit, onReportVisit,
 }: {
   attempts: AttemptWithMember[];
   visits: Visit[];
   deals: DealWithMember[];
+  /** the account's own creation — the oldest entry of the History (v31) */
+  creation: AccountCreationEntry | null;
   canEdit: boolean;
   /** present when the viewer may report pending visits — makes their rows clickable */
   onReportVisit?: (visitId: string) => void;
@@ -1329,7 +1334,7 @@ function TimelineCard({
         {attempts.length === 0 ? (
           <p className="py-4 text-center text-sm text-muted-foreground">No contact attempts logged yet.</p>
         ) : (
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 pb-1">
             {attempts.map((a, i) => (
               <div key={a.id} className="flex items-start gap-3 rounded-lg p-2 text-sm hover:bg-muted/50">
                 <span className="mt-0.5 text-muted-foreground">{methodIcon[a.method]}</span>
@@ -1357,8 +1362,55 @@ function TimelineCard({
             ))}
           </div>
         )}
+        {/* the oldest entry of them all: the account joining the CRM */}
+        {creation ? <CreationEntry creation={creation} /> : null}
       </CardContent>
     </Card>
+  );
+}
+
+/** History entry #0 — the account being added: who, when, and everything that
+ *  was filed with it. Rendered in the timeline's own idiom, one shade quieter
+ *  than the live entries because it's the account's starting line. */
+function CreationEntry({ creation }: { creation: AccountCreationEntry }) {
+  const { at, by, via, facts, contacts, comment } = creation;
+  return (
+    <div className="mt-1 flex items-start gap-3 rounded-lg border border-dashed p-3 text-sm">
+      <Sparkles className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <p className="font-medium">
+          Account added
+          {via === "import" ? (
+            <Badge variant="outline" className="ml-2 font-normal">bulk import</Badge>
+          ) : null}
+        </p>
+        {facts.length > 0 ? (
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-muted-foreground">
+            {facts.map(([label, value]) => (
+              <span key={label} className="min-w-0 break-words">
+                <span className="text-xs uppercase tracking-wide">{label}:</span>{" "}
+                <span dir="auto">{value}</span>
+              </span>
+            ))}
+          </p>
+        ) : null}
+        {contacts.length > 0 ? (
+          <p className="mt-0.5 break-words text-muted-foreground" dir="auto">
+            Contacts added:{" "}
+            {contacts.map((c) => `${c.tag || c.kind} ${c.value}`).join(" · ")}
+          </p>
+        ) : null}
+        {comment ? (
+          <p className="mt-0.5 break-words text-muted-foreground" dir="auto">
+            “{comment}”
+          </p>
+        ) : null}
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          {by ? `${by} · ` : ""}
+          {fmtDateTime(at)}
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -1596,9 +1648,14 @@ function DealDialog({
   const showIgv = fn === "IGV" || mixed;
   const showIgta = fn === "IGT" || mixed;
   const showIgte = fn === "IGT" || mixed;
-  const dealIgv = showIgv ? Number(igv) || 0 : 0;
-  const dealIgta = showIgta ? Number(igta) || 0 : 0;
-  const dealIgte = showIgte ? Number(igte) || 0 : 0;
+  // v31: a BD deal is money first — the per-product opens breakdown hides
+  // behind a switch (OFF by default), so the usual BD prompt is just
+  // amount + benefits. Every other function still needs its opens.
+  const [opensDetail, setOpensDetail] = useState(false);
+  const showOpens = !isBD || opensDetail;
+  const dealIgv = showIgv && showOpens ? Number(igv) || 0 : 0;
+  const dealIgta = showIgta && showOpens ? Number(igta) || 0 : 0;
+  const dealIgte = showIgte && showOpens ? Number(igte) || 0 : 0;
   const total = dealIgv + dealIgta + dealIgte;
   const amountOk = (Number(amount) || 0) >= 1;
 
@@ -1648,7 +1705,9 @@ function DealDialog({
       );
       if (res.ok) {
         toast.success(
-          `🎉 Deal #${res.data?.deals} recorded — ${res.data?.slots} total open${(res.data?.slots ?? 0) === 1 ? "" : "s"} with this account!`
+          (res.data?.slots ?? 0) > 0
+            ? `🎉 Deal #${res.data?.deals} recorded — ${res.data?.slots} total open${res.data?.slots === 1 ? "" : "s"} with this account!`
+            : `🎉 Deal #${res.data?.deals} recorded with this account!`
         );
         // contracts are optional — the deal is already saved even if this fails,
         // and files can always be added later from the deal's history entry
@@ -1659,7 +1718,7 @@ function DealDialog({
         }
         setCelebrate(true);
         setIgv(fn === "IGV" ? "1" : "0"); setIgta("0"); setIgte("0"); setNote(""); setFiles([]);
-        setAmount(""); setBenefits("");
+        setAmount(""); setBenefits(""); setOpensDetail(false);
         setSplitOn(false); setSplitRows([]);
         onOpenChange(false);
         router.refresh();
@@ -1684,7 +1743,7 @@ function DealDialog({
             {isB2C
               ? "B2C deals carry no details — just confirm it's signed. Fill the contract form FIRST."
               : isBD
-                ? "BD deals are measured in MONEY: enter the deal's amount (EGP) and any other benefits. Opens are optional extras."
+                ? "BD deals are measured in MONEY: the amount (EGP) and any other benefits. Flip the opens switch only if this deal carried opens too."
                 : mixed
                   ? "How many opens were signed in THIS deal, per product? e.g. 3 IGV · 2 IGTe · 1 IGTa."
                   : fn === "IGT"
@@ -1729,19 +1788,33 @@ function DealDialog({
                   placeholder="e.g. venue for events, media exposure…"
                 />
               </div>
-              <p className="text-xs text-muted-foreground">
-                Did this deal also include opens? Add them below (optional).
-              </p>
+              <label className="flex items-center justify-between gap-2 rounded-lg border p-3 text-sm font-medium">
+                <span className="min-w-0">
+                  Did this deal also include opens?
+                  <span className="block text-xs font-normal text-muted-foreground">
+                    {opensDetail
+                      ? "Fill the opens per product below."
+                      : "Leave it off for a money-only deal."}
+                  </span>
+                </span>
+                <Switch
+                  checked={opensDetail}
+                  onCheckedChange={(on) => {
+                    setOpensDetail(on);
+                    if (!on) { setIgv("0"); setIgta("0"); setIgte("0"); }
+                  }}
+                />
+              </label>
             </>
           ) : null}
-          {!isB2C ? (
+          {!isB2C && showOpens ? (
           <div className={cn("grid gap-3", mixed ? "grid-cols-3" : showIgta ? "grid-cols-2" : "grid-cols-1")}>
             {showIgv ? numField(isBD ? "IGV (optional)" : "IGV", "text-gv", igv, setIgv) : null}
             {showIgta ? numField(isBD ? "IGTa (optional)" : "IGTa", "text-gt", igta, setIgta) : null}
             {showIgte ? numField(isBD ? "IGTe (optional)" : "IGTe", "text-gte", igte, setIgte) : null}
           </div>
           ) : null}
-          {!isB2C ? (
+          {!isB2C && (!isBD || amountOk || total > 0) ? (
           <p className="text-sm text-muted-foreground">
             Total this deal:{" "}
             <b className="text-foreground">

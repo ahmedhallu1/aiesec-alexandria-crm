@@ -1,6 +1,6 @@
 import {
   considerationStats, getViewer, getDashboard, listTeamLeaders, listVisibleMembers,
-  ogxDashboard } from "@/server/data";
+  ogxDashboard, streakStats } from "@/server/data";
 import type { AccountFilters } from "@/server/data";
 import {
   considerationFunctions, accountScope, icxFunctions, isB2B, isB2C,
@@ -90,7 +90,7 @@ export default async function DashboardPage({
   const consLane: "IGV" | "IGT" | null =
     activeFn === "CONS_IGV" ? "IGV" : activeFn === "CONS_IGT" ? "IGT" : null;
 
-  const [data, teamLeaders, members, consideration, ogx] = await Promise.all([
+  const [data, teamLeaders, members, consideration, ogx, streak] = await Promise.all([
     getDashboard(viewer, filters, SPECIAL_LANES.has(activeFn) ? baseLane : activeFn),
     listTeamLeaders(viewer),
     listVisibleMembers(viewer),
@@ -103,6 +103,10 @@ export default async function DashboardPage({
           member: params.member || undefined,
         })
       : Promise.resolve(null),
+    // the OGV contact streak (v27) belongs on the OGV lane, for the whole crew —
+    // it lived only on /signups before. `streakStats` decides who has one
+    // (it returns null for anyone it doesn't consider an OGV streak player).
+    activeFn === "OGV" ? streakStats(viewer) : Promise.resolve(null),
   ]);
 
   // Member filter: only people with access to the active lane — and never the
@@ -161,6 +165,7 @@ export default async function DashboardPage({
     <DashboardView
       consideration={consideration}
       ogx={ogx}
+      streak={streak}
       total={data.total}
       byFunction={data.byFunction}
       byTeam={data.byTeam}
