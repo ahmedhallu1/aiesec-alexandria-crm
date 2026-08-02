@@ -745,6 +745,8 @@ export function AccountsView({
   const searchParams = useSearchParams();
   const [q, setQ] = useState(filters.q);
   const [contactTarget, setContactTarget] = useState<ContactTarget | null>(null);
+  // the channel the member actually tapped, kept for the full-form hand-over
+  const [contactMethod, setContactMethod] = useState<ContactMethod>("Call");
   // v31: a WhatsApp / call / email quick action opens the link AND asks to log
   // it — the method pre-selected to whatever was clicked
   const [quickContact, setQuickContact] =
@@ -959,7 +961,7 @@ export function AccountsView({
             {!row.out_of_process ? (
               <>
                 <Hint label="Log a call / WhatsApp / email attempt on this account">
-                  <Button size="sm" variant="outline" onClick={() => setContactTarget(contactFor(row))}>
+                  <Button size="sm" variant="outline" onClick={() => { setContactMethod("Call"); setContactTarget(contactFor(row)); }}>
                     <Phone className="size-3.5" /> Log
                   </Button>
                 </Hint>
@@ -1322,7 +1324,7 @@ export function AccountsView({
                               size="sm"
                               variant="outline"
                               className="shrink-0"
-                              onClick={(e) => { e.stopPropagation(); setContactTarget(contactFor(row)); }}
+                              onClick={(e) => { e.stopPropagation(); setContactMethod("Call"); setContactTarget(contactFor(row)); }}
                             >
                               <Phone className="size-3.5" /> Contact
                             </Button>
@@ -1605,6 +1607,7 @@ export function AccountsView({
       <ContactDialog
         target={contactTarget}
         open={!!contactTarget}
+        defaultMethod={contactMethod}
         onOpenChange={(o) => !o && setContactTarget(null)}
       />
       {/* the quick action opened the link — now record it (dismissible) */}
@@ -1613,7 +1616,10 @@ export function AccountsView({
           row={quickContact.row}
           method={quickContact.method}
           onOpenChange={(o) => { if (!o) setQuickContact(null); }}
-          onFull={() => setContactTarget(contactFor(quickContact.row))}
+          onFull={() => {
+            setContactMethod(quickContact.method);
+            setContactTarget(contactFor(quickContact.row));
+          }}
         />
       ) : null}
       <AddAccountDialog

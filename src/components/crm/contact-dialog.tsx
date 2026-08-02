@@ -35,13 +35,23 @@ export interface ContactTarget {
  *  captures the call's date + time (that becomes the next step). Enforces the
  *  next-step obligation and triggers the 3-contact-limit prompt. */
 export function ContactDialog({
-  target, open, onOpenChange,
+  target, open, onOpenChange, defaultMethod = "Call",
 }: {
   target: ContactTarget | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** v31.2: when the flow started from a WhatsApp/call/email tap, the method
+   *  it was opened WITH — so a hand-over from the quick prompt keeps it. */
+  defaultMethod?: ContactMethod;
 }) {
-  const [method, setMethod] = useState<ContactMethod>("Call");
+  const [method, setMethod] = useState<ContactMethod>(defaultMethod);
+  // a later open with a different clicked channel re-seeds the picker
+  // (adjust-during-render — the value is still freely changeable by hand)
+  const [seededWith, setSeededWith] = useState<ContactMethod>(defaultMethod);
+  if (defaultMethod !== seededWith) {
+    setSeededWith(defaultMethod);
+    setMethod(defaultMethod);
+  }
   const [status, setStatus] = useState<UiStatus>("No Response");
   const [comment, setComment] = useState("");
   const [nextStep, setNextStep] = useState("");
@@ -63,7 +73,7 @@ export function ContactDialog({
     !isVisitScheduled && !isNotInterested && !target.hasPendingVisit && !nextStepAlreadySet;
 
   const reset = () => {
-    setMethod("Call"); setStatus("No Response"); setComment("");
+    setMethod(defaultMethod); setStatus("No Response"); setComment("");
     setNextStep(""); setNextStepDate(""); setNextStepTime("");
     setScheduledDate(""); setScheduledTime("");
     setLimitPrompt(false); setOopReason("");
