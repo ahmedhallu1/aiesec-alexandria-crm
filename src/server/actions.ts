@@ -3263,20 +3263,47 @@ export async function saveTlPlan(
 
 // ================================================================== LC people feedback (v21)
 
-/** Feedback about PEOPLE in the LC (not the system): positive shout-outs go
- *  straight to the person (bell + email); negative concerns land in an inbox
- *  only the LCP + admin can read. The author is always stored for
+/** Feedback about PEOPLE in the LC (not the system) — or, since v29, about a
+ *  TOUCH POINT the author attended, which reaches its organiser: positive
+ *  shout-outs go straight to the person (bell + email); negative concerns land
+ *  in an inbox only the LCP + admin can read. The author is always stored for
  *  accountability but NEVER shown when anonymous. */
 export async function submitLcFeedback(input: {
   positive: boolean;
   about: string[];
   message: string;
   anonymous?: boolean;
+  /** feedback about a TOUCH POINT the viewer attended (v29): it resolves to
+   *  the session's OWNER as the target and names the session in the message,
+   *  so both flows travel the exact same shout-out / private-inbox path. */
+  touchPointId?: string;
 }): Promise<ActionResult> {
   const viewer = await getViewer();
-  const message = input.message?.trim();
+  let message = input.message?.trim();
   if (!message || message.length < 3) return fail("Write the feedback first 🙂");
   const about = [...new Set(input.about ?? [])].filter((id) => id && id !== viewer.id);
+
+  if (input.touchPointId) {
+    // you may only review a session you actually showed up to
+    const { data: att } = await db()
+      .from("touch_point_attendance")
+      .select("status")
+      .eq("touch_point_id", input.touchPointId)
+      .eq("member_id", viewer.id)
+      .maybeSingle<{ status: string }>();
+    if (!att || !["attended", "late"].includes(att.status))
+      return fail("You can only give feedback on a touch point you attended.");
+    const { getTouchPoint } = await import("./touch-points-read");
+    const tp = await getTouchPoint(input.touchPointId);
+    if (!tp) return fail("That touch point no longer exists.");
+    if (!tp.owner_id) return fail("That touch point has no organiser left to send it to.");
+    if (tp.owner_id === viewer.id) return fail("That's your own touch point 🙂");
+    const { touchPointLabel } = await import("@/lib/types");
+    const { cairoWhen } = await import("@/lib/touch-points");
+    message = `📍 About the ${touchPointLabel(tp.scope, tp.kind)} on ${cairoWhen(tp.starts_at)}\n\n${message}`;
+    if (!about.includes(tp.owner_id)) about.unshift(tp.owner_id);
+  }
+
   if (about.length === 0) return fail("Pick at least one person (not yourself 🙂).");
   if (about.length > 10) return fail("Max 10 people per feedback.");
 
@@ -3333,6 +3360,7 @@ export async function submitLcFeedback(input: {
     positive: input.positive,
     people: targets.length,
     anonymous: !!input.anonymous,
+    about_touch_point: !!input.touchPointId,
   });
   return { ok: true };
 }

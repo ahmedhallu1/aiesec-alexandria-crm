@@ -1,4 +1,7 @@
-import { getViewer, listAllMembers, listLcFeedback, type LcFeedbackRow } from "@/server/data";
+import {
+  getViewer, listAllMembers, listAttendedTouchPoints, listLcFeedback,
+  type LcFeedbackRow,
+} from "@/server/data";
 import { LcFeedbackView } from "@/components/crm/lc-feedback-view";
 
 export const metadata = { title: "Feedback" };
@@ -7,9 +10,10 @@ export default async function LcFeedbackPage() {
   const viewer = await getViewer();
   const isInboxOwner = viewer.isAdmin || viewer.role === "LCP";
 
-  const [all, inbox] = await Promise.all([
+  const [all, inbox, touchPoints] = await Promise.all([
     listAllMembers(),
     isInboxOwner ? listLcFeedback(viewer) : Promise.resolve([] as LcFeedbackRow[]),
+    listAttendedTouchPoints(viewer).catch(() => []),
   ]);
 
   const members = all
@@ -25,6 +29,7 @@ export default async function LcFeedbackPage() {
   return (
     <LcFeedbackView
       members={members}
+      touchPoints={touchPoints}
       viewer={{
         id: viewer.id,
         role: viewer.role,

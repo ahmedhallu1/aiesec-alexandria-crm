@@ -28,7 +28,8 @@ import type {
 export interface DashboardScopeView { key: string; label: string }
 
 interface Props {
-  /** the Consideration lane (v27): IR calls + CV pool — set only on ?fn=CONS */
+  /** the Consideration lanes (v29): IR calls (+ the IGT-only CV pool) — set
+   *  only on ?fn=CONS_IGV / ?fn=CONS_IGT */
   consideration?: import("@/server/data").ConsiderationStats | null;
   /** the OGT/OGV sign-up lane (v28) — set only on ?fn=OGT / ?fn=OGV */
   ogx?: OgxDashboardData | null;
@@ -192,7 +193,7 @@ export function DashboardView({
         ) : null}
       </div>
 
-      {activeFn === "CONS" && consideration ? (
+      {activeFn.startsWith("CONS") && consideration ? (
         <ConsiderationPanel stats={consideration} />
       ) : (
         <>
@@ -400,15 +401,19 @@ export function DashboardView({
 /** The viewer's TEAM goal (v22): the Team Leader's filed opens plan for the
  *  current month vs what the team actually raised. Nothing is set here — the
  *  TL files/updates the plan from their profile. */
-/** The Consideration lane (v27): the IR-call + CV-pool pulse for ICX
- *  VPs/Directors, the crew and the LCP. */
+/** A Consideration lane (v29 — one per product): the IR-call pulse for that
+ *  function, plus the CV pool on the IGT lane only (the pool is an IGT hunt,
+ *  so the IGV lane omits those cards rather than showing zeros). */
 function ConsiderationPanel({ stats }: { stats: import("@/server/data").ConsiderationStats }) {
+  // padding/sizes mirror KpiCard so a 2-up phone grid never clips the number
   const kpi = (label: string, value: number, sub?: string) => (
     <Card className="rise-in">
-      <CardContent className="pt-4">
-        <p className="text-xs font-medium text-muted-foreground">{label}</p>
-        <p className="mt-1 text-3xl font-bold">{value.toLocaleString("en")}</p>
-        {sub ? <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p> : null}
+      <CardContent className="px-4 py-3">
+        <p className="break-words text-xs font-medium text-muted-foreground">{label}</p>
+        <p className="mt-1 text-2xl font-bold tabular-nums xl:text-3xl">
+          {value.toLocaleString("en")}
+        </p>
+        {sub ? <p className="mt-0.5 break-words text-xs text-muted-foreground">{sub}</p> : null}
       </CardContent>
     </Card>
   );
@@ -418,7 +423,9 @@ function ConsiderationPanel({ stats }: { stats: import("@/server/data").Consider
         {kpi("IR calls — total", stats.irTotal, `${stats.irThisMonth} this month`)}
         {kpi("Upcoming booked calls", stats.irUpcoming)}
         {kpi("Partner LCs reached", stats.partnerLcsContacted)}
-        {kpi("CVs in the pool", stats.cvTotal, `${stats.cvThisMonth} this month`)}
+        {stats.showCvs
+          ? kpi("CVs in the pool", stats.cvTotal, `${stats.cvThisMonth} this month`)
+          : null}
       </div>
       {stats.plan ? (
         <Card className="rise-in rise-in-1">
@@ -434,7 +441,7 @@ function ConsiderationPanel({ stats }: { stats: import("@/server/data").Consider
           </CardContent>
         </Card>
       ) : null}
-      {stats.cvByIndustry.length > 0 ? (
+      {stats.showCvs && stats.cvByIndustry.length > 0 ? (
         <Card className="rise-in rise-in-2">
           <CardContent className="pt-4">
             <p className="text-xs font-medium text-muted-foreground">CV pool by industry</p>
@@ -452,7 +459,13 @@ function ConsiderationPanel({ stats }: { stats: import("@/server/data").Consider
         </Card>
       ) : null}
       <p className="text-xs text-muted-foreground">
-        The full log lives in the <Link href="/consideration" className="font-medium text-primary hover:underline">Consideration module</Link> — calls, screenshots and the searchable CV pool.
+        {stats.fn} numbers — calls are attributed through the caller&apos;s
+        function (the crew&apos;s own calls market both). The full log lives in
+        the{" "}
+        <Link href="/consideration" className="font-medium text-primary hover:underline">
+          Consideration module
+        </Link>
+        {stats.showCvs ? " — calls, screenshots and the searchable CV pool." : " — calls and screenshots."}
       </p>
     </div>
   );

@@ -5,7 +5,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/supabase";
 import { env } from "@/lib/env";
 import {
-  hasConsiderationAccess,
+  considerationFunctions,
   accountScope,
   canViewAccount,
   hasRaisingAccess,
@@ -231,6 +231,10 @@ export async function listTeamsRegistry(): Promise<TeamRegistryRow[]> {
 // -------------------------------------------------- consideration dashboard (v27)
 
 export interface ConsiderationStats {
+  /** which product lane this snapshot is for (v29 — the lane is split) */
+  fn: "IGV" | "IGT";
+  /** the CV pool is an IGT hunt: the IGV lane hides the CV cards entirely */
+  showCvs: boolean;
   irTotal: number;
   irThisMonth: number;
   irUpcoming: number;
@@ -241,25 +245,62 @@ export interface ConsiderationStats {
   plan: { applicants: number; accepted: number; approvals: number } | null;
 }
 
-/** The Consideration lane on the ICX dashboard (v27): IR-call + CV-pool
- *  volume for IGV/IGT VPs/Directors, the crew and the LCP. */
-export async function considerationStats(viewer: Viewer): Promise<ConsiderationStats | null> {
-  if (!hasConsiderationAccess(viewer)) return null;
+/** A consideration row (IR call / MM plan) carries no product column — the
+ *  crew markets the whole ICX from one log. So a row is attributed to a lane
+ *  through its OWNER's functions: an IGT member's calls feed the IGT lane, an
+ *  IGV member's the IGV lane. Someone with NEITHER on their row (the pure
+ *  Consideration crew) markets both products, so their rows count in BOTH
+ *  lanes — as do orphaned rows whose owner left the LC. */
+function ownerInLane(
+  m: { functions?: string[] | null; sub_functions?: string[] | null } | null | undefined,
+  fn: "IGV" | "IGT"
+): boolean {
+  if (!m) return true;
+  const all = [...(m.functions ?? []), ...(m.sub_functions ?? [])];
+  const icx = all.filter((f) => f === "IGV" || f === "IGT");
+  return icx.length === 0 || icx.includes(fn);
+}
+
+/** The Consideration lanes on the ICX dashboard (v27, split per product in
+ *  v29): IR-call + CV-pool volume for the requested function. Visible to that
+ *  function's VPs/Directors, the consideration crew and the LCP. */
+export async function considerationStats(
+  viewer: Viewer,
+  fn: "IGV" | "IGT"
+): Promise<ConsiderationStats | null> {
+  if (!considerationFunctions(viewer).includes(fn)) return null;
+  const showCvs = fn === "IGT" && _canSeeCvPool(viewer);
   const monthStart = monthOf().start;
-  const [callRowsAll, cvRowsAll, plans] = await Promise.all([
-    fetchAll<{ called_at: string; status: string; partner_lc_name: string }>(() =>
-      db().from("ir_calls").select("called_at, status, partner_lc_name").order("id")
+  const [callRowsAll, cvRowsAll, plans, memberRows] = await Promise.all([
+    fetchAll<{
+      called_at: string;
+      status: string;
+      partner_lc_name: string;
+      member_id: string | null;
+    }>(() =>
+      db()
+        .from("ir_calls")
+        .select("called_at, status, partner_lc_name, member_id")
+        .order("id")
     ),
-    fetchAll<{ created_at: string; industry: string | null }>(() =>
-      db().from("cvs").select("created_at, industry").order("id")
-    ),
+    // the CV pool is IGT-only (v27) — never even read for the IGV lane
+    showCvs
+      ? fetchAll<{ created_at: string; industry: string | null }>(() =>
+          db().from("cvs").select("created_at, industry").order("id")
+        )
+      : Promise.resolve([] as { created_at: string; industry: string | null }[]),
     db()
       .from("mm_plans")
       .select("applicants, accepted, approvals, month, member:members!mm_plans_member_id_fkey(functions, sub_functions)")
       .eq("month", monthStart),
+    db().from("members").select("id, functions, sub_functions"),
   ]);
   const now = new Date();
-  const callRows = callRowsAll;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const byMember = new Map<string, any>(((memberRows.data ?? []) as any[]).map((m) => [m.id, m]));
+  const callRows = callRowsAll.filter((c) =>
+    ownerInLane(c.member_id ? byMember.get(c.member_id) : null, fn)
+  );
   const cvRows = cvRowsAll;
   const inMonth = (iso: string) => iso >= monthStart;
   const industries = new Map<string, number>();
@@ -268,8 +309,11 @@ export async function considerationStats(viewer: Viewer): Promise<ConsiderationS
     industries.set(key, (industries.get(key) ?? 0) + 1);
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const considerationPlans = ((plans.data ?? []) as any[]).filter((p) =>
-    [...(p.member?.functions ?? []), ...(p.member?.sub_functions ?? [])].includes("Consideration")
+  const considerationPlans = ((plans.data ?? []) as any[]).filter(
+    (p) =>
+      [...(p.member?.functions ?? []), ...(p.member?.sub_functions ?? [])].includes(
+        "Consideration"
+      ) && ownerInLane(p.member, fn)
   );
   const plan =
     considerationPlans.length > 0
@@ -283,6 +327,8 @@ export async function considerationStats(viewer: Viewer): Promise<ConsiderationS
         )
       : null;
   return {
+    fn,
+    showCvs,
     irTotal: callRows.filter((c) => c.status !== "cancelled").length,
     irThisMonth: callRows.filter((c) => c.status !== "cancelled" && inMonth(c.called_at)).length,
     irUpcoming: callRows.filter(
@@ -1703,16 +1749,18 @@ export async function getSystemHealth(): Promise<SystemHealth> {
     checks.push({ label: "Database (Supabase)", ok: false, detail: `${e}` });
   }
 
-  // contracts storage bucket
-  try {
-    const { error } = await db().storage.from("contracts").list("", { limit: 1 });
-    checks.push({
-      label: "Storage bucket (contracts)",
-      ok: !error,
-      detail: error ? error.message : "Available",
-    });
-  } catch (e) {
-    checks.push({ label: "Storage bucket (contracts)", ok: false, detail: `${e}` });
+  // private storage buckets: deal contracts + the consideration CV pool
+  for (const bucket of ["contracts", "cvs"] as const) {
+    try {
+      const { error } = await db().storage.from(bucket).list("", { limit: 1 });
+      checks.push({
+        label: `Storage bucket (${bucket})`,
+        ok: !error,
+        detail: error ? error.message : "Available",
+      });
+    } catch (e) {
+      checks.push({ label: `Storage bucket (${bucket})`, ok: false, detail: `${e}` });
+    }
   }
 
   // shared visits calendar (Tier 2) — cached 5 min so the admin page's 30s
@@ -1740,26 +1788,43 @@ export async function getSystemHealth(): Promise<SystemHealth> {
     ok: env.adminEmails.length > 0,
     detail: `${env.adminEmails.length} configured`,
   });
+  checks.push({
+    label: "Public URL (NEXT_PUBLIC_APP_URL)",
+    ok: !!process.env.NEXT_PUBLIC_APP_URL,
+    detail: process.env.NEXT_PUBLIC_APP_URL
+      ? env.appUrl
+      : `Missing — links & booking pages fall back to ${env.appUrl}`,
+  });
 
-  // counts — defensive per table
+  // counts — every live module, defensive per table (-1 = table unreachable)
   const counts: SystemHealth["counts"] = [
     { label: "Active members", value: await countOf("members", ["is_active", true]) },
     { label: "Active accounts", value: await countOf("accounts", ["out_of_process", false]) },
     { label: "Archived accounts", value: await countOf("accounts", ["out_of_process", true]) },
     { label: "Deals", value: await countOf("deals") },
+    { label: "Sign-ups (OGX)", value: await countOf("signups") },
+    { label: "IR calls", value: await countOf("ir_calls") },
+    { label: "CVs in the pool", value: await countOf("cvs") },
+    { label: "Partner LCs", value: await countOf("partner_lcs") },
+    { label: "Touch points", value: await countOf("touch_points") },
+    { label: "Attendance rows", value: await countOf("touch_point_attendance") },
+    { label: "Plan cells", value: await countOf("plan_cells") },
     { label: "Visits", value: await countOf("visits") },
     { label: "Contact attempts", value: await countOf("contact_attempts") },
     { label: "Blacklist", value: await countOf("blacklist") },
-    { label: "Feedback", value: await countOf("feedback") },
   ];
 
-  // cron last-run — real timestamps stamped by markCronRun (app_settings)
+  // cron last-run — real timestamps stamped by markCronRun (app_settings).
+  // Keep this list in sync with supabase/cron.sql + src/app/api/cron/*.
   const CRON_META: { key: string; label: string; note: string }[] = [
     { key: "visit-followups", label: "Visit follow-ups", note: "every 15 min" },
+    { key: "signups-import", label: "Sign-ups sheet sync", note: "every 15 min" },
     { key: "membership-import", label: "Membership import", note: "every 30 min" },
-    { key: "sheets-export", label: "Sheets export", note: "hourly" },
+    { key: "sheets-export", label: "Sheets export", note: "hourly (:05)" },
+    { key: "podio-updates", label: "Podio continuous updates", note: "daily 05:00 UTC" },
     { key: "period-reports", label: "Period reports", note: "daily 07:00 UTC (fires on sprint/month/quarter ends)" },
-    { key: "podio-updates", label: "B2C Podio updates", note: "daily 05:00 UTC" },
+    { key: "streak-nags", label: "OGV streak nags", note: "daily 16:00 UTC (19:00 Cairo)" },
+    { key: "attendance-reminders", label: "Attendance reminders", note: "daily 21:00 UTC" },
   ];
   const crons: SystemHealth["crons"] = [];
   try {
@@ -2365,6 +2430,49 @@ export async function buildFunctionReport(
 }
 
 // ================================================================== LC feedback
+
+export interface AttendedTouchPointOption {
+  id: string;
+  /** "Team meeting · Sat, Aug 9 · 6:30 PM (Cairo time)" */
+  label: string;
+  ownerName: string;
+}
+
+/** Touch points the viewer actually SHOWED UP to (attended or late) — the
+ *  pick-list for feedback ABOUT a touch point (v29). You can only review a
+ *  session you were in. Most recent first. */
+export async function listAttendedTouchPoints(
+  viewer: Viewer
+): Promise<AttendedTouchPointOption[]> {
+  const { touchPointLabel } = await import("@/lib/types");
+  const { cairoWhen } = await import("@/lib/touch-points");
+  const { data: att, error } = await db()
+    .from("touch_point_attendance")
+    .select("touch_point_id, status")
+    .eq("member_id", viewer.id)
+    .in("status", ["attended", "late"]);
+  if (error) {
+    console.error("[lc-feedback] attended touch points failed:", error.message);
+    return [];
+  }
+  const ids = [...new Set(((att ?? []) as { touch_point_id: string }[]).map((r) => r.touch_point_id))];
+  if (ids.length === 0) return [];
+  const { data } = await db()
+    .from("touch_points")
+    .select("id, scope, kind, starts_at, owner_id, owner_name")
+    .in("id", ids)
+    .order("starts_at", { ascending: false })
+    .limit(30);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[])
+    // no organiser left = nobody to send a shout-out to
+    .filter((tp) => tp.owner_id && tp.owner_id !== viewer.id)
+    .map((tp) => ({
+      id: tp.id,
+      label: `${touchPointLabel(tp.scope, tp.kind)} · ${cairoWhen(tp.starts_at)}`,
+      ownerName: tp.owner_name,
+    }));
+}
 
 export interface LcFeedbackRow {
   id: string;

@@ -3,7 +3,7 @@ import {
   ogxDashboard } from "@/server/data";
 import type { AccountFilters } from "@/server/data";
 import {
-  hasConsiderationAccess, accountScope, icxFunctions, isB2B, isB2C,
+  considerationFunctions, accountScope, icxFunctions, isB2B, isB2C,
   ogxFunctions } from "@/lib/rbac";
 import { memberIsB2C, type OgxFunction } from "@/lib/types";
 import { DashboardView, type DashboardScopeView } from "@/components/crm/dashboard-view";
@@ -61,10 +61,12 @@ export default async function DashboardPage({
   // viewers + LCP/admin get both chips)
   const ogxFns = ogxFunctions(viewer);
   for (const f of ogxFns) views.push({ key: f, label: f });
-  // Consideration (v27): IR calls + the CV pool — ICX VPs/Directors, the
-  // consideration crew and the LCP get the lane
-  if (hasConsiderationAccess(viewer)) {
-    views.push({ key: "CONS", label: "Consideration" });
+  // Consideration (v27, split per product in v29): IR calls + the CV pool.
+  // An IGV VP gets the IGV lane, an IGT VP the IGT lane; the consideration
+  // crew and the LCP/admin follow both.
+  const consFns = considerationFunctions(viewer);
+  for (const f of consFns) {
+    views.push({ key: `CONS_${f}`, label: `${f} Consideration` });
   }
 
   const defaultView = views[0]?.key ?? "all";
@@ -79,18 +81,20 @@ export default async function DashboardPage({
     to: params.to || undefined,
   };
 
-  // CONS / OGT / OGV are pseudo-lanes — getDashboard never receives them:
+  // CONS_* / OGT / OGV are pseudo-lanes — getDashboard never receives them:
   // it runs on the viewer's first REAL account lane (or "all", which for a
   // pure-OGX viewer scopes to their own — empty — accounts and returns fast)
-  const SPECIAL_LANES = new Set(["CONS", "OGT", "OGV"]);
+  const SPECIAL_LANES = new Set(["CONS", "CONS_IGV", "CONS_IGT", "OGT", "OGV"]);
   const baseLane = views.find((v) => !SPECIAL_LANES.has(v.key))?.key ?? "all";
   const isOgxLane = activeFn === "OGT" || activeFn === "OGV";
+  const consLane: "IGV" | "IGT" | null =
+    activeFn === "CONS_IGV" ? "IGV" : activeFn === "CONS_IGT" ? "IGT" : null;
 
   const [data, teamLeaders, members, consideration, ogx] = await Promise.all([
     getDashboard(viewer, filters, SPECIAL_LANES.has(activeFn) ? baseLane : activeFn),
     listTeamLeaders(viewer),
     listVisibleMembers(viewer),
-    activeFn === "CONS" ? considerationStats(viewer) : Promise.resolve(null),
+    consLane ? considerationStats(viewer, consLane) : Promise.resolve(null),
     isOgxLane
       ? ogxDashboard(viewer, activeFn as OgxFunction, {
           from: params.from || undefined,
@@ -168,7 +172,14 @@ export default async function DashboardPage({
       teamLabel={teamLabel}
       views={views}
       activeFn={activeFn}
-      laneLabel={activeFn === "all" ? "ICX" : activeFn === "CONS" ? "Consideration" : activeFn}
+      laneLabel={
+        activeFn === "all"
+          ? "ICX"
+          : consLane
+            ? // never "CONS_IGV Dashboard"
+              `${consLane} Consideration`
+            : activeFn
+      }
       scopeLabel={scopeLabel}
       showTeamDrill={members.some(
         (m) => m.role === "Team Leader" || m.role === "Coordinator"
