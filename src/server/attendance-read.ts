@@ -74,6 +74,8 @@ export interface AttendanceHistoryRow {
 }
 
 export interface AttendanceFilters {
+  /** rows per page — one of PAGE_SIZE_OPTIONS (v31) */
+  pageSize?: number;
   /** YYYY-MM-DD, inclusive, on the touch point's START */
   from?: string;
   to?: string;
@@ -93,6 +95,8 @@ export interface AttendanceTotals {
 }
 
 export const ATTENDANCE_PAGE_SIZE = 50;
+/** the rows-per-page choices every paginated table offers (v31) */
+export const PAGE_SIZE_OPTIONS = [30, 50, 100, 200];
 
 /** How far back the history and the "needs recording" list look. The LC books
  *  a few hundred touch points a term — this keeps every query bounded. */
@@ -232,6 +236,10 @@ export async function listAttendanceHistory(
   filters: AttendanceFilters
 ): Promise<{ rows: AttendanceHistoryRow[]; total: number; page: number; totals: AttendanceTotals }> {
   const page = Math.max(0, (filters.page ?? 1) - 1);
+  // rows-per-page is the member's own choice (v31) — whitelisted by the page
+  const pageSize = PAGE_SIZE_OPTIONS.includes(filters.pageSize ?? 0)
+    ? (filters.pageSize as number)
+    : ATTENDANCE_PAGE_SIZE;
   const empty = {
     rows: [],
     total: 0,
@@ -289,7 +297,7 @@ export async function listAttendanceHistory(
   });
 
   const totals = totalsOf(rows);
-  const slice = rows.slice(page * ATTENDANCE_PAGE_SIZE, (page + 1) * ATTENDANCE_PAGE_SIZE);
+  const slice = rows.slice(page * pageSize, (page + 1) * pageSize);
 
   // 3. names + appeals for the visible page only
   const memberIds = [...new Set(slice.map((r) => r.member_id))];

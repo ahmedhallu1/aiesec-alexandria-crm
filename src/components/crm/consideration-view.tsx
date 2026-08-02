@@ -22,7 +22,8 @@ import { normalizePhone, fmtDateTime } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { CountryInput } from "./country-input";
 import {
-  SortHeader, TableSettings, useTableColumns, useTableSort, type TableColumn,
+  PageSizePicker, SortHeader, TableSettings, useTableColumns, useTableSort,
+  type TableColumn,
 } from "./data-table-kit";
 import { FileDrop } from "./file-drop";
 import { Hint } from "./hint";
@@ -45,7 +46,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 
-const PAGE_SIZE = 50;
+
 const IR_SHOT_MAX = 3 * 1024 * 1024; // 3 MB — base64 rides the action body
 const CV_MAX = 25 * 1024 * 1024;
 
@@ -434,6 +435,8 @@ function PartnerLcManageDialog({
 // ------------------------------------------------------------------ main view
 
 export function ConsiderationView({
+  pageSize,
+  pageSizeOptions,
   tab, lcs, calls, cvs, q, viewer, booking, origin,
 }: {
   tab: "calls" | "cvs";
@@ -441,6 +444,8 @@ export function ConsiderationView({
   calls: CallsData;
   cvs: PageData<CvRow>;
   q: string;
+  pageSize: number;
+  pageSizeOptions: number[];
   viewer: ViewerInfo;
   booking: MyIrBooking | null;
   origin: string;
@@ -517,6 +522,9 @@ export function ConsiderationView({
         ) : null}
         {tab === "calls" || !viewer.showCvs ? (
           <IrCallsTab
+            pageSize={pageSize}
+            pageSizeOptions={pageSizeOptions}
+            onPageSize={(n) => setParams({ size: String(n), page: null })}
             data={calls}
             lcs={allLcs}
             onLcCreated={lcAdded}
@@ -527,6 +535,8 @@ export function ConsiderationView({
           />
         ) : (
           <CvsTab
+            pageSize={pageSize}
+            pageSizeOptions={pageSizeOptions}
             data={cvs}
             lcs={allLcs}
             onLcCreated={lcAdded}
@@ -1063,7 +1073,11 @@ const CV_SORTERS: Record<string, (c: CvRow) => string | number | null> = {
 
 function IrCallsTab({
   data, lcs, onLcCreated, goPage, viewer, booking, origin,
+  pageSize, pageSizeOptions, onPageSize,
 }: {
+  pageSize: number;
+  pageSizeOptions: number[];
+  onPageSize: (n: number) => void;
   data: CallsData;
   lcs: (PartnerLc | PartnerLcDetail)[];
   onLcCreated: (lc: PartnerLc) => void;
@@ -1078,7 +1092,7 @@ function IrCallsTab({
   const [manualOpen, setManualOpen] = useState(false);
 
   const canTouch = (c: IrCallRow) => viewer.isVp || c.member_id === viewer.id;
-  const pages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
+  const pages = Math.max(1, Math.ceil(data.total / pageSize));
 
   // ⚙ Columns + click-to-sort over the page in hand
   const cols = useTableColumns("consideration-calls", CALL_COLUMNS);
@@ -1347,6 +1361,15 @@ function IrCallsTab({
                   );
                 })}
               </div>
+              {data.total > 0 ? (
+                <div className="flex justify-end border-t pt-3">
+                  <PageSizePicker
+                    value={pageSize}
+                    options={pageSizeOptions}
+                    onChange={onPageSize}
+                  />
+                </div>
+              ) : null}
               {pages > 1 ? (
                 <div className="flex items-center justify-between border-t pt-3 text-sm">
                   <Button
@@ -1797,7 +1820,10 @@ const STATUS_CHIP: Record<
 
 function CvsTab({
   data, lcs, onLcCreated, q, viewer, setParams,
+  pageSize, pageSizeOptions,
 }: {
+  pageSize: number;
+  pageSizeOptions: number[];
   data: PageData<CvRow>;
   lcs: (PartnerLc | PartnerLcDetail)[];
   onLcCreated: (lc: PartnerLc) => void;
@@ -1925,7 +1951,7 @@ function CvsTab({
     });
   };
 
-  const pages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
+  const pages = Math.max(1, Math.ceil(data.total / pageSize));
 
   // ⚙ Columns + click-to-sort for the desktop table (phones keep the cards)
   const cols = useTableColumns("consideration-cvs", CV_COLUMNS);
@@ -2328,6 +2354,15 @@ function CvsTab({
         </>
       )}
 
+      {data.total > 0 ? (
+        <div className="flex justify-end">
+          <PageSizePicker
+            value={pageSize}
+            options={pageSizeOptions}
+            onChange={(n: number) => setParams({ size: String(n), page: null })}
+          />
+        </div>
+      ) : null}
       {pages > 1 ? (
         <div className="flex items-center justify-between text-sm">
           <Button

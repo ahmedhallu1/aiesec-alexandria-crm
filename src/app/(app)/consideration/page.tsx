@@ -26,12 +26,15 @@ export default async function ConsiderationPage({
   const showCvs = canSeeCvPool(viewer);
   const tab: "calls" | "cvs" = sp.tab === "cvs" && showCvs ? "cvs" : "calls";
   const page = Math.max(0, (parseInt(sp.page ?? "1", 10) || 1) - 1);
+  // rows per page is the member's own choice (v31) — whitelisted here
+  const PAGE_SIZE_OPTIONS = [30, 50, 100, 200];
+  const pageSize = PAGE_SIZE_OPTIONS.includes(Number(sp.size)) ? Number(sp.size) : 50;
 
   const [lcs, calls, cvs, booking] = await Promise.all([
     listPartnerLcDetails(viewer),
-    listIrCalls(viewer, tab === "calls" ? page : 0),
+    listIrCalls(viewer, tab === "calls" ? page : 0, pageSize),
     showCvs
-      ? listCvsPage(viewer, { q: sp.q }, tab === "cvs" ? page : 0)
+      ? listCvsPage(viewer, { q: sp.q }, tab === "cvs" ? page : 0, pageSize)
       : Promise.resolve({ rows: [], total: 0, page: 0 }),
     myIrBooking(viewer),
   ]);
@@ -43,6 +46,8 @@ export default async function ConsiderationPage({
       calls={calls}
       cvs={cvs}
       q={sp.q ?? ""}
+      pageSize={pageSize}
+      pageSizeOptions={PAGE_SIZE_OPTIONS}
       booking={booking}
       origin={env.appUrl}
       viewer={{

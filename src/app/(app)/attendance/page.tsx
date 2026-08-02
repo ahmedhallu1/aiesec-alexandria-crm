@@ -8,6 +8,7 @@ import {
 import { audienceLabel, cairoWhen } from "@/lib/touch-points";
 import {
   ATTENDANCE_PAGE_SIZE,
+  PAGE_SIZE_OPTIONS,
   listAttendanceHistory,
   listOpenAppeals,
   touchPointsNeedingRecord,
@@ -43,10 +44,13 @@ export default async function AttendancePage({
       : "",
   };
   const page = Math.max(1, Number(params.page) || 1);
+  const pageSize = PAGE_SIZE_OPTIONS.includes(Number(params.size))
+    ? Number(params.size)
+    : ATTENDANCE_PAGE_SIZE;
 
   const [owedRows, history, appeals] = await Promise.all([
     touchPointsNeedingRecord(viewer),
-    listAttendanceHistory(viewer, { ...filters, page }),
+    listAttendanceHistory(viewer, { ...filters, page, pageSize }),
     listOpenAppeals(viewer),
   ]);
 
@@ -76,7 +80,8 @@ export default async function AttendancePage({
       history={history.rows}
       total={history.total}
       page={history.page}
-      pageSize={ATTENDANCE_PAGE_SIZE}
+      pageSize={pageSize}
+      pageSizeOptions={PAGE_SIZE_OPTIONS}
       totals={history.totals}
       appeals={appeals}
       filters={filters}

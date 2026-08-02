@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-09 · Version: v31
+Last updated: 2026-08-09 · Version: v31.1
 
 ---
 
@@ -587,6 +587,14 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-09 · v31.1** — Follow-up: the rows-per-page picker really is on
+  EVERY paginated table now. v31 shipped it on accounts + sign-ups only while
+  the release note claimed all of them — **attendance** (`?size`, whitelisted
+  in the page and re-checked in `listAttendanceHistory` via the new
+  `PAGE_SIZE_OPTIONS`) and **consideration** (IR-call log + CV pool — both
+  reads already took `pageSize`, only the page/view wiring was missing) now
+  carry it too.
 
 - **2026-08-09 · v31** — **THE TABLES RELEASE** + smart contacts, branding and
   dashboard fixes. ① **Universal table kit** (`src/components/crm/data-table-kit.tsx`):
