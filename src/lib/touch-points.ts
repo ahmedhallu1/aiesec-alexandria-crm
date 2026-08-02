@@ -20,6 +20,15 @@ export function cairoWhen(iso: string): string {
   return `${day} · ${time} (Cairo time)`;
 }
 
+/** B2B and BD are ONE crew — the label sits in `functions` on some rows and in
+ *  `sub_functions` (or under the other name) on others, so every touch-point
+ *  function match expands the pair. Mirrors `isB2B`/`memberIsB2B` elsewhere. */
+const B2B_PAIR = ["B2B", "BD"];
+
+export function expandTouchPointFns(fns: string[]): Set<string> {
+  return new Set(fns.flatMap((f) => (B2B_PAIR.includes(f) ? B2B_PAIR : [f])));
+}
+
 export interface TouchPointOption {
   scope: TouchPointScope;
   kind: TouchPointKind;

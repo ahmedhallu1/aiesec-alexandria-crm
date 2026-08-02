@@ -11,13 +11,16 @@ import {
   type TouchPointKind,
   type TouchPointScope,
 } from "@/lib/types";
-import { audienceLabel, cairoWhen } from "@/lib/touch-points";
+import { audienceLabel, cairoWhen, expandTouchPointFns } from "@/lib/touch-points";
+import { cairoToUtc } from "@/lib/time";
 import { getViewer, logAudit } from "./data";
 import { recordUndo, sandboxSuppressed, snapshotForUndo } from "./sandbox";
 import { notifyMembers } from "./notify";
 import { sendEmail } from "@/lib/google/gmail";
+import { resolveAttendancePrompts } from "./attendance-read";
 import {
   getTouchPoint,
+  invitableTeams,
   tmLeadEmails,
   touchPointAudience,
   type TouchPointRow,
@@ -37,6 +40,22 @@ const clean = (v: unknown, max: number) =>
 
 function refresh() {
   revalidatePath("/", "layout");
+}
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^\d{2}:\d{2}/;
+/** A few minutes of slack for clock skew between the booker and the server. */
+const PAST_GRACE_MS = 5 * 60_000;
+
+/** The LC lives on CAIRO wall-clock: the browser sends the date and the time
+ *  it typed, the server decides which instant that is (DST-aware). Never
+ *  parse an offset-less string here — a booker abroad would shift everyone. */
+function cairoStart(date: unknown, time: unknown): Date | null {
+  const d = String(date ?? "");
+  const t = String(time ?? "");
+  if (!DATE_RE.test(d) || !TIME_RE.test(t)) return null;
+  const at = cairoToUtc(d, t);
+  return Number.isNaN(at.getTime()) ? null : at;
 }
 
 /** One place decides what the audience is told, so a move and a cancel can
@@ -107,8 +126,10 @@ export interface CreateTouchPointInput {
   functionKey?: string | null;
   /** required for team points */
   teamName?: string | null;
-  /** ISO instant of the START (there is no end time, by design) */
-  startsAt: string;
+  /** CAIRO wall-clock of the START (there is no end time, by design) — the
+   *  server converts, so a booker on another timezone can't shift the LC */
+  date: string;
+  time: string;
   note?: string | null;
   invitedTeams?: string[];
   invitedFunctions?: string[];
@@ -125,9 +146,12 @@ export async function createTouchPoint(
   if (!canBookTouchPoint(viewer, scope))
     return fail("That touch-point type is above your access.", "forbidden");
 
-  const startsAt = new Date(String(input.startsAt ?? ""));
-  if (!input.startsAt || Number.isNaN(startsAt.getTime()))
-    return fail("Pick the date and start time.");
+  const startsAt = cairoStart(input.date, input.time);
+  if (!startsAt) return fail("Pick the date and start time.");
+  // an invite to something that already happened nags the booker from the very
+  // next cron run — and auto-marks a whole audience absent for working hours
+  if (startsAt.getTime() < Date.now() - PAST_GRACE_MS)
+    return fail("That start time is in the past — touch points are booked ahead.");
 
   const ownFns = [...viewer.functions, ...viewer.sub_functions];
   const functionKey =
@@ -141,24 +165,58 @@ export async function createTouchPoint(
   )
     return fail("You can only book for your own function.", "forbidden");
 
-  const teamName = scope === "team" ? clean(input.teamName, 60) || viewer.team_name : null;
-  if (scope === "team" && !teamName) return fail("Pick the team.");
+  // TEAM BINDING — a team name is free text in the DB and the audience is
+  // resolved from it, so an unchecked name would let a Team Leader book for,
+  // announce to and mark ABSENT a team they have no authority over.
+  let teamName: string | null = null;
+  let invitedTeams: string[] = [];
+  if (scope === "team") {
+    // the registry of teams in the function the viewer just proved they own
+    const known = new Set([
+      ...(viewer.team_name ? [viewer.team_name] : []), // registry may lag members.team_name
+      ...(await invitableTeams(functionKey!, null)),
+    ]);
+    const picksAnyTeam =
+      viewer.isAdmin ||
+      viewer.role === "LCP" ||
+      viewer.role === "LCVP" ||
+      viewer.role === "Director";
+    const picked = clean(input.teamName, 60) || viewer.team_name || "";
+    // a Team Leader / Coordinator owns exactly one team — never someone else's
+    teamName = picksAnyTeam
+      ? known.has(picked)
+        ? picked
+        : null
+      : picked && picked === viewer.team_name
+        ? picked
+        : null;
+    if (!teamName)
+      return fail(
+        picksAnyTeam
+          ? "Pick one of your function's teams."
+          : "You can only book for your own team.",
+        "forbidden"
+      );
+    invitedTeams = [...new Set((input.invitedTeams ?? []).map((t) => clean(t, 60)))]
+      .filter((t) => t && t !== teamName && known.has(t))
+      .slice(0, 10);
+  }
 
   // TM / F&L / CXP have no working floor — no working hours for or with them
   if (kind === "working_hours" && functionKey && NO_WORKING_HOURS_FUNCTIONS.includes(functionKey))
     return fail(`${functionKey} doesn't run working hours.`);
-
-  const invitedTeams =
-    scope === "team" ? [...new Set((input.invitedTeams ?? []).map((t) => clean(t, 60)).filter(Boolean))] : [];
+  // "B2B" and "BD" are the same crew — inviting the other name would be a
+  // no-op duplicate of the point's own function
+  const fnSelf = expandTouchPointFns(functionKey ? [functionKey] : []);
   const invitedFunctions =
     scope === "function"
       ? [
           ...new Set(
             (input.invitedFunctions ?? [])
               .map((f) => clean(f, 20))
-              .filter((f) => f && f !== functionKey && !NO_WORKING_HOURS_FUNCTIONS.includes(f))
+              .filter((f) => f && !fnSelf.has(f) && !NO_WORKING_HOURS_FUNCTIONS.includes(f))
           ),
-        ]
+        ].slice(0, 10)
       : [];
 
   const { data: created, error } = await db()
@@ -192,7 +250,7 @@ export async function createTouchPoint(
 
 export async function updateTouchPoint(
   id: string,
-  patch: { startsAt?: string; note?: string | null }
+  patch: { date?: string; time?: string; note?: string | null }
 ): Promise<Result> {
   const viewer = await getViewer();
   const tp = await getTouchPoint(id);
@@ -204,10 +262,13 @@ export async function updateTouchPoint(
   const next: Record<string, unknown> = {};
   let moved = false;
   const previousWhen = cairoWhen(tp.starts_at);
-  if (patch.startsAt) {
-    const d = new Date(patch.startsAt);
-    if (Number.isNaN(d.getTime())) return fail("That date and time don't look right.");
-    if (d.toISOString() !== tp.starts_at) {
+  if (patch.date || patch.time) {
+    const d = cairoStart(patch.date, patch.time);
+    if (!d) return fail("That date and time don't look right.");
+    if (d.getTime() < Date.now() - PAST_GRACE_MS)
+      return fail("You can't move a touch point into the past.");
+    // the stored value comes back with a "+00:00" offset — compare instants
+    if (d.getTime() !== new Date(tp.starts_at).getTime()) {
       next.starts_at = d.toISOString();
       moved = true;
     }
@@ -245,6 +306,11 @@ export async function cancelTouchPoint(id: string, reason: string): Promise<Resu
     .update({ status: "cancelled", cancel_reason: why })
     .eq("id", id);
   if (error) return fail(error.message);
+
+  // a cancelled point can never be recorded, so its nag prompts can never be
+  // resolved by a save — clear them here or they block the responsible forever
+  if (!(await sandboxSuppressed("attendance prompt resolve")))
+    await resolveAttendancePrompts(id);
 
   await announce({ ...tp, status: "cancelled" }, "cancelled", { reason: why });
   await logAudit(viewer.id, "touch_point_cancel", "touch_point", id, { reason: why });

@@ -10,6 +10,7 @@ import {
   type TouchPointScope,
 } from "@/lib/types";
 import { audienceLabel } from "@/lib/touch-points";
+import { cairoToUtc } from "@/lib/time";
 import {
   getTouchPoint,
   touchPointAudience,
@@ -107,7 +108,8 @@ export const WORK_GRACE_MINUTES = 15;
 /** The rule, in one plain sentence — printed in the UI so nobody guesses. */
 export const WORKING_HOURS_RULE =
   `You are marked present automatically when you do at least ${WORK_MIN_ACTIONS} real work actions ` +
-  `(a contact, a visit, a deal, a comment, a sign-up or an IR call) inside the ` +
+  `(an account added or edited, a contact, a visit, a deal, a comment, a sign-up ` +
+  `or an IR call) inside the ` +
   `${WORK_SESSION_HOURS}-hour session — from ${WORK_GRACE_MINUTES} minutes before it starts — ` +
   `with at least ${WORK_MIN_GAP_MINUTES} minutes between your first and your last one.`;
 
@@ -238,8 +240,15 @@ export async function listAttendanceHistory(
 
   // 1. the touch points in range (the history is ordered by when they HAPPENED)
   let tpq = db().from("touch_points").select("*").order("starts_at", { ascending: false });
-  if (filters.from) tpq = tpq.gte("starts_at", `${filters.from}T00:00:00.000Z`);
-  if (filters.to) tpq = tpq.lte("starts_at", `${filters.to}T23:59:59.999Z`);
+  // the pickers are CAIRO calendar days — a UTC midnight would push the
+  // 00:00–02:59 band of every day into the day before
+  if (filters.from) tpq = tpq.gte("starts_at", cairoToUtc(filters.from, "00:00").toISOString());
+  if (filters.to) {
+    const next = new Date(`${filters.to}T00:00:00Z`);
+    next.setUTCDate(next.getUTCDate() + 1);
+    // `lt` the NEXT Cairo midnight, so a DST hour is never dropped or doubled
+    tpq = tpq.lt("starts_at", cairoToUtc(next.toISOString().slice(0, 10), "00:00").toISOString());
+  }
   if (filters.kind) tpq = tpq.eq("kind", filters.kind);
   const { data: tpData, error: tpError } = await tpq.limit(HISTORY_TOUCH_POINT_CAP);
   if (tpError) {
@@ -583,19 +592,34 @@ export interface PendingPromptRow {
  *  the AppShell mounts). Generic on purpose — kind + ref_id + title/body/link
  *  means any future "you still owe us X" reuses the whole ladder. */
 export async function openPendingPrompt(memberId: string): Promise<PendingPromptRow | null> {
-  const { data, error } = await db()
-    .from("pending_prompts")
-    .select("id, kind, ref_id, title, body, link")
-    .eq("member_id", memberId)
-    .eq("resolved", false)
-    .order("created_at")
-    .limit(1)
-    .maybeSingle<PendingPromptRow>();
-  if (error) {
-    console.error("[attendance] pending prompt query failed:", error.message);
-    return null;
+  // the OLDEST prompt masks every later one, so a stranded row would hide
+  // every genuine future prompt — self-heal past anything unrecordable
+  for (let guard = 0; guard < 5; guard += 1) {
+    const { data, error } = await db()
+      .from("pending_prompts")
+      .select("id, kind, ref_id, title, body, link")
+      .eq("member_id", memberId)
+      .eq("resolved", false)
+      .order("created_at")
+      .limit(1)
+      .maybeSingle<PendingPromptRow>();
+    if (error) {
+      console.error("[attendance] pending prompt query failed:", error.message);
+      return null;
+    }
+    const row = data ?? null;
+    if (!row) return null;
+    if (row.kind === "attendance" && row.ref_id) {
+      const tp = await getTouchPoint(row.ref_id);
+      // cancelled (or gone) → nothing can ever be recorded for it
+      if (!tp || tp.status !== "scheduled") {
+        await resolveAttendancePrompts(row.ref_id);
+        continue;
+      }
+    }
+    return row;
   }
-  return data ?? null;
+  return null;
 }
 
 /** The record landed → every prompt about it is done. */

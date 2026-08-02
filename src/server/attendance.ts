@@ -188,6 +188,13 @@ export async function saveAttendance(
     return fail("Recording this one's attendance is above your access.", "forbidden");
   if (tp.status !== "scheduled")
     return fail("This touch point is cancelled — there is nothing to record.");
+  // working hours are EVIDENCE-based: hand-writing them before the session has
+  // even finished would let anyone mark a whole team present in advance AND
+  // permanently lock the engine out of every row it touched
+  if (tp.kind === "working_hours" && !workWindowClosed(tp.starts_at))
+    return fail(
+      "Working hours record themselves — you can correct them once the session's window closes."
+    );
 
   const audience = await touchPointAudience(tp);
   const allowed = new Set(audience.map((m) => m.id));
@@ -196,6 +203,7 @@ export async function saveAttendance(
   const byMember = new Map(existing.map((r) => [r.member_id, r]));
 
   const now = new Date().toISOString();
+  let unchanged = 0;
   const payload = (rows ?? [])
     .filter((r) => r && allowed.has(r.memberId))
     // nobody marks THEMSELF present on a point they only got edit rights to:
@@ -205,17 +213,34 @@ export async function saveAttendance(
     .map((r) => {
       // an excuse only means anything when someone wasn't there on time
       const excusable = r.status === "absent" || r.status === "late";
+      const excused = excusable ? !!r.excused : false;
+      const excuse = excusable ? clean(r.excuse, 500) || null : null;
+      // an UNTOUCHED automatic row stays the engine's: re-saving it verbatim
+      // (opening the sheet to fix one person re-sends everybody) would hand it
+      // to a human and make "Recompute" a permanent no-op
+      const prior = byMember.get(r.memberId);
+      if (
+        prior?.automatic && !prior.recorded_by &&
+        prior.status === r.status && !prior.excused && !excused
+      ) {
+        unchanged += 1;
+        return null;
+      }
       return {
         touch_point_id: touchPointId,
         member_id: r.memberId,
         status: r.status,
-        excused: excusable ? !!r.excused : false,
-        excuse: excusable ? clean(r.excuse, 500) || null : null,
+        excused,
+        excuse,
         automatic: false,
         recorded_by: viewer.id,
         recorded_at: now,
       };
-    });
+    })
+    .filter((p): p is NonNullable<typeof p> => p !== null);
+  // a pure review of the engine's own rows changes nothing — that's a success,
+  // not "you forgot to set someone"
+  if (payload.length === 0 && unchanged > 0) return { ok: true, data: { saved: 0 } };
   if (payload.length === 0)
     return fail("Set at least one person's attendance first.");
 
@@ -238,7 +263,10 @@ export async function saveAttendance(
   for (const s of ((saved ?? []) as any[]))
     if (!byMember.has(s.member_id)) await recordUndo("touch_point_attendance", s.id, "insert");
 
-  if (!tp.attendance_recorded_at) {
+  // a ONE-PERSON manual fix must not drop a working-hours point out of the
+  // cron's work list — the engine still owes everybody else a row
+  const coversAudience = payload.length + unchanged >= audience.length;
+  if (!tp.attendance_recorded_at && (tp.kind !== "working_hours" || coversAudience)) {
     await snapshotForUndo("touch_points", touchPointId);
     const { error: stampError } = await db()
       .from("touch_points")

@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-08 · Version: v29
+Last updated: 2026-08-08 · Version: v29.2
 
 ---
 
@@ -587,6 +587,36 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-08 · v29.2** — **THE v29 REVIEW PASS** (24-agent adversarial
+  review of the shipped TM module → **16 confirmed findings, all fixed**).
+  The big one was **CRITICAL**: `createTouchPoint` validated the function but
+  NEVER the team, and `touchPointAudience` matched team names globally — so a
+  Team Leader could book a "team touch point" naming ANOTHER team, become its
+  owner, and write **absent** rows against members they have no authority
+  over (reachable from the UI, since the picker was handed every team in the
+  function). Fixed on three layers: team names now resolve against
+  `invitableTeams(fn)` server-side with a Team Leader PINNED to their own
+  team, the picker only offers what the role may pick, and the audience's
+  team branch additionally requires the member's functions to intersect
+  `function_key` (so legacy rows stop matching). Also fixed: **update/cancel
+  were dead code** — nothing called them, so a booked touch point could never
+  be moved or cancelled (new `touch-point-manage-dialog.tsx`, per-point
+  `canEdit` computed server-side, re-notification on both); the start time
+  was built in the BROWSER's timezone (now `date`+`time` Cairo wall-clock via
+  `cairoToUtc`); a prompt filed for a later-cancelled touch point could block
+  a member forever (`cancelTouchPoint` resolves prompts + `openPendingPrompt`
+  self-heals stranded rows); the working-hours engine ignored account work
+  (`stampWork` on create/update/import, once per import); manual working-hours
+  rows could be written before the session (now gated on
+  `workWindowClosed`); `expandTouchPointFns` stops B2B/BD splitting a function
+  in half; the manage page compared two ISO formats so the IR's current slot
+  was never excluded; the calendar saw only the 50 newest IR calls (now
+  range-queried) and used UTC day bounds for a Cairo grid; the attendance
+  history filtered on UTC midnights; a failed reminder email skipped the
+  counter so it re-sent daily; `listPartnerLcDetails` counted unpaged.
+  **Migration 0032 was applied to prod with no file in the repo — the file
+  now exists** (idempotent, a no-op against prod).
 
 - **2026-08-08 · v29** — **THE TM MODULE** + a 20-item fix batch.
   ① **Touch points** (migration **0031 applied**: `touch_points`,

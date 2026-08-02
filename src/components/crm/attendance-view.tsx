@@ -191,7 +191,12 @@ function RecordDialog({
       }
       const res = await saveAttendance(touchPointId, rows);
       if (res.ok) {
-        toast.success(`Attendance recorded for ${res.data?.saved ?? rows.length} people ✅`);
+        const saved = res.data?.saved ?? rows.length;
+        toast.success(
+          saved === 0
+            ? "Nothing changed — the records stay as they were ✅"
+            : `Attendance recorded for ${saved} people ✅`
+        );
         onClose();
         router.refresh();
       } else toast.error(res.error);
@@ -209,6 +214,9 @@ function RecordDialog({
     });
 
   const missing = (sheet?.rows ?? []).filter((r) => !r.locked && !draft[r.memberId]?.status).length;
+  // a working-hours session can't be hand-written before it has even finished
+  // (the server refuses it) — don't offer the button
+  const stillOpen = !!sheet?.isWorkingHours && !sheet.windowClosed;
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
@@ -337,7 +345,12 @@ function RecordDialog({
         )}
 
         <DialogFooter className="items-center">
-          {missing > 0 ? (
+          {stillOpen ? (
+            <span className="mr-auto text-[11px] text-muted-foreground">
+              Working hours record themselves — corrections open once the
+              session&apos;s window closes.
+            </span>
+          ) : missing > 0 ? (
             <span className="mr-auto text-[11px] text-muted-foreground">
               {missing} still unset
             </span>
@@ -345,7 +358,7 @@ function RecordDialog({
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={pending || loading}>
+          <Button onClick={submit} disabled={pending || loading || stillOpen}>
             {pending ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
             Save attendance
           </Button>

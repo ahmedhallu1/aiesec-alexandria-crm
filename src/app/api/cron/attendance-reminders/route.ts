@@ -163,10 +163,12 @@ export async function GET(req: NextRequest) {
         // the ladder is spent — the in-app prompt takes over from the inbox
         for (const o of owners)
           if (await ensurePrompt(o.id, tp, label, whenLabel)) prompted.push(`${o.name} → ${label}`);
-        await db()
+        const { error: promptStampError } = await db()
           .from("touch_points")
           .update({ attendance_reminded_on: today })
           .eq("id", tp.id);
+        if (promptStampError)
+          errors.push(`${label} ${whenLabel}: stamp failed: ${promptStampError.message}`);
         continue;
       }
 
@@ -192,7 +194,18 @@ export async function GET(req: NextRequest) {
           reminder,
           touchPointId: tp.id,
         });
-        await sendEmail({ to: [...new Set(emails)], ...mail });
+        // the bell has ALREADY gone out — a Gmail hiccup must never leave the
+        // counter unstamped, or this same reminder re-sends every night and
+        // the ladder never escalates to the in-app prompt
+        try {
+          await sendEmail({ to: [...new Set(emails)], ...mail });
+        } catch (e) {
+          errors.push(
+            `${label} ${whenLabel}: reminder #${reminder} email failed: ${
+              e instanceof Error ? e.message : e
+            }`
+          );
+        }
       }
 
       const { error: stampError } = await db()
