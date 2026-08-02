@@ -43,6 +43,9 @@ export function PendingPrompt() {
   const pathname = usePathname();
   const [prompt, setPrompt] = useState<Prompt | null>(null);
   const [open, setOpen] = useState(false);
+  // the landing route, captured once — the effect must run per APP OPEN, not
+  // per navigation (a check on every route change would nag them mid-flow)
+  const landedOn = useRef(pathname);
 
   useEffect(() => {
     let alive = true;
@@ -56,7 +59,7 @@ export function PendingPrompt() {
       const row = await getMyPendingPrompt().catch(() => null);
       if (!alive || !row) return;
       // don't nag them ON the page that clears it
-      if (row.link && pathname && row.link.split("?")[0] === pathname) return;
+      if (row.link && landedOn.current && row.link.split("?")[0] === landedOn.current) return;
       setPrompt({
         id: row.id,
         kind: row.kind,
@@ -69,8 +72,7 @@ export function PendingPrompt() {
     return () => {
       alive = false;
     };
-    // one check per route change is enough — it's a single indexed read
-  }, [pathname]);
+  }, []);
 
   const snooze = () => {
     try {

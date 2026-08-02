@@ -90,6 +90,7 @@ async function ensurePrompt(
     .eq("kind", "attendance")
     .eq("ref_id", tp.id)
     .eq("resolved", false)
+    .limit(1)
     .maybeSingle<{ id: string }>();
   if (existing) return false;
   const { error } = await db().from("pending_prompts").insert({

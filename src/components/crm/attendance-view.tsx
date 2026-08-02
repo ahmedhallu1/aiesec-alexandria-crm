@@ -129,34 +129,40 @@ function RecordDialog({
   const [draft, setDraft] = useState<Record<string, DraftRow>>({});
   const [loading, setLoading] = useState(true);
   const [pending, start] = useTransition();
-  // onClose is re-created by the parent on every render — keeping it in a ref
-  // is what stops `load` from changing identity and re-firing its effect
+  // bumped after a recompute to pull the fresh verdicts back in
+  const [reloadKey, setReloadKey] = useState(0);
+  // onClose is re-created by the parent on every render — the ref keeps the
+  // fetch effect from re-firing on it
   const closeRef = useRef(onClose);
-  closeRef.current = onClose;
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    const res = await loadAttendanceSheet(touchPointId);
-    if (!res.ok) {
-      toast.error(res.error);
-      closeRef.current();
-      return;
-    }
-    setSheet(res.data!);
-    const next: Record<string, DraftRow> = {};
-    for (const r of res.data!.rows)
-      next[r.memberId] = {
-        status: r.status,
-        excused: r.excused,
-        excuse: r.excuse ?? "",
-      };
-    setDraft(next);
-    setLoading(false);
-  }, [touchPointId]);
+  useEffect(() => {
+    closeRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let alive = true;
+    (async () => {
+      const res = await loadAttendanceSheet(touchPointId);
+      if (!alive) return;
+      if (!res.ok) {
+        toast.error(res.error);
+        closeRef.current();
+        return;
+      }
+      setSheet(res.data!);
+      const next: Record<string, DraftRow> = {};
+      for (const r of res.data!.rows)
+        next[r.memberId] = {
+          status: r.status,
+          excused: r.excused,
+          excuse: r.excuse ?? "",
+        };
+      setDraft(next);
+      setLoading(false);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [touchPointId, reloadKey]);
 
   const set = (memberId: string, patch: Partial<DraftRow>) =>
     setDraft((d) => ({ ...d, [memberId]: { ...d[memberId], ...patch } }));
@@ -197,7 +203,7 @@ function RecordDialog({
       if (res.ok) {
         const d = res.data!;
         toast.success(`Computed — ${d.attended} in, ${d.absent} out${d.skipped > 0 ? ` (${d.skipped} left as edited)` : ""}`);
-        await load();
+        setReloadKey((k) => k + 1);
         router.refresh();
       } else toast.error(res.error);
     });
@@ -439,10 +445,14 @@ export function AttendanceView({
   const [appealing, setAppealing] = useState<AttendanceHistoryRow | null>(null);
   const [resolving, startResolve] = useTransition();
 
-  // a reminder / bell / pending prompt deep-links straight into the sheet
-  useEffect(() => {
+  // a reminder / bell / pending prompt deep-links straight into the sheet:
+  // derive the open dialog from the ?tp= prop (adjust-during-render, so no
+  // cascading effect) — a manual open/close still wins until the link changes
+  const [lastLinked, setLastLinked] = useState(openTouchPointId);
+  if (lastLinked !== openTouchPointId) {
+    setLastLinked(openTouchPointId);
     setRecording(openTouchPointId);
-  }, [openTouchPointId]);
+  }
 
   const setParam = useCallback(
     (key: string, value: string) => {

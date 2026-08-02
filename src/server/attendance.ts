@@ -320,6 +320,17 @@ export async function appealAttendance(
   const tp = await getTouchPoint(row.touch_point_id);
   if (!tp) return fail("That touch point no longer exists.");
 
+  // one open appeal per row — the client hides the button, the server means it
+  const { data: pending } = await db()
+    .from("attendance_appeals")
+    .select("id")
+    .eq("attendance_id", attendanceId)
+    .eq("resolved", false)
+    .limit(1)
+    .maybeSingle<{ id: string }>();
+  if (pending)
+    return fail("You already appealed this one — it's still being reviewed.");
+
   const { data: created, error } = await db()
     .from("attendance_appeals")
     .insert({ attendance_id: attendanceId, member_id: viewer.id, message: text })
