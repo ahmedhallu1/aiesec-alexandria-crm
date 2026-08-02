@@ -224,6 +224,7 @@ const SECTIONS: Section[] = [
       <>They all land on <b>Calendar</b> — together with visits and IR calls. You see what you belong to: your team&apos;s, your function&apos;s (yes, including other teams&apos; points), and every LC-wide one.</>,
       <><b>Attendance is taken afterwards</b> — attended · late · absent, with a &quot;valid excuse?&quot; box. Team points are recorded by the Team Leader, function points by the VP/Director (MMs can edit, but never their own row), LC points by TM.</>,
       <><b>Working hours record themselves</b> 🤖: you&apos;re marked attended when you did at least <b>two real actions at least 10 minutes apart</b> during the session (log a contact, book a visit, record a deal, work a sign-up, log an IR call…). Two clicks in a row won&apos;t fool it; one call plus a comment a quarter of an hour later counts.</>,
+      <>Plans change: whoever booked a touch point (plus the function&apos;s VP/Director and TM) can <b>move it or cancel it</b> from the calendar — tap it and pick <b>Move or cancel</b>. A cancel needs a reason, and either way everyone invited is emailed again. </>,
       <>Check <b>Attendance</b> any time — your own history and rate, your team&apos;s if you lead one, your function&apos;s if you run one. Disagree with a mark? Hit <b>Appeal</b> and whoever recorded it hears from you, with TM on CC.</>,
       <>Owed a record? Elevate reminds you daily — and after <b>three reminders</b> it greets you with a prompt you can&apos;t wave away. Just fill it. 💙</>,
     ],
