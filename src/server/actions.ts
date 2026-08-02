@@ -215,7 +215,9 @@ function legacyContactColumns(list: AccountContact[]) {
 }
 
 export async function createAccount(
-  input: z.infer<typeof createAccountSchema>
+  input: z.infer<typeof createAccountSchema>,
+  /** the bulk import stamps ONCE for the whole run instead of per row */
+  opts?: { stampActivity?: boolean }
 ): Promise<ActionResult<{ id: string; slug: string }>> {
   const viewer = await getViewer();
   const parsed = createAccountSchema.safeParse(input);
@@ -344,6 +346,8 @@ export async function createAccount(
 
   await recordUndo("accounts", created.id, "insert"); // children cascade on undo
   await logAudit(viewer.id, "create", "account", created.id, { name: data.name });
+  if (opts?.stampActivity !== false)
+    await stampWork(viewer.id, "account_created"); // v29: counts towards working hours
   refresh();
   return { ok: true, data: { id: created.id, slug: accountSlug(data.name) } };
 }
@@ -412,6 +416,7 @@ export async function updateAccount(
     await syncNextStepReminder(accountId);
   }
   await logAudit(viewer.id, "update", "account", accountId, { fields: Object.keys(update) });
+  await stampWork(viewer.id, "account_updated"); // v29: counts towards working hours
   refresh(accountId);
   return { ok: true };
 }
@@ -2769,7 +2774,7 @@ export interface ImportRowResult {
 export async function importAccountsBulk(
   rows: ImportRowInput[]
 ): Promise<ActionResult<{ results: ImportRowResult[]; created: number }>> {
-  await getViewer(); // auth check up-front
+  const viewer = await getViewer(); // auth check up-front
   if (!rows?.length) return fail("Nothing to import.");
   if (rows.length > 500) return fail("Import at most 500 accounts at a time.");
 
@@ -2793,7 +2798,7 @@ export async function importAccountsBulk(
       website: row.website ?? null,
       comment: row.comment ?? null,
       responsible_id: row.responsible_id ?? null,
-    });
+    }, { stampActivity: false });
     if (res.ok) {
       created += 1;
       results.push({ name: row.name, ok: true });
@@ -2801,6 +2806,9 @@ export async function importAccountsBulk(
       results.push({ name: row.name, ok: false, error: res.error });
     }
   }
+  // one stamp for the whole run — 500 `after()` inserts would cost the member
+  // nothing but flood work_activity with a single session's worth of rows
+  if (created > 0) await stampWork(viewer.id, "accounts_imported"); // v29
   refresh();
   return { ok: true, data: { results, created } };
 }

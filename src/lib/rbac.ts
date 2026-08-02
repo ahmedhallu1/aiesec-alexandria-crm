@@ -4,6 +4,7 @@ import {
   type Member,
   type TouchPointScope,
 } from "./types";
+import { expandTouchPointFns } from "./touch-points";
 
 /** The RBAC engine. Every read is filtered through `accountScope` and every
  *  mutation is checked with a `can*` predicate — server-side, before any query.
@@ -227,9 +228,8 @@ export function canEditTouchPoint(v: Viewer, tp: TouchPointRef): boolean {
   if (master(v)) return true;
   if (tp.owner_id && tp.owner_id === v.id) return true;
   if (tp.scope === "lc") return isTmCore(v);
-  const inFn =
-    !!tp.function_key &&
-    [...v.functions, ...v.sub_functions].some((f) => f === tp.function_key);
+  const tpFns = expandTouchPointFns(tp.function_key ? [tp.function_key] : []);
+  const inFn = [...v.functions, ...v.sub_functions].some((f) => tpFns.has(f));
   return (v.role === "LCVP" || v.role === "Director") && inFn;
 }
 
@@ -240,9 +240,8 @@ export function canEditTouchPoint(v: Viewer, tp: TouchPointRef): boolean {
 export function canRecordAttendance(v: Viewer, tp: TouchPointRef): boolean {
   if (master(v) || isTmCore(v)) return true;
   if (tp.scope === "lc") return false;
-  const fnMatch =
-    !!tp.function_key &&
-    [...v.functions, ...v.sub_functions].some((f) => f === tp.function_key);
+  const tpFns = expandTouchPointFns(tp.function_key ? [tp.function_key] : []);
+  const fnMatch = [...v.functions, ...v.sub_functions].some((f) => tpFns.has(f));
   if (tp.scope === "function")
     return fnMatch && ["LCVP", "Director", "Team Leader", "Coordinator"].includes(v.role);
   if (tp.owner_id === v.id) return true;

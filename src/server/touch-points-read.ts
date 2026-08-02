@@ -3,7 +3,8 @@ import {
   isTmCore,
   type Viewer,
 } from "@/lib/rbac";
-import type { TouchPointKind, TouchPointScope } from "@/lib/types";
+import { NO_WORKING_HOURS_FUNCTIONS, type TouchPointKind, type TouchPointScope } from "@/lib/types";
+import { expandTouchPointFns } from "@/lib/touch-points";
 
 /** Reads for TM touch points (v29). Plain module — NOT "use server" — so the
  *  calendar, the attendance module and the actions can all share it. */
@@ -50,19 +51,31 @@ export async function touchPointAudience(tp: TouchPointRow): Promise<AudienceMem
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const all = (data ?? []) as any[];
   const teams = new Set([...(tp.invited_teams ?? []), ...(tp.team_name ? [tp.team_name] : [])]);
-  const functions = new Set([
+  const functions = expandTouchPointFns([
     ...(tp.invited_functions ?? []),
     ...(tp.function_key ? [tp.function_key] : []),
   ]);
+  const invFns = expandTouchPointFns(tp.invited_functions ?? []);
+  // a team point belongs to ONE function — a team name matching across
+  // functions would drag strangers into someone's attendance sheet
+  const ownFns = expandTouchPointFns(tp.function_key ? [tp.function_key] : []);
 
   const keep = all.filter((m) => {
-    if (tp.scope === "lc") return true;
+    if (tp.scope === "lc")
+      // TM / F&L / CXP have nothing that stamps work — an LC working-hours
+      // session must not judge people with no stampable workspace
+      return (
+        tp.kind !== "working_hours" ||
+        !fnsOf(m).some((f) => NO_WORKING_HOURS_FUNCTIONS.includes(f))
+      );
     if (tp.scope === "function") return fnsOf(m).some((f) => functions.has(f));
-    // a team point: that team's members, plus any invited team's members —
-    // and any invited FUNCTION comes along whole (a team may invite siblings)
+    // a team point: that team's members INSIDE the point's own function, plus
+    // any invited team's — and an invited FUNCTION comes along whole
     return (
-      (m.team_name && teams.has(m.team_name)) ||
-      fnsOf(m).some((f) => (tp.invited_functions ?? []).includes(f))
+      (m.team_name &&
+        teams.has(m.team_name) &&
+        (ownFns.size === 0 || fnsOf(m).some((f) => ownFns.has(f)))) ||
+      fnsOf(m).some((f) => invFns.has(f))
     );
   });
   // the owner always belongs to their own touch point
@@ -87,8 +100,11 @@ export function viewerSeesTouchPoint(viewer: Viewer, tp: TouchPointRow): boolean
   if (isTmCore(viewer)) return true;
   if (tp.scope === "lc") return true;
   const mine = fnsOf(viewer);
-  const fns = [...(tp.invited_functions ?? []), ...(tp.function_key ? [tp.function_key] : [])];
-  if (fns.some((f) => mine.includes(f))) return true;
+  const fns = expandTouchPointFns([
+    ...(tp.invited_functions ?? []),
+    ...(tp.function_key ? [tp.function_key] : []),
+  ]);
+  if (mine.some((f) => fns.has(f))) return true;
   const teams = [...(tp.invited_teams ?? []), ...(tp.team_name ? [tp.team_name] : [])];
   return !!viewer.team_name && teams.includes(viewer.team_name);
 }
@@ -137,7 +153,8 @@ export async function invitableTeams(functionKey: string, exclude?: string | nul
     .from("teams")
     .select("name, function_key, type")
     .eq("type", "Team")
-    .eq("function_key", functionKey);
+    // B2B and BD are one crew — their teams are registered under either name
+    .in("function_key", [...expandTouchPointFns([functionKey])]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ((data ?? []) as any[])
     .map((t) => t.name as string)

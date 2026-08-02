@@ -3053,24 +3053,31 @@ export interface PartnerLcDetail extends PartnerLc {
 
 export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDetail[]> {
   if (!_hasConsiderationAccess(viewer)) return [];
-  const [lcs, callRes, cvRes] = await Promise.all([
+  // Supabase caps one response at 1000 rows — page both whole-table reads on a
+  // STABLE key (fetchAll re-runs the builder per page), then restore the
+  // newest-first order the counts and the contacts loop rely on
+  const [lcs, calls, cvRows] = await Promise.all([
     listPartnerLcs(viewer),
-    db()
-      .from("ir_calls")
-      .select("partner_lc_id, called_at, booker_name, booker_role, booker_email, status")
-      .order("called_at", { ascending: false }),
-    db().from("cvs").select("partner_lc_id"),
+    fetchAll<{
+      partner_lc_id: string | null;
+      called_at: string;
+      booker_name: string | null;
+      booker_role: string | null;
+      booker_email: string | null;
+      status: string;
+    }>(() =>
+      db()
+        .from("ir_calls")
+        .select("partner_lc_id, called_at, booker_name, booker_role, booker_email, status")
+        .order("id")
+    ),
+    fetchAll<{ partner_lc_id: string | null }>(() =>
+      db().from("cvs").select("partner_lc_id").order("id")
+    ),
   ]);
-  const calls = (callRes.data ?? []) as {
-    partner_lc_id: string | null;
-    called_at: string;
-    booker_name: string | null;
-    booker_role: string | null;
-    booker_email: string | null;
-    status: string;
-  }[];
+  calls.sort((a, b) => (a.called_at < b.called_at ? 1 : a.called_at > b.called_at ? -1 : 0));
   const cvCounts = new Map<string, number>();
-  for (const c of (cvRes.data ?? []) as { partner_lc_id: string | null }[]) {
+  for (const c of cvRows) {
     if (c.partner_lc_id) cvCounts.set(c.partner_lc_id, (cvCounts.get(c.partner_lc_id) ?? 0) + 1);
   }
   return lcs.map((lc) => {
@@ -3131,26 +3138,35 @@ export interface IrCallRow {
 export async function listIrCalls(
   viewer: Viewer,
   page = 0,
-  pageSize = 50
+  pageSize = 50,
+  /** a DATE WINDOW instead of page 0 — the calendar needs the month it shows,
+   *  not the 50 newest calls in the LC's whole history (v29) */
+  range?: { fromIso: string; toIso: string }
 ): Promise<{ scheduled: IrCallRow[]; rows: IrCallRow[]; total: number; page: number }> {
   if (!_hasConsiderationAccess(viewer))
     return { scheduled: [], rows: [], total: 0, page: 0 };
   const from = Math.max(0, page) * pageSize;
+  let schedQ = db()
+    .from("ir_calls")
+    .select("*")
+    .eq("status", "scheduled")
+    .order("called_at", { ascending: true })
+    .order("id");
+  let logQ = db()
+    .from("ir_calls")
+    .select("*", { count: "exact" })
+    .neq("status", "scheduled")
+    .order("called_at", { ascending: false })
+    .order("id");
+  if (range) {
+    schedQ = schedQ.gte("called_at", range.fromIso).lte("called_at", range.toIso);
+    logQ = logQ.gte("called_at", range.fromIso).lte("called_at", range.toIso);
+  }
   const [sched, log] = await Promise.all([
-    db()
-      .from("ir_calls")
-      .select("*")
-      .eq("status", "scheduled")
-      .order("called_at", { ascending: true })
-      .order("id")
-      .limit(500),
-    db()
-      .from("ir_calls")
-      .select("*", { count: "exact" })
-      .neq("status", "scheduled")
-      .order("called_at", { ascending: false })
-      .order("id")
-      .range(from, from + pageSize - 1),
+    schedQ.limit(500),
+    // a windowed read takes the WHOLE window (a month can't realistically
+    // exceed 1000 calls); the paged log keeps its 50-row page
+    range ? logQ.limit(1000) : logQ.range(from, from + pageSize - 1),
   ]);
   if (log.error) return { scheduled: [], rows: [], total: 0, page: 0 };
   // the manage token is an email-held capability for the IR — shipping it to
@@ -3628,7 +3644,14 @@ export async function getManageBooking(token: string): Promise<ManageBookingData
     days:
       call.status === "scheduled" && linkLive
         ? (await freeBookingSlots(settings!, { excludeCallId: call.id }))
-            .map((d) => ({ ...d, slots: d.slots.filter((s) => s.iso !== call.called_at) }))
+            .map((d) => ({
+              // PostgREST returns "…+00:00" while the grid mints "….000Z" —
+              // compare INSTANTS or the exclusion silently never matches
+              ...d,
+              slots: d.slots.filter(
+                (s) => new Date(s.iso).getTime() !== new Date(call.called_at).getTime()
+              ),
+            }))
             .filter((d) => d.slots.length > 0)
         : [],
   };

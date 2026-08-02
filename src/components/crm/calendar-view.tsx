@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Loader2, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Hint } from "./hint";
+import { TouchPointManageDialog } from "./touch-point-manage-dialog";
 import type { CalendarVisit } from "@/server/data";
 
 /** Distinct, readable chip colors — one per member, assigned in a stable order. */
@@ -33,13 +34,19 @@ function shiftMonth(month: string, by: number): string {
 export interface CalendarTouchPoint {
   id: string;
   label: string;
+  /** Cairo calendar day, YYYY-MM-DD */
   date: string;
+  /** Cairo start, human ("6:30 PM") */
   time: string;
+  /** Cairo start, 24h HH:MM — what the manage form edits */
+  timeValue: string;
   note: string | null;
   ownerName: string;
   audience: string;
   cancelled: boolean;
   recorded: boolean;
+  /** this viewer may move or cancel it (server-computed via canEditTouchPoint) */
+  canEdit: boolean;
 }
 
 export interface CalendarIrCall {
@@ -71,6 +78,8 @@ export function CalendarView({
 }) {
   const router = useRouter();
   const [navPending, startNav] = useTransition();
+  // the touch point being moved / cancelled (v29)
+  const [manage, setManage] = useState<CalendarTouchPoint | null>(null);
 
   const goMonth = (m: string) =>
     startNav(() => router.replace(`/calendar?m=${m}`));
@@ -254,22 +263,31 @@ export function CalendarView({
                       {Number(date.slice(8))}
                     </p>
                     <div className="space-y-1">
-                      {(tpByDate.get(date) ?? []).map((t) => (
-                        <Hint
-                          key={t.id}
-                          label={`${t.label} · ${t.time} — ${t.audience}${t.note ? ` · ${t.note}` : ""}${t.cancelled ? " (cancelled)" : ""}`}
-                        >
-                          <p
-                            className={cn(
-                              "truncate rounded px-1.5 py-0.5 text-[11px] font-semibold text-white",
-                              t.cancelled ? "bg-muted-foreground/50 line-through" : "bg-[#8E44AD]"
-                            )}
-                            dir="auto"
+                      {(tpByDate.get(date) ?? []).map((t) => {
+                        const editable = t.canEdit && !t.cancelled;
+                        const cls = cn(
+                          "block w-full truncate rounded px-1.5 py-0.5 text-left text-[11px] font-semibold text-white",
+                          t.cancelled ? "bg-muted-foreground/50 line-through" : "bg-[#8E44AD]",
+                          editable && "transition-transform hover:-translate-y-px hover:shadow-sm"
+                        );
+                        const body = `${t.time} ${t.label}`;
+                        return (
+                          <Hint
+                            key={t.id}
+                            label={`${t.label} · ${t.time} — ${t.audience}${t.note ? ` · ${t.note}` : ""}${
+                              t.cancelled ? " (cancelled)" : editable ? " · click to move or cancel" : ""
+                            }`}
                           >
-                            {t.time} {t.label}
-                          </p>
-                        </Hint>
-                      ))}
+                            {editable ? (
+                              <button type="button" className={cls} dir="auto" onClick={() => setManage(t)}>
+                                {body}
+                              </button>
+                            ) : (
+                              <p className={cls} dir="auto">{body}</p>
+                            )}
+                          </Hint>
+                        );
+                      })}
                       {(irByDate.get(date) ?? []).map((c) => (
                         <Hint key={c.id} label={`IR call · ${c.partnerLc} · ${c.memberName}`}>
                           <p
@@ -322,6 +340,16 @@ export function CalendarView({
                   {t.note ? (
                     <p className="mt-0.5 break-words text-xs text-muted-foreground" dir="auto">{t.note}</p>
                   ) : null}
+                  {t.canEdit && !t.cancelled ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-1.5 h-8"
+                      onClick={() => setManage(t)}
+                    >
+                      <Pencil className="size-3.5" /> Move or cancel
+                    </Button>
+                  ) : null}
                 </div>
               ))}
               {(irByDate.get(date) ?? []).map((c) => (
@@ -349,6 +377,10 @@ export function CalendarView({
           Nothing booked in {monthLabel(month)} yet — visits come from account
           pages, touch points from the button above. 🗓️
         </p>
+      ) : null}
+
+      {manage ? (
+        <TouchPointManageDialog tp={manage} onClose={() => setManage(null)} />
       ) : null}
     </div>
   );

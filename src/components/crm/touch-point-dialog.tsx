@@ -19,6 +19,13 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 
+/** Today in Cairo — touch points are booked AHEAD (the server refuses the
+ *  past), so the picker never offers a day that would bounce. */
+const cairoTodayIso = () =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
+
 /** Book a touch point (v29): pick the type your role allows, set the START
  *  time (there is no end), add a note, and optionally pull in sibling teams
  *  or another function. Everyone invited gets an email + a bell. */
@@ -47,6 +54,7 @@ export function TouchPointDialog({
   const [note, setNote] = useState("");
   const [invTeams, setInvTeams] = useState<string[]>([]);
   const [invFns, setInvFns] = useState<string[]>([]);
+  const todayIso = cairoTodayIso();
 
   if (options.length === 0) return null;
 
@@ -60,17 +68,15 @@ export function TouchPointDialog({
         toast.error("Pick the date and start time.");
         return;
       }
-      const startsAt = new Date(`${date}T${time}:00`);
-      if (Number.isNaN(startsAt.getTime())) {
-        toast.error("That date and time don't look right.");
-        return;
-      }
+      // the CAIRO wall-clock goes to the server as typed — building a Date
+      // here would read the BOOKER's timezone and shift the whole LC
       const res = await createTouchPoint({
         scope: picked.scope,
         kind: picked.kind,
         functionKey: picked.scope === "lc" ? null : fn,
         teamName: picked.scope === "team" ? team : null,
-        startsAt: startsAt.toISOString(),
+        date,
+        time,
         note: note || null,
         invitedTeams: picked.scope === "team" ? invTeams : [],
         invitedFunctions: picked.scope === "function" ? invFns : [],
@@ -158,7 +164,12 @@ export function TouchPointDialog({
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-1.5">
                 <Label>Date *</Label>
-                <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+                <Input
+                  type="date"
+                  min={todayIso}
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                />
               </div>
               <div className="grid gap-1.5">
                 <Label>Starts at *</Label>
