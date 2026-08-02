@@ -339,16 +339,21 @@ export function canViewSignup(v: Viewer, s: SignupRow): boolean {
  *  LCP/admin, anyone with "Consideration" in functions OR sub_functions, and
  *  IGV/IGT LCVPs & Directors (consideration feeds their pipelines). */
 export function hasConsiderationAccess(v: Viewer): boolean {
-  if (master(v)) return true;
+  return considerationFunctions(v).length > 0;
+}
+
+/** WHICH consideration lanes a viewer follows (v29 — the dashboard lane is
+ *  split per product): an IGV VP/Director gets the IGV lane only, an IGT one
+ *  only IGT; the Consideration crew and the LCP/admin follow both. */
+export function considerationFunctions(v: Viewer): ("IGV" | "IGT")[] {
+  if (master(v)) return ["IGV", "IGT"];
   if (
     v.functions.includes("Consideration") ||
     v.sub_functions.includes("Consideration")
   )
-    return true;
-  return (
-    (v.role === "LCVP" || v.role === "Director") &&
-    v.functions.some((f) => f === "IGV" || f === "IGT")
-  );
+    return ["IGV", "IGT"];
+  if (v.role !== "LCVP" && v.role !== "Director") return [];
+  return v.functions.filter((f): f is "IGV" | "IGT" => f === "IGV" || f === "IGT");
 }
 
 /** The CV pool inside Consideration is an IGT hunt (v27): companies want

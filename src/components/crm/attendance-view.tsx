@@ -270,7 +270,7 @@ function RecordDialog({
                     )}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-semibold" dir="auto">
                           {r.name}
                           {r.automatic ? (
@@ -380,7 +380,7 @@ function AppealDialog({
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Appeal this record</DialogTitle>
           <DialogDescription dir="auto">
@@ -507,7 +507,7 @@ export function AttendanceView({
                 key={o.id}
                 className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-card p-2.5"
               >
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold" dir="auto">
                     {o.label}
                   </p>
@@ -543,11 +543,11 @@ export function AttendanceView({
                 key={a.id}
                 className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-2.5"
               >
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold" dir="auto">
+                <div className="min-w-0 flex-1">
+                  <p className="break-words text-sm font-semibold" dir="auto">
                     {a.memberName} — {STATUS_LABEL[a.status]} · {a.label}
                   </p>
-                  <p className="text-xs text-muted-foreground" dir="auto">
+                  <p className="break-words text-xs text-muted-foreground" dir="auto">
                     {cairoDay(a.startsAt)} · {a.message}
                   </p>
                 </div>
@@ -663,7 +663,7 @@ export function AttendanceView({
               <Card key={r.id}>
                 <CardContent className="space-y-1.5 p-3">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold" dir="auto">{r.label}</p>
                       <p className="truncate text-xs text-muted-foreground" dir="auto">
                         {cairoDay(r.startsAt)} · {cairoTime(r.startsAt)} · {r.audience}
@@ -676,7 +676,7 @@ export function AttendanceView({
                     {r.automatic ? " · recorded automatically" : ""}
                   </p>
                   {r.excuse ? (
-                    <p className="text-xs italic text-muted-foreground" dir="auto">“{r.excuse}”</p>
+                    <p className="break-words text-xs italic text-muted-foreground" dir="auto">“{r.excuse}”</p>
                   ) : null}
                   <div className="flex flex-wrap gap-1.5 pt-1">
                     {r.mine && !r.appeal ? (

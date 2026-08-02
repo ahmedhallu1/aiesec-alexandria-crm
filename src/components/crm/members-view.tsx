@@ -102,7 +102,7 @@ function ContactButtons({ m }: { m: MemberDirectoryEntry }) {
   const btn =
     "inline-flex size-9 items-center justify-center rounded-md border text-muted-foreground transition-colors hover:border-primary hover:text-primary sm:size-7";
   return (
-    <span className="inline-flex items-center gap-1">
+    <span className="inline-flex shrink-0 items-center gap-1">
       <Hint label={`Email ${m.nickname || m.name}`}>
         <a className={btn} href={`mailto:${m.email}`} onClick={stop} aria-label="Email">
           <Mail className="size-3.5" />
@@ -267,7 +267,7 @@ export function MembersView({ members }: { members: MemberDirectoryEntry[] }) {
           <Card key={m.id} className="card-lift">
             <CardContent className="space-y-2 p-3">
               <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="truncate font-semibold">
                     {m.nickname || m.name}
                     {m.nickname ? (

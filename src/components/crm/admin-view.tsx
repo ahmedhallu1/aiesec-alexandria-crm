@@ -28,13 +28,17 @@ function ago(iso: string | null): string {
   return `${Math.round(hrs / 24)} d ago`;
 }
 
-/** Cron freshness: green if within a healthy window, amber if stale. */
-function cronStale(label: string, iso: string | null): boolean {
-  if (!iso) return true;
-  const mins = (Date.now() - new Date(iso).getTime()) / 60000;
-  if (label.includes("follow-ups")) return mins > 60; // 15-min cron
-  if (label.includes("export") || label.includes("import")) return mins > 180; // hourly-ish
-  return mins > 60 * 26; // daily
+/** Cron freshness: green if within a healthy window, amber if stale. The
+ *  window is derived from the job's own cadence note, so adding a cron in
+ *  getSystemHealth needs no change here. */
+function cronStale(c: { note: string; lastRun: string | null }): boolean {
+  if (!c.lastRun) return true;
+  const mins = (Date.now() - new Date(c.lastRun).getTime()) / 60000;
+  const note = c.note.toLowerCase();
+  if (note.includes("15 min")) return mins > 60;
+  if (note.includes("30 min")) return mins > 120;
+  if (note.includes("hourly")) return mins > 180;
+  return mins > 60 * 26; // daily jobs
 }
 
 const ACTION_TONE: Record<string, string> = {
@@ -160,7 +164,7 @@ export function AdminView({
               </CardHeader>
               <CardContent className="space-y-2">
                 {health.crons.map((c) => {
-                  const stale = cronStale(c.label, c.lastRun);
+                  const stale = cronStale(c);
                   return (
                     <div key={c.label} className="flex items-center gap-2 rounded-lg border p-2.5">
                       <span className={cn("size-2 shrink-0 rounded-full", stale ? "bg-warning" : "bg-success")} />
@@ -175,8 +179,9 @@ export function AdminView({
                   );
                 })}
                 <p className="pt-1 text-[11px] text-muted-foreground">
-                  Times are inferred from the latest data each job wrote (no
-                  dedicated run log yet).
+                  Real last-run stamps written by each job when it finishes
+                  (app_settings <code>cron:*</code>). Amber = overdue for its
+                  cadence — check the pg_cron schedule and CRON_SECRET.
                 </p>
               </CardContent>
             </Card>

@@ -311,25 +311,25 @@ export function CalendarView({
                 {date === today ? " · Today" : ""}
               </p>
               {(tpByDate.get(date) ?? []).map((t) => (
-                <div key={t.id} className="rounded-lg border p-2">
-                  <p className="text-sm font-semibold" dir="auto">
+                <div key={t.id} className="min-w-0 rounded-lg border p-2">
+                  <p className="break-words text-sm font-semibold" dir="auto">
                     {t.time} · {t.label}
                     {t.cancelled ? " · cancelled" : ""}
                   </p>
-                  <p className="text-xs text-muted-foreground" dir="auto">
+                  <p className="break-words text-xs text-muted-foreground" dir="auto">
                     {t.audience} · booked by {t.ownerName}
                   </p>
                   {t.note ? (
-                    <p className="mt-0.5 text-xs text-muted-foreground" dir="auto">{t.note}</p>
+                    <p className="mt-0.5 break-words text-xs text-muted-foreground" dir="auto">{t.note}</p>
                   ) : null}
                 </div>
               ))}
               {(irByDate.get(date) ?? []).map((c) => (
-                <div key={c.id} className="rounded-lg border p-2">
-                  <p className="text-sm font-semibold" dir="auto">
+                <div key={c.id} className="min-w-0 rounded-lg border p-2">
+                  <p className="break-words text-sm font-semibold" dir="auto">
                     {c.time} · 🌍 IR call — {c.partnerLc}
                   </p>
-                  <p className="text-xs text-muted-foreground" dir="auto">{c.memberName}</p>
+                  <p className="break-words text-xs text-muted-foreground" dir="auto">{c.memberName}</p>
                 </div>
               ))}
               {list.map((v) => chip(v, true))}

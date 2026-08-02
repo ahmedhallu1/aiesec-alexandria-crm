@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v28";
+export const PLAYBOOK_VERSION = "v29";
 
 interface Props {
   role: string;
@@ -32,7 +32,7 @@ function sectionsForRole(
   role: string, isAdmin: boolean, isB2B: boolean, isB2C: boolean, isTm: boolean,
   isOgx: boolean, isConsideration: boolean
 ): Set<string> {
-  const mine = new Set(["what", "start", "rules"]);
+  const mine = new Set(["what", "start", "touch-points", "rules"]);
   if (role === "Member" || role === "Coordinator") mine.add("raising");
   if (role === "Team Leader") { mine.add("raising"); mine.add("leaders"); mine.add("data"); }
   if (role === "LCVP" || role === "Director" || role === "LCP") { mine.add("eb"); mine.add("data"); }
@@ -214,6 +214,21 @@ const SECTIONS: Section[] = [
     ],
   },
   {
+    id: "touch-points",
+    emoji: "📅",
+    title: "Touch points & attendance",
+    audience: "Everyone",
+    color: "#8E44AD",
+    points: [
+      <><b>Touch points</b> are the LC&apos;s moments: <b>meetings, working hours and outings</b> at team, function or LC level. Your Team Leader books the team&apos;s, your VP/Director the function&apos;s, TM the LC&apos;s — and everyone invited gets an email + a bell (the TM VP is always CC&apos;d).</>,
+      <>They all land on <b>Calendar</b> — together with visits and IR calls. You see what you belong to: your team&apos;s, your function&apos;s (yes, including other teams&apos; points), and every LC-wide one.</>,
+      <><b>Attendance is taken afterwards</b> — attended · late · absent, with a &quot;valid excuse?&quot; box. Team points are recorded by the Team Leader, function points by the VP/Director (MMs can edit, but never their own row), LC points by TM.</>,
+      <><b>Working hours record themselves</b> 🤖: you&apos;re marked attended when you did at least <b>two real actions at least 10 minutes apart</b> during the session (log a contact, book a visit, record a deal, work a sign-up, log an IR call…). Two clicks in a row won&apos;t fool it; one call plus a comment a quarter of an hour later counts.</>,
+      <>Check <b>Attendance</b> any time — your own history and rate, your team&apos;s if you lead one, your function&apos;s if you run one. Disagree with a mark? Hit <b>Appeal</b> and whoever recorded it hears from you, with TM on CC.</>,
+      <>Owed a record? Elevate reminds you daily — and after <b>three reminders</b> it greets you with a prompt you can&apos;t wave away. Just fill it. 💙</>,
+    ],
+  },
+  {
     id: "tm",
     emoji: "🧠",
     title: "Talent Management",
@@ -295,7 +310,7 @@ export function PlaybookView({ role, isAdmin, isB2B, isB2C, isTm, isOgx, isConsi
           Alexandria. 💙
         </p>
         <p className="mt-3 max-w-xl text-xs leading-relaxed text-white/75">
-          <b>New in v28:</b> Sodio grew up into <b>Elevate</b> — same system,
+          <b>New in v29:</b> THE TM MODULE — touch points (team · function · LC meetings, working hours and outings) on one calendar with visits and IR calls, attendance with AUTOMATIC working hours, appeals and reminders that don&apos;t let go · booking v3 · split IGV/IGT consideration lanes. v28: Sodio grew up into <b>Elevate</b> — same system,
           same data, new name and a new link: <b>elevate-alex.vercel.app</b>
           (the old sodio.vercel.app still opens it) · <b>booking v2</b> — IRs
           are invited to a real <b>Google Meet</b> and can reschedule or cancel

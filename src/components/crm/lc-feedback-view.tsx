@@ -6,7 +6,7 @@ import { Check, Inbox, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { fmtDateTime } from "@/lib/types";
-import type { LcFeedbackRow } from "@/server/data";
+import type { AttendedTouchPointOption, LcFeedbackRow } from "@/server/data";
 import { submitLcFeedback, setLcFeedbackStatus } from "@/server/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -57,22 +57,29 @@ const MANAGER_LABEL: Record<string, string> = {
 
 export function LcFeedbackView({
   members,
+  touchPoints,
   viewer,
   isInboxOwner,
   inbox,
 }: {
   members: LiteMember[];
+  /** touch points the viewer attended (v29) — empty hides the whole tab */
+  touchPoints: AttendedTouchPointOption[];
   viewer: LiteViewer;
   isInboxOwner: boolean;
   inbox: LcFeedbackRow[];
 }) {
   const [positive, setPositive] = useState(true);
+  const [target, setTarget] = useState<"people" | "touchpoint">("people");
+  const [touchPointId, setTouchPointId] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [message, setMessage] = useState("");
   const [anonymous, setAnonymous] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
   const [pending, startTransition] = useTransition();
+  const aboutTouchPoint = target === "touchpoint" && touchPoints.length > 0;
+  const chosenTouchPoint = touchPoints.find((t) => t.id === touchPointId) ?? null;
 
   const byId = useMemo(() => new Map(members.map((m) => [m.id, m])), [members]);
 
@@ -154,13 +161,15 @@ export function LcFeedbackView({
     startTransition(async () => {
       const res = await submitLcFeedback({
         positive,
-        about: selected,
+        about: aboutTouchPoint ? [] : selected,
         message,
         anonymous,
+        touchPointId: aboutTouchPoint ? touchPointId : undefined,
       });
       if (res.ok) {
         toast.success(positive ? "Shout-out sent 🎉" : "Concern filed privately 🤫");
         setSelected([]);
+        setTouchPointId("");
         setMessage("");
         setAnonymous(false);
         setPositive(true);
@@ -179,8 +188,9 @@ export function LcFeedbackView({
         <div>
           <h1 className="text-2xl font-bold">Feedback 💙</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Appreciate someone — or raise a concern. Positive notes reach the
-            person directly; concerns go privately to the LCP only.
+            Appreciate someone — or a touch point you attended — or raise a
+            concern. Positive notes reach the person (or the organiser)
+            directly; concerns go privately to the LCP only.
           </p>
         </div>
         {isInboxOwner ? (
@@ -223,6 +233,56 @@ export function LcFeedbackView({
 
           {/* ------------------------------------------------ who it's about */}
           <div className="grid gap-2">
+            {touchPoints.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <Label className="mr-1">What is it about?</Label>
+                <div className="inline-flex max-w-full items-center gap-1 rounded-full border bg-muted p-1">
+                  {([
+                    { val: "people", label: "A person" },
+                    { val: "touchpoint", label: "A touch point" },
+                  ] as const).map((t) => (
+                    <button
+                      key={t.val}
+                      type="button"
+                      onClick={() => setTarget(t.val)}
+                      className={cn(
+                        "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                        target === t.val
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {aboutTouchPoint ? (
+              <>
+                <Select value={touchPointId} onValueChange={setTouchPointId}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Pick a touch point you attended…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {touchPoints.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {chosenTouchPoint
+                    ? positive
+                      ? `Goes to ${chosenTouchPoint.ownerName}, who organised it.`
+                      : `Filed privately — ${chosenTouchPoint.ownerName} organised it.`
+                    : "Only sessions you were marked attended (or late) at show here."}
+                </p>
+              </>
+            ) : (
+              <>
             <Label>Who is it about?</Label>
 
             {chips.length > 0 ? (
@@ -311,11 +371,21 @@ export function LcFeedbackView({
                 })
               )}
             </div>
+              </>
+            )}
           </div>
 
           {/* --------------------------------------------------- message */}
           <div className="grid gap-2">
-            <Label>{positive ? "What did they do? 💙" : "What's the concern?"}</Label>
+            <Label>
+              {aboutTouchPoint
+                ? positive
+                  ? "What made it great? 💙"
+                  : "What went wrong there?"
+                : positive
+                  ? "What did they do? 💙"
+                  : "What's the concern?"}
+            </Label>
             <Textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
@@ -345,7 +415,11 @@ export function LcFeedbackView({
           <div>
             <Button
               onClick={submit}
-              disabled={pending || selected.length === 0 || message.trim().length < 3}
+              disabled={
+                pending ||
+                (aboutTouchPoint ? !touchPointId : selected.length === 0) ||
+                message.trim().length < 3
+              }
             >
               {pending
                 ? "Sending…"

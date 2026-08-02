@@ -1011,9 +1011,9 @@ function IrCallsTab({
                 key={c.id}
                 className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3"
               >
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-semibold" dir="auto">{c.partner_lc_name}</p>
+                    <p className="min-w-0 break-words font-semibold" dir="auto">{c.partner_lc_name}</p>
                     <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", CALL_STATUS_CHIP.scheduled.className)}>
                       {CALL_STATUS_CHIP.scheduled.label}
                     </span>
@@ -1023,7 +1023,7 @@ function IrCallsTab({
                       </span>
                     ) : null}
                   </div>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="break-words text-sm text-muted-foreground">
                     {fmtDateTime(c.called_at)}
                     {c.booker_name ? ` · booked by ${c.booker_name}` : ""}
                     {" · with "}
@@ -1041,7 +1041,7 @@ function IrCallsTab({
                   ) : null}
                 </div>
                 {canTouch(c) ? (
-                  <div className="flex shrink-0 items-center gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <Hint label="Fill the in-call notes — demand, notes, screenshot">
                       <Button size="sm" onClick={() => setCompleting(c)}>
                         <ClipboardCheck className="size-4" /> Fill call notes
@@ -1185,7 +1185,9 @@ function IrCallsTab({
                   return (
                     <div key={c.id} className="rounded-lg border p-3">
                       <div className="flex items-start justify-between gap-2">
-                        <p className="font-semibold" dir="auto">{c.partner_lc_name}</p>
+                        <p className="min-w-0 flex-1 break-words font-semibold" dir="auto">
+                          {c.partner_lc_name}
+                        </p>
                         <span className="shrink-0 text-xs text-muted-foreground">
                           {fmtDateTime(c.called_at)}
                         </span>
@@ -1194,20 +1196,20 @@ function IrCallsTab({
                         <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", chip.className)}>
                           {chip.label}
                         </span>
-                        <p className="text-xs text-muted-foreground" dir="auto">by {c.member_name}</p>
+                        <p className="min-w-0 break-words text-xs text-muted-foreground" dir="auto">by {c.member_name}</p>
                       </div>
                       {c.demand ? (
-                        <p className="mt-1 text-xs font-medium" dir="auto">Demand: {c.demand}</p>
+                        <p className="mt-1 break-words text-xs font-medium" dir="auto">Demand: {c.demand}</p>
                       ) : null}
                       {c.notes ? (
-                        <p className="mt-1 line-clamp-3 text-sm" dir="auto">{c.notes}</p>
+                        <p className="mt-1 line-clamp-3 break-words text-sm" dir="auto">{c.notes}</p>
                       ) : null}
                       {c.screenshot_link ? (
                         <a
                           href={c.screenshot_link}
                           target="_blank"
                           rel="noreferrer"
-                          className="mt-1.5 inline-flex items-center gap-1 text-sm font-medium text-primary"
+                          className="mt-1.5 inline-flex max-w-full items-center gap-1 break-words text-sm font-medium text-primary"
                         >
                           <ImagePlus className="size-3.5" /> Open screenshot in Drive
                         </a>
@@ -1552,7 +1554,7 @@ function CancelCallDialog({ call, onClose }: { call: IrCallRow | null; onClose: 
   };
   return (
     <Dialog open={!!call} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="max-h-[90dvh] max-w-sm overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Cancel this call?</DialogTitle>
           <DialogDescription dir="auto">
@@ -1614,7 +1616,7 @@ function RequestRescheduleDialog({
   };
   return (
     <Dialog open={!!call} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="max-h-[90dvh] max-w-sm overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Ask to move this call?</DialogTitle>
           <DialogDescription dir="auto">
@@ -1853,7 +1855,7 @@ function CvsTab({
 
       {/* search */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative">
+        <div className="relative w-full sm:w-auto">
           <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             dir="auto"
@@ -1862,7 +1864,7 @@ function CvsTab({
             onKeyDown={(e) => { if (e.key === "Enter") setParams({ q: search, page: null }); }}
             onBlur={() => { if (search !== q) setParams({ q: search, page: null }); }}
             placeholder="Search: C#, ERP, marketing, a name…"
-            className="h-9 w-64 pl-8"
+            className="h-9 w-full pl-8 sm:w-64"
           />
         </div>
         <p className="text-xs text-muted-foreground">
@@ -1887,7 +1889,7 @@ function CvsTab({
               <Card key={cv.id} className="rise-in">
                 <CardContent className="space-y-2.5 p-4">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="truncate font-semibold" dir="auto">
                         {cv.person_name || cv.file_name}
                       </p>
@@ -1952,7 +1954,7 @@ function CvsTab({
                         </a>
                       </Hint>
                     ) : null}
-                    <div className="ml-auto flex items-center gap-1.5">
+                    <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
                       <Hint label="Open the CV file (10-min private link)">
                         <Button variant="outline" size="sm" onClick={() => openFile(cv)}>
                           <FileText className="size-4" /> Open file
@@ -2089,7 +2091,7 @@ function CvEditDialog({
 
   return (
     <Dialog open={!!cv} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-h-[90dvh] max-w-md overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Fix the CV&apos;s fields</DialogTitle>
           <DialogDescription dir="auto">
@@ -2189,7 +2191,7 @@ function CvDeleteDialog({ cv, onClose }: { cv: CvRow | null; onClose: () => void
   };
   return (
     <Dialog open={!!cv} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="max-h-[90dvh] max-w-sm overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Delete this CV?</DialogTitle>
           <DialogDescription dir="auto">

@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-01 · Version: v28
+Last updated: 2026-08-08 · Version: v29
 
 ---
 
@@ -634,6 +634,21 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
   tour is the manual), **"LC Feedback" → "Feedback"**, and the Playbook tells
   members to put their @aiesec.net mail on their phone with notifications on.
   ⑩ Prod URL env switched to **elevate-alex.vercel.app**.
+  ⑪ **Consideration splits per function** on the dashboard (`CONS_IGV` /
+  `CONS_IGT`, `considerationFunctions` in rbac; a call is attributed via its
+  OWNER's functions — ir_calls has no product column; the CV cards only exist
+  on the IGT lane). ⑫ **/admin Health refreshed** to the real system (all 8
+  crons with cadence-derived staleness, today's table counts, both storage
+  buckets, NEXT_PUBLIC_APP_URL). ⑬ **Feedback on a touch point you attended**
+  (`listAttendedTouchPoints` + an optional `touchPointId` on
+  `submitLcFeedback` — server re-verifies attendance; positive shouts out the
+  owner, negative goes to the private inbox; no migration). ⑭ **Mobile pass**:
+  real overflow fixes across consideration (scheduled-call rows, action
+  groups, CV cards/search), attendance (owed rows, appeals free text),
+  calendar agenda notes, sign-up comments/OOP reasons, the members phone card
+  and the consideration KPI cards — `min-w-0 flex-1` where truncate was inert,
+  `break-words` on free text, `flex-wrap` on button groups, `max-h-[90dvh]`
+  on the uncapped dialogs.
 
 - **2026-08-08 · v28** — **ELEVATE + BOOKING v2 + OGX DASHBOARDS.**
   ① **Renamed Sodio → Elevate** (~120 user-visible strings: sidebar, titles,

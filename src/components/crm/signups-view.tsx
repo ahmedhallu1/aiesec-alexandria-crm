@@ -972,7 +972,7 @@ function SignupDetailDialog({
       >
         <DialogHeader>
           <DialogTitle className="flex flex-wrap items-center gap-2" dir="auto">
-            {s.name}
+            <span className="min-w-0 break-words">{s.name}</span>
             <ProgramBadge program={s.program} fn={s.fn} />
             <Badge variant="outline">{s.batch === "new" ? "New" : "Old"} SUs</Badge>
             {s.out_of_process ? (
@@ -990,7 +990,9 @@ function SignupDetailDialog({
         {s.out_of_process ? (
           <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
             <p className="font-semibold text-destructive">🗄️ Out of Process</p>
-            {s.oop_reason ? <p className="text-muted-foreground">{s.oop_reason}</p> : null}
+            {s.oop_reason ? (
+              <p className="break-words text-muted-foreground" dir="auto">{s.oop_reason}</p>
+            ) : null}
             {detail.canVp ? (
               <Button
                 size="sm" variant="outline" className="mt-2" disabled={pending}
@@ -1244,7 +1246,7 @@ function SignupDetailDialog({
                   <p className="mb-0.5 text-xs text-muted-foreground">
                     {c.author_name}{c.author_name !== "Sheet" ? ` · ${fmtDateTime(c.created_at)}` : " (from the sheet)"}
                   </p>
-                  <p className="whitespace-pre-wrap" dir="auto">{c.body}</p>
+                  <p className="whitespace-pre-wrap break-words" dir="auto">{c.body}</p>
                 </div>
               ))}
             </div>
@@ -1257,7 +1259,7 @@ function SignupDetailDialog({
                   <p className="mb-0.5 text-xs text-muted-foreground">
                     {c.author_name}{c.author_name !== "Sheet" ? ` · ${fmtDateTime(c.created_at)}` : " (from the sheet)"}
                   </p>
-                  <p className="whitespace-pre-wrap" dir="auto">{c.body}</p>
+                  <p className="whitespace-pre-wrap break-words" dir="auto">{c.body}</p>
                 </div>
               ))}
             </div>
