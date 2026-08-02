@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-09 · Version: v31.1
+Last updated: 2026-08-09 · Version: v31.2
 
 ---
 
@@ -587,6 +587,13 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-09 · v31.2** — The contact-after-click hand-over keeps the channel:
+  `ContactDialog` gained an optional `defaultMethod` (re-seeded when a later
+  open carries a different channel, still hand-changeable), and the accounts
+  list passes the tapped channel through "Open the full contact form →" — so
+  a WhatsApp tap that needs the branching results (Not Interested → archive,
+  Visit Scheduled → books the visit) no longer silently reverts to "Call".
 
 - **2026-08-09 · v31.1** — Follow-up: the rows-per-page picker really is on
   EVERY paginated table now. v31 shipped it on accounts + sign-ups only while
