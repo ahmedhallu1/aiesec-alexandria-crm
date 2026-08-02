@@ -1321,34 +1321,198 @@ export interface MemberDirectoryEntry {
   };
 }
 
-/** v29 — the directory exists to REVIEW performance, so it lists only the
- *  people whose performance is reviewed here. Dropped:
- *  · the LCP (nobody's MOS rolls up to this tab),
- *  · the F&L VP/Director (money, reviewed in their own board),
- *  · CXP's MMs, VPs and Directors (CXP reviews CXP),
- *  · TM's OWN MMs — TM runs this tab, so its VP/Director stays. */
+/** v29.4 — the directory exists to REVIEW performance, so it lists ONLY the
+ *  people whose performance is reviewed here: **Members, Coordinators and
+ *  Team Leaders**. Dropped:
+ *  · the LCP,
+ *  · EVERY LCVP and EVERY Director, in every function — leaders are not part
+ *    of the TM performance review (they review, they aren't reviewed here),
+ *  · CXP's MMs (CXP reviews CXP),
+ *  · TM's OWN MMs — TM runs this tab. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function reviewedInDirectory(m: any): boolean {
   const role: string = m.role;
-  if (role === "LCP") return false;
+  if (role === "LCP" || role === "LCVP" || role === "Director") return false;
   const all: string[] = [...(m.functions ?? []), ...(m.sub_functions ?? [])];
   const has = (...keys: string[]) => keys.some((k) => all.includes(k));
-  const isLead = role === "LCVP" || role === "Director";
   const isMm = role === "Team Leader" || role === "Coordinator";
-  if (isLead && has("F&L", "Finance")) return false;
-  if (has("CXP") && (isLead || isMm)) return false;
+  if (has("CXP") && isMm) return false;
   if (has("TM") && isMm) return false;
   return true;
 }
 
+/** The TM directory's date window (?from / ?to — inclusive Cairo days).
+ *  Empty = ALL TIME, which is the default: a viewer who never touches the
+ *  filter bar sees exactly the lifetime numbers the tab always showed. */
+export interface DirectoryWindow {
+  from?: string;
+  to?: string;
+}
+
+const DIRECTORY_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The Cairo day AFTER `day` (pure YYYY-MM-DD math). */
+const nextDayIso = (day: string): string =>
+  new Date(new Date(`${day}T00:00:00Z`).getTime() + 86_400_000).toISOString().slice(0, 10);
+
+/** Sanitize ?from/?to before they touch a query: real YYYY-MM-DD days only,
+ *  never in the future (Cairo "today" is the ceiling — work can't be logged
+ *  ahead of time), and an inverted range self-heals instead of returning an
+ *  empty tab. Applied SERVER-SIDE so a hand-typed URL can't widen it. */
+export function clampDirectoryWindow(raw: DirectoryWindow): DirectoryWindow {
+  const today = cairoDayIso();
+  const clean = (v?: string) =>
+    v && DIRECTORY_DAY_RE.test(v) ? (v > today ? today : v) : undefined;
+  let from = clean(raw.from);
+  let to = clean(raw.to);
+  if (from && to && from > to) [from, to] = [to, from];
+  return { from, to };
+}
+
+/** The work rows behind the KPIs — one shape per mode so the aggregation
+ *  below stays readable. All time reads the accounts' running counters (what
+ *  the tab always did); a window has to read the WORK ITSELF, each item by
+ *  its own date. */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+type DirectoryWork =
+  | { kind: "all"; bdDeals: any[]; allocations: any[] }
+  | {
+      kind: "window";
+      contacts: any[];
+      visitsBooked: any[];
+      visitsDone: any[];
+      deals: any[];
+      allocations: any[];
+    };
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 /** The TM module's whole-LC members directory: every active member with their
- *  info + personal KPIs (MOS) + contact shortcuts. TM function, LCP, admin. */
+ *  info + personal KPIs (MOS) + contact shortcuts. TM function, LCP, admin.
+ *
+ *  v29.4 — every number honours an optional DATE WINDOW, each KPI counted on
+ *  its OWN date (never the account's):
+ *    · market research → accounts.created_at
+ *    · contacted       → contact_attempts.created_at (the attempt itself)
+ *    · visits          → visits.created_at (the booking ACTION — the work done
+ *                        in the window; visit_date would drop a visit booked
+ *                        now for a date still to come)
+ *    · visits done     → visits.visit_date (the day it actually happened)
+ *    · deals / opens / BD money → deals.created_at (opens via that deal's
+ *                        allocations, so split deals still credit correctly)
+ *    · filed plans     → mm_plans.month, counted when the month OVERLAPS
+ *    · sign-ups        → signed_up_at, the very column the OGX dashboard lane
+ *                        filters on (no status carries its own date; the row's
+ *                        import stamp is the fallback). */
 export async function listMembersDirectory(
-  viewer: Viewer
+  viewer: Viewer,
+  range: DirectoryWindow = {}
 ): Promise<MemberDirectoryEntry[]> {
   if (!hasTmAccess(viewer)) return [];
 
-  const [{ data: membersData }, accountsData, { data: bdDeals }, { data: mmPlans }, ogxSignups, allocations] =
+  const { from, to } = clampDirectoryWindow(range);
+  const windowed = !!(from || to);
+  // Cairo day bounds → UTC instants, half-open [startIso, endIso). DST-aware:
+  // a UTC midnight would slice the wrong 2–3 hours off each end.
+  const { cairoToUtc } = await import("@/lib/time");
+  const startIso = from ? cairoToUtc(from, "00:00").toISOString() : null;
+  const endIso = to ? cairoToUtc(nextDayIso(to), "00:00").toISOString() : null;
+  const startTs = startIso ? Date.parse(startIso) : -Infinity;
+  const endTs = endIso ? Date.parse(endIso) : Infinity;
+  const inWindow = (ts: string | null | undefined) => {
+    if (!windowed) return true;
+    if (!ts) return false;
+    const t = Date.parse(ts);
+    return Number.isFinite(t) && t >= startTs && t < endTs;
+  };
+  const inDayWindow = (day: string | null | undefined) => {
+    if (!windowed) return true;
+    if (!day) return false;
+    const d = day.slice(0, 10);
+    return (!from || d >= from) && (!to || d <= to);
+  };
+
+  const allTimeWork = async (): Promise<DirectoryWork> => {
+    const [bd, allocations] = await Promise.all([
+      // BD money: Σ deal amounts on BD accounts, per responsible
+      db()
+        .from("deals")
+        .select("amount, account:accounts!inner(responsible_id, function, is_test)")
+        .eq("account.function", "BD")
+        .eq("account.is_test", false),
+      // per-member opens = deal allocations (v22 — split deals count correctly)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      fetchAll<any>(() =>
+        db()
+          .from("deal_allocations")
+          .select(
+            "member_id, slots_igv, slots_igta, slots_igte, deal:deals!inner(account:accounts!inner(is_test))"
+          )
+          .eq("deal.account.is_test", false)
+          .order("id")
+      ).catch(() => []),
+    ]);
+    return { kind: "all", bdDeals: bd.data ?? [], allocations };
+  };
+
+  const windowWork = async (): Promise<DirectoryWork> => {
+    const [contacts, visitsBooked, visitsDone, deals, allocations] = await Promise.all([
+      // contacted = the contact ATTEMPT's own timestamp
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      fetchAll<any>(() => {
+        let q = db().from("contact_attempts").select("account_id, created_at");
+        if (startIso) q = q.gte("created_at", startIso);
+        if (endIso) q = q.lt("created_at", endIso);
+        return q.order("id");
+      }).catch(() => []),
+      // "Visits" = the booking ACTION (visits.created_at) — that's the work the
+      // member did inside the window. Keying it on visit_date would silently
+      // drop the visits they booked this month for a date still to come.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      fetchAll<any>(() => {
+        let q = db().from("visits").select("account_id, created_at");
+        if (startIso) q = q.gte("created_at", startIso);
+        if (endIso) q = q.lt("created_at", endIso);
+        return q.order("id");
+      }).catch(() => []),
+      // "Visits done" = the day the visit ACTUALLY HAPPENED (visits.visit_date)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      fetchAll<any>(() => {
+        let q = db().from("visits").select("account_id, visit_date").eq("done", true);
+        if (from) q = q.gte("visit_date", from);
+        if (to) q = q.lte("visit_date", to);
+        return q.order("id");
+      }).catch(() => []),
+      // deals (+ BD money) = when the deal was signed
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      fetchAll<any>(() => {
+        let q = db()
+          .from("deals")
+          .select(
+            "slots, amount, created_at, account:accounts!inner(responsible_id, function, is_test)"
+          )
+          .eq("account.is_test", false);
+        if (startIso) q = q.gte("created_at", startIso);
+        if (endIso) q = q.lt("created_at", endIso);
+        return q.order("id");
+      }).catch(() => []),
+      // opens = the allocations of the deals signed INSIDE the window
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      fetchAll<any>(() => {
+        let q = db()
+          .from("deal_allocations")
+          .select(
+            "member_id, slots_igv, slots_igta, slots_igte, deal:deals!inner(created_at, account:accounts!inner(is_test))"
+          )
+          .eq("deal.account.is_test", false);
+        if (startIso) q = q.gte("deal.created_at", startIso);
+        if (endIso) q = q.lt("deal.created_at", endIso);
+        return q.order("id");
+      }).catch(() => []),
+    ]);
+    return { kind: "window", contacts, visitsBooked, visitsDone, deals, allocations };
+  };
+
+  const [{ data: membersData }, accountsData, { data: mmPlans }, ogxSignups, work] =
     await Promise.all([
       db()
         .from("members")
@@ -1361,17 +1525,13 @@ export async function listMembersDirectory(
       fetchAll<any>(() =>
         db()
           .from("accounts_pipeline")
-          .select("responsible_id, attempts, visit_id, visit_done, deals_count, slots_count")
+          .select(
+            "id, created_at, responsible_id, attempts, visit_id, visit_done, deals_count, slots_count"
+          )
           .eq("is_test", false)
           .order("id")
       ),
-      // BD money: Σ deal amounts on BD accounts, per responsible
-      db()
-        .from("deals")
-        .select("amount, account:accounts!inner(responsible_id, function, is_test)")
-        .eq("account.function", "BD")
-        .eq("account.is_test", false),
-      db().from("mm_plans").select("member_id, applicants, accepted, approvals"),
+      db().from("mm_plans").select("member_id, month, applicants, accepted, approvals"),
       // v29: the WHOLE live sign-up funnel per assigned member (v25 only read
       // the Approved rows) — the directory's OGX row now mirrors the dashboard
       // lane exactly. fetchAll pages past the 1000-row response cap.
@@ -1379,22 +1539,12 @@ export async function listMembersDirectory(
       fetchAll<any>(() =>
         db()
           .from("signups")
-          .select("assigned_to, contact_status, interested, status")
+          .select("assigned_to, contact_status, interested, status, signed_up_at, created_at")
           .eq("out_of_process", false)
           .not("assigned_to", "is", null)
           .order("id")
       ).catch(() => []),
-      // per-member opens = deal allocations (v22 — split deals count correctly)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      fetchAll<any>(() =>
-        db()
-          .from("deal_allocations")
-          .select(
-            "member_id, slots_igv, slots_igta, slots_igte, deal:deals!inner(account:accounts!inner(is_test))"
-          )
-          .eq("deal.account.is_test", false)
-          .order("id")
-      ).catch(() => []),
+      windowed ? windowWork() : allTimeWork(),
     ]);
 
   type Agg = MemberDirectoryEntry["kpis"];
@@ -1410,42 +1560,113 @@ export async function listMembersDirectory(
     if (!k) { k = emptyAgg(); kpisById.set(id, k); }
     return k;
   };
-  const useAllocations = allocations.length > 0;
+
+  // market research is the ACCOUNT's own creation date in both modes
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const a of (accountsData ?? []) as any[]) {
+  const accounts = (accountsData ?? []) as any[];
+  const responsibleOf = new Map<string, string>();
+  for (const a of accounts) {
     if (!a.responsible_id) continue; // unassigned imports belong to nobody yet
-    const k = agg(a.responsible_id);
-    k.mr += 1;
-    if (a.attempts > 0) k.contacted += 1;
-    if (a.visit_id) k.visits += 1;
-    if (a.visit_done) k.visitsDone += 1;
-    k.deals += a.deals_count ?? 0;
-    // pre-0018 fallback: no allocations table → account counters
-    if (!useAllocations) k.slots += a.slots_count ?? 0;
+    responsibleOf.set(a.id, a.responsible_id);
+    if (inWindow(a.created_at)) agg(a.responsible_id).mr += 1;
   }
-  // opens are allocation-attributed (a split deal credits each member their share)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const al of allocations as any[]) {
-    agg(al.member_id).slots +=
-      (al.slots_igv ?? 0) + (al.slots_igta ?? 0) + (al.slots_igte ?? 0);
+
+  if (work.kind === "all") {
+    const useAllocations = work.allocations.length > 0;
+    for (const a of accounts) {
+      if (!a.responsible_id) continue;
+      const k = agg(a.responsible_id);
+      if (a.attempts > 0) k.contacted += 1;
+      if (a.visit_id) k.visits += 1;
+      if (a.visit_done) k.visitsDone += 1;
+      k.deals += a.deals_count ?? 0;
+      // pre-0018 fallback: no allocations table → account counters
+      if (!useAllocations) k.slots += a.slots_count ?? 0;
+    }
+    // opens are allocation-attributed (a split deal credits each member their share)
+    for (const al of work.allocations) {
+      agg(al.member_id).slots +=
+        (al.slots_igv ?? 0) + (al.slots_igta ?? 0) + (al.slots_igte ?? 0);
+    }
+    for (const d of work.bdDeals) {
+      const owner = d.account?.responsible_id;
+      if (owner) agg(owner).egp += Number(d.amount) || 0;
+    }
+  } else {
+    // Windowed: same UNITS as all-time (contacted / visits / visits done count
+    // ACCOUNTS, deals count deals) — an account is only counted once even if
+    // it was worked several times inside the window. Test accounts never enter
+    // responsibleOf, so their work is dropped here too.
+    const seenContact = new Set<string>();
+    const seenVisit = new Set<string>();
+    const seenDone = new Set<string>();
+    for (const c of work.contacts) {
+      const owner = responsibleOf.get(c.account_id);
+      if (!owner || seenContact.has(c.account_id)) continue;
+      seenContact.add(c.account_id);
+      agg(owner).contacted += 1;
+    }
+    for (const v of work.visitsBooked) {
+      const owner = responsibleOf.get(v.account_id);
+      if (!owner || seenVisit.has(v.account_id)) continue;
+      seenVisit.add(v.account_id);
+      agg(owner).visits += 1;
+    }
+    for (const v of work.visitsDone) {
+      const owner = responsibleOf.get(v.account_id);
+      if (!owner || seenDone.has(v.account_id)) continue;
+      seenDone.add(v.account_id);
+      agg(owner).visitsDone += 1;
+    }
+    for (const d of work.deals) {
+      const owner = d.account?.responsible_id;
+      if (!owner) continue;
+      const k = agg(owner);
+      k.deals += 1;
+      if (d.account?.function === "BD") k.egp += Number(d.amount) || 0;
+    }
+    if (work.allocations.length > 0) {
+      for (const al of work.allocations) {
+        agg(al.member_id).slots +=
+          (al.slots_igv ?? 0) + (al.slots_igta ?? 0) + (al.slots_igte ?? 0);
+      }
+    } else {
+      // pre-0018 fallback: no allocations → the deal's own opens to its owner
+      for (const d of work.deals) {
+        const owner = d.account?.responsible_id;
+        if (owner) agg(owner).slots += d.slots ?? 0;
+      }
+    }
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const d of (bdDeals ?? []) as any[]) {
-    const owner = d.account?.responsible_id;
-    if (owner) agg(owner).egp += Number(d.amount) || 0;
-  }
+
+  // filed plans are MONTHLY: a plan counts when its month OVERLAPS the window
+  const planInWindow = (month: string | null) => {
+    if (!windowed) return true;
+    if (!month) return false;
+    const start = month.slice(0, 10);
+    if (!DIRECTORY_DAY_RE.test(start)) return false;
+    const y = Number(start.slice(0, 4));
+    const m0 = Number(start.slice(5, 7)) - 1;
+    const last = String(new Date(Date.UTC(y, m0 + 1, 0)).getUTCDate()).padStart(2, "0");
+    const end = `${start.slice(0, 8)}${last}`;
+    return (!from || end >= from) && (!to || start <= to);
+  };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const p of (mmPlans ?? []) as any[]) {
+    if (!planInWindow(p.month)) continue;
     const k = agg(p.member_id);
     k.planApplicants += p.applicants ?? 0;
     k.planAccepted += p.accepted ?? 0;
     k.planApprovals += p.approvals ?? 0;
   }
   // the OGX ladder, exactly as ogxDashboard counts it: Contacted/Interested are
-  // the sheet's yes-ish text, and Approved ⊂ Accepted ⊂ Applied.
+  // the sheet's yes-ish text, and Approved ⊂ Accepted ⊂ Applied. No status
+  // carries its own date, so the window uses the SIGN-UP's own date — the very
+  // column the OGX dashboard lane filters on (its import stamp is the fallback).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const s of ogxSignups as any[]) {
     if (!s.assigned_to) continue;
+    if (windowed && !inDayWindow(signupDayIso(s.signed_up_at) ?? s.created_at)) continue;
     const k = agg(s.assigned_to);
     k.signupTotal += 1;
     if (_ogxYes(s.contact_status)) k.signupContacted += 1;

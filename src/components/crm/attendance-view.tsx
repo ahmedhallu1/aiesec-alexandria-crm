@@ -192,10 +192,13 @@ function RecordDialog({
       const res = await saveAttendance(touchPointId, rows);
       if (res.ok) {
         const saved = res.data?.saved ?? rows.length;
+        const confirmed = res.data?.confirmed ?? true;
         toast.success(
-          saved === 0
-            ? "Nothing changed — the records stay as they were ✅"
-            : `Attendance recorded for ${saved} people ✅`
+          confirmed && saved === 0
+            ? "Confirmed — the pre-filled records stand ✅"
+            : confirmed
+              ? `Attendance confirmed (${saved} row${saved === 1 ? "" : "s"} edited) ✅`
+              : `Saved for ${saved} people — set everyone to confirm the session`
         );
         onClose();
         router.refresh();
@@ -207,7 +210,9 @@ function RecordDialog({
       const res = await computeWorkingHoursAttendance(touchPointId);
       if (res.ok) {
         const d = res.data!;
-        toast.success(`Computed — ${d.attended} in, ${d.absent} out${d.skipped > 0 ? ` (${d.skipped} left as edited)` : ""}`);
+        toast.success(
+          `Recomputed — ${d.attended} in, ${d.absent} out${d.skipped > 0 ? ` (${d.skipped} left as edited)` : ""}. Confirm below to finish.`
+        );
         setReloadKey((k) => k + 1);
         router.refresh();
       } else toast.error(res.error);
@@ -239,7 +244,19 @@ function RecordDialog({
             {sheet.isWorkingHours ? (
               <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-xs leading-relaxed">
                 <p className="flex items-center gap-1.5 font-semibold text-primary">
-                  <Sparkles className="size-3.5" /> Working hours record themselves
+                  <Sparkles className="size-3.5" />
+                  {sheet.recordedAt
+                    ? "Pre-filled automatically — confirmed"
+                    : sheet.windowClosed
+                      ? "AI pre-filled — review & confirm"
+                      : "Filling itself in from everyone's work…"}
+                </p>
+                {/* the engine proposes, a human decides: nothing counts as
+                    recorded until this sheet is confirmed (v29.3) */}
+                <p className="mt-1 text-muted-foreground">
+                  {sheet.recordedAt
+                    ? "Elevate filled this in from everyone's work activity and you confirmed it. Change anything you like — it saves again."
+                    : "Elevate filled this in from everyone's work activity. Correct whatever looks wrong, then confirm — until you do, this session keeps reminding you."}
                 </p>
                 <p className="mt-1 text-muted-foreground">{sheet.rule}</p>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -347,8 +364,8 @@ function RecordDialog({
         <DialogFooter className="items-center">
           {stillOpen ? (
             <span className="mr-auto text-[11px] text-muted-foreground">
-              Working hours record themselves — corrections open once the
-              session&apos;s window closes.
+              The session is still running — you can confirm it once its window
+              closes.
             </span>
           ) : missing > 0 ? (
             <span className="mr-auto text-[11px] text-muted-foreground">
@@ -360,7 +377,11 @@ function RecordDialog({
           </Button>
           <Button onClick={submit} disabled={pending || loading || stillOpen}>
             {pending ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
-            Save attendance
+            {/* working hours arrive filled in — the responsible CONFIRMS them,
+                and that confirmation is what marks the point recorded */}
+            {sheet?.isWorkingHours && !sheet.recordedAt
+              ? "Confirm attendance"
+              : "Save attendance"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -530,13 +551,18 @@ export function AttendanceView({
                 </div>
                 <Button size="sm" onClick={() => setRecording(o.id)}>
                   {o.isWorkingHours ? <Sparkles className="size-4" /> : <ClipboardList className="size-4" />}
-                  {o.isWorkingHours ? "Compute / review" : "Record attendance"}
+                  {o.isWorkingHours
+                    ? o.windowClosed
+                      ? "Review & confirm"
+                      : "Open (still running)"
+                    : "Record attendance"}
                 </Button>
               </div>
             ))}
             <p className="text-[11px] text-muted-foreground">
-              Working-hours sessions record themselves once their window closes —
-              open one to review or recompute it.
+              Working-hours sessions fill themselves in from everyone&apos;s work
+              once their window closes — you still review and <b>confirm</b> them,
+              and they keep reminding you until you do.
             </p>
           </CardContent>
         </Card>

@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-08 · Version: v29.3
+Last updated: 2026-08-08 · Version: v30
 
 ---
 
@@ -587,6 +587,40 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-08 · v30** — **TM CORRECTIONS** (the v29 module shipped with the
+  wrong booking matrix and no confirmation step — all found by the user).
+  ① **One scope per role** (`bookableTouchPointScopes` rewritten as an
+  ordered matrix, enforced in `createTouchPoint` with a rule-shaped refusal):
+  **Team Leader → team ONLY** (own team, may invite sibling teams),
+  **LCVP/Director → function ONLY**, **TM core → LC ONLY** (checked BEFORE
+  the LCVP branch so a TM VP is TM first), LCP/admin → everything. The dialog
+  shows only what the role may book and prints the rule.
+  ② **Sandbox never touches other people** (new `src/server/tm-notify.ts`):
+  in a test view the bell goes to the ACTING VIEWER ONLY (written directly,
+  🧪-marked, undo-journaled — `notifyMembers` suppresses everything in a
+  sandbox, so the tester used to see nothing), and no touch-point or appeal
+  mail is sent; `appealAttendance` previously emailed REAL people from a test
+  view — now gated. ③ **Working hours need human confirmation**:
+  `runWorkingHoursAttendance` still pre-fills the rows but no longer stamps
+  `attendance_recorded_at` or resolves prompts — `saveAttendance` is the only
+  stamper (its no-op early-exit removed so a pure review confirms; coverage
+  re-read from the rows so a locked own-row can't block it), the cron's
+  working-hours skip is gone so unconfirmed sessions ride the same
+  3-reminder → prompt ladder, and the UI says "AI pre-filled — review &
+  confirm". The nag moved to **20:59 UTC = 23:59 Cairo** as asked.
+  ④ **TM page filters** — This month / This sprint chips + from→to range
+  (`clampDirectoryWindow`, Cairo→UTC half-open bounds, re-clamped server-side
+  so a hand-typed URL can't widen it); default stays all-time.
+  ⑤ **Every LCVP and Director is out of the TM performance review** (plus the
+  LCP, CXP's people and TM's own MMs) — the tab reviews Members,
+  Coordinators and Team Leaders. ⑥ **The empty team picker fixed** — an MM of
+  a function is now automatically offered that function's "Function leaders"
+  team (B2B/BD counted as one). ⑦ **Calendar day view**: clicking any day
+  opens that Cairo day's touch points, IR calls and visits plus **"Book a
+  touch point on this day"** with the date pre-filled (TouchPointDialog
+  gained optional `defaultDate` + controlled open). Playbook v30; the Blue
+  Man teaches the corrected matrix and the confirmation step.
 
 - **2026-08-08 · v29.3** — Docs caught up with the TM module (the v29 docs
   agents had crashed, so this was owed): **The Blue Man now teaches TM** —

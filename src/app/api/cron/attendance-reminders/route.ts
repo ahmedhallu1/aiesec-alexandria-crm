@@ -93,12 +93,20 @@ async function ensurePrompt(
     .limit(1)
     .maybeSingle<{ id: string }>();
   if (existing) return false;
+  // working hours are already filled in — what's owed is the CONFIRMATION
+  const auto = tp.kind === "working_hours";
   const { error } = await db().from("pending_prompts").insert({
     member_id: memberId,
     kind: "attendance",
     ref_id: tp.id,
-    title: `You still owe an attendance record for ${label}`,
-    body: `${whenLabel} · ${audienceLabel(tp)}. ${PROMPT_AFTER} reminders have gone out — record who showed up and this stops.`,
+    title: auto
+      ? `You still owe a confirmation for ${label}`
+      : `You still owe an attendance record for ${label}`,
+    body: `${whenLabel} · ${audienceLabel(tp)}. ${PROMPT_AFTER} reminders have gone out — ${
+      auto
+        ? "review what Elevate filled in and confirm it"
+        : "record who showed up"
+    } and this stops.`,
     link: `/attendance?tp=${tp.id}`,
   });
   if (error) {
@@ -108,12 +116,14 @@ async function ensurePrompt(
   return true;
 }
 
-/** ATTENDANCE REMINDERS (v29) — the general "you must act" ladder.
+/** ATTENDANCE REMINDERS (v29 · v29.3) — the general "you must act" ladder.
  *
- *  Nightly: every scheduled touch point that has started and still has no
- *  attendance record gets one nudge per Cairo day at the responsible.
- *  WORKING HOURS never nag — once their window has closed they record
- *  THEMSELVES from the work everyone already did. After PROMPT_AFTER
+ *  Nightly: every scheduled touch point that has started and is still
+ *  unconfirmed gets one nudge per Cairo day at the responsible. WORKING HOURS
+ *  are PRE-FILLED here first (the engine turns everyone's stamped work into
+ *  attended/absent once the window closes) and then nag exactly like a meeting
+ *  or an outing — the responsible reviews what the engine decided and confirms
+ *  it, and only that confirmation stamps the point. After PROMPT_AFTER
  *  reminders a `pending_prompts` row is filed and the app asks on sight. */
 export async function GET(req: NextRequest) {
   if (!env.cronSecret || req.nextUrl.searchParams.get("key") !== env.cronSecret) {
@@ -141,16 +151,18 @@ export async function GET(req: NextRequest) {
     const label = touchPointLabel(tp.scope, tp.kind);
     const whenLabel = cairoWhen(tp.starts_at);
     try {
-      // ---- working hours record THEMSELVES: no nag, ever ----
+      // ---- working hours: PRE-FILL them, then nag like anything else ----
+      // the engine writes attended/absent from everyone's stamped work, but a
+      // human still has to confirm it (v29.3) — so the ladder below applies
+      // unchanged, and only a confirmation in the sheet stops it
       if (tp.kind === "working_hours") {
-        if (!workWindowClosed(tp.starts_at)) continue; // still running
+        if (!workWindowClosed(tp.starts_at)) continue; // still running — nothing to review yet
         const res = await runWorkingHoursAttendance(tp.id);
         if (res.ok) computed.push(`${label} ${whenLabel}: ${res.attended} in · ${res.absent} out`);
         else errors.push(`${label} ${whenLabel}: ${res.error}`);
-        continue;
       }
 
-      // ---- meetings & outings: one nudge per Cairo day ----
+      // ---- everything unconfirmed: one nudge per Cairo day ----
       if (tp.attendance_reminded_on === today) continue;
       const owners = responsibleFor(tp, members);
       if (owners.length === 0) {
@@ -173,13 +185,22 @@ export async function GET(req: NextRequest) {
       }
 
       const reminder = already + 1;
+      // working hours arrive pre-filled — the ask is "review & confirm", not
+      // "fill this in from scratch"
+      const auto = tp.kind === "working_hours";
       await notifyMembers(
         owners.map((o) => o.id),
         "followup",
         reminder === 1
-          ? `📝 Record attendance — ${label}`
-          : `⏳ Reminder ${reminder}: attendance still missing — ${label}`,
-        `${whenLabel} · ${audienceLabel(tp)}. Attended · Late · Absent — it takes a minute.`,
+          ? auto
+            ? `✨ Confirm attendance — ${label}`
+            : `📝 Record attendance — ${label}`
+          : `⏳ Reminder ${reminder}: attendance still ${auto ? "unconfirmed" : "missing"} — ${label}`,
+        `${whenLabel} · ${audienceLabel(tp)}. ${
+          auto
+            ? "Elevate already filled it in from everyone's work — check it and confirm."
+            : "Attended · Late · Absent — it takes a minute."
+        }`,
         null,
         `/attendance?tp=${tp.id}`
       );

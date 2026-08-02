@@ -35,7 +35,11 @@ export interface TouchPointOption {
   label: string;
 }
 
-/** Every type this viewer may book, in the order they think about them. */
+/** Every type this viewer may book, in the order they think about them.
+ *  `scopes` comes from rbac's `bookableTouchPointScopes`, which since v29.3
+ *  hands each role exactly ONE scope (Team Leader → team · VP/Director →
+ *  function · TM → lc · LCP/admin → all three), so the picker can never show
+ *  a type the server would refuse. */
 export function touchPointOptions(scopes: TouchPointScope[]): TouchPointOption[] {
   const kinds: TouchPointKind[] = ["meeting", "working_hours", "outing"];
   const order: TouchPointScope[] = ["team", "function", "lc"];
@@ -45,6 +49,14 @@ export function touchPointOptions(scopes: TouchPointScope[]): TouchPointOption[]
       kinds.map((kind) => ({ scope, kind, label: touchPointLabel(scope, kind) }))
     );
 }
+
+/** Who each scope belongs to — printed under the type picker so the rule is
+ *  read, not guessed. */
+export const TOUCH_POINT_SCOPE_RULE: Record<TouchPointScope, string> = {
+  team: "Your team — you can pull in other teams of your function.",
+  function: "Your whole function — you can invite another function.",
+  lc: "The whole LC. TM's call.",
+};
 
 /** The audience line shown in the UI/emails ("IGV · Falcons" / "the whole LC"). */
 export function audienceLabel(tp: {

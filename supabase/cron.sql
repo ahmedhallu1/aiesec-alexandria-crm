@@ -70,13 +70,13 @@ select cron.schedule(
   $$ select net.http_get(url := '<APP_URL>/api/cron/streak-nags?key=<CRON_SECRET>') $$
 );
 
--- v29: TM attendance — nightly at 21:00 UTC. Working-hours sessions whose
+-- v29: TM attendance — nightly at 20:59 UTC = 23:59 Cairo (DST). Working-hours sessions whose
 -- window has closed record THEMSELVES from work_activity; every other touch
 -- point that started and still has no record nags whoever owes it (once per
 -- Cairo day), and after 3 reminders files a pending_prompts row so the app
 -- asks them on sight.
 select cron.schedule(
   'attendance-reminders',
-  '0 21 * * *',
+  '59 20 * * *',
   $$ select net.http_get(url := '<APP_URL>/api/cron/attendance-reminders?key=<CRON_SECRET>') $$
 );
