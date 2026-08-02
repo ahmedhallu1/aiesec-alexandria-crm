@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-08 · Version: v29.2
+Last updated: 2026-08-08 · Version: v29.3
 
 ---
 
@@ -587,6 +587,16 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-08 · v29.3** — Docs caught up with the TM module (the v29 docs
+  agents had crashed, so this was owed): **The Blue Man now teaches TM** —
+  touch points (the three kinds × three levels, who books what, start-time
+  only, invites, move/cancel with re-notification and the TM VP on CC), the
+  unified calendar and who sees what on it, attendance (who records, who may
+  edit, never your own row), the **automatic working-hours rule** in plain
+  words (≥2 real actions ≥10 min apart, the human edit always wins), appeals
+  and the 3-reminder → blocking-prompt ladder. **Playbook** gained the
+  move/cancel line it was missing.
 
 - **2026-08-08 · v29.2** — **THE v29 REVIEW PASS** (24-agent adversarial
   review of the shipped TM module → **16 confirmed findings, all fixed**).
