@@ -2044,13 +2044,32 @@ export async function logAudit(
   entityId: string | null,
   details?: Record<string, unknown>
 ) {
-  await db().from("audit_log").insert({
+  // v32: stamp the action's CHANGE SET (and the LC test session it belongs to,
+  // if one is open) so /admin can reverse exactly this action's journal rows.
+  let change_set: string | null = null;
+  let test_session_id: string | null = null;
+  try {
+    const { currentChangeSet, lcTestSession } = await import("./sandbox");
+    change_set = currentChangeSet();
+    test_session_id = await lcTestSession();
+  } catch {
+    /* outside a request scope (crons, scripts) — a plain audit row is fine */
+  }
+  const base = {
     actor_id: actorId,
     action,
     entity,
     entity_id: entityId,
     details: details ?? null,
-  });
+  };
+  const { error } = await db()
+    .from("audit_log")
+    .insert({ ...base, change_set, test_session_id });
+  // Pre-0033 grace: the undo columns may not exist yet (migrations are applied
+  // by hand in the SQL editor). Auditing must never stop because of that — fall
+  // back to the classic row, just without the undo link.
+  if (error?.code === "42703") await db().from("audit_log").insert(base);
+  else if (error) console.error("[audit] insert failed:", error.message);
 }
 
 // ------------------------------------------------------------------ cron run tracking
@@ -2085,6 +2104,14 @@ export interface AuditEntry {
   actor: string | null;
   details: string | null;
   createdAt: string;
+  /** the action's change set — null on entries written before v32 */
+  changeSet: string | null;
+  /** how many journal rows this action can reverse (0 = nothing to undo) */
+  undoable: number;
+  /** set once someone has undone it, so it can't be replayed twice */
+  undoneAt: string | null;
+  /** true when the action was taken inside an LC-wide testing session */
+  inTestSession: boolean;
 }
 
 /** Head-only count of a table, optionally filtered on one boolean column. */
@@ -2994,17 +3021,42 @@ export async function listLcFeedback(viewer: Viewer): Promise<LcFeedbackRow[]> {
 export async function listRecentAudit(limit = 60): Promise<AuditEntry[]> {
   const { data } = await db()
     .from("audit_log")
-    .select("id, action, entity, entity_id, details, created_at, actor:members!actor_id(name, nickname)")
+    .select(
+      "id, action, entity, entity_id, details, created_at, change_set, undone_at, test_session_id, actor:members!actor_id(name, nickname)"
+    )
     .order("created_at", { ascending: false })
     .limit(limit);
+  // pre-0033 grace: fall back to the classic columns so the log still renders
+  // (without Undo) on a database where the migration hasn't been run yet
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return ((data ?? []) as any[]).map((r) => ({
+  let raw: any[] | null = data;
+  if (!raw) {
+    const { data: legacy } = await db()
+      .from("audit_log")
+      .select("id, action, entity, entity_id, details, created_at, actor:members!actor_id(name, nickname)")
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    raw = legacy;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows = (raw ?? []) as any[];
+  // how many journal rows each action can actually reverse — an entry with
+  // none shows a disabled Undo and says why, instead of lying
+  const { changeSetSizes } = await import("./sandbox");
+  const sizes = await changeSetSizes(
+    [...new Set(rows.map((r) => r.change_set).filter(Boolean))] as string[]
+  );
+  return rows.map((r) => ({
     id: r.id,
     action: r.action,
     entity: r.entity,
     actor: r.actor ? r.actor.nickname || r.actor.name : null,
     details: r.details ? JSON.stringify(r.details) : null,
     createdAt: r.created_at,
+    changeSet: r.change_set ?? null,
+    undoable: r.undone_at || !r.change_set ? 0 : (sizes.get(r.change_set) ?? 0),
+    undoneAt: r.undone_at ?? null,
+    inTestSession: !!r.test_session_id,
   }));
 }
 

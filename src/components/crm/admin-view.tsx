@@ -5,11 +5,14 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Activity, AlertTriangle, CheckCircle2, Database, FlaskConical, Loader2,
-  ScrollText, Search, Trash2, XCircle,
+  ScrollText, Search, Trash2, Undo2, XCircle,
 } from "lucide-react";
 import { fmtDateTime } from "@/lib/types";
 import type { SystemHealth, AuditEntry } from "@/server/data";
-import { removeTestData, seedTestAccounts, setTestDataVisibility } from "@/server/actions";
+import {
+  removeTestData, seedTestAccounts, setTestDataVisibility, startLcTestSession,
+  stopLcTestSession, undoAuditEntries,
+} from "@/server/actions";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -54,12 +57,18 @@ export function AdminView({
   health,
   audit,
   testMode,
+  lcSession,
 }: {
   health: SystemHealth | null;
   audit: AuditEntry[];
   testMode: { testAccounts: number; showTestData: boolean };
+  lcSession: { id: string; startedAt: string; changes: number } | null;
 }) {
   const [q, setQ] = useState("");
+  // bulk selection over the log (v32)
+  const [picked, setPicked] = useState<Set<number>>(new Set());
+  const [undoing, startUndo] = useTransition();
+  const router = useRouter();
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -70,6 +79,34 @@ export function AdminView({
       )
     );
   }, [q, audit]);
+
+  // only entries that actually have journal rows can be reversed
+  const undoableShown = shown.filter((a) => a.undoable > 0);
+  const pickedUndoable = [...picked].filter((id) =>
+    audit.some((a) => a.id === id && a.undoable > 0)
+  );
+  const toggle = (id: number) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const runUndo = (ids: number[]) =>
+    startUndo(async () => {
+      const res = await undoAuditEntries(ids);
+      if (!res.ok) { toast.error(res.error); return; }
+      const { undone, skipped, failed } = res.data!;
+      if (undone === 0 && failed === 0) toast.info("Nothing to undo in that selection.");
+      else if (failed > 0)
+        toast.warning(`Undid ${undone} action${undone === 1 ? "" : "s"}, ${failed} partly failed — check the rows.`);
+      else
+        toast.success(
+          `Undid ${undone} action${undone === 1 ? "" : "s"}${skipped ? ` · ${skipped} skipped` : ""}.`
+        );
+      setPicked(new Set());
+      router.refresh();
+    });
 
   const allGreen = health?.checks.every((c) => c.ok) ?? false;
 
@@ -189,6 +226,9 @@ export function AdminView({
         </>
       )}
 
+      {/* LC-wide testing session (v32) */}
+      <LcSessionCard session={lcSession} />
+
       {/* audit log */}
       <Card className="rise-in rise-in-3">
         <CardHeader>
@@ -205,6 +245,47 @@ export function AdminView({
               />
             </div>
           </CardTitle>
+          {/* bulk bar — appears once something reversible is selected */}
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8"
+              disabled={undoableShown.length === 0}
+              onClick={() =>
+                setPicked(
+                  pickedUndoable.length === undoableShown.length
+                    ? new Set()
+                    : new Set(undoableShown.map((a) => a.id))
+                )
+              }
+            >
+              {pickedUndoable.length === undoableShown.length && undoableShown.length > 0
+                ? "Clear"
+                : `Select undoable (${undoableShown.length})`}
+            </Button>
+            {pickedUndoable.length > 0 ? (
+              <Button
+                size="sm"
+                variant="destructive"
+                className="h-8"
+                disabled={undoing}
+                onClick={() => runUndo(pickedUndoable)}
+              >
+                {undoing ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Undo2 className="size-4" />
+                )}
+                Undo {pickedUndoable.length} action{pickedUndoable.length === 1 ? "" : "s"}
+              </Button>
+            ) : null}
+            <p className="text-xs text-muted-foreground">
+              Undo replays an action&apos;s row changes in reverse. Actions from
+              before this release, and ones that touched nothing reversible
+              (sign-ins, sent reports), have nothing to replay.
+            </p>
+          </div>
         </CardHeader>
         <CardContent className="space-y-1">
           {shown.length === 0 ? (
@@ -215,8 +296,22 @@ export function AdminView({
             shown.map((a) => (
               <div
                 key={a.id}
-                className="flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg px-2 py-1.5 text-sm odd:bg-muted/30"
+                className={cn(
+                  "flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg px-2 py-1.5 text-sm odd:bg-muted/30",
+                  picked.has(a.id) && "bg-primary/10 odd:bg-primary/10",
+                  a.undoneAt && "opacity-60"
+                )}
               >
+                <input
+                  type="checkbox"
+                  className="size-4 shrink-0 accent-[var(--primary)] disabled:opacity-30"
+                  checked={picked.has(a.id)}
+                  disabled={a.undoable === 0}
+                  aria-label={
+                    a.undoable === 0 ? "Nothing to undo for this action" : `Select ${a.action}`
+                  }
+                  onChange={() => toggle(a.id)}
+                />
                 <span className={cn("font-semibold", ACTION_TONE[a.action] ?? "text-foreground")}>
                   {a.action}
                 </span>
@@ -224,6 +319,16 @@ export function AdminView({
                 <span className="text-xs text-muted-foreground">
                   by {a.actor ?? "system"}
                 </span>
+                {a.inTestSession ? (
+                  <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
+                    🧪 test session
+                  </Badge>
+                ) : null}
+                {a.undoneAt ? (
+                  <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
+                    undone
+                  </Badge>
+                ) : null}
                 {a.details ? (
                   <span dir="auto" className="min-w-0 truncate text-xs text-muted-foreground/70">
                     {a.details}
@@ -232,12 +337,147 @@ export function AdminView({
                 <span className="ml-auto shrink-0 text-xs text-muted-foreground">
                   {fmtDateTime(a.createdAt)}
                 </span>
+                {a.undoable > 0 ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 shrink-0 px-2 text-xs"
+                    disabled={undoing}
+                    onClick={() => runUndo([a.id])}
+                    title={`Reverse ${a.undoable} row change${a.undoable === 1 ? "" : "s"}`}
+                  >
+                    <Undo2 className="size-3.5" /> Undo
+                  </Button>
+                ) : null}
               </div>
             ))
           )}
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/** v32 — the LC-wide testing session.
+ *
+ *  One switch that puts the WHOLE LC into a test: everyone keeps using the app
+ *  normally, every database write is journaled, and stopping the session rolls
+ *  all of it back. The warning is deliberately loud because outbound side
+ *  effects are NOT suppressed (the admin chose that): mail that goes out
+ *  during the test has really gone out. */
+function LcSessionCard({
+  session,
+}: {
+  session: { id: string; startedAt: string; changes: number } | null;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [confirmStop, setConfirmStop] = useState<null | "rollback" | "keep">(null);
+
+  const run = (fn: () => Promise<{ ok: boolean; error?: string; data?: unknown }>, ok: string) =>
+    start(async () => {
+      const res = await fn();
+      if (!res.ok) { toast.error(res.error ?? "Something went wrong."); return; }
+      toast.success(ok);
+      setConfirmStop(null);
+      router.refresh();
+    });
+
+  return (
+    <Card className={cn("rise-in rise-in-3", session && "border-warning/50 bg-warning/5")}>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <FlaskConical className="size-4 text-primary" /> LC-wide testing session
+          {session ? (
+            <Badge className="bg-warning text-warning-foreground">RUNNING</Badge>
+          ) : null}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        {session ? (
+          <>
+            <p>
+              Started <b>{fmtDateTime(session.startedAt)}</b> ·{" "}
+              <b>{session.changes}</b> row change{session.changes === 1 ? "" : "s"} journaled
+              so far. Everyone in the LC can use the system normally; every write
+              is being recorded.
+            </p>
+            <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
+              ⚠️ Emails, notifications, calendar events and the Sheets write-back
+              are <b>live</b> during this session and cannot be rolled back.
+              Stopping restores the <b>database</b> only.
+            </p>
+            {confirmStop === null ? (
+              <div className="flex flex-wrap gap-2">
+                <Button variant="destructive" size="sm" onClick={() => setConfirmStop("rollback")}>
+                  Stop &amp; undo everything
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setConfirmStop("keep")}>
+                  Stop &amp; keep the changes
+                </Button>
+              </div>
+            ) : (
+              <div className="rounded-lg border p-3">
+                <p className="text-sm font-medium">
+                  {confirmStop === "rollback"
+                    ? `Undo all ${session.changes} change${session.changes === 1 ? "" : "s"} made since the session started?`
+                    : "Keep every change made during the session?"}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {confirmStop === "rollback"
+                    ? "Rows are restored in reverse order. This cannot itself be undone."
+                    : "The session closes and the changes stay. Individual actions remain undoable from the log below."}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant={confirmStop === "rollback" ? "destructive" : "default"}
+                    disabled={pending}
+                    onClick={() =>
+                      run(
+                        () => stopLcTestSession(confirmStop === "keep"),
+                        confirmStop === "rollback"
+                          ? "Session closed — the database is back to where it started."
+                          : "Session closed — the changes were kept."
+                      )
+                    }
+                  >
+                    {pending ? <Loader2 className="size-4 animate-spin" /> : null}
+                    Yes, {confirmStop === "rollback" ? "undo everything" : "keep them"}
+                  </Button>
+                  <Button size="sm" variant="ghost" disabled={pending} onClick={() => setConfirmStop(null)}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="text-muted-foreground">
+              Turn the whole LC loose on the system for a session — training, a
+              feedback round, a stress test. Every database write is journaled
+              and undone in one click when you stop, so nothing has to be cleaned
+              up by hand afterwards.
+            </p>
+            <p className="rounded-lg border px-3 py-2 text-xs text-muted-foreground">
+              What is <b>not</b> undone: emails, in-app notifications, calendar
+              events, Gmail drafts and the Membership sheet write-back all fire
+              for real. Permanent deletes of archived accounts are blocked while
+              a session runs, because a cascade delete cannot be replayed.
+            </p>
+            <Button
+              size="sm"
+              disabled={pending}
+              onClick={() => run(startLcTestSession, "Testing session started — the LC is in test mode.")}
+            >
+              {pending ? <Loader2 className="size-4 animate-spin" /> : <FlaskConical className="size-4" />}
+              Start a testing session
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
