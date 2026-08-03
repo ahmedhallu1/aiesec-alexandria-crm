@@ -404,6 +404,22 @@ export async function importMembership(): Promise<number> {
 
   await relinkStakeholders();
   await importTeams().catch((e) => console.error("[sheets] teams import failed:", e));
+  // the standing teams follow from the membership — provision what the rules
+  // imply, then mirror the whole registry back so the sheet shows it too
+  await ensureDerivedTeams()
+    .then(async (created) => {
+      if (created === 0) return;
+      const { data } = await db()
+        .from("teams")
+        .select("type, function_key, name")
+        .order("type")
+        .order("function_key")
+        .order("name");
+      await writeTeamsTab(
+        (data ?? []) as { type: string; function_key: string; name: string }[]
+      );
+    })
+    .catch((e) => console.error("[sheets] derived teams failed:", e));
 
   // the sheet is where role / function / sub-function moves actually happen,
   // so this is where a plan stops belonging to its owner (Consideration →
@@ -486,6 +502,76 @@ export async function importTeams(): Promise<number> {
     }
   }
   return count;
+}
+
+/** The STANDING teams are a rule, not a list (v32.6).
+ *
+ *  The structure follows from the membership, so nobody should have to keep a
+ *  registry in step with it by hand:
+ *
+ *    EB               every LCP + LCVP
+ *    LB               every LCP / LCVP / Director / Team Leader / Coordinator
+ *    <FN> function    everyone carrying that function
+ *    <FN> leaders     that function's VP / Director / TLs / Coordinators
+ *
+ *  Membership is DERIVED at read time (`teamsForViewer`), so it can never
+ *  drift. This makes sure the registry actually HAS a row for every team those
+ *  rules imply — a function that appears in the Membership sheet gets its two
+ *  teams automatically, named after itself until someone renames them. It only
+ *  ever ADDS; a team someone named stays named, and 'Team' rows (a TL's own
+ *  team) are never touched. */
+export async function ensureDerivedTeams(): Promise<number> {
+  const { data: members } = await db()
+    .from("members")
+    .select("role, functions, sub_functions")
+    .eq("is_active", true);
+  const rows = (members ?? []) as {
+    role: string;
+    functions: string[] | null;
+    sub_functions: string[] | null;
+  }[];
+
+  // every function that actually has people (B2B and BD are one crew → B2B)
+  const fns = new Set<string>();
+  for (const m of rows) {
+    for (const f of [...(m.functions ?? []), ...(m.sub_functions ?? [])]) {
+      const key = f.trim().toUpperCase();
+      if (!key) continue;
+      if (key === "BD" || key === "B2B") fns.add("B2B");
+      else if (LC_FUNCTIONS.includes(key as (typeof LC_FUNCTIONS)[number])) fns.add(key);
+    }
+  }
+
+  const wanted: { type: string; function_key: string; name: string }[] = [
+    { type: "EB", function_key: "", name: "EB" },
+    { type: "LB", function_key: "", name: "LB" },
+  ];
+  for (const fn of [...fns].sort()) {
+    wanted.push({ type: "Function", function_key: fn, name: `${fn} function` });
+    wanted.push({ type: "Function leaders", function_key: fn, name: `${fn} leaders` });
+  }
+
+  const { data: existing } = await db().from("teams").select("type, function_key");
+  const have = new Set(
+    ((existing ?? []) as { type: string; function_key: string }[]).map(
+      (t) => `${t.type}:${t.function_key}`
+    )
+  );
+  // 'MM' is the pre-v24.2 alias of 'Function leaders' — an LC still carrying
+  // those rows must not get a duplicate
+  for (const t of (existing ?? []) as { type: string; function_key: string }[]) {
+    if (t.type === "MM") have.add(`Function leaders:${t.function_key}`);
+  }
+
+  let created = 0;
+  for (const t of wanted) {
+    if (have.has(`${t.type}:${t.function_key}`)) continue;
+    const { error } = await db().from("teams").insert(t);
+    if (error) console.error("[teams] could not create", t, error.message);
+    else created += 1;
+  }
+  if (created > 0) console.log(`[teams] provisioned ${created} standing team(s)`);
+  return created;
 }
 
 /** Rewrites the WHOLE Teams tab from the in-app registry (v24.2 — every
