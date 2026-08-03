@@ -127,7 +127,13 @@ export function GuidedTour({
         // give the route a moment to commit before hunting for the target
         await new Promise((r) => setTimeout(r, 350));
       }
-      if (step.openBy) {
+      // Only open what isn't already open. Stepping BACK into a dialog step
+      // would otherwise click the opener a second time while the dialog was
+      // still up.
+      const alreadyThere = document.querySelector<HTMLElement>(
+        `[data-tour="${step.target}"]`
+      );
+      if (step.openBy && !(alreadyThere && alreadyThere.getBoundingClientRect().width > 0)) {
         const opener = await waitForSelector(step.openBy, 3000);
         opener?.click();
         // let the dialog mount before hunting for a field inside it
@@ -216,8 +222,18 @@ export function GuidedTour({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") void finish();
-      if (e.key === "ArrowRight") void next();
+      if (e.key === "Escape") { void finish(); return; }
+      // ArrowRight is a shortcut, but not while the cursor is in a field — a
+      // tour step often points AT an input, and moving the caret must not
+      // jump the walkthrough
+      const t = e.target as HTMLElement | null;
+      const typing =
+        !!t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.tagName === "SELECT" ||
+          t.isContentEditable);
+      if (e.key === "ArrowRight" && !typing) void next();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -246,7 +262,18 @@ export function GuidedTour({
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[100]" role="dialog" aria-modal="true" aria-label="Guided walkthrough">
+    <div
+      className="fixed inset-0 z-[100]"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Guided walkthrough"
+      // A Radix dialog sets `pointer-events: none` on <body> while it is open.
+      // This overlay is portaled to <body>, so from the first step INSIDE a
+      // dialog (the account-name field) the bubble was visible but completely
+      // dead — Next did nothing, and the walkthrough could not be advanced at
+      // all. Every layer below re-enables pointer events for itself.
+      style={{ pointerEvents: "none" }}
+    >
       {/* the spotlight: one box over the element, with the rest of the screen
           dimmed by an enormous ring shadow (no SVG mask needed) */}
       {box ? (
@@ -266,14 +293,18 @@ export function GuidedTour({
 
       {/* click-through guard: the page stays visible but not clickable, so a
           stray click can't take someone somewhere the tour didn't expect */}
-      <div className="absolute inset-0" onClick={(e) => e.stopPropagation()} />
+      <div
+        className="absolute inset-0"
+        style={{ pointerEvents: "auto" }}
+        onClick={(e) => e.stopPropagation()}
+      />
 
       <div
         className={cn(
           "absolute w-[320px] rounded-xl border bg-popover p-4 text-popover-foreground shadow-2xl transition-all duration-200",
           busy && "opacity-70"
         )}
-        style={{ top: bubbleTop, left: bubbleLeft }}
+        style={{ top: bubbleTop, left: bubbleLeft, pointerEvents: "auto" }}
       >
         <div className="flex items-start justify-between gap-2">
           <p className="text-sm font-semibold">{step.title}</p>
