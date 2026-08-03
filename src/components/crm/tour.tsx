@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { ROLE_BLURBS } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -47,7 +47,21 @@ function buildSteps(role: string, functions: string[], subFunctions: string[], m
     ];
   }
 
-  const steps: TourStep[] = [];
+  // Everyone with a module starts with WHAT THE SYSTEM IS — before any tab or
+  // button makes sense, you need the one-paragraph version of what Elevate
+  // does and why anything you type here matters.
+  const steps: TourStep[] = [
+    {
+      icon: "\u{1F499}",
+      title: "What Elevate is",
+      body: "Elevate is AIESEC in Alexandria's own CRM \u2014 one place for the work the LC used to spread across a dozen Google Sheets. You log what you actually do; Elevate turns it into the pipeline, the numbers, the reminders and the reports your leaders read. Nothing here is busywork: every number on every dashboard is built from these entries.",
+    },
+    {
+      icon: "\u{1F9ED}",
+      title: "How it fits together",
+      body: "You work in your function's tab in the sidebar. Everything you log rolls up automatically \u2014 into your Dashboard, your team's plan, the leaderboard and the period reports. The Playbook tab is the full manual, and The Blue Man (the walking figure, bottom right) answers questions about your own data in Arabic or English.",
+    },
+  ];
   // ONE primary workspace drives the tour (same priority as the home routing:
   // accounts → sign-ups → consideration → members); other live modules get a
   // short pointer step at the end.
@@ -78,18 +92,38 @@ function buildSteps(role: string, functions: string[], subFunctions: string[], m
       },
       {
         icon: "🏢",
-        title: "Accounts — your pipeline",
-        body: `Every company you raise lives in Accounts. Add them one by one or import a whole market-research sheet. Names are unique across every function — if someone already works it or it sits in your function's archive, the system blocks it and tells you who/why.`,
+        title: "Raising — your pipeline",
+        body: `Every company you raise lives in the Raising tab. Each one moves through the same six stages: Lead → Contacted → Visit Scheduled → Visit Done → Deal Done, with Out of Process as the exit. You never set the stage by hand — it follows what you log.`,
+      },
+      {
+        icon: "➕",
+        title: "1. Adding an account",
+        body: `Hit "Add account", pick the function and type the company name. Three checks run WHILE you type: is it already in the CRM (and whose is it), is it in the archive — the LC's blacklist of burned names — and is it already on the national Podio. If Podio has it, don't submit it again; if it doesn't, you still need to fill the Podio form. Then add contacts (phones, emails, links — each one tagged) and save.`,
+      },
+      {
+        icon: "✏️",
+        title: "2. Opening & editing it",
+        body: `Click any row to open the account. The Details card holds everything you entered — every field stays editable, so fix a wrong number or add the CEO's email whenever you learn it. Comments are numbered and permanent: pin the important one and it shows as a ❗ on the list for everyone who can see the account.`,
+      },
+      {
+        icon: "⚡",
+        title: "3. The actions that matter",
+        body: `The buttons at the top of an account are the whole job: Contact (log a call/WhatsApp/email), Schedule visit, Record deal, and Proposal email — which drafts a ready AIESEC proposal in YOUR Gmail to review and send. Tapping a phone or email anywhere in the list opens the channel AND the contact form, so nothing goes unlogged.`,
       },
       {
         icon: "📞",
-        title: "Log every contact",
-        body: "Use the Contact button after every attempt (call / WhatsApp / email). Golden rule: every account carries a next step with a date — or a scheduled visit. 3 attempts with no answer → Elevate asks you to archive it. \"Not interested\" archives it automatically.",
+        title: "The golden rule",
+        body: "Log every attempt, and every account carries a next step with a date — or a scheduled visit. Nothing is allowed to float. 3 attempts with no answer → Elevate asks you to archive it. \"Not interested\" archives it on the spot.",
       },
       {
         icon: "🗓️",
         title: "Visits & reminders",
-        body: "Schedule a visit and it lands on the responsible member's Google Calendar with reminders 24h and 1h before (sign in with Google once to enable that). After the visit, report it — your leaders are notified automatically.",
+        body: "Schedule a visit and it lands on the responsible member's Google Calendar with reminders 24h and 1h before (sign in with Google once to enable that). Your TL and VP are invited, and the whole raising crew is notified. After the visit, report it — if you forget, Elevate chases you at +2h and again a week later.",
+      },
+      {
+        icon: "🗄️",
+        title: "The archive is shared",
+        body: "Archiving is not deleting: an out-of-process account becomes part of the LC-wide blacklist, so nobody wastes a call on a name that's already burned. Everyone can open any archived account read-only to see who worked it and why it died — and Team Leaders and above can bring it back.",
       },
       {
         icon: "📊",
@@ -228,7 +262,7 @@ export function Tour({
   modules: TourModules;
   subFunctions?: string[];
 }) {
-  const storageKey = `crm-tour-v1:${email.toLowerCase()}`;
+  const storageKey = `crm-tour-v2:${email.toLowerCase()}`;
   // read once after hydration (server snapshot = false → no tour during SSR)
   const neverSeen = useSyncExternalStore(
     () => () => {},
@@ -242,8 +276,18 @@ export function Tour({
     () => false
   );
   const [dismissed, setDismissed] = useState(false);
+  const [replay, setReplay] = useState(false);
   const [i, setI] = useState(0);
-  const open = neverSeen && !dismissed;
+  const open = (neverSeen && !dismissed) || replay;
+
+  // "Replay the walkthrough" (Playbook) — before v32 a dismissed tour was gone
+  // for good in that browser, which is a poor deal for the one thing that
+  // explains the system.
+  useEffect(() => {
+    const onReplay = () => { setI(0); setDismissed(false); setReplay(true); };
+    window.addEventListener("sodio:replay-tour", onReplay);
+    return () => window.removeEventListener("sodio:replay-tour", onReplay);
+  }, []);
 
   const steps = buildSteps(role, functions, subFunctions, modules);
   const done = () => {
@@ -251,6 +295,7 @@ export function Tour({
       localStorage.setItem(storageKey, new Date().toISOString());
     } catch {}
     setDismissed(true);
+    setReplay(false);
   };
 
   const step = steps[Math.min(i, steps.length - 1)];

@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-09 · Version: v31.2
+Last updated: 2026-08-03 · Version: v32
 
 ---
 
@@ -44,7 +44,8 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0018_tl_plans_deal_allocations_unassigned` → `0019_b2c_module` →
 `0020_name_worlds` → `0021_podio_updates_all_fns_email_optional` →
 `0022_team_registry` → `0023_email_unique_fix_phone_identity` →
-`0024_function_leaders_type` → `0025_ogx_signups`.
+`0024_function_leaders_type` → `0025_ogx_signups` → … → `0032_ir_booker_role` →
+`0033_change_journal_lc_test` (**NOT YET APPLIED** — run it in the SQL editor).
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
@@ -533,6 +534,11 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | Period reports (content / cadence / recipients) | `buildFunctionReport` in `data.ts` · `periodReportEmail` in `templates.ts` · `/api/cron/period-reports` |
 | Sandbox test view (undo / suppression) | `src/server/sandbox.ts` · `startViewAs`/`stopViewAs` in `actions.ts` · chip in `view-as-banner.tsx` |
 | Test data seeding | `seedTestAccounts`/`removeTestData` in `actions.ts` |
+| Podio existence check (parser / cache / TTL) | `src/lib/podio.ts` · `checkPodioNameLive` in `actions.ts` · verdict UI in `add-account-dialog.tsx` |
+| Dashboard lane list & who sees it | `raisingFunctions`/`considerationFunctions`/`seesEveryLane`/`ogxLanes` in `rbac.ts` · `views` in `dashboard/page.tsx` |
+| Change journal / undo / LC test session | `src/server/sandbox.ts` · `startLcTestSession`/`stopLcTestSession`/`undoAuditEntries` in `actions.ts` · `/admin` |
+| Stale plans when membership changes | `stillPlans`/`prunePlansForMember`/`pruneStalePlans` in `data.ts` |
+| First-run walkthrough | `buildSteps` in `tour.tsx` (bump `crm-tour-v*` to re-show it) |
 | Feedback categories | `FEEDBACK_CATEGORIES` in `types.ts` |
 | LC people feedback | `submitLcFeedback` in `actions.ts` · `lc-feedback-view.tsx` · inbox via `listLcFeedback` |
 
@@ -587,6 +593,81 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-03 · v32** — **RAISING, LANES, PODIO & THE CHANGE JOURNAL.**
+  ① **"Accounts" tab renamed "Raising"** (nav, tab title, page hero,
+  playbook); the `/accounts` route is unchanged.
+  ② **Dashboard lanes are named for the SIDE they show** — IGV Raising ·
+  IGV Consideration · IGT Raising · IGTa Raising · IGTe Raising · IGT
+  Consideration · OGT · OGV · B2B · B2C — and gated on the work the viewer
+  actually does (`worksSide` in rbac): a Member/Coordinator/Team Leader gets
+  exactly the side(s) their **Sub Function** column names, an LCVP/Director
+  gets BOTH sides of the product function they lead (bound to `icxFunctions`,
+  so a B2C or BD Director never picks up IGV/IGT consideration), and **nobody
+  sees the other product's lanes** (before this, any Consideration label
+  handed out both IGV *and* IGT consideration). `seesEveryLane` gives the
+  **LCP/admin + the TM and F&L leadership** every lane, and /dashboard is now
+  reachable for them. The module gates stay deliberately narrower than the
+  lane lists: `hasConsiderationAccess` and `ogxFunctions` still answer "may
+  you WORK this", so overseeing a lane never grants the right to work a
+  sign-up, an IR call or the CV pool (`ogxLanes` is the dashboard-only twin).
+  ③ **Quick actions open the REAL contact form** — tapping WhatsApp/Call/Email
+  opens the normal ContactDialog with the method pre-selected and every result
+  available; the reduced `QuickContactPrompt` and its "Open the full contact
+  form →" link are gone.
+  ④ **AUTOMATIC PODIO CHECK** (`src/lib/podio.ts`): while the account name is
+  typed, Elevate answers "is this already on Podio?" itself. The national
+  form's "Check if your company exists?" field is a plain `<select>` whose
+  options are rendered into the public HTML — no API, key, auth or AJAX search
+  — so we fetch the same page, parse the same options and match
+  case-insensitively; cached 30 min in `app_settings` (`podio:companies`).
+  Verdicts: ⚠️ already on Podio (don't submit a duplicate — add it here and ask
+  the MM for the request state) · 🔎 not on Podio (submit it, with near-miss
+  names listed) · nothing at all if Podio is unreachable (fails SOFT to the
+  manual link). **Honest ceiling:** the form embeds only the ~300 newest
+  partners, so an older one is invisible — but equally invisible to the member
+  checking by hand, since select2 filters those same embedded options. The UI
+  states the number it checked against.
+  ⑤ **Phone paste fix**: `cleanPhone` now reduces a pasted number to `+`? +
+  digits. Invisible characters (bidi marks from Arabic chats, zero-width
+  spaces, soft hyphens, BOMs) used to survive it, so a number that LOOKED
+  perfect kept failing with nothing the member could see or delete — the error
+  never went away. The membership field also rewrites itself on blur to what
+  the system sees and gives the specific reason.
+  ⑥ **Plans follow the member's CURRENT job**: `stillPlans` re-checks every
+  plan row against the live membership (so `listMmPlans`/`listTlPlans` drop
+  what no longer applies), `prunePlansForMember` cleans up on an in-app edit
+  and `pruneStalePlans` sweeps the LC at the end of every membership import —
+  where role/sub-function moves actually happen. Farah Hossam's 6 stale
+  consideration months were deleted (she is a Raising Coordinator now).
+  ⑦ **THE CHANGE JOURNAL** (migration **0033**, ⚠️ *run it in the SQL editor*):
+  every action now carries a **change set** (one server-action call = one
+  request = one uuid), and the v21 sandbox journal records **always**, not just
+  in a sandbox. On that: **Undo from the logs** — /admin gains a per-entry
+  Undo, checkbox selection and a bulk "Undo N actions" bar; entries with
+  nothing to replay (pre-0033, sign-ins, sent reports) show a disabled
+  checkbox instead of a button that would lie. And **LC-wide testing
+  sessions** — the admin opens ONE session for the whole LC, everyone's writes
+  are journaled, and stopping either rolls them all back or keeps them.
+  **⚠️ Side effects are NOT suppressed in an LC session (deliberate choice):**
+  emails, notifications, calendar events and the Sheets write-back fire for
+  real and cannot be undone — only the DATABASE is restored; permanent deletes
+  of archived accounts are blocked while one runs. `pruneJournal` drops
+  unowned rows after 30 days. Pre-0033 grace: `logAudit` falls back to the
+  classic row on 42703 and `listRecentAudit` to the classic select.
+  ⑧ **Onboarding rebuilt**: the tour now opens with **what Elevate is and how
+  it fits together** before any tab, and the raising walkthrough is a real
+  walkthrough — adding an account (with the three live checks), opening and
+  editing it, the action bar (Contact · Visit · Deal · Proposal), the golden
+  rule, visits and reminders, and the shared archive. The storage key moved to
+  `crm-tour-v2:` so everyone gets it once, and the Playbook gained a **"↻
+  Replay the walkthrough"** button (before this, a dismissed tour was gone for
+  good in that browser).
+  ⑨ **Data cleanup**: the two hand-made junk accounts behind the wrong
+  dashboard numbers were deleted — "test1" (IGT, El-Saied) carried the ONLY
+  contact_attempt in the entire database, and "Test" (B2C, Ali) carried a
+  scheduled visit. Both had been *archived* rather than deleted, and archiving
+  does not remove an account from the funnel counts.
 
 - **2026-08-09 · v31.2** — The contact-after-click hand-over keeps the channel:
   `ContactDialog` gained an optional `defaultMethod` (re-seeded when a later

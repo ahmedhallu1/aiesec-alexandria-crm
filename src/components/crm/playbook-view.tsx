@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v31";
+export const PLAYBOOK_VERSION = "v32";
 
 interface Props {
   role: string;
@@ -305,6 +305,13 @@ export function PlaybookView({ role, isAdmin, isB2B, isB2C, isTm, isOgx, isConsi
             The Elevate Playbook
           </h1>
           <Badge className="border-white/30 bg-white/15 text-white">{PLAYBOOK_VERSION}</Badge>
+          <button
+            type="button"
+            className="ml-auto rounded-full border border-white/30 bg-white/10 px-3 py-1 text-xs font-medium text-white transition hover:bg-white/20"
+            onClick={() => window.dispatchEvent(new Event("sodio:replay-tour"))}
+          >
+            ↻ Replay the walkthrough
+          </button>
         </div>
         <p className="mt-2 max-w-xl text-sm leading-relaxed text-white/85">
           Your manual, tailored to <b>your role</b> — only what you need, nothing
