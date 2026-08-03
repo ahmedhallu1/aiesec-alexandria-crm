@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v31";
+export const PLAYBOOK_VERSION = "v32";
 
 interface Props {
   role: string;
@@ -75,7 +75,7 @@ const SECTIONS: Section[] = [
       <>No AIESEC email yet? (v24) Sign in with your <b>phone number typed in BOTH fields</b> — identifier AND password. Once the EB adds your email that door closes: sign in with <b>Google once</b> to unlock everything, then set a password from your Profile.</>,
       <>Deactivated members never chase a login loop (v24): a clear <b>&quot;your account is inactive&quot;</b> screen says to contact your manager or the IM team.</>,
       <>Forgot the password? The login page emails you a fresh one instantly. Your old one keeps working until you change it.</>,
-      <>Signing in lands you on <b>Accounts</b> — your daily workspace; the Dashboard, Calendar and the rest live in the sidebar.</>,
+      <>Signing in lands you on <b>Raising</b> — your daily workspace; the Dashboard, Calendar and the rest live in the sidebar.</>,
       <>Meet <b>The Blue Man</b> 🚶 (bottom-right) — he answers questions using your real CRM data and AIESEC sources. He <b>remembers your recent chats</b> now (v27): reopen the popup and pick a past conversation from the history, or start fresh with the new-chat button — a fresh chat greets you with <b>ready questions tuned to your role</b>.</>,
       <>The first-run <b>tour</b> walks you through your workspace — and (v28) onboarding + the tour <b>speak your module&apos;s language</b> now: raisers hear accounts &amp; visits, OGX hears sign-ups, B2C hears Podio, consideration hears IR calls. Rewatch it any time from your Profile.</>,
       <>Make the avatar YOURS (v24): the profile avatar dialog has a <b>🎨 Create your own</b> builder — style, seed text, a dice randomizer, flip, background gradients — and <b>The Blue Man himself</b> is pickable.</>,
@@ -305,6 +305,13 @@ export function PlaybookView({ role, isAdmin, isB2B, isB2C, isTm, isOgx, isConsi
             The Elevate Playbook
           </h1>
           <Badge className="border-white/30 bg-white/15 text-white">{PLAYBOOK_VERSION}</Badge>
+          <button
+            type="button"
+            className="ml-auto rounded-full border border-white/30 bg-white/10 px-3 py-1 text-xs font-medium text-white transition hover:bg-white/20"
+            onClick={() => window.dispatchEvent(new Event("sodio:replay-tour"))}
+          >
+            ↻ Replay the walkthrough
+          </button>
         </div>
         <p className="mt-2 max-w-xl text-sm leading-relaxed text-white/85">
           Your manual, tailored to <b>your role</b> — only what you need, nothing

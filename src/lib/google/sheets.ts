@@ -405,6 +405,13 @@ export async function importMembership(): Promise<number> {
   await relinkStakeholders();
   await importTeams().catch((e) => console.error("[sheets] teams import failed:", e));
 
+  // the sheet is where role / function / sub-function moves actually happen,
+  // so this is where a plan stops belonging to its owner (Consideration →
+  // Raising, MM → Member, a function swap). Drop what no longer applies.
+  await import("@/server/data")
+    .then((d) => d.pruneStalePlans())
+    .catch((e) => console.error("[sheets] plan prune failed:", e));
+
   // deactivate anyone removed from the sheet (admins stay; phone-keyed
   // members are recognized by their phone tail)
   if (count > 0) {

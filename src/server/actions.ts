@@ -1237,6 +1237,136 @@ export async function removeTestData(): Promise<ActionResult<{ removed: number }
   return { ok: true, data: { removed: count ?? 0 } };
 }
 
+// ============================================ LC-wide testing session (v32)
+
+/** Opens a testing session for the WHOLE LC.
+ *
+ *  While it is open every member's database writes are journaled; closing it
+ *  replays the journal in reverse, so the LC can be turned loose on the system
+ *  and the database ends up exactly as it started.
+ *
+ *  ⚠️ SIDE EFFECTS ARE **NOT** SUPPRESSED — by explicit choice. Emails,
+ *  in-app notifications, Google Calendar events, Gmail drafts and the Sheets
+ *  write-back all fire for real and CANNOT be rolled back. Only the database
+ *  is restored. The UI says this in as many words before the admin starts. */
+export async function startLcTestSession(): Promise<ActionResult<{ id: string }>> {
+  const { getRealViewer } = await import("./data");
+  const real = await getRealViewer();
+  if (!real.isAdmin) return fail("Only the admin can start a testing session.", "forbidden");
+
+  const { lcTestSession } = await import("./sandbox");
+  if (await lcTestSession())
+    return fail("A testing session is already running — stop it first.");
+
+  const { data, error } = await db()
+    .from("test_sessions")
+    .insert({ admin_id: real.id, target_id: null, mode: "lc", kind: "lc" })
+    .select("id")
+    .single<{ id: string }>();
+  // the partial unique index is the real guard against two admins racing
+  if (error)
+    return fail(
+      error.code === "23505"
+        ? "A testing session was just started by someone else."
+        : error.message
+    );
+  await logAudit(real.id, "lc_test_start", "system", data.id);
+  refresh();
+  return { ok: true, data: { id: data.id } };
+}
+
+/** Closes the LC-wide session. `keep` commits everything instead of rolling
+ *  back — for when the test turned out to be real work worth keeping. */
+export async function stopLcTestSession(
+  keep = false
+): Promise<ActionResult<{ undone: number; kept: boolean }>> {
+  const { getRealViewer } = await import("./data");
+  const real = await getRealViewer();
+  if (!real.isAdmin) return fail("Only the admin can stop a testing session.", "forbidden");
+
+  const { lcTestSession, rollbackJournal } = await import("./sandbox");
+  const id = await lcTestSession();
+  if (!id) return fail("No testing session is running.");
+
+  let undone = 0;
+  if (keep) {
+    // detach the rows from the session so nothing can replay them later, but
+    // leave them in the journal — they stay individually undoable from the log
+    await db().from("test_undo").update({ session_id: null }).eq("session_id", id);
+  } else {
+    undone = await rollbackJournal(id);
+  }
+  await db()
+    .from("test_sessions")
+    .update({ ended_at: new Date().toISOString() })
+    .eq("id", id);
+  await logAudit(real.id, keep ? "lc_test_keep" : "lc_test_rollback", "system", id, {
+    undone,
+  });
+  refresh();
+  return { ok: true, data: { undone, kept: keep } };
+}
+
+// ==================================================== undo from the logs (v32)
+
+/** Reverses one or more audited actions from /admin (single or bulk select).
+ *  Newest first, so undoing a run of edits to the same row lands on the
+ *  oldest snapshot rather than a middle one. */
+export async function undoAuditEntries(
+  ids: number[]
+): Promise<ActionResult<{ undone: number; skipped: number; failed: number }>> {
+  const { getRealViewer } = await import("./data");
+  const real = await getRealViewer();
+  if (!real.isAdmin) return fail("Only the admin can undo actions.", "forbidden");
+  if (!ids?.length) return fail("Nothing selected.");
+  if (ids.length > 50) return fail("Undo at most 50 entries at a time.");
+
+  const { data: rows } = await db()
+    .from("audit_log")
+    .select("id, action, change_set, undone_at")
+    .in("id", ids)
+    .order("id", { ascending: false });
+
+  const { rollbackChangeSet } = await import("./sandbox");
+  let undone = 0;
+  let skipped = 0;
+  let failed = 0;
+  for (const r of (rows ?? []) as {
+    id: number;
+    action: string;
+    change_set: string | null;
+    undone_at: string | null;
+  }[]) {
+    // nothing to replay: pre-v32 entries, already-undone ones, and actions
+    // that never touched a journaled table (a sign-in, a report send…)
+    if (!r.change_set || r.undone_at) {
+      skipped++;
+      continue;
+    }
+    const res = await rollbackChangeSet(r.change_set);
+    if (res.undone === 0 && res.failed === 0) {
+      skipped++;
+      continue;
+    }
+    if (res.failed > 0) failed++;
+    if (res.undone > 0) {
+      undone++;
+      await db()
+        .from("audit_log")
+        .update({ undone_at: new Date().toISOString(), undone_by: real.id })
+        .eq("id", r.id);
+    }
+  }
+  await logAudit(real.id, "audit_undo", "system", null, {
+    requested: ids.length,
+    undone,
+    skipped,
+    failed,
+  });
+  refresh();
+  return { ok: true, data: { undone, skipped, failed } };
+}
+
 // ================================================================== bulk operations
 
 /** Archive many accounts at once (same rules as one-by-one: RBAC + business
@@ -2366,6 +2496,16 @@ export async function upsertMember(
     console.error("[sheets] membership write-back failed:", e)
   );
 
+  // this edit may have moved them off a plan they had filed (Consideration →
+  // Raising, MM → Member, a function swap) — drop what no longer applies
+  const { prunePlansForMember } = await import("./data");
+  await prunePlansForMember({
+    id: id!,
+    role: m.role,
+    functions: m.functions,
+    sub_functions: m.sub_functions,
+  });
+
   await logAudit(viewer.id, m.id ? "member_update" : "member_add", "member", id, {
     email: m.email,
   });
@@ -2567,9 +2707,16 @@ export async function bulkDeleteArchived(
   const allowed = viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
   if (!allowed) return fail("Only VPs, Directors or the LCP delete archived accounts.", "forbidden");
   // a permanent delete cannot be journaled faithfully (children are gone) —
-  // it has no place in the undo-everything sandbox test view
+  // it has no place in ANY session that promises to undo everything on exit
   if (viewer.sandbox)
     return fail("Deleting archived accounts is disabled in the sandbox test view — it can't be undone on exit.");
+  {
+    const { lcTestSession } = await import("./sandbox");
+    if (await lcTestSession())
+      return fail(
+        "Deleting archived accounts is disabled while an LC testing session is running — a cascade delete can't be rolled back when the session ends."
+      );
+  }
   if (!ids?.length) return fail("Nothing selected.");
   if (ids.length > 50) return fail("Delete at most 50 accounts at a time.");
   let deleted = 0;
@@ -2770,6 +2917,24 @@ export async function checkAccountNameLive(
       },
     };
   return { ok: true, data: { status: "free" } };
+}
+
+/** The automatic Podio check (v32) — replaces opening the national partners
+ *  web-form and typing the name into "Check if your company exists?" by hand.
+ *  Read-only, cached ~30 min, and it fails SOFT: if Podio is unreachable the
+ *  dialog just falls back to the manual link, never to a false "go ahead". */
+export async function checkPodioNameLive(
+  name: string
+): Promise<ActionResult<import("@/lib/podio").PodioCheck>> {
+  const viewer = await getViewer();
+  // same gate as the duplicate check — only people who can create accounts
+  if (allowedAccountFunctions(viewer).length === 0)
+    return {
+      ok: true,
+      data: { status: "unknown", similar: [], listSize: 0, checkedAt: null },
+    };
+  const { checkPodioCompany } = await import("@/lib/podio");
+  return { ok: true, data: await checkPodioCompany(name) };
 }
 
 // Goals are no longer set in Sodio (v22): function goals come from the VPs'

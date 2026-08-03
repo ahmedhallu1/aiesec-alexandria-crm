@@ -10,7 +10,7 @@ import {
 import { AccountsView } from "@/components/crm/accounts-view";
 import { memberIsB2B, memberIsB2C, type Stage } from "@/lib/types";
 
-export const metadata = { title: "Accounts" };
+export const metadata = { title: "Raising" };
 
 export default async function AccountsPage({
   searchParams,

@@ -91,7 +91,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
   // Accounts is the daily workspace — it leads, and "/" lands on it
   const items = [
     ...(nav.raising
-      ? [{ href: "/accounts", label: "Accounts", icon: Building2 }, dashboardItem]
+      ? [{ href: "/accounts", label: "Raising", icon: Building2 }, dashboardItem]
       : []),
     // v29: the calendar carries TM touch points too — everyone with a module
     ...(nav.calendar ? [{ href: "/calendar", label: "Calendar", icon: CalendarDays }] : []),

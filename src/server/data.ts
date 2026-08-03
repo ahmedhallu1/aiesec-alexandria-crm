@@ -2044,13 +2044,32 @@ export async function logAudit(
   entityId: string | null,
   details?: Record<string, unknown>
 ) {
-  await db().from("audit_log").insert({
+  // v32: stamp the action's CHANGE SET (and the LC test session it belongs to,
+  // if one is open) so /admin can reverse exactly this action's journal rows.
+  let change_set: string | null = null;
+  let test_session_id: string | null = null;
+  try {
+    const { currentChangeSet, lcTestSession } = await import("./sandbox");
+    change_set = currentChangeSet();
+    test_session_id = await lcTestSession();
+  } catch {
+    /* outside a request scope (crons, scripts) — a plain audit row is fine */
+  }
+  const base = {
     actor_id: actorId,
     action,
     entity,
     entity_id: entityId,
     details: details ?? null,
-  });
+  };
+  const { error } = await db()
+    .from("audit_log")
+    .insert({ ...base, change_set, test_session_id });
+  // Pre-0033 grace: the undo columns may not exist yet (migrations are applied
+  // by hand in the SQL editor). Auditing must never stop because of that — fall
+  // back to the classic row, just without the undo link.
+  if (error?.code === "42703") await db().from("audit_log").insert(base);
+  else if (error) console.error("[audit] insert failed:", error.message);
 }
 
 // ------------------------------------------------------------------ cron run tracking
@@ -2085,6 +2104,14 @@ export interface AuditEntry {
   actor: string | null;
   details: string | null;
   createdAt: string;
+  /** the action's change set — null on entries written before v32 */
+  changeSet: string | null;
+  /** how many journal rows this action can reverse (0 = nothing to undo) */
+  undoable: number;
+  /** set once someone has undone it, so it can't be replayed twice */
+  undoneAt: string | null;
+  /** true when the action was taken inside an LC-wide testing session */
+  inTestSession: boolean;
 }
 
 /** Head-only count of a table, optionally filtered on one boolean column. */
@@ -2294,10 +2321,16 @@ export async function listMmPlans(
     .order("month");
   if (memberIds && memberIds.length > 0) q = q.in("member_id", memberIds);
   const { data: rawData } = await q;
-  const data = memberFns?.length
+  const scoped = memberFns?.length
     ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ((rawData ?? []) as any[]).filter((r) => memberInFns(r.member, memberFns))
     : rawData;
+  // A plan belongs to the member's CURRENT job (v32). Move someone from
+  // Consideration to Raising and their old applicants/approvals plan stops
+  // being their plan — reading through the live membership row means the
+  // board is right the moment the sheet changes, with no cleanup to remember.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = ((scoped ?? []) as any[]).filter((r) => stillPlans(r.member, "mm"));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ((data ?? []) as any[]).map((r) => ({
     member_id: r.member_id,
@@ -2310,6 +2343,91 @@ export async function listMmPlans(
     approvals: r.approvals,
     peak: r.peak,
   }));
+}
+
+/** Does this member STILL qualify for the plan type filed against them?
+ *
+ *  Plans outlive the job that produced them: move someone from Consideration
+ *  to Raising (or out of an MM role, or to another function) and their old
+ *  applicants/approvals plan is left behind, still showing on /planning as if
+ *  it were their target. Every plan LIST read goes through this, so a stale
+ *  plan stops counting the moment the Membership sheet changes — no cleanup
+ *  job to remember and nothing to fix by hand. `prunePlansForMember` then
+ *  deletes the rows for good on the next membership edit or import. */
+function stillPlans(
+  member:
+    | { role?: string | null; functions?: string[] | null; sub_functions?: string[] | null }
+    | null
+    | undefined,
+  kind: "mm" | "tl"
+): boolean {
+  if (!member) return false;
+  const v = {
+    role: member.role ?? "",
+    functions: member.functions ?? [],
+    sub_functions: member.sub_functions ?? [],
+  };
+  return kind === "mm" ? isPlanningMm(v) : isPlanningTl(v);
+}
+
+/** Drops the plan rows a member no longer qualifies for. Called after every
+ *  membership write (in-app editor + the 30-min sheet import), so a role or
+ *  sub-function change cleans up after itself. Best-effort: a failure here
+ *  never blocks the membership save — `stillPlans` already hides the row. */
+export async function prunePlansForMember(m: {
+  id: string;
+  role?: string | null;
+  functions?: string[] | null;
+  sub_functions?: string[] | null;
+}): Promise<void> {
+  try {
+    if (!stillPlans(m, "mm"))
+      await db().from("mm_plans").delete().eq("member_id", m.id);
+    if (!stillPlans(m, "tl"))
+      await db().from("tl_plans").delete().eq("member_id", m.id);
+  } catch (e) {
+    console.error("[plans] prune failed for", m.id, e);
+  }
+}
+
+/** Sweeps the WHOLE LC for plans whose owner no longer qualifies and deletes
+ *  them. Runs at the end of every membership import (every 30 min), so a
+ *  sub-function change made in the Google Sheet — the way most of these
+ *  actually happen — cleans up on its own. Returns how many rows went.
+ *  Idempotent, and safe to run at any time. */
+export async function pruneStalePlans(): Promise<{ mm: number; tl: number }> {
+  const { data: members } = await db()
+    .from("members")
+    .select("id, role, functions, sub_functions");
+  const rows = (members ?? []) as {
+    id: string;
+    role: string | null;
+    functions: string[] | null;
+    sub_functions: string[] | null;
+  }[];
+  const staleMm = rows.filter((m) => !stillPlans(m, "mm")).map((m) => m.id);
+  const staleTl = rows.filter((m) => !stillPlans(m, "tl")).map((m) => m.id);
+  let mm = 0;
+  let tl = 0;
+  // chunked: an `in` list of every member would blow past the URL limit
+  for (let i = 0; i < staleMm.length; i += 100) {
+    const { data } = await db()
+      .from("mm_plans")
+      .delete()
+      .in("member_id", staleMm.slice(i, i + 100))
+      .select("id");
+    mm += (data ?? []).length;
+  }
+  for (let i = 0; i < staleTl.length; i += 100) {
+    const { data } = await db()
+      .from("tl_plans")
+      .delete()
+      .in("member_id", staleTl.slice(i, i + 100))
+      .select("id");
+    tl += (data ?? []).length;
+  }
+  if (mm || tl) console.log(`[plans] pruned ${mm} mm_plans + ${tl} tl_plans rows`);
+  return { mm, tl };
 }
 
 /** Whether this member is an OGX/Consideration MM who still needs to fill
@@ -2387,15 +2505,19 @@ export async function listTlPlans(
 ): Promise<TlPlanRow[]> {
   let q = db()
     .from("tl_plans")
-    .select("member_id, month, opens, peak, member:members!member_id(name, nickname, team_name, functions, sub_functions)")
+    .select("member_id, month, opens, peak, member:members!member_id(name, nickname, role, team_name, functions, sub_functions)")
     .order("month");
   if (memberIds && memberIds.length > 0) q = q.in("member_id", memberIds);
   const { data: rawData, error } = await q;
   if (error) return []; // pre-0018 grace
-  const data = memberFns?.length
+  const scoped = memberFns?.length
     ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ((rawData ?? []) as any[]).filter((r) => memberInFns(r.member, memberFns))
     : rawData;
+  // same rule as listMmPlans: an opens plan only counts while its owner is
+  // still a raising MM
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = ((scoped ?? []) as any[]).filter((r) => stillPlans(r.member, "tl"));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ((data ?? []) as any[]).map((r) => ({
     member_id: r.member_id,
@@ -2899,17 +3021,42 @@ export async function listLcFeedback(viewer: Viewer): Promise<LcFeedbackRow[]> {
 export async function listRecentAudit(limit = 60): Promise<AuditEntry[]> {
   const { data } = await db()
     .from("audit_log")
-    .select("id, action, entity, entity_id, details, created_at, actor:members!actor_id(name, nickname)")
+    .select(
+      "id, action, entity, entity_id, details, created_at, change_set, undone_at, test_session_id, actor:members!actor_id(name, nickname)"
+    )
     .order("created_at", { ascending: false })
     .limit(limit);
+  // pre-0033 grace: fall back to the classic columns so the log still renders
+  // (without Undo) on a database where the migration hasn't been run yet
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return ((data ?? []) as any[]).map((r) => ({
+  let raw: any[] | null = data;
+  if (!raw) {
+    const { data: legacy } = await db()
+      .from("audit_log")
+      .select("id, action, entity, entity_id, details, created_at, actor:members!actor_id(name, nickname)")
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    raw = legacy;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows = (raw ?? []) as any[];
+  // how many journal rows each action can actually reverse — an entry with
+  // none shows a disabled Undo and says why, instead of lying
+  const { changeSetSizes } = await import("./sandbox");
+  const sizes = await changeSetSizes(
+    [...new Set(rows.map((r) => r.change_set).filter(Boolean))] as string[]
+  );
+  return rows.map((r) => ({
     id: r.id,
     action: r.action,
     entity: r.entity,
     actor: r.actor ? r.actor.nickname || r.actor.name : null,
     details: r.details ? JSON.stringify(r.details) : null,
     createdAt: r.created_at,
+    changeSet: r.change_set ?? null,
+    undoable: r.undone_at || !r.change_set ? 0 : (sizes.get(r.change_set) ?? 0),
+    undoneAt: r.undone_at ?? null,
+    inTestSession: !!r.test_session_id,
   }));
 }
 
@@ -2919,6 +3066,7 @@ import {
   canEditSignupVpFields as _canEditSignupVpFields,
   canViewSignup as _canViewSignup,
   ogxFunctions as _ogxFunctions,
+  ogxLanes as _ogxLanes,
 } from "@/lib/rbac";
 import { SIGNUP_STATUSES } from "@/lib/types";
 import type { OgxFunction, SignupComment, SignupRow } from "@/lib/types";
@@ -3269,7 +3417,9 @@ export async function ogxDashboard(
   fn: OgxFunction,
   filters: OgxDashboardFilters = {}
 ): Promise<OgxDashboardData | null> {
-  if (!_ogxFunctions(viewer).includes(fn)) return null;
+  // the DASHBOARD is open to the LC-wide overseers too (v32) — `ogxLanes`,
+  // not `ogxFunctions`, which still gates the sign-ups module itself
+  if (!_ogxLanes(viewer).includes(fn)) return null;
 
   const [rows, memberRes] = await Promise.all([
     fetchAll<OgxDashSignup>(() =>

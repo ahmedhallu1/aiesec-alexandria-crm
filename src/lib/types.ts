@@ -576,8 +576,25 @@ export const PHONE_RE = /^\+?\d{7,15}$/;
 export const EMAIL_RE = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]{2,}$/;
 export const URL_RE = /^https?:\/\/\S+\.\S+/i;
 
+/** Reduces any pasted number to `+`? + digits.
+ *
+ *  Everything else is dropped: spaces of every width, dashes of every shape,
+ *  brackets, dots, slashes — and, critically, the characters that are
+ *  INVISIBLE on screen. A number copied out of an Arabic WhatsApp chat almost
+ *  always carries a bidi mark (U+200E/U+200F); zero-width spaces, soft hyphens
+ *  and BOMs ride along from Excel and PDFs the same way. Those used to survive
+ *  cleanPhone, so the number LOOKED perfect and still failed validation, with
+ *  nothing the member could see, select or delete — the error just never went
+ *  away. What is on screen is now what gets validated. */
 export function cleanPhone(raw: string): string {
-  return raw.replace(/[\s\-().]/g, "");
+  const digits = raw.replace(/\D/g, "");
+  // a leading "+" is the only non-digit that carries meaning, so it survives —
+  // but only if it really leads: an invisible mark must not hide it. "00…" is
+  // left alone for normalizePhone to convert.
+  const lead = raw.match(
+    /[^\s\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/
+  );
+  return lead?.[0] === "+" ? `+${digits}` : digits;
 }
 
 export interface PhoneCheck {

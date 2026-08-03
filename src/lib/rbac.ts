@@ -314,6 +314,14 @@ export function hasOgxAccess(v: Viewer): boolean {
   return ogxFunctions(v).length > 0;
 }
 
+/** OGX DASHBOARD lanes (v32). Same split as consideration: the LC-wide
+ *  overseers read every OGX lane, but `ogxFunctions` — which gates the
+ *  sign-ups module and every per-sign-up permission — stays with the OGX
+ *  crews, so nobody gains the right to work a sign-up by overseeing it. */
+export function ogxLanes(v: Viewer): OgxFunction[] {
+  return seesEveryLane(v) ? ["OGT", "OGV"] : ogxFunctions(v);
+}
+
 /** OGX leaders (VP/Director of the sign-up's function + LCP/admin) own the
  *  VP-only fields: VP comments, Country, Sub Product, Status, Out of Process. */
 export function canEditSignupVpFields(v: Viewer, s: { fn: OgxFunction }): boolean {
@@ -343,25 +351,67 @@ export function canViewSignup(v: Viewer, s: SignupRow): boolean {
   return canWorkSignup(v, s);
 }
 
-/** The Consideration module (v26): IR calls with partner LCs + the CV pool.
- *  LCP/admin, anyone with "Consideration" in functions OR sub_functions, and
- *  IGV/IGT LCVPs & Directors (consideration feeds their pipelines). */
-export function hasConsiderationAccess(v: Viewer): boolean {
-  return considerationFunctions(v).length > 0;
+/** The LC-wide overseers (v32): the LCP/admin plus the TM and F&L leadership.
+ *  TM reviews every member's performance and F&L every function's money, so
+ *  BOTH sides of every function's dashboard are open to them — even though
+ *  neither owns a raising or consideration module of their own. */
+export function seesEveryLane(v: Viewer): boolean {
+  if (master(v)) return true;
+  if (v.role !== "LCVP" && v.role !== "Director") return false;
+  return [...(v.functions ?? []), ...(v.sub_functions ?? [])].some(
+    (f) => f === "TM" || f === "F&L"
+  );
 }
 
-/** WHICH consideration lanes a viewer follows (v29 — the dashboard lane is
- *  split per product): an IGV VP/Director gets the IGV lane only, an IGT one
- *  only IGT; the Consideration crew and the LCP/admin follow both. */
-export function considerationFunctions(v: Viewer): ("IGV" | "IGT")[] {
-  if (master(v)) return ["IGV", "IGT"];
+/** Which SIDE of a function a viewer works (v32).
+ *
+ *  A member / coordinator / team leader gets exactly the side their Sub
+ *  Function column names — "Raising" people see the raising lanes,
+ *  "Consideration" people the consideration lanes, and anyone carrying both
+ *  labels sees both. An LCVP or Director owns their whole function, so they
+ *  always get BOTH sides. ("ICX" is the legacy catch-all for raising.) */
+function worksSide(v: Viewer, side: "Raising" | "Consideration"): boolean {
+  // a leader owns both sides of the PRODUCT function they lead — being a B2C
+  // or BD Director must never hand out IGV/IGT consideration
   if (
-    v.functions.includes("Consideration") ||
-    v.sub_functions.includes("Consideration")
+    (v.role === "LCVP" || v.role === "Director") &&
+    icxFunctions(v).length > 0
   )
-    return ["IGV", "IGT"];
-  if (v.role !== "LCVP" && v.role !== "Director") return [];
-  return v.functions.filter((f): f is "IGV" | "IGT" => f === "IGV" || f === "IGT");
+    return true;
+  const subs = v.sub_functions ?? [];
+  return side === "Raising"
+    ? subs.includes("Raising") || subs.includes("ICX")
+    : subs.includes("Consideration");
+}
+
+/** The product functions whose RAISING lanes this viewer follows. Nobody ever
+ *  sees the other product's dashboard: an IGV person gets IGV lanes only. */
+export function raisingFunctions(v: Viewer): ("IGV" | "IGT")[] {
+  if (seesEveryLane(v)) return ["IGV", "IGT"];
+  return worksSide(v, "Raising") ? icxFunctions(v) : [];
+}
+
+/** …and the CONSIDERATION lanes, by the same rule. Before v32 anyone carrying
+ *  the Consideration label got BOTH products' lanes; now an IGV consideration
+ *  member sees IGV Consideration and nothing of IGT. */
+export function considerationFunctions(v: Viewer): ("IGV" | "IGT")[] {
+  if (seesEveryLane(v)) return ["IGV", "IGT"];
+  if (!worksSide(v, "Consideration")) return [];
+  const fns = icxFunctions(v);
+  // a consideration person the sheet attaches to NO product (empty Function
+  // column) belongs to neither side, so "the other function" doesn't apply —
+  // they keep both lanes rather than being locked out of their own module
+  return fns.length > 0 ? fns : ["IGV", "IGT"];
+}
+
+/** The Consideration MODULE (v26): IR calls with partner LCs + the CV pool.
+ *  Deliberately NOT `considerationFunctions().length > 0` — the TM and F&L
+ *  leadership read every consideration DASHBOARD, but the module itself (and
+ *  the partner-LC/CV working data behind it) stays with the people who
+ *  actually run it. */
+export function hasConsiderationAccess(v: Viewer): boolean {
+  if (master(v)) return true;
+  return worksSide(v, "Consideration");
 }
 
 /** The CV pool inside Consideration is an IGT hunt (v27): companies want

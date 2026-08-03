@@ -4,7 +4,7 @@ import {
 import type { AccountFilters } from "@/server/data";
 import {
   considerationFunctions, accountScope, icxFunctions, isB2B, isB2C,
-  ogxFunctions } from "@/lib/rbac";
+  ogxLanes, raisingFunctions, seesEveryLane } from "@/lib/rbac";
 import { memberIsB2C, type OgxFunction } from "@/lib/types";
 import { DashboardView, type DashboardScopeView } from "@/components/crm/dashboard-view";
 
@@ -33,41 +33,51 @@ export default async function DashboardPage({
   // IGT members see All IGT + IGTa + IGTe; the B2B/BD crew sees ONLY their
   // B2B lane (v15 isolation); LCP / admins see everything. IGV/IGT VPs and
   // Directors also get the B2B lane — B2B raises for their functions.
+  // v32 — every lane is named for the SIDE it shows, and each side is gated
+  // on the work the viewer actually does:
+  //   Member / Coordinator / Team Leader → the side(s) their Sub Function
+  //     column names (Raising, Consideration, or both)
+  //   LCVP / Director  → both sides of THEIR product function
+  //   nobody           → the other product's lanes
+  //   LCP/admin + the TM and F&L leadership → everything
   const scope = accountScope(viewer);
   const master = scope.kind === "all";
-  const fns: ("IGV" | "IGT")[] = master ? ["IGV", "IGT"] : icxFunctions(viewer);
+  const raisingFns = raisingFunctions(viewer);
+  const consFns = considerationFunctions(viewer);
+  const overseer = seesEveryLane(viewer);
   const views: DashboardScopeView[] = [];
-  if (fns.includes("IGV") && fns.includes("IGT")) views.push({ key: "all", label: "All ICX" });
-  if (fns.includes("IGV")) views.push({ key: "IGV", label: "IGV" });
-  if (fns.includes("IGT")) {
+  if (raisingFns.includes("IGV") && raisingFns.includes("IGT"))
+    views.push({ key: "all", label: "All ICX" });
+  if (raisingFns.includes("IGV")) views.push({ key: "IGV", label: "IGV Raising" });
+  if (consFns.includes("IGV"))
+    views.push({ key: "CONS_IGV", label: "IGV Consideration" });
+  if (raisingFns.includes("IGT")) {
     views.push(
-      { key: "IGT", label: "All IGT" },
-      { key: "IGTa", label: "IGTa" },
-      { key: "IGTe", label: "IGTe" }
+      { key: "IGT", label: "IGT Raising" },
+      { key: "IGTa", label: "IGTa Raising" },
+      { key: "IGTe", label: "IGTe Raising" }
     );
   }
+  if (consFns.includes("IGT"))
+    views.push({ key: "CONS_IGT", label: "IGT Consideration" });
   if (
     master ||
+    overseer ||
     isB2B(viewer) ||
-    ((viewer.role === "LCVP" || viewer.role === "Director") && fns.length > 0)
+    // B2B raises FOR the product functions, so their leaders follow it too
+    ((viewer.role === "LCVP" || viewer.role === "Director") &&
+      icxFunctions(viewer).length > 0)
   ) {
     views.push({ key: "B2B", label: "B2B" });
   }
-  // B2C is its own module (v23): only its crew + the LCP/admin get the lane
-  if (master || isB2C(viewer)) {
+  // B2C is its own module (v23): its crew, the LCP/admin and the overseers
+  if (master || overseer || isB2C(viewer)) {
     views.push({ key: "B2C", label: "B2C" });
   }
-  // OGX (v28): OGT / OGV sign-up funnel lanes for the OGX crews (dual-access
-  // viewers + LCP/admin get both chips)
-  const ogxFns = ogxFunctions(viewer);
+  // OGX (v28): OGT / OGV sign-up funnel lanes. `ogxLanes` adds the overseers
+  // WITHOUT granting them the sign-ups module itself.
+  const ogxFns = ogxLanes(viewer);
   for (const f of ogxFns) views.push({ key: f, label: f });
-  // Consideration (v27, split per product in v29): IR calls + the CV pool.
-  // An IGV VP gets the IGV lane, an IGT VP the IGT lane; the consideration
-  // crew and the LCP/admin follow both.
-  const consFns = considerationFunctions(viewer);
-  for (const f of consFns) {
-    views.push({ key: `CONS_${f}`, label: `${f} Consideration` });
-  }
 
   const defaultView = views[0]?.key ?? "all";
   const requestedFn =
@@ -177,13 +187,12 @@ export default async function DashboardPage({
       teamLabel={teamLabel}
       views={views}
       activeFn={activeFn}
+      // the chip's own label IS the heading — "IGV Raising Dashboard",
+      // "IGT Consideration Dashboard" — never the raw key ("CONS_IGV")
       laneLabel={
         activeFn === "all"
           ? "ICX"
-          : consLane
-            ? // never "CONS_IGV Dashboard"
-              `${consLane} Consideration`
-            : activeFn
+          : (views.find((v) => v.key === activeFn)?.label ?? activeFn)
       }
       scopeLabel={scopeLabel}
       showTeamDrill={members.some(
