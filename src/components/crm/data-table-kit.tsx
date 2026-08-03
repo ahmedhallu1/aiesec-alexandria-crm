@@ -43,7 +43,9 @@
  */
 
 import { useEffect, useState } from "react";
-import { Check, ChevronDown, ChevronUp, GripVertical, RotateCcw, Settings2 } from "lucide-react";
+import {
+  Check, ChevronDown, ChevronUp, Filter, GripVertical, RotateCcw, Settings2,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -53,6 +55,10 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Hint } from "./hint";
 import { SortHeader, useTableSort } from "./sort-header";
 
@@ -454,5 +460,104 @@ export function PageSizePicker({
         ))}
       </SelectContent>
     </Select>
+  );
+}
+
+// ============================================================ column filters
+
+export interface ColumnFilterOption {
+  value: string;
+  label: string;
+}
+
+/**
+ * The FILTER BUTTON that lives next to a column's name — the Google Sheets
+ * affordance (v32.3).
+ *
+ * The rule this encodes: **if an attribute is a column, you filter it from the
+ * column.** A chip bar above the table for things the eye can already see is
+ * duplicated UI — you read "Status" in the header, so that is where you narrow
+ * it. The filter bar keeps only what ISN'T a column: free-text search, date
+ * ranges, and cross-cutting toggles like Archived.
+ *
+ * Deliberately dumb: it owns no state and knows nothing about URLs. The table
+ * passes the current value and gets a new one back, so a server-paginated list
+ * pushes it into a URL param and an in-memory list filters locally — same
+ * component either way.
+ */
+export function ColumnFilter({
+  label,
+  value,
+  options,
+  onChange,
+  allLabel = "All",
+}: {
+  /** the column's name, for the accessible label and the empty state */
+  label: string;
+  /** "" = no filter on this column */
+  value: string;
+  options: ColumnFilterOption[];
+  onChange: (value: string) => void;
+  allLabel?: string;
+}) {
+  const active = !!value;
+  const current = options.find((o) => o.value === value);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={active ? `${label}: ${current?.label ?? value} — change filter` : `Filter by ${label}`}
+          title={active ? `${label}: ${current?.label ?? value}` : `Filter by ${label}`}
+          className={cn(
+            "inline-flex size-5 shrink-0 items-center justify-center rounded transition-colors",
+            active
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground/50 hover:bg-muted hover:text-foreground"
+          )}
+        >
+          <Filter className={cn("size-3", active && "fill-current")} />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-72 w-48 overflow-y-auto">
+        <DropdownMenuLabel className="text-xs">{label}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuCheckboxItem checked={!active} onCheckedChange={() => onChange("")}>
+          {allLabel}
+        </DropdownMenuCheckboxItem>
+        {options.map((o) => (
+          <DropdownMenuCheckboxItem
+            key={o.value}
+            checked={value === o.value}
+            // re-picking the active option clears it — one click out, like Sheets
+            onCheckedChange={() => onChange(value === o.value ? "" : o.value)}
+          >
+            <span className="truncate" dir="auto">{o.label}</span>
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** A column header that carries BOTH affordances: click the name to sort,
+ *  click the funnel to filter. Used by the server-paginated lists, which sort
+ *  through URL params rather than `useTableSort`. */
+export function FilterableHead({
+  children,
+  className,
+  filter,
+}: {
+  /** usually the sort button the table already renders */
+  children: React.ReactNode;
+  className?: string;
+  /** omit for a column that can be sorted but not filtered */
+  filter?: React.ReactNode;
+}) {
+  return (
+    <div className={cn("flex items-center gap-1", className)}>
+      <span className="min-w-0">{children}</span>
+      {filter}
+    </div>
   );
 }

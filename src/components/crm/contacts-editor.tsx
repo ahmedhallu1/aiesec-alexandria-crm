@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { Globe, Mail, Phone, Plus, Sparkles, Trash2 } from "lucide-react";
+import { Globe, Mail, Phone, Plus, Trash2 } from "lucide-react";
 import {
   CONTACT_TAGS, DEFAULT_CONTACT_TAG, EMAIL_RE, EMAIL_TAGS, guessContactTag,
   LINK_TAGS, normalizePhone, URL_RE,
@@ -172,15 +172,6 @@ export function ContactsEditor({
           </div>
         );
       })}
-      {!disabled && rows.some((c) => c.kind !== "phone") ? (
-        <p className="flex items-start gap-1.5 pt-0.5 text-xs text-muted-foreground">
-          <Sparkles className="mt-0.5 size-3 shrink-0" />
-          <span className="min-w-0">
-            Links and emails tag themselves (an Instagram page → Instagram,
-            ceo@… → CEO) — change any tag and it stays yours.
-          </span>
-        </p>
-      ) : null}
       {!disabled ? (
         <div className="flex flex-wrap gap-2 pt-1">
           <Button size="sm" variant="outline" onClick={() => add("phone")}>

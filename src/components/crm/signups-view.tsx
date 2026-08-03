@@ -18,7 +18,7 @@ import { fmtDateTime, SIGNUP_STATUSES, type OgxFunction, type SignupRow } from "
 import { cn } from "@/lib/utils";
 import { CountryInput } from "./country-input";
 import {
-  PageSizePicker, TableSettings, useTableColumns, type TableColumn,
+  ColumnFilter, PageSizePicker, TableSettings, useTableColumns, type TableColumn,
 } from "./data-table-kit";
 import { Hint } from "./hint";
 import { WhatsAppIcon } from "./icons";
@@ -564,14 +564,17 @@ export function SignupsView({
   };
 
   const SortHead = ({
-    field, defaultDir = "desc", children, className,
+    field, defaultDir = "desc", children, className, filter,
   }: {
     field: string;
     defaultDir?: "asc" | "desc";
     children: React.ReactNode;
     className?: string;
+    /** the column's funnel button, beside the sortable name */
+    filter?: React.ReactNode;
   }) => (
     <TableHead className={className}>
+      <span className="inline-flex items-center gap-1">
       <button
         type="button"
         onClick={() => sortBy(field, defaultDir)}
@@ -593,6 +596,8 @@ export function SignupsView({
           </span>
         )}
       </button>
+      {filter}
+      </span>
     </TableHead>
   );
 
@@ -672,6 +677,48 @@ export function SignupsView({
     `signups:${activeView}:${activeFn}`,
     signupColumns(activeFn, activeView)
   );
+
+  // Which columns carry a funnel button, and what URL param each drives.
+  const columnFilter = (key: string): React.ReactNode => {
+    const pick = (
+      label: string,
+      value: string,
+      options: [string, string][],
+      apply: (v: string) => void
+    ) => (
+      <ColumnFilter
+        label={label}
+        value={value}
+        options={options.map(([v, l]) => ({ value: v, label: l }))}
+        onChange={apply}
+      />
+    );
+    switch (key) {
+      case "batch":
+        return pick("Batch", filters.batch ?? "", [["new", "New SUs"], ["old", "Old SUs"]],
+          (v) => setParams({ batch: v || null }));
+      case "program":
+        return activeFn === "OGT"
+          ? pick("Program", filters.program ?? "", [["GTa", "GTa"], ["GTe", "GTe"]],
+              (v) => setParams({ program: v || null }))
+          : null;
+      case "contacted":
+        return pick("Contacted", filters.contacted ?? "", [["Yes", "Contacted ✓"], ["No", "Not contacted"]],
+          (v) => setParams({ contacted: v || null }));
+      case "interested":
+        return pick("Interested", filters.interested ?? "", [["Yes", "Interested ✓"], ["No", "Not interested"]],
+          (v) => setParams({ interested: v || null }));
+      case "status":
+        return pick("🎯 Potential", filters.potential ?? "",
+          [...SIGNUP_STATUSES.map((st) => [st, st] as [string, string]), ["none", "— None yet"]],
+          (v) => setParams({ potential: v || null, status: null }));
+      case "phone":
+        return pick("Phone", filters.phone ?? "", [["has", "✅ Has phone"], ["missing", "📵 Missing phone"]],
+          (v) => setParams({ phone: v || null }));
+      default:
+        return null;
+    }
+  };
 
   /** The WhatsApp / call / email shortcuts — every click raises the log prompt. */
   const contactLinks = (r: SignupRow, size: "sm" | "icon" = "icon") => (
@@ -881,6 +928,10 @@ export function SignupsView({
             className="h-9 w-52 pl-8"
           />
         </div>
+        {/* Column-backed filters (Batch · Program · Contacted · Interested ·
+            Potential · Phone) live on the COLUMN HEADERS now. The mobile
+            card view has no header to hang them on, so it keeps the chips. */}
+        <div className="contents md:hidden">
         <Select
           value={filters.batch || "all"}
           onValueChange={(v) => setParams({ batch: v === "all" ? null : v })}
@@ -957,6 +1008,7 @@ export function SignupsView({
             <SelectItem value="missing">📵 Missing phone</SelectItem>
           </SelectContent>
         </Select>
+        </div>
         <span className="ml-auto text-sm text-muted-foreground">
           {total} sign-up{total === 1 ? "" : "s"}
         </span>
@@ -1016,7 +1068,7 @@ export function SignupsView({
 
       {/* desktop table */}
       <div className="hidden overflow-hidden rounded-xl border bg-card md:block rise-in rise-in-2">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto" data-tour="signups:table">
           <Table>
             <TableHeader>
               <TableRow>
@@ -1036,12 +1088,23 @@ export function SignupsView({
                 ) : null}
                 {cols.visible.map((c) => {
                   const sort = SIGNUP_SORT[c.key];
+                  const filter = columnFilter(c.key);
                   return sort ? (
-                    <SortHead key={c.key} field={sort.field} defaultDir={sort.dir}>
+                    <SortHead
+                      key={c.key}
+                      field={sort.field}
+                      defaultDir={sort.dir}
+                      filter={filter}
+                    >
                       {c.label}
                     </SortHead>
                   ) : (
-                    <TableHead key={c.key}>{c.label}</TableHead>
+                    <TableHead key={c.key}>
+                      <span className="inline-flex items-center gap-1">
+                        {c.label}
+                        {filter}
+                      </span>
+                    </TableHead>
                   );
                 })}
               </TableRow>

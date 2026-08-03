@@ -404,7 +404,6 @@ export interface AccountFilters {
   includeArchived?: boolean;
   /** B2B/BD accounts not yet requested on Podio (no request, no state) —
    *  the leaders' submission worklist */
-  podioPending?: boolean;
 }
 
 /** Supabase caps one response at 1000 rows — big reads must page. */
@@ -519,11 +518,6 @@ async function buildAccountsQuery(
   if (!viewer.testMode) query = query.eq("is_test", false);
   if (filters.archived) query = query.eq("out_of_process", true);
   else if (!filters.includeArchived) query = query.eq("out_of_process", false);
-  if (filters.podioPending)
-    query = query
-      .in("function", bdSafe ? ["B2B"] : ["B2B", "BD"])
-      .eq("requested_podio", false)
-      .is("request_state", null);
   if (filters.fn) query = query.eq("function", filters.fn);
   if (filters.project) query = query.eq("project", filters.project);
   if (filters.product) query = query.eq("product", filters.product);

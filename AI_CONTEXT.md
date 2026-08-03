@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-03 · Version: v32.1
+Last updated: 2026-08-03 · Version: v32.3
 
 ---
 
@@ -534,6 +534,8 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | Period reports (content / cadence / recipients) | `buildFunctionReport` in `data.ts` · `periodReportEmail` in `templates.ts` · `/api/cron/period-reports` |
 | Sandbox test view (undo / suppression) | `src/server/sandbox.ts` · `startViewAs`/`stopViewAs` in `actions.ts` · chip in `view-as-banner.tsx` |
 | Test data seeding | `seedTestAccounts`/`removeTestData` in `actions.ts` |
+| Guided walkthrough (steps / anchors) | `tour.tsx` (steps) · `guided-tour.tsx` (engine) · `data-tour="…"` in the views |
+| Column filters | `ColumnFilter` in `data-table-kit.tsx` · `columnFilter()` in accounts-view / signups-view |
 | Podio existence check (parser / cache / TTL) | `src/lib/podio.ts` · `checkPodioNameLive` in `actions.ts` · verdict UI in `add-account-dialog.tsx` |
 | Dashboard lane list & who sees it | `raisingFunctions`/`considerationFunctions`/`seesEveryLane`/`ogxLanes` in `rbac.ts` · `views` in `dashboard/page.tsx` |
 | Change journal / undo / LC test session | `src/server/sandbox.ts` · `startLcTestSession`/`stopLcTestSession`/`undoAuditEntries` in `actions.ts` · `/admin` |
@@ -593,6 +595,43 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-03 · v32.3** — **SIMPLER FORMS, COLUMN FILTERS, A REAL WALKTHROUGH.**
+  ① **Add-account form slimmed**: the Function picker is hidden for anyone with
+  a single allowed function (it was a disabled one-option dropdown); the
+  contacts editor lost its smart-tagging explainer (the auto-tagging still
+  happens, it just stops narrating); and **"Requested on Podio?" left the form
+  body** — it now appears INSIDE the 🔎 not-found result as "I already
+  submitted it", because asking whether you requested a name Podio already has
+  is a nonsense question. The ⚠️ already-on-Podio wording no longer claims the
+  partner belongs to another LC — **it can be ours**.
+  ② **The B2B/BD Podio worklist is GONE** — "Podio pending" filter, copy-name
+  button, inline request-state select, "Ask to submit", the owner-side "Submit
+  on Podio" pin and its top-of-list ordering, plus `requestPodioSubmit`, the
+  `podioPending` filter and `canRequestPodioSubmit`. B2B and BD behave exactly
+  like every other function; the account page's own Request State card covers
+  the real need. `accounts.podio_submit_requested_at` stays in the DB unread.
+  ③ **Column filters** (`ColumnFilter` in `data-table-kit.tsx`): the rule is now
+  *if an attribute is a COLUMN, you filter it from the column* — a funnel
+  button beside the column name, Google Sheets style, filled while active and
+  cleared by re-picking. Accounts moved Product / Project / Sub product /
+  Status / Last result / Responsible onto their headers; sign-ups moved Batch /
+  Program / Contacted / Interested / Potential / Phone. The filter bar keeps
+  only NON-column attributes (search, function, flags) plus the Date-added
+  range, which is a range control with no sensible dropdown form. **Mobile card
+  views have no header**, so the moved selects are wrapped in
+  `contents md:hidden` rather than deleted — phones lose nothing.
+  ④ **THE WALKTHROUGH IS A WALKTHROUGH** (`guided-tour.tsx`): the slide deck is
+  gone. Each step points at a REAL control on a REAL page — it navigates there,
+  clicks open the dialog the target lives in, spotlights the element (a ring
+  plus a 9999px shadow, no SVG mask) and says one short line. The raising path
+  walks the Raising tab → Add account → **the name field, with the three live
+  checks** → the contact rows → search & the column funnels → the table → the
+  dashboard. Reliability is the point: a target that never appears is SKIPPED
+  rather than left pointing at empty space, the spotlight re-measures on
+  scroll/resize/DOM change, and Escape or ✕ always ends it. Targets are
+  `data-tour="<id>"` anchors — **keep those ids stable**, they are the contract
+  between a view and the tour. Storage key `crm-tour-v3:`.
 
 - **2026-08-03 · v32.1** — **THE RENAME IS REVERTED: the system is SODIO again.**
   v28's Sodio → Elevate rename is undone — **173 user-visible strings** across

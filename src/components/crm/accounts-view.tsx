@@ -5,15 +5,14 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
-  AlertTriangle, Archive, Check, CheckCircle2, CheckSquare, CircleAlert, ClipboardList,
-  Copy, FileUp, Loader2, Phone, Pin, Plus, RotateCcw, Search, Send, Trash2, Users2, X,
+  AlertTriangle, Archive, Check, CheckCircle2, CheckSquare, CircleAlert,
+  FileUp, Loader2, Phone, Plus, RotateCcw, Search, Trash2, Users2, X,
   XCircle,
 } from "lucide-react";
 import type { PipelineRow } from "@/server/data";
 import {
   addArchivedAccount, bulkArchiveAccounts, bulkDeleteArchived, bulkReassignAccounts,
   bulkReviveAccounts, importArchivedBulk, removeArchivedEntry,
-  requestPodioSubmit, updateAccount,
 } from "@/server/actions";
 import {
   accountSlug, fmtDateTime, fmtTime, IGT_SUB_PRODUCTS, IGV_PROJECTS, OOP_REASONS, productBadge,
@@ -28,7 +27,8 @@ import { FileDrop } from "./file-drop";
 import { Hint } from "./hint";
 import { QuickActions } from "./quick-actions";
 import {
-  PageSizePicker, SortHeader, TableSettings, useTableColumns, useTableSort,
+  ColumnFilter, PageSizePicker, SortHeader, TableSettings, useTableColumns,
+  useTableSort,
   type TableColumn,
 } from "./data-table-kit";
 import { Button } from "@/components/ui/button";
@@ -71,7 +71,6 @@ interface ViewerInfo {
   showFnFilter: boolean;
   seesOthers: boolean;
   /** B2B/BD MMs + Director/VP (+LCP/admin): the Podio submission worklist */
-  canPodioSubmit: boolean;
   /** IGV-only viewer — the Product column shows the PROJECT instead (v22.2) */
   igvOnly: boolean;
   /** B2C-only viewer — the Product column shows the TYPE instead (v24) */
@@ -259,143 +258,6 @@ function PinSign({ text }: { text: string | null }) {
   );
 }
 
-/** Tiny copy-the-name button (the Podio form wants the exact account name). */
-function CopyNameButton({ name }: { name: string }) {
-  return (
-    <Hint label="Copy the account name — paste it into the Podio form">
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          void navigator.clipboard.writeText(name);
-          toast.success(`"${name}" copied.`);
-        }}
-        className="inline-flex shrink-0 rounded-md border p-1 text-muted-foreground transition-colors hover:border-primary hover:text-primary"
-        aria-label={`Copy ${name}`}
-      >
-        <Copy className="size-3" />
-      </button>
-    </Hint>
-  );
-}
-
-/** Shown to the OWNER on accounts a leader asked them to submit on Podio. */
-function PodioPinBadge() {
-  return (
-    <Hint label="Your leader asked you to submit this account on Podio — it stays pinned on top until you do (set Requested / a request state on the account page)">
-      <Badge className="border-transparent bg-warning/15 text-[10px] font-bold text-warning">
-        <Pin className="size-3 fill-current" /> Submit on Podio
-      </Badge>
-    </Hint>
-  );
-}
-
-/** Inline tools on each row of the "Podio pending" worklist: set the request
- *  state from outside the account, or ask the owner to submit it (in-app
- *  notification + pins the account on their list). */
-function PodioRowTools({ row }: { row: PipelineRow }) {
-  const router = useRouter();
-  const [pending, start] = useTransition();
-  const [asked, setAsked] = useState(!!row.podio_submit_requested_at);
-  // Rejected archives the account — never without a confirmation
-  const [confirmReject, setConfirmReject] = useState(false);
-
-  const save = (v: "Checking" | "Approved" | "Rejected") =>
-    start(async () => {
-      const res = await updateAccount(row.id, {
-        requested_podio: true,
-        request_state: v,
-      });
-      if (res.ok) {
-        toast.success(
-          v === "Rejected"
-            ? `"${row.name}" archived — Podio request rejected.`
-            : `"${row.name}" → ${v}.`
-        );
-        router.refresh();
-      } else toast.error(res.error);
-    });
-
-  const setState = (v: string) => {
-    if (v === "Rejected") setConfirmReject(true);
-    else save(v as "Checking" | "Approved");
-  };
-
-  const ask = () =>
-    start(async () => {
-      const res = await requestPodioSubmit(row.id);
-      if (res.ok) {
-        setAsked(true);
-        toast.success(
-          `${row.responsible_nickname || row.responsible_name} was asked to submit "${row.name}" — it's pinned on their list.`
-        );
-      } else toast.error(res.error);
-    });
-
-  return (
-    <div
-      className="mt-1.5 flex flex-wrap items-center gap-1.5"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <Select value="__set" onValueChange={setState} disabled={pending}>
-        <SelectTrigger className="h-7 w-auto min-w-32 text-xs">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="__set" disabled>Set request state…</SelectItem>
-          <SelectItem value="Checking">Checking</SelectItem>
-          <SelectItem value="Approved">Approved</SelectItem>
-          <SelectItem value="Rejected">Rejected (archives)</SelectItem>
-        </SelectContent>
-      </Select>
-      <Dialog open={confirmReject} onOpenChange={setConfirmReject}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>⚠️ Reject the Podio request?</DialogTitle>
-            <DialogDescription>
-              A rejected Podio request closes the account: <b>{row.name}</b> moves
-              to the archive (Out of Process) and its name can never be added
-              again — exactly like &quot;Not Interested&quot;.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setConfirmReject(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={pending}
-              onClick={() => {
-                setConfirmReject(false);
-                save("Rejected");
-              }}
-            >
-              Reject &amp; archive
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Hint
-        label={
-          asked
-            ? "Already asked — the account is pinned on the owner's list"
-            : "Tell the owner to submit it on Podio (in-app notification, no email) and pin it on their accounts list"
-        }
-      >
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-7 px-2.5 text-xs"
-          disabled={pending || asked}
-          onClick={ask}
-        >
-          {pending ? <Loader2 className="size-3 animate-spin" /> : <Send className="size-3" />}
-          {asked ? "Asked ✓" : "Ask to submit"}
-        </Button>
-      </Hint>
-    </div>
-  );
-}
 
 /** Minimal round checkbox for the bulk-selection mode. */
 function SelectDot({ checked, onToggle }: { checked: boolean; onToggle: () => void }) {
@@ -605,14 +467,17 @@ export function AccountsView({
     [router, searchParams, filters.sort, filters.dir]
   );
   const SortHead = ({
-    field, defaultDir = "desc", children, className,
+    field, defaultDir = "desc", children, className, filter,
   }: {
     field: string;
     defaultDir?: "asc" | "desc";
     children: React.ReactNode;
     className?: string;
+    /** the column's funnel button, sitting beside the sortable name */
+    filter?: React.ReactNode;
   }) => (
     <TableHead className={className}>
+      <span className="inline-flex items-center gap-1">
       <button
         type="button"
         onClick={() => sortBy(field, defaultDir)}
@@ -635,11 +500,12 @@ export function AccountsView({
           </span>
         )}
       </button>
+      {filter}
+      </span>
     </TableHead>
   );
 
   const archived = filters.archived === "1";
-  const podioMode = filters.podio === "1";
   // mobile render style (persisted): cards (default) · compact list · table
   const [mobileView, setMobileView] = useState<"cards" | "compact" | "table">("cards");
   useEffect(() => {
@@ -680,15 +546,59 @@ export function AccountsView({
   const stageOptions = STAGES.filter((s) => s !== "Out of Process");
   const today = new Date().toISOString().slice(0, 10);
 
-  // accounts a leader asked THIS viewer to submit on Podio pin to the top
-  const isPinnedForMe = (row: PipelineRow) =>
-    !!row.podio_submit_requested_at &&
-    row.responsible_id === viewer.id &&
-    !row.requested_podio &&
-    !row.request_state;
-  const orderedRows = [...rows].sort(
-    (a, b) => Number(isPinnedForMe(b)) - Number(isPinnedForMe(a))
-  );
+  const orderedRows = rows;
+
+  // Which COLUMNS carry a filter, and what it filters on. A column that maps to
+  // a URL param gets the funnel button next to its name (Google Sheets style);
+  // everything else in the bar above is a NON-column attribute (search, the
+  // function, flags) or a range control (Date added).
+  const columnFilter = (key: string): React.ReactNode => {
+    const pick = (
+      label: string,
+      param: string,
+      value: string,
+      options: [string, string][]
+    ) => (
+      <ColumnFilter
+        label={label}
+        value={value}
+        options={options.map(([v, l]) => ({ value: v, label: l }))}
+        onChange={(v) => setParam(param, v)}
+      />
+    );
+    switch (key) {
+      case "product":
+        // the Product column shows Project for IGV-only and Type for B2C-only
+        // viewers — filter what is actually on screen
+        if (viewer.igvOnly)
+          return pick("Project", "project", filters.project, IGV_PROJECTS.map((p) => [p, p]));
+        if (viewer.b2cOnly) return null;
+        if (!viewer.allowedFns.includes("IGT")) return null;
+        return pick("Product", "product", filters.product, [["GTa", "IGTa"], ["GTe", "IGTe"]]);
+      case "stage":
+        return archived
+          ? null
+          : pick("Status", "stage", filters.stage, stageOptions.map((s) => [s, s]));
+      case "last_contact":
+        return archived
+          ? null
+          : pick("Last result", "lastStatus", filters.lastStatus, LAST_STATUS_OPTIONS.map((s) => [s, s]));
+      case "responsible":
+        return viewer.seesOthers && respOptions.length > 0
+          ? pick("Responsible", "resp", filters.resp, respOptions.map((m) => [m.id, m.label]))
+          : null;
+      case "project":
+        return viewer.igvOnly
+          ? null
+          : pick("Project", "project", filters.project, IGV_PROJECTS.map((p) => [p, p]));
+      case "sub_product":
+        return viewer.igtAccess
+          ? pick("Sub product", "sub", filters.sub, IGT_SUB_PRODUCTS.map((sp) => [sp, sp]))
+          : null;
+      default:
+        return null;
+    }
+  };
 
   // archived rows link by UUID (v23.2): a name can exist archived in one
   // world AND active in the other — the slug resolves to the active one
@@ -727,15 +637,12 @@ export function AccountsView({
                 {row.name}
               </Link>
               <PinSign text={row.pinned_comment} />
-              {podioMode ? <CopyNameButton name={row.name} /> : null}
-              {isPinnedForMe(row) ? <PodioPinBadge /> : null}
             </span>
             {viewer.seesOthers && !cols.isVisible("responsible") ? (
               <p className="text-xs text-muted-foreground">
                 {row.responsible_nickname || row.responsible_name || "Unassigned"}
               </p>
             ) : null}
-            {podioMode ? <PodioRowTools row={row} /> : null}
           </>
         );
       case "product":
@@ -887,16 +794,6 @@ export function AccountsView({
               </Button>
             </Hint>
           ) : null}
-          {viewer.canPodioSubmit && !archived ? (
-            <Hint label="B2B/BD accounts not yet requested on Podio — copy names, set the request state, or ask the owner to submit">
-              <Button
-                variant={podioMode ? "default" : "outline"}
-                onClick={() => setParam("podio", podioMode ? "" : "1")}
-              >
-                <ClipboardList className="size-4" /> Podio pending
-              </Button>
-            </Hint>
-          ) : null}
           {viewer.canViewArchive ? (
             <Hint label="Out-of-process accounts live here — hidden from lists but their names stay blocked">
               <Button
@@ -930,7 +827,11 @@ export function AccountsView({
                 </Button>
               </Hint>
               <Hint label="Add one account — checked against all ICX data and the archive">
-                <Button onClick={() => setAddOpen(true)} disabled={viewer.allowedFns.length === 0}>
+                <Button
+                  data-tour="accounts:add"
+                  onClick={() => setAddOpen(true)}
+                  disabled={viewer.allowedFns.length === 0}
+                >
                   <Plus className="size-4" /> Add account
                 </Button>
               </Hint>
@@ -944,6 +845,7 @@ export function AccountsView({
         <div className="relative min-w-40 flex-1 sm:max-w-xs">
           <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
+            data-tour="accounts:search"
             className="pl-8"
             placeholder="Search accounts…"
             value={q}
@@ -957,6 +859,11 @@ export function AccountsView({
             options={viewer.allowedFns.map((f) => [f, f])}
           />
         ) : null}
+        {/* Column-backed filters (Product · Project · Sub product · Status ·
+            Last result · Responsible) live on the COLUMN HEADERS now — the
+            Google Sheets affordance. The mobile card views have no header to
+            hang them on, so they keep the chips. */}
+        <div className="contents md:hidden">
         {(!filters.fn || filters.fn === "IGT") && viewer.allowedFns.includes("IGT") ? (
           <FilterSelect
             value={filters.product} placeholder="Product"
@@ -1001,6 +908,7 @@ export function AccountsView({
             options={respOptions.map((m) => [m.id, m.label])}
           />
         ) : null}
+        </div>
         {!archived ? (
           <FilterSelect
             value={filters.flag} placeholder="Flags"
@@ -1108,13 +1016,11 @@ export function AccountsView({
                           <span className="min-w-0 truncate">{row.name}</span>
                           <span className="flex shrink-0 items-center gap-1.5">
                             <PinSign text={row.pinned_comment} />
-                            {podioMode ? <CopyNameButton name={row.name} /> : null}
                           </span>
                         </p>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
                           <FnBadge row={row} igvOnly={viewer.igvOnly} b2cOnly={viewer.b2cOnly} />
                           <StageBadge stage={row.stage} className="text-[10px]" />
-                          {isPinnedForMe(row) ? <PodioPinBadge /> : null}
                           {row.contact_limit_reached ? (
                             <Badge className="border-transparent bg-warning/15 text-[10px] text-warning">⚠️ 3 contacts</Badge>
                           ) : null}
@@ -1122,7 +1028,6 @@ export function AccountsView({
                             <Badge variant="destructive" className="text-[10px]">🚨 no next step</Badge>
                           ) : null}
                         </div>
-                        {podioMode ? <PodioRowTools row={row} /> : null}
                       </div>
                       <span className="flex shrink-0 items-center gap-1.5">
                         {selectMode ? (
@@ -1243,25 +1148,30 @@ export function AccountsView({
               mobileView === "table" ? "block" : "hidden md:block"
             )}
           >
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto" data-tour="accounts:table">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-10" />
                     {cols.visible.map((c) => {
                       const sort = ACCOUNT_SORT[c.key];
+                      const filter = columnFilter(c.key);
                       return sort ? (
                         <SortHead
                           key={c.key}
                           field={sort.field}
                           defaultDir={sort.dir}
                           className={ACCOUNT_HEAD_CLASS[c.key]}
+                          filter={filter}
                         >
                           {c.label}
                         </SortHead>
                       ) : (
                         <TableHead key={c.key} className={ACCOUNT_HEAD_CLASS[c.key]}>
-                          {c.label}
+                          <span className="inline-flex items-center gap-1">
+                            {c.label}
+                            {filter}
+                          </span>
                         </TableHead>
                       );
                     })}
