@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getViewer, listViewAsTargets, needsMmPlan, needsTlPlan } from "@/server/data";
 import {
   hasRaisingAccess, hasTmAccess, hasOgxAccess, hasConsiderationAccess,
-  canManageMembership, canSeePlanning,
+  canManageMembership, canSeePlanning, seesEveryLane,
 } from "@/lib/rbac";
 import { signOut } from "@/lib/auth";
 import { AppShell } from "@/components/crm/app-shell";
@@ -53,7 +53,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // B2C), OGX (the OGT & OGV sign-up funnels, v28) or Consideration (the split
   // IR-call lanes, v29). Mirrors how dashboard/page.tsx builds `views`, so the
   // tab never leads someone to an empty page.
-  const dashboard = raising || ogx || consideration;
+  // v32: the LC-wide overseers (TM & F&L leadership) own no module of their
+  // own but read EVERY lane, so the tab has to exist for them too.
+  const dashboard = raising || ogx || consideration || seesEveryLane(viewer);
   const extraRoutes = [
     ...(calendar ? ["/calendar"] : []),
     ...(tm ? ["/members"] : []),

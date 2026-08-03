@@ -2919,6 +2919,7 @@ import {
   canEditSignupVpFields as _canEditSignupVpFields,
   canViewSignup as _canViewSignup,
   ogxFunctions as _ogxFunctions,
+  ogxLanes as _ogxLanes,
 } from "@/lib/rbac";
 import { SIGNUP_STATUSES } from "@/lib/types";
 import type { OgxFunction, SignupComment, SignupRow } from "@/lib/types";
@@ -3269,7 +3270,9 @@ export async function ogxDashboard(
   fn: OgxFunction,
   filters: OgxDashboardFilters = {}
 ): Promise<OgxDashboardData | null> {
-  if (!_ogxFunctions(viewer).includes(fn)) return null;
+  // the DASHBOARD is open to the LC-wide overseers too (v32) — `ogxLanes`,
+  // not `ogxFunctions`, which still gates the sign-ups module itself
+  if (!_ogxLanes(viewer).includes(fn)) return null;
 
   const [rows, memberRes] = await Promise.all([
     fetchAll<OgxDashSignup>(() =>
