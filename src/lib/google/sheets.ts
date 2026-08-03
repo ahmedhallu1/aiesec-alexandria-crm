@@ -531,14 +531,16 @@ export async function ensureDerivedTeams(): Promise<number> {
     sub_functions: string[] | null;
   }[];
 
-  // every function that actually has people (B2B and BD are one crew → B2B)
+  // every function that actually has people. B2B and BD share a membership
+  // TODAY, but they are separate functions on the sheet and may split into
+  // separate crews in a future peak — so each keeps its own standing teams
+  // rather than being folded together (v32.7).
   const fns = new Set<string>();
   for (const m of rows) {
     for (const f of [...(m.functions ?? []), ...(m.sub_functions ?? [])]) {
       const key = f.trim().toUpperCase();
-      if (!key) continue;
-      if (key === "BD" || key === "B2B") fns.add("B2B");
-      else if (LC_FUNCTIONS.includes(key as (typeof LC_FUNCTIONS)[number])) fns.add(key);
+      if (key && LC_FUNCTIONS.includes(key as (typeof LC_FUNCTIONS)[number]))
+        fns.add(key);
     }
   }
 

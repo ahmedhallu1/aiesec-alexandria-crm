@@ -336,9 +336,9 @@ function accountColumns(viewer: ViewerInfo): TableColumn[] {
     { key: "stage", label: "Status" },
     { key: "attempts", label: "Contacts" },
     { key: "next_step", label: "Next step" },
-    { key: "quick", label: "Quick actions" },
+    { key: "quick", label: "Quick actions", required: true },
     ...(viewer.seesOthers
-      ? [{ key: "responsible", label: "Responsible", defaultHidden: true }]
+      ? [{ key: "responsible", label: "Responsible" }]
       : []),
     ...(viewer.igvOnly
       ? []
@@ -402,7 +402,7 @@ function QuickActionsLogged({
 
 export function AccountsView({
   rows, total, page, pageSize, pageSizeOptions, manualArchived, members,
-  reassignTargets, respOptions, viewer, filters,
+  reassignTargets, respOptions, teamOptions, viewer, filters,
 }: {
   rows: PipelineRow[];
   /** total matches across ALL pages (the list is paginated since v22) */
@@ -417,6 +417,8 @@ export function AccountsView({
   /** members the viewer may reassign accounts TO (RBAC-correct, list-level) */
   reassignTargets: MemberOption[];
   respOptions: { id: string; label: string }[];
+  /** the Team Leaders whose teams this viewer may filter by */
+  teamOptions: { id: string; label: string }[];
   viewer: ViewerInfo;
   filters: Record<string, string>;
 }) {
@@ -909,6 +911,13 @@ export function AccountsView({
           />
         ) : null}
         </div>
+        {teamOptions.length > 0 ? (
+          <FilterSelect
+            value={filters.team} placeholder="Team"
+            onChange={(v) => setParam("team", v)}
+            options={teamOptions.map((t) => [t.id, t.label])}
+          />
+        ) : null}
         {!archived ? (
           <FilterSelect
             value={filters.flag} placeholder="Flags"
@@ -1408,7 +1417,7 @@ function ArchivedList({
     { key: "reason", label: "Reason" },
     { key: "source", label: "Source" },
     ...(seesOthers
-      ? [{ key: "responsible", label: "Responsible", defaultHidden: true }]
+      ? [{ key: "responsible", label: "Responsible" }]
       : []),
   ]);
   const ARCH_SORT: Record<string, "asc" | "desc"> = {

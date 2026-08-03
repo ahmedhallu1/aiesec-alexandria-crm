@@ -39,6 +39,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { SortHeader, useTableSort, type SortDir } from "./sort-header";
+import { ColumnFilter } from "./data-table-kit";
 
 export interface MemberRow {
   id: string;
@@ -64,6 +65,36 @@ export interface TeamRegistryRow {
 }
 
 // click-to-sort accessors for the members table (v24.3 — universal sorting)
+/** Which columns carry a filter funnel, and what it offers. */
+const COL_FILTERS: Record<
+  string,
+  { key: string; label: string; options: () => { value: string; label: string }[] }
+> = {
+  role: {
+    key: "role",
+    label: "Role",
+    options: () => MEMBER_ROLES.map((r) => ({ value: r, label: r })),
+  },
+  function: {
+    key: "fn",
+    label: "Function",
+    options: () => LC_FUNCTIONS.map((f) => ({ value: f, label: f })),
+  },
+  sub: {
+    key: "sub",
+    label: "Sub function",
+    options: () => SUB_FUNCTIONS.map((f) => ({ value: f, label: f })),
+  },
+  status: {
+    key: "status",
+    label: "Status",
+    options: () => [
+      { value: "active", label: "Active" },
+      { value: "inactive", label: "Inactive" },
+    ],
+  },
+};
+
 const MEMBER_SORTERS: Record<string, (m: MemberRow) => string | number | null> = {
   member: (m) => m.nickname || m.name,
   email: (m) => m.email,
@@ -83,8 +114,22 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
   const [q, setQ] = useState("");
 
   const needle = q.trim().toLowerCase();
+  // COLUMN FILTERS (v32.7) — the same rule as Raising and Sign-ups: an
+  // attribute that IS a column gets its funnel next to the column name. This
+  // list is in memory, so they filter locally instead of through the URL.
+  const [colFilter, setColFilter] = useState<Record<string, string>>({});
+  const setCol = (k: string) => (v: string) =>
+    setColFilter((f) => ({ ...f, [k]: v }));
+  const matchesCols = (m: MemberRow) =>
+    (!colFilter.role || m.role === colFilter.role) &&
+    (!colFilter.fn || (m.functions ?? []).includes(colFilter.fn)) &&
+    (!colFilter.sub || (m.sub_functions ?? []).includes(colFilter.sub)) &&
+    (!colFilter.status ||
+      (colFilter.status === "active" ? m.is_active : !m.is_active));
+
+  const byCols = members.filter(matchesCols);
   const shown = needle
-    ? members.filter((m) =>
+    ? byCols.filter((m) =>
         [
           m.name,
           m.nickname ?? "",
@@ -96,7 +141,7 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
           (m.sub_functions ?? []).join(" "),
         ].some((v) => v.toLowerCase().includes(needle))
       )
-    : members;
+    : byCols;
 
   // click a header to sort the (already filtered) list; mobile cards follow
   const { sorted, sortKey, dir, toggle: toggleSort } = useTableSort(shown, MEMBER_SORTERS);
@@ -109,12 +154,22 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
     className?: string;
   }) => (
     <TableHead className={className}>
-      <SortHeader
-        label={children}
-        onClick={() => toggleSort(field, defaultDir)}
-        active={sortKey === field}
-        dir={dir}
-      />
+      <div className="flex items-center gap-1">
+        <SortHeader
+          label={children}
+          onClick={() => toggleSort(field, defaultDir)}
+          active={sortKey === field}
+          dir={dir}
+        />
+        {COL_FILTERS[field] ? (
+          <ColumnFilter
+            label={COL_FILTERS[field].label}
+            value={colFilter[COL_FILTERS[field].key] ?? ""}
+            options={COL_FILTERS[field].options()}
+            onChange={setCol(COL_FILTERS[field].key)}
+          />
+        ) : null}
+      </div>
     </TableHead>
   );
 

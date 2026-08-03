@@ -145,7 +145,7 @@ export async function POST(req: Request) {
         contents: [{ role: "user", parts: [{ text: question.slice(0, 1000) }] }],
         tools: [{ google_search: {} }],
         generationConfig: {
-          temperature: 0.3, maxOutputTokens: 512,
+          temperature: 0.3, maxOutputTokens: 1024,
           thinkingConfig: { thinkingBudget: 0 },
         },
       });
@@ -254,7 +254,9 @@ export async function POST(req: Request) {
         contents,
         tools: [{ function_declarations: functionDecls }],
         generationConfig: {
-          temperature: 0.6, maxOutputTokens: 1024,
+          // detail is the point (v32.7): 1024 truncated real answers —
+          // tables, rankings and step-by-steps all need room
+          temperature: 0.6, maxOutputTokens: 3072,
           // 2.5-flash "thinks" by default — with up to 5 sequential calls per
           // request that blows the 60s serverless budget; keep it snappy
           thinkingConfig: { thinkingBudget: 0 },
