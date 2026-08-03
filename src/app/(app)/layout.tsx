@@ -118,7 +118,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         email={viewer.email ?? viewer.id}
         role={viewer.isAdmin && viewer.role !== "LCP" ? "LCP" : viewer.role}
         functions={viewer.functions}
-        modules={{ raising, tm, ogx, consideration }}
+        modules={{ raising, tm, ogx, consideration, calendar }}
       />
       {viewer.impersonated ? (
         <ViewAsBanner

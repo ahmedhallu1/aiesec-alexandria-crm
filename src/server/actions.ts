@@ -2873,7 +2873,7 @@ export async function checkAccountNameLive(
       ok: true,
       data: {
         status: "free",
-        note: `Heads-up: "${clean}" is archived on ${crossWorldArchived.function} (${crossWorldArchived.oop_reason ?? "no reason"}) — that's their archive, not yours. You can still add it.`,
+        note: `Heads-up: "${clean}" is archived on ${crossWorldArchived.function} (${crossWorldArchived.oop_reason ?? "no reason"}) — different service, different archive. Go ahead and add it.`,
       },
     };
   return { ok: true, data: { status: "free" } };
@@ -4218,6 +4218,25 @@ export async function setSignupOop(id: string, reason: string): Promise<ActionRe
   await pushSignupToSheet(id);
   refresh();
   return { ok: true };
+}
+
+/** VP-only bulk revive — the archive's counterpart to bulk reassign. Loops the
+ *  single action so the per-row RBAC and the sheet write-back run exactly as
+ *  they do one at a time (v32.5). */
+export async function bulkReviveSignups(
+  ids: string[]
+): Promise<ActionResult<{ done: number; failed: number }>> {
+  if (!Array.isArray(ids) || ids.length === 0) return fail("Select at least one sign-up.");
+  if (ids.length > 50) return fail("Max 50 sign-ups per bulk call — run it in batches.");
+  let done = 0;
+  let failed = 0;
+  for (const id of ids) {
+    const res = await reviveSignup(id);
+    if (res.ok) done += 1;
+    else failed += 1;
+  }
+  refresh();
+  return { ok: true, data: { done, failed } };
 }
 
 export async function reviveSignup(id: string): Promise<ActionResult> {

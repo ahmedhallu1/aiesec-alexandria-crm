@@ -261,6 +261,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
         <Link
           href="/profile"
           onClick={() => setOpen(false)}
+          data-tour={inDrawer ? undefined : "nav:/profile"}
           className="flex min-w-0 flex-1 items-center gap-3 rounded-lg transition-opacity hover:opacity-80"
           title="My profile"
         >
@@ -350,7 +351,13 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
       <div className="fixed inset-x-0 top-0 z-30 flex items-center gap-2 border-b bg-sidebar px-3 py-2.5 pt-[calc(0.625rem+env(safe-area-inset-top))] md:hidden">
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetTrigger asChild>
-            <Button variant="ghost" size="icon" className="text-sidebar-foreground">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-sidebar-foreground"
+              data-tour="nav:open"
+              aria-label="Open the menu"
+            >
               <Menu className="size-5" />
             </Button>
           </SheetTrigger>

@@ -10,6 +10,8 @@ export interface TourModules {
   tm: boolean;
   ogx: boolean;
   consideration: boolean;
+  /** the calendar belongs to every module member (touch points, v29) */
+  calendar: boolean;
 }
 
 /**
@@ -31,6 +33,7 @@ function buildSteps(role: string, m: TourModules): TourStep[] {
     steps.push(
       {
         route: "/accounts",
+        openBy: '[data-tour="nav:open"]',
         target: "nav:/accounts",
         title: "This is Raising",
         body: "Every company you work lives here. It's the tab you'll spend your time in.",
@@ -71,6 +74,7 @@ function buildSteps(role: string, m: TourModules): TourStep[] {
     if (!isLeader) {
       steps.push({
         route: "/dashboard",
+        openBy: '[data-tour="nav:open"]',
         target: "nav:/dashboard",
         title: "Your numbers",
         body: "Everything you log adds up here — your funnel, your plan and the leaderboard.",
@@ -82,15 +86,28 @@ function buildSteps(role: string, m: TourModules): TourStep[] {
     steps.push(
       {
         route: "/signups",
+        openBy: '[data-tour="nav:open"]',
         target: "nav:/signups",
         title: "This is Sign-ups",
         body: "Every EP from the tracker sheets. Contact one and claim it — it becomes yours.",
       },
       {
         route: "/signups",
+        target: "signups:views",
+        title: "Unassigned is the pool",
+        body: "Unassigned is everyone's; Mine is what you claimed. Leaders also get All and Archived.",
+      },
+      {
+        route: "/signups",
         target: "signups:table",
         title: "Work the pool",
         body: "WhatsApp and call buttons sit right in the row, and what you log writes back to the sheet.",
+      },
+      {
+        route: "/signups",
+        target: "signups:streak",
+        title: "Your streak",
+        body: "Contact at least one sign-up a day to keep the flame. Undo the contact and the day is gone — it only counts real work.",
       }
     );
   }
@@ -98,6 +115,7 @@ function buildSteps(role: string, m: TourModules): TourStep[] {
   if (m.consideration) {
     steps.push({
       route: "/consideration",
+      openBy: '[data-tour="nav:open"]',
       target: "nav:/consideration",
       title: "This is Consideration",
       body: "IR calls with partner LCs, plus your personal booking link for IRs abroad.",
@@ -107,18 +125,53 @@ function buildSteps(role: string, m: TourModules): TourStep[] {
   if (m.tm) {
     steps.push({
       route: "/members",
+      openBy: '[data-tour="nav:open"]',
       target: "nav:/members",
       title: "This is Talent Management",
       body: "The whole LC's directory — everyone's team, manager and numbers, with contact shortcuts.",
     });
   }
 
-  // everyone finishes at the manual
-  steps.push({
-    target: "nav:/playbook",
-    title: "The Playbook has the rest",
-    body: "Your full manual, written for your role. You can replay this walkthrough from there any time.",
-  });
+  // Everyone gets the LC-wide tabs too — they are not anybody's "module", and
+  // leaving them out is why the walkthrough felt like it stopped halfway.
+  if (m.calendar) {
+    steps.push({
+      route: "/calendar",
+      openBy: '[data-tour="nav:open"]',
+      target: "nav:/calendar",
+      title: "The calendar",
+      body: "Your team's meetings, visits and IR calls on one month view. Click a day to see it or to book on it.",
+    });
+  }
+  steps.push(
+    {
+      route: "/attendance",
+      openBy: '[data-tour="nav:open"]',
+      target: "nav:/attendance",
+      title: "Attendance",
+      body: "Meetings, working hours and outings are recorded here. If a mark looks wrong, Appeal it — the person who recorded it gets told.",
+    },
+    {
+      route: "/lc-feedback",
+      openBy: '[data-tour="nav:open"]',
+      target: "nav:/lc-feedback",
+      title: "Feedback about people",
+      body: "A 🎉 shout-out reaches the person; a 😟 concern goes only to the LCP, privately. Anonymous is allowed.",
+    },
+    {
+      route: "/profile",
+      openBy: '[data-tour="nav:open"]',
+      target: "nav:/profile",
+      title: "Your profile",
+      body: "Your info, your plan, your avatar — and the form for reporting anything broken in Sodio itself.",
+    },
+    {
+      openBy: '[data-tour="nav:open"]',
+      target: "nav:/playbook",
+      title: "The Playbook has the rest",
+      body: "Your full manual, written for your role. You can replay this walkthrough from there any time.",
+    }
+  );
 
   return steps;
 }

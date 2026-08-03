@@ -9,7 +9,7 @@ import {
   Search, UserMinus, UserRound, Users2, X,
 } from "lucide-react";
 import {
-  addSignupComment, bulkReassignSignups, claimSignup, openSignupDetail,
+  addSignupComment, bulkReassignSignups, bulkReviveSignups, claimSignup, openSignupDetail,
   reassignSignup, reviveSignup, runSignupsImport, setSignupOop,
   setSignupPotential, updateSignupContact, updateSignupVpFields,
 } from "@/server/actions";
@@ -552,7 +552,12 @@ export function SignupsView({
 
   // bulk selection (TL/VP/Director/LCP-admin): assign to a member or send
   // back to the pool — the archived view is read-only, no selection there
-  const canBulk = (viewer.isLeader || viewer.isTl) && activeView !== "archived";
+  // bulk selection: leaders/TLs everywhere except the archive — and VPs IN the
+  // archive too, where the bulk action is "back to active" (v32.5)
+  const canBulk =
+    activeView === "archived"
+      ? viewer.canVp
+      : viewer.isLeader || viewer.isTl;
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignTarget, setAssignTarget] = useState("");
@@ -678,6 +683,25 @@ export function SignupsView({
       setAssignOpen(false);
       setUnassignOpen(false);
       setAssignTarget("");
+      router.refresh();
+    });
+
+  // VP-only: bring archived sign-ups back, in bulk (v32.5)
+  const runRevive = () =>
+    start(async () => {
+      const ids = [...selected];
+      let done = 0;
+      let failed = 0;
+      for (let i = 0; i < ids.length; i += 50) {
+        const res = await bulkReviveSignups(ids.slice(i, i + 50));
+        if (!res.ok) { toast.error(res.error); return; }
+        done += res.data?.done ?? 0;
+        failed += res.data?.failed ?? 0;
+      }
+      toast.success(
+        `${done} sign-up${done === 1 ? "" : "s"} back in the list ↩️${failed ? ` — ${failed} skipped` : ""}`
+      );
+      setSelected(new Set());
       router.refresh();
     });
 
@@ -909,16 +933,18 @@ export function SignupsView({
         <div className={cn("grid gap-4", planCard && streak && "lg:grid-cols-2")}>
           {planCard ? <MmPlanCard plan={planCard} /> : null}
           {streak ? (
-            <StreakCard
-              streak={streak}
-              onScope={(sc) => setParams({ streak: sc })}
-            />
+            <div data-tour="signups:streak">
+              <StreakCard
+                streak={streak}
+                onScope={(sc) => setParams({ streak: sc })}
+              />
+            </div>
           ) : null}
         </div>
       ) : null}
 
       {/* function + view chips */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2" data-tour="signups:views">
         {fns.length > 1 ? (
           <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
             {fns.map((f) => (
@@ -1242,14 +1268,20 @@ export function SignupsView({
                 <Users2 className="size-3.5" /> Assign to…
               </Button>
             ) : null}
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={pending}
-              onClick={() => setUnassignOpen(true)}
-            >
-              <UserMinus className="size-3.5" /> Unassign
-            </Button>
+            {activeView === "archived" && viewer.canVp ? (
+              <Button size="sm" disabled={pending} onClick={runRevive}>
+                ↩️ Back to active
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={pending}
+                onClick={() => setUnassignOpen(true)}
+              >
+                <UserMinus className="size-3.5" /> Unassign
+              </Button>
+            )}
             <Button
               size="sm" variant="ghost" aria-label="Clear selection"
               onClick={() => setSelected(new Set())}

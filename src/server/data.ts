@@ -807,9 +807,16 @@ export interface NameCheckResult {
 }
 
 /** Duplicate + archive check for the Add Account flow — WORLD-AWARE (v23.2):
- *  ACTIVE names are unique across every function, but each world (ICX-raising
- *  IGV/IGT/B2B/BD vs B2C) keeps its OWN archive: a name the raising crews
- *  burned can still be a fresh B2C partner, and vice versa. */
+ *  ACTIVE names are unique across every function, but each WORLD keeps its own
+ *  archive — the two sell different things, so a name one burned says nothing
+ *  about the other:
+ *
+ *    OPENS   IGV · IGT · B2B  — raising opens for the ICX programmes
+ *    SERVICE BD  · B2C        — money partnerships and courses/events
+ *
+ *  (v32.5 moved BD out of the opens world: BD sells a service like B2C does,
+ *  and an IGV team burning a company for opens must not stop BD selling them
+ *  a partnership.) A cross-world archived match is a non-blocking heads-up. */
 export async function checkAccountName(
   name: string,
   fn?: AccountFunction
@@ -817,7 +824,8 @@ export async function checkAccountName(
   const normalized = normalizeName(name);
   if (!normalized)
     return { duplicate: null, blacklisted: null, crossWorldArchived: null };
-  const world: "ICX" | "B2C" = fn === "B2C" ? "B2C" : "ICX";
+  const serviceWorld = (f?: string | null) => f === "B2C" || f === "BD";
+  const world: "OPENS" | "SERVICE" = serviceWorld(fn) ? "SERVICE" : "OPENS";
   const [{ data: rows }, { data: blacklistHit }] = await Promise.all([
     db()
       .from("accounts_pipeline")
@@ -832,12 +840,14 @@ export async function checkAccountName(
       .maybeSingle<BlacklistEntry>(),
   ]);
   const all = (rows ?? []) as PipelineRow[];
-  const sameWorld = (r: PipelineRow) => (r.function === "B2C") === (world === "B2C");
+  const sameWorld = (r: PipelineRow) =>
+    serviceWorld(r.function) === (world === "SERVICE");
   const active = all.find((r) => !r.out_of_process) ?? null;
   const archivedSame = all.find((r) => r.out_of_process && sameWorld(r)) ?? null;
   const archivedOther = all.find((r) => r.out_of_process && !sameWorld(r)) ?? null;
-  // the manual blacklist is the RAISING world's list — it never blocks B2C
-  const blacklisted = world === "ICX" ? (blacklistHit ?? null) : null;
+  // the manual blacklist is the OPENS world's list — it never blocks the
+  // service side (BD/B2C)
+  const blacklisted = world === "OPENS" ? (blacklistHit ?? null) : null;
   const duplicate = active ?? archivedSame;
   return {
     duplicate,
