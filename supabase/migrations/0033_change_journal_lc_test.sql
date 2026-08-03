@@ -55,3 +55,16 @@ alter table audit_log add column if not exists test_session_id uuid references t
 
 create index if not exists audit_log_change_set_idx on audit_log (change_set);
 create index if not exists audit_log_created_idx on audit_log (created_at desc);
+
+-- ------------------------------------------------------- 4. verify (read-only)
+-- Re-running this file is safe, and this last query PROVES whether it worked.
+-- Expect EIGHT rows. If you get fewer — or an error above — nothing was applied
+-- and the transaction rolled back; read the error, don't trust the green tick.
+-- (In the Supabase SQL editor, make sure NOTHING is selected before you hit
+--  Run: with a selection it executes only the highlighted text.)
+select table_name, column_name
+from information_schema.columns
+where (table_name = 'test_sessions' and column_name = 'kind')
+   or (table_name = 'test_undo'     and column_name in ('change_set', 'actor_id', 'label'))
+   or (table_name = 'audit_log'     and column_name in ('change_set', 'undone_at', 'undone_by', 'test_session_id'))
+order by table_name, column_name;
