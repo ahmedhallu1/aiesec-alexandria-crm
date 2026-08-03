@@ -2294,10 +2294,16 @@ export async function listMmPlans(
     .order("month");
   if (memberIds && memberIds.length > 0) q = q.in("member_id", memberIds);
   const { data: rawData } = await q;
-  const data = memberFns?.length
+  const scoped = memberFns?.length
     ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ((rawData ?? []) as any[]).filter((r) => memberInFns(r.member, memberFns))
     : rawData;
+  // A plan belongs to the member's CURRENT job (v32). Move someone from
+  // Consideration to Raising and their old applicants/approvals plan stops
+  // being their plan — reading through the live membership row means the
+  // board is right the moment the sheet changes, with no cleanup to remember.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = ((scoped ?? []) as any[]).filter((r) => stillPlans(r.member, "mm"));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ((data ?? []) as any[]).map((r) => ({
     member_id: r.member_id,
@@ -2310,6 +2316,91 @@ export async function listMmPlans(
     approvals: r.approvals,
     peak: r.peak,
   }));
+}
+
+/** Does this member STILL qualify for the plan type filed against them?
+ *
+ *  Plans outlive the job that produced them: move someone from Consideration
+ *  to Raising (or out of an MM role, or to another function) and their old
+ *  applicants/approvals plan is left behind, still showing on /planning as if
+ *  it were their target. Every plan LIST read goes through this, so a stale
+ *  plan stops counting the moment the Membership sheet changes — no cleanup
+ *  job to remember and nothing to fix by hand. `prunePlansForMember` then
+ *  deletes the rows for good on the next membership edit or import. */
+function stillPlans(
+  member:
+    | { role?: string | null; functions?: string[] | null; sub_functions?: string[] | null }
+    | null
+    | undefined,
+  kind: "mm" | "tl"
+): boolean {
+  if (!member) return false;
+  const v = {
+    role: member.role ?? "",
+    functions: member.functions ?? [],
+    sub_functions: member.sub_functions ?? [],
+  };
+  return kind === "mm" ? isPlanningMm(v) : isPlanningTl(v);
+}
+
+/** Drops the plan rows a member no longer qualifies for. Called after every
+ *  membership write (in-app editor + the 30-min sheet import), so a role or
+ *  sub-function change cleans up after itself. Best-effort: a failure here
+ *  never blocks the membership save — `stillPlans` already hides the row. */
+export async function prunePlansForMember(m: {
+  id: string;
+  role?: string | null;
+  functions?: string[] | null;
+  sub_functions?: string[] | null;
+}): Promise<void> {
+  try {
+    if (!stillPlans(m, "mm"))
+      await db().from("mm_plans").delete().eq("member_id", m.id);
+    if (!stillPlans(m, "tl"))
+      await db().from("tl_plans").delete().eq("member_id", m.id);
+  } catch (e) {
+    console.error("[plans] prune failed for", m.id, e);
+  }
+}
+
+/** Sweeps the WHOLE LC for plans whose owner no longer qualifies and deletes
+ *  them. Runs at the end of every membership import (every 30 min), so a
+ *  sub-function change made in the Google Sheet — the way most of these
+ *  actually happen — cleans up on its own. Returns how many rows went.
+ *  Idempotent, and safe to run at any time. */
+export async function pruneStalePlans(): Promise<{ mm: number; tl: number }> {
+  const { data: members } = await db()
+    .from("members")
+    .select("id, role, functions, sub_functions");
+  const rows = (members ?? []) as {
+    id: string;
+    role: string | null;
+    functions: string[] | null;
+    sub_functions: string[] | null;
+  }[];
+  const staleMm = rows.filter((m) => !stillPlans(m, "mm")).map((m) => m.id);
+  const staleTl = rows.filter((m) => !stillPlans(m, "tl")).map((m) => m.id);
+  let mm = 0;
+  let tl = 0;
+  // chunked: an `in` list of every member would blow past the URL limit
+  for (let i = 0; i < staleMm.length; i += 100) {
+    const { data } = await db()
+      .from("mm_plans")
+      .delete()
+      .in("member_id", staleMm.slice(i, i + 100))
+      .select("id");
+    mm += (data ?? []).length;
+  }
+  for (let i = 0; i < staleTl.length; i += 100) {
+    const { data } = await db()
+      .from("tl_plans")
+      .delete()
+      .in("member_id", staleTl.slice(i, i + 100))
+      .select("id");
+    tl += (data ?? []).length;
+  }
+  if (mm || tl) console.log(`[plans] pruned ${mm} mm_plans + ${tl} tl_plans rows`);
+  return { mm, tl };
 }
 
 /** Whether this member is an OGX/Consideration MM who still needs to fill
@@ -2387,15 +2478,19 @@ export async function listTlPlans(
 ): Promise<TlPlanRow[]> {
   let q = db()
     .from("tl_plans")
-    .select("member_id, month, opens, peak, member:members!member_id(name, nickname, team_name, functions, sub_functions)")
+    .select("member_id, month, opens, peak, member:members!member_id(name, nickname, role, team_name, functions, sub_functions)")
     .order("month");
   if (memberIds && memberIds.length > 0) q = q.in("member_id", memberIds);
   const { data: rawData, error } = await q;
   if (error) return []; // pre-0018 grace
-  const data = memberFns?.length
+  const scoped = memberFns?.length
     ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ((rawData ?? []) as any[]).filter((r) => memberInFns(r.member, memberFns))
     : rawData;
+  // same rule as listMmPlans: an opens plan only counts while its owner is
+  // still a raising MM
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = ((scoped ?? []) as any[]).filter((r) => stillPlans(r.member, "tl"));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ((data ?? []) as any[]).map((r) => ({
     member_id: r.member_id,

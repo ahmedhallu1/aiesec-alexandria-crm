@@ -2366,6 +2366,16 @@ export async function upsertMember(
     console.error("[sheets] membership write-back failed:", e)
   );
 
+  // this edit may have moved them off a plan they had filed (Consideration →
+  // Raising, MM → Member, a function swap) — drop what no longer applies
+  const { prunePlansForMember } = await import("./data");
+  await prunePlansForMember({
+    id: id!,
+    role: m.role,
+    functions: m.functions,
+    sub_functions: m.sub_functions,
+  });
+
   await logAudit(viewer.id, m.id ? "member_update" : "member_add", "member", id, {
     email: m.email,
   });
