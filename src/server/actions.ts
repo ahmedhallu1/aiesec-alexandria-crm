@@ -4059,10 +4059,15 @@ export async function updateSignupContact(
         ...(input.contactStatus !== undefined
           ? {
               contact_status: contact,
-              // first Yes stamps the contacted date (mirrored to the sheet)
-              ...(contact === "Yes" && !signup.contacted_at
-                ? { contacted_at: new Date().toISOString() }
-                : {}),
+              // first Yes stamps the contacted date (mirrored to the sheet);
+              // taking the contact BACK clears it, so the record matches
+              // reality and the streak — which reads this — can't be gamed by
+              // contacting and immediately undoing
+              ...(contact === "Yes"
+                ? signup.contacted_at
+                  ? {}
+                  : { contacted_at: new Date().toISOString() }
+                : { contacted_at: null }),
             }
           : {}),
         ...(input.interested !== undefined ? { interested: clean(input.interested) } : {}),

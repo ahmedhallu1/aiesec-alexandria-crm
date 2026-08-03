@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { notifyMembers } from "@/server/notify";
-import { cairoDayIso, isOgvMm, markCronRun, streakEndingAt } from "@/server/data";
+import { cairoDayIso, markCronRun, streakEndingAt } from "@/server/data";
 import { db } from "@/lib/supabase";
 import { env } from "@/lib/env";
 import { sendEmail } from "@/lib/google/gmail";
@@ -45,7 +45,12 @@ export async function GET(req: NextRequest) {
     console.error("[streak-nags] members query failed:", membersRes.error.message);
     return NextResponse.json({ ok: false, error: membersRes.error.message }, { status: 500 });
   }
-  const mms = ((membersRes.data ?? []) as MmRow[]).filter(isOgvMm);
+  // v32.4: the streak covers ALL of OGX, not OGV alone
+  const isOgxMm = (m: MmRow) =>
+    [...(m.functions ?? []), ...(m.sub_functions ?? [])].some(
+      (f) => f === "OGT" || f === "OGV"
+    );
+  const mms = ((membersRes.data ?? []) as MmRow[]).filter(isOgxMm);
   if (mms.length === 0) {
     await markCronRun("streak-nags");
     return NextResponse.json({ ok: true, sent: [], errors: [] });
@@ -56,24 +61,28 @@ export async function GET(req: NextRequest) {
   const cutoff = cairoDayIso(new Date(Date.now() - 400 * DAY_MS));
   const days = new Map<string, Set<string>>();
   {
+    // DERIVED from the live sign-ups, exactly like the card (v32.4) — reading
+    // the old activity stamps here would nag on streaks the card no longer
+    // shows, because an undone contact still left a stamp behind
     const PAGE = 1000;
-    for (let off = 0; off < 20000; off += PAGE) {
+    for (let off = 0; off < 40000; off += PAGE) {
       const { data, error } = await db()
-        .from("signup_activity")
-        .select("member_id, day")
-        .in("member_id", mms.map((m) => m.id))
-        .gte("day", cutoff)
-        .order("member_id")
-        .order("day")
+        .from("signups")
+        .select("assigned_to, contacted_at")
+        .in("assigned_to", mms.map((m) => m.id))
+        .eq("contact_status", "Yes")
+        .not("contacted_at", "is", null)
+        .gte("contacted_at", `${cutoff}T00:00:00`)
+        .order("id")
         .range(off, off + PAGE - 1);
       if (error) {
         console.error("[streak-nags] activity query failed:", error.message);
         return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
       }
-      for (const r of (data ?? []) as { member_id: string; day: string }[]) {
-        const set = days.get(r.member_id) ?? new Set<string>();
-        set.add(String(r.day).slice(0, 10));
-        days.set(r.member_id, set);
+      for (const r of (data ?? []) as { assigned_to: string; contacted_at: string }[]) {
+        const set = days.get(r.assigned_to) ?? new Set<string>();
+        set.add(cairoDayIso(new Date(r.contacted_at)));
+        days.set(r.assigned_to, set);
       }
       if ((data ?? []).length < PAGE) break;
     }
