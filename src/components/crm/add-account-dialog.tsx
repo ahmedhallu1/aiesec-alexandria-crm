@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { checkAccountNameLive, createAccount } from "@/server/actions";
+import { checkAccountNameLive, checkPodioNameLive, createAccount } from "@/server/actions";
+import type { PodioCheck } from "@/lib/podio";
 import {
   ACCOUNT_TYPES,
   B2C_TYPES,
@@ -134,6 +135,29 @@ export function AddAccountDialog({
   }, [name, fn]);
   const nameBlocked =
     nameCheck != null && nameCheck.status !== "free" && nameCheck.status !== "checking";
+
+  // ---- AUTOMATIC PODIO CHECK (v32): the same question the member used to
+  // answer by opening the national form and typing into "Check if your company
+  // exists?". Runs alongside the duplicate check, never blocks the form — a
+  // partner already on Podio is a WARNING (don't submit a duplicate), and an
+  // unreachable Podio just leaves the manual link.
+  const [podio, setPodio] = useState<PodioCheck | "checking" | null>(null);
+  const podioSeq = useRef(0);
+  useEffect(() => {
+    if (name.length < 2) {
+      podioSeq.current++;
+      setPodio(null);
+      return;
+    }
+    setPodio("checking");
+    const seq = ++podioSeq.current;
+    const t = setTimeout(async () => {
+      const res = await checkPodioNameLive(name);
+      if (seq !== podioSeq.current) return; // superseded by more typing
+      setPodio(res.ok ? (res.data ?? null) : null);
+    }, 600);
+    return () => clearTimeout(t);
+  }, [name]);
 
   const submit = () =>
     startTransition(async () => {
@@ -293,6 +317,52 @@ export function AddAccountDialog({
                       </div>
                     ))}
                 </dl>
+              </div>
+            ) : null}
+
+            {/* the Podio verdict — answers "do I have to fill the national
+                form?" without leaving the dialog. Never blocks: a partner
+                already on Podio is a warning, not a rejection. */}
+            {!nameBlocked && podio === "checking" ? (
+              <p className="text-xs text-muted-foreground">Checking Podio…</p>
+            ) : !nameBlocked && podio && podio !== "checking" && podio.status === "exists" ? (
+              <div className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs">
+                <p className="font-semibold text-warning">
+                  ⚠️ Already on Podio as “{podio.match}”
+                </p>
+                <p className="mt-1 text-foreground">
+                  Do <b>not</b> submit it again — a duplicate means the partner is
+                  already with another LC. Add it here and ask your MM to set the
+                  request state.
+                </p>
+              </div>
+            ) : !nameBlocked && podio && podio !== "checking" && podio.status === "free" ? (
+              <div className="rounded-lg border p-3 text-xs">
+                <p className="font-medium text-foreground">
+                  🔎 Not on Podio — you still need to submit it on the form
+                </p>
+                {podio.similar.length > 0 ? (
+                  <p className="mt-1 text-muted-foreground">
+                    Close names already there:{" "}
+                    <span className="font-medium text-foreground" dir="auto">
+                      {podio.similar.join(" · ")}
+                    </span>{" "}
+                    — check it isn&apos;t the same partner spelled differently.
+                  </p>
+                ) : null}
+                <p className="mt-1 text-muted-foreground">
+                  Checked against the {podio.listSize} partners the form lists.{" "}
+                  {PODIO_FORM_URL ? (
+                    <a
+                      href={PODIO_FORM_URL}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium text-primary underline-offset-2 hover:underline"
+                    >
+                      Open the Podio form →
+                    </a>
+                  ) : null}
+                </p>
               </div>
             ) : null}
           </div>

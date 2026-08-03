@@ -2782,6 +2782,24 @@ export async function checkAccountNameLive(
   return { ok: true, data: { status: "free" } };
 }
 
+/** The automatic Podio check (v32) — replaces opening the national partners
+ *  web-form and typing the name into "Check if your company exists?" by hand.
+ *  Read-only, cached ~30 min, and it fails SOFT: if Podio is unreachable the
+ *  dialog just falls back to the manual link, never to a false "go ahead". */
+export async function checkPodioNameLive(
+  name: string
+): Promise<ActionResult<import("@/lib/podio").PodioCheck>> {
+  const viewer = await getViewer();
+  // same gate as the duplicate check — only people who can create accounts
+  if (allowedAccountFunctions(viewer).length === 0)
+    return {
+      ok: true,
+      data: { status: "unknown", similar: [], listSize: 0, checkedAt: null },
+    };
+  const { checkPodioCompany } = await import("@/lib/podio");
+  return { ok: true, data: await checkPodioCompany(name) };
+}
+
 // Goals are no longer set in Sodio (v22): function goals come from the VPs'
 // planning sheet (plan_cells) and team goals from the Team Leaders' filed
 // plans (tl_plans) — setPerformanceGoal and its announcement flow are gone.
