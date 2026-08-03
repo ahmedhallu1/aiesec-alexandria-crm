@@ -7,6 +7,7 @@ import { env } from "@/lib/env";
 import {
   considerationFunctions,
   accountScope,
+  allowedAccountFunctions as _allowedAccountFunctions,
   canViewAccount,
   hasRaisingAccess,
   hasTmAccess,
@@ -370,9 +371,24 @@ export async function considerationStats(
 // ------------------------------------------------------------------ scope helpers
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function applyScope<T extends { eq: any; in: any }>(query: T, scope: AccountScope): T {
+export function applyScope<T extends { eq: any; in: any; or?: any }>(
+  query: T,
+  scope: AccountScope,
+  /** functions whose UNASSIGNED accounts this viewer may also see (v32.4) —
+   *  nobody owns them, so anyone who may work that function can take one */
+  claimableFns: AccountFunction[] = []
+): T {
   if (scope.kind === "functions") return query.in("function", scope.fns);
-  if (scope.kind === "members") return query.in("responsible_id", scope.ids);
+  if (scope.kind === "members") {
+    const ids = scope.ids.map((i) => `"${i}"`).join(",");
+    if (claimableFns.length > 0 && query.or) {
+      const fns = claimableFns.map((f) => `"${f}"`).join(",");
+      return query.or(
+        `responsible_id.in.(${ids}),and(responsible_id.is.null,function.in.(${fns}))`
+      );
+    }
+    return query.in("responsible_id", scope.ids);
+  }
   return query;
 }
 
@@ -512,7 +528,14 @@ async function buildAccountsQuery(
   // the Archived TAB is LC-wide (v22.2): the archive is the shared blacklist,
   // so it skips the account scope. Everything else stays scoped (dashboards'
   // includeArchived reads included).
-  if (!filters.archived) query = applyScope(query, effScope);
+  // members/TLs also see the UNOWNED accounts of their own function(s) — the
+  // imported market research nobody has taken yet (v32.4)
+  if (!filters.archived)
+    query = applyScope(
+      query,
+      effScope,
+      effScope.kind === "members" ? _allowedAccountFunctions(viewer) : []
+    );
   // test accounts live in a parallel universe: visible ONLY in test mode
   // (admin's "Show test data" toggle or any test view)
   if (!viewer.testMode) query = query.eq("is_test", false);
@@ -4229,97 +4252,137 @@ export function isOgvMm(m: {
 }
 
 export interface StreakStats {
-  /** consecutive days ending today (or yesterday, until today's save) */
+  /** consecutive days ending today (or yesterday, until today's first contact) */
   current: number;
-  /** longest run in the fetched window (~last 400 activity days) */
+  /** longest run in the window (~last 400 days) */
   best: number;
   savedToday: boolean;
-  /** top 3 CURRENT streaks among active OGV MMs (ties broken by name) */
-  topStreaks: { name: string; current: number }[];
+  /** how many sign-ups the viewer has contacted TODAY */
+  todayCount: number;
+  /** which OGX side the board is showing */
+  scope: "OGX" | "OGT" | "OGV";
+  /** the sides this viewer may filter to (>1 → show the chips) */
+  scopes: ("OGX" | "OGT" | "OGV")[];
+  /** top current streaks on the board, with today's contact count each */
+  topStreaks: { name: string; current: number; today: number }[];
 }
 
-/** The /signups streak card (v27): the viewer's contact streak — ≥1 sign-up
- *  contact action per Cairo day keeps the flame alive — plus the LC's top 3.
- *  Null unless the viewer is an OGV MM. */
-export async function streakStats(viewer: Viewer): Promise<StreakStats | null> {
-  if (!isOgvMm(viewer)) return null;
+/** The OGX contact streak (v32.4).
+ *
+ *  DERIVED, NOT STAMPED. Until now a day was recorded by an activity stamp the
+ *  moment you touched a sign-up, and nothing ever removed it — so contacting
+ *  someone and immediately undoing it kept the flame alive. The streak is now
+ *  computed from the LIVE data: a day counts when a sign-up ASSIGNED TO YOU is
+ *  currently marked contacted with `contacted_at` on that Cairo day. Undo the
+ *  contact and the day stops counting, because there is no longer any contact
+ *  to count. It cannot be gamed, and it gives the daily count for free.
+ *
+ *  Audience is the whole OGX crew — both products, and leaders too: a VP who
+ *  cannot see their function's board cannot push it. */
+export async function streakStats(
+  viewer: Viewer,
+  scopeParam?: string
+): Promise<StreakStats | null> {
+  const fns = _ogxFunctions(viewer);
+  if (fns.length === 0) return null;
+
+  const scopes: ("OGX" | "OGT" | "OGV")[] =
+    fns.length > 1 ? ["OGX", "OGT", "OGV"] : [fns[0] as "OGT" | "OGV"];
+  const scope = (scopes as string[]).includes(scopeParam ?? "")
+    ? (scopeParam as "OGX" | "OGT" | "OGV")
+    : scopes[0];
+  // "OGX" = both sides; otherwise just the one
+  const wanted: OgxFunction[] = scope === "OGX" ? (fns as OgxFunction[]) : [scope as OgxFunction];
+
   const today = cairoDayIso();
+  const cutoff = cairoDayIso(new Date(Date.now() - 400 * 86_400_000));
 
-  const fetchAllRecent = async () => {
-    // last ~400 days of EVERYONE's activity — matches the personal window so
-    // long streaks never get clamped; paged past the 1000-row response cap
-    const cutoff = cairoDayIso(new Date(Date.now() - 400 * 86_400_000));
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rows: any[] = [];
-    const PAGE = 1000;
-    for (let off = 0; off < 20000; off += PAGE) {
-      const { data, error } = await db()
-        .from("signup_activity")
-        .select(
-          "member_id, day, member:members(name, nickname, role, functions, sub_functions, is_active)"
-        )
-        .gte("day", cutoff)
-        .order("member_id")
-        .order("day")
-        .range(off, off + PAGE - 1);
-      if (error) throw new Error(error.message);
-      rows.push(...(data ?? []));
-      if ((data ?? []).length < PAGE) break;
-    }
-    return rows;
-  };
-
-  // fail CLOSED: a transient DB error must hide the card, not render a lying
-  // 0-day streak that panics the member
-  let ownRes, recent;
+  let rows: { assigned_to: string | null; contacted_at: string; fn: string }[];
+  let members: {
+    id: string; name: string; nickname: string | null; role: string;
+    functions: string[] | null; sub_functions: string[] | null; is_active: boolean;
+  }[];
   try {
-    [ownRes, recent] = await Promise.all([
+    // every CURRENTLY-contacted sign-up in the window — the streak's raw
+    // material. `contact_status` is re-checked here, so an undone contact
+    // simply isn't in the set.
+    const [actRes, memRes] = await Promise.all([
+      fetchAll<{ assigned_to: string | null; contacted_at: string; fn: string }>(() =>
+        db()
+          .from("signups")
+          .select("assigned_to, contacted_at, fn")
+          .in("fn", wanted)
+          .eq("contact_status", "Yes")
+          .not("contacted_at", "is", null)
+          .not("assigned_to", "is", null)
+          .gte("contacted_at", `${cutoff}T00:00:00`)
+          .order("id")
+      ),
       db()
-        .from("signup_activity")
-        .select("day")
-        .eq("member_id", viewer.id)
-        .order("day", { ascending: false })
-        .limit(400),
-      fetchAllRecent(),
+        .from("members")
+        .select("id, name, nickname, role, functions, sub_functions, is_active")
+        .eq("is_active", true),
     ]);
-    if (ownRes.error) throw new Error(ownRes.error.message);
+    if (memRes.error) throw new Error(memRes.error.message);
+    rows = actRes;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    members = (memRes.data ?? []) as any[];
   } catch (e) {
+    // fail CLOSED — a transient error must hide the card, never render a
+    // lying 0-day streak
     console.error("[streaks] stats fetch failed:", e);
     return null;
   }
 
-  const mine = new Set(
-    ((ownRes.data ?? []) as { day: string }[]).map((r) => String(r.day).slice(0, 10))
-  );
-  const current = currentStreak(mine, today);
+  // member → the Cairo days they contacted on, and today's tally
+  const byMember = new Map<string, { days: Set<string>; today: number }>();
+  for (const r of rows) {
+    if (!r.assigned_to) continue;
+    const day = cairoDayIso(new Date(r.contacted_at));
+    const e = byMember.get(r.assigned_to) ?? { days: new Set<string>(), today: 0 };
+    e.days.add(day);
+    if (day === today) e.today += 1;
+    byMember.set(r.assigned_to, e);
+  }
 
-  // best = longest consecutive run anywhere in the fetched window
+  const mine = byMember.get(viewer.id) ?? { days: new Set<string>(), today: 0 };
+  const current = currentStreak(mine.days, today);
+
   let best = 0;
   let run = 0;
   let prev: string | null = null;
-  for (const d of [...mine].sort()) {
+  for (const d of [...mine.days].sort()) {
     run = prev !== null && prevDayIso(d) === prev ? run + 1 : 1;
     if (run > best) best = run;
     prev = d;
   }
 
-  // per-member day sets → each active OGV MM's current streak
-  const byMember = new Map<string, { name: string; days: Set<string> }>();
-  for (const r of recent) {
-    const m = r.member;
-    if (!m || !m.is_active || !isOgvMm(m)) continue;
-    const entry = byMember.get(r.member_id) ?? {
-      name: (m.nickname || m.name) as string,
-      days: new Set<string>(),
-    };
-    entry.days.add(String(r.day).slice(0, 10));
-    byMember.set(r.member_id, entry);
-  }
-  const topStreaks = [...byMember.values()]
-    .map((e) => ({ name: e.name, current: currentStreak(e.days, today) }))
+  // the board: everyone on this side who is actually working sign-ups
+  const inScope = (m: { functions?: string[] | null; sub_functions?: string[] | null }) => {
+    const all = [...(m.functions ?? []), ...(m.sub_functions ?? [])];
+    return wanted.some((f) => all.includes(f));
+  };
+  const topStreaks = members
+    .filter(inScope)
+    .map((m) => {
+      const e = byMember.get(m.id);
+      return {
+        name: (m.nickname || m.name) as string,
+        current: e ? currentStreak(e.days, today) : 0,
+        today: e?.today ?? 0,
+      };
+    })
     .filter((e) => e.current > 0)
-    .sort((a, b) => b.current - a.current || a.name.localeCompare(b.name))
-    .slice(0, 3);
+    .sort((a, b) => b.current - a.current || b.today - a.today || a.name.localeCompare(b.name))
+    .slice(0, 5);
 
-  return { current, best, savedToday: mine.has(today), topStreaks };
+  return {
+    current,
+    best,
+    savedToday: mine.days.has(today),
+    todayCount: mine.today,
+    scope,
+    scopes,
+    topStreaks,
+  };
 }

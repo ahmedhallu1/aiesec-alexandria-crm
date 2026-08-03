@@ -57,7 +57,7 @@ export default async function SignupsPage({
       size
     ),
     ogxPlanCard(viewer),
-    streakStats(viewer),
+    streakStats(viewer, sp.streak),
   ]);
 
   const isLeader = viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);

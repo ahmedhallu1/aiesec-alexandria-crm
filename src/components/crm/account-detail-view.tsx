@@ -65,9 +65,11 @@ const methodIcon = {
 
 export function AccountDetailView({
   account, attempts, visits, comments, deals, caps, reassignTargets,
-  functionMembers, autoReportVisitId, autoOpen,
+  functionMembers, autoReportVisitId, autoOpen, viewerId,
 }: {
   account: PipelineRow;
+  /** the signed-in member — lets them TAKE an unowned account in one click */
+  viewerId: string;
   attempts: AttemptWithMember[];
   visits: Visit[];
   comments: CommentWithMember[];
@@ -164,6 +166,7 @@ export function AccountDetailView({
             account={account}
             canReassign={caps.reassign}
             targets={reassignTargets}
+            viewerId={viewerId}
           />
         </div>
 
@@ -294,14 +297,42 @@ export function AccountDetailView({
 /** Responsible: read-only for members; Team Leaders pick between themselves and
  *  their members, VPs across the function, the LCP anywhere. */
 function ResponsibleRow({
-  account, canReassign, targets,
+  account, canReassign, targets, viewerId,
 }: {
   account: PipelineRow;
   canReassign: boolean;
   targets: { id: string; label: string }[];
+  /** so an unowned account can be taken with one click */
+  viewerId: string;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+
+  // an UNOWNED account you may work: one button takes it, no picker and no
+  // leader needed (v32.4) — you did the research, it's yours
+  const claimable = !account.responsible_id && !account.out_of_process && canReassign;
+  if (claimable) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+        <span>
+          Responsible: <b>Unassigned</b> — nobody has taken this one.
+        </span>
+        <Button
+          size="sm"
+          disabled={pending}
+          onClick={() =>
+            start(async () => {
+              const res = await reassignAccount(account.id, viewerId);
+              if (res.ok) { toast.success("It's yours now 🙌"); router.refresh(); }
+              else toast.error(res.error);
+            })
+          }
+        >
+          Take it
+        </Button>
+      </div>
+    );
+  }
 
   if (!canReassign || targets.length <= 1) {
     return (

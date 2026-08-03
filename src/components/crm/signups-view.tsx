@@ -181,7 +181,13 @@ function MmPlanCard({ plan }: { plan: OgxPlanCard }) {
 
 /** v27 — the OGV contact-streak game: ≥1 sign-up contact action per Cairo day
  *  keeps the flame alive. Dimmed flame until today's save lands. */
-function StreakCard({ streak }: { streak: StreakStats }) {
+function StreakCard({
+  streak,
+  onScope,
+}: {
+  streak: StreakStats;
+  onScope: (s: string) => void;
+}) {
   const medals = ["🥇", "🥈", "🥉"];
   const dayWord = (n: number) => `day${n === 1 ? "" : "s"}`;
   return (
@@ -210,7 +216,7 @@ function StreakCard({ streak }: { streak: StreakStats }) {
               )}
             >
               {streak.savedToday
-                ? "Streak saved for today ✅"
+                ? `Saved today ✅ — ${streak.todayCount} contact${streak.todayCount === 1 ? "" : "s"}`
                 : "Save today's streak — contact a sign-up!"}
             </p>
           </div>
@@ -222,11 +228,33 @@ function StreakCard({ streak }: { streak: StreakStats }) {
             {dayWord(streak.best)}
           </p>
         </div>
-        {streak.topStreaks.length > 0 ? (
-          <div className="border-t pt-2">
+        <div className="border-t pt-2">
+          <div className="flex flex-wrap items-center gap-2">
             <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-              LC top streaks
+              {streak.scope} top streaks
             </p>
+            {/* one board for all of OGX, narrowed to a side when wanted */}
+            {streak.scopes.length > 1 ? (
+              <div className="ml-auto flex items-center gap-0.5 rounded-md bg-muted p-0.5">
+                {streak.scopes.map((sc) => (
+                  <button
+                    key={sc}
+                    type="button"
+                    onClick={() => onScope(sc)}
+                    className={cn(
+                      "rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors",
+                      streak.scope === sc
+                        ? "bg-background shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {sc}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          {streak.topStreaks.length > 0 ? (
             <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5">
               {streak.topStreaks.map((t, i) => (
                 <p key={`${t.name}-${i}`} className="text-sm">
@@ -234,12 +262,17 @@ function StreakCard({ streak }: { streak: StreakStats }) {
                   <span className="text-muted-foreground">
                     {" "}
                     — {t.current} {dayWord(t.current)}
+                    {t.today > 0 ? ` · ${t.today} today` : ""}
                   </span>
                 </p>
               ))}
             </div>
-          </div>
-        ) : null}
+          ) : (
+            <p className="mt-1 text-sm text-muted-foreground">
+              Nobody has a live streak yet — be the first. 🔥
+            </p>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
@@ -875,7 +908,12 @@ export function SignupsView({
       {planCard || streak ? (
         <div className={cn("grid gap-4", planCard && streak && "lg:grid-cols-2")}>
           {planCard ? <MmPlanCard plan={planCard} /> : null}
-          {streak ? <StreakCard streak={streak} /> : null}
+          {streak ? (
+            <StreakCard
+              streak={streak}
+              onScope={(sc) => setParams({ streak: sc })}
+            />
+          ) : null}
         </div>
       ) : null}
 

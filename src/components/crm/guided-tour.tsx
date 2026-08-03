@@ -136,10 +136,16 @@ export function GuidedTour({
       const el = await waitFor(step.target);
       if (!mounted.current || stepRef.current !== index) return;
       if (!el) {
-        // never point at nothing — move on
+        // Never point at nothing — move on. `setI` MUST move with it: without
+        // that the bubble kept showing the skipped step while the internal
+        // pointer had already advanced, so Next did nothing you could see.
+        // That is exactly what stalls on mobile, where the sidebar targets
+        // don't exist at all.
         setBusy(false);
-        if (index + 1 < steps.length) void goRef.current?.(index + 1);
-        else onClose();
+        if (index + 1 < steps.length) {
+          setI(index + 1);
+          void goRef.current?.(index + 1);
+        } else onClose();
         return;
       }
       elRef.current = el;
@@ -289,11 +295,11 @@ export function GuidedTour({
           </span>
           <div className="flex gap-2">
             {i > 0 ? (
-              <Button size="sm" variant="outline" onClick={back} disabled={busy}>
+              <Button size="sm" variant="outline" onClick={back}>
                 Back
               </Button>
             ) : null}
-            <Button size="sm" onClick={next} disabled={busy}>
+            <Button size="sm" onClick={next}>
               {i === steps.length - 1 ? "Done 🚀" : "Next"}
             </Button>
           </div>

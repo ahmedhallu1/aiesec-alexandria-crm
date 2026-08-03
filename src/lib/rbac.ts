@@ -142,12 +142,26 @@ export function canViewAccount(v: Viewer, a: AccountLike): boolean {
   return canEditAccount(v, a);
 }
 
+/** An account NOBODY owns, in a function this viewer may work (v32.4).
+ *
+ *  The imported market research landed unassigned, and a member who researched
+ *  one had no way in: they couldn't open it, edit it or take it — only a
+ *  leader could hand it over. Nothing is being taken from anyone here, so
+ *  anyone who may create accounts in that function may claim it. */
+export function isClaimableAccount(v: Viewer, a: AccountLike): boolean {
+  if (a.responsible_id != null || a.out_of_process) return false;
+  return allowedAccountFunctions(v).includes(a.function as AccountFunction);
+}
+
 /** Edit stays SCOPED (own/team/function) — the archive being world-readable
  *  never makes it world-editable. */
 export function canEditAccount(v: Viewer, a: AccountLike): boolean {
   const scope = accountScope(v);
   if (scope.kind === "all") return true;
   if (scope.kind === "functions") return scope.fns.includes(a.function as AccountFunction);
+  // an unowned account in your function is open to you — that's how a member
+  // who researched it adds what they found and takes it
+  if (isClaimableAccount(v, a)) return true;
   return a.responsible_id != null && scope.ids.includes(a.responsible_id);
 }
 
@@ -156,6 +170,8 @@ export function canEditAccount(v: Viewer, a: AccountLike): boolean {
 export function canReassignAccount(v: Viewer, a: AccountLike): boolean {
   if (master(v)) return true;
   if (isIcxLead(v)) return scopeFunctions(v).includes(a.function as AccountFunction);
+  // taking an unowned account needs no authority over anyone
+  if (isClaimableAccount(v, a)) return true;
   if (v.role === "Team Leader")
     return a.responsible_id != null && [v.id, ...v.teamMemberIds].includes(a.responsible_id);
   return false;

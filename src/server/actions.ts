@@ -13,6 +13,7 @@ import {
   canEditRequestState,
   canManageMembership,
   canReassignAccount,
+  isClaimableAccount,
   canManageArchive,
   commentLabel,
   reassignTargetScope,
@@ -479,7 +480,12 @@ export async function reassignAccount(
       : account.function === "B2C"
         ? rowIsB2C(target)
         : (target.functions ?? []).includes(account.function);
+  // taking an UNOWNED account for yourself needs no authority over anyone —
+  // nobody is losing it (v32.4)
+  const claimingForSelf =
+    isClaimableAccount(viewer, account) && target.id === viewer.id;
   const inScope =
+    claimingForSelf ||
     scope.kind === "all" ||
     (scope.kind === "functions" && targetInFunction) ||
     (scope.kind === "members" && scope.ids.includes(target.id));
@@ -4059,10 +4065,15 @@ export async function updateSignupContact(
         ...(input.contactStatus !== undefined
           ? {
               contact_status: contact,
-              // first Yes stamps the contacted date (mirrored to the sheet)
-              ...(contact === "Yes" && !signup.contacted_at
-                ? { contacted_at: new Date().toISOString() }
-                : {}),
+              // first Yes stamps the contacted date (mirrored to the sheet);
+              // taking the contact BACK clears it, so the record matches
+              // reality and the streak — which reads this — can't be gamed by
+              // contacting and immediately undoing
+              ...(contact === "Yes"
+                ? signup.contacted_at
+                  ? {}
+                  : { contacted_at: new Date().toISOString() }
+                : { contacted_at: null }),
             }
           : {}),
         ...(input.interested !== undefined ? { interested: clean(input.interested) } : {}),

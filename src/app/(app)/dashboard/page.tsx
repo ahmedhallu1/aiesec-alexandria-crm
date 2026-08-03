@@ -116,7 +116,7 @@ export default async function DashboardPage({
     // the OGV contact streak (v27) belongs on the OGV lane, for the whole crew —
     // it lived only on /signups before. `streakStats` decides who has one
     // (it returns null for anyone it doesn't consider an OGV streak player).
-    activeFn === "OGV" ? streakStats(viewer) : Promise.resolve(null),
+    isOgxLane ? streakStats(viewer, activeFn) : Promise.resolve(null),
   ]);
 
   // Member filter: only people with access to the active lane — and never the
