@@ -1427,9 +1427,12 @@ export async function teamsForViewer(viewer: Viewer): Promise<{ label: string; n
   const onEb = viewer.isAdmin || viewer.role === "LCP" || viewer.role === "LCVP";
   const isManager =
     viewer.isAdmin || ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(viewer.role);
+  // EVERY function the member carries, not just the ICX ones (v32.6) — a B2C,
+  // OGX, TM, CXP or F&L member belongs to their function's team exactly like
+  // an IGV one does. B2B and BD are one crew, so either label lands on B2B.
   const fns = [
     ...new Set([
-      ...viewer.functions.filter((f) => ["IGV", "IGT", "B2B", "BD"].includes(f)),
+      ...viewer.functions.filter((f) => f !== "B2B" && f !== "BD"),
       ...(isB2B(viewer) ? ["B2B"] : []),
     ]),
   ];
