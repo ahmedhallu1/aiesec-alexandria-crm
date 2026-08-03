@@ -263,12 +263,10 @@ export function canEditOwnAttendanceRow(v: Viewer, tp: TouchPointRef): boolean {
   return master(v) || isTmCore(v) || tp.owner_id === v.id;
 }
 
-/** The Podio-submission worklist ("Podio pending" filter + "Ask to submit"):
- *  the B2B/BD function's MMs (Team Leaders), its Director/VP, LCP and admins. */
-export function canRequestPodioSubmit(v: Viewer): boolean {
-  if (master(v)) return true;
-  return isB2B(v) && ["Team Leader", "LCVP", "Director"].includes(v.role);
-}
+/* The B2B/BD "Podio pending" worklist was RETIRED in v32.3 — the filter, the
+   inline request-state select and "Ask to submit" are gone, and B2B/BD now
+   behave exactly like every other function. `canRequestPodioSubmit` went with
+   it; the account page's own Request State card still covers the real need. */
 
 /** Request State (Podio) is filled by TL / Coordinator / VP — not plain members. */
 export function canEditRequestState(v: Viewer, a: AccountLike): boolean {

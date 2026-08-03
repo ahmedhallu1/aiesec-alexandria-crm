@@ -14,7 +14,7 @@ import {
   PODIO_FORM_URL,
 } from "@/lib/types";
 import type { AccountContact } from "@/lib/types";
-import { ExternalLink, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { MultiPick } from "./multi-pick";
 import { ContactsEditor, contactsValid } from "./contacts-editor";
 import { Button } from "@/components/ui/button";
@@ -233,21 +233,21 @@ export function AddAccountDialog({
 
         <div className="grid gap-4">
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="grid gap-2">
-              <Label>Function</Label>
-              <Select
-                value={fn}
-                onValueChange={(v) => setFn(v as Fn)}
-                disabled={viewer.allowedFns.length < 2}
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {viewer.allowedFns.map((f) => (
-                    <SelectItem key={f} value={f}>{f}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* only worth asking when there IS a choice — a member with one
+                function would just be confirming the obvious */}
+            {viewer.allowedFns.length > 1 ? (
+              <div className="grid gap-2">
+                <Label>Function</Label>
+                <Select value={fn} onValueChange={(v) => setFn(v as Fn)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {viewer.allowedFns.map((f) => (
+                      <SelectItem key={f} value={f}>{f}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
             {fn === "IGT" ? (
               <div className="grid gap-2">
                 <Label>Product *</Label>
@@ -331,9 +331,9 @@ export function AddAccountDialog({
                   ⚠️ Already on Podio as “{podio.match}”
                 </p>
                 <p className="mt-1 text-foreground">
-                  Do <b>not</b> submit it again — a duplicate means the partner is
-                  already with another LC. Add it here and ask your MM to set the
-                  request state.
+                  Do <b>not</b> submit it again. Someone already registered it —
+                  another LC, or us. Add it here and ask your MM to check whose it
+                  is and set the request state.
                 </p>
               </div>
             ) : !nameBlocked && podio && podio !== "checking" && podio.status === "free" ? (
@@ -362,6 +362,14 @@ export function AddAccountDialog({
                     </a>
                   </p>
                 ) : null}
+                {/* only meaningful for a name Podio does NOT have — asking
+                    "did you request it?" about an existing partner is noise */}
+                <label className="mt-2 flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2">
+                  <span className="font-medium text-foreground">
+                    I already submitted it
+                  </span>
+                  <Switch checked={requestedPodio} onCheckedChange={setRequestedPodio} />
+                </label>
               </div>
             ) : null}
           </div>
@@ -408,25 +416,6 @@ export function AddAccountDialog({
           <div className="grid gap-2">
             <Label>Contact info (phones · emails · links, each with a tag)</Label>
             <ContactsEditor rows={contacts} onChange={setContacts} />
-          </div>
-
-          <div className="flex items-center justify-between rounded-lg border p-3">
-            <div>
-              {PODIO_FORM_URL ? (
-                <a
-                  href={PODIO_FORM_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
-                >
-                  Requested on Podio? <ExternalLink className="size-3.5" />
-                </a>
-              ) : (
-                <p className="text-sm font-medium">Requested on Podio?</p>
-              )}
-              <p className="text-xs text-muted-foreground">Already requested in the AMS</p>
-            </div>
-            <Switch checked={requestedPodio} onCheckedChange={setRequestedPodio} />
           </div>
 
           <div className="grid gap-2">

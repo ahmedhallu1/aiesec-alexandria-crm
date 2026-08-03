@@ -13,8 +13,6 @@ import {
   canEditRequestState,
   canManageMembership,
   canReassignAccount,
-  canRequestPodioSubmit,
-  canViewAccount,
   canManageArchive,
   commentLabel,
   reassignTargetScope,
@@ -1460,50 +1458,6 @@ export async function bulkReassignAccounts(
 
 // ================================================================== podio submit requests
 
-/** "Ask to submit": tells the account's owner to submit it on Podio —
- *  IN-APP notification only (no email) + pins the account at the top of the
- *  owner's accounts list until it's requested / gets a request state. */
-export async function requestPodioSubmit(accountId: string): Promise<ActionResult> {
-  const viewer = await getViewer();
-  if (!canRequestPodioSubmit(viewer))
-    return fail("Only the B2B/BD leaders ask for Podio submissions.", "forbidden");
-
-  const account = await loadAccount(accountId);
-  if (!account || !canViewAccount(viewer, account))
-    return fail("You are not allowed to work on this account.", "forbidden");
-  if (account.function !== "B2B" && account.function !== "BD")
-    return fail("Podio submissions are tracked for B2B/BD accounts.");
-  if (account.out_of_process)
-    return fail("This account is archived — nothing to submit.");
-  if (account.requested_podio || account.request_state)
-    return fail("This account is already requested on Podio.");
-  if (!account.responsible_id)
-    return fail("This account has no responsible yet — assign it first.");
-
-  await snapshotForUndo("accounts", accountId);
-  const { error } = await db()
-    .from("accounts")
-    .update({ podio_submit_requested_at: new Date().toISOString() })
-    .eq("id", accountId);
-  if (error) {
-    if (error.message.includes("podio_submit_requested_at"))
-      return fail("This needs migration 0014 — run it in the Supabase SQL editor.");
-    return fail(error.message);
-  }
-
-  const { notifyMembers } = await import("./notify");
-  await notifyMembers(
-    [account.responsible_id],
-    "info",
-    `📌 Submit "${account.name}" on Podio`,
-    `${viewer.nickname || viewer.name} asked you to submit this account on the national Podio form — it stays pinned on top of your accounts until you do.`,
-    viewer.id,
-    `/accounts/${accountSlug(account.name)}`
-  );
-  await logAudit(viewer.id, "podio_submit_request", "account", accountId);
-  refresh(accountId);
-  return { ok: true };
-}
 
 // ================================================================== comments
 

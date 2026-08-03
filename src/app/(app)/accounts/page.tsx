@@ -4,7 +4,7 @@ import {
 } from "@/server/data";
 import type { AccountFilters } from "@/server/data";
 import {
-  accountScope, allowedAccountFunctions, canManageArchive, canRequestPodioSubmit,
+  accountScope, allowedAccountFunctions, canManageArchive,
   canViewArchive, icxFunctions,
 } from "@/lib/rbac";
 import { AccountsView } from "@/components/crm/accounts-view";
@@ -27,8 +27,6 @@ export default async function AccountsPage({
   const scope = accountScope(viewer);
   const seesOthers = !(scope.kind === "members" && scope.ids.length <= 1);
   // the B2B/BD leaders' Podio submission worklist
-  const podioAllowed = canRequestPodioSubmit(viewer);
-  const podioPending = params.podio === "1" && podioAllowed && !archived;
 
   const filters: AccountFilters = {
     q: params.q || undefined,
@@ -59,7 +57,6 @@ export default async function AccountsPage({
     // the Responsible filter — "none" = unassigned (imported market research)
     responsibleId: params.resp || undefined,
     archived,
-    podioPending,
   };
 
   // the list is PAGINATED since the big market-research import (v22) — the
@@ -154,7 +151,6 @@ export default async function AccountsPage({
         igtAccess:
           viewer.isAdmin || viewer.role === "LCP" || icxFunctions(viewer).includes("IGT"),
         seesOthers,
-        canPodioSubmit: podioAllowed,
       }}
       filters={{
         q: params.q ?? "",
@@ -171,7 +167,6 @@ export default async function AccountsPage({
         from: params.from ?? "",
         to: params.to ?? "",
         archived: archived ? "1" : "",
-        podio: podioPending ? "1" : "",
       }}
     />
   );
