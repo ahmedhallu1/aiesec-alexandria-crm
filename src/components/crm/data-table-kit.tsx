@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * THE UNIVERSAL TABLE KIT (v31) — one contract for EVERY data table in Elevate.
+ * THE UNIVERSAL TABLE KIT (v31) — one contract for EVERY data table in Sodio.
  *
  * They came from Google Sheets: a table has to be theirs — reorder the
  * columns, hide the noise, add back what they need, choose how many rows to

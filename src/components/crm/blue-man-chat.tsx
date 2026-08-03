@@ -329,7 +329,7 @@ export function BlueManChat({
       {/* floating walking-man button */}
       <button
         onClick={() => setOpen((o) => !o)}
-        title="The Blue Man — Elevate's assistant"
+        title="The Blue Man — Sodio's assistant"
         aria-label="Open The Blue Man assistant"
         className={cn(
           "fixed bottom-4 right-4 z-50 flex size-14 items-center justify-center rounded-full",
@@ -370,7 +370,7 @@ export function BlueManChat({
           <div className="min-w-0 flex-1">
             <p className="text-sm font-bold leading-tight">The Blue Man</p>
             <p className="text-[11px] leading-tight opacity-80">
-              Elevate&apos;s assistant · knows your data + AIESEC
+              Sodio&apos;s assistant · knows your data + AIESEC
             </p>
           </div>
           <Button

@@ -414,7 +414,7 @@ export function OgtMailView({
         {!hasGoogle ? (
           <p className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
             Your Google access is missing — sign out, then sign in with Google
-            once so Elevate can send (or draft) from your Gmail.
+            once so Sodio can send (or draft) from your Gmail.
           </p>
         ) : null}
       </div>

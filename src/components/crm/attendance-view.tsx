@@ -259,8 +259,8 @@ function RecordDialog({
                     recorded until this sheet is confirmed (v29.3) */}
                 <p className="mt-1 text-muted-foreground">
                   {sheet.recordedAt
-                    ? "Elevate filled this in from everyone's work activity and you confirmed it. Change anything you like — it saves again."
-                    : "Elevate filled this in from everyone's work activity. Correct whatever looks wrong, then confirm — until you do, this session keeps reminding you."}
+                    ? "Sodio filled this in from everyone's work activity and you confirmed it. Change anything you like — it saves again."
+                    : "Sodio filled this in from everyone's work activity. Correct whatever looks wrong, then confirm — until you do, this session keeps reminding you."}
                 </p>
                 <p className="mt-1 text-muted-foreground">{sheet.rule}</p>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -424,7 +424,7 @@ function AppealDialog({
           <DialogDescription dir="auto">
             {row.label} · {cairoDay(row.startsAt)} — recorded as{" "}
             <b>{STATUS_LABEL[row.status]}</b>
-            {row.automatic ? " by Elevate (automatic working hours)" : ""}. Say what
+            {row.automatic ? " by Sodio (automatic working hours)" : ""}. Say what
             actually happened; it goes to whoever recorded it, with TM on copy.
           </DialogDescription>
         </DialogHeader>

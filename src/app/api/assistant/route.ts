@@ -22,7 +22,7 @@ const FUNCTION_DECLS = [
   {
     name: "searchAccounts",
     description:
-      "Search Elevate accounts by (partial) company name. Returns up to 12 matches with stage, responsible, opens and link. Includes archived accounts. Use whenever the user asks about an account you don't see in the context.",
+      "Search Sodio accounts by (partial) company name. Returns up to 12 matches with stage, responsible, opens and link. Includes archived accounts. Use whenever the user asks about an account you don't see in the context.",
     parameters: {
       type: "object",
       properties: { query: { type: "string", description: "Part of the account name" } },
@@ -32,7 +32,7 @@ const FUNCTION_DECLS = [
   {
     name: "getAccountDetail",
     description:
-      "Full detail of ONE Elevate account by its exact name: header info, contact history, visits, deals and comments. Use after searchAccounts (or when the user names an account precisely).",
+      "Full detail of ONE Sodio account by its exact name: header info, contact history, visits, deals and comments. Use after searchAccounts (or when the user names an account precisely).",
     parameters: {
       type: "object",
       properties: { name: { type: "string", description: "The account's name" } },

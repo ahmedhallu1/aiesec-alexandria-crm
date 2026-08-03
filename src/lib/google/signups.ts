@@ -476,9 +476,9 @@ export function buildCommentCell(comments: SignupComment[], cls: "member" | "vp"
  *  WHOLE batchUpdate when one value is over — a single sign-up with a very
  *  long comment log would silently kill the write-back for every row in the
  *  batch. Cap just under the limit, and say so in the cell so nobody thinks
- *  the log ended there (Elevate keeps the full history either way). */
+ *  the log ended there (Sodio keeps the full history either way). */
 const SHEET_CELL_MAX = 49_000;
-const OVERFLOW_NOTE = "\n… (older entries are in Elevate — this cell is full)";
+const OVERFLOW_NOTE = "\n… (older entries are in Sodio — this cell is full)";
 
 const fitCell = (value: string): string =>
   value.length <= SHEET_CELL_MAX
@@ -514,7 +514,7 @@ function signupCellValues(
   }));
 }
 
-/** The workflow cells as Elevate knows them, before the length guard. */
+/** The workflow cells as Sodio knows them, before the length guard. */
 function rawCellValues(
   signup: SignupRow,
   comments: SignupComment[],
@@ -530,7 +530,7 @@ function rawCellValues(
     { field: "sub_product", value: signup.sub_product ?? "" },
     {
       // v28: Applied/Accepted/Approved are SYSTEM-ONLY (the "potential"
-      // pipeline lives in Elevate) — the sheet's status cell only ever
+      // pipeline lives in Sodio) — the sheet's status cell only ever
       // carries the OOP stamp now. Legacy sheet statuses still IMPORT fine
       // (the reader above is unchanged).
       field: "status",

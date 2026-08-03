@@ -4,7 +4,7 @@ import { ThemeToggle } from "@/components/crm/theme-toggle";
 import { BookingView, BookingCredit } from "@/components/crm/booking-view";
 
 /** PUBLIC (v27, no auth — exempted in src/proxy.ts like /inactive): the
- *  Elevate-branded booking page an IR abroad opens from a member's link. All
+ *  Sodio-branded booking page an IR abroad opens from a member's link. All
  *  slot math happens server-side in Cairo time (getBookingPage); the client
  *  only renders precomputed days/slots and submits bookIrCall. */
 

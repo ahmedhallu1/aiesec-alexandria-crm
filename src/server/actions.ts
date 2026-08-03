@@ -1980,7 +1980,7 @@ export async function scheduleVisit(
         notes,
         detailsUrl,
         organizerEmail: env.gmailSender || viewer.email || "",
-        organizerName: "Elevate · AIESEC in Alexandria",
+        organizerName: "Sodio · AIESEC in Alexandria",
         attendeeEmails: inviteTo,
         method: "REQUEST",
       });
@@ -3302,8 +3302,8 @@ export async function thankFeedback(feedbackId: string): Promise<ActionResult> {
   await notifyMembers(
     [f.member.id],
     "thanks",
-    "Your feedback made Elevate better 💙",
-    `The IM team applied your feedback — thank you for building Elevate with us! ("${f.message.slice(0, 120)}")`,
+    "Your feedback made Sodio better 💙",
+    `The IM team applied your feedback — thank you for building Sodio with us! ("${f.message.slice(0, 120)}")`,
     viewer.id
   );
 
@@ -3599,7 +3599,7 @@ export async function runPlanningImport(): Promise<ActionResult<{ cells: number;
     const msg = e instanceof Error ? e.message : "Import failed.";
     if (msg.includes("permission") || msg.includes("PERMISSION") || msg.includes("caller does not have"))
       return fail(
-        "The planning sheet isn't shared with Elevate's service account yet — share it (Viewer) with crm-sheets@gen-lang-client-0055329754.iam.gserviceaccount.com and retry."
+        "The planning sheet isn't shared with Sodio's service account yet — share it (Viewer) with crm-sheets@gen-lang-client-0055329754.iam.gserviceaccount.com and retry."
       );
     return fail(msg);
   }
@@ -4897,7 +4897,7 @@ export async function bookIrCall(input: {
       minutes: settings.slot_minutes,
       attendeeEmail: bookerEmail,
       guestsCanInvite: settings.guests_can_invite ?? true,
-      description: `IR call booked via your Elevate link.\nPartner LC: ${lc.name}${
+      description: `IR call booked via your Sodio link.\nPartner LC: ${lc.name}${
         country ? ` (${country})` : ""
       }${bookerName ? `\nBooked by: ${bookerName}` : ""} <${bookerEmail}>\n${env.appUrl}/consideration`,
     });

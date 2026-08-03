@@ -38,9 +38,9 @@ export function OnboardingForm({ member }: { member: MemberInfo }) {
   const ready = name.trim().length >= 2 && nickname.trim().length >= 1 && phoneOk && passwordOk;
 
   const fixInfoMailto = `mailto:${ADMIN_EMAIL}?subject=${encodeURIComponent(
-    "Elevate — my info needs a correction"
+    "Sodio — my info needs a correction"
   )}&body=${encodeURIComponent(
-    `Hi Ahmed,\n\nMy info in the Elevate membership needs a correction.\n\nMy email: ${member.email}\nWhat is wrong: \nWhat it should be: \n\nThanks!`
+    `Hi Ahmed,\n\nMy info in the Sodio membership needs a correction.\n\nMy email: ${member.email}\nWhat is wrong: \nWhat it should be: \n\nThanks!`
   )}`;
 
   const submit = () =>
@@ -55,7 +55,7 @@ export function OnboardingForm({ member }: { member: MemberInfo }) {
         toast.error(res.error);
         return;
       }
-      toast.success("You're all set — welcome to Elevate 💙");
+      toast.success("You're all set — welcome to Sodio 💙");
       router.replace("/");
       router.refresh();
     });
@@ -158,7 +158,7 @@ export function OnboardingForm({ member }: { member: MemberInfo }) {
       </div>
 
       <Button size="lg" onClick={submit} disabled={!ready || pending}>
-        {pending ? "Saving…" : "Save & enter Elevate"}
+        {pending ? "Saving…" : "Save & enter Sodio"}
       </Button>
     </div>
   );

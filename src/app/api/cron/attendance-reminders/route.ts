@@ -104,7 +104,7 @@ async function ensurePrompt(
       : `You still owe an attendance record for ${label}`,
     body: `${whenLabel} · ${audienceLabel(tp)}. ${PROMPT_AFTER} reminders have gone out — ${
       auto
-        ? "review what Elevate filled in and confirm it"
+        ? "review what Sodio filled in and confirm it"
         : "record who showed up"
     } and this stops.`,
     link: `/attendance?tp=${tp.id}`,
@@ -198,7 +198,7 @@ export async function GET(req: NextRequest) {
           : `⏳ Reminder ${reminder}: attendance still ${auto ? "unconfirmed" : "missing"} — ${label}`,
         `${whenLabel} · ${audienceLabel(tp)}. ${
           auto
-            ? "Elevate already filled it in from everyone's work — check it and confirm."
+            ? "Sodio already filled it in from everyone's work — check it and confirm."
             : "Attended · Late · Absent — it takes a minute."
         }`,
         null,

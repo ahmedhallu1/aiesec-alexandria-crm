@@ -308,7 +308,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/brand/aiesec-white.png" alt="AIESEC" className="h-7 w-auto" />
       <div className="leading-tight">
-        <p className="text-sm font-black tracking-tight text-sidebar-foreground">Elevate</p>
+        <p className="text-sm font-black tracking-tight text-sidebar-foreground">Sodio</p>
         <p className="text-[10px] text-sidebar-foreground/60">AIESEC in Alexandria</p>
       </div>
     </Link>
@@ -364,7 +364,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
         <Link href={homeHref} className="flex items-center gap-2" title="Home — your workspace">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/aiesec-white.png" alt="AIESEC" className="h-6 w-auto" />
-          <p className="text-sm font-black tracking-tight text-sidebar-foreground">Elevate</p>
+          <p className="text-sm font-black tracking-tight text-sidebar-foreground">Sodio</p>
         </Link>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <NotificationsBell canBroadcast={canBroadcast} />
@@ -386,7 +386,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
           member here, on every app open, until the record lands */}
       <PendingPrompt />
 
-      {/* The Blue Man — Elevate's assistant (persistent per-user chats +
+      {/* The Blue Man — Sodio's assistant (persistent per-user chats +
           role/module-aware suggested questions) */}
       <BlueManChat
         userEmail={user.email}
