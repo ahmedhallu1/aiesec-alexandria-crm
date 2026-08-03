@@ -12,7 +12,7 @@ import {
 import type { PipelineRow } from "@/server/data";
 import {
   addArchivedAccount, bulkArchiveAccounts, bulkDeleteArchived, bulkReassignAccounts,
-  bulkReviveAccounts, importArchivedBulk, logContact, removeArchivedEntry,
+  bulkReviveAccounts, importArchivedBulk, removeArchivedEntry,
   requestPodioSubmit, updateAccount,
 } from "@/server/actions";
 import {
@@ -45,7 +45,6 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from "@/components/ui/tooltip";
@@ -539,188 +538,6 @@ function QuickActionsLogged({
   );
 }
 
-/** The four results that don't branch into another flow — "Not Interested"
- *  (archives) and "Visit Scheduled" (books a visit) stay in the full dialog. */
-const QUICK_RESULTS = ["No Response", "Responded", "Interested", "Wrong Contact"] as const;
-
-/** Fires right after a WhatsApp / call / email quick action: the method is
- *  pre-selected to whatever was clicked, the result + next step are one tap
- *  away, and "Not now" always gets you out (a mis-click must never trap
- *  anyone). "More options" hands over to the full ContactDialog. */
-function QuickContactPrompt({
-  row, method, onOpenChange, onFull,
-}: {
-  row: PipelineRow | null;
-  method: ContactMethod;
-  onOpenChange: (open: boolean) => void;
-  onFull: () => void;
-}) {
-  const router = useRouter();
-  const [m, setM] = useState<ContactMethod>(method);
-  const [status, setStatus] = useState<(typeof QUICK_RESULTS)[number]>("Responded");
-  const [comment, setComment] = useState("");
-  const [nextStep, setNextStep] = useState("");
-  const [nextStepDate, setNextStepDate] = useState("");
-  const [pending, start] = useTransition();
-
-  // the clicked channel wins every time the prompt (re)opens
-  const [lastMethod, setLastMethod] = useState(method);
-  if (lastMethod !== method) {
-    setLastMethod(method);
-    setM(method);
-  }
-
-  if (!row) return null;
-
-  const today = new Date().toISOString().slice(0, 10);
-  const hasPendingVisit = !!row.visit_id && row.visit_done === null;
-  const futureStep = !!row.next_step_date && row.next_step_date >= today;
-  // same business rule the server enforces: no account may float without a
-  // dated next step
-  const stepRequired = !hasPendingVisit && !futureStep;
-
-  const close = () => {
-    setStatus("Responded");
-    setComment("");
-    setNextStep("");
-    setNextStepDate("");
-    onOpenChange(false);
-  };
-
-  const submit = () =>
-    start(async () => {
-      const res = await logContact({
-        accountId: row.id,
-        method: m,
-        status,
-        comment: comment || undefined,
-        nextStep: nextStep || undefined,
-        nextStepDate: nextStepDate || undefined,
-      });
-      if (!res.ok) {
-        toast.error(res.error);
-        return;
-      }
-      toast.success(`Contact #${res.data?.attempts ?? ""} logged — ${m} ✍️`);
-      close();
-      router.refresh();
-    });
-
-  return (
-    <Dialog open onOpenChange={(o) => { if (!o) close(); }}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>
-            {m === "WhatsApp" ? "💬" : m === "Call" ? "📞" : "✉️"} Did you contact{" "}
-            <span dir="auto">{row.name}</span>?
-          </DialogTitle>
-          <DialogDescription>
-            You just opened <b>{m}</b>. Log it here and the account&apos;s history
-            stays true — no contact without a record.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-1.5">
-              <Label>How?</Label>
-              <Select value={m} onValueChange={(v) => setM(v as ContactMethod)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Call">Call</SelectItem>
-                  <SelectItem value="WhatsApp">WhatsApp</SelectItem>
-                  <SelectItem value="Email">Email</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-1.5">
-              <Label>Result</Label>
-              <Select
-                value={status}
-                onValueChange={(v) => setStatus(v as (typeof QUICK_RESULTS)[number])}
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {QUICK_RESULTS.map((s) => (
-                    <SelectItem key={s} value={s}>{s}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="grid gap-1.5">
-            <Label>Comment</Label>
-            <Textarea
-              rows={2}
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder="What was said, who you reached…"
-            />
-          </div>
-          <div className="rounded-lg border p-3">
-            <p className="mb-2 text-sm font-medium">
-              Next step{" "}
-              {stepRequired ? (
-                <span className="text-destructive">*required — no visit is scheduled</span>
-              ) : (
-                <span className="text-muted-foreground">(optional)</span>
-              )}
-            </p>
-            <div className="grid gap-2">
-              <Input
-                value={nextStep}
-                onChange={(e) => setNextStep(e.target.value)}
-                placeholder="e.g. Follow-up call with the manager"
-              />
-              <div className="flex flex-wrap items-center gap-2">
-                <Input
-                  type="date"
-                  min={today}
-                  className="w-40"
-                  value={nextStepDate}
-                  onChange={(e) => setNextStepDate(e.target.value)}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const d = new Date();
-                    d.setDate(d.getDate() + 7);
-                    setNextStepDate(
-                      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-                    );
-                  }}
-                >
-                  Next week
-                </Button>
-              </div>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="text-left text-xs text-muted-foreground underline-offset-2 hover:text-primary hover:underline"
-            onClick={() => { close(); onFull(); }}
-          >
-            Not interested, or booking a visit? Open the full contact form →
-          </button>
-        </div>
-        <DialogFooter className="gap-2">
-          <Button variant="ghost" onClick={close} disabled={pending}>
-            Not now
-          </Button>
-          <Button
-            onClick={submit}
-            disabled={pending || (stepRequired && (!nextStepDate || !nextStep.trim()))}
-          >
-            {pending ? <Loader2 className="size-4 animate-spin" /> : <Phone className="size-4" />}
-            Log it
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 export function AccountsView({
   rows, total, page, pageSize, pageSizeOptions, manualArchived, members,
   reassignTargets, respOptions, viewer, filters,
@@ -745,12 +562,8 @@ export function AccountsView({
   const searchParams = useSearchParams();
   const [q, setQ] = useState(filters.q);
   const [contactTarget, setContactTarget] = useState<ContactTarget | null>(null);
-  // the channel the member actually tapped, kept for the full-form hand-over
+  // the channel the member actually tapped — it pre-selects the method
   const [contactMethod, setContactMethod] = useState<ContactMethod>("Call");
-  // v31: a WhatsApp / call / email quick action opens the link AND asks to log
-  // it — the method pre-selected to whatever was clicked
-  const [quickContact, setQuickContact] =
-    useState<{ row: PipelineRow; method: ContactMethod } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [addArchivedOpen, setAddArchivedOpen] = useState(false);
   const [importArchivedOpen, setImportArchivedOpen] = useState(false);
@@ -956,7 +769,7 @@ export function AccountsView({
             <QuickActionsLogged
               row={row}
               viewerName={viewer.name}
-              onUsed={(method) => setQuickContact({ row, method })}
+              onUsed={(method) => { setContactMethod(method); setContactTarget(contactFor(row)); }}
             />
             {!row.out_of_process ? (
               <>
@@ -1044,7 +857,7 @@ export function AccountsView({
       <div className="flex flex-wrap items-center justify-between gap-3 rise-in">
         <div>
           <h1 className="text-2xl font-bold">
-            {archived ? "Archived accounts" : "Accounts"}
+            {archived ? "Archived accounts" : "Raising"}
             {navPending ? <Loader2 className="ml-2 inline size-4 animate-spin text-primary" /> : null}
           </h1>
           <p className="text-sm text-muted-foreground">
@@ -1366,7 +1179,7 @@ export function AccountsView({
                         row={row}
                         max={6}
                         viewerName={viewer.name}
-                        onUsed={(method) => setQuickContact({ row, method })}
+                        onUsed={(method) => { setContactMethod(method); setContactTarget(contactFor(row)); }}
                       />
                     </div>
                   </CardContent>
@@ -1610,18 +1423,6 @@ export function AccountsView({
         defaultMethod={contactMethod}
         onOpenChange={(o) => !o && setContactTarget(null)}
       />
-      {/* the quick action opened the link — now record it (dismissible) */}
-      {quickContact ? (
-        <QuickContactPrompt
-          row={quickContact.row}
-          method={quickContact.method}
-          onOpenChange={(o) => { if (!o) setQuickContact(null); }}
-          onFull={() => {
-            setContactMethod(quickContact.method);
-            setContactTarget(contactFor(quickContact.row));
-          }}
-        />
-      ) : null}
       <AddAccountDialog
         open={addOpen}
         onOpenChange={setAddOpen}

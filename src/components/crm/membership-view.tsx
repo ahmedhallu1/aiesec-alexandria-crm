@@ -514,6 +514,15 @@ function MemberDialog({
   // email is OPTIONAL (v24) — but a member needs email OR phone to sign in
   const emailOk = !form.email.trim() || EMAIL_RE.test(form.email.trim());
   const phoneOk = !form.phone.trim() || PHONE_RE.test(cleanPhone(form.phone));
+  // the SPECIFIC reason, not a flat "Numbers only." — normalizePhone knows
+  // whether the shape is wrong or the number is simply too short/long
+  const phoneError = (() => {
+    if (phoneOk) return null;
+    const digits = cleanPhone(form.phone).replace(/\D/g, "");
+    if (digits.length < 7) return "Too short — an Egyptian mobile is 11 digits (01…).";
+    if (digits.length > 15) return "Too long — looks like more than one number.";
+    return normalizePhone(form.phone).error ?? "Use 01… , 03… or a full +international number.";
+  })();
   const hasIdentity = !!form.email.trim() || !!form.phone.trim();
   const ready = form.name.trim().length >= 2 && emailOk && phoneOk && hasIdentity;
 
@@ -643,12 +652,20 @@ function MemberDialog({
                 inputMode="tel"
                 onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
                 onBlur={() => {
+                  // ALWAYS rewrite the field to what the system actually sees:
+                  // on a good number that's the canonical +20… form, on a bad
+                  // one it's the stripped digits. Leaving the raw paste in place
+                  // used to hide invisible characters, so the member "fixed" a
+                  // number that already looked fine and the error never moved.
                   const check = normalizePhone(form.phone ?? "");
-                  if (check.ok && check.value !== form.phone)
-                    setForm((f) => ({ ...f, phone: check.value }));
+                  const next = check.ok ? check.value : cleanPhone(form.phone ?? "");
+                  if (next && next !== form.phone)
+                    setForm((f) => ({ ...f, phone: next }));
                 }}
               />
-              {!phoneOk ? <p className="text-xs text-destructive">Numbers only.</p> : null}
+              {!phoneOk ? (
+                <p className="text-xs text-destructive">{phoneError}</p>
+              ) : null}
             </div>
           </div>
 
