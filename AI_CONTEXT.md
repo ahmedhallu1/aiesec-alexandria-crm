@@ -637,18 +637,22 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
   available; the reduced `QuickContactPrompt` and its "Open the full contact
   form →" link are gone.
   ④ **AUTOMATIC PODIO CHECK** (`src/lib/podio.ts`): while the account name is
-  typed, Sodio answers "is this already on Podio?" itself. The national
-  form's "Check if your company exists?" field is a plain `<select>` whose
-  options are rendered into the public HTML — no API, key, auth or AJAX search
-  — so we fetch the same page, parse the same options and match
-  case-insensitively; cached 30 min in `app_settings` (`podio:companies`).
-  Verdicts: ⚠️ already on Podio (don't submit a duplicate — add it here and ask
-  the MM for the request state) · 🔎 not on Podio (submit it, with near-miss
-  names listed) · nothing at all if Podio is unreachable (fails SOFT to the
-  manual link). **Honest ceiling:** the form embeds only the ~300 newest
-  partners, so an older one is invisible — but equally invisible to the member
-  checking by hand, since select2 filters those same embedded options. The UI
-  states the number it checked against.
+  typed, Sodio answers "is this already on Podio?" itself, by calling the
+  national form's OWN dropdown search —
+  `GET /webforms/<form>/<rev>/items_search?field_id=<id>&query=<q>&limit=50`.
+  It is public (no key, token or cookie) and returns the same ordered list the
+  member sees, best match first, over the WHOLE Companies app. `field_id` is
+  discovered from the form's embedded config (cached a day in `app_settings`
+  `podio:field-id`, with the known id as fallback) and results are cached
+  10 min per query in-process. Verdicts: ⚠️ already on Podio (don't submit a
+  duplicate — add it here and ask the MM for the request state) · 🔎 not on
+  Podio (submit it, with whatever Podio DID return listed as near-misses) ·
+  nothing at all if Podio is unreachable (fails SOFT to the manual link).
+  **v32.2 correction:** the first version parsed the ~300 `<option>` tags
+  embedded in the form's HTML. Those are only the dropdown's FIRST PAGE — the
+  field is an app-reference whose select2 queries the server on every
+  keystroke — so anything outside them ("Gateway", for one) was reported "not
+  on Podio". There is no 300-item ceiling any more.
   ⑤ **Phone paste fix**: `cleanPhone` now reduces a pasted number to `+`? +
   digits. Invisible characters (bidi marks from Arabic chats, zero-width
   spaces, soft hyphens, BOMs) used to survive it, so a number that LOOKED

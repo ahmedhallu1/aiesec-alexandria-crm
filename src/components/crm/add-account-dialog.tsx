@@ -343,16 +343,15 @@ export function AddAccountDialog({
                 </p>
                 {podio.similar.length > 0 ? (
                   <p className="mt-1 text-muted-foreground">
-                    Close names already there:{" "}
+                    Podio did return:{" "}
                     <span className="font-medium text-foreground" dir="auto">
                       {podio.similar.join(" · ")}
                     </span>{" "}
                     — check it isn&apos;t the same partner spelled differently.
                   </p>
                 ) : null}
-                <p className="mt-1 text-muted-foreground">
-                  Checked against the {podio.listSize} partners the form lists.{" "}
-                  {PODIO_FORM_URL ? (
+                {PODIO_FORM_URL ? (
+                  <p className="mt-1">
                     <a
                       href={PODIO_FORM_URL}
                       target="_blank"
@@ -361,8 +360,8 @@ export function AddAccountDialog({
                     >
                       Open the Podio form →
                     </a>
-                  ) : null}
-                </p>
+                  </p>
+                ) : null}
               </div>
             ) : null}
           </div>

@@ -2931,7 +2931,7 @@ export async function checkPodioNameLive(
   if (allowedAccountFunctions(viewer).length === 0)
     return {
       ok: true,
-      data: { status: "unknown", similar: [], listSize: 0, checkedAt: null },
+      data: { status: "unknown", similar: [] },
     };
   const { checkPodioCompany } = await import("@/lib/podio");
   return { ok: true, data: await checkPodioCompany(name) };
