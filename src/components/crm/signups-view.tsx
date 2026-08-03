@@ -1068,7 +1068,7 @@ export function SignupsView({
 
       {/* desktop table */}
       <div className="hidden overflow-hidden rounded-xl border bg-card md:block rise-in rise-in-2">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto" data-tour="signups:table">
           <Table>
             <TableHeader>
               <TableRow>

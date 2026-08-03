@@ -165,6 +165,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
           <div key={item.href} className="flex items-center gap-1">
           <Link
             href={item.href}
+            data-tour={`nav:${item.href}`}
             onClick={(e) => {
               setOpen(false);
               // modified clicks open a new tab — this tab never navigates

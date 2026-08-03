@@ -285,6 +285,7 @@ export function AddAccountDialog({
           <div className="grid gap-2">
             <Label>Account name *</Label>
             <Input
+              data-tour="add:name"
               value={form.name ?? ""}
               onChange={set("name")}
               placeholder="Company / organization name"
@@ -413,7 +414,7 @@ export function AddAccountDialog({
             </div>
           )}
 
-          <div className="grid gap-2">
+          <div className="grid gap-2" data-tour="add:contacts">
             <Label>Contact info (phones · emails · links, each with a tag)</Label>
             <ContactsEditor rows={contacts} onChange={setContacts} />
           </div>

@@ -827,7 +827,11 @@ export function AccountsView({
                 </Button>
               </Hint>
               <Hint label="Add one account — checked against all ICX data and the archive">
-                <Button onClick={() => setAddOpen(true)} disabled={viewer.allowedFns.length === 0}>
+                <Button
+                  data-tour="accounts:add"
+                  onClick={() => setAddOpen(true)}
+                  disabled={viewer.allowedFns.length === 0}
+                >
                   <Plus className="size-4" /> Add account
                 </Button>
               </Hint>
@@ -841,6 +845,7 @@ export function AccountsView({
         <div className="relative min-w-40 flex-1 sm:max-w-xs">
           <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
+            data-tour="accounts:search"
             className="pl-8"
             placeholder="Search accounts…"
             value={q}
@@ -1143,7 +1148,7 @@ export function AccountsView({
               mobileView === "table" ? "block" : "hidden md:block"
             )}
           >
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto" data-tour="accounts:table">
               <Table>
                 <TableHeader>
                   <TableRow>
