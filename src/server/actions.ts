@@ -13,6 +13,7 @@ import {
   canEditRequestState,
   canManageMembership,
   canReassignAccount,
+  isClaimableAccount,
   canManageArchive,
   commentLabel,
   reassignTargetScope,
@@ -479,7 +480,12 @@ export async function reassignAccount(
       : account.function === "B2C"
         ? rowIsB2C(target)
         : (target.functions ?? []).includes(account.function);
+  // taking an UNOWNED account for yourself needs no authority over anyone —
+  // nobody is losing it (v32.4)
+  const claimingForSelf =
+    isClaimableAccount(viewer, account) && target.id === viewer.id;
   const inScope =
+    claimingForSelf ||
     scope.kind === "all" ||
     (scope.kind === "functions" && targetInFunction) ||
     (scope.kind === "members" && scope.ids.includes(target.id));

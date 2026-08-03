@@ -7,6 +7,7 @@ import { env } from "@/lib/env";
 import {
   considerationFunctions,
   accountScope,
+  allowedAccountFunctions as _allowedAccountFunctions,
   canViewAccount,
   hasRaisingAccess,
   hasTmAccess,
@@ -370,9 +371,24 @@ export async function considerationStats(
 // ------------------------------------------------------------------ scope helpers
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function applyScope<T extends { eq: any; in: any }>(query: T, scope: AccountScope): T {
+export function applyScope<T extends { eq: any; in: any; or?: any }>(
+  query: T,
+  scope: AccountScope,
+  /** functions whose UNASSIGNED accounts this viewer may also see (v32.4) —
+   *  nobody owns them, so anyone who may work that function can take one */
+  claimableFns: AccountFunction[] = []
+): T {
   if (scope.kind === "functions") return query.in("function", scope.fns);
-  if (scope.kind === "members") return query.in("responsible_id", scope.ids);
+  if (scope.kind === "members") {
+    const ids = scope.ids.map((i) => `"${i}"`).join(",");
+    if (claimableFns.length > 0 && query.or) {
+      const fns = claimableFns.map((f) => `"${f}"`).join(",");
+      return query.or(
+        `responsible_id.in.(${ids}),and(responsible_id.is.null,function.in.(${fns}))`
+      );
+    }
+    return query.in("responsible_id", scope.ids);
+  }
   return query;
 }
 
@@ -512,7 +528,14 @@ async function buildAccountsQuery(
   // the Archived TAB is LC-wide (v22.2): the archive is the shared blacklist,
   // so it skips the account scope. Everything else stays scoped (dashboards'
   // includeArchived reads included).
-  if (!filters.archived) query = applyScope(query, effScope);
+  // members/TLs also see the UNOWNED accounts of their own function(s) — the
+  // imported market research nobody has taken yet (v32.4)
+  if (!filters.archived)
+    query = applyScope(
+      query,
+      effScope,
+      effScope.kind === "members" ? _allowedAccountFunctions(viewer) : []
+    );
   // test accounts live in a parallel universe: visible ONLY in test mode
   // (admin's "Show test data" toggle or any test view)
   if (!viewer.testMode) query = query.eq("is_test", false);

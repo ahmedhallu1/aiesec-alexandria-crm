@@ -722,13 +722,21 @@ function OgxLeaderboard({
   groups: OgxBoardRow[];
 }) {
   const [metricKey, setMetricKey] = useState<keyof OgxFunnel>("approved");
-  const ranked = [...groups].sort(
-    (a, b) =>
-      b[metricKey] - a[metricKey] ||
-      b.approved - a.approved ||
-      b.applied - a.applied ||
-      b.contacted - a.contacted
-  );
+  // same rule as the raising board: ties fall back right to left along the
+  // funnel, so the person deeper down the pipeline ranks higher
+  const ogxTieBreak = [...OGX_METRICS]
+    .reverse()
+    .map((m) => m.key)
+    .filter((k) => k !== metricKey);
+  const ranked = [...groups].sort((a, b) => {
+    const first = b[metricKey] - a[metricKey];
+    if (first) return first;
+    for (const k of ogxTieBreak) {
+      const d = b[k] - a[k];
+      if (d) return d;
+    }
+    return a.label.localeCompare(b.label);
+  });
   const flipRef = useFlipReorder(metricKey + ":" + groups.map((g) => g.key).join(","));
 
   return (
@@ -1043,13 +1051,21 @@ function Leaderboard({
 }) {
   const metrics = dealsOnly ? BOARD_METRICS.filter((m) => m.key !== "slots") : BOARD_METRICS;
   const [metricKey, setMetricKey] = useState<keyof FunnelStats>(dealsOnly ? "deals" : "slots");
-  const ranked = [...groups].sort(
-    (a, b) =>
-      (b[metricKey] as number) - (a[metricKey] as number) ||
-      b.slots - a.slots ||
-      b.deals - a.deals ||
-      b.contacted - a.contacted
-  );
+  // Ties fall back RIGHT TO LEFT along the funnel: level on the ranked metric?
+  // compare the last column (Opens), then Deals, then Done, then Visits, then
+  // Contacted, then MR. Deeper work outranks earlier work, which is the order
+  // the columns are already read in. Ranking only — the medals still follow
+  // whatever order this produces.
+  const tieBreak = [...metrics].reverse().map((m) => m.key).filter((k) => k !== metricKey);
+  const ranked = [...groups].sort((a, b) => {
+    const first = (b[metricKey] as number) - (a[metricKey] as number);
+    if (first) return first;
+    for (const k of tieBreak) {
+      const d = (b[k] as number) - (a[k] as number);
+      if (d) return d;
+    }
+    return a.label.localeCompare(b.label);
+  });
   const flipRef = useFlipReorder(metricKey + ":" + groups.map((g) => g.key).join(","));
 
   return (
