@@ -27,7 +27,8 @@ import { FileDrop } from "./file-drop";
 import { Hint } from "./hint";
 import { QuickActions } from "./quick-actions";
 import {
-  PageSizePicker, SortHeader, TableSettings, useTableColumns, useTableSort,
+  ColumnFilter, PageSizePicker, SortHeader, TableSettings, useTableColumns,
+  useTableSort,
   type TableColumn,
 } from "./data-table-kit";
 import { Button } from "@/components/ui/button";
@@ -466,14 +467,17 @@ export function AccountsView({
     [router, searchParams, filters.sort, filters.dir]
   );
   const SortHead = ({
-    field, defaultDir = "desc", children, className,
+    field, defaultDir = "desc", children, className, filter,
   }: {
     field: string;
     defaultDir?: "asc" | "desc";
     children: React.ReactNode;
     className?: string;
+    /** the column's funnel button, sitting beside the sortable name */
+    filter?: React.ReactNode;
   }) => (
     <TableHead className={className}>
+      <span className="inline-flex items-center gap-1">
       <button
         type="button"
         onClick={() => sortBy(field, defaultDir)}
@@ -496,6 +500,8 @@ export function AccountsView({
           </span>
         )}
       </button>
+      {filter}
+      </span>
     </TableHead>
   );
 
@@ -541,6 +547,58 @@ export function AccountsView({
   const today = new Date().toISOString().slice(0, 10);
 
   const orderedRows = rows;
+
+  // Which COLUMNS carry a filter, and what it filters on. A column that maps to
+  // a URL param gets the funnel button next to its name (Google Sheets style);
+  // everything else in the bar above is a NON-column attribute (search, the
+  // function, flags) or a range control (Date added).
+  const columnFilter = (key: string): React.ReactNode => {
+    const pick = (
+      label: string,
+      param: string,
+      value: string,
+      options: [string, string][]
+    ) => (
+      <ColumnFilter
+        label={label}
+        value={value}
+        options={options.map(([v, l]) => ({ value: v, label: l }))}
+        onChange={(v) => setParam(param, v)}
+      />
+    );
+    switch (key) {
+      case "product":
+        // the Product column shows Project for IGV-only and Type for B2C-only
+        // viewers — filter what is actually on screen
+        if (viewer.igvOnly)
+          return pick("Project", "project", filters.project, IGV_PROJECTS.map((p) => [p, p]));
+        if (viewer.b2cOnly) return null;
+        if (!viewer.allowedFns.includes("IGT")) return null;
+        return pick("Product", "product", filters.product, [["GTa", "IGTa"], ["GTe", "IGTe"]]);
+      case "stage":
+        return archived
+          ? null
+          : pick("Status", "stage", filters.stage, stageOptions.map((s) => [s, s]));
+      case "last_contact":
+        return archived
+          ? null
+          : pick("Last result", "lastStatus", filters.lastStatus, LAST_STATUS_OPTIONS.map((s) => [s, s]));
+      case "responsible":
+        return viewer.seesOthers && respOptions.length > 0
+          ? pick("Responsible", "resp", filters.resp, respOptions.map((m) => [m.id, m.label]))
+          : null;
+      case "project":
+        return viewer.igvOnly
+          ? null
+          : pick("Project", "project", filters.project, IGV_PROJECTS.map((p) => [p, p]));
+      case "sub_product":
+        return viewer.igtAccess
+          ? pick("Sub product", "sub", filters.sub, IGT_SUB_PRODUCTS.map((sp) => [sp, sp]))
+          : null;
+      default:
+        return null;
+    }
+  };
 
   // archived rows link by UUID (v23.2): a name can exist archived in one
   // world AND active in the other — the slug resolves to the active one
@@ -796,6 +854,11 @@ export function AccountsView({
             options={viewer.allowedFns.map((f) => [f, f])}
           />
         ) : null}
+        {/* Column-backed filters (Product · Project · Sub product · Status ·
+            Last result · Responsible) live on the COLUMN HEADERS now — the
+            Google Sheets affordance. The mobile card views have no header to
+            hang them on, so they keep the chips. */}
+        <div className="contents md:hidden">
         {(!filters.fn || filters.fn === "IGT") && viewer.allowedFns.includes("IGT") ? (
           <FilterSelect
             value={filters.product} placeholder="Product"
@@ -840,6 +903,7 @@ export function AccountsView({
             options={respOptions.map((m) => [m.id, m.label])}
           />
         ) : null}
+        </div>
         {!archived ? (
           <FilterSelect
             value={filters.flag} placeholder="Flags"
@@ -1086,18 +1150,23 @@ export function AccountsView({
                     <TableHead className="w-10" />
                     {cols.visible.map((c) => {
                       const sort = ACCOUNT_SORT[c.key];
+                      const filter = columnFilter(c.key);
                       return sort ? (
                         <SortHead
                           key={c.key}
                           field={sort.field}
                           defaultDir={sort.dir}
                           className={ACCOUNT_HEAD_CLASS[c.key]}
+                          filter={filter}
                         >
                           {c.label}
                         </SortHead>
                       ) : (
                         <TableHead key={c.key} className={ACCOUNT_HEAD_CLASS[c.key]}>
-                          {c.label}
+                          <span className="inline-flex items-center gap-1">
+                            {c.label}
+                            {filter}
+                          </span>
                         </TableHead>
                       );
                     })}
