@@ -306,9 +306,17 @@ export function AddAccountDialog({
                   {nameCheck.status === "duplicate" ? "🚫 Already exists" : "🗄️ Archived / blocked"} —{" "}
                   {nameCheck.message}
                 </p>
+                {nameCheck.info.open ? (
+                  <a
+                    href={nameCheck.info.open}
+                    className="mt-1.5 inline-flex text-xs font-semibold text-primary underline-offset-2 hover:underline"
+                  >
+                    Open it and take it →
+                  </a>
+                ) : null}
                 <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs text-foreground">
                   {Object.entries(nameCheck.info)
-                    .filter(([, v]) => v)
+                    .filter(([k, v]) => v && k !== "open")
                     .map(([k, v]) => (
                       <div key={k} className="contents">
                         <dt className="font-medium capitalize text-muted-foreground">
