@@ -4,7 +4,7 @@ import {
 import type { AccountFilters } from "@/server/data";
 import {
   considerationFunctions, accountScope, icxFunctions, isB2B, isB2C,
-  ogxLanes, raisingFunctions, seesEveryLane } from "@/lib/rbac";
+  isBd, ogxLanes, raisingFunctions, seesEveryLane } from "@/lib/rbac";
 import { memberIsB2C, type OgxFunction } from "@/lib/types";
 import { DashboardView, type DashboardScopeView } from "@/components/crm/dashboard-view";
 
@@ -17,6 +17,7 @@ function parseFnParam(fn?: string): Pick<AccountFilters, "fn" | "product"> {
   if (fn === "IGTa") return { fn: "IGT", product: "GTa" };
   if (fn === "IGTe") return { fn: "IGT", product: "GTe" };
   if (fn === "B2B") return { fn: "B2B" };
+  if (fn === "BD") return { fn: "BD" };
   if (fn === "B2C") return { fn: "B2C" };
   return {};
 }
@@ -69,6 +70,12 @@ export default async function DashboardPage({
       icxFunctions(viewer).length > 0)
   ) {
     views.push({ key: "B2B", label: "B2B" });
+  }
+  // BD is its own lane and its own audience (v32.6): B2B raises opens FOR the
+  // product functions, so their VPs follow it — BD sells partnerships, which
+  // is the BD crew's business and nobody else's.
+  if (master || overseer || isBd(viewer)) {
+    views.push({ key: "BD", label: "BD" });
   }
   // B2C is its own module (v23): its crew, the LCP/admin and the overseers
   if (master || overseer || isB2C(viewer)) {

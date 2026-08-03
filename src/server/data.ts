@@ -1001,7 +1001,10 @@ function rowInLane(r: PipelineRow, lane: string): boolean {
   if (lane === "IGTa") return r.function === "IGT" && r.product === "GTa";
   if (lane === "IGTe") return r.function === "IGT" && r.product === "GTe";
   // B2B & BD are one function — the B2B lane shows both labels
-  if (lane === "B2B") return r.function === "B2B" || r.function === "BD";
+  // v32.6: BD is its OWN lane — B2B raises opens, BD sells partnerships, and
+  // mixing them made both numbers meaningless
+  if (lane === "B2B") return r.function === "B2B";
+  if (lane === "BD") return r.function === "BD";
   if (lane === "B2C") return r.function === "B2C";
   return true;
 }
@@ -1020,8 +1023,8 @@ function laneSlots(r: PipelineRow, lane: string): number {
   if (lane === "IGTa") return r.slots_igta_count ?? 0;
   if (lane === "IGTe") return r.slots_igte_count ?? 0;
   if (lane === "IGT") return (r.slots_igta_count ?? 0) + (r.slots_igte_count ?? 0);
-  if (lane === "B2B")
-    return r.function === "B2B" || r.function === "BD" ? r.slots_count ?? 0 : 0;
+  if (lane === "B2B") return r.function === "B2B" ? r.slots_count ?? 0 : 0;
+  if (lane === "BD") return r.function === "BD" ? r.slots_count ?? 0 : 0;
   return r.slots_count ?? 0;
 }
 
@@ -1093,7 +1096,8 @@ function laneAllocSlots(
   if (lane === "IGTe") return a.slots_igte ?? 0;
   if (lane === "IGT") return (a.slots_igta ?? 0) + (a.slots_igte ?? 0);
   const totalSlots = (a.slots_igv ?? 0) + (a.slots_igta ?? 0) + (a.slots_igte ?? 0);
-  if (lane === "B2B") return accountFn === "B2B" || accountFn === "BD" ? totalSlots : 0;
+  if (lane === "B2B") return accountFn === "B2B" ? totalSlots : 0;
+  if (lane === "BD") return accountFn === "BD" ? totalSlots : 0;
   return totalSlots; // "all"
 }
 
@@ -3682,6 +3686,8 @@ export interface IrCallRow {
   calendar_event_id: string | null;
   /** v28 booking parity (migration 0029) */
   booker_email: string | null;
+  /** v32.6 — full international number, so the crew can WhatsApp the IR */
+  booker_phone: string | null;
   meet_link: string | null;
   /** the raw token NEVER leaves the server — the UI only needs the flag */
   has_manage_link: boolean;

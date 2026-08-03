@@ -13,6 +13,7 @@ import {
   canEditRequestState,
   canManageMembership,
   canReassignAccount,
+  claimTargetFunction,
   isClaimableAccount,
   canManageArchive,
   commentLabel,
@@ -491,15 +492,26 @@ export async function reassignAccount(
     (scope.kind === "members" && scope.ids.includes(target.id));
   if (!inScope) return fail("You can only reassign to members in your scope.", "forbidden");
 
+  // Claiming an unowned account MOVES it into the claimer's function (v32.6):
+  // the market research is theirs now, and leaving it filed under a function
+  // nobody works would hide it from the person who just took it.
+  const movedFn =
+    claimingForSelf ? claimTargetFunction(viewer, account) : null;
+  const fnChanged = !!movedFn && movedFn !== account.function;
+
   await snapshotForUndo("accounts", accountId);
   const { error } = await db()
     .from("accounts")
-    .update({ responsible_id: newResponsibleId })
+    .update({
+      responsible_id: newResponsibleId,
+      ...(fnChanged ? { function: movedFn } : {}),
+    })
     .eq("id", accountId);
   if (error) return fail(error.message);
   await logAudit(viewer.id, "reassign", "account", accountId, {
     from: account.responsible_id,
     to: newResponsibleId,
+    ...(fnChanged ? { function_from: account.function, function_to: movedFn } : {}),
   });
   refresh(accountId);
   return { ok: true };
@@ -2856,7 +2868,9 @@ export async function checkAccountNameLive(
       ok: true,
       data: {
         status: "duplicate",
-        message: `"${clean}" already exists on ${duplicate.function} accounts.`,
+        message: duplicate.responsible_id
+          ? `"${clean}" already exists on ${duplicate.function} accounts.`
+          : `"${clean}" is already in the CRM under ${duplicate.function}, but NOBODY owns it — open it and hit "Take it" to claim the research for yourself.`,
         info: {
           function: duplicate.function,
           responsible:
@@ -2864,6 +2878,7 @@ export async function checkAccountNameLive(
           stage: duplicate.stage,
           project: duplicate.project ?? duplicate.sub_product,
           created_at: duplicate.created_at?.slice(0, 10) ?? null,
+          open: duplicate.responsible_id ? null : `/accounts/${accountSlug(duplicate.name)}`,
         },
       },
     };
@@ -4719,6 +4734,7 @@ export async function bookIrCall(input: {
   startIso: string;
   lcName: string;
   bookerEmail: string;
+  bookerPhone: string;
   country?: string | null;
   bookerName?: string | null;
   bookerRole?: string | null;
@@ -4747,6 +4763,17 @@ export async function bookIrCall(input: {
   const BOOKER_ROLES = ["Member", "MM (Team Leader / Coordinator)", "LCVP", "LCP"];
   const bookerRole = plain(input.bookerRole, 40);
   if (!BOOKER_ROLES.includes(bookerRole)) return fail("Pick your role in your LC.");
+  // v32.6: the phone is REQUIRED and must carry a country code — the crew
+  // reaches IRs on WhatsApp, and a local-format number from another country is
+  // unusable. normalizePhone accepts +<7–15 digits> for anything non-Egyptian.
+  const phoneRaw = plain(input.bookerPhone, 40);
+  if (!phoneRaw) return fail("We need your WhatsApp number so we can reach you.");
+  const phoneCheck = normalizePhone(phoneRaw);
+  if (!phoneCheck.ok || !phoneCheck.value.startsWith("+"))
+    return fail(
+      "Add your number with its country code, e.g. +20 10 1234 5678 or +33 6 12 34 56 78."
+    );
+  const bookerPhone = phoneCheck.value;
   const start = new Date(String(input.startIso ?? ""));
   if (!input.startIso || Number.isNaN(start.getTime()))
     return fail("Pick a time slot first.");
@@ -4853,6 +4880,7 @@ export async function bookIrCall(input: {
       booker_name: bookerName,
       booker_role: bookerRole,
       booker_email: bookerEmail,
+      booker_phone: bookerPhone,
       manage_token: manageToken,
       booked_at: new Date().toISOString(),
       duration_minutes: settings.slot_minutes,

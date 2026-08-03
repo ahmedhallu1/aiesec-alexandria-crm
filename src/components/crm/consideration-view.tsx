@@ -998,6 +998,7 @@ const CALL_COLUMNS: TableColumn[] = [
   { key: "campaigns", label: "B2C campaigns", defaultHidden: true },
   { key: "booker", label: "Booked by", defaultHidden: true },
   { key: "booker_email", label: "Booker email", defaultHidden: true },
+  { key: "booker_phone", label: "Booker phone", defaultHidden: true },
   { key: "duration", label: "Duration", defaultHidden: true },
 ];
 
@@ -1023,6 +1024,7 @@ const CALL_SORTERS: Record<string, (c: IrCallRow) => string | number | null> = {
   campaigns: (c) => c.b2c_campaigns,
   booker: (c) => c.booker_name,
   booker_email: (c) => c.booker_email,
+  booker_phone: (c) => c.booker_phone,
   duration: (c) => c.duration_minutes,
   screenshot: (c) => (c.screenshot_link ? 1 : 0),
 };
@@ -1149,6 +1151,19 @@ function IrCallsTab({
         return <span dir="auto">{c.booker_name ?? "—"}</span>;
       case "booker_email":
         return c.booker_email ?? "—";
+      case "booker_phone":
+        return c.booker_phone ? (
+          <a
+            href={`https://wa.me/${c.booker_phone.replace(/\D/g, "")}`}
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium text-primary hover:underline"
+          >
+            {c.booker_phone}
+          </a>
+        ) : (
+          "—"
+        );
       case "duration":
         return c.duration_minutes ? `${c.duration_minutes} min` : "—";
       default:
@@ -1209,6 +1224,26 @@ function IrCallsTab({
                 </div>
                 {canTouch(c) ? (
                   <div className="flex flex-wrap items-center gap-1.5">
+                    {/* v32.6: the booking collects the IR's number with its
+                        country code, so reaching them is one tap */}
+                    {c.booker_phone ? (
+                      <Hint label={`WhatsApp ${c.booker_name ?? "the IR"} — ${c.booker_phone}`}>
+                        <Button
+                          asChild
+                          variant="outline"
+                          size="sm"
+                          className="text-emerald-600 dark:text-emerald-400"
+                        >
+                          <a
+                            href={`https://wa.me/${c.booker_phone.replace(/\D/g, "")}`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <WhatsAppIcon className="size-4" /> WhatsApp
+                          </a>
+                        </Button>
+                      </Hint>
+                    ) : null}
                     <Hint label="Fill the in-call notes — demand, notes, screenshot">
                       <Button size="sm" onClick={() => setCompleting(c)}>
                         <ClipboardCheck className="size-4" /> Fill call notes

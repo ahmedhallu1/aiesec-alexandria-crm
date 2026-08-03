@@ -56,6 +56,15 @@ export function isB2B(v: Viewer): boolean {
   return hit(v.functions) || hit(v.sub_functions);
 }
 
+/** The BD crew specifically (v32.6). BD shares a membership with B2B but sells
+ *  a DIFFERENT thing — a money partnership, not opens — so its numbers are its
+ *  own lane, and unlike B2B (which raises FOR the product functions and is
+ *  therefore shown to their VPs) the BD lane is for the BD crew and the
+ *  LCP/admin only. */
+export function isBd(v: Viewer): boolean {
+  return v.functions.includes("BD") || v.sub_functions.includes("BD");
+}
+
 /** The B2C crew (v23): partner accounts for courses / events / student
  *  activities — its own module, isolated from the ICX raising lanes. */
 export function isB2C(v: Viewer): boolean {
@@ -150,7 +159,25 @@ export function canViewAccount(v: Viewer, a: AccountLike): boolean {
  *  anyone who may create accounts in that function may claim it. */
 export function isClaimableAccount(v: Viewer, a: AccountLike): boolean {
   if (a.responsible_id != null || a.out_of_process) return false;
-  return allowedAccountFunctions(v).includes(a.function as AccountFunction);
+  // v32.6 — CROSS-FUNCTION. An unowned account isn't "another function's": it
+  // is nobody's. Whoever researched it may take it even if it sits under a
+  // function they don't work, and taking it MOVES it to theirs (see
+  // `claimAccount`). Anyone who may create accounts at all can do this.
+  return allowedAccountFunctions(v).length > 0;
+}
+
+/** Which function an account lands in when this viewer claims it. Their own
+ *  if the account is already in one they work; otherwise their first allowed
+ *  function — the research is theirs now, so the account follows. */
+export function claimTargetFunction(
+  v: Viewer,
+  a: AccountLike
+): AccountFunction | null {
+  const allowed = allowedAccountFunctions(v);
+  if (allowed.length === 0) return null;
+  return allowed.includes(a.function as AccountFunction)
+    ? (a.function as AccountFunction)
+    : allowed[0];
 }
 
 /** Edit stays SCOPED (own/team/function) — the archive being world-readable

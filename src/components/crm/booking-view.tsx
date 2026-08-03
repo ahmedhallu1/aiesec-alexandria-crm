@@ -2,9 +2,10 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { CalendarCheck2, Clock, Globe2, Mail, Video, Loader2 } from "lucide-react";
+import { CalendarCheck2, Clock, Globe2, Mail, Phone, Video, Loader2 } from "lucide-react";
 import { bookIrCall } from "@/server/actions";
 import type { BookingDay } from "@/server/data";
+import { normalizePhone } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { CountryInput } from "./country-input";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,7 @@ export function BookingView({
   const [slotIso, setSlotIso] = useState<string | null>(null);
   const [lcName, setLcName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [country, setCountry] = useState("");
   const [bookerName, setBookerName] = useState("");
   const [bookerRole, setBookerRole] = useState("");
@@ -48,6 +50,9 @@ export function BookingView({
   const day = days[Math.min(dayIdx, Math.max(0, days.length - 1))];
   const slot = day?.slots.find((s) => s.iso === slotIso) ?? null;
   const emailOk = EMAIL_RE.test(email.trim());
+  // the crew reaches IRs on WhatsApp, so the number must carry a country code
+  const phoneCheck = normalizePhone(phone);
+  const phoneOk = phoneCheck.ok && phoneCheck.value.startsWith("+");
 
   const submit = () =>
     start(async () => {
@@ -57,6 +62,10 @@ export function BookingView({
       }
       if (!lcName.trim()) {
         toast.error("Tell us your LC's name first.");
+        return;
+      }
+      if (!phoneOk) {
+        toast.error("Add your number with its country code, e.g. +20 10 1234 5678.");
         return;
       }
       if (!emailOk) {
@@ -76,6 +85,7 @@ export function BookingView({
         startIso: slotIso,
         lcName,
         bookerEmail: email.trim(),
+        bookerPhone: phoneCheck.value,
         country: country || null,
         bookerName: bookerName.trim(),
         bookerRole,
@@ -222,6 +232,32 @@ export function BookingView({
                   You&apos;ll get the calendar invite + Meet link here.
                 </p>
               </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="bk-phone">Your WhatsApp number *</Label>
+                <div className="relative">
+                  <Phone className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="bk-phone"
+                    type="tel"
+                    inputMode="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    onBlur={() => { if (phoneOk) setPhone(phoneCheck.value); }}
+                    placeholder="+20 10 1234 5678"
+                    className="h-10 pl-8"
+                    maxLength={40}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {phone.trim() && !phoneOk ? (
+                    <span className="font-medium text-destructive">
+                      Include your country code — e.g. +33 6 12 34 56 78.
+                    </span>
+                  ) : (
+                    "With your country code, so we can reach you on WhatsApp."
+                  )}
+                </p>
+              </div>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
@@ -267,6 +303,7 @@ export function BookingView({
               !slotIso ||
               !lcName.trim() ||
               !emailOk ||
+              !phoneOk ||
               !bookerName.trim() ||
               !bookerRole
             }
