@@ -105,8 +105,9 @@ export async function recordUndo(
   before?: unknown,
   label?: string
 ): Promise<void> {
+  if (!journalReady) return;
   try {
-    await db().from("test_undo").insert({
+    const { error } = await db().from("test_undo").insert({
       session_id: await journalSession(),
       change_set: currentChangeSet(),
       actor_id: await journalActorId(),
@@ -116,14 +117,31 @@ export async function recordUndo(
       before: before ?? null,
       label: label ?? null,
     });
+    if (error?.code === "42703") {
+      // 0033 hasn't been run yet — stand down for this process instead of
+      // paying a failed INSERT (and a wasted SELECT) on every single write
+      journalReady = false;
+      console.warn(
+        "[journal] disabled: migration 0033 not applied — run supabase/migrations/0033_change_journal_lc_test.sql"
+      );
+    } else if (error) {
+      console.error("[journal] write failed:", error.message);
+    }
   } catch (e) {
     console.error("[journal] write failed:", e);
   }
 }
 
+/** Flipped off the first time the journal columns turn out to be missing, so
+ *  an un-migrated database costs nothing instead of one failed write per
+ *  mutation. Resets on the next deploy/cold start, which is when the migration
+ *  would have landed anyway. */
+let journalReady = true;
+
 /** Snapshot a row before updating it, then journal it — one call at each
  *  update site: `await snapshotForUndo("accounts", id)`. */
 export async function snapshotForUndo(tbl: string, rowId: string): Promise<void> {
+  if (!journalReady) return;
   try {
     const { data } = await db().from(tbl).select("*").eq("id", rowId).maybeSingle();
     if (data) await recordUndo(tbl, rowId, "update", data, describeRow(tbl, data));
