@@ -123,7 +123,7 @@ export async function podioCompanies(force = false): Promise<CachedList | null> 
   try {
     const res = await fetch(PODIO_FORM_URL, {
       // the form is public; identify ourselves rather than spoofing a browser
-      headers: { "User-Agent": "Elevate-CRM/1.0 (AIESEC in Alexandria)" },
+      headers: { "User-Agent": "Sodio-CRM/1.0 (AIESEC in Alexandria)" },
       signal: AbortSignal.timeout(12_000),
       cache: "no-store",
     });

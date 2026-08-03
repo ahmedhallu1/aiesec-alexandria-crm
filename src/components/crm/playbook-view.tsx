@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v32";
+export const PLAYBOOK_VERSION = "v32.1";
 
 interface Props {
   role: string;
@@ -49,15 +49,14 @@ const SECTIONS: Section[] = [
   {
     id: "what",
     emoji: "💙",
-    title: "What is Elevate?",
+    title: "What is Sodio?",
     audience: "Everyone",
     color: "#037EF3",
     points: [
       <>A <b>100% free CRM</b> built by AIESEC in Alexandria&apos;s IM team for the ICX <b>Raising</b> process — IGV, IGT and B2B.</>,
-      <><b>New name, same home</b> (v28): Sodio is now <b>Elevate</b> — same login, same data, nothing to redo. Both <b>elevate-alex.vercel.app</b> and the old sodio.vercel.app open it.</>,
       <>Everything lives here: <b>accounts → contacts → visits → deals</b>, plus goals, leaderboards and dashboards.</>,
       <>It automates the boring parts: calendar reminders, follow-up emails, Google Sheets mirrors, notifications.</>,
-      <>The one rule everything else builds on: <b>if it&apos;s not in Elevate, it didn&apos;t happen.</b></>,
+      <>The one rule everything else builds on: <b>if it&apos;s not in Sodio, it didn&apos;t happen.</b></>,
     ],
   },
   {
@@ -68,9 +67,9 @@ const SECTIONS: Section[] = [
     color: "#0CB9C1",
     points: [
       <><b>Every table is yours to shape</b> 🧩 (v31): hit <b>⚙ Columns</b> on any list — accounts, sign-ups, members, attendance, IR calls, CVs — to <b>drag columns into the order you like</b>, switch extra ones on (project, industry, opens, campaign, person status…) or hide what you don&apos;t use, and <b>Reset</b> when you want the default back. Pick how many rows per page, and click any header to sort. Your layout is remembered on your own device. No more &quot;the sheet was more flexible&quot;.</>,
-      <><b>Contacting someone always gets recorded</b>: tap WhatsApp, Call or Email on an account or a sign-up and the link opens as usual — then Elevate asks how it went, with the method already filled in. One tap to log it, or &quot;Not now&quot; if you mis-clicked.</>,
+      <><b>Contacting someone always gets recorded</b>: tap WhatsApp, Call or Email on an account or a sign-up and the link opens as usual — then Sodio asks how it went, with the method already filled in. One tap to log it, or &quot;Not now&quot; if you mis-clicked.</>,
       <>First sign-in is <b>Google only</b> (it grants your calendar reminders + Gmail drafts). Onboarding then sets your password.</>,
-      <><b>Put your @aiesec.net mail on your phone</b> 📲 and turn notifications ON. Elevate reaches you by email for the things that actually matter — visit follow-ups, Podio nags, attendance reminders and your streak. Miss the mail, miss the nudge.</>,
+      <><b>Put your @aiesec.net mail on your phone</b> 📲 and turn notifications ON. Sodio reaches you by email for the things that actually matter — visit follow-ups, Podio nags, attendance reminders and your streak. Miss the mail, miss the nudge.</>,
       <>After that, sign in with <b>email or phone + password</b>, or Google — whatever you like.</>,
       <>No AIESEC email yet? (v24) Sign in with your <b>phone number typed in BOTH fields</b> — identifier AND password. Once the EB adds your email that door closes: sign in with <b>Google once</b> to unlock everything, then set a password from your Profile.</>,
       <>Deactivated members never chase a login loop (v24): a clear <b>&quot;your account is inactive&quot;</b> screen says to contact your manager or the IM team.</>,
@@ -103,7 +102,7 @@ const SECTIONS: Section[] = [
       <>On your phone, the little <b>Cards / Compact / Table</b> switcher above the accounts list lets you pick the density you like — it remembers your choice. On desktop the list sorts itself your way (v24): <b>click any column header</b> — Date added, Account, Product, Status, Contacts, Next step — to sort, click again to flip.</>,
       <>The <b>WhatsApp quick-action</b> on the list opens <b>ready to send</b> (v24): a prefilled intro with your name, who AIESEC in Alexandria is, and the ask for a chat — review and hit send.</>,
       <>The dashboard&apos;s filter bar gained a <b>&quot;This sprint&quot;</b> chip next to &quot;This month&quot; (v24) — sprints are half-months: 1–15 and 16–end.</>,
-      <><b>Raising Coordinators plan too</b> (v22): on first sign-in Elevate asks for your <b>opens per month</b> of the peak, and the profile&apos;s <b>My plan</b> card lets you update it — with what you actually raised next to each month. Your VP sees it on the Planning board.</>,
+      <><b>Raising Coordinators plan too</b> (v22): on first sign-in Sodio asks for your <b>opens per month</b> of the peak, and the profile&apos;s <b>My plan</b> card lets you update it — with what you actually raised next to each month. Your VP sees it on the Planning board.</>,
     ],
   },
   {
@@ -116,8 +115,8 @@ const SECTIONS: Section[] = [
       <>You see and work <b>your whole team&apos;s accounts</b>, pick the Responsible on each, and can revive archived accounts.</>,
       <>The <b>Archived tab does bulk</b> (v24): select archived accounts → <b>Back to active</b> returns them to the process with their history intact (after a confirmation), and every row also has a per-row ↩️ revive button. Permanent <b>Delete</b> is VP/Director/LCP only.</>,
       <>Bulk-reassigning accounts? Tick <b>&quot;Email them about it&quot;</b> (v24) and each new responsible gets a bell + a branded email listing their new accounts, with a button straight to the list.</>,
-      <><b>Your plan IS the team goal</b> (v22): on first sign-in Elevate asks for your team&apos;s <b>opens per month</b> of the peak, and the profile&apos;s <b>My plan</b> card lets you update it any time — with each month&apos;s actual next to it. The dashboard&apos;s team card and the Planning board track your team against it. Nobody &quot;sets goals&quot; in Elevate anymore.</>,
-      <>OGX &amp; Consideration MMs: on your first sign-in Elevate asks for your <b>6-month plan</b> (applicants · accepted · approvals per month of the peak) — those numbers are your goals, visible to your VP on the Planning board and in the period reports.</>,
+      <><b>Your plan IS the team goal</b> (v22): on first sign-in Sodio asks for your team&apos;s <b>opens per month</b> of the peak, and the profile&apos;s <b>My plan</b> card lets you update it any time — with each month&apos;s actual next to it. The dashboard&apos;s team card and the Planning board track your team against it. Nobody &quot;sets goals&quot; in Sodio anymore.</>,
+      <>OGX &amp; Consideration MMs: on your first sign-in Sodio asks for your <b>6-month plan</b> (applicants · accepted · approvals per month of the peak) — those numbers are your goals, visible to your VP on the Planning board and in the period reports.</>,
       <>You&apos;re on your members&apos; <b>visit follow-up emails</b> (and the week-later &quot;forgotten&quot; nags). A nag means an account is frozen — unfreeze it together.</>,
       <>Leaderboards rank <b>Members & Coordinators</b> on their own accounts; deals always belong to the account&apos;s Responsible.</>,
       <>Use the dashboard&apos;s team filter (and <b>My numbers</b> for your own raising) to steer the week.</>,
@@ -182,12 +181,12 @@ const SECTIONS: Section[] = [
     audience: "OGV & OGT crews",
     color: "#0CB9C1",
     points: [
-      <><b>Sign-ups</b> (sidebar) is your workspace: every sign-up from your tracker sheet lives here, <b>two-way synced</b> — the sheet imports every 15 minutes and every edit you make in Elevate lands back on the sheet instantly. Same data, two doors.</>,
+      <><b>Sign-ups</b> (sidebar) is your workspace: every sign-up from your tracker sheet lives here, <b>two-way synced</b> — the sheet imports every 15 minutes and every edit you make in Sodio lands back on the sheet instantly. Same data, two doors.</>,
       <>The main view is the <b>🆕 Unassigned pool</b>: open a fresh sign-up, reach them (the WhatsApp/call buttons are right in the row), then hit <b>Contact</b> — it&apos;s yours, your name is on the sheet, and the details open right away so you can log everything (v26).</>,
       <><b>Leaders bulk-assign</b> (v26): select several sign-ups → <b>Assign to…</b> a member or <b>Unassign</b> back to the pool. The phone filter goes <b>both ways</b> now (v27): show only sign-ups <b>with a phone</b>, or only the <b>📵 missing-phone</b> ones.</>,
       <><b>Your plan, live</b> (v26): if you filed an MM plan, a card above the list shows this month&apos;s <b>Applicants / Accepted / Approvals plan vs your current pipeline</b> — the Approvals bar is your MOS race.</>,
       <><b>Your function has a real DASHBOARD now</b> (v28): open it from the chips on the Dashboard page or the button on Sign-ups. The full funnel — <b>Sign-ups → Contacted → Interested → Applied → Accepted → Approved</b> — with conversions between every step, an <b>Approvals leaderboard</b>, a per-team drill and plan-vs-pipeline, all filterable by <b>date, team and member</b>.</>,
-      <><b>The potential flow</b> (v28): whoever OWNS a sign-up moves it <b>Applied → Accepted → Approved</b> right from the details dialog — no waiting on a VP. These stages live <b>only in Elevate</b> (the sheet only ever sees Out of Process), and the <b>🎯 Potential</b> filter finds the sign-ups at each stage in one tap.</>,
+      <><b>The potential flow</b> (v28): whoever OWNS a sign-up moves it <b>Applied → Accepted → Approved</b> right from the details dialog — no waiting on a VP. These stages live <b>only in Sodio</b> (the sheet only ever sees Out of Process), and the <b>🎯 Potential</b> filter finds the sign-ups at each stage in one tap.</>,
       <><b>OGV keeps a daily 🔥 streak</b> (v27): at least one sign-up contact action a day — a <b>Contact</b>, a status change or a comment — saves it. The streak card on Sign-ups shows your <b>current + best streak</b> and the LC&apos;s <b>top-3</b>; sit on a 3+ day streak with nothing logged by <b>19:00</b> and a (funny) reminder email lands before the day kills it.</>,
       <>Views: <b>Unassigned · My sign-ups · My team</b> (Team Leaders) · <b>All</b> (VPs/Directors) · <b>Archived</b>. Members see their own + the pool; TLs their team; leaders everything in their function.</>,
       <>You edit <b>Contacted</b> (Yes/No), <b>Interested</b> (Yes/No) and <b>comments</b> — everything else (phone, email, program, referral, university…) is the sign-up&apos;s own data, read-only in the details.</>,
@@ -205,7 +204,7 @@ const SECTIONS: Section[] = [
     color: "#F48924",
     points: [
       <><b>Consideration</b> (sidebar) has two tabs. <b>IR calls</b>: record every International-Relations call — pick the partner LC (or add a new one on the spot), the date &amp; time default to now, drop the call screenshot and it lands named in the system&apos;s Drive folder. The whole crew sees the shared call log.</>,
-      <><b>Your personal booking link</b> (v27, supercharged in v28): every consideration member has one. Set it up on the <b>My booking link</b> card, copy <b>elevate-alex.vercel.app/book/your-name</b> and send it to IRs abroad. When they book, their <b>email is collected</b> and they&apos;re <b>invited to a real Google Meet</b> on your calendar — the call lands in Elevate as a <b>scheduled call</b>, with a bell + email to you.</>,
+      <><b>Your personal booking link</b> (v27, supercharged in v28): every consideration member has one. Set it up on the <b>My booking link</b> card, copy <b>sodio.vercel.app/book/your-name</b> and send it to IRs abroad. When they book, their <b>email is collected</b> and they&apos;re <b>invited to a real Google Meet</b> on your calendar — the call lands in Sodio as a <b>scheduled call</b>, with a bell + email to you.</>,
       <><b>Reschedule &amp; cancel, civilized</b> (v28): the IR&apos;s confirmation email carries a <b>manage link</b> to reschedule or cancel (a reason is required). On your side, you can <b>cancel with a reason</b> (they&apos;re emailed) or <b>request a reschedule</b> — they pick a new time from your availability.</>,
       <><b>Booking settings match Google Calendar appointments</b> (v28): slot lengths from <b>15 minutes to 2 hours</b>, buffer time between calls, minimum notice, a book-up-to horizon, start/end dates, guests-can-invite — and availability rows that are <b>weekly OR one specific date</b>.</>,
       <><b>Partner LCs are editable</b> (v28): hit the <b>⚙</b> in the partner-LC picker — VPs and above can <b>rename or delete</b> an entry, so typos and duplicates stop living forever.</>,
@@ -228,7 +227,7 @@ const SECTIONS: Section[] = [
       <><b>Working hours record themselves</b> 🤖 — <b>then a human confirms</b>: you&apos;re pre-filled as attended when you did at least <b>two real actions at least 10 minutes apart</b> during the session (log a contact, book a visit, record a deal, work a sign-up, log an IR call, add or update an account). Two clicks in a row won&apos;t fool it. The AI&apos;s answer is a <b>proposal</b> — your TL (team) / VP (function) / TM (LC) reviews it and hits <b>Confirm attendance</b>. Until they do, it counts as unrecorded and keeps reminding them. </>,
       <>Plans change: whoever booked a touch point (plus the function&apos;s VP/Director and TM) can <b>move it or cancel it</b> from the calendar — tap it and pick <b>Move or cancel</b>. A cancel needs a reason, and either way everyone invited is emailed again. </>,
       <>Check <b>Attendance</b> any time — your own history and rate, your team&apos;s if you lead one, your function&apos;s if you run one. Disagree with a mark? Hit <b>Appeal</b> and whoever recorded it hears from you, with TM on CC.</>,
-      <>Owed a record? Elevate reminds you daily — and after <b>three reminders</b> it greets you with a prompt you can&apos;t wave away. Just fill it. 💙</>,
+      <>Owed a record? Sodio reminds you daily — and after <b>three reminders</b> it greets you with a prompt you can&apos;t wave away. Just fill it. 💙</>,
     ],
   },
   {
@@ -251,7 +250,7 @@ const SECTIONS: Section[] = [
     color: "#F48924",
     points: [
       <>Google Drive mirrors (hourly): <b>CRM — Raising Accounts</b> = ALL accounts in one sheet — filter by the <b>Function / Product / Archived?</b> flag columns; <b>CRM — Archived Accounts</b> = the blacklist view; plus Contact Log and Visits.</>,
-      <><b>CRM — Membership</b> is the only two-way sheet (with its <b>Teams</b> tab naming the standing teams). Everything else is a read-only mirror — <b>the CRM is the truth</b>: deleting or editing rows in a mirror sheet changes NOTHING in Elevate, and the hourly export rewrites the sheet. All edits happen inside Elevate.</>,
+      <><b>CRM — Membership</b> is the only two-way sheet (with its <b>Teams</b> tab naming the standing teams). Everything else is a read-only mirror — <b>the CRM is the truth</b>: deleting or editing rows in a mirror sheet changes NOTHING in Sodio, and the hourly export rewrites the sheet. All edits happen inside Sodio.</>,
       <>Automatic emails: welcome, passwords, visit invites/reports/follow-ups/nags, period reports, broadcasts. All AIESEC-branded.</>,
       <>In-app 🔔 notifications mirror the important ones and open the related page on click.</>,
     ],
@@ -278,8 +277,8 @@ const SECTIONS: Section[] = [
     audience: "Everyone",
     color: "#037EF3",
     points: [
-      <><b>0.</b> Two feedback doors (v21): <b>Elevate feedback</b> (bugs/ideas) lives on your <b>Profile</b>; the sidebar&apos;s <b>LC Feedback</b> is about PEOPLE — 🎉 shout-outs reach the person directly, 😟 concerns go ONLY to the LCP, anonymously if you like.</>,
-      <><b>1.</b> If it&apos;s not in Elevate, it didn&apos;t happen.</>,
+      <><b>0.</b> Two feedback doors (v21): <b>Sodio feedback</b> (bugs/ideas) lives on your <b>Profile</b>; the sidebar&apos;s <b>LC Feedback</b> is about PEOPLE — 🎉 shout-outs reach the person directly, 😟 concerns go ONLY to the LCP, anonymously if you like.</>,
+      <><b>1.</b> If it&apos;s not in Sodio, it didn&apos;t happen.</>,
       <><b>2.</b> Every in-process account has a next step with a date — always.</>,
       <><b>3.</b> Log the result the same day you get it.</>,
       <><b>4.</b> &quot;Not interested&quot; is a result. Archive it — don&apos;t hoard dead accounts.</>,
@@ -302,7 +301,7 @@ export function PlaybookView({ role, isAdmin, isB2B, isB2C, isTm, isOgx, isConsi
       <div className="rise-in hero-animate overflow-hidden rounded-2xl border bg-gradient-to-br from-[#037EF3] via-[#0a5fd0] to-[#0A2540] p-6 text-white sm:p-8">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">
-            The Elevate Playbook
+            The Sodio Playbook
           </h1>
           <Badge className="border-white/30 bg-white/15 text-white">{PLAYBOOK_VERSION}</Badge>
           <button
@@ -320,9 +319,7 @@ export function PlaybookView({ role, isAdmin, isB2B, isB2C, isTm, isOgx, isConsi
           Alexandria. 💙
         </p>
         <p className="mt-3 max-w-xl text-xs leading-relaxed text-white/75">
-          <b>New in v29:</b> THE TM MODULE — touch points (team · function · LC meetings, working hours and outings) on one calendar with visits and IR calls, attendance with AUTOMATIC working hours, appeals and reminders that don&apos;t let go · booking v3 · split IGV/IGT consideration lanes. v28: Sodio grew up into <b>Elevate</b> — same system,
-          same data, new name and a new link: <b>elevate-alex.vercel.app</b>
-          (the old sodio.vercel.app still opens it) · <b>booking v2</b> — IRs
+          <b>New in v29:</b> THE TM MODULE — touch points (team · function · LC meetings, working hours and outings) on one calendar with visits and IR calls, attendance with AUTOMATIC working hours, appeals and reminders that don&apos;t let go · booking v3 · split IGV/IGT consideration lanes. v28: <b>booking v2</b> — IRs
           are invited to a real <b>Google Meet</b> and can reschedule or cancel
           from their confirmation email · <b>OGX dashboards</b> — the full
           Sign-ups → Approved funnel with conversions &amp; an Approvals
@@ -393,7 +390,7 @@ export function PlaybookView({ role, isAdmin, isB2B, isB2C, isTm, isOgx, isConsi
       ))}
 
       <p className="pb-4 text-center text-xs text-muted-foreground">
-        Elevate Playbook · {PLAYBOOK_VERSION} — updated with every release.
+        Sodio Playbook · {PLAYBOOK_VERSION} — updated with every release.
         Something unclear? Say it on the <b>Feedback</b> page — it reaches the IM team directly. 💙
       </p>
     </div>

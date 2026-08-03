@@ -24,13 +24,13 @@ export function attendanceDueEmail(opts: {
       ? "Who showed up? 📝"
       : n === 2
         ? "Still no attendance record ⏳"
-        : "Last reminder — then Elevate will ask on sight 🔔";
+        : "Last reminder — then Sodio will ask on sight 🔔";
   const opener =
     n === 1
-      ? `The <b>${escapeHtml(opts.label)}</b> is done — tell Elevate who was there. It takes a minute.`
+      ? `The <b>${escapeHtml(opts.label)}</b> is done — tell Sodio who was there. It takes a minute.`
       : n === 2
         ? `Second reminder: the <b>${escapeHtml(opts.label)}</b> still has no attendance record. Nobody's numbers move until it lands.`
-        : `Third reminder. From now on Elevate will ask you for the <b>${escapeHtml(opts.label)}</b> record every time you open it — record it and it stops.`;
+        : `Third reminder. From now on Sodio will ask you for the <b>${escapeHtml(opts.label)}</b> record every time you open it — record it and it stops.`;
 
   return {
     subject:
@@ -77,7 +77,7 @@ export function attendanceAppealEmail(opts: {
           ["What", opts.label],
           ["When", opts.whenLabel],
           ["Recorded as", opts.status],
-          ["Recorded by", opts.automatic ? "Elevate (automatic working hours)" : "You"],
+          ["Recorded by", opts.automatic ? "Sodio (automatic working hours)" : "You"],
           ["Their message", opts.message],
         ])}
         <p>Open the record, fix it if they're right, and mark the appeal resolved.

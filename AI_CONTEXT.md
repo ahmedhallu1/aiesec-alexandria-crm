@@ -1,4 +1,4 @@
-# AI_CONTEXT.md — Single Source of Truth (Elevate — AIESEC in Alexandria CRM)
+# AI_CONTEXT.md — Single Source of Truth (Sodio — AIESEC in Alexandria CRM)
 
 > **⚠️ LIVING DOCUMENT.** Update this file **in the same commit** as any change
 > to the system (feature, rule, route, schema, env var, deployment fact).
@@ -10,25 +10,25 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-03 · Version: v32
+Last updated: 2026-08-03 · Version: v32.1
 
 ---
 
 ## 1. What this is
 
-**Elevate** (renamed from **Sodio** in v28 — internal keys/cookies keep the
-sodio-* names to preserve user state) — a **100% free** CRM for AIESEC in
+**Sodio** (briefly renamed **Elevate** in v28 — REVERTED in v32.1; internal
+keys/cookies were always sodio-*, so nothing user-facing was ever lost) — a **100% free** CRM for AIESEC in
 Alexandria: the ICX functions
 (**IGV** & **IGT** raising, **B2B/BD**, **B2C**) plus — since v25 — the **OGX
 sign-ups module** (OGT & OGV, two-way synced with the LC's tracker sheets). The brand name is
-**Elevate** (shown in the sidebar, tab titles, manifest, emails); the built-in
+**Sodio** (shown in the sidebar, tab titles, manifest, emails); the built-in
 AI assistant is **The Blue Man**. Members log accounts, contacts, visits and
 deals; leaders steer with goals, leaderboards and dashboards. The RBAC engine is
 the blueprint for future OGX/other-function modules.
 
 | | |
 |---|---|
-| Live URL | https://elevate-alex.vercel.app (+ legacy sodio.vercel.app & aiesec-alexandria-crm.vercel.app — all project domains) |
+| Live URL | https://sodio.vercel.app (+ aiesec-alexandria-crm.vercel.app; **elevate-alex.vercel.app was removed in v32.1**) |
 | Repo | github.com/ahmedhallu1/aiesec-alexandria-crm (private) |
 | Vercel project | `aiesec-alexandria-crm` (scope `ahmedhallu1s-projects`) — deploy with `vercel deploy --prod` |
 | Stack | Next.js 16 (App Router, Turbopack) · React 19 · Tailwind v4 · shadcn/ui · Supabase (Postgres, project `iesrpuuoduxtihuaqfic`) |
@@ -594,6 +594,27 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 
 ## 10. Changelog
 
+- **2026-08-03 · v32.1** — **THE RENAME IS REVERTED: the system is SODIO again.**
+  v28's Sodio → Elevate rename is undone — **173 user-visible strings** across
+  38 files went back to **Sodio** (sidebar, tab titles, manifest, login,
+  onboarding, tour, playbook, The Blue Man, /inactive, both /book pages, and
+  **every email template + subject line**), plus 3 `ELEVATE` wordmarks and the
+  7 `elevate-alex.vercel.app` links.
+  **URL:** `NEXT_PUBLIC_APP_URL` → `https://sodio.vercel.app` and the
+  **elevate-alex.vercel.app alias was REMOVED from the project** — so the IR
+  booking links members share (`sodio.vercel.app/book/<slug>`) and every link
+  inside an email now carry the Sodio domain. `aiesec-alexandria-crm.vercel.app`
+  still resolves.
+  **Two things deliberately NOT touched:** `elevate2point0.com` (the separate
+  "Created by 2.0" credit — a different thing entirely, not the brand) and the
+  `elevate-table:<id>` localStorage key for saved table column layouts —
+  renaming it would silently reset everyone's column order and visibility, the
+  same reason v28 kept the `sodio-*` keys.
+  The v28/v29 changelog entries are kept as history and marked reverted; the
+  dead "Sodio is now Elevate" announcements were removed from the Playbook and
+  the Blue Man, which now states plainly that the system is Sodio at
+  sodio.vercel.app and that any "Elevate" mention is the reverted name.
+
 - **2026-08-03 · v32** — **RAISING, LANES, PODIO & THE CHANGE JOURNAL.**
   ① **"Accounts" tab renamed "Raising"** (nav, tab title, page hero,
   playbook); the `/accounts` route is unchanged.
@@ -616,7 +637,7 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
   available; the reduced `QuickContactPrompt` and its "Open the full contact
   form →" link are gone.
   ④ **AUTOMATIC PODIO CHECK** (`src/lib/podio.ts`): while the account name is
-  typed, Elevate answers "is this already on Podio?" itself. The national
+  typed, Sodio answers "is this already on Podio?" itself. The national
   form's "Check if your company exists?" field is a plain `<select>` whose
   options are rendered into the public HTML — no API, key, auth or AJAX search
   — so we fetch the same page, parse the same options and match
@@ -655,7 +676,7 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
   of archived accounts are blocked while one runs. `pruneJournal` drops
   unowned rows after 30 days. Pre-0033 grace: `logAudit` falls back to the
   classic row on 42703 and `listRecentAudit` to the classic select.
-  ⑧ **Onboarding rebuilt**: the tour now opens with **what Elevate is and how
+  ⑧ **Onboarding rebuilt**: the tour now opens with **what Sodio is and how
   it fits together** before any tab, and the raising walkthrough is a real
   walkthrough — adding an account (with the three live checks), opening and
   editing it, the action bar (Contact · Visit · Deal · Proposal), the golden
@@ -842,7 +863,7 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
   to the admin were released** in prod. ⑨ Onboarding **Skip removed** (the
   tour is the manual), **"LC Feedback" → "Feedback"**, and the Playbook tells
   members to put their @aiesec.net mail on their phone with notifications on.
-  ⑩ Prod URL env switched to **elevate-alex.vercel.app**.
+  ⑩ Prod URL env switched to **elevate-alex.vercel.app** *(reverted in v32.1)*.
   ⑪ **Consideration splits per function** on the dashboard (`CONS_IGV` /
   `CONS_IGT`, `considerationFunctions` in rbac; a call is attributed via its
   OWNER's functions — ir_calls has no product column; the CV cards only exist
@@ -860,7 +881,8 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
   on the uncapped dialogs.
 
 - **2026-08-08 · v28** — **ELEVATE + BOOKING v2 + OGX DASHBOARDS.**
-  ① **Renamed Sodio → Elevate** (~120 user-visible strings: sidebar, titles,
+  ① **Renamed Sodio → Elevate** *(REVERTED in v32.1 — the system is Sodio)*
+  (~120 user-visible strings: sidebar, titles,
   manifest, ALL emails, Playbook, Blue Man, login, tour; internal `sodio-*`
   storage keys/cookies/events + the "Sodio — LC Visits" Google calendar name
   deliberately KEPT so no user state breaks). New primary URL

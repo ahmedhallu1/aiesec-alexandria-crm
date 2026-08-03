@@ -82,9 +82,9 @@ export function ProfileView({
   const phoneOk = PHONE_RE.test(cleanPhone(phone));
 
   const fixInfoMailto = `mailto:${ADMIN_EMAIL}?subject=${encodeURIComponent(
-    "Elevate — my info needs a correction"
+    "Sodio — my info needs a correction"
   )}&body=${encodeURIComponent(
-    `Hi Ahmed,\n\nMy info in the Elevate membership needs a correction.\n\nMy email: ${member.email}\nWhat is wrong: \nWhat it should be: \n\nThanks!`
+    `Hi Ahmed,\n\nMy info in the Sodio membership needs a correction.\n\nMy email: ${member.email}\nWhat is wrong: \nWhat it should be: \n\nThanks!`
   )}`;
 
   const saveProfile = () =>
@@ -217,7 +217,7 @@ export function ProfileView({
             ) : null}
             <a
               href={`https://wa.me/201099019374?text=${encodeURIComponent(
-                `Hey! My Elevate profile info needs a fix — ${member.name}`
+                `Hey! My Sodio profile info needs a fix — ${member.name}`
               )}`}
               target="_blank"
               rel="noreferrer"
@@ -428,7 +428,7 @@ export function ProfileView({
       ) : null}
 
       {/* system feedback moved here from the sidebar (v21) — the sidebar's
-          "LC Feedback" is about PEOPLE; this one is about Elevate itself */}
+          "LC Feedback" is about PEOPLE; this one is about Sodio itself */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
@@ -438,7 +438,7 @@ export function ProfileView({
         <CardContent className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">
             Found a bug? Want a feature? Tell the IM team — every report makes
-            Elevate better. 💙
+            Sodio better. 💙
           </p>
           <Button asChild variant="outline" size="sm">
             <Link href="/feedback">Give feedback</Link>
@@ -615,7 +615,7 @@ function AvatarDialog({
     { label: "Mint", value: "c8f7c5,b6e3f4" },
     { label: "None", value: "" },
   ];
-  const creatorUrl = buildAvatarUrl(style, seed.trim() || "Elevate", {
+  const creatorUrl = buildAvatarUrl(style, seed.trim() || "Sodio", {
     flip,
     backgroundColor: bg || undefined,
   });
@@ -630,7 +630,7 @@ function AvatarDialog({
     if (patch.flip !== undefined) setFlip(patch.flip);
     if (patch.bg !== undefined) setBg(patch.bg);
     setSelected(
-      buildAvatarUrl(next.style, next.seed.trim() || "Elevate", {
+      buildAvatarUrl(next.style, next.seed.trim() || "Sodio", {
         flip: next.flip,
         backgroundColor: next.bg || undefined,
       })
@@ -865,7 +865,7 @@ function AvatarDialog({
           <div>
             <p className="mb-2 text-xs font-semibold text-muted-foreground">Fun characters</p>
             <div className="grid grid-cols-4 gap-3 sm:grid-cols-6">
-              {/* The Blue Man — Elevate's mascot, white on the blue circle like
+              {/* The Blue Man — Sodio's mascot, white on the blue circle like
                   the floating assistant button (walk.png is non-square, so
                   object-contain, never object-cover) */}
               <button

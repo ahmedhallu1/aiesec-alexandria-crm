@@ -36,25 +36,25 @@ function buildSteps(role: string, functions: string[], subFunctions: string[], m
     return [
       {
         icon: "👋",
-        title: "Welcome to Elevate",
-        body: "Elevate is AIESEC in Alexandria's CRM. Your function's workspace isn't live yet — but your Profile, the Playbook and the Feedback page are already yours.",
+        title: "Welcome to Sodio",
+        body: "Sodio is AIESEC in Alexandria's CRM. Your function's workspace isn't live yet — but your Profile, the Playbook and the Feedback page are already yours.",
       },
       {
         icon: "✨",
         title: "Your module is on the way",
-        body: "Elevate currently covers ICX Raising (IGV · IGT · B2B & BD), B2C, OGX Sign-ups, Consideration and Talent Management. You'll get an email the moment your workspace opens. 💙",
+        body: "Sodio currently covers ICX Raising (IGV · IGT · B2B & BD), B2C, OGX Sign-ups, Consideration and Talent Management. You'll get an email the moment your workspace opens. 💙",
       },
     ];
   }
 
   // Everyone with a module starts with WHAT THE SYSTEM IS — before any tab or
-  // button makes sense, you need the one-paragraph version of what Elevate
+  // button makes sense, you need the one-paragraph version of what Sodio
   // does and why anything you type here matters.
   const steps: TourStep[] = [
     {
       icon: "\u{1F499}",
-      title: "What Elevate is",
-      body: "Elevate is AIESEC in Alexandria's own CRM \u2014 one place for the work the LC used to spread across a dozen Google Sheets. You log what you actually do; Elevate turns it into the pipeline, the numbers, the reminders and the reports your leaders read. Nothing here is busywork: every number on every dashboard is built from these entries.",
+      title: "What Sodio is",
+      body: "Sodio is AIESEC in Alexandria's own CRM \u2014 one place for the work the LC used to spread across a dozen Google Sheets. You log what you actually do; Sodio turns it into the pipeline, the numbers, the reminders and the reports your leaders read. Nothing here is busywork: every number on every dashboard is built from these entries.",
     },
     {
       icon: "\u{1F9ED}",
@@ -113,12 +113,12 @@ function buildSteps(role: string, functions: string[], subFunctions: string[], m
       {
         icon: "📞",
         title: "The golden rule",
-        body: "Log every attempt, and every account carries a next step with a date — or a scheduled visit. Nothing is allowed to float. 3 attempts with no answer → Elevate asks you to archive it. \"Not interested\" archives it on the spot.",
+        body: "Log every attempt, and every account carries a next step with a date — or a scheduled visit. Nothing is allowed to float. 3 attempts with no answer → Sodio asks you to archive it. \"Not interested\" archives it on the spot.",
       },
       {
         icon: "🗓️",
         title: "Visits & reminders",
-        body: "Schedule a visit and it lands on the responsible member's Google Calendar with reminders 24h and 1h before (sign in with Google once to enable that). Your TL and VP are invited, and the whole raising crew is notified. After the visit, report it — if you forget, Elevate chases you at +2h and again a week later.",
+        body: "Schedule a visit and it lands on the responsible member's Google Calendar with reminders 24h and 1h before (sign in with Google once to enable that). Your TL and VP are invited, and the whole raising crew is notified. After the visit, report it — if you forget, Sodio chases you at +2h and again a week later.",
       },
       {
         icon: "🗄️",
@@ -248,7 +248,7 @@ function buildSteps(role: string, functions: string[], subFunctions: string[], m
   steps.push({
     icon: "💙",
     title: "This system is built for YOU",
-    body: "Anything broken? Any idea? The Feedback card on your Profile goes straight to the IM team — every report makes Elevate better and more reliable for you.",
+    body: "Anything broken? Any idea? The Feedback card on your Profile goes straight to the IM team — every report makes Sodio better and more reliable for you.",
   });
   return steps;
 }

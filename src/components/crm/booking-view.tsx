@@ -302,7 +302,7 @@ function BookingFooter() {
   return (
     <>
       <p className="mt-4 text-center text-xs text-muted-foreground">
-        Powered by Elevate · AIESEC in Alexandria
+        Powered by Sodio · AIESEC in Alexandria
       </p>
       <BookingCredit />
     </>

@@ -57,8 +57,8 @@ function markFirstLogin(member: Member) {
         notifyMembers(
           [member.id],
           "welcome",
-          "Welcome to Elevate 🎉",
-          "Elevate is yours — the Blue Man walks beside you from here."
+          "Welcome to Sodio 🎉",
+          "Sodio is yours — the Blue Man walks beside you from here."
         )
       );
     });
@@ -160,8 +160,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             notifyMembers(
               [member.id],
               "welcome",
-              "Welcome to Elevate 🎉",
-              "Elevate is yours — the Blue Man walks beside you from here."
+              "Welcome to Sodio 🎉",
+              "Sodio is yours — the Blue Man walks beside you from here."
             )
           );
         }

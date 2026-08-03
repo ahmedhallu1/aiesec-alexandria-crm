@@ -112,7 +112,7 @@ export function PendingPrompt() {
           </Button>
         </DialogFooter>
         <p className="text-center text-[11px] text-muted-foreground">
-          One postponement a day — after that Elevate asks again. 💙
+          One postponement a day — after that Sodio asks again. 💙
         </p>
       </DialogContent>
     </Dialog>

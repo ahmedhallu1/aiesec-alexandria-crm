@@ -28,7 +28,7 @@ export function emailLayout(opts: { preheader?: string; body: string }): string 
         </tr>
         <tr>
           <td style="padding:20px 32px;color:#5c6b80;font-size:12px;text-align:center;line-height:1.7;">
-            Sent automatically by Elevate · AIESEC in Alexandria ·
+            Sent automatically by Sodio · AIESEC in Alexandria ·
             <a href="${env.appUrl}" style="color:#037EF3;text-decoration:none;font-weight:bold;">Open the CRM</a><br>
             <span style="color:#93a5bc;">This system is built for you — reply with feedback anytime. 💙</span>
           </td>
@@ -41,7 +41,7 @@ export function emailLayout(opts: { preheader?: string; body: string }): string 
 }
 
 /** The layout for emails that leave the LC — IRs abroad booking calls (v29).
- *  They are not Elevate users: never mention the CRM, never link into it. */
+ *  They are not Sodio users: never mention the CRM, never link into it. */
 export function externalEmailLayout(opts: { preheader?: string; body: string }): string {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -66,7 +66,7 @@ export function externalEmailLayout(opts: { preheader?: string; body: string }):
         </tr>
         <tr>
           <td style="padding:20px 32px;color:#5c6b80;font-size:12px;text-align:center;line-height:1.7;">
-            Sent by Elevate · AIESEC in Alexandria
+            Sent by Sodio · AIESEC in Alexandria
           </td>
         </tr>
       </table>
@@ -183,12 +183,12 @@ export function welcomeEmail(member: {
             };
 
   return {
-    subject: "Welcome to Elevate 🎉",
+    subject: "Welcome to Sodio 🎉",
     html: emailLayout({
       preheader: "Your CRM access is ready",
       body: `
         <h1 style="margin:0 0 16px;font-size:22px;color:#0A2540;">Welcome aboard, ${escapeHtml(first)}!</h1>
-        <p>Your account on <b>Elevate</b> — the CRM of AIESEC in Alexandria — is active. ${workspace.intro}</p>
+        <p>Your account on <b>Sodio</b> — the CRM of AIESEC in Alexandria — is active. ${workspace.intro}</p>
         <p style="border-left:4px solid #037EF3;background:#f0f7ff;border-radius:0 8px 8px 0;padding:12px 16px;font-weight:600;">
           ${escapeHtml(workspace.blurb)}
         </p>
@@ -403,19 +403,19 @@ export function newPasswordEmail(opts: {
   password: string;
 }) {
   return {
-    subject: "🔑 Your new Elevate password",
+    subject: "🔑 Your new Sodio password",
     html: emailLayout({
       preheader: "Sign in with this password — you can change it anytime",
       body: `
         <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Here you go, ${escapeHtml(opts.memberFirstName)} 🔑</h1>
-        <p>You asked for a new Elevate password. Use this one to sign in:</p>
+        <p>You asked for a new Sodio password. Use this one to sign in:</p>
         <p style="margin:20px 0;text-align:center;">
           <span style="display:inline-block;background:#f0f7ff;border:2px dashed #037EF3;border-radius:12px;padding:14px 26px;font-family:Consolas,Menlo,monospace;font-size:20px;font-weight:bold;letter-spacing:1px;color:#0A2540;">${escapeHtml(opts.password)}</span>
         </p>
         <p>Your old password (if you had one) still works too — nothing breaks
         until <i>you</i> change it. You can set a password you'll remember from
         <b>Profile → Change password</b>.</p>
-        ${button("Sign in to Elevate", `${env.appUrl}/login`)}
+        ${button("Sign in to Sodio", `${env.appUrl}/login`)}
         <p style="color:#5c6b80;font-size:13px;">Didn't request this? You can ignore it — your old password keeps working.</p>`,
     }),
   };
@@ -454,7 +454,7 @@ export function moduleReadyEmail(opts: {
       body: `
         <h1 style="margin:0 0 16px;font-size:22px;color:#0A2540;">It's live, ${escapeHtml(opts.memberFirstName)}! 🎉</h1>
         <p>Your <b>${escapeHtml(opts.functions.join(" & ") || "AIESEC")}</b> workspace on the
-        <b>Elevate</b> is ready to use.</p>
+        <b>Sodio</b> is ready to use.</p>
         <ul style="margin-top:8px;">
           <li><b>Sign in</b> with your AIESEC email — first time, any password works, then you set your own.</li>
           <li><b>Add your accounts</b> (or import a whole sheet of market research).</li>
@@ -472,7 +472,7 @@ export function feedbackThanksEmail(opts: {
   feedbackSnippet: string;
 }) {
   return {
-    subject: "Your feedback just made Elevate better 💙",
+    subject: "Your feedback just made Sodio better 💙",
     html: emailLayout({
       preheader: "Thank you from the IM team",
       body: `
@@ -481,8 +481,8 @@ export function feedbackThanksEmail(opts: {
         <p style="border-left:4px solid #0CB9C1;background:#f0fdfd;border-radius:0 8px 8px 0;padding:12px 16px;font-style:italic;">
           "${escapeHtml(opts.feedbackSnippet)}"
         </p>
-        <p>Elevate is built for you, by you — keep it coming. 💙</p>
-        ${button("Open Elevate", env.appUrl)}`,
+        <p>Sodio is built for you, by you — keep it coming. 💙</p>
+        ${button("Open Sodio", env.appUrl)}`,
     }),
   };
 }
@@ -568,7 +568,7 @@ export function accountsAssignedEmail(opts: {
   return {
     subject: `📋 ${opts.managerName} assigned you ${n} account${n === 1 ? "" : "s"}`,
     html: emailLayout({
-      preheader: `${n} account${n === 1 ? "" : "s"} just landed on your plate — open Elevate and start raising`,
+      preheader: `${n} account${n === 1 ? "" : "s"} just landed on your plate — open Sodio and start raising`,
       body: `
         <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Fresh accounts for you 📋</h1>
         <p>Hey ${escapeHtml(opts.memberName)} — <b>${escapeHtml(opts.managerName)}</b> just made you
@@ -597,8 +597,8 @@ export function broadcastEmail(opts: {
       body: `
         <h1 style="margin:0 0 16px;font-size:22px;color:#0A2540;">${escapeHtml(opts.title)}</h1>
         <p style="white-space:pre-wrap;">${escapeHtml(opts.body)}</p>
-        <p style="color:#5c6b80;font-size:13px;">— ${escapeHtml(opts.senderName)}, via Elevate</p>
-        ${button("Open Elevate", env.appUrl)}`,
+        <p style="color:#5c6b80;font-size:13px;">— ${escapeHtml(opts.senderName)}, via Sodio</p>
+        ${button("Open Sodio", env.appUrl)}`,
     }),
   };
 }
@@ -840,7 +840,7 @@ export function irCallBookedEmail(opts: {
       preheader: `${opts.partnerLc} booked an IR call with you — ${opts.whenLabel}.`,
       body: `
         <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">An IR call just landed on your calendar, ${escapeHtml(opts.memberFirstName)} 🌍</h1>
-        <p>Someone abroad picked a slot on your Elevate booking link:</p>
+        <p>Someone abroad picked a slot on your Sodio booking link:</p>
         ${detailsTable([
           ["Partner LC", opts.partnerLc],
           ["Country", opts.country],
@@ -896,7 +896,7 @@ export function irBookingConfirmEmail(opts: {
         <p>Plans changed? You can move or cancel this call yourself — no
         account needed:</p>
         ${button(opts.rescheduled ? "Manage this booking" : "Reschedule or cancel", opts.manageUrl)}
-        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">All times are Cairo time (GMT+2/+3). Booked through Elevate — AIESEC in Alexandria.</p>`,
+        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">All times are Cairo time (GMT+2/+3). Booked through Sodio — AIESEC in Alexandria.</p>`,
     }),
   };
 }
@@ -982,7 +982,7 @@ export function irCallCancelledByMemberEmail(opts: {
         ${button("Book a new time", opts.bookingUrl)}`
             : `<p>Reach back out to them to line up a new time.</p>`
         }
-        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">All times are Cairo time (GMT+2/+3). Sent via Elevate — AIESEC in Alexandria.</p>`,
+        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">All times are Cairo time (GMT+2/+3). Sent via Sodio — AIESEC in Alexandria.</p>`,
     }),
   };
 }
@@ -1016,7 +1016,7 @@ export function irRescheduleRequestEmail(opts: {
         <p>Pick whichever new time suits you from their live availability — it
         takes a few seconds and the current time stays booked until you do:</p>
         ${button("Pick a new time", opts.manageUrl)}
-        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">All times are Cairo time (GMT+2/+3). Sent via Elevate — AIESEC in Alexandria.</p>`,
+        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">All times are Cairo time (GMT+2/+3). Sent via Sodio — AIESEC in Alexandria.</p>`,
     }),
   };
 }
