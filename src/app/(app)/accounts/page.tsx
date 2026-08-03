@@ -1,6 +1,6 @@
 import {
   getViewer, listAccountsPage, listManualArchived, listVisibleMembers,
-  listReassignTargetsForViewer,
+  listReassignTargetsForViewer, listTeamLeaders,
 } from "@/server/data";
 import type { AccountFilters } from "@/server/data";
 import {
@@ -56,6 +56,7 @@ export default async function AccountsPage({
     dir: params.dir === "asc" ? "asc" : params.dir === "desc" ? "desc" : undefined,
     // the Responsible filter — "none" = unassigned (imported market research)
     responsibleId: params.resp || undefined,
+    teamId: params.team || undefined,
     archived,
   };
 
@@ -123,6 +124,10 @@ export default async function AccountsPage({
         ],
       }))}
       respOptions={respOptions}
+      teamOptions={(await listTeamLeaders(viewer)).map((t) => ({
+        id: t.id,
+        label: t.team_name || `Team ${t.nickname || t.name}`,
+      }))}
       viewer={{
         id: viewer.id,
         name: viewer.nickname || viewer.name,
@@ -160,6 +165,7 @@ export default async function AccountsPage({
         stage: params.stage ?? "",
         lastStatus: params.lastStatus ?? "",
         resp: params.resp ?? "",
+        team: params.team ?? "",
         sub: params.sub ?? "",
         sort: params.sort ?? "",
         dir: params.dir ?? "",

@@ -1427,15 +1427,10 @@ export async function teamsForViewer(viewer: Viewer): Promise<{ label: string; n
   const onEb = viewer.isAdmin || viewer.role === "LCP" || viewer.role === "LCVP";
   const isManager =
     viewer.isAdmin || ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(viewer.role);
-  // EVERY function the member carries, not just the ICX ones (v32.6) — a B2C,
-  // OGX, TM, CXP or F&L member belongs to their function's team exactly like
-  // an IGV one does. B2B and BD are one crew, so either label lands on B2B.
-  const fns = [
-    ...new Set([
-      ...viewer.functions.filter((f) => f !== "B2B" && f !== "BD"),
-      ...(isB2B(viewer) ? ["B2B"] : []),
-    ]),
-  ];
+  // EVERY function the member carries, as the sheet spells it (v32.7). B2B and
+  // BD share a membership today but are separate functions and may split in a
+  // future peak, so a BD member joins the BD teams — not B2B's.
+  const fns = [...new Set(viewer.functions.filter(Boolean))];
 
   if (onEb) push("Executive Board", byKey.get("EB:"));
   if (isManager) push("Leadership Body", byKey.get("LB:"));
