@@ -6064,3 +6064,13 @@ export async function deleteTimeline(id: string): Promise<ActionResult> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return deleteRoutine(id) as any;
 }
+
+/** The viewer's next working-hours session — powers the "Next working hours"
+ *  next-step button (v33). */
+export async function getNextWorkingHours(): Promise<
+  ActionResult<{ id: string; startsAt: string; label: string } | null>
+> {
+  const viewer = await getViewer();
+  const { nextWorkingHoursFor } = await import("./data");
+  return { ok: true, data: await nextWorkingHoursFor(viewer) };
+}

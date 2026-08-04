@@ -737,16 +737,13 @@ export function AccountsView({
         const all = row.comments_all ?? [];
         if (all.length === 0) return "—";
         const newestFirst = [...all].reverse();
-        const full = newestFirst
-          .map((c) => `${c.author ?? "?"} · ${c.at.slice(0, 10)}\n${c.body}`)
-          .join("\n\n");
+        // just the comments themselves — who said it and when is detail that
+        // belongs in the account's Comments card, not in a scanning column
+        const full = newestFirst.map((c) => c.body).join("\n\n");
         return (
           <span dir="auto" title={full} className="block max-w-[26rem] space-y-0.5">
             {newestFirst.slice(0, 3).map((c, i) => (
               <span key={i} className="block truncate leading-tight">
-                <span className="text-[10px] font-medium opacity-60">
-                  {c.author ?? "?"}:{" "}
-                </span>
                 {c.body}
               </span>
             ))}
