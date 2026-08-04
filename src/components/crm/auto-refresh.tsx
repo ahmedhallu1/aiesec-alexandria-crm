@@ -19,30 +19,32 @@ import { Hint } from "./hint";
  *  nobody watches second-by-second, and the FOCUS refresh below means coming
  *  back to the tab is always instant and current — which is when staleness is
  *  actually noticed. */
-const INTERVAL_MS = 180_000;
 const MIN_GAP_MS = 20_000;
 
 export function AutoRefresh() {
   const router = useRouter();
-  const lastRef = useRef(Date.now());
+  // 0 = never refreshed yet; seeded inside the effect, not during render
+  const lastRef = useRef(0);
 
   useEffect(() => {
+    if (lastRef.current === 0) lastRef.current = Date.now();
     const refresh = () => {
       if (Date.now() - lastRef.current < MIN_GAP_MS) return;
       lastRef.current = Date.now();
       router.refresh();
     };
+    // FOCUS-DRIVEN ONLY. Background polling is what ate the quota: an idle tab
+    // nobody was looking at re-rendered the whole page — and the dashboard
+    // render reads the LC's entire account table — every 30 seconds, forever.
+    // Refreshing when someone actually returns to the tab gives the same
+    // freshness where it is perceived, and costs nothing while they're away.
     const onFocus = () => refresh();
     const onVisible = () => {
       if (document.visibilityState === "visible") refresh();
     };
-    const timer = setInterval(() => {
-      if (document.visibilityState === "visible") refresh();
-    }, INTERVAL_MS);
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
-      clearInterval(timer);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisible);
     };

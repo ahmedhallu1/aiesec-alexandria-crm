@@ -731,20 +731,33 @@ export function AccountsView({
         ) : (
           "—"
         );
-      case "comment":
-        // the PINNED comment — the one the team deliberately raised. Shown in
-        // full on hover so a long note doesn't need the account opened.
-        return row.pinned_comment ? (
-          <span
-            dir="auto"
-            title={row.pinned_comment}
-            className="block max-w-[22rem] truncate"
-          >
-            {row.pinned_comment}
+      case "comment": {
+        // the WHOLE thread, the way a sheet would show it: newest first, each
+        // line attributed, the full text on hover. Not just the pinned one.
+        const all = row.comments_all ?? [];
+        if (all.length === 0) return "—";
+        const newestFirst = [...all].reverse();
+        const full = newestFirst
+          .map((c) => `${c.author ?? "?"} · ${c.at.slice(0, 10)}\n${c.body}`)
+          .join("\n\n");
+        return (
+          <span dir="auto" title={full} className="block max-w-[26rem] space-y-0.5">
+            {newestFirst.slice(0, 3).map((c, i) => (
+              <span key={i} className="block truncate leading-tight">
+                <span className="text-[10px] font-medium opacity-60">
+                  {c.author ?? "?"}:{" "}
+                </span>
+                {c.body}
+              </span>
+            ))}
+            {newestFirst.length > 3 ? (
+              <span className="block text-[10px] opacity-60">
+                +{newestFirst.length - 3} more — open the account
+              </span>
+            ) : null}
           </span>
-        ) : (
-          "—"
         );
+      }
       case "updated_at":
         return row.updated_at?.slice(0, 10) ?? "—";
       case "proposal":
