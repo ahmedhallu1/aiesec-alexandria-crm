@@ -5886,3 +5886,34 @@ export async function deleteCv(id: string): Promise<ActionResult> {
   refresh();
   return { ok: true };
 }
+
+// ==================================================== timelines (v32.9)
+
+export async function saveTimeline(input: {
+  id?: string | null;
+  scope: string;
+  kind: string;
+  functionKey?: string | null;
+  teamName?: string | null;
+  weekday: number;
+  time: string;
+  virtual?: boolean;
+  note?: string | null;
+  startsOn: string;
+  endsOn: string;
+}): Promise<ActionResult<{ id: string; created: number; skipped: number }>> {
+  const { saveRoutine } = await import("./touch-points");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return saveRoutine(input as any) as any;
+}
+
+export async function listTimelines(): Promise<ActionResult<unknown[]>> {
+  const { listRoutines } = await import("./touch-points");
+  return { ok: true, data: await listRoutines() };
+}
+
+export async function deleteTimeline(id: string): Promise<ActionResult> {
+  const { deleteRoutine } = await import("./touch-points");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return deleteRoutine(id) as any;
+}

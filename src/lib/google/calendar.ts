@@ -479,3 +479,115 @@ export async function deleteIrCallEvent(
     // already deleted — nothing to do
   }
 }
+
+// ==================================================== virtual touch points
+
+/** Creates the Google Calendar event behind a VIRTUAL touch point (v32.9).
+ *
+ *  The whole audience is invited, so Google sends the invite and — the point
+ *  of this — collects each person's Yes / No / Maybe on the event itself.
+ *  That RSVP is what `readEventRsvps` reads back as provisional attendance:
+ *  no second email for people to ignore, and it works with what everyone
+ *  already does with a calendar invite. */
+export async function createTouchPointEvent(
+  refreshToken: string | null,
+  input: {
+    title: string;
+    start: Date;
+    minutes: number;
+    description?: string | null;
+    attendeeEmails: string[];
+  }
+): Promise<{ id: string; meetLink: string | null } | null> {
+  if (!refreshToken || !env.googleClientId) return null;
+  const end = new Date(input.start.getTime() + input.minutes * 60_000);
+  try {
+    const res = await calendarFor(refreshToken).events.insert({
+      calendarId: "primary",
+      conferenceDataVersion: 1,
+      sendUpdates: "all",
+      requestBody: {
+        summary: input.title,
+        ...(input.description ? { description: input.description } : {}),
+        start: { dateTime: input.start.toISOString(), timeZone: LC_TIMEZONE },
+        end: { dateTime: end.toISOString(), timeZone: LC_TIMEZONE },
+        attendees: [...new Set(input.attendeeEmails.filter(Boolean))].map((email) => ({
+          email,
+        })),
+        guestsCanInviteOthers: false,
+        conferenceData: {
+          createRequest: {
+            requestId: `tp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+            conferenceSolutionKey: { type: "hangoutsMeet" },
+          },
+        },
+      },
+    });
+    const id = res.data.id;
+    if (!id) return null;
+    const meetLink =
+      res.data.hangoutLink ??
+      res.data.conferenceData?.entryPoints?.find((e) => e.entryPointType === "video")?.uri ??
+      null;
+    return { id, meetLink };
+  } catch (e) {
+    console.error("[calendar] touch-point event failed:", e);
+    return null;
+  }
+}
+
+/** Reads each invitee's RSVP off the event. `accepted` → they said yes,
+ *  `declined` → no; `tentative` and `needsAction` are left undecided so an
+ *  unanswered invite never becomes an absence by itself. */
+export async function readEventRsvps(
+  refreshToken: string | null,
+  eventId: string
+): Promise<Map<string, "yes" | "no"> | null> {
+  if (!refreshToken || !env.googleClientId || !eventId) return null;
+  try {
+    const res = await calendarFor(refreshToken).events.get({
+      calendarId: "primary",
+      eventId,
+    });
+    const out = new Map<string, "yes" | "no">();
+    for (const a of res.data.attendees ?? []) {
+      const email = (a.email ?? "").toLowerCase();
+      if (!email) continue;
+      if (a.responseStatus === "accepted") out.set(email, "yes");
+      else if (a.responseStatus === "declined") out.set(email, "no");
+    }
+    return out;
+  } catch (e) {
+    console.error("[calendar] RSVP read failed:", e);
+    return null;
+  }
+}
+
+/** Moves or cancels the event behind a touch point. */
+export async function updateTouchPointEvent(
+  refreshToken: string | null,
+  eventId: string,
+  input: { start?: Date; minutes?: number; cancel?: boolean }
+): Promise<void> {
+  if (!refreshToken || !env.googleClientId || !eventId) return;
+  try {
+    const cal = calendarFor(refreshToken);
+    if (input.cancel) {
+      await cal.events.delete({ calendarId: "primary", eventId, sendUpdates: "all" });
+      return;
+    }
+    if (!input.start) return;
+    const end = new Date(input.start.getTime() + (input.minutes ?? 60) * 60_000);
+    await cal.events.patch({
+      calendarId: "primary",
+      eventId,
+      sendUpdates: "all",
+      requestBody: {
+        start: { dateTime: input.start.toISOString(), timeZone: LC_TIMEZONE },
+        end: { dateTime: end.toISOString(), timeZone: LC_TIMEZONE },
+      },
+    });
+  } catch (e) {
+    console.error("[calendar] touch-point event update failed:", e);
+  }
+}
