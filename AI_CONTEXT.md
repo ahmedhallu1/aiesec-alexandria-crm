@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-03 · Version: v32.3
+Last updated: 2026-08-04 · Version: v33
 
 ---
 
@@ -34,7 +34,7 @@ the blueprint for future OGX/other-function modules.
 | Stack | Next.js 16 (App Router, Turbopack) · React 19 · Tailwind v4 · shadcn/ui · Supabase (Postgres, project `iesrpuuoduxtihuaqfic`) |
 | Auth | Auth.js v5: **FIRST sign-in is Google-only** (grants `calendar` + `gmail.compose`) → onboarding sets a password → afterwards **email OR phone + password**, or Google, all work. **Members with NO email yet (v24) sign in with their phone in BOTH fields** until a password is set; adding their email closes that door (Google once, then password). Deactivated members land on **/inactive**. **Forgot password emails a fresh password** (`issueTempPassword` in `server/password.ts`); the old password still works until the member changes it (no lockouts) |
 | Google | Service account (Sheets sync) · Gmail API from `ahmedhallul@aiesec.net` · Calendar events on each member's own calendar |
-| Cron | Supabase `pg_cron` + `pg_net` → `/api/cron/*` (visit-followups 15 min · membership-import 30 min · sheets-export hourly · goal-reminders daily 06:00 UTC · signups-import 15 min · podio-updates daily 05:00 · period-reports daily 07:00 · streak-nags daily 17:00 UTC) |
+| Cron | Supabase `pg_cron` + `pg_net` → `/api/cron/*`, **9 jobs** (visit-followups 15 min · signups-import 15 min · membership-import 30 min · sheets-export hourly :05 · **backup daily 02:00 UTC** · podio-updates daily 05:00 · period-reports daily 07:00 · streak-nags daily 16:00 · attendance-reminders daily 20:59) |
 | Admin | `ADMIN_EMAILS` env (= IM director, treated as LCP) |
 
 **Migrations** live in `supabase/migrations/` and are run **manually** in the
@@ -45,7 +45,10 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0020_name_worlds` → `0021_podio_updates_all_fns_email_optional` →
 `0022_team_registry` → `0023_email_unique_fix_phone_identity` →
 `0024_function_leaders_type` → `0025_ogx_signups` → … → `0032_ir_booker_role` →
-`0033_change_journal_lc_test` (**NOT YET APPLIED** — run it in the SQL editor).
+`0033_change_journal_lc_test` → `0033_touch_point_announced` →
+`0034_bd_service_world` → `0035_ir_booker_phone` →
+`0036_virtual_touch_points_and_routines` → `0037_admin_member_role`
+(**all applied**, 0033–0037 during v33).
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
@@ -541,6 +544,9 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | Change journal / undo / LC test session | `src/server/sandbox.ts` · `startLcTestSession`/`stopLcTestSession`/`undoAuditEntries` in `actions.ts` · `/admin` |
 | Stale plans when membership changes | `stillPlans`/`prunePlansForMember`/`pruneStalePlans` in `data.ts` |
 | First-run walkthrough | `buildSteps` in `tour.tsx` (bump `crm-tour-v*` to re-show it) |
+| Nightly backup (tables, retention, destinations) | `src/server/backup.ts` · `/api/cron/backup` |
+| Security headers / CSP | `next.config.ts` |
+| Tests | `tests/*.test.ts` (Vitest — `npm test`) |
 | Feedback categories | `FEEDBACK_CATEGORIES` in `types.ts` |
 | LC people feedback | `submitLcFeedback` in `actions.ts` · `lc-feedback-view.tsx` · inbox via `listLcFeedback` |
 
@@ -548,6 +554,15 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 
 ## 9. Pending / operational notes
 
+- **BACKUPS (v33)**: nightly at 02:00 UTC into the private Supabase bucket
+  `backups` (30 days, gzipped ~1.2 MB each) + a gzipped copy emailed to the IM
+  mailbox. Restore = create the schema from `supabase/migrations/`, gunzip the
+  dump, insert each array under `data.<table>`. **Storage buckets (contracts,
+  cvs) are NOT backed up** — they are files, not rows. Health page shows the
+  last run; a failed run returns 500 and logs `[backup] FAILED`.
+- **The `xlsx` high-severity advisory has no upstream fix.** Parsing is
+  client-side on a file the member chose, so the blast radius is that member's
+  own browser. Revisit if SheetJS ever ships a patched release.
 - **All migrations 0001–0017 are RUN** (0001–0015 verified live 2026-07-16;
   0016 applied 2026-07-18; **0017_planning_lcfeedback_testmode applied
   2026-07-21 via the Supabase MCP** — plan_cells, mm_plans, feedback.category,
@@ -595,6 +610,110 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-04 · v33** — **THE HARDENING RELEASE: an audit, a test suite, and
+  the first real backups.** Migrations **0033–0037 all applied**.
+  ① **BACKUPS EXIST** (`src/server/backup.ts` + `/api/cron/backup`, pg_cron
+  02:00 UTC). Supabase's free tier has **no automated backups at all** — losing
+  the database meant losing every account, member, deal and comment,
+  permanently. The job dumps all **27 data tables** (19k rows, gzipped to
+  ~1.2 MB) to the private `backups` bucket keeping **30 days**, AND emails a
+  gzipped copy to the IM mailbox — a backup living only inside the thing it
+  backs up is not a backup. It is LOGICAL (rows, not schema): restore = run the
+  migrations, insert the arrays. Drive was the intended home and **cannot**
+  work — the service account has no storage quota of its own and the app's
+  Google token carries mail scope only. A table that doesn't exist yet is
+  recorded and skipped rather than sinking the run; a failure returns **500**,
+  because this is the one job whose silent failure is indistinguishable from
+  success until the day you need it. `sendEmail` learned attachments
+  (multipart/mixed) to carry the off-site copy.
+  ② **SECURITY & RELIABILITY AUDIT** (`SECURITY_RELIABILITY_AUDIT.md` — 16
+  findings, architecture, threat model, verification, manual actions).
+  **Dependencies**: 2 critical + 5 high → 0 critical / 1 high. The serious one
+  was a **middleware/proxy bypass** in Next's App Router (16.2.10 → 16.3.0) —
+  `src/proxy.ts` is this app's ONLY route guard, so every authenticated page
+  sat behind the vulnerable component. `@auth/core`/`next-auth` patched too.
+  `xlsx`'s high has NO upstream fix (client-side parsing of a file the member
+  chose) — documented, not silently ignored. **Headers**: production had none
+  but HSTS; now a **full CSP** with every host enumerated from the source
+  (dicebear + googleusercontent, supabase.co, googleapis/generativelanguage,
+  podio.com, core.aiesec.org.eg, docs.google.com), plus frame-ancestors 'none',
+  nosniff, Referrer-Policy (account slugs live in URLs), Permissions-Policy,
+  no-store on app routes, `poweredByHeader:false`. `script-src` deliberately
+  keeps 'unsafe-inline' — Next injects inline bootstrap/hydration and threading
+  a nonce through middleware is exactly the mistake that white-screens the CRM
+  for 70 people; `object-src 'none'`, `base-uri 'self'` and `form-action
+  'self'` still close plugin injection, base-tag hijacking and form
+  exfiltration. **Uploads** (contracts + CVs) took ANY file type: active
+  content and executables are now rejected, checking the LAST extension so
+  `cv.pdf.html` can't slip through (a denylist by design — the legitimate set
+  is open-ended and an allowlist would push people back to WhatsApp).
+  **/robots.txt** redirected to /login, so a private CRM holding member PII
+  gave crawlers no directive; now `Disallow: /`.
+  ③ **THE REPO HAS TESTS** — 58, exercising the real functions, no mocks
+  (Vitest). `tests/rbac.test.ts` (35) guards the engine every read and mutation
+  passes through and which **nothing protected until now**: scope isolation,
+  IDOR (an owned account is never claimable; an archived one is world-readable,
+  never world-writable), lane isolation, oversight-is-not-authority, the
+  IGT-only CV pool, B2C/BD isolation, the admin capability split.
+  `tests/validation.test.ts` (23) feeds the real parsers hostile input —
+  invisible-character phones, header injection, `javascript:`/`data:` URLs,
+  path traversal through `accountSlug`, Podio's third-party JSON.
+  `parseSearchResults` was extracted from podio.ts so the live path is
+  testable, and its safety property asserted: unusable input returns **null**
+  (→ "unknown"), never a confident "not on Podio".
+  ④ **HOSTING QUOTA** — the project hit **97.5%** of the Hobby Fluid Active CPU
+  allowance. `AutoRefresh` polled every 30s per open tab and a dashboard render
+  reads the whole ~3,800-row account table: forty tabs open ≈ 115k renders a
+  month redrawing numbers that hadn't changed. **Background polling is gone**;
+  refresh happens on focus/visibility, which is when staleness is actually
+  perceived, and costs nothing while a tab idles.
+  ⑤ **NICKNAMES REMOVED** everywhere (two members sharing "Farah" made the
+  responsible, manager and leaderboard columns ambiguous exactly where it
+  mattered). The prerequisite shipped with it: **the membership import reads by
+  HEADER NAME, not column position** — deleting the Nickname column used to
+  shift Email into its slot and Phone into Email's, for all 77 members, twice
+  an hour, with no error. Headers are matched loosely and the import **aborts
+  loudly** if Name plus an email or phone can't be found.
+  ⑥ **Admin is a capability, not a rank** (0037): `"Admin"` is a real role AND
+  a sub-function — `canUseAdminTools` grants the tools without granting the
+  whole LC, so a VP who also keeps the system running keeps exactly their own
+  modules. Multi-value Role cells ("LCVP, Admin") parse properly; before this
+  they imported as **Member**.
+  ⑦ **Virtual touch points + Routines** (0036): meetings can be virtual with a
+  real Meet link and **RSVP-driven attendance** read back from Google Calendar;
+  the switch appears for MEETINGS ONLY (working hours are people sitting and
+  working; an outing is by definition somewhere). "Timeline" is renamed
+  **Routine** — the builder creates a whole peak's touch points up front.
+  ⑧ **BD is its own world** (0034) — its own dashboard, visible to BD only, no
+  longer folded into B2B. **Standing teams derive from the membership** rather
+  than being registered by hand. **Cross-function claiming**: an unowned market
+  research account can be claimed by anyone with create rights, in any
+  function. **IR booking takes a phone with country code** (0035) + a WhatsApp
+  button, and IR-facing mail stops leaking the internal CRM link.
+  ⑨ **Column filters everywhere** (the general rule, not just accounts), quick
+  actions are a mandatory column, and the **Comment column** shows the comments
+  themselves (the first version joined `members!author_id` when the column is
+  `member_id` — PostgREST rejected the query, the error was swallowed, every
+  row rendered "—"). **Hotlines** (5-digit Egyptian short codes like 16123) are
+  valid numbers, stored as dialled, never WhatsApp-tagged — and neither are
+  landlines. A **contact-logged-as-a-comment nudge** recognises a contact
+  result as it's typed (English and Arabic) and offers to log it properly: a
+  nudge, never a block, because guessing wrong must not cost someone their
+  note. **"Next working hours"** sets the next step to the viewer's next booked
+  session. The **3-contact-limit flag** is retired for **"🔎 Needs Podio
+  checking"** — a queue someone can act on. The **sidebar collapses** to an
+  icon rail from a "Collapse" row at the foot of the nav.
+  ⑩ **The login error was invisible** — `text-destructive` on
+  `bg-destructive/10` painted as a solid red block on mobile, so a member whose
+  AIESEC email had just landed saw a blank red panel instead of "sign in with
+  Google once". Fixed with explicit light/dark tokens. **The Blue Man** stops
+  answering English questions in Arabic and stops declining questions it can
+  actually answer. **LB launch drafts** — one letter per ROLE, tailored, into
+  the IM Gmail as drafts, never a localhost link.
+  ⑪ **Ops**: `attendance-reminders` was still firing at
+  `elevate-alex.vercel.app`, the alias **removed in v32.1** — it had been
+  hitting a dead domain since; repointed at sodio.vercel.app.
 
 - **2026-08-03 · v32.3** — **SIMPLER FORMS, COLUMN FILTERS, A REAL WALKTHROUGH.**
   ① **Add-account form slimmed**: the Function picker is hidden for anyone with

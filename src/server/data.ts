@@ -2324,6 +2324,7 @@ export async function getSystemHealth(): Promise<SystemHealth> {
     { key: "period-reports", label: "Period reports", note: "daily 07:00 UTC (fires on sprint/month/quarter ends)" },
     { key: "streak-nags", label: "OGV streak nags", note: "daily 16:00 UTC (19:00 Cairo)" },
     { key: "attendance-reminders", label: "Attendance reminders", note: "daily 21:00 UTC" },
+    { key: "backup", label: "Nightly backup", note: "daily 02:00 UTC (04:00 Cairo)" },
   ];
   const crons: SystemHealth["crons"] = [];
   try {

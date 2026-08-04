@@ -80,3 +80,13 @@ select cron.schedule(
   '59 20 * * *',
   $$ select net.http_get(url := '<APP_URL>/api/cron/attendance-reminders?key=<CRON_SECRET>') $$
 );
+
+-- THE NIGHTLY BACKUP (v33). Supabase's free tier has no automated backups at
+-- all, so this job is the only thing between a lost database and losing the
+-- LC's year. Dumps every table, gzipped, into the private `backups` bucket
+-- (30 days) and emails an off-site copy to the IM mailbox.
+select cron.schedule(
+  'backup',
+  '0 2 * * *',
+  $$ select net.http_get(url := '<APP_URL>/api/cron/backup?key=<CRON_SECRET>') $$
+);
