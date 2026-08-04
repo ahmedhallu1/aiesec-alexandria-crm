@@ -272,6 +272,9 @@ export interface Member {
   photo_url: string | null;
   /** chosen fun avatar — wins over the Google photo when set */
   avatar_url: string | null;
+  /** v33.2 — this person holds the LC's Podio access, so they may set an
+   *  account's Request State like an MM. A capability, not a rank. */
+  has_podio?: boolean | null;
 }
 
 /** Session key for members WITHOUT an AIESEC email (v24): their JWT "email"

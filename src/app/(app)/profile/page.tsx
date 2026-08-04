@@ -2,6 +2,7 @@ import {
   getRealViewer, getViewer, listViewAsTargets, mmPlanForProfile, profilePeople,
   teamsForViewer, tlPlanForProfile,
 } from "@/server/data";
+import { canUseAdminTools } from "@/lib/rbac";
 import { db } from "@/lib/supabase";
 import { ProfileView } from "@/components/crm/profile-view";
 
@@ -17,7 +18,12 @@ export default async function ProfilePage() {
     activeId: string | null;
     members: { id: string; label: string; role: string; functions: string }[];
   } | null = null;
-  if (real.isAdmin) {
+  // v33.2: the test view follows the admin CAPABILITY, like the Health page —
+  // "Admin" in the Role or Sub Function column, not just ADMIN_EMAILS. The
+  // server action was already gated on canUseAdminTools; only this picker
+  // still asked for the env list, so a capability-admin had the tools but no
+  // way to reach them.
+  if (canUseAdminTools(real)) {
     viewAs = {
       activeId: viewer.impersonated ? viewer.id : null,
       members: (await listViewAsTargets()).filter((m) => m.id !== real.id),

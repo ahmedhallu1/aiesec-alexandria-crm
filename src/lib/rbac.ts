@@ -183,8 +183,28 @@ export function isClaimableAccount(v: Viewer, a: AccountLike): boolean {
   // v32.6 — CROSS-FUNCTION. An unowned account isn't "another function's": it
   // is nobody's. Whoever researched it may take it even if it sits under a
   // function they don't work, and taking it MOVES it to theirs (see
-  // `claimAccount`). Anyone who may create accounts at all can do this.
-  return allowedAccountFunctions(v).length > 0;
+  // `claimAccount`).
+  return canSeeUnassigned(v);
+}
+
+/** Who sees the UNOWNED pool at all (v33.2).
+ *
+ *  The imported market research — ~1,300 names nobody has taken — is a
+ *  DISTRIBUTION problem, and distribution is an MM's job upward. A plain
+ *  Member works the accounts they were given; burying those among a thousand
+ *  unowned ones is how a member's own list stops being a to-do list. So:
+ *  Team Leaders, Coordinators, Directors, VPs and the LCP — never Members. */
+export function canSeeUnassigned(v: Viewer): boolean {
+  if (v.role === "Member") return false;
+  return master(v) || allowedAccountFunctions(v).length > 0;
+}
+
+/** Who gets the explicit "— Unassigned" FILTER — narrower still: VPs,
+ *  Directors and the LCP. An MM meets unowned accounts inline in their list
+ *  and can take one; slicing the whole pool to hand it out is the leadership
+ *  act, and only they have people to hand it to. */
+export function canFilterUnassigned(v: Viewer): boolean {
+  return master(v) || isIcxLead(v);
 }
 
 /** Which function an account lands in when this viewer claims it. Their own
@@ -332,13 +352,47 @@ export function canEditOwnAttendanceRow(v: Viewer, tp: TouchPointRef): boolean {
    behave exactly like every other function. `canRequestPodioSubmit` went with
    it; the account page's own Request State card still covers the real need. */
 
-/** Request State (Podio) is filled by TL / Coordinator / VP — not plain members. */
+/** Request State (Podio) is filled by TL / Coordinator / VP — and by anyone
+ *  the EB has tagged **has_podio** (v33.2).
+ *
+ *  Podio access is a real thing a person either holds or doesn't: some members
+ *  do the LC's submissions themselves and were locked out of recording what
+ *  came back, while a Coordinator with no Podio login could set a state they
+ *  had no way to know. Tying the authority to the ACCESS rather than the rank
+ *  is the honest model — it's the same move as Admin in v33. A tagged member
+ *  still only touches accounts they can already edit. */
 export function canEditRequestState(v: Viewer, a: AccountLike): boolean {
   if (master(v) || (isIcxLead(v) && scopeFunctions(v).includes(a.function as AccountFunction)))
     return true;
   if (v.role === "Team Leader")
     return a.responsible_id != null && [v.id, ...v.teamMemberIds].includes(a.responsible_id);
-  return v.role === "Coordinator" && a.responsible_id === v.id;
+  if (v.role === "Coordinator" && a.responsible_id === v.id) return true;
+  return hasPodioAccess(v) && a.responsible_id === v.id;
+}
+
+/** The membership tag itself: does this person hold the LC's Podio access?
+ *  Only meaningful for the functions that submit partners at all. */
+export function hasPodioAccess(v: {
+  has_podio?: boolean | null;
+  functions?: string[] | null;
+  sub_functions?: string[] | null;
+}): boolean {
+  if (!v.has_podio) return false;
+  const own = [...(v.functions ?? []), ...(v.sub_functions ?? [])];
+  return ["IGV", "IGT", "B2B", "BD", "B2C"].some((f) => own.includes(f));
+}
+
+/** May this viewer set a Request State AS THEY CREATE an account? Same people
+ *  who could set it afterwards — asking them to save, reopen and edit was
+ *  busywork when they already know the answer (v33.2). */
+export function canSetRequestStateOnCreate(v: Viewer): boolean {
+  return (
+    master(v) ||
+    isIcxLead(v) ||
+    v.role === "Team Leader" ||
+    v.role === "Coordinator" ||
+    hasPodioAccess(v)
+  );
 }
 
 /** Numbered comments carry the author's label at the time of writing. */

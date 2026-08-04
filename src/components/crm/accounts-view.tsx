@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   AlertTriangle, Archive, Check, CheckCircle2, CheckSquare, CircleAlert,
-  FileUp, Loader2, Phone, Plus, RotateCcw, Search, Trash2, Users2, X,
+  Copy, FileUp, Loader2, Phone, Plus, RotateCcw, Search, Trash2, Users2, X,
   XCircle,
 } from "lucide-react";
 import type { PipelineRow } from "@/server/data";
@@ -63,6 +63,7 @@ interface ViewerInfo {
   role: string;
   isAdmin: boolean;
   canAssignOthers: boolean;
+  canSetRequestState: boolean;
   canViewArchive: boolean;
   /** add/import archived names — leaders only (viewing is LC-wide) */
   canManageArchive: boolean;
@@ -258,6 +259,60 @@ function PinSign({ text }: { text: string | null }) {
   );
 }
 
+
+/** A filter that is a WORKLIST: on or off, never a value you pick. */
+function FlagToggle({
+  active,
+  onClick,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <Button
+      type="button"
+      variant={active ? "default" : "outline"}
+      size="sm"
+      className="h-9"
+      aria-pressed={active}
+      onClick={onClick}
+    >
+      {label}
+    </Button>
+  );
+}
+
+/** Copies an account name to the clipboard — the Podio form wants it typed
+ *  exactly, and retyping is how "Al Safwa" becomes "Alsafwa". */
+function CopyNameButton({ name }: { name: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <Hint label={done ? "Copied" : "Copy the name for Podio"}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="size-6 shrink-0 text-muted-foreground hover:text-primary"
+        onClick={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          navigator.clipboard.writeText(name).then(
+            () => {
+              setDone(true);
+              toast.success("Name copied");
+              setTimeout(() => setDone(false), 1500);
+            },
+            () => toast.error("Couldn't copy — select the name and copy it by hand.")
+          );
+        }}
+      >
+        {done ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+      </Button>
+    </Hint>
+  );
+}
 
 /** Minimal round checkbox for the bulk-selection mode. */
 function SelectDot({ checked, onToggle }: { checked: boolean; onToggle: () => void }) {
@@ -640,6 +695,11 @@ export function AccountsView({
                 {row.name}
               </Link>
               <PinSign text={row.pinned_comment} />
+              {/* the whole point of the Podio worklist is to paste the name
+                  into the national form — so hand it over in one click */}
+              {filters.flag === "needs_podio" ? (
+                <CopyNameButton name={row.name} />
+              ) : null}
             </span>
             {viewer.seesOthers && !cols.isVisible("responsible") ? (
               <p className="text-xs text-muted-foreground">
@@ -675,7 +735,13 @@ export function AccountsView({
         );
       case "quick":
         return (
-          <div className="flex items-center gap-1.5">
+          // the WRAPPER stops propagation, not the whole cell: clicking the
+          // empty space beside these buttons should still open the account
+          // (v33.2 — "let me click anywhere on the row")
+          <div
+            className="flex w-fit items-center gap-1.5"
+            onClick={(e) => e.stopPropagation()}
+          >
             <QuickActionsLogged
               row={row}
               viewerName={viewer.name}
@@ -943,15 +1009,27 @@ export function AccountsView({
             options={teamOptions.map((t) => [t.id, t.label])}
           />
         ) : null}
+        {/* Flags are TOGGLES, not a dropdown (v33.2): there are two of them and
+            each is a worklist you switch on and clear, not an attribute you
+            pick a value for. Podio checking also hides unowned accounts —
+            nobody is going to submit a name they haven't been given. */}
         {!archived ? (
-          <FilterSelect
-            value={filters.flag} placeholder="Flags"
-            onChange={(v) => setParam("flag", v)}
-            options={[
-              ["needs_podio", "🔎 Needs Podio checking"],
-              ["next_step_missing", "🚨 No next step"],
-            ]}
-          />
+          <>
+            <FlagToggle
+              active={filters.flag === "needs_podio"}
+              onClick={() =>
+                setParam("flag", filters.flag === "needs_podio" ? "" : "needs_podio")
+              }
+              label="🔎 Needs Podio checking"
+            />
+            <FlagToggle
+              active={filters.flag === "next_step_missing"}
+              onClick={() =>
+                setParam("flag", filters.flag === "next_step_missing" ? "" : "next_step_missing")
+              }
+              label="🚨 No next step"
+            />
+          </>
         ) : null}
         {/* Date added range — one h-9 group, aligned with the other filters */}
         <div className="flex h-9 items-center gap-1.5 rounded-md border border-input bg-transparent px-2.5 dark:bg-input/30">
@@ -1228,7 +1306,7 @@ export function AccountsView({
                         className={cn("cursor-pointer", selected.has(row.id) && "bg-primary/5")}
                         onClick={() => router.push(hrefFor(row))}
                       >
-                        <TableCell onClick={(e) => e.stopPropagation()}>
+                        <TableCell>
                           <SelectDot
                             checked={selected.has(row.id)}
                             onToggle={() => toggleSelected(row.id)}
@@ -1238,7 +1316,6 @@ export function AccountsView({
                           <TableCell
                             key={c.key}
                             className={ACCOUNT_CELL_CLASS[c.key]}
-                            onClick={c.key === "quick" ? (e) => e.stopPropagation() : undefined}
                           >
                             {accountCell(row, c.key)}
                           </TableCell>
@@ -1373,6 +1450,7 @@ export function AccountsView({
         viewer={{
           id: viewer.id,
           canAssignOthers: viewer.canAssignOthers,
+          canSetRequestState: viewer.canSetRequestState,
           allowedFns: viewer.allowedFns,
         }}
         members={members}

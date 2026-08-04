@@ -24,6 +24,7 @@ export default async function MembershipPage() {
         stakeholder_name: m.stakeholder_name,
         team_name: m.team_name,
         is_active: m.is_active,
+        has_podio: m.has_podio ?? false,
         first_login_at: m.first_login_at,
         has_password: !!m.password_hash,
       }))}
