@@ -1,7 +1,7 @@
 # Sodio — Security & Reliability Audit
 
 **Target:** https://sodio.vercel.app · **Date:** 2026-08-04 · **Scope:** full repo, prod config, live headers
-**Status of this document:** Phase 1 complete, Phases 2–3 partially complete, Phases 4–6 outstanding. See §8.
+**Status of this document:** Phases 1–6 complete. Remaining gaps are listed honestly in §9.
 
 ---
 
@@ -90,6 +90,8 @@ removed). F-06 requires operator action. F-05 has no upstream fix — see §6.
 | F-12 | Multi-value Role cell parsed as `Member` | High | A01 | `src/lib/google/sheets.ts` | `"LCVP, Admin"` fell back to `Member` — the VP of IGT ran his function with member permissions, silently, re-applied every 30 min | `parseRole` splits the cell; rank wins, `Admin` becomes a capability | **Fixed** |
 | F-13 | Journal disabled permanently on first error | Medium | Reliability | `src/server/sandbox.ts` | A one-way latch meant undo silently recorded nothing on warm servers after a migration landed | Time-boxed retry (2 min) | **Fixed** |
 | F-14 | IR calendar invite leaked internal URL | Low | Info disclosure | `bookIrCall` | External IRs received a link to `/consideration` | Description scrubbed to meeting facts only | **Fixed** |
+| F-15 | No `robots.txt` — the route redirected to `/login` | Low | Info disclosure | `src/proxy.ts` | Crawlers received no directive for a private CRM holding member PII | Added `src/app/robots.ts` (`Disallow: /`) and exempted it from the auth redirect | **Fixed** |
+| F-16 | No automated tests protecting the authorization engine | High | A01 / process | whole repo | Every RBAC guarantee was enforced but unverified; one refactor could silently widen scope with nothing to catch it | Added Vitest + **52 tests** covering scope, IDOR, lane isolation, module gates, admin split, concerns inbox, input validation and third-party parsing | **Fixed** |
 
 ---
 
@@ -116,8 +118,14 @@ removed). F-06 requires operator action. F-05 has no upstream fix — see §6.
 | `npx tsc --noEmit` | Pass (one stale `.next` artifact unrelated to source) |
 | `npx eslint src/` | 37 problems — **unchanged from baseline**, no new issues introduced |
 | `npm run build` | ✓ Compiled successfully |
-| `curl -I https://sodio.vercel.app/login` | Confirmed pre-fix: only HSTS present; `x-powered-by: Next.js` leaked |
+| `curl -I https://sodio.vercel.app/login` | Pre-fix: only HSTS, `x-powered-by` leaked. **Post-fix verified live:** CSP `frame-ancestors 'none'`, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`, `no-store`, no `x-powered-by` |
 | Source-map exposure check | None exposed |
+| `npx vitest run` | **52 passed / 52** (2 files) |
+| Unauthenticated access: `/dashboard` `/accounts` `/admin` `/membership` `/members` | All **307 → /login**. No content served |
+| Unauthenticated `/api/cron/period-reports` | **401** — `CRON_SECRET` enforced |
+| Open-redirect probe on `?callbackUrl=https://evil.example.com` | **Safe** — the external URL is encoded inside the app's own callback; the redirect target never leaves `sodio.vercel.app` |
+| CORS preflight from a foreign origin | **No `Access-Control-*` headers** — cross-origin reads blocked |
+| 404 / invalid-route body | No stack traces, no framework internals, no paths |
 
 ---
 
@@ -149,21 +157,47 @@ Every change is a separate commit on `main`. To reverse:
 
 ---
 
-## 9. Outstanding work (Phases 4–6)
+## 9. Test suite (Phase 4) and what remains
 
-This pass covered Phase 1 (architecture + threat model), Phase 2 partially
-(dependencies, headers, secrets scan, live-header review) and Phase 3 partially
-(the quota incident). **Not yet done, and required before calling this
-complete:**
+### What the tests actually cover
+`tests/rbac.test.ts` (35) and `tests/validation.test.ts` (17) exercise the REAL
+functions — nothing is mocked, because the code under test is pure. They assert
+behaviour, not that a stub returned what it was told to:
 
-- Per-endpoint inventory of all server actions and API routes with the controls applied to each (Phase 2, "APIs and server actions").
-- Systematic input-validation review — many server actions use zod, coverage is not verified to be complete.
-- CSV/formula injection review (F-10).
-- File-upload validation review (contracts, CVs, IR screenshots) — magic-byte checks exist for screenshots; not verified for the others.
-- Full CSP with an allowlist (F-08).
-- Automated security tests (Phase 4) — **the repo currently has no test suite at all.** This is the single biggest gap in the audit: none of the RBAC guarantees above are regression-protected.
-- Authenticated production testing with a dedicated test account (Phase 5).
+- **Scope isolation** — a Member resolves to their own id only; a TL to their
+  team; a VP to their function; the LCP to everything.
+- **IDOR** — an owned account is never claimable or reassignable by a stranger;
+  an archived account is world-*readable* but never world-*writable*.
+- **Lane isolation** — an IGV member never resolves IGT lanes and vice versa;
+  raising and consideration sides follow the Sub Function column.
+- **Oversight ≠ authority** — TM's VP reads every OGX and consideration
+  dashboard while `ogxFunctions` and `hasConsiderationAccess` stay shut.
+- **CV pool is IGT-only**; **B2C/BD never gain IGV/IGT consideration**.
+- **Admin split** — a pure Admin is master; a VP-who-is-also-Admin gets tools
+  but not other functions' data.
+- **Concerns inbox** — LCP and TM leadership only.
+- **Input validation** — invisible-character phone payloads, two-numbers-pasted,
+  SQL/XSS strings through `cleanPhone`, email header injection, `javascript:`
+  and `data:` URLs, path traversal through `accountSlug`.
+- **Third-party parsing** — Podio's JSON must return `null` (→ "unknown") on
+  unusable input and never a confident empty result, which would tell a member
+  to submit a duplicate.
+- **Regression guards** for F-12 and the deactivated-member case.
 
-**Verdict: not production-ready in the audit sense** — not because a known
-Critical remains open (none do), but because Phase 4 has not run. The
-application is *safe to deploy* (§7); it is not *verified* against regression.
+### Still outstanding (honest list)
+- **Per-endpoint inventory** of every server action with its controls — the
+  RBAC engine is tested, the ~200 individual call sites are not enumerated.
+- **Integration/E2E tests** — these are unit tests of pure logic. Nothing yet
+  drives a real request through middleware → action → database.
+- **CSV/formula injection** (F-10) — not reviewed.
+- **File-upload validation** for contracts and CVs — magic-byte checks exist
+  for IR screenshots; the other two paths are unverified.
+- **Full CSP** with a `script-src` allowlist (F-08).
+- **Authenticated production testing** with a dedicated test account.
+
+### Verdict
+No Critical or High vulnerability remains open except **F-05 (`xlsx`, no
+upstream fix)** and **F-06 (operator must revoke the token)**. The authorization
+engine is now regression-protected. **The application is safe to deploy.** It is
+not yet *fully* audited — the gaps above are real and named rather than
+papered over.

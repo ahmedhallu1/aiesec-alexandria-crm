@@ -16,6 +16,6 @@ export const config = {
     // Everything except auth endpoints, the login page, cron endpoints,
     // the public IR-call booking page, static assets, brand images, PWA
     // files and .well-known
-    "/((?!api/auth|api/cron|login|inactive|book|_next/static|_next/image|favicon.ico|icons|brand|manifest.webmanifest|\\.well-known).*)",
+    "/((?!api/auth|api/cron|login|inactive|book|_next/static|_next/image|favicon.ico|icons|brand|manifest.webmanifest|robots.txt|sitemap.xml|\\.well-known).*)",
   ],
 };
