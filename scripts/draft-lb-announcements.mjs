@@ -4,7 +4,9 @@
  * These people already know what Sodio is. They sat through the session. So
  * this is NOT a tutorial: it's the "it's live, it's yours, here's your lever"
  * email — short, specific to the person, and a bit funny. The EB gets a
- * different letter from the MMs, because their lever is different.
+ * EVERY ROLE gets its own letter — the LCP does not read a VP's email, a
+ * Coordinator does not read a Team Leader's. Re-running REPLACES the previous
+ * drafts to the same people rather than piling up duplicates.
  *
  * NOTHING IS SENT. Every message lands in the sender's Drafts folder to be
  * read and sent by hand.
@@ -50,7 +52,14 @@ const SENDER = get("GMAIL_SENDER");
 const SENDER_NAME = get("GMAIL_SENDER_NAME") || "Sodio · AIESEC in Alexandria";
 const SUPA_URL = get("SUPABASE_URL");
 const SUPA_KEY = get("SUPABASE_SERVICE_ROLE_KEY");
-const APP_URL = (get("NEXT_PUBLIC_APP_URL") || "https://sodio.vercel.app").replace(/\/$/, "");
+// The LIVE url, always. .env.local carries localhost for dev, and a launch
+// email pointing at localhost:3000 is worse than useless — every link in it
+// would be dead for all 28 recipients.
+const RAW_URL = get("NEXT_PUBLIC_APP_URL") || "";
+const APP_URL = (/localhost|127\.0\.0\.1/.test(RAW_URL) || !RAW_URL
+  ? "https://sodio.vercel.app"
+  : RAW_URL
+).replace(/\/$/, "");
 
 // ── the LB, per the system's own rule ───────────────────────────────────────
 const LB_ROLES = ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"];
@@ -83,90 +92,243 @@ const ul = (items) =>
 const note = (html) =>
   `<div style="margin:18px 0;padding:13px 16px;background:#f0f7ff;border-left:4px solid #037EF3;border-radius:8px;font-size:14px;">${html}</div>`;
 
-// ── what's actually new, per function ───────────────────────────────────────
-const FN_LEVER = {
-  IGV: "Your lane is split properly now — <b>IGV Raising</b> and <b>IGV Consideration</b> are separate dashboards, and your people only see the side they actually work.",
-  IGT: "IGT finally reads right: <b>IGT Raising, IGTa, IGTe</b> and <b>IGT Consideration</b> are four lanes, not one blur. The CV pool is yours alone now — it's a talent hunt, not a volunteer one.",
-  OGT: "OGT sign-ups, the funnel, and the 🔥 streak board — which now covers <b>all of OGX</b>, not just OGV, and can't be gamed any more (undo a contact and the day is gone).",
-  OGV: "OGV's streak board grew up: it covers <b>all of OGX</b>, shows today's contact count next to every name, and — this is the fun part — you can see it too, not just your MMs.",
-  B2C: "B2C is its own island, the way it should be: your own lane, your own archive, and a name IGV burned no longer blocks you from selling them a course.",
-  BD: "BD has <b>its own dashboard</b> now — separate from B2B, because you sell partnerships and they raise opens, and mixing the two made both numbers meaningless.",
-  B2B: "The B2B lane is yours, and BD's numbers no longer sit on top of it.",
-  TM: "Touch points, attendance, appeals and the whole LC calendar — plus you now read <b>every</b> function's dashboard, because you review every function's people.",
-  "F&L": "You read <b>every</b> lane now — every function's funnel, money and plan, without having to ask anyone for a screenshot.",
-  CXP: "Your workspace is still on the way — but the LC-wide calendar, attendance and feedback are already yours.",
-};
+// ── what each PERSON actually got, not what their band got ─────────────────
+//
+// The first cut wrote one EB letter and one MM letter. That is how the LCP
+// ended up reading a letter about "your function" — she doesn't have one, she
+// has all of them. Every letter below is keyed on the person's actual job.
 
-const blueMan = `<b>The Blue Man</b> 🚶 got sharper this week: he answers in <i>your</i> question's language (he used to reply in Arabic to English questions — sorry), he stopped refusing things he actually has the data for, and he gives you the whole answer instead of one line.`;
+const blueMan = `<b>The Blue Man</b> 🚶 got sharper: he answers in <i>your</i> question's language (he used to reply in Arabic to English questions — sorry about that), he stopped refusing things he demonstrably has the data for, and he gives the whole answer instead of one line.`;
 
-// ── the two letters ─────────────────────────────────────────────────────────
-function ebLetter(c) {
-  const lever = FN_LEVER[c.fn] || "";
+const sign = `<p style="margin:14px 0 0;color:#5c6b80;font-size:13px;">— Ahmed, IM</p>`;
+
+/** THE LCP — the only person whose scope is the whole LC. */
+function lcpLetter(c) {
   return {
-    subject: `${c.nick}, Sodio is live — and the whole LC is watching you use it`,
-    pre: "Your function's numbers, your plan, your people — all live.",
+    subject: `${c.nick}, the whole LC is in Sodio now — every function, one screen`,
+    pre: "Every function's funnel, plan and people — without asking anyone.",
     body: `
 <p style="margin:0;">${c.nick} 👋</p>
-<p>You already know what Sodio does — you sat through the session. So no tour.
-Just this: <b>it's live, it's got your real data in it, and from here the LC
-copies whatever you do with it.</b></p>
-<p>That last part isn't flattery, it's the actual mechanic. If your MMs see you
-open the dashboard on a Tuesday, they log their contacts on a Monday. If they
-never see you in it, no feature I build will save it.</p>
-${lever ? note(lever) : ""}
-${h("What's yours specifically")}
+<p>You're the only person in the LC whose job needs <b>all of it at once</b>, so
+that's what you've got: every function's dashboard, every lane, every team —
+IGV and IGT (raising and consideration, split properly now), B2B, BD, B2C, OGT
+and OGV. No screenshots, no "can you send me the numbers", no waiting for a VP
+to be free.</p>
+${note(`The honest version: <b>you can now see which functions are actually
+logging their work and which ones are telling you a story.</b> The dashboard
+only knows what people put in it, so an empty lane means one of two things and
+both are worth a conversation.`)}
+${h("What only you have")}
 ${ul([
-  "<b>Your whole function's funnel</b> — MR → Contacted → Visits → Done → Deals → Opens, with the conversion between every step. No more asking for numbers.",
-  "<b>The plan is the goal.</b> Nobody sets targets in Sodio — your planning sheet is the target, and the dashboard tracks against it automatically.",
-  "<b>Leaderboards</b> that rank on any column you tap, and now break ties sensibly (deeper work wins).",
-  "<b>Your MMs' plans</b>, filed and visible, so a team with no plan is obvious instead of invisible.",
+  "<b>Every lane, live</b> — MR → Contacted → Visits → Done → Deals → Opens per function, with the conversion between every step, and the same numbers your VPs see.",
+  "<b>Plan vs actual across the LC.</b> Targets come from the planning sheet, not from anyone typing a nice number into Sodio — so the comparison is honest by construction.",
+  "<b>The concerns inbox.</b> A 😟 about any member reaches you and TM privately, anonymously if they choose. Nobody else can open it.",
+  "<b>Membership.</b> The sheet is still the source of truth, but you can edit people in-app and it writes back.",
 ])}
-${h("Two things worth ten minutes")}
+${h("Two levers worth using this week")}
 ${ul([
-  `<b>The calendar Timeline button.</b> Set your routine once — "function meeting every Tuesday 7pm" — and it books the whole peak in one click. Make one of them <b>virtual</b> and people's Yes/No on the invite fills in the attendance for you.`,
-  "<b>Feedback about people</b> — a 🎉 goes straight to them, a 😟 goes privately to the LCP and TM. Both are anonymous if you want.",
+  "<b>Ask instead of digging.</b> The Blue Man reads your whole scope — try <i>\"which function has the worst visit-to-deal conversion this month?\"</i>",
+  "<b>The LC calendar.</b> Every function's meetings, visits and IR calls in one month. If a week looks empty, it was empty.",
 ])}
 <p style="margin-top:18px;">${blueMan}</p>
-${btn("Open your dashboard", `${APP_URL}/dashboard`)}
-<p style="margin:16px 0 0;">Break it and tell me what broke. That's genuinely more
-useful to me than a compliment. 💙</p>
-<p style="margin:14px 0 0;color:#5c6b80;font-size:13px;">— Ahmed, IM</p>`,
+${btn("Open the LC dashboard", `${APP_URL}/dashboard`)}
+<p style="margin:16px 0 0;">If a number looks wrong, tell me — a wrong number is
+worse than no number, and I'd rather hear it from you first. 💙</p>
+${sign}`,
   };
 }
 
-function mmLetter(c) {
-  const lever = FN_LEVER[c.fn] || "";
-  const teamLine =
-    c.role === "Team Leader"
-      ? `<b>Your team's numbers are on your dashboard</b> — not the whole function's, yours. Every account your members work rolls up there, and your filed plan sits next to it as the target.`
-      : `<b>Your own numbers are on your dashboard</b>, and your filed plan sits next to them as the target.`;
+/** What changed for each function this release — used by VP/Director letters. */
+const VP_SPECIFIC = {
+  IGV: {
+    lead: "IGV is two jobs and Sodio finally treats it that way: <b>IGV Raising</b> and <b>IGV Consideration</b> are separate dashboards, and your people only get the side their Sub Function actually names.",
+    bullets: [
+      "Your raisers see raising numbers. Your consideration people see IR calls and partner LCs. Nobody wades through the other half any more.",
+      "Every IGV account carries its project, and the accounts list can be filtered by it from the column header.",
+      "The archive is shared LC-wide — a name your team burned is visible to everyone before they waste a call on it.",
+    ],
+  },
+  IGT: {
+    lead: "IGT stopped being one blurred number: <b>IGT Raising, IGTa, IGTe</b> and <b>IGT Consideration</b> are four lanes now, each with its own funnel.",
+    bullets: [
+      "IGTa and IGTe split out, so a strong teaching month can't hide a weak talent one.",
+      "<b>The CV pool is yours alone.</b> Companies want talent, not volunteers — IGV consideration no longer sees applicants' CVs at all.",
+      "B2B's opens still feed your lanes, so a bulk B2B deal shows up where it belongs.",
+    ],
+  },
+  OGT: {
+    lead: "OGT's sign-ups, funnel and streaks are all live — and the streak board now covers <b>all of OGX</b>, not just OGV.",
+    bullets: [
+      "The full ladder — Sign-ups → Contacted → Interested → Applied → Accepted → <b>Approved</b> — with conversions, on your own dashboard.",
+      "The streak can't be gamed any more: it reads live contacts, so undoing one removes the day. Your MMs will notice.",
+      "The Expectation-Setting mail composer drafts into <i>your</i> Gmail with your signature — you review and send.",
+    ],
+  },
+  OGV: {
+    lead: "OGV's 🔥 streak board grew up — and the important part: <b>you can see it now.</b> It used to be MMs-only, which made it impossible for you to push.",
+    bullets: [
+      "One board for all of OGX, filterable to OGV, with <b>today's contact count</b> next to every name.",
+      "It reads live contacts, so it can't be gamed — contact and undo and the day disappears.",
+      "The full sign-up funnel to Approved is on your dashboard, with the team and member filters.",
+    ],
+  },
+  TM: {
+    lead: "TM got the biggest structural change: <b>you now read every function's dashboard</b>, because you review every function's people and couldn't do that from the outside.",
+    bullets: [
+      "Every lane — ICX, B2B, BD, B2C, OGT, OGV — read-only where it isn't yours to work.",
+      "<b>Touch points, attendance and appeals</b> are yours end to end, including LC-wide sessions.",
+      "<b>Virtual touch points</b>: the invite collects everyone's Yes/No and pre-fills attendance — you still confirm at the end of the day.",
+      "A 😟 concern about any member now reaches <b>you</b> as well as the LCP. That was a gap.",
+    ],
+  },
+  "F&L": {
+    lead: "F&L reads <b>every</b> lane now — every function's funnel and money without asking anyone for a screenshot.",
+    bullets: [
+      "Every dashboard, read-only where it isn't yours to work.",
+      "<b>BD's money is its own lane</b> now, separate from B2B's opens — EGP per deal, per account, and on the mirror sheet.",
+      "Deal contracts are uploaded and stored against the deal, so the paperwork sits with the number.",
+    ],
+  },
+  B2C: {
+    lead: "B2C is a proper island now: your own lane, your own archive, your own rules.",
+    bullets: [
+      "<b>A name IGV burned no longer blocks you.</b> BD and B2C share one archive world; raising has its own — different service, different history.",
+      "Deals are deals — no opens, no splits — behind the contract form, exactly how you sell.",
+      "The Podio continuous-update countdown per account, with the reminder going to the owner and to you.",
+    ],
+  },
+  BD: {
+    lead: "<b>BD has its own dashboard.</b> Your numbers used to be folded into B2B's, which made both meaningless — you sell partnerships, they raise opens.",
+    bullets: [
+      "Your lane, your funnel, your money — <b>EGP per deal</b> as the MOS, not opens.",
+      "It's yours and the LCP's only. The ICX VPs see B2B (which raises for them); they don't see BD.",
+      "A name burned by raising doesn't block a BD partnership any more — different service, different archive.",
+    ],
+  },
+};
+
+function vpLetter(c) {
+  const spec = VP_SPECIFIC[c.fn] || { lead: "", bullets: [] };
   return {
-    subject: `${c.nick}, Sodio is live — your team's numbers are already in it`,
-    pre: "It's live, it's got your real data, and it's yours.",
+    subject: `${c.nick}, ${c.fn} is live in Sodio — and it's built the way you run it`,
+    pre: `Your ${c.fn} function, end to end.`,
     body: `
 <p style="margin:0;">${c.nick} 👋</p>
-<p>You know the pitch already, so I'll skip it. <b>Sodio is live, your real
-accounts and people are in it, and nothing here needs a training session.</b></p>
-${note(teamLine)}
-${lever ? `<p>${lever}</p>` : ""}
-${h("The three that save you the most time")}
+<p>No tour — you sat through the session. Just the part that's <b>yours</b>:
+${c.fn} is live with real data, and this release changed your function
+specifically.</p>
+${spec.lead ? note(spec.lead) : ""}
+${h(`What's new for ${c.fn}`)}
+${ul(spec.bullets)}
+${h("Your levers")}
 ${ul([
-  "<b>Adding an account checks itself.</b> Type the name and Sodio tells you instantly whether it's already in the CRM, whether it's in the archive, and — new — whether it's <b>already on Podio</b>. No more opening the national form in another tab.",
-  "<b>Quick actions log themselves.</b> Tap WhatsApp, call or email on any row and the contact form opens with the channel already picked. Every result is there, including the ones that branch — <i>Not interested</i> archives it, <i>Visit scheduled</i> books the visit.",
-  "<b>Reporting a visit now asks what came out of it</b> — interested, not interested, sending the proposal, not ready yet — and does the right next thing for each one instead of leaving you a blank box.",
+  "<b>The plan is the goal.</b> Nobody types targets into Sodio — your planning sheet is the target and the dashboard tracks against it automatically.",
+  "<b>Your MMs' filed plans</b> are visible, so a team without one is obvious instead of invisible.",
+  `<b>The Timeline button</b> on the calendar books your whole routine for the peak in one click — and a <b>virtual</b> touch point takes attendance from everyone's Yes/No on the invite.`,
 ])}
-${h("And the bit people actually enjoy")}
-<p>The <b>calendar</b> holds your meetings, visits and IR calls in one month view.
-Your <b>Timeline</b> books your whole routine for the peak in one go. And
-attendance stops being a WhatsApp argument — a virtual touch point takes it from
-everyone's Yes/No on the invite.</p>
-<p style="margin-top:18px;">${blueMan} Ask him <i>"which of my accounts has no next step?"</i> and see.</p>
-${btn("Open Sodio", APP_URL)}
-<p style="margin:16px 0 0;">If something's wrong or slow or ugly — the feedback
-tab, or just reply to this. The 🎭 anonymous option is there if you'd rather be
-blunt. 💙</p>
-<p style="margin:14px 0 0;color:#5c6b80;font-size:13px;">— Ahmed, IM</p>`,
+<p style="margin-top:18px;">${blueMan} Try <i>"how is ${c.fn} doing this month?"</i>.</p>
+${btn(`Open the ${c.fn} dashboard`, `${APP_URL}/dashboard`)}
+<p style="margin:16px 0 0;">Your people copy what you do with this. If they never
+see you in it, no feature saves it. Break it and tell me what broke. 💙</p>
+${sign}`,
   };
+}
+
+function directorLetter(c) {
+  const spec = VP_SPECIFIC[c.fn] || { lead: "", bullets: [] };
+  return {
+    subject: `${c.nick}, ${c.fn} is live — the whole function, in your hands`,
+    pre: `${c.fn}, end to end.`,
+    body: `
+<p style="margin:0;">${c.nick} 👋</p>
+<p>You run ${c.fn}, so this is the letter about ${c.fn} — nothing else.</p>
+${spec.lead ? note(spec.lead) : ""}
+${h("What changed for you")}
+${ul(spec.bullets)}
+${h("What you can do that your team can't")}
+${ul([
+  `Every ${c.fn} account, whoever owns it — plus reassignment across the function and the archive.`,
+  "Bring an archived account back, in bulk if you need to.",
+  "The whole function's funnel and leaderboard, with team and member filters.",
+])}
+<p style="margin-top:18px;">${blueMan}</p>
+${btn(`Open ${c.fn}`, `${APP_URL}/dashboard`)}
+<p style="margin:16px 0 0;">Tell me what's wrong with it — bluntly, the feedback
+tab has a 🎭 anonymous option if that helps. 💙</p>
+${sign}`,
+  };
+}
+
+/** Team Leaders — the team is the unit. */
+function tlLetter(c) {
+  const raising = ["IGV", "IGT", "B2B", "BD", "B2C"].includes(c.fn);
+  return {
+    subject: `${c.nick}, your team is already in Sodio — go look`,
+    pre: "Your team's numbers, your plan, your people.",
+    body: `
+<p style="margin:0;">${c.nick} 👋</p>
+<p>Short one. <b>Sodio is live, your team's real work is in it, and your
+dashboard shows your team — not the whole function.</b></p>
+${note(`<b>Your filed plan is the target</b> and your team's actual numbers sit
+next to it. If you haven't filed one, your profile asks for it — that number IS
+your team goal, so it's worth five honest minutes.`)}
+${h("The three that save you the most time")}
+${ul(
+  raising
+    ? [
+        "<b>Adding an account checks itself</b> — already in the CRM? in the archive? <b>already on Podio?</b> All answered while you type. No second tab.",
+        "<b>Quick actions log themselves.</b> Tap WhatsApp / call / email on any row and the contact form opens with the channel picked, every result available — <i>Not interested</i> archives it, <i>Visit scheduled</i> books the visit.",
+        "<b>Reporting a visit asks what came out of it</b> — interested, not interested, sending the proposal, not ready yet — and does the right next thing instead of leaving you a blank box.",
+      ]
+    : [
+        "<b>Unassigned is the pool</b> — contact a sign-up, claim it, and it's yours. Your team view shows what your people are holding.",
+        "<b>The 🔥 streak</b> reads live contacts, so it can't be gamed — and it shows today's count next to every name on the board.",
+        "<b>Everything writes back to the tracker sheet</b>, stamped with your name — you never touch the sheet again.",
+      ]
+)}
+${h("And the thing that ends the attendance argument")}
+<p>Your <b>Timeline</b> books your team's whole routine for the peak in one
+click. Make a meeting <b>virtual</b> and the invite collects everyone's Yes/No —
+attendance fills itself in and you just confirm.</p>
+<p style="margin-top:18px;">${blueMan} Ask <i>"which of my team's accounts has no next step?"</i>.</p>
+${btn("Open Sodio", APP_URL)}
+<p style="margin:16px 0 0;">Anything wrong, slow or ugly — feedback tab, or just
+reply. 🎭 anonymous is there if you'd rather be blunt. 💙</p>
+${sign}`,
+  };
+}
+
+/** Coordinators — no team under them; their own work is the unit. */
+function coordLetter(c) {
+  return {
+    subject: `${c.nick}, Sodio is live — your work, your numbers`,
+    pre: "Everything you log rolls up automatically.",
+    body: `
+<p style="margin:0;">${c.nick} 👋</p>
+<p>You know the pitch, so: <b>it's live, your real work is in it, and your own
+numbers are on your dashboard.</b> Nothing to set up.</p>
+${note(`<b>Your filed plan is your target</b> — it sits right next to what you've
+actually done. If you haven't filed one yet, your profile asks.`)}
+${h("What saves you time immediately")}
+${ul([
+  "<b>Everything checks itself</b> while you type — duplicates, the archive, and whether the company is already on Podio.",
+  "<b>Tap to contact, and it logs itself</b> — the form opens with the channel already picked and every result available.",
+  "<b>You'll be chased, gently.</b> Visits get a follow-up prompt, accounts without a next step get flagged, and attendance nags until it's recorded. That's the system doing the remembering, not you.",
+])}
+<p style="margin-top:18px;">${blueMan}</p>
+${btn("Open Sodio", APP_URL)}
+<p style="margin:16px 0 0;">Found a bug or have an idea? Feedback tab — 🎭
+anonymous if you prefer. 💙</p>
+${sign}`,
+  };
+}
+
+function letterFor(m, c) {
+  if (m.role === "LCP") return lcpLetter(c);
+  if (m.role === "LCVP") return vpLetter(c);
+  if (m.role === "Director") return directorLetter(c);
+  if (m.role === "Team Leader") return tlLetter(c);
+  return coordLetter(c);
 }
 
 function encodeHeader(v) {
@@ -206,7 +368,7 @@ async function main() {
     const fns = [...(m.functions || []), ...(m.sub_functions || [])];
     const fn = ["IGV", "IGT", "OGT", "OGV", "B2C", "BD", "B2B", "TM", "F&L", "CXP"].find((f) => fns.includes(f)) || "";
     const ctx = { nick: m.nickname || m.name.split(" ")[0], name: m.name, role: m.role, fn };
-    const letter = isEb(m) ? ebLetter(ctx) : mmLetter(ctx);
+    const letter = letterFor(m, ctx);
     plan.push({
       email: m.email, name: m.name, role: m.role, fn,
       band: isEb(m) ? "EB" : "MM",
@@ -231,7 +393,33 @@ async function main() {
   const oauth2 = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET);
   oauth2.setCredentials({ refresh_token: REFRESH });
   const gmail = google.gmail({ version: "v1", auth: oauth2 });
-  console.log(`\nCreating drafts in ${SENDER} …\n`);
+  // Remove any earlier draft to the same person first — re-running this after
+  // a wording fix should REPLACE, not leave two versions in the folder.
+  const wanted = new Set(plan.map((p) => p.email.toLowerCase()));
+  let removed = 0;
+  try {
+    let pageToken;
+    do {
+      const list = await gmail.users.drafts.list({ userId: "me", maxResults: 100, pageToken });
+      for (const d of list.data.drafts || []) {
+        const full = await gmail.users.drafts.get({ userId: "me", id: d.id, format: "metadata" });
+        const headers = full.data.message?.payload?.headers || [];
+        const to = (headers.find((x) => x.name?.toLowerCase() === "to")?.value || "").toLowerCase();
+        const subj = headers.find((x) => x.name?.toLowerCase() === "subject")?.value || "";
+        const mine = /Sodio is live|in Sodio now|is live in Sodio|already in Sodio|the whole function/i.test(subj);
+        if (mine && [...wanted].some((e) => to.includes(e))) {
+          await gmail.users.drafts.delete({ userId: "me", id: d.id });
+          removed++;
+        }
+      }
+      pageToken = list.data.nextPageToken;
+    } while (pageToken);
+  } catch (e) {
+    console.warn(`  ! could not clean old drafts: ${e?.message || e}`);
+  }
+  if (removed) console.log(`🧹 Replaced ${removed} earlier draft(s)\n`);
+
+  console.log(`Creating drafts in ${SENDER} …\n`);
   let ok = 0;
   for (const p of plan) {
     try {
