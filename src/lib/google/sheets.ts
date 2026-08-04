@@ -224,8 +224,33 @@ const ROLE_ALIASES: Record<string, string> = {
   "im director": "Admin",
 };
 
+/** The Role cell can hold SEVERAL values — "LCVP, Admin" is a VP who also
+ *  keeps the system running (v33). Looking the whole string up in the alias
+ *  map failed silently and fell back to "Member", which is how the VP of IGT
+ *  spent a release with a member's permissions.
+ *
+ *  The OPERATIONAL rank wins; "Admin" is a capability carried alongside it and
+ *  is surfaced via `roleCarriesAdmin` into the Sub Function list, where
+ *  `canUseAdminTools` looks for it. A cell that says only "Admin" IS the role. */
 function parseRole(raw: string | undefined): string {
-  return ROLE_ALIASES[(raw ?? "").trim().toLowerCase()] ?? "Member";
+  const parts = (raw ?? "")
+    .split(/[,;/]+/)
+    .map((p) => p.trim().toLowerCase())
+    .filter(Boolean);
+  for (const p of parts) {
+    const mapped = ROLE_ALIASES[p];
+    if (mapped && mapped !== "Admin") return mapped; // the real rank wins
+  }
+  // nothing operational — an Admin-only cell keeps Admin, anything else is a Member
+  return parts.some((p) => ROLE_ALIASES[p] === "Admin") ? "Admin" : "Member";
+}
+
+/** True when the Role cell also grants the admin TOOLS alongside a real rank. */
+function roleCarriesAdmin(raw: string | undefined): boolean {
+  return (raw ?? "")
+    .split(/[,;/]+/)
+    .map((p) => p.trim().toLowerCase())
+    .some((p) => ROLE_ALIASES[p] === "Admin");
 }
 
 /** Multi-select dropdown cells arrive as "IGV, IGT". "LCP" as a function value
@@ -276,7 +301,12 @@ function parseSheetRow(row: string[]): SheetMemberRow | null {
     phone: phoneCheck?.ok ? phoneCheck.value : cleanPhone?.replace(/[^0-9+]/g, "") || null,
     role: parseRole(role),
     functions: parseMulti(fns, LC_FUNCTIONS),
-    sub_functions: parseMulti(subs, SUB_FUNCTIONS),
+    // "LCVP, Admin" → rank LCVP, capability Admin. The capability rides in
+    // Sub Function because that is where `canUseAdminTools` looks for it.
+    sub_functions: [
+      ...parseMulti(subs, SUB_FUNCTIONS),
+      ...(roleCarriesAdmin(role) && parseRole(role) !== "Admin" ? ["Admin"] : []),
+    ],
     stakeholder_name: stakeholder?.trim() || null,
     team_name: teamName?.trim() || null,
     is_active: (active ?? "Yes").trim().toLowerCase() !== "no",

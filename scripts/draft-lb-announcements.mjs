@@ -310,11 +310,25 @@ numbers are on your dashboard.</b> Nothing to set up.</p>
 ${note(`<b>Your filed plan is your target</b> — it sits right next to what you've
 actually done. If you haven't filed one yet, your profile asks.`)}
 ${h("What saves you time immediately")}
-${ul([
-  "<b>Everything checks itself</b> while you type — duplicates, the archive, and whether the company is already on Podio.",
-  "<b>Tap to contact, and it logs itself</b> — the form opens with the channel already picked and every result available.",
-  "<b>You'll be chased, gently.</b> Visits get a follow-up prompt, accounts without a next step get flagged, and attendance nags until it's recorded. That's the system doing the remembering, not you.",
-])}
+${ul(
+  ["IGV", "IGT", "B2B", "BD", "B2C"].includes(c.fn)
+    ? [
+        "<b>Everything checks itself</b> while you type — duplicates, the archive, and whether the company is already on Podio.",
+        "<b>Tap to contact, and it logs itself</b> — the form opens with the channel already picked and every result available.",
+        "<b>You'll be chased, gently.</b> Visits get a follow-up prompt, accounts without a next step get flagged, and attendance nags until it's recorded. That's the system doing the remembering, not you.",
+      ]
+    : ["OGT", "OGV"].includes(c.fn)
+      ? [
+          "<b>Unassigned is the pool</b> — contact a sign-up, hit Claim, and it's yours. WhatsApp and call buttons sit right in the row.",
+          "<b>Everything writes back to the tracker sheet</b> automatically, stamped with your name — you never open the sheet again.",
+          "<b>The 🔥 streak</b> reads live contacts, so it can't be gamed, and the board shows today's count next to every name.",
+        ]
+      : [
+          "<b>The LC calendar</b> — every meeting, visit and IR call you're part of, in one month view.",
+          "<b>Attendance</b> records itself for virtual meetings from everyone's Yes/No on the invite, and you can appeal a mark you think is wrong.",
+          "<b>Feedback about people</b> — a 🎉 reaches them, a 😟 goes privately to the LCP and TM. Anonymous if you want.",
+        ]
+)}
 <p style="margin-top:18px;">${blueMan}</p>
 ${btn("Open Sodio", APP_URL)}
 <p style="margin:16px 0 0;">Found a bug or have an idea? Feedback tab — 🎭
