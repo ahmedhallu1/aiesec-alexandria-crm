@@ -230,10 +230,6 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
           </button>
         ) : null}
       </div>
-      <p className="mt-1 px-3 text-[11px] leading-snug text-sidebar-foreground/45">
-        Your feedback builds this system for <b>YOU</b> — every idea or bug you
-        report makes it better and more reliable. 💙
-      </p>
     </nav>
   );
 

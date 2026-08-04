@@ -105,7 +105,7 @@ export async function recordUndo(
   before?: unknown,
   label?: string
 ): Promise<void> {
-  if (!journalReady) return;
+  if (!journalReady()) return;
   try {
     const { error } = await db().from("test_undo").insert({
       session_id: await journalSession(),
@@ -118,11 +118,11 @@ export async function recordUndo(
       label: label ?? null,
     });
     if (error?.code === "42703") {
-      // 0033 hasn't been run yet — stand down for this process instead of
-      // paying a failed INSERT (and a wasted SELECT) on every single write
-      journalReady = false;
+      // 0033 hasn't been run yet — stand down BRIEFLY, then try again, so the
+      // journal comes back on its own once the migration lands
+      journalOffUntil = Date.now() + JOURNAL_RETRY_MS;
       console.warn(
-        "[journal] disabled: migration 0033 not applied — run supabase/migrations/0033_change_journal_lc_test.sql"
+        "[journal] paused 2 min: migration 0033 not applied — run supabase/migrations/0033_change_journal_lc_test.sql"
       );
     } else if (error) {
       console.error("[journal] write failed:", error.message);
@@ -132,16 +132,24 @@ export async function recordUndo(
   }
 }
 
-/** Flipped off the first time the journal columns turn out to be missing, so
- *  an un-migrated database costs nothing instead of one failed write per
- *  mutation. Resets on the next deploy/cold start, which is when the migration
- *  would have landed anyway. */
-let journalReady = true;
+/** Journal availability, remembered briefly.
+ *
+ *  When the columns are missing (migration not applied yet) we stop writing so
+ *  an un-migrated database doesn't pay a failed INSERT per mutation. The first
+ *  version latched OFF permanently and only reset on a cold start — which
+ *  meant that once 0033 DID land, every already-warm server kept skipping the
+ *  journal until it happened to recycle. Actions taken in that window got an
+ *  audit entry with a change set but no rows to replay, so Undo had nothing to
+ *  do and silently offered nothing. It now RETRIES after a short cool-off, so
+ *  a migration landing heals itself within minutes and without a redeploy. */
+const JOURNAL_RETRY_MS = 2 * 60 * 1000;
+let journalOffUntil = 0;
+const journalReady = () => Date.now() >= journalOffUntil;
 
 /** Snapshot a row before updating it, then journal it — one call at each
  *  update site: `await snapshotForUndo("accounts", id)`. */
 export async function snapshotForUndo(tbl: string, rowId: string): Promise<void> {
-  if (!journalReady) return;
+  if (!journalReady()) return;
   try {
     const { data } = await db().from(tbl).select("*").eq("id", rowId).maybeSingle();
     if (data) await recordUndo(tbl, rowId, "update", data, describeRow(tbl, data));
