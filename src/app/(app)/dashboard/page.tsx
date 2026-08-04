@@ -1,6 +1,6 @@
 import {
   considerationStats, getViewer, getDashboard, listVisibleMembers,
-  listTeamFilterOptions, ogxDashboard, streakStats } from "@/server/data";
+  listTeamFilterOptions, memberWorksFunction, ogxDashboard, streakStats } from "@/server/data";
 import type { AccountFilters } from "@/server/data";
 import {
   considerationFunctions, accountScope, icxFunctions, isB2B, isB2C,
@@ -109,7 +109,7 @@ export default async function DashboardPage({
 
   const [data, teamFilterOptions, members, consideration, ogx, streak] = await Promise.all([
     getDashboard(viewer, filters, SPECIAL_LANES.has(activeFn) ? baseLane : activeFn),
-    listTeamFilterOptions(viewer),
+    listTeamFilterOptions(viewer, { fn: filters.fn ?? undefined }),
     listVisibleMembers(viewer),
     consLane ? considerationStats(viewer, consLane) : Promise.resolve(null),
     isOgxLane
@@ -126,23 +126,25 @@ export default async function DashboardPage({
     isOgxLane ? streakStats(viewer, activeFn) : Promise.resolve(null),
   ]);
 
-  // Member filter: only people with access to the active lane — and never the
-  // LCP (they don't do market research or operations). B2B people raise for
-  // every lane, so they always show.
+  // Member filter = the people whose accounts are actually IN this lane, and
+  // whose numbers are a SUBSET of what's already on screen (v33.1):
+  //
+  //  - scoped to the lane's own function. `rowInLane` matches on the account's
+  //    function, so a B2B member has no rows in the IGV lane — offering them
+  //    there just emptied the dashboard. (B2B/BD still show on their own lane.)
+  //  - no LCP, and no VP or Director: the whole function is theirs already, so
+  //    "filter to them" is the picture the viewer is looking at.
   const laneFn = filters.fn ?? null;
-  const isB2BMember = (m: (typeof members)[number]) =>
-    ["B2B", "BD"].some(
-      (f) => (m.functions ?? []).includes(f) || (m.sub_functions ?? []).includes(f)
-    );
+  const OVERSEER_ROLES = new Set(["LCP", "LCVP", "Director", "Admin"]);
   const memberOptions = members
-    .filter((m) => m.role !== "LCP")
+    .filter((m) => !OVERSEER_ROLES.has(m.role))
     .filter((m) =>
       laneFn === "B2C"
         ? memberIsB2C(m) // the B2C lane lists ONLY the B2C crew (v23)
-        : isB2BMember(m) ||
-          (laneFn
-            ? (m.functions ?? []).includes(laneFn)
-            : (m.functions ?? []).some((f) => f === "IGV" || f === "IGT"))
+        : laneFn
+          ? memberWorksFunction(m, laneFn)
+          : // All-ICX: the raising products (B2C and OGX are their own lanes)
+            ["IGV", "IGT", "B2B", "BD"].some((f) => memberWorksFunction(m, f))
     )
     .map((m) => ({ id: m.id, label: m.name }));
 

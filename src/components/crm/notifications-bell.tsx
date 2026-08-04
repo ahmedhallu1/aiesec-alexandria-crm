@@ -39,7 +39,14 @@ const KIND_ICON: Record<string, string> = {
 };
 
 /** The bell: latest notifications in a popup; EB members can broadcast. */
-export function NotificationsBell({ canBroadcast }: { canBroadcast: boolean }) {
+export function NotificationsBell({
+  canBroadcast,
+  className,
+}: {
+  canBroadcast: boolean;
+  /** lets the caller size the trigger (the sidebar footer stretches it) */
+  className?: string;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
@@ -83,7 +90,10 @@ export function NotificationsBell({ canBroadcast }: { canBroadcast: boolean }) {
         variant="ghost"
         size="icon"
         title="Notifications"
-        className="relative text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+        className={cn(
+          "relative text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+          className
+        )}
         onClick={openPopup}
       >
         <Bell className="size-4" />
