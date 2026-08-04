@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import {
   getViewer, listCvsPage, listIrCalls, listPartnerLcDetails, myIrBooking,
 } from "@/server/data";
-import { canSeeCvPool, hasConsiderationAccess } from "@/lib/rbac";
+import { canSeeCvPool, canUseIgtExpectationMail, hasConsiderationAccess } from "@/lib/rbac";
 import { env } from "@/lib/env";
 import { ConsiderationView } from "@/components/crm/consideration-view";
 
@@ -24,7 +24,14 @@ export default async function ConsiderationPage({
   const sp = await searchParams;
 
   const showCvs = canSeeCvPool(viewer);
-  const tab: "calls" | "cvs" = sp.tab === "cvs" && showCvs ? "cvs" : "calls";
+  // the incoming-EP expectation mail is the IGT leadership's to send (v33.3)
+  const showExpectation = canUseIgtExpectationMail(viewer);
+  const tab: "calls" | "cvs" | "expectation" =
+    sp.tab === "cvs" && showCvs
+      ? "cvs"
+      : sp.tab === "expectation" && showExpectation
+        ? "expectation"
+        : "calls";
   const page = Math.max(0, (parseInt(sp.page ?? "1", 10) || 1) - 1);
   // rows per page is the member's own choice (v31) — whitelisted here
   const PAGE_SIZE_OPTIONS = [30, 50, 100, 200];
@@ -54,6 +61,7 @@ export default async function ConsiderationPage({
         id: viewer.id,
         isVp: viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role),
         showCvs,
+        showExpectation,
       }}
     />
   );

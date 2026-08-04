@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   AlertTriangle, Archive, Check, CheckCircle2, CheckSquare, CircleAlert,
-  Copy, FileUp, Loader2, Phone, Plus, RotateCcw, Search, Trash2, Users2, X,
+  ChevronDown, Copy, FileUp, Loader2, Phone, Plus, RotateCcw, Search, Trash2, Users2, X,
   XCircle,
 } from "lucide-react";
 import type { PipelineRow } from "@/server/data";
@@ -24,10 +24,13 @@ import { ContactDialog, type ContactTarget } from "./contact-dialog";
 import { AddAccountDialog, type MemberOption } from "./add-account-dialog";
 import { AskBlueMan } from "./ask-blue-man";
 import { FileDrop } from "./file-drop";
+import {
+  DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Hint } from "./hint";
 import { QuickActions } from "./quick-actions";
 import {
-  ColumnFilter, PageSizePicker, SortHeader, TableSettings, useTableColumns,
+  ColumnFilter, multi, PageSizePicker, SortHeader, TableSettings, useTableColumns,
   useTableSort,
   type TableColumn,
 } from "./data-table-kit";
@@ -2320,6 +2323,10 @@ function ImportArchivedDialog({
   );
 }
 
+/** The MOBILE filter chip — the phone twin of the desktop column funnel, and
+ *  multi-select for the same reason (v33.3). A Radix Select can only hold one
+ *  value, so this is a checkbox menu that reports the same comma-joined
+ *  string the column filters and the server both speak. */
 function FilterSelect({
   value, placeholder, options, onChange,
 }: {
@@ -2328,17 +2335,46 @@ function FilterSelect({
   options: [string, string][];
   onChange: (v: string) => void;
 }) {
+  const picked = multi(value);
+  const labelOf = (v: string) => options.find(([ov]) => ov === v)?.[1] ?? v;
+  const summary =
+    picked.length === 0
+      ? placeholder
+      : picked.length === 1
+        ? `${placeholder}: ${labelOf(picked[0])}`
+        : `${placeholder}: ${picked.length}`;
+  const toggle = (v: string) =>
+    onChange((picked.includes(v) ? picked.filter((p) => p !== v) : [...picked, v]).join(","));
+
   return (
-    <Select value={value || "__all"} onValueChange={(v) => onChange(v === "__all" ? "" : v)}>
-      <SelectTrigger className="h-9 w-auto min-w-28">
-        <SelectValue placeholder={placeholder} />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="__all">{placeholder}: all</SelectItem>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          className={cn("h-9 w-auto min-w-28 justify-between font-normal", picked.length > 0 && "border-primary/60")}
+        >
+          <span className="truncate">{summary}</span>
+          <ChevronDown className="size-3.5 opacity-50" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-72 w-52 overflow-y-auto">
+        <DropdownMenuCheckboxItem
+          checked={picked.length === 0}
+          onCheckedChange={() => onChange("")}
+        >
+          {placeholder}: all
+        </DropdownMenuCheckboxItem>
         {options.map(([v, label]) => (
-          <SelectItem key={v} value={v}>{label}</SelectItem>
+          <DropdownMenuCheckboxItem
+            key={v}
+            checked={picked.includes(v)}
+            onCheckedChange={() => toggle(v)}
+            onSelect={(e) => e.preventDefault()}
+          >
+            <span className="truncate" dir="auto">{label}</span>
+          </DropdownMenuCheckboxItem>
         ))}
-      </SelectContent>
-    </Select>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

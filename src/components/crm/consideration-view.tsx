@@ -1,16 +1,17 @@
 "use client";
 
-import { useCallback, useMemo, useState, useTransition } from "react";
+import { useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   CalendarClock, Check, ChevronDown, ClipboardCheck, Copy, ExternalLink,
-  FileText, Globe2, ImagePlus, Link2, Loader2, Mail, Pencil, Phone, Plus,
+  FileText, Globe2, ImagePlus, Link2, Loader2, Mail, Pencil, Phone, Plus, Send,
   Search, Settings2, Sparkles, Trash2, Upload, Video, X,
 } from "lucide-react";
 import {
   addPartnerLc, cancelIrCall, completeIrCall, confirmCvUpload, deleteCv,
-  deletePartnerLc, getCvFileUrl, recordIrCall, requestCvUpload,
+  createIgtExpectationDraft, deletePartnerLc, getCvFileUrl, previewIgtExpectationMail,
+  recordIrCall, requestCvUpload, sendIgtExpectationMail,
   requestIrReschedule, rerunCvExtraction, saveIrBookingSettings,
   updateCvFields, updatePartnerLc,
 } from "@/server/actions";
@@ -31,7 +32,7 @@ import { WalkingLoader } from "./walking-loader";
 import { WhatsAppIcon } from "./icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -106,6 +107,185 @@ interface ViewerInfo {
   id: string;
   isVp: boolean;
   showCvs: boolean;
+  showExpectation: boolean;
+}
+
+// -------------------------------------------- IGT expectation mail (v33.3)
+
+/** THE INCOMING EXPECTATION MAIL.
+ *
+ *  The LC's formal promise to an arriving EP — project, visa, pickup,
+ *  accommodation, departure support — and the first thing they read from us.
+ *  It used to be retyped per EP, which is how a link rots in one copy and not
+ *  another. Here only the four things that actually differ are typed; the
+ *  standing text and every hyperlink come from the template.
+ *
+ *  Two steps on purpose: BUILD, then review the real email and edit it freely
+ *  before it goes anywhere. It leaves from the VP's own Gmail, so the EP's
+ *  reply reaches a person. */
+function IgtExpectationTab() {
+  const [form, setForm] = useState({
+    epName: "",
+    projectName: "",
+    year: String(new Date().getFullYear()),
+    toEp: "",
+    toIr: "",
+  });
+  const [built, setBuilt] = useState<{ subject: string; html: string } | null>(null);
+  const [subject, setSubject] = useState("");
+  const [pending, start] = useTransition();
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  const build = () =>
+    start(async () => {
+      const res = await previewIgtExpectationMail({
+        epName: form.epName,
+        projectName: form.projectName,
+        year: form.year,
+      });
+      if (!res.ok || !res.data) {
+        toast.error(res.ok ? "Could not build the email." : res.error);
+        return;
+      }
+      setBuilt(res.data);
+      setSubject(res.data.subject);
+    });
+
+  /** whatever the VP edited in the preview is what goes out — verbatim */
+  const reviewed = () => ({
+    subject: subject.trim(),
+    html: bodyRef.current?.innerHTML ?? built?.html ?? "",
+    toEp: form.toEp.trim(),
+    toIr: form.toIr.trim(),
+  });
+
+  const send = () =>
+    start(async () => {
+      const res = await sendIgtExpectationMail(reviewed());
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success("Sent from your Gmail ✉️");
+      setBuilt(null);
+      setForm((f) => ({ ...f, epName: "", toEp: "", toIr: "" }));
+    });
+
+  const draft = () =>
+    start(async () => {
+      const res = await createIgtExpectationDraft(reviewed());
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success("Saved as a draft in your Gmail — review and send it there.");
+    });
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Incoming EP — expectation mail</CardTitle>
+          <CardDescription>
+            The standing text, the visa &amp; invitation-letter links and your signature are
+            filled in for you. It goes to the EP, with{" "}
+            <span className="font-medium">customer.support@aiesec.net.eg</span> always on Cc.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-1.5">
+            <Label>EP name *</Label>
+            <Input
+              value={form.epName}
+              onChange={(e) => setForm((f) => ({ ...f, epName: e.target.value }))}
+              placeholder="Yusra Irfan"
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label>Project name *</Label>
+            <Input
+              value={form.projectName}
+              onChange={(e) => setForm((f) => ({ ...f, projectName: e.target.value }))}
+              placeholder="English Teacher"
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label>Year *</Label>
+            <Input
+              value={form.year}
+              onChange={(e) => setForm((f) => ({ ...f, year: e.target.value }))}
+              placeholder="2026"
+              inputMode="numeric"
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label>EP email * (To)</Label>
+            <Input
+              type="email"
+              value={form.toEp}
+              onChange={(e) => setForm((f) => ({ ...f, toEp: e.target.value }))}
+              placeholder="ep@example.com"
+            />
+          </div>
+          <div className="grid gap-1.5 sm:col-span-2">
+            <Label>IR email (Cc — optional)</Label>
+            <Input
+              type="email"
+              value={form.toIr}
+              onChange={(e) => setForm((f) => ({ ...f, toIr: e.target.value }))}
+              placeholder="Their home LC's IR — leave blank if there isn't one"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <Button onClick={build} disabled={pending}>
+              {pending && !built ? <Loader2 className="size-4 animate-spin" /> : <Mail className="size-4" />}
+              Build the email
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {built ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Review before it leaves</CardTitle>
+            <CardDescription>
+              Edit anything below — the text is live. What you see is exactly what the EP gets.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-1.5">
+              <Label>Subject</Label>
+              <Input value={subject} onChange={(e) => setSubject(e.target.value)} />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Body</Label>
+              <div
+                ref={bodyRef}
+                contentEditable
+                suppressContentEditableWarning
+                dir="auto"
+                className="max-h-[55vh] overflow-y-auto rounded-lg border bg-background p-4 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                dangerouslySetInnerHTML={{ __html: built.html }}
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={send} disabled={pending}>
+                {pending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+                Send now
+              </Button>
+              <Button variant="outline" onClick={draft} disabled={pending}>
+                Save as draft instead
+              </Button>
+              <Button variant="ghost" onClick={() => setBuilt(null)} disabled={pending}>
+                Start over
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+    </div>
+  );
 }
 
 // ------------------------------------------------------------ partner LC picker
@@ -439,7 +619,7 @@ export function ConsiderationView({
   pageSizeOptions,
   tab, lcs, calls, cvs, q, viewer, booking, origin,
 }: {
-  tab: "calls" | "cvs";
+  tab: "calls" | "cvs" | "expectation";
   lcs: (PartnerLc | PartnerLcDetail)[];
   calls: CallsData;
   cvs: PageData<CvRow>;
@@ -479,6 +659,9 @@ export function ConsiderationView({
   const tabs = [
     { key: "calls", label: "IR calls", icon: Globe2 },
     ...(viewer.showCvs ? [{ key: "cvs", label: "CVs", icon: FileText }] : []),
+    ...(viewer.showExpectation
+      ? [{ key: "expectation", label: "Expectation mail", icon: Mail }]
+      : []),
   ] as const;
 
   return (
@@ -520,7 +703,9 @@ export function ConsiderationView({
             <WalkingLoader label="Loading…" />
           </div>
         ) : null}
-        {tab === "calls" || !viewer.showCvs ? (
+        {tab === "expectation" && viewer.showExpectation ? (
+          <IgtExpectationTab />
+        ) : tab === "calls" || !viewer.showCvs ? (
           <IrCallsTab
             pageSize={pageSize}
             pageSizeOptions={pageSizeOptions}
