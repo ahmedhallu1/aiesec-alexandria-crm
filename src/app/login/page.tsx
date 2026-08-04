@@ -35,7 +35,7 @@ export default async function LoginPage({
         </div>
 
         {error ? (
-          <div className="mb-6 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+          <div className="mb-6 rounded-lg border border-red-300 bg-red-50 p-3 text-sm font-medium text-red-900 dark:border-red-900/60 dark:bg-red-950/60 dark:text-red-100">
             {error === "AccessDenied"
               ? "This email is not on the LC membership list. Ask your VP or the IM team to add you."
               : "Sign-in failed. Try again — if it keeps happening, contact the IM team."}

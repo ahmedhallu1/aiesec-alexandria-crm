@@ -65,7 +65,7 @@ export function LoginForm() {
 
       <form action={formAction} className="grid gap-3">
         {state.error ? (
-          <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+          <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm font-medium text-red-900 dark:border-red-900/60 dark:bg-red-950/60 dark:text-red-100">
             {state.error}
           </div>
         ) : null}
