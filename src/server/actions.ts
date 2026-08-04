@@ -13,6 +13,7 @@ import {
   canEditRequestState,
   canManageMembership,
   canSeeLcConcerns,
+  canUseAdminTools,
   canReassignAccount,
   claimTargetFunction,
   isClaimableAccount,
@@ -975,7 +976,8 @@ export async function startViewAs(
 ): Promise<ActionResult<{ name: string; mode: "sandbox" | "real" }>> {
   const { getRealViewer, VIEW_AS_COOKIE } = await import("./data");
   const real = await getRealViewer();
-  if (!real.isAdmin) return fail("Only the admin can use the test view.", "forbidden");
+  if (!canUseAdminTools(real))
+    return fail("Only the admin can use the test view.", "forbidden");
 
   const { data: target } = await db()
     .from("members")
@@ -1030,7 +1032,8 @@ export async function setViewAsMode(
 ): Promise<ActionResult<{ rolledBack: number }>> {
   const { getRealViewer, VIEW_AS_COOKIE } = await import("./data");
   const real = await getRealViewer();
-  if (!real.isAdmin) return fail("Only the admin can use the test view.", "forbidden");
+  if (!canUseAdminTools(real))
+    return fail("Only the admin can use the test view.", "forbidden");
   const { cookies } = await import("next/headers");
   const jar = await cookies();
   const raw = jar.get(VIEW_AS_COOKIE)?.value;
