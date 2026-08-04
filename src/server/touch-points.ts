@@ -159,6 +159,11 @@ export interface CreateTouchPointInput {
   note?: string | null;
   invitedTeams?: string[];
   invitedFunctions?: string[];
+  /** VIRTUAL (v32.9): creates a Google Calendar event with a Meet room and
+   *  the whole audience invited, so their Yes/No RSVP becomes attendance */
+  virtual?: boolean;
+  /** set when a TIMELINE generated this point */
+  routineId?: string | null;
   /** Tell everyone invited (email + bell). DEFAULT TRUE — only an explicit
    *  `false` mutes it. A start time in the PAST mutes it regardless: that's a
    *  touch point being LOGGED after the fact, and nobody wants an invitation
@@ -281,10 +286,39 @@ export async function createTouchPoint(
       // remembered on the row (0033) so a later move/cancel can't mail people
       // who were never told this touch point existed
       announced,
+      virtual: !!input.virtual,
+      routine_id: input.routineId ?? null,
     })
     .select("*")
     .single<TouchPointRow>();
   if (error || !created) return fail(error?.message ?? "Could not book it — try again.");
+
+  // A VIRTUAL touch point IS a calendar event: the audience is invited, Google
+  // sends the invite and collects Yes/No on it, and that RSVP becomes the
+  // provisional attendance (v32.9). Best-effort — a dead Google grant must
+  // never lose the touch point itself.
+  if (input.virtual && announced) {
+    const { createTouchPointEvent } = await import("@/lib/google/calendar");
+    const audience = await touchPointAudience(created);
+    const { data: owner } = await db()
+      .from("members")
+      .select("google_refresh_token")
+      .eq("id", viewer.id)
+      .maybeSingle<{ google_refresh_token: string | null }>();
+    const event = await createTouchPointEvent(owner?.google_refresh_token ?? null, {
+      title: `${audienceLabel(created)} — ${kind.replace("_", " ")}`,
+      start: startsAt,
+      minutes: 60,
+      description: clean(input.note, 500) || null,
+      attendeeEmails: audience.map((m) => m.email).filter((e): e is string => !!e),
+    });
+    if (event) {
+      await db()
+        .from("touch_points")
+        .update({ calendar_event_id: event.id, meet_link: event.meetLink })
+        .eq("id", created.id);
+    }
+  }
 
   await recordUndo("touch_points", created.id, "insert");
   if (announced) await announce(created, viewer.id, "created");
@@ -376,5 +410,296 @@ export async function cancelTouchPoint(id: string, reason: string): Promise<Resu
     await announce({ ...tp, status: "cancelled" }, viewer.id, "cancelled", { reason: why });
   await logAudit(viewer.id, "touch_point_cancel", "touch_point", id, { reason: why });
   refresh();
+  return { ok: true };
+}
+
+// ================================================ RSVP attendance (v32.9)
+
+/** Pulls the Yes/No people gave on a VIRTUAL touch point's calendar invite and
+ *  writes it as PROVISIONAL attendance.
+ *
+ *  Google already asks everyone Yes/No/Maybe on the invite, so that is the
+ *  signal — no second email nobody answers. The rules that matter:
+ *    · accepted → attended, declined → absent; Maybe and no answer are left
+ *      alone, because "didn't click" is not evidence of anything;
+ *    · a HUMAN mark always wins — rows whose source is 'manual' are never
+ *      touched, exactly like the working-hours engine;
+ *    · this is a PROPOSAL. It does not stamp `attendance_recorded_at`; the
+ *      responsible still confirms at the end of the day as normal. */
+export async function syncTouchPointRsvps(
+  touchPointId: string
+): Promise<{ updated: number } | null> {
+  const { data: tp } = await db()
+    .from("touch_points")
+    .select("*")
+    .eq("id", touchPointId)
+    .maybeSingle<TouchPointRow & { calendar_event_id: string | null; virtual: boolean }>();
+  if (!tp || !tp.virtual || !tp.calendar_event_id || tp.status === "cancelled") return null;
+
+  const { data: owner } = await db()
+    .from("members")
+    .select("google_refresh_token")
+    .eq("id", tp.owner_id ?? "")
+    .maybeSingle<{ google_refresh_token: string | null }>();
+
+  const { readEventRsvps } = await import("@/lib/google/calendar");
+  const rsvps = await readEventRsvps(owner?.google_refresh_token ?? null, tp.calendar_event_id);
+  if (!rsvps || rsvps.size === 0) return { updated: 0 };
+
+  const audience = await touchPointAudience(tp);
+  const { data: existing } = await db()
+    .from("touch_point_attendance")
+    .select("member_id, source")
+    .eq("touch_point_id", tp.id);
+  const humanEdited = new Set(
+    ((existing ?? []) as { member_id: string; source: string }[])
+      .filter((r) => r.source === "manual")
+      .map((r) => r.member_id)
+  );
+
+  let updated = 0;
+  for (const m of audience) {
+    const answer = m.email ? rsvps.get(m.email.toLowerCase()) : undefined;
+    if (!answer) continue; // Maybe / no answer → undecided, never an absence
+    if (humanEdited.has(m.id)) continue; // a person's judgement beats a click
+    const { error } = await db().from("touch_point_attendance").upsert(
+      {
+        touch_point_id: tp.id,
+        member_id: m.id,
+        status: answer === "yes" ? "attended" : "absent",
+        source: "rsvp",
+        note: answer === "yes" ? "Accepted the invite" : "Declined the invite",
+      },
+      { onConflict: "touch_point_id,member_id" }
+    );
+    if (!error) updated += 1;
+  }
+  await db()
+    .from("touch_points")
+    .update({ rsvp_synced_at: new Date().toISOString() })
+    .eq("id", tp.id);
+  return { updated };
+}
+
+/** Every virtual touch point that has already started and hasn't been
+ *  confirmed yet — what the attendance cron refreshes. */
+export async function syncDueRsvps(): Promise<number> {
+  const { data } = await db()
+    .from("touch_points")
+    .select("id")
+    .eq("virtual", true)
+    .eq("status", "scheduled")
+    .is("attendance_recorded_at", null)
+    .not("calendar_event_id", "is", null)
+    .lte("starts_at", new Date().toISOString())
+    .gte("starts_at", new Date(Date.now() - 7 * 86_400_000).toISOString());
+  let total = 0;
+  for (const r of (data ?? []) as { id: string }[]) {
+    const res = await syncTouchPointRsvps(r.id).catch(() => null);
+    total += res?.updated ?? 0;
+  }
+  return total;
+}
+
+// ==================================================== timelines (v32.9)
+
+export interface RoutineInput {
+  id?: string | null;
+  scope: TouchPointScope;
+  kind: TouchPointKind;
+  functionKey?: string | null;
+  teamName?: string | null;
+  /** 0 = Sunday … 6 = Saturday, Cairo */
+  weekday: number;
+  /** Cairo wall-clock "HH:MM" */
+  time: string;
+  virtual?: boolean;
+  note?: string | null;
+  startsOn: string;
+  endsOn: string;
+  invitedTeams?: string[];
+  invitedFunctions?: string[];
+}
+
+/** A TIMELINE: the fixed routine a Team Leader / VP / TM VP keeps across the
+ *  peak — "team meeting every Tuesday 19:00", "working hours every Saturday".
+ *
+ *  Saving one GENERATES every occurrence up front, so the whole peak is on the
+ *  calendar from day one and any single date can be moved when something
+ *  happens (exams, a clash) without disturbing the rest. A point that has been
+ *  moved or cancelled by hand is flagged and left alone if the routine is
+ *  later regenerated — the exception a human made always survives.
+ *
+ *  Every occurrence goes through `createTouchPoint`, so the booking matrix,
+ *  the team binding and the announcements behave exactly as they do for a
+ *  hand-booked point. Nothing here is a permission shortcut. */
+export async function saveRoutine(
+  input: RoutineInput
+): Promise<Result<{ id: string; created: number; skipped: number }>> {
+  const viewer = await getViewer();
+  const scope = input.scope;
+  const kind = input.kind;
+  if (!TOUCH_POINT_SCOPES.includes(scope) || !TOUCH_POINT_KINDS.includes(kind))
+    return fail("Pick a valid touch-point type.");
+  // the SAME booking gate as a hand-booked point — a timeline is not a way
+  // around the one-scope-per-role rule
+  if (!canBookTouchPoint(viewer, scope))
+    return fail(scopeRefusal(viewer), "forbidden");
+  if (!Number.isInteger(input.weekday) || input.weekday < 0 || input.weekday > 6)
+    return fail("Pick the day of the week.");
+  if (!/^\d{2}:\d{2}$/.test(input.time)) return fail("Pick the time.");
+  const startsOn = String(input.startsOn ?? "").slice(0, 10);
+  const endsOn = String(input.endsOn ?? "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startsOn) || !/^\d{4}-\d{2}-\d{2}$/.test(endsOn))
+    return fail("Pick the period the routine runs for.");
+  if (endsOn < startsOn) return fail("The end date is before the start date.");
+  // a routine spanning years would generate thousands of points
+  const days = (Date.parse(endsOn) - Date.parse(startsOn)) / 86_400_000;
+  if (days > 400) return fail("A timeline covers at most about a year.");
+
+  const row = {
+    owner_id: viewer.id,
+    owner_name: viewer.nickname || viewer.name,
+    scope,
+    kind,
+    function_key: input.functionKey ?? null,
+    team_name: input.teamName ?? null,
+    weekday: input.weekday,
+    at_time: input.time,
+    virtual: !!input.virtual,
+    note: (input.note ?? "").trim().slice(0, 500) || null,
+    starts_on: startsOn,
+    ends_on: endsOn,
+    invited_teams: input.invitedTeams ?? [],
+    invited_functions: input.invitedFunctions ?? [],
+    updated_at: new Date().toISOString(),
+  };
+
+  let routineId = input.id ?? null;
+  if (routineId) {
+    const { error } = await db()
+      .from("touch_point_routines")
+      .update(row)
+      .eq("id", routineId)
+      .eq("owner_id", viewer.id);
+    if (error) return fail(error.message);
+    // drop the FUTURE occurrences this routine made and that nobody has
+    // touched — the past stays as history, hand-moved dates stay as decided
+    await db()
+      .from("touch_points")
+      .delete()
+      .eq("routine_id", routineId)
+      .eq("moved_from_routine", false)
+      .gte("starts_at", new Date().toISOString());
+  } else {
+    const { data, error } = await db()
+      .from("touch_point_routines")
+      .insert(row)
+      .select("id")
+      .single<{ id: string }>();
+    if (error || !data) return fail(error?.message ?? "Could not save the timeline.");
+    routineId = data.id;
+  }
+
+  // generate every occurrence up front
+  let created = 0;
+  let skipped = 0;
+  const today = new Date().toISOString().slice(0, 10);
+  for (const date of weeklyDates(startsOn, endsOn, input.weekday)) {
+    if (date < today) continue; // never book the past
+    const res = await createTouchPoint({
+      scope,
+      kind,
+      functionKey: input.functionKey,
+      teamName: input.teamName,
+      date,
+      time: input.time,
+      note: input.note,
+      invitedTeams: input.invitedTeams,
+      invitedFunctions: input.invitedFunctions,
+      virtual: input.virtual,
+      routineId,
+      // one invite per occurrence would be spam — a timeline is announced
+      // once, by its own summary, not 20 times
+      notify: false,
+    });
+    if (res.ok) created += 1;
+    else skipped += 1;
+  }
+  return { ok: true, data: { id: routineId!, created, skipped } };
+}
+
+/** Every Cairo date on `weekday` between two dates, inclusive. */
+function weeklyDates(from: string, to: string, weekday: number): string[] {
+  const out: string[] = [];
+  const cur = new Date(`${from}T12:00:00Z`);
+  const end = new Date(`${to}T12:00:00Z`);
+  // walk to the first matching weekday
+  while (cur.getUTCDay() !== weekday && cur <= end) cur.setUTCDate(cur.getUTCDate() + 1);
+  while (cur <= end) {
+    out.push(cur.toISOString().slice(0, 10));
+    cur.setUTCDate(cur.getUTCDate() + 7);
+  }
+  return out;
+}
+
+/** The timelines this viewer owns. */
+export async function listRoutines(): Promise<
+  (RoutineInput & { id: string; owner_name: string; occurrences: number })[]
+> {
+  const viewer = await getViewer();
+  const { data } = await db()
+    .from("touch_point_routines")
+    .select("*")
+    .eq("owner_id", viewer.id)
+    .order("created_at", { ascending: false });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows = (data ?? []) as any[];
+  const out = [];
+  for (const r of rows) {
+    const { count } = await db()
+      .from("touch_points")
+      .select("id", { count: "exact", head: true })
+      .eq("routine_id", r.id);
+    out.push({
+      id: r.id,
+      owner_name: r.owner_name,
+      scope: r.scope,
+      kind: r.kind,
+      functionKey: r.function_key,
+      teamName: r.team_name,
+      weekday: r.weekday,
+      time: r.at_time,
+      virtual: r.virtual,
+      note: r.note,
+      startsOn: r.starts_on,
+      endsOn: r.ends_on,
+      invitedTeams: r.invited_teams ?? [],
+      invitedFunctions: r.invited_functions ?? [],
+      occurrences: count ?? 0,
+    });
+  }
+  return out;
+}
+
+/** Deletes a timeline and its FUTURE untouched occurrences. */
+export async function deleteRoutine(id: string): Promise<Result> {
+  const viewer = await getViewer();
+  const { data: r } = await db()
+    .from("touch_point_routines")
+    .select("owner_id")
+    .eq("id", id)
+    .maybeSingle<{ owner_id: string | null }>();
+  if (!r) return fail("Timeline not found.");
+  if (r.owner_id !== viewer.id && !viewer.isAdmin && viewer.role !== "LCP")
+    return fail("Only the person who set this timeline can remove it.", "forbidden");
+  await db()
+    .from("touch_points")
+    .delete()
+    .eq("routine_id", id)
+    .eq("moved_from_routine", false)
+    .gte("starts_at", new Date().toISOString());
+  const { error } = await db().from("touch_point_routines").delete().eq("id", id);
+  if (error) return fail(error.message);
   return { ok: true };
 }

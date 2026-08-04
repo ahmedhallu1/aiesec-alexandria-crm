@@ -15,6 +15,7 @@ import {
 import { Hint } from "./hint";
 import { TouchPointManageDialog } from "./touch-point-manage-dialog";
 import { TouchPointDialog } from "./touch-point-dialog";
+import { TimelineDialog } from "./timeline-dialog";
 import type { CalendarVisit } from "@/server/data";
 
 /** Distinct, readable chip colors — one per member, assigned in a stable order. */
@@ -248,6 +249,14 @@ export function CalendarView({
         </div>
         <div className="flex flex-wrap items-center gap-1">
           {booking ? <TouchPointDialog {...booking} /> : null}
+          {/* the ROUTINE behind the one-offs: book the whole peak at once */}
+          {booking ? (
+            <TimelineDialog
+              scopes={booking.scopes ?? []}
+              functionKey={booking.functions?.[0] ?? null}
+              teamName={booking.myTeam ?? null}
+            />
+          ) : null}
           <Button variant="outline" size="icon" className="size-9" onClick={() => goMonth(shiftMonth(month, -1))} aria-label="Previous month">
             <ChevronLeft className="size-4" />
           </Button>
