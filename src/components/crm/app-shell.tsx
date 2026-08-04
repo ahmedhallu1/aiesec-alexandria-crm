@@ -7,8 +7,8 @@ import {
   LayoutDashboard,
   ChevronUp,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   Building2,
   CalendarCheck2,
   CalendarDays,
@@ -307,13 +307,21 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
   // the DRAWER omits the bell + theme toggle: on phones both already live in
   // the top bar — no duplicated controls
   const userBlock = (inDrawer: boolean) => (
-    <div className="border-t border-sidebar-border p-3">
-      <div className="flex items-center gap-2 rounded-lg px-2 py-2">
+    <div className={cn("border-t border-sidebar-border p-3", !inDrawer && railed && "px-1.5")}>
+      <div
+        className={cn(
+          "flex items-center gap-2 rounded-lg px-2 py-2",
+          !inDrawer && railed && "flex-col gap-1 px-0"
+        )}
+      >
         <Link
           href="/profile"
           onClick={() => setOpen(false)}
           data-tour={inDrawer ? undefined : "nav:/profile"}
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg transition-opacity hover:opacity-80"
+          className={cn(
+            "flex min-w-0 items-center gap-3 rounded-lg transition-opacity hover:opacity-80",
+            !inDrawer && railed ? "justify-center" : "flex-1"
+          )}
           title="My profile"
         >
           <Avatar className="size-9">
@@ -322,7 +330,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
               {user.name.slice(0, 2).toUpperCase()}
             </AvatarFallback>
           </Avatar>
-          <div className="min-w-0 flex-1">
+          <div className={cn("min-w-0 flex-1", !inDrawer && railed && "hidden")}>
             <p className="truncate text-sm font-semibold text-sidebar-foreground">{user.name}</p>
             <p className="truncate text-xs text-sidebar-foreground/60">
               {user.isAdmin ? "Admin" : user.role}
@@ -330,7 +338,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
             </p>
           </div>
         </Link>
-        {!inDrawer ? (
+        {!inDrawer && !railed ? (
           <>
             <NotificationsBell canBroadcast={canBroadcast} />
             <ThemeToggle className="text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
@@ -351,16 +359,46 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
     </div>
   );
 
+  /** The collapse control. A row at the FOOT of the nav, styled like the tabs
+   *  it sits under — a floating chip on the sidebar's edge overlapped the
+   *  brand and read as an accident. */
+  const railedToggle = (
+    <button
+      type="button"
+      onClick={() => {
+        const next = !railed;
+        setRailed(next);
+        try { localStorage.setItem("sodio-nav-railed", next ? "1" : "0"); } catch {}
+      }}
+      title={railed ? "Expand the sidebar" : "Collapse the sidebar — more room for the table"}
+      aria-label={railed ? "Expand the sidebar" : "Collapse the sidebar"}
+      className={cn(
+        "mx-3 mb-1 hidden items-center gap-3 rounded-lg px-3 py-2 text-sm text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground md:flex",
+        railed && "mx-1.5 justify-center px-0"
+      )}
+    >
+      {railed ? (
+        <ChevronsRight className="size-4.5 shrink-0" />
+      ) : (
+        <ChevronsLeft className="size-4.5 shrink-0" />
+      )}
+      {railed ? null : <span className="truncate">Collapse</span>}
+    </button>
+  );
+
   const brand = (
     <Link
       href={effectiveHome}
       onClick={() => setOpen(false)}
       title="Home — your workspace"
-      className="flex items-center gap-2.5 px-5 py-5 transition-opacity hover:opacity-80"
+      className={cn(
+        "flex items-center gap-2.5 py-5 transition-opacity hover:opacity-80",
+        railed ? "justify-center px-0" : "px-5"
+      )}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/brand/aiesec-white.png" alt="AIESEC" className="h-7 w-auto" />
-      <div className="leading-tight">
+      <img src="/brand/aiesec-white.png" alt="AIESEC" className="h-7 w-auto shrink-0" />
+      <div className={cn("leading-tight", railed && "hidden")}>
         <p className="text-sm font-black tracking-tight text-sidebar-foreground">Sodio</p>
         <p className="text-[10px] text-sidebar-foreground/60">AIESEC in Alexandria</p>
       </div>
@@ -398,29 +436,13 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
         )}
         data-railed={railed ? "true" : undefined}
       >
-        {railed ? null : brand}
+        {brand}
         {navList}
-        {railed ? null : userBlock(false)}
+        {railedToggle}
+        {userBlock(false)}
         {railed ? null : credit}
       </aside>
 
-      {/* the collapse handle — sits on the sidebar's edge, desktop only */}
-      <button
-        type="button"
-        onClick={() => {
-          const next = !railed;
-          setRailed(next);
-          try { localStorage.setItem("sodio-nav-railed", next ? "1" : "0"); } catch {}
-        }}
-        aria-label={railed ? "Expand the sidebar" : "Collapse the sidebar"}
-        title={railed ? "Expand the sidebar" : "Collapse the sidebar — more room for the table"}
-        className={cn(
-          "fixed top-3 z-40 hidden size-7 items-center justify-center rounded-full border bg-card text-muted-foreground shadow-sm transition-all duration-200 hover:text-foreground md:flex",
-          railed ? "left-[2.6rem]" : "left-[13.6rem]"
-        )}
-      >
-        {railed ? <ChevronRight className="size-4" /> : <ChevronLeft className="size-4" />}
-      </button>
 
       {/* Mobile top bar */}
       <div className="fixed inset-x-0 top-0 z-30 flex items-center gap-2 border-b bg-sidebar px-3 py-2.5 pt-[calc(0.625rem+env(safe-area-inset-top))] md:hidden">
