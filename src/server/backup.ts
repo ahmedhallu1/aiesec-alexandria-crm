@@ -22,10 +22,12 @@ import { db } from "@/lib/supabase";
  *   2. a gzipped copy EMAILED to the IM mailbox — off-site, so it survives
  *      losing the Supabase project itself. A backup that lives only inside the
  *      thing it is backing up is not really a backup.
- *
- * (Drive was the first choice and doesn't work: the service account has no
- * storage quota of its own, and the app's Google token carries mail scope
- * only. Email needs no new consent and is genuinely off-site.)
+ *   3. best-effort, a copy in the CRM Drive folder, where the EB can see it
+ *      without asking anyone. This needs the mailbox token to carry the Drive
+ *      scope (`scripts/mint-mailbox-token.mjs`); the SERVICE ACCOUNT can never
+ *      do it — it has no storage quota of its own, so every upload comes back
+ *      "Service Accounts do not have storage quota". When the scope is
+ *      missing this step is skipped and the other two still run.
  *
  * Storage buckets (contracts, CVs) are NOT included — they are files, not
  * rows, and they already live outside Postgres.
@@ -103,6 +105,8 @@ export interface BackupResult {
   pruned: number;
   /** whether the off-site email copy went out */
   emailed: boolean;
+  /** whether the visible Drive copy landed (needs the Drive scope) */
+  drive: boolean;
 }
 
 /** Dumps every table, stores it, and mails an off-site copy. */
@@ -181,6 +185,27 @@ array.</p>
     console.error("[backup] off-site email failed:", e);
   }
 
+  // 3. a copy where the EB can see it. Never allowed to fail the run.
+  let drive = false;
+  try {
+    const { uploadToDriveFolder } = await import("@/lib/google/drive-upload");
+    await uploadToDriveFolder({
+      folderName: "CRM — Backups",
+      fileName,
+      mimeType: "application/gzip",
+      data: gz,
+    });
+    drive = true;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(
+      "[backup] Drive copy skipped:",
+      /storage quota/i.test(msg)
+        ? "the mailbox token has no Drive scope — re-mint it with scripts/mint-mailbox-token.mjs"
+        : msg
+    );
+  }
+
   const pruned = await pruneOldBackups();
   return {
     fileName,
@@ -190,6 +215,7 @@ array.</p>
     failed,
     pruned,
     emailed,
+    drive,
   };
 }
 

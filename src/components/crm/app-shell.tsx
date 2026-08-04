@@ -310,8 +310,15 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
     <div className={cn("border-t border-sidebar-border p-3", !inDrawer && railed && "px-1.5")}>
       <div
         className={cn(
-          "flex items-center gap-2 rounded-lg px-2 py-2",
-          !inDrawer && railed && "flex-col gap-1 px-0"
+          "flex rounded-lg px-2 py-2",
+          !inDrawer && railed
+            ? "flex-col items-center gap-1 px-0"
+            : inDrawer
+              ? "items-center gap-2"
+              : // desktop, expanded: the name gets the WHOLE row and the buttons
+                // sit underneath it. Three icon buttons beside a 9-unit avatar
+                // left ~60px for the name, so everyone read as "A…"
+                "flex-col items-stretch gap-0.5"
         )}
       >
         <Link
@@ -320,7 +327,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
           data-tour={inDrawer ? undefined : "nav:/profile"}
           className={cn(
             "flex min-w-0 items-center gap-3 rounded-lg transition-opacity hover:opacity-80",
-            !inDrawer && railed ? "justify-center" : "flex-1"
+            !inDrawer && railed ? "justify-center" : inDrawer ? "flex-1" : "w-full"
           )}
           title="My profile"
         >
@@ -338,23 +345,30 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
             </p>
           </div>
         </Link>
-        {!inDrawer && !railed ? (
-          <>
-            <NotificationsBell canBroadcast={canBroadcast} />
-            <ThemeToggle className="text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
-          </>
-        ) : null}
-        <form action={signOutAction}>
-          <Button
-            type="submit"
-            variant="ghost"
-            size="icon"
-            className="text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-            title="Sign out"
-          >
-            <LogOut className="size-4" />
-          </Button>
-        </form>
+        <div
+          className={cn(
+            "flex items-center",
+            !inDrawer && railed ? "flex-col gap-1" : "gap-1"
+          )}
+        >
+          {!inDrawer && !railed ? (
+            <>
+              <NotificationsBell canBroadcast={canBroadcast} />
+              <ThemeToggle className="text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
+            </>
+          ) : null}
+          <form action={signOutAction} className={cn(!inDrawer && !railed && "ml-auto")}>
+            <Button
+              type="submit"
+              variant="ghost"
+              size="icon"
+              className="text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+              title="Sign out"
+            >
+              <LogOut className="size-4" />
+            </Button>
+          </form>
+        </div>
       </div>
     </div>
   );

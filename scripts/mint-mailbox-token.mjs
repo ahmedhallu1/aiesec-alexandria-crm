@@ -2,10 +2,19 @@
 /**
  * Mint (or re-mint) the IM mailbox refresh token for Sodio.
  *
- * ONE token powers BOTH the transactional emails AND the shared "Sodio — LC
- * Visits" calendar, so it must carry both scopes:
- *   - https://mail.google.com/                    (send/read mail)
- *   - https://www.googleapis.com/auth/calendar    (shared visits calendar)
+ * ONE token powers everything Sodio does as the IM mailbox, so it carries the
+ * full set:
+ *   - https://mail.google.com/                     (send/read mail)
+ *   - .../auth/calendar                            (shared visits calendar)
+ *   - .../auth/drive                               (files: backups, IR-call
+ *                                                   screenshots, the sheets)
+ *   - .../auth/spreadsheets                        (the CRM sheets)
+ *
+ * WHY DRIVE MATTERS (v33): the service account can create FOLDERS but cannot
+ * create FILES — a service account has no storage quota of its own, so every
+ * upload comes back "Service Accounts do not have storage quota". The mailbox
+ * account has real Drive space, so any file Sodio stores in Drive has to be
+ * written with THIS token.
  *
  * Usage (from the repo root):
  *   node scripts/mint-mailbox-token.mjs
@@ -33,6 +42,8 @@ import { spawn } from "node:child_process";
 const SCOPES = [
   "https://mail.google.com/",
   "https://www.googleapis.com/auth/calendar",
+  "https://www.googleapis.com/auth/drive",
+  "https://www.googleapis.com/auth/spreadsheets",
 ];
 const REDIRECT_URI = process.env.REDIRECT_URI || "http://localhost:3000";
 
