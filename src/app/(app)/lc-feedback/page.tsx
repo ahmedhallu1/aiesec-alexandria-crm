@@ -21,7 +21,7 @@ export default async function LcFeedbackPage() {
     .filter((m) => m.is_active && m.id !== viewer.id)
     .map((m) => ({
       id: m.id,
-      label: m.nickname || m.name,
+      label: m.name,
       role: m.role as string,
       team: m.team_name,
       functions: m.functions ?? [],

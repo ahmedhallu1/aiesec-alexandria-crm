@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { CalendarPlus, Loader2 } from "lucide-react";
+import { CalendarPlus, Loader2, Video } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { createTouchPoint } from "@/server/touch-points";
@@ -86,6 +86,10 @@ export function TouchPointDialog({
   const [invTeams, setInvTeams] = useState<string[]>([]);
   const [invFns, setInvFns] = useState<string[]>([]);
   const [notify, setNotify] = useState(true);
+  // VIRTUAL is a MEETING thing only (v33): working hours are people sitting
+  // and working, an outing is by definition somewhere — neither has a Meet
+  // link, and offering one would just produce empty rooms.
+  const [virtual, setVirtual] = useState(false);
   const todayIso = cairoTodayIso();
   // a start earlier than right now (Cairo) = logging, not booking. The server
   // decides for real; this only shapes what the dialog promises.
@@ -108,6 +112,7 @@ export function TouchPointDialog({
       const res = await createTouchPoint({
         scope: picked.scope,
         kind: picked.kind,
+        virtual: picked.kind === "meeting" ? virtual : false,
         functionKey: picked.scope === "lc" ? null : fn,
         teamName: picked.scope === "team" ? team : null,
         date,
@@ -225,6 +230,9 @@ export function TouchPointDialog({
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
                 />
+                <p className="text-[11px] text-muted-foreground">
+                  Past date = logging one that already happened.
+                </p>
               </div>
               <div className="grid gap-1.5">
                 <Label>Starts at *</Label>
@@ -292,6 +300,22 @@ export function TouchPointDialog({
                     </button>
                   ))}
                 </div>
+              </div>
+            ) : null}
+
+            {picked?.kind === "meeting" && !logging ? (
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
+                <div className="min-w-0">
+                  <p className="flex items-center gap-1.5 text-sm font-medium">
+                    <Video className="size-4" /> Virtual meeting
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {virtual
+                      ? "Everyone gets a Google Calendar invite with a Meet link — and their Yes/No on it pre-fills the attendance."
+                      : "Sends a Google Meet invite and takes attendance from everyone's RSVP."}
+                  </p>
+                </div>
+                <Switch checked={virtual} onCheckedChange={setVirtual} />
               </div>
             ) : null}
 

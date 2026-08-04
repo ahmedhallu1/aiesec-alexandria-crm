@@ -15,7 +15,7 @@ export default async function MmPlanPage() {
   if (!needed) redirect("/");
 
   const peak = peakForPlanning();
-  const nickname = viewer.nickname || viewer.name.split(" ")[0];
+  const nickname = viewer.name.split(" ")[0];
 
   return (
     <main className="relative flex min-h-dvh items-center justify-center bg-sidebar p-4">

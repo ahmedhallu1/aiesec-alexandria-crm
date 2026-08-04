@@ -24,7 +24,6 @@ const PROMPT_AFTER = 3;
 interface MemberLike {
   id: string;
   name: string;
-  nickname: string | null;
   email: string | null;
   role: string;
   team_name: string | null;
@@ -133,7 +132,7 @@ export async function GET(req: NextRequest) {
   const touchPoints = await unrecordedTouchPoints(LOOKBACK_DAYS);
   const { data: memberData, error: membersError } = await db()
     .from("members")
-    .select("id, name, nickname, email, role, team_name, functions, sub_functions")
+    .select("id, name, email, role, team_name, functions, sub_functions")
     .eq("is_active", true);
   if (membersError) {
     console.error("[attendance-reminders] members query failed:", membersError.message);

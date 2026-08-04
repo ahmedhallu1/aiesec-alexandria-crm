@@ -86,7 +86,7 @@ const MOS_TAG: Record<MemberDirectoryEntry["mos"], string | null> = {
 // MOS column sorts by each member's own star metric (desc by default) —
 // opens / EGP / deals / plan approvals depending on their MOS family
 const DIRECTORY_SORTERS: Record<string, (m: MemberDirectoryEntry) => string | number | null> = {
-  member: (m) => m.nickname || m.name,
+  member: (m) => m.name,
   role: (m) => m.role,
   functions: (m) => (m.functions.length ? m.functions.join(", ") : null),
   team: (m) => m.team_name,
@@ -142,7 +142,7 @@ function ContactButtons({ m }: { m: MemberDirectoryEntry }) {
     "inline-flex size-9 items-center justify-center rounded-md border text-muted-foreground transition-colors hover:border-primary hover:text-primary sm:size-7";
   return (
     <span className="inline-flex shrink-0 items-center gap-1">
-      <Hint label={`Email ${m.nickname || m.name}`}>
+      <Hint label={`Email ${m.name}`}>
         <a className={btn} href={`mailto:${m.email}`} onClick={stop} aria-label="Email">
           <Mail className="size-3.5" />
         </a>
@@ -266,7 +266,7 @@ export function MembersView({
     const needle = q.trim().toLowerCase();
     if (
       needle &&
-      ![m.name, m.nickname ?? "", m.email, m.team_name ?? ""].some((s) =>
+      ![m.name, "", m.email, m.team_name ?? ""].some((s) =>
         s.toLowerCase().includes(needle)
       )
     )
@@ -307,7 +307,7 @@ export function MembersView({
       case "member":
         return (
           <>
-            <p className="font-medium" dir="auto">{m.nickname || m.name}</p>
+            <p className="font-medium" dir="auto">{m.name}</p>
             {cols.isVisible("email") ? null : (
               <p className="text-xs text-muted-foreground">{m.email}</p>
             )}
@@ -475,10 +475,7 @@ export function MembersView({
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-semibold">
-                    {m.nickname || m.name}
-                    {m.nickname ? (
-                      <span className="ml-1.5 text-xs font-normal text-muted-foreground">{m.name}</span>
-                    ) : null}
+                    {m.name}
                   </p>
                   <div className="mt-1 flex flex-wrap items-center gap-1.5">
                     <Badge variant="outline" className="text-[10px]">{m.role}</Badge>

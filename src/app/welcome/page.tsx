@@ -36,7 +36,7 @@ export default async function WelcomePage() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/aiesec-white.png" alt="AIESEC" className="mx-auto mb-3 hidden h-8 w-auto dark:block" />
           <h1 className="text-2xl font-bold">
-            Welcome, {viewer.nickname || viewer.name.split(" ")[0]} 👋
+            Welcome, {viewer.name.split(" ")[0]} 👋
           </h1>
           <p className="mt-1 text-sm font-medium text-primary">
             {blurb}
@@ -49,7 +49,6 @@ export default async function WelcomePage() {
         <OnboardingForm
           member={{
             name: viewer.name,
-            nickname: viewer.nickname ?? "",
             email: viewer.email ?? "",
             phone: viewer.phone ?? "",
             role: viewer.role,

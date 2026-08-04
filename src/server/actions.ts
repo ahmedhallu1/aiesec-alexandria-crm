@@ -273,7 +273,7 @@ export async function createAccount(
         reason: duplicate.oop_reason,
         archived_at: duplicate.oop_at?.slice(0, 10) ?? null,
         was_responsible:
-          duplicate.responsible_nickname || duplicate.responsible_name || "Unassigned",
+          duplicate.responsible_name || "Unassigned",
       }
     );
   if (duplicate)
@@ -283,7 +283,7 @@ export async function createAccount(
       {
         function: duplicate.function,
         responsible:
-          duplicate.responsible_nickname || duplicate.responsible_name || "Unassigned",
+          duplicate.responsible_name || "Unassigned",
         stage: duplicate.stage,
         project: duplicate.project ?? duplicate.sub_product,
         created_at: duplicate.created_at?.slice(0, 10) ?? null,
@@ -609,7 +609,7 @@ async function insertArchivedName(
     });
   if (duplicate)
     return fail(
-      `"${cleanName}" exists in the active accounts (${duplicate.function}, ${duplicate.responsible_nickname || duplicate.responsible_name || "Unassigned"}) — mark it Out of Process from its page instead.`,
+      `"${cleanName}" exists in the active accounts (${duplicate.function}, ${duplicate.responsible_name || "Unassigned"}) — mark it Out of Process from its page instead.`,
       "duplicate"
     );
 
@@ -1016,9 +1016,9 @@ export async function startViewAs(
 
   const { data: target } = await db()
     .from("members")
-    .select("id, name, nickname, is_active")
+    .select("id, name, is_active")
     .eq("id", memberId)
-    .maybeSingle<{ id: string; name: string; nickname: string | null; is_active: boolean }>();
+    .maybeSingle<{ id: string; name: string; is_active: boolean }>();
   if (!target || !target.is_active) return fail("That member doesn't exist (or is inactive).");
 
   const { cookies } = await import("next/headers");
@@ -1054,7 +1054,7 @@ export async function startViewAs(
   });
   await logAudit(real.id, "view_as_start", "member", target.id, { mode });
   refresh();
-  return { ok: true, data: { name: target.nickname || target.name, mode } };
+  return { ok: true, data: { name: target.name, mode } };
 }
 
 /** Flip the CURRENT test view between sandbox and real. Switching sandbox→real
@@ -1301,10 +1301,10 @@ const TEST_TP_TAG = "🧪 test —";
  *
  *  Everything is scoped to the admin's own team-mates, so no real member is
  *  marked absent in a meeting that never happened. */
-async function seedTestTouchPoints(real: { id: string; nickname: string | null; name: string }): Promise<number> {
+async function seedTestTouchPoints(real: { id: string; name: string }): Promise<number> {
   const { data: crew } = await db()
     .from("members")
-    .select("id, name, nickname, functions, sub_functions")
+    .select("id, name, functions, sub_functions")
     .eq("is_active", true)
     .limit(6);
   const people = (crew ?? []) as { id: string }[];
@@ -1339,7 +1339,7 @@ async function seedTestTouchPoints(real: { id: string; nickname: string | null; 
         invited_teams: [],
         invited_functions: [],
         owner_id: real.id,
-        owner_name: real.nickname || real.name,
+        owner_name: real.name,
         announced: false,
         virtual: p.virtual,
         ...(p.record ? { attendance_recorded_at: new Date().toISOString() } : {}),
@@ -1558,9 +1558,9 @@ export async function bulkReassignAccounts(
       const [{ data: target }, { data: accounts }] = await Promise.all([
         db()
           .from("members")
-          .select("id, name, nickname, email, role")
+          .select("id, name, email, role")
           .eq("id", responsibleId)
-          .maybeSingle<{ id: string; name: string; nickname: string | null; email: string | null; role: string }>(),
+          .maybeSingle<{ id: string; name: string; email: string | null; role: string }>(),
         db().from("accounts").select("name").in("id", doneIds).order("name"),
       ]);
       // assigning accounts to YOURSELF needs no heads-up
@@ -1570,7 +1570,7 @@ export async function bulkReassignAccounts(
         await notifyMembers(
           [target.id],
           "broadcast",
-          `📋 ${viewer.nickname || viewer.name} assigned you ${names.length} account${names.length === 1 ? "" : "s"}`,
+          `📋 ${viewer.name} assigned you ${names.length} account${names.length === 1 ? "" : "s"}`,
           `${names.slice(0, 5).join(" · ")}${names.length > 5 ? ` · +${names.length - 5} more` : ""} — they're yours now, start raising!`,
           null,
           "/accounts"
@@ -1581,8 +1581,8 @@ export async function bulkReassignAccounts(
           const { accountsAssignedEmail } = await import("@/lib/email/templates");
           const { sendEmail } = await import("@/lib/google/gmail");
           const mail = accountsAssignedEmail({
-            memberName: target.nickname || target.name,
-            managerName: viewer.nickname || viewer.name,
+            memberName: target.name,
+            managerName: viewer.name,
             accountNames: names,
             accountsUrl: `${env.appUrl}/accounts`,
           });
@@ -2115,7 +2115,7 @@ export async function scheduleVisit(
   // email AND an in-app notification (no calendar reminder for them)
   if (recipients.announceIds.length > 0) {
     const responsibleName =
-      responsible?.nickname || responsible?.name || account.responsible_nickname || account.responsible_name;
+      responsible?.name || account.responsible_name;
     await notifyMembers(
       recipients.announceIds,
       "visit_announcement",
@@ -2230,7 +2230,7 @@ export async function reportVisit(
 
   if (recipients.size > 0) {
     const mail = visitReportEmail({
-      memberName: viewer.nickname || viewer.name,
+      memberName: viewer.name,
       accountName: account.name,
       visitDate: visit.visit_date,
       visitTime: visit.visit_time,
@@ -2284,7 +2284,7 @@ export async function submitFeedback(input: {
   // straight to the IM director + IM coach inboxes
   const { feedbackEmail } = await import("@/lib/email/templates");
   const mail = feedbackEmail({
-    memberName: input.anonymous ? "Anonymous member 🎭" : viewer.nickname || viewer.name,
+    memberName: input.anonymous ? "Anonymous member 🎭" : viewer.name,
     memberEmail: input.anonymous ? "hidden" : viewer.email ?? "no email (phone sign-in)",
     type: category ? `${input.type} · ${category}` : input.type,
     message: input.message.trim(),
@@ -2301,7 +2301,6 @@ export async function submitFeedback(input: {
 
 const profileSchema = z.object({
   name: z.string().trim().min(2, "Your full name is required."),
-  nickname: z.string().trim().min(1, "Pick the nickname the LC knows you by."),
   phone: z
     .string()
     .trim()
@@ -2319,7 +2318,6 @@ async function writeProfileBackToSheet(memberId: string) {
   const { writeMemberToSheet } = await import("@/lib/google/sheets");
   await writeMemberToSheet({
     name: m.name,
-    nickname: m.nickname,
     email: m.email,
     phone: m.phone,
     role: m.role,
@@ -2334,7 +2332,6 @@ async function writeProfileBackToSheet(memberId: string) {
 /** First login: the member confirms their info and sets their own password. */
 export async function completeOnboarding(input: {
   name: string;
-  nickname: string;
   phone: string;
   password: string;
 }): Promise<ActionResult> {
@@ -2350,7 +2347,6 @@ export async function completeOnboarding(input: {
   const password_hash = await bcrypt.hash(input.password, 10);
   const patch = {
     name: parsed.data.name,
-    nickname: parsed.data.nickname,
     phone: parsed.data.phone,
     password_hash,
     profile_completed_at: new Date().toISOString(),
@@ -2370,10 +2366,7 @@ export async function completeOnboarding(input: {
   refresh();
   return { ok: true };
 }
-
-/** Profile page: members edit what belongs to them (nickname, phone). */
 export async function updateProfile(input: {
-  nickname: string;
   phone: string;
 }): Promise<ActionResult> {
   const viewer = await getViewer();
@@ -2383,7 +2376,7 @@ export async function updateProfile(input: {
   await snapshotForUndo("members", viewer.id); // sandbox test view: roll back on exit
   const { error } = await db()
     .from("members")
-    .update({ nickname: parsed.data.nickname, phone: parsed.data.phone })
+    .update({ phone: parsed.data.phone })
     .eq("id", viewer.id);
   if (error) return fail(error.message);
 
@@ -2489,7 +2482,6 @@ const memberSchema = z
   .object({
     id: z.string().uuid().nullish(),
     name: z.string().trim().min(2, "Name is required."),
-    nickname: z.string().trim().nullish(),
     // email is OPTIONAL since v24 — phone-only members sign in with their
     // number (both fields) until the AIESEC email lands
     email: z
@@ -2542,7 +2534,6 @@ export async function upsertMember(
 
   const row = {
     name: m.name,
-    nickname: m.nickname || null,
     email: m.email || null,
     phone: m.phone || null,
     role: m.role,
@@ -2583,7 +2574,7 @@ export async function upsertMember(
   // resolve the manager name → id link (default chain: VP → Director → LCP)
   const { data: all } = await db()
     .from("members")
-    .select("id, name, nickname, role, functions, stakeholder_name, stakeholder_id, is_active");
+    .select("id, name, role, functions, stakeholder_name, stakeholder_id, is_active");
   let targetId: string | null = null;
   if (m.stakeholder_name) {
     // a plain Member can never BE a manager — such names fall through to the
@@ -2593,8 +2584,7 @@ export async function upsertMember(
         (x) =>
           x.id !== id &&
           x.role !== "Member" &&
-          (x.name.trim().toLowerCase() === m.stakeholder_name!.trim().toLowerCase() ||
-            x.nickname?.trim().toLowerCase() === m.stakeholder_name!.trim().toLowerCase())
+          x.name.trim().toLowerCase() === m.stakeholder_name!.trim().toLowerCase()
       )?.id ?? null;
   }
   if (!targetId) {
@@ -2637,9 +2627,9 @@ export async function resetMemberPassword(memberId: string): Promise<ActionResul
     return fail("Only the EB and admins can reset passwords.", "forbidden");
   const { data: member } = await db()
     .from("members")
-    .select("id, email, name, nickname")
+    .select("id, email, name")
     .eq("id", memberId)
-    .maybeSingle<{ id: string; email: string | null; name: string; nickname: string | null }>();
+    .maybeSingle<{ id: string; email: string | null; name: string }>();
   if (!member) return fail("Member not found.");
   if (!member.email)
     return fail("This member has no email — they sign in with their phone number (both fields).");
@@ -3003,7 +2993,7 @@ export async function checkAccountNameLive(
           reason: duplicate.oop_reason,
           archived_at: duplicate.oop_at?.slice(0, 10) ?? null,
           was_responsible:
-            duplicate.responsible_nickname || duplicate.responsible_name || "Unassigned",
+            duplicate.responsible_name || "Unassigned",
         },
       },
     };
@@ -3018,7 +3008,7 @@ export async function checkAccountNameLive(
         info: {
           function: duplicate.function,
           responsible:
-            duplicate.responsible_nickname || duplicate.responsible_name || "Unassigned",
+            duplicate.responsible_name || "Unassigned",
           stage: duplicate.stage,
           project: duplicate.project ?? duplicate.sub_product,
           created_at: duplicate.created_at?.slice(0, 10) ?? null,
@@ -3331,7 +3321,7 @@ export async function sendBroadcast(
 
   const { data: all } = await db()
     .from("members")
-    .select("id, email, name, nickname, role, functions")
+    .select("id, email, name, role, functions")
     .eq("is_active", true);
   let targets = (all ?? []) as {
     id: string; email: string; role: string; functions: string[] | null;
@@ -3361,7 +3351,7 @@ export async function sendBroadcast(
     const mail = broadcastEmail({
       title: b.title,
       body: b.body,
-      senderName: viewer.nickname || viewer.name,
+      senderName: viewer.name,
     });
     sendEmail({ to: [viewer.email || env.gmailSender].filter(Boolean), bcc: targets.map((t) => t.email), ...mail }).catch(
       (e) => console.error("[broadcast] email failed:", e)
@@ -3383,14 +3373,14 @@ export async function listBroadcastTargets(): Promise<
   if (!canManageMembership(viewer)) return fail("EB only.", "forbidden");
   const { data } = await db()
     .from("members")
-    .select("id, name, nickname, role, functions")
+    .select("id, name, role, functions")
     .eq("is_active", true)
     .order("name");
   return {
     ok: true,
     data: (data ?? []).map((m) => ({
       id: m.id,
-      label: m.nickname || m.name,
+      label: m.name,
       role: m.role,
       functions: m.functions ?? [],
     })),
@@ -3407,11 +3397,11 @@ export async function thankFeedback(feedbackId: string): Promise<ActionResult> {
 
   const { data: f } = await db()
     .from("feedback")
-    .select("id, message, anonymous, member:members(id, name, nickname, email)")
+    .select("id, message, anonymous, member:members(id, name, email)")
     .eq("id", feedbackId)
     .maybeSingle<{
       id: string; message: string; anonymous: boolean;
-      member: { id: string; name: string; nickname: string | null; email: string } | null;
+      member: { id: string; name: string; email: string } | null;
     }>();
   if (!f) return fail("Feedback not found.");
   if (f.anonymous || !f.member)
@@ -3428,7 +3418,7 @@ export async function thankFeedback(feedbackId: string): Promise<ActionResult> {
 
   const { feedbackThanksEmail } = await import("@/lib/email/templates");
   const mail = feedbackThanksEmail({
-    memberFirstName: f.member.nickname || f.member.name.split(" ")[0],
+    memberFirstName: f.member.name.split(" ")[0],
     feedbackSnippet: f.message.slice(0, 160),
   });
   sendEmail({ to: [f.member.email], ...mail }).catch((e) =>
@@ -3632,7 +3622,7 @@ export async function submitLcFeedback(input: {
 
   const { data: targets } = await db()
     .from("members")
-    .select("id, name, nickname, email")
+    .select("id, name, email")
     .in("id", about)
     .eq("is_active", true);
   if (!targets || targets.length === 0) return fail("Those members don't exist.");
@@ -3652,7 +3642,7 @@ export async function submitLcFeedback(input: {
 
   if (input.positive) {
     // shout-out → tell the person right away (bell + branded email)
-    const from = input.anonymous ? "Someone in the LC 🎭" : viewer.nickname || viewer.name;
+    const from = input.anonymous ? "Someone in the LC 🎭" : viewer.name;
     const { notifyMembers } = await import("./notify");
     await notifyMembers(
       targets.map((t) => t.id),
@@ -3664,7 +3654,7 @@ export async function submitLcFeedback(input: {
     const { lcShoutoutEmail } = await import("@/lib/email/templates");
     for (const t of targets) {
       const mail = lcShoutoutEmail({
-        firstName: (t.nickname || t.name).split(" ")[0],
+        firstName: (t.name).split(" ")[0],
         from,
         message,
       });
@@ -3679,7 +3669,7 @@ export async function submitLcFeedback(input: {
   if (!input.positive) {
     const { data: owners } = await db()
       .from("members")
-      .select("id, name, nickname, email, role, functions, sub_functions")
+      .select("id, name, email, role, functions, sub_functions")
       .eq("is_active", true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const inboxOwners = ((owners ?? []) as any[]).filter(
@@ -4026,16 +4016,16 @@ async function pushSignupToSheet(id: string): Promise<void> {
     signup.assigned_to
       ? db()
           .from("members")
-          .select("name, nickname")
+          .select("name")
           .eq("id", signup.assigned_to)
-          .maybeSingle<{ name: string; nickname: string | null }>()
+          .maybeSingle<{ name: string }>()
       : Promise.resolve({ data: null }),
   ]);
   const { writeSignupBack } = await import("@/lib/google/signups");
   await writeSignupBack(
     signup,
     (comments ?? []) as SignupComment[],
-    assigned.data ? assigned.data.nickname || assigned.data.name : signup.assigned_name
+    assigned.data ? assigned.data.name : signup.assigned_name
   ).catch((e) => console.error("[signups] write-back failed:", e));
 }
 
@@ -4090,7 +4080,7 @@ export async function claimSignup(id: string): Promise<ActionResult> {
     .update(
       touchSignup({
         assigned_to: viewer.id,
-        assigned_name: viewer.nickname || viewer.name,
+        assigned_name: viewer.name,
         assigned_at: new Date().toISOString(),
       })
     )
@@ -4131,14 +4121,14 @@ export async function reassignSignup(
     !viewer.teamMemberIds.includes(signup.assigned_to)
   )
     return fail("Team Leaders re-assign only their own team's sign-ups.", "forbidden");
-  let target: { id: string; name: string; nickname: string | null } | null = null;
+  let target: { id: string; name: string } | null = null;
   if (memberId) {
     const { data } = await db()
       .from("members")
-      .select("id, name, nickname, is_active, role, functions, sub_functions")
+      .select("id, name, is_active, role, functions, sub_functions")
       .eq("id", memberId)
       .maybeSingle<{
-        id: string; name: string; nickname: string | null; is_active: boolean;
+        id: string; name: string; is_active: boolean;
         role: string; functions: string[] | null; sub_functions: string[] | null;
       }>();
     if (!data || !data.is_active) return fail("Pick an active member.");
@@ -4158,7 +4148,7 @@ export async function reassignSignup(
   }
   // a true no-op (same assignee, same display name) must not touch the row —
   // flipping sodio_touched would mute future sheet-side edits for nothing
-  const newName = target ? target.nickname || target.name : null;
+  const newName = target ? target.name : null;
   if ((target?.id ?? null) === signup.assigned_to && newName === signup.assigned_name)
     return { ok: true };
   await snapshotForUndo("signups", id);
@@ -4167,7 +4157,7 @@ export async function reassignSignup(
     .update(
       touchSignup({
         assigned_to: target?.id ?? null,
-        assigned_name: target ? target.nickname || target.name : null,
+        assigned_name: target ? target.name : null,
         assigned_at: target ? new Date().toISOString() : null,
       })
     )
@@ -4305,7 +4295,7 @@ export async function addSignupComment(id: string, body: string): Promise<Action
     .insert({
       signup_id: id,
       author_id: viewer.id,
-      author_name: viewer.nickname || viewer.name,
+      author_name: viewer.name,
       author_class: isVpClass ? "vp" : "member",
       body: clean,
     })
@@ -4706,7 +4696,7 @@ export async function recordIrCall(input: {
       screenshot_name: screenshot?.name ?? null,
       screenshot_link: screenshot?.link ?? null,
       member_id: viewer.id,
-      member_name: viewer.nickname || viewer.name,
+      member_name: viewer.name,
     })
     .select("id")
     .single();
@@ -4983,18 +4973,17 @@ export async function bookIrCall(input: {
   if (!settings?.active) return fail("This booking link is not active.");
   const { data: owner } = await db()
     .from("members")
-    .select("id, name, nickname, email, google_refresh_token, is_active")
+    .select("id, name, email, google_refresh_token, is_active")
     .eq("id", settings.member_id)
     .maybeSingle<{
       id: string;
       name: string;
-      nickname: string | null;
       email: string | null;
       google_refresh_token: string | null;
       is_active: boolean;
     }>();
   if (!owner?.is_active) return fail("This booking link is not active.");
-  const memberName = owner.nickname || owner.name;
+  const memberName = owner.name;
 
   // light rate limit: a fully-booked fortnight closes the link
   const { count: futureCount } = await db()
@@ -5099,7 +5088,7 @@ export async function bookIrCall(input: {
         country ? ` (${country})` : ""
       }${bookerName ? `\nBooked by: ${bookerName}` : ""}${
         bookerPhone ? ` · ${bookerPhone}` : ""
-      } <${bookerEmail}>\nHost: ${owner.nickname || owner.name}, AIESEC in Alexandria.`,
+      } <${bookerEmail}>\nHost: ${owner.name}, AIESEC in Alexandria.`,
     });
     if (event) {
       meetLink = event.meetLink;
@@ -5130,7 +5119,7 @@ export async function bookIrCall(input: {
     try {
       const { irCallBookedEmail } = await import("@/lib/email/templates");
       const mail = irCallBookedEmail({
-        memberFirstName: (owner.nickname || owner.name).split(" ")[0],
+        memberFirstName: (owner.name).split(" ")[0],
         partnerLc: lc.name,
         country,
         bookerName,
@@ -5401,7 +5390,6 @@ async function loadManagedCall(token: string): Promise<
       owner: {
         id: string;
         name: string;
-        nickname: string | null;
         email: string | null;
         google_refresh_token: string | null;
         is_active: boolean;
@@ -5424,12 +5412,11 @@ async function loadManagedCall(token: string): Promise<
     const [o, s] = await Promise.all([
       db()
         .from("members")
-        .select("id, name, nickname, email, google_refresh_token, is_active")
+        .select("id, name, email, google_refresh_token, is_active")
         .eq("id", call.member_id)
         .maybeSingle<{
           id: string;
           name: string;
-          nickname: string | null;
           email: string | null;
           google_refresh_token: string | null;
           is_active: boolean;
@@ -5543,7 +5530,7 @@ export async function rescheduleBookedCall(input: {
     try {
       const { irCallRescheduledOwnerEmail } = await import("@/lib/email/templates");
       const mail = irCallRescheduledOwnerEmail({
-        memberFirstName: (owner.nickname || owner.name).split(" ")[0],
+        memberFirstName: (owner.name).split(" ")[0],
         partnerLc: call.partner_lc_name,
         bookerName: call.booker_name,
         oldWhenLabel: oldWhen,
@@ -5560,7 +5547,7 @@ export async function rescheduleBookedCall(input: {
       const { irBookingConfirmEmail } = await import("@/lib/email/templates");
       const mail = irBookingConfirmEmail({
         bookerName: call.booker_name,
-        memberName: owner.nickname || owner.name,
+        memberName: owner.name,
         partnerLc: call.partner_lc_name,
         whenLabel: newWhen,
         slotMinutes: settings.slot_minutes,
@@ -5644,7 +5631,7 @@ export async function cancelBookedCall(input: {
       try {
         const { irCallCancelledByBookerEmail } = await import("@/lib/email/templates");
         const mail = irCallCancelledByBookerEmail({
-          memberFirstName: (owner.nickname || owner.name).split(" ")[0],
+          memberFirstName: (owner.name).split(" ")[0],
           partnerLc: call.partner_lc_name,
           bookerName: call.booker_name,
           whenLabel,
@@ -5905,7 +5892,7 @@ export async function confirmCvUpload(input: {
       size_bytes: input.size,
       extraction_status: "pending",
       uploaded_by: viewer.id,
-      uploader_name: viewer.nickname || viewer.name,
+      uploader_name: viewer.name,
     })
     .select("id")
     .single();

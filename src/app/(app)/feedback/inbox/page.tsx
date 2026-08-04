@@ -12,7 +12,7 @@ export default async function FeedbackInboxPage() {
 
   const { data: items } = await db()
     .from("feedback")
-    .select("*, member:members(name, nickname, email)")
+    .select("*, member:members(name, email)")
     .order("created_at", { ascending: false })
     .limit(200);
 

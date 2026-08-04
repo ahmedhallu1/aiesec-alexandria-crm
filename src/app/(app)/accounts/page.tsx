@@ -46,7 +46,7 @@ export default async function AccountsPage({
     stage: params.stage && params.stage !== "Out of Process" ? (params.stage as Stage) : undefined,
     lastStatus: params.lastStatus || undefined,
     flag:
-      params.flag === "contact_limit" || params.flag === "next_step_missing"
+      params.flag === "needs_podio" || params.flag === "next_step_missing"
         ? params.flag
         : undefined,
     from: params.from || undefined,
@@ -81,7 +81,7 @@ export default async function AccountsPage({
     ...(scope.kind !== "members" ? [{ id: "none", label: "— Unassigned" }] : []),
     ...members
       .filter((m) => m.role !== "LCP")
-      .map((m) => ({ id: m.id, label: m.nickname || m.name }))
+      .map((m) => ({ id: m.id, label: m.name }))
       .sort((a, b) => a.label.localeCompare(b.label)),
   ];
 
@@ -97,11 +97,11 @@ export default async function AccountsPage({
         name: b.account_name,
         reason: b.comments,
         createdAt: b.created_at,
-        addedBy: b.added_by_member?.nickname || b.added_by_member?.name || null,
+        addedBy: b.added_by_member?.name || null,
       }))}
       members={members.map((m) => ({
         id: m.id,
-        label: m.nickname || m.name,
+        label: m.name,
         functions: [
           ...(m.functions ?? []),
           // B2B/BD (and B2C) may live in sub-functions only — synthesize the
@@ -114,7 +114,7 @@ export default async function AccountsPage({
       }))}
       reassignTargets={reassignTo.map((m) => ({
         id: m.id,
-        label: m.nickname || m.name,
+        label: m.name,
         functions: [
           ...(m.functions ?? []),
           ...(memberIsB2B(m)
@@ -127,7 +127,7 @@ export default async function AccountsPage({
       teamOptions={await listTeamFilterOptions(viewer)}
       viewer={{
         id: viewer.id,
-        name: viewer.nickname || viewer.name,
+        name: viewer.name,
         role: viewer.role,
         isAdmin: viewer.isAdmin,
         canAssignOthers:

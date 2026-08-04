@@ -108,10 +108,10 @@ export async function requestPasswordReset(
     const { db } = await import("@/lib/supabase");
     const { data: member } = await db()
       .from("members")
-      .select("id, name, nickname, email, is_active")
+      .select("id, name, email, is_active")
       .ilike("email", clean)
       .maybeSingle<{
-        id: string; name: string; nickname: string | null; email: string; is_active: boolean;
+        id: string; name: string; email: string; is_active: boolean;
       }>();
     if (member?.is_active) {
       const { issueTempPassword } = await import("./password");

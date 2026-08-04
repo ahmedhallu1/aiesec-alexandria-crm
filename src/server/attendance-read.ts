@@ -353,12 +353,12 @@ export async function memberNames(ids: string[]): Promise<Map<string, string>> {
     ids,
     100,
     async (chunk) => {
-      const { data } = await db().from("members").select("id, name, nickname").in("id", chunk);
+      const { data } = await db().from("members").select("id, name").in("id", chunk);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return (data ?? []) as any[];
     }
   );
-  for (const m of rows) map.set(m.id, m.nickname || m.name);
+  for (const m of rows) map.set(m.id, m.name);
   return map;
 }
 

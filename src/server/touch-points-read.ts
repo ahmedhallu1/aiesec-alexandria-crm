@@ -29,7 +29,6 @@ export interface TouchPointRow {
 export interface AudienceMember {
   id: string;
   name: string;
-  nickname: string | null;
   email: string | null;
   role: string;
   team_name: string | null;
@@ -45,7 +44,7 @@ const fnsOf = (m: { functions?: string[] | null; sub_functions?: string[] | null
 export async function touchPointAudience(tp: TouchPointRow): Promise<AudienceMember[]> {
   const { data } = await db()
     .from("members")
-    .select("id, name, nickname, email, role, team_name, functions, sub_functions")
+    .select("id, name, email, role, team_name, functions, sub_functions")
     .eq("is_active", true)
     .order("name");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -86,7 +85,6 @@ export async function touchPointAudience(tp: TouchPointRow): Promise<AudienceMem
   return withOwner.map((m) => ({
     id: m.id,
     name: m.name,
-    nickname: m.nickname,
     email: m.email,
     role: m.role,
     team_name: m.team_name,

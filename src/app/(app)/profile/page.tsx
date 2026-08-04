@@ -28,9 +28,9 @@ export default async function ProfilePage() {
     viewer.stakeholder_id
       ? db()
           .from("members")
-          .select("name, nickname")
+          .select("name")
           .eq("id", viewer.stakeholder_id)
-          .maybeSingle<{ name: string; nickname: string | null }>()
+          .maybeSingle<{ name: string }>()
       : Promise.resolve({ data: null }),
     teamsForViewer(viewer).catch(() => []),
     profilePeople(viewer).catch(() => null),
@@ -43,7 +43,6 @@ export default async function ProfilePage() {
     <ProfileView
       member={{
         name: viewer.name,
-        nickname: viewer.nickname ?? "",
         email: viewer.email ?? "",
         phone: viewer.phone ?? "",
         role: viewer.role,
@@ -51,7 +50,7 @@ export default async function ProfilePage() {
         subFunctions: viewer.sub_functions,
         teamName: viewer.team_name,
         stakeholderName:
-          stakeholder?.nickname || stakeholder?.name || viewer.stakeholder_name,
+          stakeholder?.name || viewer.stakeholder_name,
         photoUrl: viewer.avatar_url || viewer.photo_url,
         avatarUrl: viewer.avatar_url,
         googlePhotoUrl: viewer.photo_url,

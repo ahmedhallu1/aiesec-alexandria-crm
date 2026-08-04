@@ -144,7 +144,7 @@ export default async function DashboardPage({
             ? (m.functions ?? []).includes(laneFn)
             : (m.functions ?? []).some((f) => f === "IGV" || f === "IGT"))
     )
-    .map((m) => ({ id: m.id, label: m.nickname || m.name }));
+    .map((m) => ({ id: m.id, label: m.name }));
 
   // BD & B2B are one function shown under ONE name: "B2B"
   const fnNames = [
@@ -171,7 +171,7 @@ export default async function DashboardPage({
     viewer.role === "Team Leader"
       ? viewer.team_name || "My team"
       : teamLead
-        ? teamLead.team_name || `Team ${teamLead.nickname || teamLead.name}`
+        ? teamLead.team_name || `Team ${teamLead.name}`
         : null;
   // leaders already see the whole function — "My numbers" is for the people
   // who actually carry accounts (members, coordinators, TLs)

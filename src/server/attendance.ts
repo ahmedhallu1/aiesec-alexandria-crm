@@ -154,7 +154,7 @@ export async function loadAttendanceSheet(
         const v = verdictBy.get(m.id);
         return {
           memberId: m.id,
-          name: m.nickname || m.name,
+          name: m.name,
           role: m.role,
           team: m.team_name,
           status: row?.status ?? null,
@@ -400,7 +400,7 @@ export async function appealAttendance(
       viewer.id,
       [targetId],
       "info",
-      `🙋 Attendance appeal — ${viewer.nickname || viewer.name}`,
+      `🙋 Attendance appeal — ${viewer.name}`,
       `${label} · ${whenLabel} — recorded as "${row.status}". ${text}`,
       viewer.id,
       `/attendance?tp=${tp.id}`
@@ -418,7 +418,7 @@ export async function appealAttendance(
     if (recipients.length > 0) {
       const { attendanceAppealEmail } = await import("@/lib/email/attendance-templates");
       const mail = attendanceAppealEmail({
-        memberName: viewer.nickname || viewer.name,
+        memberName: viewer.name,
         label,
         whenLabel,
         status: row.status,

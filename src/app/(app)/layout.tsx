@@ -74,7 +74,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <AppShell
       user={{
-        name: viewer.nickname || viewer.name,
+        name: viewer.name,
         email: viewer.email ?? viewer.id,
         role: viewer.role,
         functions: viewer.functions,

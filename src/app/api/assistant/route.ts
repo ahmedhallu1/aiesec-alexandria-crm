@@ -71,7 +71,7 @@ function rowSummary(a: PipelineRow) {
     product: a.product,
     project: a.project,
     stage: a.stage,
-    responsible: a.responsible_nickname || a.responsible_name || "Unassigned",
+    responsible: a.responsible_name || "Unassigned",
     contacts_logged: a.attempts,
     deals: a.deals_count ?? 0,
     opens: a.slots_count ?? 0,
@@ -217,7 +217,7 @@ export async function POST(req: Request) {
           note: d.note,
         })),
         comments: comments.slice(-3).map((c) => ({
-          by: c.member?.nickname || c.member?.name || c.author_label,
+          by: c.member?.name || c.author_label,
           body: c.body.slice(0, 300),
         })),
       };

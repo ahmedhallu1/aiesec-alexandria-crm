@@ -16,7 +16,6 @@ export default async function MembershipPage() {
       members={members.map((m) => ({
         id: m.id,
         name: m.name,
-        nickname: m.nickname,
         email: m.email,
         phone: m.phone,
         functions: m.functions ?? [],

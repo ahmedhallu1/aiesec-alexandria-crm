@@ -23,7 +23,6 @@ export async function issueTempPassword(member: {
   id: string;
   email: string;
   name: string;
-  nickname: string | null;
 }): Promise<{ ok: boolean; error?: string }> {
   const password = generatePassword();
   const temp_password_hash = await bcrypt.hash(password, 10);
@@ -41,7 +40,7 @@ export async function issueTempPassword(member: {
   }
   try {
     const mail = newPasswordEmail({
-      memberFirstName: member.nickname || member.name.split(" ")[0],
+      memberFirstName: member.name.split(" ")[0],
       password,
     });
     await sendEmail({ to: [member.email], ...mail });

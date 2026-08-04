@@ -282,7 +282,7 @@ export async function createTouchPoint(
       invited_teams: invitedTeams,
       invited_functions: invitedFunctions,
       owner_id: viewer.id,
-      owner_name: viewer.nickname || viewer.name,
+      owner_name: viewer.name,
       // remembered on the row (0033) so a later move/cancel can't mail people
       // who were never told this touch point existed
       announced,
@@ -559,7 +559,7 @@ export async function saveRoutine(
 
   const row = {
     owner_id: viewer.id,
-    owner_name: viewer.nickname || viewer.name,
+    owner_name: viewer.name,
     scope,
     kind,
     function_key: input.functionKey ?? null,
