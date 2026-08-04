@@ -33,7 +33,7 @@ the blueprint for future OGX/other-function modules.
 | Vercel project | `aiesec-alexandria-crm` (scope `ahmedhallu1s-projects`) — deploy with `vercel deploy --prod` |
 | Stack | Next.js 16 (App Router, Turbopack) · React 19 · Tailwind v4 · shadcn/ui · Supabase (Postgres, project `iesrpuuoduxtihuaqfic`) |
 | Auth | Auth.js v5: **FIRST sign-in is Google-only** (grants `calendar` + `gmail.compose`) → onboarding sets a password → afterwards **email OR phone + password**, or Google, all work. **Members with NO email yet (v24) sign in with their phone in BOTH fields** until a password is set; adding their email closes that door (Google once, then password). Deactivated members land on **/inactive**. **Forgot password emails a fresh password** (`issueTempPassword` in `server/password.ts`); the old password still works until the member changes it (no lockouts) |
-| Google | Service account (Sheets sync) · Gmail API from `ahmedhallul@aiesec.net` · Calendar events on each member's own calendar |
+| Google | Service account (Sheets sync, folder creation) · **the IM mailbox token carries mail + calendar + drive + sheets** — every Drive FILE is written as the mailbox, because a service account has no storage quota · Calendar events on each member's own calendar |
 | Cron | Supabase `pg_cron` + `pg_net` → `/api/cron/*`, **9 jobs** (visit-followups 15 min · signups-import 15 min · membership-import 30 min · sheets-export hourly :05 · **backup daily 02:00 UTC** · podio-updates daily 05:00 · period-reports daily 07:00 · streak-nags daily 16:00 · attendance-reminders daily 20:59) |
 | Admin | `ADMIN_EMAILS` env (= IM director, treated as LCP) |
 
@@ -556,7 +556,7 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 
 - **BACKUPS (v33)**: nightly at 02:00 UTC into the private Supabase bucket
   `backups` (30 days, gzipped ~1.2 MB each) + a gzipped copy emailed to the IM
-  mailbox. Restore = create the schema from `supabase/migrations/`, gunzip the
+  mailbox + a copy in the CRM Drive folder ("CRM — Backups"). Restore = create the schema from `supabase/migrations/`, gunzip the
   dump, insert each array under `data.<table>`. **Storage buckets (contracts,
   cvs) are NOT backed up** — they are files, not rows. Health page shows the
   last run; a failed run returns 500 and logs `[backup] FAILED`.
@@ -617,12 +617,22 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
   02:00 UTC). Supabase's free tier has **no automated backups at all** — losing
   the database meant losing every account, member, deal and comment,
   permanently. The job dumps all **27 data tables** (19k rows, gzipped to
-  ~1.2 MB) to the private `backups` bucket keeping **30 days**, AND emails a
-  gzipped copy to the IM mailbox — a backup living only inside the thing it
-  backs up is not a backup. It is LOGICAL (rows, not schema): restore = run the
-  migrations, insert the arrays. Drive was the intended home and **cannot**
-  work — the service account has no storage quota of its own and the app's
-  Google token carries mail scope only. A table that doesn't exist yet is
+  ~1.2 MB) to the private `backups` bucket keeping **30 days**, emails a
+  gzipped copy to the IM mailbox (a backup living only inside the thing it
+  backs up is not a backup), and drops a third copy in the **CRM Drive folder**
+  where the EB can see it. It is LOGICAL (rows, not schema): restore = run the
+  migrations, insert the arrays. **The Drive copy needed a new token**: a
+  service account has NO storage quota of its own, so it can create folders but
+  every file upload returns "Service Accounts do not have storage quota" —
+  which silently affected IR-call screenshots too. Drive FILES are now written
+  as the **IM mailbox** (`driveAsMailbox` in `google/drive-upload.ts`, service
+  account kept as fallback), and `scripts/mint-mailbox-token.mjs` asks for
+  **mail + calendar + drive + spreadsheets** in one consent (re-minted
+  2026-08-04). That script also had a latent bug: it defaulted to a redirect
+  URI (`http://localhost:3000`) that was never registered on the OAuth client
+  → `redirect_uri_mismatch`; it now uses the registered
+  `/api/auth/callback/google` path and forces `select_account` so a personal
+  Gmail can't be approved by mistake. A table that doesn't exist yet is
   recorded and skipped rather than sinking the run; a failure returns **500**,
   because this is the one job whose silent failure is indistinguishable from
   success until the day you need it. `sendEmail` learned attachments
@@ -711,6 +721,19 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
   answering English questions in Arabic and stops declining questions it can
   actually answer. **LB launch drafts** — one letter per ROLE, tailored, into
   the IM Gmail as drafts, never a localhost link.
+  ⑫ **Dashboard filters list the LANE, not the viewer's whole scope**
+  (v33.1): the team filter offered every team the viewer could see, so the LCP
+  on IGT was shown the whole LC's teams and an IGV VP was shown B2B's — teams
+  with no rows in that lane at all (`rowInLane` matches the account's OWN
+  function), so picking one emptied the dashboard rather than narrowing it.
+  `listTeamFilterOptions(viewer, { fn })` now scopes to the lane (same fix on
+  the Raising list). The member filter drops **VPs, Directors and Admins** (the
+  whole function is already theirs — the LCP was excluded for that reason
+  since v9) and is scoped to the lane too.
+  ⑬ **Sidebar footer**: the profile name always rendered as "A…" — three icon
+  buttons beside the avatar left ~60px in a 15rem sidebar. The name now owns
+  its row and the buttons sit beneath it as three equal segments
+  (notifications · appearance · sign out).
   ⑪ **Ops**: `attendance-reminders` was still firing at
   `elevate-alex.vercel.app`, the alias **removed in v32.1** — it had been
   hitting a dead domain since; repointed at sodio.vercel.app.
