@@ -54,6 +54,7 @@ import {
   normalizePhone,
   PHONE_RE,
   SUB_FUNCTIONS,
+  VISIT_RESULTS,
   URL_RE,
 } from "@/lib/types";
 import type { AccountContact, Member, MemberRole, Visit } from "@/lib/types";
@@ -1236,12 +1237,97 @@ export async function seedTestAccounts(): Promise<ActionResult<{ created: number
     }
   }
 
-  await logAudit(real.id, "test_seed", "system", null, { created });
+  // v33 — TOUCH POINTS + ATTENDANCE, so the attendance feature can actually be
+  // exercised. Marked with the 🧪 prefix and removed by "Remove test data",
+  // exactly like the accounts.
+  const tpCreated = await seedTestTouchPoints(real);
+
+  await logAudit(real.id, "test_seed", "system", null, { created, touchPoints: tpCreated });
   refresh();
-  return { ok: true, data: { created } };
+  return { ok: true, data: { created: created + tpCreated } };
 }
 
 /** Admin: removes every test account (children cascade). */
+
+/** Marks a seeded touch point. Kept in the NOTE because touch_points has no
+ *  is_test column and adding one would touch the attendance engine's queries. */
+const TEST_TP_TAG = "🧪 test —";
+
+/** Seeds touch points AND their attendance so the whole attendance flow can be
+ *  exercised without waiting for a real meeting (v33):
+ *
+ *    · one PAST meeting, fully recorded — attended / absent / late / excused,
+ *      so the history, the filters and the appeal button all have something;
+ *    · one PAST meeting with NOTHING recorded — this is the one that drives
+ *      the reminder ladder and the blocking prompt;
+ *    · one PAST working-hours session, left unconfirmed so the AI pre-fill and
+ *      the "review & confirm" step are visible;
+ *    · one UPCOMING virtual meeting, so the Meet link and the RSVP path can be
+ *      tried end to end.
+ *
+ *  Everything is scoped to the admin's own team-mates, so no real member is
+ *  marked absent in a meeting that never happened. */
+async function seedTestTouchPoints(real: { id: string; nickname: string | null; name: string }): Promise<number> {
+  const { data: crew } = await db()
+    .from("members")
+    .select("id, name, nickname, functions, sub_functions")
+    .eq("is_active", true)
+    .limit(6);
+  const people = (crew ?? []) as { id: string }[];
+  if (people.length === 0) return 0;
+
+  const day = (offset: number, hour: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() + offset);
+    d.setHours(hour, 0, 0, 0);
+    return d.toISOString();
+  };
+
+  const points = [
+    { kind: "meeting", starts_at: day(-7, 19), note: `${TEST_TP_TAG} recorded meeting`, record: true, virtual: false },
+    { kind: "meeting", starts_at: day(-2, 19), note: `${TEST_TP_TAG} meeting nobody recorded`, record: false, virtual: false },
+    { kind: "working_hours", starts_at: day(-1, 16), note: `${TEST_TP_TAG} working hours (unconfirmed)`, record: false, virtual: false },
+    { kind: "meeting", starts_at: day(3, 19), note: `${TEST_TP_TAG} virtual meeting (RSVP)`, record: false, virtual: true },
+  ];
+
+  const statuses = ["attended", "absent", "late", "excused"];
+  let made = 0;
+  for (const p of points) {
+    const { data: tp } = await db()
+      .from("touch_points")
+      .insert({
+        scope: "team",
+        kind: p.kind,
+        function_key: null,
+        team_name: null,
+        starts_at: p.starts_at,
+        note: p.note,
+        invited_teams: [],
+        invited_functions: [],
+        owner_id: real.id,
+        owner_name: real.nickname || real.name,
+        announced: false,
+        virtual: p.virtual,
+        ...(p.record ? { attendance_recorded_at: new Date().toISOString() } : {}),
+      })
+      .select("id")
+      .single<{ id: string }>();
+    if (!tp) continue;
+    made += 1;
+    if (!p.record) continue;
+    await db().from("touch_point_attendance").insert(
+      people.map((m, i) => ({
+        touch_point_id: tp.id,
+        member_id: m.id,
+        status: statuses[i % statuses.length],
+        source: "manual",
+        note: statuses[i % statuses.length] === "excused" ? "Test excuse" : null,
+      }))
+    );
+  }
+  return made;
+}
+
 export async function removeTestData(): Promise<ActionResult<{ removed: number }>> {
   const { getRealViewer } = await import("./data");
   const real = await getRealViewer();
@@ -1252,6 +1338,8 @@ export async function removeTestData(): Promise<ActionResult<{ removed: number }
     .eq("is_test", true);
   const { error } = await db().from("accounts").delete().eq("is_test", true);
   if (error) return fail(error.message);
+  // the seeded touch points go too — attendance rows cascade with them
+  await db().from("touch_points").delete().like("note", `${TEST_TP_TAG}%`);
   await logAudit(real.id, "test_wipe", "system", null, { removed: count ?? 0 });
   refresh();
   return { ok: true, data: { removed: count ?? 0 } };
@@ -2032,6 +2120,8 @@ const reportSchema = z.object({
   comment: z.string().trim().min(2, "Add a short comment about the visit"),
   nextStep: z.string().trim().optional(),
   nextStepDate: z.string().optional(),
+  /** v33 — what came out of a COMPLETED visit; drives what happens next */
+  result: z.string().trim().optional(),
 });
 
 /** Member reports a visit (done / not done) → styled email fires to the VP and
@@ -2042,7 +2132,7 @@ export async function reportVisit(
   const viewer = await getViewer();
   const parsed = reportSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0].message);
-  const { visitId, done, comment, nextStep, nextStepDate } = parsed.data;
+  const { visitId, done, comment, nextStep, nextStepDate, result } = parsed.data;
 
   const { data: visit } = await db()
     .from("visits")
@@ -2054,12 +2144,28 @@ export async function reportVisit(
   if (!account || !canEditAccount(viewer, account))
     return fail("You are not allowed to report this visit.", "forbidden");
 
+  // the RESULT is part of the report, so the history reads "Interested" and
+  // not just a paragraph someone has to interpret (v33)
+  const resultOk =
+    !result || (VISIT_RESULTS as readonly string[]).includes(result);
+  if (done && !resultOk) return fail("Pick what came out of the visit.");
+  const body = done && result ? `${result}${comment ? ` — ${comment}` : ""}` : comment;
+
   await snapshotForUndo("visits", visitId);
   const { error } = await db()
     .from("visits")
-    .update({ done, visit_comment: comment, next_step: nextStep || null })
+    .update({ done, visit_comment: body, next_step: nextStep || null })
     .eq("id", visitId);
   if (error) return fail(error.message);
+
+  // "Not interested" ends it — same rule as the contact log, where that answer
+  // archives on the spot. Done BEFORE the notifications so the email describes
+  // an account that is already out.
+  if (done && result === "Not interested") {
+    await setOutOfProcess(visit.account_id, "Not Interested").catch((e) =>
+      console.error("[visit] auto-archive failed:", e)
+    );
+  }
 
   if (nextStep || nextStepDate) {
     await snapshotForUndo("accounts", visit.account_id);

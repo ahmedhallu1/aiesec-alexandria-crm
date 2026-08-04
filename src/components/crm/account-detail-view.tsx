@@ -22,7 +22,8 @@ import type { ContactAttempt, Visit } from "@/lib/types";
 import {
   ACCOUNT_TYPES, B2C_CONTRACT_FORM_URL, B2C_TYPES,
   fmtDateTime, IGT_SUB_PRODUCTS, IGV_PROJECTS, INDUSTRIES,
-  OOP_REASONS, podioDefaultDays, productBadge,
+  OOP_REASONS,
+  VISIT_RESULTS, podioDefaultDays, productBadge,
 } from "@/lib/types";
 import type { AccountContact } from "@/lib/types";
 import { FileDrop } from "./file-drop";
@@ -275,6 +276,11 @@ export function AccountDetailView({
           onOpenChange={(o) => {
             if (!o) setReportVisitId(null);
           }}
+          // 2nd visit or later — a deal is a realistic outcome by then
+          isRepeatVisit={visits.length > 1}
+          onProposal={canAct ? () => setProposalOpen(true) : undefined}
+          onDeal={canAct ? () => setDealOpen(true) : undefined}
+          onOop={canAct ? () => setOopOpen(true) : undefined}
         />
       ) : null}
       <ContractsDialog deals={deals} open={contractsOpen} onOpenChange={setContractsOpen} />
@@ -1526,21 +1532,50 @@ function VisitDialog({
 }
 
 function ReportVisitDialog({
-  visit, open, onOpenChange,
-}: { visit: Visit; open: boolean; onOpenChange: (o: boolean) => void }) {
+  visit, open, onOpenChange, isRepeatVisit, onProposal, onDeal, onOop,
+}: {
+  visit: Visit;
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  /** the 2nd visit or later — by then a deal is a realistic outcome (v33) */
+  isRepeatVisit?: boolean;
+  onProposal?: () => void;
+  onDeal?: () => void;
+  onOop?: () => void;
+}) {
   const [done, setDone] = useState(true);
+  const [result, setResult] = useState<string>("");
   const [comment, setComment] = useState("");
   const [nextStep, setNextStep] = useState("");
   const [nextStepDate, setNextStepDate] = useState("");
   const [pending, start] = useTransition();
 
+  // each result decides what the form still needs
+  const archives = done && result === "Not interested";
+  const wantsProposal = done && result === "I will send the proposal";
+  const needsDate = done && result === "Not ready yet";
+  // an archived account has no future, so it needs no next step
+  const needsStep = !archives && (!done || !!result);
+  const ready =
+    comment.trim().length >= 2 &&
+    (!done || !!result) &&
+    (!needsDate || !!nextStepDate) &&
+    (!needsStep || !!nextStep.trim() || archives);
+
   const submit = () =>
     start(async () => {
-      const res = await reportVisit({ visitId: visit.id, done, comment, nextStep, nextStepDate });
-      if (res.ok) {
-        toast.success("Visit reported — your TL & VP were notified 📬");
-        onOpenChange(false);
-      } else toast.error(res.error);
+      const res = await reportVisit({
+        visitId: visit.id, done, comment, nextStep, nextStepDate, result: done ? result : undefined,
+      });
+      if (!res.ok) { toast.error(res.error); return; }
+      toast.success(
+        archives
+          ? "Visit reported — the account is archived 🗄️"
+          : "Visit reported — your TL & VP were notified 📬"
+      );
+      onOpenChange(false);
+      // hand straight over to the next action so nobody has to hunt for it
+      if (wantsProposal) onProposal?.();
     });
 
   return (
@@ -1561,24 +1596,88 @@ function ReportVisitDialog({
               ❌ Didn&apos;t happen
             </Button>
           </div>
+          {done ? (
+            <div className="grid gap-1.5">
+              <Label>What came out of it? *</Label>
+              <Select value={result || undefined} onValueChange={setResult}>
+                <SelectTrigger><SelectValue placeholder="Pick the result…" /></SelectTrigger>
+                <SelectContent>
+                  {VISIT_RESULTS.map((r) => (
+                    <SelectItem key={r} value={r}>{r}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {archives ? (
+                <p className="rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">
+                  This archives the account — its name is blocked afterwards. A
+                  TL, VP or the LCP can bring it back.
+                </p>
+              ) : null}
+              {wantsProposal ? (
+                <p className="rounded-md border px-2.5 py-1.5 text-xs text-muted-foreground">
+                  Saving opens the proposal email form. It only counts as sent
+                  once you actually send the draft from your Gmail.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           <div className="grid gap-1.5">
-            <Label>Visit comment *</Label>
+            <Label>{done ? "Visit comment *" : "Why didn't it happen? *"}</Label>
             <Textarea
               rows={3}
               value={comment}
               onChange={(e) => setComment(e.target.value)}
-              placeholder="How did it go? Who did you meet? Key outcomes…"
+              placeholder={
+                done
+                  ? "How did it go? Who did you meet? Key outcomes…"
+                  : "They cancelled, nobody showed, rescheduled…"
+              }
             />
           </div>
-          <div className="grid gap-1.5">
-            <Label>Next step</Label>
-            <Input value={nextStep} onChange={(e) => setNextStep(e.target.value)} placeholder="e.g. Send the proposal" />
-            <Input type="date" value={nextStepDate} onChange={(e) => setNextStepDate(e.target.value)} />
+          {!archives ? (
+            <div className="grid gap-1.5">
+              <Label>
+                Next step {needsDate ? <span className="text-destructive">*with a date</span> : null}
+              </Label>
+              <Input
+                value={nextStep}
+                onChange={(e) => setNextStep(e.target.value)}
+                placeholder={needsDate ? "e.g. Follow up after their exams" : "e.g. Send the proposal"}
+              />
+              <Input
+                type="date"
+                value={nextStepDate}
+                onChange={(e) => setNextStepDate(e.target.value)}
+                aria-invalid={needsDate && !nextStepDate ? true : undefined}
+              />
+            </div>
+          ) : null}
+          {/* both paths can end the account here, and a repeat visit can close
+              the deal — neither should send anyone hunting for the button */}
+          <div className="flex flex-wrap gap-2 border-t pt-3">
+            {isRepeatVisit && onDeal ? (
+              <Button
+                variant="outline"
+                className="text-success"
+                onClick={() => { onOpenChange(false); onDeal(); }}
+              >
+                🏆 Deal signed
+              </Button>
+            ) : null}
+            {onOop ? (
+              <Button
+                variant="ghost"
+                className="text-muted-foreground hover:text-destructive"
+                onClick={() => { onOpenChange(false); onOop(); }}
+              >
+                Out of process
+              </Button>
+            ) : null}
           </div>
         </div>
         <DialogFooter>
-          <Button onClick={submit} disabled={pending || comment.trim().length < 2}>
-            {pending ? "Sending…" : "Save & notify"}
+          <Button onClick={submit} disabled={pending || !ready}>
+            {pending ? "Sending…" : archives ? "Save & archive" : "Save & notify"}
           </Button>
         </DialogFooter>
       </DialogContent>

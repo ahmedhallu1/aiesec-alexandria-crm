@@ -221,6 +221,22 @@ export interface SignupComment {
   created_at: string;
 }
 
+/** What actually came out of a COMPLETED visit (v33). Each one decides what
+ *  happens next, which is why it's a pick-list and not a free-text box:
+ *    Interested        → keep working it, a next step is required
+ *    Not interested    → archives the account on the spot
+ *    Sending proposal  → offers the proposal-email form right there
+ *    Not ready yet     → requires the follow-up date
+ *    Other             → free text, next step still required */
+export const VISIT_RESULTS = [
+  "Interested",
+  "Not interested",
+  "I will send the proposal",
+  "Not ready yet",
+  "Other",
+] as const;
+export type VisitResult = (typeof VISIT_RESULTS)[number];
+
 export const OOP_REASONS = [
   "Not responding",
   "Financial issues",
