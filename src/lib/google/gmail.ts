@@ -13,6 +13,8 @@ export async function sendEmail(opts: {
   /** an iCalendar invite — Gmail shows an "add to calendar" card and Outlook/
    *  Apple Mail add the event automatically (used for visit reminders). */
   ics?: { content: string; method?: "REQUEST" | "CANCEL" };
+  /** files riding along as MIME parts (the nightly backup's off-site copy). */
+  attachments?: { filename: string; mimeType: string; contentBase64: string }[];
 }): Promise<void> {
   if (await sandboxSuppressed(`email "${opts.subject}"`)) return;
   const missing = requireEnv("googleClientId", "googleClientSecret", "gmailRefreshToken", "gmailSender");
@@ -61,6 +63,31 @@ export async function sendEmail(opts: {
       icsB64,
       "",
       `--${alt}--`,
+    ].join("\r\n");
+  } else if (opts.attachments?.length) {
+    // multipart/mixed: the body, then each file. (An invite would need
+    // multipart/alternative INSIDE this, which nothing needs today.)
+    const mix = `mix_${Date.now().toString(36)}`;
+    message = [
+      ...addrHeaders,
+      `Content-Type: multipart/mixed; boundary="${mix}"`,
+      "",
+      `--${mix}`,
+      'Content-Type: text/html; charset="UTF-8"',
+      "Content-Transfer-Encoding: base64",
+      "",
+      Buffer.from(opts.html).toString("base64"),
+      ...opts.attachments.flatMap((a) => [
+        "",
+        `--${mix}`,
+        `Content-Type: ${a.mimeType}; name="${a.filename}"`,
+        "Content-Transfer-Encoding: base64",
+        `Content-Disposition: attachment; filename="${a.filename}"`,
+        "",
+        a.contentBase64,
+      ]),
+      "",
+      `--${mix}--`,
     ].join("\r\n");
   } else {
     message =

@@ -7,13 +7,25 @@ import { db } from "@/lib/supabase";
  * Supabase's free tier has NO automated backups — not "backups you haven't
  * switched on", none at all. Losing the database means losing every account,
  * every member, every deal and every comment, permanently. This is the answer
- * that costs nothing: a full logical dump of every table, written as JSON into
- * the CRM's own Drive folder every night, keeping a month of history.
+ * that costs nothing: a full logical dump of every table, every night,
+ * keeping a month of history.
  *
  * It is a LOGICAL backup, not a snapshot: it captures rows, not the schema.
  * Restoring means re-running the migrations and re-inserting the JSON, which
  * is slower than a real PITR restore but is the difference between a bad day
  * and losing the LC's year of work.
+ *
+ * TWO DESTINATIONS, deliberately:
+ *   1. the private `backups` Supabase bucket — fast, keeps 30 days, and covers
+ *      the failure that actually happens: a bad migration, a wiped table,
+ *      someone deleting the wrong thing;
+ *   2. a gzipped copy EMAILED to the IM mailbox — off-site, so it survives
+ *      losing the Supabase project itself. A backup that lives only inside the
+ *      thing it is backing up is not really a backup.
+ *
+ * (Drive was the first choice and doesn't work: the service account has no
+ * storage quota of its own, and the app's Google token carries mail scope
+ * only. Email needs no new consent and is genuinely off-site.)
  *
  * Storage buckets (contracts, CVs) are NOT included — they are files, not
  * rows, and they already live outside Postgres.
@@ -59,10 +71,9 @@ const BACKUP_TABLES = [
 ] as const;
 
 const PAGE = 1000;
-/** Keep a month. Long enough to notice a slow corruption, short enough that
- *  the Drive folder stays navigable. */
+/** Keep a month — long enough to notice a slow corruption. */
 const KEEP_DAYS = 30;
-const FOLDER = "CRM — Backups";
+const BUCKET = "backups";
 
 /** Reads a whole table, paging past PostgREST's 1000-row response cap. */
 async function dumpTable(table: string): Promise<unknown[] | { error: string }> {
@@ -90,9 +101,11 @@ export interface BackupResult {
   rows: number;
   failed: string[];
   pruned: number;
+  /** whether the off-site email copy went out */
+  emailed: boolean;
 }
 
-/** Dumps every table and writes one JSON file to Drive. */
+/** Dumps every table, stores it, and mails an off-site copy. */
 export async function runBackup(): Promise<BackupResult> {
   const started = new Date();
   const payload: Record<string, unknown> = {
@@ -122,45 +135,79 @@ export async function runBackup(): Promise<BackupResult> {
 
   const stamp = started.toISOString().slice(0, 19).replace(/[:T]/g, "-");
   const fileName = `sodio-backup-${stamp}.json`;
-  const { uploadToDriveFolder } = await import("@/lib/google/drive-upload");
-  const up = await uploadToDriveFolder({
-    folderName: FOLDER,
-    fileName,
-    mimeType: "application/json",
-    data: Buffer.from(JSON.stringify(payload), "utf8"),
-  });
+  const json = Buffer.from(JSON.stringify(payload), "utf8");
+
+  // 1. the private bucket — the copy you actually restore from
+  const { error: upErr } = await db()
+    .storage.from(BUCKET)
+    .upload(fileName, json, { contentType: "application/json", upsert: true });
+  if (upErr) throw new Error(`storage upload failed: ${upErr.message}`);
+
+  // 2. an off-site copy by email. gzip first — a month of the LC's data is a
+  // few MB of JSON and compresses to a fraction of it, comfortably inside
+  // Gmail's attachment limit.
+  const { gzipSync } = await import("node:zlib");
+  const gz = gzipSync(json);
+  let emailed = false;
+  try {
+    const { sendEmail } = await import("@/lib/google/gmail");
+    const { env } = await import("@/lib/env");
+    const to = env.adminEmails[0] ?? env.gmailSender;
+    if (to && gz.byteLength < 20 * 1024 * 1024) {
+      await sendEmail({
+        to: [to],
+        subject: `🗄️ Sodio backup — ${stamp.slice(0, 10)} (${rows} rows)`,
+        html: `<p>Nightly backup of AIESEC in Alexandria's CRM.</p>
+<p><b>${rows}</b> rows across <b>${Object.keys(data).length}</b> tables.
+${failed.length ? `<br><b style="color:#b91c1c">${failed.length} table(s) failed</b> — check the logs.` : ""}</p>
+<p>The attachment is a gzipped JSON dump: rows only, no schema. To restore, run
+the migrations on a fresh database and insert each array.</p>
+<p style="color:#64748b;font-size:13px;">A copy is also in the private
+<code>backups</code> storage bucket, which keeps 30 days.</p>`,
+        attachments: [
+          {
+            filename: `${fileName}.gz`,
+            mimeType: "application/gzip",
+            contentBase64: gz.toString("base64"),
+          },
+        ],
+      });
+      emailed = true;
+    }
+  } catch (e) {
+    // the bucket copy already succeeded — a mail failure must not fail the job
+    console.error("[backup] off-site email failed:", e);
+  }
 
   const pruned = await pruneOldBackups();
   return {
     fileName,
-    link: up.webViewLink,
+    link: `${BUCKET}/${fileName}`,
     tables: Object.keys(data).length,
     rows,
     failed,
     pruned,
+    emailed,
   };
 }
 
-/** Deletes backup files older than KEEP_DAYS so the folder doesn't grow
- *  without bound. Only ever touches files this job created — the name prefix
- *  is the guard. */
+/** Deletes backups older than KEEP_DAYS so the bucket doesn't grow without
+ *  bound. Only ever touches files this job created — the name prefix guards
+ *  it. */
 async function pruneOldBackups(): Promise<number> {
   try {
-    const { clients } = await import("@/lib/google/sheets");
-    const { drive } = clients();
-    const cutoff = new Date(Date.now() - KEEP_DAYS * 86_400_000).toISOString();
-    const list = await drive.files.list({
-      q: `name contains 'sodio-backup-' and trashed = false and createdTime < '${cutoff}'`,
-      fields: "files(id, name)",
-      pageSize: 100,
-    });
-    let n = 0;
-    for (const f of list.data.files ?? []) {
-      if (!f.id || !f.name?.startsWith("sodio-backup-")) continue;
-      await drive.files.delete({ fileId: f.id });
-      n += 1;
-    }
-    return n;
+    const { data } = await db().storage.from(BUCKET).list("", { limit: 500 });
+    const cutoff = Date.now() - KEEP_DAYS * 86_400_000;
+    const stale = (data ?? [])
+      .filter(
+        (f) =>
+          f.name.startsWith("sodio-backup-") &&
+          new Date(f.created_at ?? f.updated_at ?? Date.now()).getTime() < cutoff
+      )
+      .map((f) => f.name);
+    if (stale.length === 0) return 0;
+    const { error } = await db().storage.from(BUCKET).remove(stale);
+    return error ? 0 : stale.length;
   } catch (e) {
     console.error("[backup] prune failed:", e);
     return 0;
