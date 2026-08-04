@@ -26,8 +26,9 @@
  *
  * Requirements:
  *   - The redirect URI below must be an "Authorized redirect URI" on the Web
- *     OAuth client (http://localhost:3000 is registered per SETUP.md §2b).
- *     Override with REDIRECT_URI=... if yours differs.
+ *     OAuth client. SETUP.md §2b registers
+ *     http://localhost:3000/api/auth/callback/google — that is the default
+ *     here. Override with REDIRECT_URI=... if yours differs.
  *   - Port must be free — stop `npm run dev` first if it uses 3000.
  *
  * The token is only PRINTED — this script never writes it anywhere. Paste it
@@ -45,7 +46,12 @@ const SCOPES = [
   "https://www.googleapis.com/auth/drive",
   "https://www.googleapis.com/auth/spreadsheets",
 ];
-const REDIRECT_URI = process.env.REDIRECT_URI || "http://localhost:3000";
+// The Web OAuth client registers this EXACT path (SETUP.md §2b) — bare
+// http://localhost:3000 is NOT registered and Google answers
+// "Error 400: redirect_uri_mismatch". The path is Auth.js's callback, but
+// nothing is running on it right now: our own listener below answers it.
+const REDIRECT_URI =
+  process.env.REDIRECT_URI || "http://localhost:3000/api/auth/callback/google";
 
 // ---- load client id/secret from env or .env.local -------------------------
 function fromEnvLocal(key) {
@@ -82,7 +88,11 @@ const authUrl =
     response_type: "code",
     scope: SCOPES.join(" "),
     access_type: "offline",
-    prompt: "consent", // force a fresh refresh_token every time
+    // consent → a fresh refresh_token every time; select_account → the
+    // chooser, so a personal Gmail can't be approved by accident (the token
+    // MUST belong to GMAIL_SENDER, or mail leaves the wrong mailbox and Drive
+    // files land in the wrong account)
+    prompt: "consent select_account",
   }).toString();
 
 // ---- catch the redirect, exchange the code --------------------------------
