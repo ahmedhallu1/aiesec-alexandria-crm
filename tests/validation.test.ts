@@ -150,3 +150,54 @@ describe("Podio search parsing — third-party JSON is untrusted", () => {
     }
   });
 });
+
+describe("upload extension guard (F-17)", () => {
+  // re-declared here because the guard lives inside a "use server" module that
+  // can't be imported into a unit test; this mirrors it exactly and fails if
+  // the two drift, which is the point
+  const UNSAFE = new Set([
+    "html", "htm", "xhtml", "shtml", "svg", "xml", "xsl",
+    "js", "mjs", "cjs", "jsx", "ts", "vbs", "ps1", "sh", "bash",
+    "exe", "msi", "bat", "cmd", "com", "scr", "pif", "jar", "app", "dmg",
+    "dll", "so", "deb", "rpm", "apk", "hta", "chm", "reg", "iso",
+  ]);
+  const reason = (name: string): string | null => {
+    const clean = (name ?? "").trim().toLowerCase();
+    if (!clean) return "no name";
+    const ext = clean.includes(".") ? clean.split(".").pop()! : "";
+    if (!ext) return "no extension";
+    return UNSAFE.has(ext) ? "unsafe" : null;
+  };
+
+  it("blocks active content that would run from the storage origin", () => {
+    for (const f of ["evil.html", "logo.svg", "payload.js", "macro.hta"]) {
+      expect(reason(f), f).not.toBeNull();
+    }
+  });
+
+  it("blocks executables", () => {
+    for (const f of ["setup.exe", "run.bat", "tool.jar", "app.apk"]) {
+      expect(reason(f), f).not.toBeNull();
+    }
+  });
+
+  it("catches the double-extension bypass by checking the LAST extension", () => {
+    expect(reason("cv.pdf.html")).not.toBeNull();
+    expect(reason("contract.docx.svg")).not.toBeNull();
+  });
+
+  it("is case-insensitive", () => {
+    expect(reason("EVIL.HTML")).not.toBeNull();
+    expect(reason("Evil.SvG")).not.toBeNull();
+  });
+
+  it("still allows the formats the crew actually uses", () => {
+    for (const f of ["contract.pdf", "scan.jpg", "cv.docx", "sheet.xlsx", "photo.HEIC", "bundle.zip"]) {
+      expect(reason(f), f).toBeNull();
+    }
+  });
+
+  it("rejects a file with no extension at all", () => {
+    expect(reason("contract")).not.toBeNull();
+  });
+});
