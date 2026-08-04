@@ -509,7 +509,31 @@ export async function listAccountsPage(
     ({ data, error, count } = await fetchPage(served));
     if (error) throw error;
   }
-  return { rows: (data ?? []) as PipelineRow[], total: count ?? 0, page: served };
+  const rows = (data ?? []) as PipelineRow[];
+  // The Comment column shows the WHOLE thread, not just the pinned line — one
+  // extra query for the page's ~100 accounts, never per row (v33). Archived
+  // comments stay hidden, exactly as they are on the account page.
+  if (rows.length > 0) {
+    const { data: cs } = await db()
+      .from("account_comments")
+      .select("account_id, body, created_at, author:members!author_id(name, nickname)")
+      .in("account_id", rows.map((r) => r.id))
+      .eq("archived", false)
+      .order("created_at", { ascending: true });
+    const byAccount = new Map<string, { body: string; author: string | null; at: string }[]>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const c of ((cs ?? []) as any[])) {
+      const list = byAccount.get(c.account_id) ?? [];
+      list.push({
+        body: c.body,
+        author: c.author ? c.author.nickname || c.author.name : null,
+        at: c.created_at,
+      });
+      byAccount.set(c.account_id, list);
+    }
+    for (const r of rows) r.comments_all = byAccount.get(r.id) ?? [];
+  }
+  return { rows, total: count ?? 0, page: served };
 }
 
 async function buildAccountsQuery(

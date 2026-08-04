@@ -497,6 +497,10 @@ export interface AccountPipeline extends Account {
   next_step_missing: boolean;
   /** latest pinned comment — surfaced as a 📌 on the accounts list */
   pinned_comment: string | null;
+  /** EVERY live comment on the account, oldest first (v33) — attached by
+   *  `listAccountsPage` so the Comment column can show the whole thread the
+   *  way a sheet would, without opening the account. */
+  comments_all?: { body: string; author: string | null; at: string }[];
 }
 
 export interface ContactAttempt {
