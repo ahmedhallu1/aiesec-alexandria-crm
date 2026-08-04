@@ -7,11 +7,20 @@ import { cn } from "@/lib/utils";
 import { Hint } from "./hint";
 
 /** Keeps every screen fresh like a shared sheet — without hurting smoothness:
- *  re-fetches server data when the tab regains focus, and every 30s while the
- *  tab is visible. router.refresh() re-renders in place (no reload, no state
- *  loss, no flicker). A 10s floor stops refresh storms. */
-const INTERVAL_MS = 30_000;
-const MIN_GAP_MS = 10_000;
+ *  re-fetches server data when the tab regains focus, and periodically while
+ *  the tab is visible. router.refresh() re-renders in place (no reload, no
+ *  state loss, no flicker).
+ *
+ *  THE INTERVAL IS A HOSTING BILL (v33). Every tick is a full server render,
+ *  and a dashboard render reads the LC's whole account table — so at 30s, 40
+ *  members with a tab open cost ~115k renders a month doing nothing but
+ *  re-drawing unchanged numbers. That is what pushed the project to 97.5% of
+ *  the Fluid Active CPU allowance. Three minutes is still "live" for a CRM
+ *  nobody watches second-by-second, and the FOCUS refresh below means coming
+ *  back to the tab is always instant and current — which is when staleness is
+ *  actually noticed. */
+const INTERVAL_MS = 180_000;
+const MIN_GAP_MS = 20_000;
 
 export function AutoRefresh() {
   const router = useRouter();

@@ -351,6 +351,7 @@ function accountColumns(viewer: ViewerInfo): TableColumn[] {
     { key: "deals", label: "Deals", defaultHidden: true },
     { key: "slots", label: "Opens", defaultHidden: true },
     { key: "last_contact", label: "Last contact", defaultHidden: true },
+    { key: "comment", label: "Comment", defaultHidden: true },
     { key: "updated_at", label: "Updated", defaultHidden: true },
     { key: "proposal", label: "Proposal", defaultHidden: true },
     { key: "podio", label: "Podio", defaultHidden: true },
@@ -727,6 +728,20 @@ export function AccountsView({
               {row.last_contact_status ?? row.last_contact_method ?? ""}
             </span>
           </>
+        ) : (
+          "—"
+        );
+      case "comment":
+        // the PINNED comment — the one the team deliberately raised. Shown in
+        // full on hover so a long note doesn't need the account opened.
+        return row.pinned_comment ? (
+          <span
+            dir="auto"
+            title={row.pinned_comment}
+            className="block max-w-[22rem] truncate"
+          >
+            {row.pinned_comment}
+          </span>
         ) : (
           "—"
         );
