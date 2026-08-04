@@ -134,20 +134,21 @@ export async function runBackup(): Promise<BackupResult> {
   if (failed.length > 0) payload.failed = failed;
 
   const stamp = started.toISOString().slice(0, 19).replace(/[:T]/g, "-");
-  const fileName = `sodio-backup-${stamp}.json`;
-  const json = Buffer.from(JSON.stringify(payload), "utf8");
+  const fileName = `sodio-backup-${stamp}.json.gz`;
+
+  // GZIPPED, both copies. The raw dump is ~13 MB, so a month of them would eat
+  // 400 MB of a 1 GB free tier and would be too big to email; gzipped it is a
+  // fraction of that. Restoring is one `gunzip` away.
+  const { gzipSync } = await import("node:zlib");
+  const gz = gzipSync(Buffer.from(JSON.stringify(payload), "utf8"));
 
   // 1. the private bucket — the copy you actually restore from
   const { error: upErr } = await db()
     .storage.from(BUCKET)
-    .upload(fileName, json, { contentType: "application/json", upsert: true });
+    .upload(fileName, gz, { contentType: "application/gzip", upsert: true });
   if (upErr) throw new Error(`storage upload failed: ${upErr.message}`);
 
-  // 2. an off-site copy by email. gzip first — a month of the LC's data is a
-  // few MB of JSON and compresses to a fraction of it, comfortably inside
-  // Gmail's attachment limit.
-  const { gzipSync } = await import("node:zlib");
-  const gz = gzipSync(json);
+  // 2. an off-site copy by email
   let emailed = false;
   try {
     const { sendEmail } = await import("@/lib/google/gmail");
@@ -160,13 +161,14 @@ export async function runBackup(): Promise<BackupResult> {
         html: `<p>Nightly backup of AIESEC in Alexandria's CRM.</p>
 <p><b>${rows}</b> rows across <b>${Object.keys(data).length}</b> tables.
 ${failed.length ? `<br><b style="color:#b91c1c">${failed.length} table(s) failed</b> — check the logs.` : ""}</p>
-<p>The attachment is a gzipped JSON dump: rows only, no schema. To restore, run
-the migrations on a fresh database and insert each array.</p>
+<p>The attachment is a gzipped JSON dump (<code>gunzip</code> it): rows only,
+no schema. To restore, run the migrations on a fresh database and insert each
+array.</p>
 <p style="color:#64748b;font-size:13px;">A copy is also in the private
 <code>backups</code> storage bucket, which keeps 30 days.</p>`,
         attachments: [
           {
-            filename: `${fileName}.gz`,
+            filename: fileName,
             mimeType: "application/gzip",
             contentBase64: gz.toString("base64"),
           },
