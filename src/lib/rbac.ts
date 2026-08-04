@@ -460,13 +460,26 @@ export function hasConsiderationAccess(v: Viewer): boolean {
  *  LCVPs/Directors see it — an IGV-only VP gets just the IR-calls tab. */
 export function canSeeCvPool(v: Viewer): boolean {
   if (master(v)) return true;
-  if (
-    v.functions.includes("Consideration") ||
-    v.sub_functions.includes("Consideration")
-  )
-    return true;
+  // IGT ONLY (v32.8). Companies hiring through us want TALENT, not volunteers,
+  // so the CV pool is an IGT instrument — an IGV consideration member has no
+  // use for it and shouldn't be reading applicants' CVs. Every role inside IGT
+  // gets it; a consideration person attached to no product keeps it too, since
+  // they aren't "the IGV side" of anything.
+  if (v.functions.includes("IGT")) return true;
+  const consideration =
+    v.functions.includes("Consideration") || v.sub_functions.includes("Consideration");
+  return consideration && icxFunctions(v).length === 0;
+}
+
+/** The LC-PEOPLE concerns inbox (v32.8): the LCP and the TM leadership.
+ *  A concern about a person is a people-management matter, so TM's VP/Director
+ *  sees it, gets the email and the bell, and can work it — same as the LCP.
+ *  Nobody else, ever: this is the private channel. */
+export function canSeeLcConcerns(v: Viewer): boolean {
+  if (v.isAdmin || v.role === "LCP") return true;
   return (
-    (v.role === "LCVP" || v.role === "Director") && v.functions.includes("IGT")
+    (v.role === "LCVP" || v.role === "Director") &&
+    [...(v.functions ?? []), ...(v.sub_functions ?? [])].includes("TM")
   );
 }
 

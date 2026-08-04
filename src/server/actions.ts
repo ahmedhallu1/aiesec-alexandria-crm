@@ -12,6 +12,7 @@ import {
   canEditAccount,
   canEditRequestState,
   canManageMembership,
+  canSeeLcConcerns,
   canReassignAccount,
   claimTargetFunction,
   isClaimableAccount,
@@ -3529,7 +3530,46 @@ export async function submitLcFeedback(input: {
       );
     }
   }
-  // negative feedback stays quiet: inbox-only (LCP + admin)
+  // A CONCERN is quiet — never to the person it's about — but the people who
+  // must act on it are told: the LCP and the TM leadership (v32.8). Both get
+  // the bell and the mail; both can open the inbox.
+  if (!input.positive) {
+    const { data: owners } = await db()
+      .from("members")
+      .select("id, name, nickname, email, role, functions, sub_functions")
+      .eq("is_active", true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const inboxOwners = ((owners ?? []) as any[]).filter(
+      (m) =>
+        m.role === "LCP" ||
+        (["LCVP", "Director"].includes(m.role) &&
+          [...(m.functions ?? []), ...(m.sub_functions ?? [])].includes("TM"))
+    );
+    if (inboxOwners.length > 0) {
+      const { notifyMembers } = await import("./notify");
+      await notifyMembers(
+        inboxOwners.map((m) => m.id),
+        "lc_feedback",
+        "A new concern was filed",
+        `About ${targets.length} ${targets.length === 1 ? "person" : "people"} — open the inbox to read it.`,
+        null,
+        "/lc-feedback"
+      );
+      if (!(await sandboxSuppressed("lc concern email"))) {
+        const { lcConcernEmail } = await import("@/lib/email/templates");
+        const mail = lcConcernEmail({ count: targets.length });
+        await Promise.all(
+          inboxOwners
+            .filter((m) => m.email)
+            .map((m) =>
+              sendEmail({ to: [m.email], ...mail }).catch((e) =>
+                console.error("[lc-feedback] concern mail failed:", e)
+              )
+            )
+        );
+      }
+    }
+  }
 
   // NEVER attribute anonymous feedback in the audit log — the admin reads BOTH
   // the audit log and the inbox, so an author here would deanonymize a concern.
@@ -3549,8 +3589,8 @@ export async function setLcFeedbackStatus(
   status: "new" | "seen" | "done"
 ): Promise<ActionResult> {
   const viewer = await getViewer();
-  if (!viewer.isAdmin && viewer.role !== "LCP")
-    return fail("Only the LCP or admin manage this inbox.", "forbidden");
+  if (!canSeeLcConcerns(viewer))
+    return fail("Only the LCP and the TM leadership manage this inbox.", "forbidden");
   const { error } = await db().from("lc_feedback").update({ status }).eq("id", id);
   if (error) return fail(error.message);
   return { ok: true };
@@ -4909,9 +4949,14 @@ export async function bookIrCall(input: {
       minutes: settings.slot_minutes,
       attendeeEmail: bookerEmail,
       guestsCanInvite: settings.guests_can_invite ?? true,
-      description: `IR call booked via your Sodio link.\nPartner LC: ${lc.name}${
+      // The IR is an ATTENDEE — they read this description. It must carry
+      // nothing internal: no CRM link (they can't open it), no Sodio branding
+      // they have no context for. Just who is meeting whom (v32.8).
+      description: `AIESEC IR call.\nPartner LC: ${lc.name}${
         country ? ` (${country})` : ""
-      }${bookerName ? `\nBooked by: ${bookerName}` : ""} <${bookerEmail}>\n${env.appUrl}/consideration`,
+      }${bookerName ? `\nBooked by: ${bookerName}` : ""}${
+        bookerPhone ? ` · ${bookerPhone}` : ""
+      } <${bookerEmail}>\nHost: ${owner.nickname || owner.name}, AIESEC in Alexandria.`,
     });
     if (event) {
       meetLink = event.meetLink;

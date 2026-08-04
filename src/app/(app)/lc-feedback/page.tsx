@@ -1,3 +1,4 @@
+import { canSeeLcConcerns } from "@/lib/rbac";
 import {
   getViewer, listAllMembers, listAttendedTouchPoints, listLcFeedback,
   type LcFeedbackRow,
@@ -8,7 +9,7 @@ export const metadata = { title: "Feedback" };
 
 export default async function LcFeedbackPage() {
   const viewer = await getViewer();
-  const isInboxOwner = viewer.isAdmin || viewer.role === "LCP";
+  const isInboxOwner = canSeeLcConcerns(viewer);
 
   const [all, inbox, touchPoints] = await Promise.all([
     listAllMembers(),

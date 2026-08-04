@@ -1,6 +1,6 @@
 import {
   getViewer, listAccountsPage, listManualArchived, listVisibleMembers,
-  listReassignTargetsForViewer, listTeamLeaders,
+  listReassignTargetsForViewer, listTeamFilterOptions,
 } from "@/server/data";
 import type { AccountFilters } from "@/server/data";
 import {
@@ -124,10 +124,7 @@ export default async function AccountsPage({
         ],
       }))}
       respOptions={respOptions}
-      teamOptions={(await listTeamLeaders(viewer)).map((t) => ({
-        id: t.id,
-        label: t.team_name || `Team ${t.nickname || t.name}`,
-      }))}
+      teamOptions={await listTeamFilterOptions(viewer)}
       viewer={{
         id: viewer.id,
         name: viewer.nickname || viewer.name,

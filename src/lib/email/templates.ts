@@ -1064,3 +1064,22 @@ export function streakNagEmail(opts: { firstName: string; streak: number }) {
     }),
   };
 }
+
+/** A concern was filed about someone (v32.8). Goes to the LCP and the TM
+ *  leadership only — deliberately says NOTHING about who or what, so the
+ *  private channel stays private even in an inbox preview. */
+export function lcConcernEmail(opts: { count: number }) {
+  const who = opts.count === 1 ? "a member" : `${opts.count} members`;
+  return {
+    subject: "🔒 A new concern was filed",
+    html: emailLayout({ body: `
+      <h2 style="margin:0 0 12px;font-size:20px;">A concern needs your eyes</h2>
+      <p>Someone filed a concern about ${who}. The details are in the private
+         inbox — nothing about it is repeated in this email on purpose.</p>
+      ${button("Open the inbox", `${env.appUrl}/lc-feedback`)}
+      <p style="color:#64748b;font-size:13px;margin-top:16px;">
+        Only the LCP and the TM leadership can read this inbox.
+      </p>
+    ` }),
+  };
+}

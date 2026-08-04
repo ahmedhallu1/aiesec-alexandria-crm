@@ -1,6 +1,6 @@
 import {
-  considerationStats, getViewer, getDashboard, listTeamLeaders, listVisibleMembers,
-  ogxDashboard, streakStats } from "@/server/data";
+  considerationStats, getViewer, getDashboard, listVisibleMembers,
+  listTeamFilterOptions, ogxDashboard, streakStats } from "@/server/data";
 import type { AccountFilters } from "@/server/data";
 import {
   considerationFunctions, accountScope, icxFunctions, isB2B, isB2C,
@@ -107,9 +107,9 @@ export default async function DashboardPage({
   const consLane: "IGV" | "IGT" | null =
     activeFn === "CONS_IGV" ? "IGV" : activeFn === "CONS_IGT" ? "IGT" : null;
 
-  const [data, teamLeaders, members, consideration, ogx, streak] = await Promise.all([
+  const [data, teamFilterOptions, members, consideration, ogx, streak] = await Promise.all([
     getDashboard(viewer, filters, SPECIAL_LANES.has(activeFn) ? baseLane : activeFn),
-    listTeamLeaders(viewer),
+    listTeamFilterOptions(viewer),
     listVisibleMembers(viewer),
     consLane ? considerationStats(viewer, consLane) : Promise.resolve(null),
     isOgxLane
@@ -208,10 +208,7 @@ export default async function DashboardPage({
       teamOptions={
         isOgxLane && ogx
           ? ogx.teamOptions
-          : teamLeaders.map((t) => ({
-              id: t.id,
-              label: t.team_name || `Team ${t.nickname || t.name}`,
-            }))
+          : teamFilterOptions
       }
       memberOptions={isOgxLane && ogx ? ogx.memberOptions : memberOptions}
       viewerId={viewer.id}

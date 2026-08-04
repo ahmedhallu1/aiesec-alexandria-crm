@@ -8,6 +8,7 @@ import {
   considerationFunctions,
   accountScope,
   allowedAccountFunctions as _allowedAccountFunctions,
+  canSeeLcConcerns as _canSeeLcConcerns,
   canViewAccount,
   hasRaisingAccess,
   hasTmAccess,
@@ -959,6 +960,39 @@ export async function listAllMembers(): Promise<Member[]> {
 export async function listTeamLeaders(viewer: Viewer): Promise<Member[]> {
   const members = await listVisibleMembers(viewer);
   return members.filter((m) => m.role === "Team Leader");
+}
+
+/** Team-filter options: the NORMAL teams only — a Team Leader with their
+ *  members (v32.8).
+ *
+ *  Since the membership sheet started listing every team a person belongs to,
+ *  `team_name` can read "تملي معاك, شماريخ" — their TL team AND the LB AND the
+ *  function team. Filtering by "everything they're in" is meaningless, so we
+ *  take the one name that is a registered `Team` (a real TL team) and ignore
+ *  the structural ones. A Team Leader whose cell names no registered team
+ *  still gets a row, labelled after them ("Alex's team"), because their team
+ *  exists whether or not anyone named it. */
+export async function listTeamFilterOptions(
+  viewer: Viewer
+): Promise<{ id: string; label: string }[]> {
+  const [leads, { data: teamRows }] = await Promise.all([
+    listTeamLeaders(viewer),
+    db().from("teams").select("name").eq("type", "Team"),
+  ]);
+  const normal = new Set(
+    ((teamRows ?? []) as { name: string }[]).map((t) => t.name.trim().toLowerCase())
+  );
+  return leads.map((m) => {
+    const named = (m.team_name ?? "")
+      .split(/[,;]+/)
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .find((t) => normal.has(t.toLowerCase()));
+    return {
+      id: m.id,
+      label: named || `${m.nickname || m.name}'s team`,
+    };
+  });
 }
 
 // ------------------------------------------------------------------ dashboard
@@ -3020,7 +3054,7 @@ export interface LcFeedbackRow {
 /** The LC people-feedback inbox — LCP + admin ONLY. Anonymous rows never
  *  expose the author, not even here. */
 export async function listLcFeedback(viewer: Viewer): Promise<LcFeedbackRow[]> {
-  if (!viewer.isAdmin && viewer.role !== "LCP") return [];
+  if (!_canSeeLcConcerns(viewer)) return [];
   const [{ data }, { data: membersData }] = await Promise.all([
     db()
       .from("lc_feedback")
