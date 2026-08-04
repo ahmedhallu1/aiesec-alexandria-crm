@@ -41,6 +41,8 @@ interface ShellProps {
     functions: string[];
     photoUrl: string | null;
     isAdmin: boolean;
+    /** may open Health & Logs and the test view (v33) */
+    adminTools: boolean;
   };
   nav: { raising: boolean; dashboard: boolean; tm: boolean; membership: boolean; planning: boolean; ogtMail: boolean; signups: boolean; consideration: boolean; calendar: boolean };
   signOutAction: () => Promise<void>;
@@ -112,12 +114,16 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
     // system feedback moved to the Profile page (v21) — this is feedback about
     // PEOPLE in the LC: shout-outs & concerns
     { href: "/lc-feedback", label: "LC Feedback", icon: MessageSquareHeart },
-    ...(user.isAdmin ? [{ href: "/admin", label: "Health & Logs", icon: Activity }] : []),
+    ...(user.adminTools ? [{ href: "/admin", label: "Health & Logs", icon: Activity }] : []),
   ];
 
   // v26: members arrange their OWN sidebar — order persisted per browser
   const [navOrder, setNavOrder] = useState<string[] | null>(null);
   const [sortMode, setSortMode] = useState(false);
+  // v33: the tab the logo goes to. Arranging your tabs without being able to
+  // say which one is HOME only got you halfway — a B2C coordinator who lives
+  // in Raising shouldn't land wherever the priority list happens to point.
+  const [homePin, setHomePin] = useState<string | null>(null);
   useEffect(() => {
     try {
       const raw = localStorage.getItem("sodio-nav-order");
@@ -129,6 +135,11 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
     } catch {
       /* corrupt — default order */
     }
+    try {
+      setHomePin(localStorage.getItem("sodio-nav-home"));
+    } catch {
+      /* no pin — fall back to the module priority */
+    }
   }, []);
   const orderedItems = (() => {
     if (!navOrder) return items;
@@ -139,6 +150,11 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
       return pa - pb;
     });
   })();
+  // the pinned tab wins — but only while it's still a tab this viewer has
+  // (a function change can take a module away, and home must not 404)
+  const effectiveHome =
+    homePin && orderedItems.some((i) => i.href === homePin) ? homePin : homeHref;
+
   const moveItem = (href: string, dir: -1 | 1) => {
     const hrefs = orderedItems.map((i) => i.href);
     const idx = hrefs.indexOf(href);
@@ -199,6 +215,35 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
                 onClick={() => moveItem(item.href, 1)}
               >
                 <ChevronDown className="size-3.5" />
+              </button>
+              <button
+                type="button"
+                aria-label={
+                  homePin === item.href
+                    ? `${item.label} is your home tab`
+                    : `Make ${item.label} your home tab`
+                }
+                title={
+                  homePin === item.href
+                    ? "Your home tab — the logo lands here"
+                    : "Make this your home tab"
+                }
+                className={cn(
+                  "rounded p-0.5 transition-colors",
+                  homePin === item.href
+                    ? "text-warning"
+                    : "text-sidebar-foreground/40 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                )}
+                onClick={() => {
+                  const next = homePin === item.href ? null : item.href;
+                  setHomePin(next);
+                  try {
+                    if (next) localStorage.setItem("sodio-nav-home", next);
+                    else localStorage.removeItem("sodio-nav-home");
+                  } catch { /* private mode — the pin just won't persist */ }
+                }}
+              >
+                {homePin === item.href ? "★" : "☆"}
               </button>
             </span>
           ) : null}
@@ -298,7 +343,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
 
   const brand = (
     <Link
-      href={homeHref}
+      href={effectiveHome}
       onClick={() => setOpen(false)}
       title="Home — your workspace"
       className="flex items-center gap-2.5 px-5 py-5 transition-opacity hover:opacity-80"
@@ -365,7 +410,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
             {credit}
           </SheetContent>
         </Sheet>
-        <Link href={homeHref} className="flex items-center gap-2" title="Home — your workspace">
+        <Link href={effectiveHome} className="flex items-center gap-2" title="Home — your workspace">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/aiesec-white.png" alt="AIESEC" className="h-6 w-auto" />
           <p className="text-sm font-black tracking-tight text-sidebar-foreground">Sodio</p>

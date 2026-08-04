@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getRealViewer, getSystemHealth, listRecentAudit } from "@/server/data";
 import { db } from "@/lib/supabase";
+import { canUseAdminTools } from "@/lib/rbac";
 import { AdminView } from "@/components/crm/admin-view";
 
 export const metadata = { title: "Admin — Health & Logs" };
@@ -10,7 +11,7 @@ export const metadata = { title: "Admin — Health & Logs" };
  *  on the REAL session so it works mid-test-view. */
 export default async function AdminPage() {
   const viewer = await getRealViewer();
-  if (!viewer.isAdmin) redirect("/");
+  if (!canUseAdminTools(viewer)) redirect("/");
 
   const { cookies } = await import("next/headers");
   const showTestData = (await cookies()).get("sodio-test-mode")?.value === "1";

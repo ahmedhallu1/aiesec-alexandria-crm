@@ -43,6 +43,18 @@ export type AccountScope =
 
 const master = (v: Viewer) => v.isAdmin || v.role === "LCP";
 
+/** The admin TOOLS — Health & Logs, the test view, the change journal (v33).
+ *
+ *  Deliberately NOT the same thing as `master`. Someone can be the system's
+ *  caretaker without being handed every function's data: an LCVP who also
+ *  keeps the system running still sees only THEIR modules, plus these tools.
+ *  Full cross-LC visibility stays with the LCP and with ADMIN_EMAILS (the IM
+ *  director), so marking someone Admin on the sheet can never quietly widen
+ *  who reads the whole LC. */
+export function canUseAdminTools(v: Viewer): boolean {
+  return v.isAdmin || v.role === "Admin" || (v.sub_functions ?? []).includes("Admin");
+}
+
 /** EB = LCP + LCVPs (Directors are explicitly NOT EB). */
 export const isEb = (v: Viewer) => master(v) || v.role === "LCVP";
 

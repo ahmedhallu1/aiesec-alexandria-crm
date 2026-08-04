@@ -11,7 +11,10 @@ export type MemberRole =
   | "Team Leader"
   | "Coordinator"
   | "Member"
-  | "Director";
+  | "Director"
+  /** v33 — the SYSTEM caretaker. Not an operational rank: it grants the admin
+   *  TOOLS (Health & Logs, the test view), never other people's modules. */
+  | "Admin";
 export type IgtProduct = "GTa" | "GTe";
 export type ContactMethod = "Call" | "WhatsApp" | "Email";
 export type ContactStatus =
@@ -43,7 +46,7 @@ export const STAGES: Stage[] = [
 
 // The final Membership sheet lists (mirror the sheet's dropdown validations)
 export const MEMBER_ROLES: MemberRole[] = [
-  "LCP", "LCVP", "Team Leader", "Coordinator", "Member", "Director",
+  "LCP", "LCVP", "Team Leader", "Coordinator", "Member", "Director", "Admin",
 ];
 export const LC_FUNCTIONS: LcFunction[] = [
   "IGT", "IGV", "OGV", "OGT", "CXP", "B2C", "F&L", "B2B", "BD", "TM",

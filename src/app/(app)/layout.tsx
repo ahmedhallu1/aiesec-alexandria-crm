@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getViewer, listViewAsTargets, needsMmPlan, needsTlPlan } from "@/server/data";
 import {
   hasRaisingAccess, hasTmAccess, hasOgxAccess, hasConsiderationAccess,
-  canManageMembership, canSeePlanning, seesEveryLane,
+  canManageMembership, canSeePlanning, canUseAdminTools, seesEveryLane,
 } from "@/lib/rbac";
 import { signOut } from "@/lib/auth";
 import { AppShell } from "@/components/crm/app-shell";
@@ -80,6 +80,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         functions: viewer.functions,
         photoUrl: viewer.avatar_url || viewer.photo_url,
         isAdmin: viewer.isAdmin,
+        adminTools: canUseAdminTools(viewer),
       }}
       nav={{
         calendar,
