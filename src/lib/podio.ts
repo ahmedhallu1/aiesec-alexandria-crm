@@ -138,25 +138,38 @@ async function searchPodio(query: string): Promise<string[] | null> {
   const body = await fetchText(url);
   if (body == null) return null;
 
-  let titles: string[];
+  const titles = parseSearchResults(body);
+  if (titles === null) return null;
+
+  // keep the cache from growing without bound across a long-lived instance
+  if (queryCache.size > 500) queryCache.clear();
+  queryCache.set(key, { at: Date.now(), titles });
+  return titles;
+}
+
+/** Pulls the partner titles out of Podio's items_search response.
+ *
+ *  Exported so it can be tested against real and hostile payloads: this parses
+ *  a THIRD PARTY's JSON, so it must never throw into the request and must
+ *  never turn a shape change into a confident "no match" (which would tell a
+ *  member to submit a duplicate). Returns null when the body is unusable, so
+ *  the caller can say "unknown" instead of "free".
+ *
+ *  Shape: [{ name, data: {...app...}, contents: [{ title, ... }] }] */
+export function parseSearchResults(body: string): string[] | null {
   try {
-    // shape: [{ name, data: {...app...}, contents: [{ title, ... }] }]
     const parsed = JSON.parse(body) as { contents?: { title?: string }[] }[];
-    const contents = Array.isArray(parsed)
-      ? (parsed.find((e) => Array.isArray(e?.contents))?.contents ?? [])
-      : [];
-    titles = contents
+    if (!Array.isArray(parsed)) return null;
+    const entry = parsed.find((e) => Array.isArray(e?.contents));
+    // a well-formed response with no matches is an EMPTY list, not a failure
+    if (!entry) return parsed.length > 0 ? [] : null;
+    return (entry.contents ?? [])
       .map((c) => (typeof c?.title === "string" ? c.title : ""))
       .filter(Boolean);
   } catch (e) {
     console.error("[podio] could not parse the search response:", e);
     return null;
   }
-
-  // keep the cache from growing without bound across a long-lived instance
-  if (queryCache.size > 500) queryCache.clear();
-  queryCache.set(key, { at: Date.now(), titles });
-  return titles;
 }
 
 export async function checkPodioCompany(name: string): Promise<PodioCheck> {
