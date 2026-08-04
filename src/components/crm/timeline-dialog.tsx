@@ -93,7 +93,7 @@ export function TimelineDialog({
       if (!res.ok) { toast.error(res.error); return; }
       const { created, skipped } = res.data ?? { created: 0, skipped: 0 };
       toast.success(
-        `Timeline saved — ${created} touch point${created === 1 ? "" : "s"} booked${
+        `Routine saved — ${created} touch point${created === 1 ? "" : "s"} booked${
           skipped ? ` · ${skipped} skipped` : ""
         } 🗓️`
       );
@@ -107,7 +107,7 @@ export function TimelineDialog({
     start(async () => {
       const res = await deleteTimeline(id);
       if (!res.ok) { toast.error(res.error); return; }
-      toast.success("Timeline removed — future dates cleared, the past kept.");
+      toast.success("Routine removed — future dates cleared, the past kept.");
       setRows((r) => (r ?? []).filter((x) => x.id !== id));
       router.refresh();
     });
@@ -118,12 +118,12 @@ export function TimelineDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant="outline">
-          <Repeat className="size-4" /> Timeline
+          <Repeat className="size-4" /> Routine
         </Button>
       </DialogTrigger>
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Your timeline</DialogTitle>
+          <DialogTitle>Your routine</DialogTitle>
           <DialogDescription>
             The routine you keep across the peak. Saving books every date up
             front — move any single one later if something comes up.
@@ -148,7 +148,7 @@ export function TimelineDialog({
                   className="size-8 text-muted-foreground hover:text-destructive"
                   disabled={pending}
                   onClick={() => remove(r.id)}
-                  aria-label="Remove this timeline"
+                  aria-label="Remove this routine"
                 >
                   <Trash2 className="size-4" />
                 </Button>
@@ -176,7 +176,10 @@ export function TimelineDialog({
             ) : null}
             <div className="grid gap-1.5">
               <Label>What</Label>
-              <Select value={kind} onValueChange={setKind}>
+              <Select
+                value={kind}
+                onValueChange={(v) => { setKind(v); if (v !== "meeting") setVirtual(false); }}
+              >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="meeting">Meeting</SelectItem>
@@ -213,6 +216,7 @@ export function TimelineDialog({
               <Input type="date" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} />
             </div>
           </div>
+          {kind === "meeting" ? (
           <label className="flex items-center justify-between gap-3 rounded-lg border p-3">
             <span className="min-w-0">
               <span className="flex items-center gap-1.5 text-sm font-medium">
@@ -225,6 +229,7 @@ export function TimelineDialog({
             </span>
             <Switch checked={virtual} onCheckedChange={setVirtual} />
           </label>
+          ) : null}
           <div className="grid gap-1.5">
             <Label>Note (optional)</Label>
             <Textarea

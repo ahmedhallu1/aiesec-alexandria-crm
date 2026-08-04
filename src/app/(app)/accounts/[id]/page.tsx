@@ -60,7 +60,6 @@ export default async function AccountPage({
     reassignTargets.unshift({
       id: account.responsible_id,
       name: account.responsible_name,
-      nickname: account.responsible_nickname,
     } as (typeof reassignTargets)[number]);
   }
 
@@ -80,7 +79,7 @@ export default async function AccountPage({
       }}
       reassignTargets={reassignTargets.map((m) => ({
         id: m.id,
-        label: m.nickname || m.name,
+        label: m.name,
       }))}
       autoReportVisitId={report ?? null}
       autoOpen={

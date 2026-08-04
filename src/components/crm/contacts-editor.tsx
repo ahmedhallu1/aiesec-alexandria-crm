@@ -4,6 +4,7 @@ import { useRef } from "react";
 import { Globe, Mail, Phone, Plus, Trash2 } from "lucide-react";
 import {
   CONTACT_TAGS, DEFAULT_CONTACT_TAG, EMAIL_RE, EMAIL_TAGS, guessContactTag,
+  phoneTagsFor,
   LINK_TAGS, normalizePhone, URL_RE,
   type AccountContact,
 } from "@/lib/types";
@@ -113,7 +114,11 @@ export function ContactsEditor({
       {rows.map((c, i) => {
         const meta = kindMeta[c.kind];
         const issue = contactIssue(c);
-        const known = (meta.tags as readonly string[]).filter((t) => t !== "Other");
+        // a phone's own shape decides its tags: no WhatsApp on a landline or
+        // a hotline, because that button would silently do nothing (v33)
+        const tagChoices =
+          c.kind === "phone" ? phoneTagsFor(c.value) : (meta.tags as readonly string[]);
+        const known = tagChoices.filter((t) => t !== "Other");
         const isCustomTag = !known.includes(c.tag);
         return (
           <div key={i} className="flex items-start gap-1.5">
@@ -126,7 +131,7 @@ export function ContactsEditor({
               >
                 <SelectTrigger className="h-8 w-full"><SelectValue placeholder="Tag" /></SelectTrigger>
                 <SelectContent>
-                  {meta.tags.map((t) => (
+                  {tagChoices.map((t) => (
                     <SelectItem key={t} value={t}>{t}</SelectItem>
                   ))}
                 </SelectContent>

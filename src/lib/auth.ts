@@ -114,7 +114,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           return {
             // no email → a synthetic phone-keyed session identity
             email: member.email ?? phoneSessionKey(member.phone ?? ""),
-            name: member.nickname || member.name,
+            name: member.name,
             image: member.avatar_url || member.photo_url,
           };
         } catch (e) {

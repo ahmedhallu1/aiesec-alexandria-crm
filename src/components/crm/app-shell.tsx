@@ -7,6 +7,8 @@ import {
   LayoutDashboard,
   ChevronUp,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Building2,
   CalendarCheck2,
   CalendarDays,
@@ -124,6 +126,10 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
   // say which one is HOME only got you halfway — a B2C coordinator who lives
   // in Raising shouldn't land wherever the priority list happens to point.
   const [homePin, setHomePin] = useState<string | null>(null);
+  // COLLAPSED SIDEBAR (v33): the accounts table is wide and the nav is mostly
+  // idle once you're working a list — collapsing gives it ~15rem back without
+  // losing the tabs, which stay as icons.
+  const [railed, setRailed] = useState(false);
   useEffect(() => {
     try {
       const raw = localStorage.getItem("sodio-nav-order");
@@ -137,6 +143,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
     }
     try {
       setHomePin(localStorage.getItem("sodio-nav-home"));
+      setRailed(localStorage.getItem("sodio-nav-railed") === "1");
     } catch {
       /* no pin — fall back to the module priority */
     }
@@ -170,7 +177,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
   };
 
   const navList = (
-    <nav className="flex flex-1 flex-col gap-1 p-3">
+    <nav className={cn("flex flex-1 flex-col gap-1 p-3", railed && "items-center px-1.5")}>
       {orderedItems.map((item) => {
         const active =
           pathname === item.href ||
@@ -181,6 +188,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
           <div key={item.href} className="flex items-center gap-1">
           <Link
             href={item.href}
+            title={railed ? item.label : undefined}
             data-tour={`nav:${item.href}`}
             onClick={(e) => {
               setOpen(false);
@@ -196,9 +204,11 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
             )}
           >
             <item.icon className="size-4.5 transition-transform group-hover:scale-110 motion-reduce:group-hover:scale-100" />
-            <span className="min-w-0 flex-1 truncate">{item.label}</span>
+            {railed ? null : (
+              <span className="min-w-0 flex-1 truncate">{item.label}</span>
+            )}
           </Link>
-          {sortMode ? (
+          {sortMode && !railed ? (
             <span className="flex shrink-0 items-center gap-0.5 pr-1">
               <button
                 type="button"
@@ -250,7 +260,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
           </div>
         );
       })}
-      <div className="mt-0.5 flex items-center gap-2 px-3">
+      <div className={cn("mt-0.5 flex items-center gap-2 px-3", railed && "hidden")}>
         <button
           type="button"
           className="text-[11px] font-medium text-sidebar-foreground/45 transition-colors hover:text-sidebar-foreground/80"
@@ -381,12 +391,36 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
           to be pushed off-screen and was unreachable. It scrolls itself now;
           the nav keeps its content height (flex min-height:auto), so items are
           never squashed. */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col overflow-y-auto overscroll-contain bg-sidebar pb-[env(safe-area-inset-bottom)] md:flex">
-        {brand}
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-30 hidden flex-col overflow-y-auto overscroll-contain bg-sidebar pb-[env(safe-area-inset-bottom)] transition-[width] duration-200 md:flex",
+          railed ? "w-[3.75rem]" : "w-60"
+        )}
+        data-railed={railed ? "true" : undefined}
+      >
+        {railed ? null : brand}
         {navList}
-        {userBlock(false)}
-        {credit}
+        {railed ? null : userBlock(false)}
+        {railed ? null : credit}
       </aside>
+
+      {/* the collapse handle — sits on the sidebar's edge, desktop only */}
+      <button
+        type="button"
+        onClick={() => {
+          const next = !railed;
+          setRailed(next);
+          try { localStorage.setItem("sodio-nav-railed", next ? "1" : "0"); } catch {}
+        }}
+        aria-label={railed ? "Expand the sidebar" : "Collapse the sidebar"}
+        title={railed ? "Expand the sidebar" : "Collapse the sidebar — more room for the table"}
+        className={cn(
+          "fixed top-3 z-40 hidden size-7 items-center justify-center rounded-full border bg-card text-muted-foreground shadow-sm transition-all duration-200 hover:text-foreground md:flex",
+          railed ? "left-[2.6rem]" : "left-[13.6rem]"
+        )}
+      >
+        {railed ? <ChevronRight className="size-4" /> : <ChevronLeft className="size-4" />}
+      </button>
 
       {/* Mobile top bar */}
       <div className="fixed inset-x-0 top-0 z-30 flex items-center gap-2 border-b bg-sidebar px-3 py-2.5 pt-[calc(0.625rem+env(safe-area-inset-top))] md:hidden">
@@ -427,7 +461,12 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
           runs full-bleed), the floating Blue Man button and the draggable
           test-view chip. 7rem + the inset keeps the last card of a page (the
           profile's cards, the dashboard's drill-down) fully readable. */}
-      <main className="min-w-0 flex-1 px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-[calc(4rem+env(safe-area-inset-top))] md:ml-60 md:px-8 md:pt-14">
+      <main
+        className={cn(
+          "min-w-0 flex-1 px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-[calc(4rem+env(safe-area-inset-top))] transition-[margin] duration-200 md:px-8 md:pt-14",
+          railed ? "md:ml-[3.75rem]" : "md:ml-60"
+        )}
+      >
         {children}
       </main>
 

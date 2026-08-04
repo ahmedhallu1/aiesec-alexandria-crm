@@ -271,7 +271,6 @@ function parseMulti(raw: string | undefined, known: readonly string[]): string[]
 
 interface SheetMemberRow {
   name: string;
-  nickname: string | null;
   email: string | null;
   phone: string | null;
   role: string;
@@ -282,8 +281,61 @@ interface SheetMemberRow {
   is_active: boolean;
 }
 
-function parseSheetRow(row: string[]): SheetMemberRow | null {
-  const [name, nickname, email, phone, role, fns, subs, stakeholder, teamName, active] = row;
+/** COLUMN INDEX BY HEADER NAME (v33).
+ *
+ *  The importer used to destructure the row positionally, so deleting or
+ *  reordering ONE column on the Membership sheet silently shifted every field
+ *  after it — deleting "Nickname" would have written emails into the nickname
+ *  slot and phones into email for all 77 members, twice an hour, with no
+ *  error. Columns are now found by their header, so the sheet's layout is free
+ *  to change and the code doesn't have to be redeployed in lockstep.
+ *
+ *  Matching is loose (case, spaces and punctuation ignored) because the real
+ *  headers carry parenthetical hints like "Role (LCP/VP/TL/Coordinator/Member)". */
+const COLUMN_ALIASES: Record<string, string[]> = {
+  name: ["name", "fullname"],
+  email: ["email", "aiesecemail"],
+  phone: ["phone", "phonenumber", "mobile"],
+  role: ["role"],
+  functions: ["function", "functions"],
+  subs: ["subfunction", "subfunctions"],
+  stakeholder: ["stakeholder", "manager"],
+  team: ["teamname", "team"],
+  active: ["active", "activeyesno"],
+};
+
+const normHeader = (h: string) => (h ?? "").toLowerCase().replace(/[^a-z]/g, "");
+
+export type ColumnMap = Record<string, number>;
+
+/** Builds field → column index from the sheet's own header row. */
+export function mapColumns(header: string[]): ColumnMap {
+  const map: ColumnMap = {};
+  header.forEach((cell, i) => {
+    const h = normHeader(cell);
+    for (const [field, aliases] of Object.entries(COLUMN_ALIASES)) {
+      if (map[field] !== undefined) continue;
+      // startsWith so "rolelcpvptlcoordinatormember" still matches "role"
+      if (aliases.some((a) => h === a || h.startsWith(a))) map[field] = i;
+    }
+  });
+  return map;
+}
+
+function parseSheetRow(row: string[], cols: ColumnMap): SheetMemberRow | null {
+  const at = (field: string) => {
+    const i = cols[field];
+    return i === undefined ? undefined : row[i];
+  };
+  const name = at("name");
+  const email = at("email");
+  const phone = at("phone");
+  const role = at("role");
+  const fns = at("functions");
+  const subs = at("subs");
+  const stakeholder = at("stakeholder");
+  const teamName = at("team");
+  const active = at("active");
   const cleanEmail = email?.trim().toLowerCase();
   const cleanPhone = phone?.trim();
   // email is OPTIONAL since v24 — a row needs a name plus an email OR a phone
@@ -294,7 +346,6 @@ function parseSheetRow(row: string[]): SheetMemberRow | null {
   const phoneCheck = cleanPhone ? normalizePhone(cleanPhone) : null;
   return {
     name: name.trim(),
-    nickname: nickname?.trim() || null,
     email: hasEmail ? cleanEmail : null,
     // canonical +digits when possible so every digit-tail matcher agrees;
     // unrecognized formats keep the raw value (stripped of separators)
@@ -316,7 +367,6 @@ function parseSheetRow(row: string[]): SheetMemberRow | null {
 interface LinkableMember {
   id: string;
   name: string;
-  nickname: string | null;
   role: MemberRole;
   functions: string[] | null;
   stakeholder_name: string | null;
@@ -345,18 +395,17 @@ export function defaultManagerId(m: LinkableMember, all: LinkableMember[]): stri
  *  (common sense, enforced on import AND in the editor since v24). */
 export const MANAGER_ROLES: readonly string[] = ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"];
 
-/** Resolves "Stakeholder" (Manager) names to member ids (name OR nickname),
+/** Resolves "Stakeholder" (Manager) names to member ids (by name),
  *  falling back to the default manager chain when the cell is empty or names
  *  someone who can't manage (a plain Member). */
 async function relinkStakeholders(): Promise<void> {
   const { data: members } = await db()
     .from("members")
-    .select("id, name, nickname, role, functions, stakeholder_name, stakeholder_id, is_active");
+    .select("id, name, role, functions, stakeholder_name, stakeholder_id, is_active");
   const all = (members ?? []) as LinkableMember[];
   const byName = new Map<string, LinkableMember>();
   for (const m of all) {
     byName.set(m.name.trim().toLowerCase(), m);
-    if (m.nickname) byName.set(m.nickname.trim().toLowerCase(), m);
   }
   for (const m of all) {
     const named = m.stakeholder_name
@@ -378,7 +427,7 @@ export async function importMembership(): Promise<number> {
   const { sheets } = clients();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: id,
-    range: "A2:J1000",
+    range: "A1:Z1000",
   });
   const rows = (res.data.values ?? []) as string[][];
 
@@ -402,11 +451,19 @@ export async function importMembership(): Promise<number> {
     return rows.find((m) => digitsOf(m.phone).endsWith(tail))?.id ?? null;
   };
 
+  // the FIRST row is the header — it decides where every field lives
+  const cols = mapColumns((rows[0] ?? []) as string[]);
+  if (cols.name === undefined || (cols.email === undefined && cols.phone === undefined)) {
+    console.error("[sheets] membership header not recognised — import aborted", rows[0]);
+    return 0;
+  }
+  const dataRows = rows.slice(1);
+
   const seenEmails: string[] = [];
   const seenPhoneTails: string[] = [];
   let count = 0;
-  for (const raw of rows) {
-    const row = parseSheetRow(raw);
+  for (const raw of dataRows) {
+    const row = parseSheetRow(raw, cols);
     if (!row) continue;
     count += 1;
     if (row.email) {
@@ -640,7 +697,6 @@ export async function writeTeamsTab(
 
 export interface MemberWriteBack {
   name: string;
-  nickname: string | null;
   /** null = no AIESEC email yet — the row is located by PHONE instead */
   email: string | null;
   phone: string | null;
@@ -685,7 +741,7 @@ export async function writeMemberToSheet(m: MemberWriteBack): Promise<void> {
 
   const rowValues = [
     m.name,
-    m.nickname ?? "",
+    "",
     m.email ?? "",
     m.phone ?? "",
     m.role,
@@ -758,14 +814,14 @@ export async function exportAllSheets(): Promise<void> {
     pageAll(() =>
       db()
         .from("account_comments")
-        .select("*, member:members(name, nickname)")
+        .select("*, member:members(name)")
         .order("created_at")
         .order("id")
     ),
     pageAll(() =>
       db()
         .from("blacklist")
-        .select("*, added_by_member:members!blacklist_added_by_fkey(name, nickname)")
+        .select("*, added_by_member:members!blacklist_added_by_fkey(name)")
         .order("created_at")
         .order("id")
     ),
@@ -780,7 +836,7 @@ export async function exportAllSheets(): Promise<void> {
     const n = (counters.get(key) ?? 0) + 1;
     counters.set(key, n);
     const label = c.author_label === "Member" ? `Comment #${n}` : `${c.author_label} Comment #${n}`;
-    const who = c.member?.nickname || c.member?.name || "";
+    const who = c.member?.name || "";
     const prev = commentText.get(c.account_id) ?? "";
     commentText.set(c.account_id, `${prev}${prev ? "\n" : ""}${label}${who ? ` (${who})` : ""}: ${c.body}`);
   }
@@ -826,7 +882,7 @@ export async function exportAllSheets(): Promise<void> {
      "Website", "Comments", "Created At", MIRROR_NOTE],
     rows.map((a) => [
       a.name, a.function, productLabel(a), a.sub_product, a.project,
-      a.account_type, a.industry, a.responsible_nickname || a.responsible_name || "Unassigned",
+      a.account_type, a.industry, a.responsible_name || "Unassigned",
       a.responsible_team_name, a.stage,
       a.out_of_process ? "Yes" : "No", a.oop_reason,
       a.attempts, a.requested_podio ? "Yes" : "No", a.request_state,
@@ -871,7 +927,7 @@ export async function exportAllSheets(): Promise<void> {
       productLabel(a),
       a.oop_reason,
       a.oop_at?.slice(0, 16)?.replace("T", " "),
-      a.responsible_nickname || a.responsible_name || "Unassigned",
+      a.responsible_name || "Unassigned",
       "Worked in the CRM, then archived",
     ]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -880,7 +936,7 @@ export async function exportAllSheets(): Promise<void> {
     "",
     b.comments,
     b.created_at?.slice(0, 16)?.replace("T", " "),
-    b.added_by_member?.nickname || b.added_by_member?.name || "",
+    b.added_by_member?.name || "",
     "Added manually to the archive",
   ]);
   await safe("CRM — Archived Accounts", () => overwriteSheet(

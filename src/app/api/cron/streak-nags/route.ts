@@ -13,7 +13,6 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 interface MmRow {
   id: string;
   name: string;
-  nickname: string | null;
   email: string | null;
   role: string;
   functions: string[] | null;
@@ -38,7 +37,7 @@ export async function GET(req: NextRequest) {
   // the streak game's audience: active OGV Team Leaders / Coordinators / Members
   const membersRes = await db()
     .from("members")
-    .select("id, name, nickname, email, role, functions, sub_functions, streak_reminded_on")
+    .select("id, name, email, role, functions, sub_functions, streak_reminded_on")
     .eq("is_active", true)
     .in("role", ["Team Leader", "Coordinator", "Member"]);
   if (membersRes.error) {
@@ -98,7 +97,7 @@ export async function GET(req: NextRequest) {
     const streak = streakEndingAt(mine, yesterday); // alive until midnight
     if (streak < 3) continue;
 
-    const name = m.nickname || m.name;
+    const name = m.name;
     try {
       await notifyMembers(
         [m.id],

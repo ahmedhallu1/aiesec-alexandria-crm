@@ -124,7 +124,7 @@ export function CalendarView({
   const legend = useMemo(() => {
     const byMember = new Map<string, { id: string; label: string; count: number }>();
     for (const v of visits) {
-      const label = v.member.nickname || v.member.name;
+      const label = v.member.name;
       const cur = byMember.get(v.member.id);
       if (cur) cur.count += 1;
       else byMember.set(v.member.id, { id: v.member.id, label, count: 1 });
@@ -197,7 +197,7 @@ export function CalendarView({
 
   const chip = (v: CalendarVisit, full = false) => {
     const color = colorOf.get(v.member.id) ?? "#037EF3";
-    const who = v.member.nickname || v.member.name;
+    const who = v.member.name;
     const status = v.done === null ? "pending report" : v.done ? "done ✅" : "not completed ❌";
     // members only OPEN their own accounts — teammates' visits stay visible
     // but unlinked (clicking would 404 on the RBAC check)
@@ -556,7 +556,7 @@ export function CalendarView({
 
             {dayVisits.map((v) => {
               const color = colorOf.get(v.member.id) ?? "#037EF3";
-              const who = v.member.nickname || v.member.name;
+              const who = v.member.name;
               const openable =
                 openableMemberIds === null || openableMemberIds.includes(v.member.id);
               const body = (

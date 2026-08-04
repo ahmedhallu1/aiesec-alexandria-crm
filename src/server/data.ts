@@ -133,14 +133,14 @@ export async function listViewAsTargets(): Promise<ViewAsTarget[]> {
   if (!real.isAdmin) return [];
   const { data } = await db()
     .from("members")
-    .select("id, name, nickname, role, functions")
+    .select("id, name, role, functions")
     .eq("is_active", true)
     .neq("id", real.id) // you can't test-view yourself
     .order("name");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ((data ?? []) as any[]).map((m) => ({
     id: m.id,
-    label: m.nickname || m.name,
+    label: m.name,
     role: m.role,
     functions: (m.functions ?? []).join(", "),
   }));
@@ -408,7 +408,9 @@ export interface AccountFilters {
   lastStatus?: string;
   /** a Team Leader's id — their own accounts + their members' accounts */
   teamId?: string;
-  flag?: "contact_limit" | "next_step_missing";
+  /** v33: the 3-contact-limit flag is retired — "no next step" and "needs
+   *  Podio checking" are the two that actually drive work */
+  flag?: "needs_podio" | "next_step_missing";
   /** created_at range (YYYY-MM-DD) */
   from?: string;
   to?: string;
@@ -592,7 +594,10 @@ async function buildAccountsQuery(
   const to = filters.to && filters.to <= today ? filters.to : filters.to ? today : undefined;
   if (from) query = query.gte("created_at", `${from}T00:00:00Z`);
   if (to) query = query.lte("created_at", `${to}T23:59:59Z`);
-  if (filters.flag === "contact_limit") query = query.eq("contact_limit_reached", true);
+  // NEEDS PODIO CHECKING: never submitted and nobody has set a request state,
+  // so nobody knows whether the partner is already taken (v33)
+  if (filters.flag === "needs_podio")
+    query = query.eq("requested_podio", false).is("request_state", null);
   if (filters.flag === "next_step_missing") query = query.eq("next_step_missing", true);
   if (filters.q) query = query.ilike("normalized_name", `%${normalizeName(filters.q)}%`);
   // column sorting (v24) — WHITELISTED fields only; anything else falls back
@@ -659,14 +664,14 @@ export async function getAccount(viewer: Viewer, idOrSlug: string) {
     const withAllocs = await db()
       .from("deals")
       .select(
-        "*, member:members(name, nickname), allocations:deal_allocations(member_id, slots_igv, slots_igta, slots_igte, member:members(name, nickname))"
+        "*, member:members(name), allocations:deal_allocations(member_id, slots_igv, slots_igta, slots_igte, member:members(name))"
       )
       .eq("account_id", id)
       .order("created_at", { ascending: false });
     if (!withAllocs.error) return withAllocs;
     return db()
       .from("deals")
-      .select("*, member:members(name, nickname)")
+      .select("*, member:members(name)")
       .eq("account_id", id)
       .order("created_at", { ascending: false });
   };
@@ -674,7 +679,7 @@ export async function getAccount(viewer: Viewer, idOrSlug: string) {
     await Promise.all([
       db()
         .from("contact_attempts")
-        .select("*, member:members(name, nickname)")
+        .select("*, member:members(name)")
         .eq("account_id", id)
         .order("created_at", { ascending: false }),
       db()
@@ -685,7 +690,7 @@ export async function getAccount(viewer: Viewer, idOrSlug: string) {
         .order("visit_time", { ascending: false }),
       db()
         .from("account_comments")
-        .select("*, member:members(name, nickname)")
+        .select("*, member:members(name)")
         .eq("account_id", id)
         .order("created_at", { ascending: true }),
       fetchDeals(),
@@ -720,7 +725,7 @@ async function accountCreationEntry(
 ): Promise<AccountCreationEntry> {
   const { data: auditRow } = await db()
     .from("audit_log")
-    .select("actor_id, details, created_at, actor:members!actor_id(name, nickname)")
+    .select("actor_id, details, created_at, actor:members!actor_id(name)")
     .eq("entity", "account")
     .eq("entity_id", account.id)
     .eq("action", "create")
@@ -738,14 +743,14 @@ async function accountCreationEntry(
   };
 
   // ---- who added it
-  let by: string | null = audit?.actor ? audit.actor.nickname || audit.actor.name : null;
+  let by: string | null = audit?.actor ? audit.actor.name : null;
   if (!by && account.created_by) {
     const { data: creator } = await db()
       .from("members")
-      .select("name, nickname")
+      .select("name")
       .eq("id", account.created_by)
-      .maybeSingle<{ name: string; nickname: string | null }>();
-    by = creator ? creator.nickname || creator.name : null;
+      .maybeSingle<{ name: string }>();
+    by = creator ? creator.name : null;
   }
 
   // ---- what it was filed as (the snapshot when we have it, else the row)
@@ -770,10 +775,10 @@ async function accountCreationEntry(
   if (responsibleId) {
     const { data: owner } = await db()
       .from("members")
-      .select("name, nickname")
+      .select("name")
       .eq("id", responsibleId)
-      .maybeSingle<{ name: string; nickname: string | null }>();
-    if (owner) facts.push(["Responsible", owner.nickname || owner.name]);
+      .maybeSingle<{ name: string }>();
+    if (owner) facts.push(["Responsible", owner.name]);
   }
 
   // ---- the contacts filed with it (snapshot only — today's list has changed)
@@ -812,16 +817,16 @@ export interface DealAllocation {
   slots_igv: number;
   slots_igta: number;
   slots_igte: number;
-  member: { name: string; nickname: string | null } | null;
+  member: { name: string } | null;
 }
 
 export type DealWithMember = Deal & {
-  member: { name: string; nickname: string | null } | null;
+  member: { name: string } | null;
   allocations?: DealAllocation[];
 };
 
 export type CommentWithMember = AccountComment & {
-  member: { name: string; nickname: string | null } | null;
+  member: { name: string } | null;
 };
 
 export interface NameCheckResult {
@@ -1017,7 +1022,7 @@ export async function listTeamFilterOptions(
       .find((t) => normal.has(t.toLowerCase()));
     return {
       id: m.id,
-      label: named || `${m.nickname || m.name}'s team`,
+      label: named || `${m.name}'s team`,
     };
   });
 }
@@ -1234,8 +1239,8 @@ export async function getDashboard(
     const mm = mmKey ? byId.get(mmKey) : undefined;
     if (mm && (mm.role === "Team Leader" || mm.role === "Coordinator")) {
       const mmLabel = mm.team_name
-        ? `${mm.nickname || mm.name} — ${mm.team_name}`
-        : mm.nickname || mm.name;
+        ? `${mm.name} — ${mm.team_name}`
+        : mm.name;
       addRowLane(getOrInit(byTeam, mm.id, mmLabel), r, lane);
     }
 
@@ -1243,7 +1248,7 @@ export async function getDashboard(
     //  • Members board  → role Member
     //  • MMs board      → Team Leaders + Coordinators
     // each row is that person's OWN accounts (no team rollup)
-    const respLabel = r.responsible_nickname || r.responsible_name;
+    const respLabel = r.responsible_name;
     if (r.responsible_role === "Member") {
       addRowLane(getOrInit(byMemberRole, r.responsible_id, respLabel), r, lane);
       addRowLane(getOrInit(byPerson, r.responsible_id, respLabel), r, lane);
@@ -1278,7 +1283,7 @@ export async function getDashboard(
     for (const [mid, v] of allocSlotsByMember) {
       const m = byId.get(mid);
       if (!m || v <= 0) continue;
-      const label = m.nickname || m.name;
+      const label = m.name;
       if (m.role === "Member") {
         getOrInit(byMemberRole, mid, label);
         getOrInit(byPerson, mid, label);
@@ -1438,7 +1443,7 @@ export interface TeamPlan {
 // ------------------------------------------------------------------ manual archive
 
 export interface ManualArchivedRow extends BlacklistEntry {
-  added_by_member: { name: string; nickname: string | null } | null;
+  added_by_member: { name: string } | null;
 }
 
 /** Manually archived account names (never worked in the CRM) — they live in
@@ -1447,7 +1452,7 @@ export async function listManualArchived(): Promise<ManualArchivedRow[]> {
   return fetchAll<ManualArchivedRow>(() =>
     db()
       .from("blacklist")
-      .select("*, added_by_member:members!blacklist_added_by_fkey(name, nickname)")
+      .select("*, added_by_member:members!blacklist_added_by_fkey(name)")
       .order("created_at", { ascending: false })
       .order("id")
   );
@@ -1532,7 +1537,6 @@ export async function functionTeamName(fn: string): Promise<string | null> {
 export interface MemberDirectoryEntry {
   id: string;
   name: string;
-  nickname: string | null;
   email: string;
   phone: string | null;
   role: string;
@@ -1767,7 +1771,7 @@ export async function listMembersDirectory(
       db()
         .from("members")
         .select(
-          "id, name, nickname, email, phone, role, functions, sub_functions, team_name, stakeholder_id"
+          "id, name, email, phone, role, functions, sub_functions, team_name, stakeholder_id"
         )
         .eq("is_active", true)
         .order("name"),
@@ -1963,11 +1967,10 @@ export async function listMembersDirectory(
   const members = (membersData ?? []) as any[];
   // names resolve over EVERY active member (a dropped person can still be
   // someone's manager) — only the listed ROWS are filtered
-  const nameById = new Map(members.map((m) => [m.id, m.nickname || m.name]));
+  const nameById = new Map(members.map((m) => [m.id, m.name]));
   return members.filter(reviewedInDirectory).map((m) => ({
     id: m.id,
     name: m.name,
-    nickname: m.nickname,
     email: m.email,
     phone: m.phone,
     role: m.role,
@@ -1985,7 +1988,6 @@ export async function listMembersDirectory(
 export interface PersonCard {
   id: string;
   name: string;
-  nickname: string | null;
   role: string;
   email: string | null;
   phone: string | null;
@@ -2002,7 +2004,6 @@ export async function profilePeople(
   const strip = (m: Member): PersonCard => ({
     id: m.id,
     name: m.name,
-    nickname: m.nickname,
     role: m.role,
     email: m.email,
     phone: m.phone,
@@ -2101,7 +2102,7 @@ export async function listFunctionVisits(
     .select(
       "id, visit_date, visit_time, done, " +
         "account:accounts!inner(id, name, function, out_of_process, is_test), " +
-        "member:members(id, name, nickname)"
+        "member:members(id, name)"
     );
   if (!viewer.testMode) visitsQuery = visitsQuery.eq("account.is_test", false);
   const { data } = await visitsQuery
@@ -2407,7 +2408,7 @@ export async function listMmPlans(
 ): Promise<MmPlanRow[]> {
   let q = db()
     .from("mm_plans")
-    .select("member_id, month, applicants, accepted, approvals, peak, member:members!member_id(name, nickname, role, team_name, functions, sub_functions)")
+    .select("member_id, month, applicants, accepted, approvals, peak, member:members!member_id(name, role, team_name, functions, sub_functions)")
     .order("month");
   if (memberIds && memberIds.length > 0) q = q.in("member_id", memberIds);
   const { data: rawData } = await q;
@@ -2424,7 +2425,7 @@ export async function listMmPlans(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ((data ?? []) as any[]).map((r) => ({
     member_id: r.member_id,
-    member_name: r.member?.nickname || r.member?.name || "?",
+    member_name: r.member?.name || "?",
     member_role: r.member?.role ?? "",
     team_name: r.member?.team_name ?? null,
     month: r.month,
@@ -2595,7 +2596,7 @@ export async function listTlPlans(
 ): Promise<TlPlanRow[]> {
   let q = db()
     .from("tl_plans")
-    .select("member_id, month, opens, peak, member:members!member_id(name, nickname, role, team_name, functions, sub_functions)")
+    .select("member_id, month, opens, peak, member:members!member_id(name, role, team_name, functions, sub_functions)")
     .order("month");
   if (memberIds && memberIds.length > 0) q = q.in("member_id", memberIds);
   const { data: rawData, error } = await q;
@@ -2611,7 +2612,7 @@ export async function listTlPlans(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ((data ?? []) as any[]).map((r) => ({
     member_id: r.member_id,
-    member_name: r.member?.nickname || r.member?.name || "?",
+    member_name: r.member?.name || "?",
     team_name: r.member?.team_name ?? null,
     month: r.month,
     opens: r.opens ?? 0,
@@ -2707,7 +2708,7 @@ export async function mmPlanForProfile(viewer: Viewer): Promise<MmPlanData | nul
 export async function listFunctionMembers(
   fn: AccountFunction
 ): Promise<{ id: string; label: string }[]> {
-  let q = db().from("members").select("id, name, nickname, role").eq("is_active", true);
+  let q = db().from("members").select("id, name, role").eq("is_active", true);
   q =
     fn === "B2B" || fn === "BD"
       ? q.or("functions.ov.{B2B,BD},sub_functions.ov.{B2B,BD}")
@@ -2718,7 +2719,7 @@ export async function listFunctionMembers(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ((data ?? []) as any[])
     .filter((m) => m.role !== "LCP")
-    .map((m) => ({ id: m.id, label: m.nickname || m.name }));
+    .map((m) => ({ id: m.id, label: m.name }));
 }
 
 /** Actual opens raised per product lane inside a date window — sum of each
@@ -2770,7 +2771,7 @@ export async function buildFunctionReport(
   const isB2BReport = fnKey === "B2B";
   const { data: membersData } = await db()
     .from("members")
-    .select("id, name, nickname, email, role, functions, sub_functions, team_name, stakeholder_id")
+    .select("id, name, email, role, functions, sub_functions, team_name, stakeholder_id")
     .eq("is_active", true);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const allMembers = (membersData ?? []) as any[];
@@ -2887,7 +2888,7 @@ export async function buildFunctionReport(
   }
 
   // ---- waterfall: team (bold) → its people --------------------------------
-  const label = (m: (typeof crew)[number]) => m.nickname || m.name;
+  const label = (m: (typeof crew)[number]) => m.name;
   const tls = crew.filter((m) => m.role === "Team Leader");
   const leaders = crew.filter((m) => m.role === "LCVP" || m.role === "Director");
   const grouped = new Set<string>();
@@ -3088,11 +3089,11 @@ export async function listLcFeedback(viewer: Viewer): Promise<LcFeedbackRow[]> {
       .select("id, positive, anonymous, author_id, about, message, status, created_at")
       .order("created_at", { ascending: false })
       .limit(300),
-    db().from("members").select("id, name, nickname"),
+    db().from("members").select("id, name"),
   ]);
   const nameById = new Map(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ((membersData ?? []) as any[]).map((m) => [m.id, m.nickname || m.name])
+    ((membersData ?? []) as any[]).map((m) => [m.id, m.name])
   );
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ((data ?? []) as any[]).map((r) => ({
@@ -3112,7 +3113,7 @@ export async function listRecentAudit(limit = 60): Promise<AuditEntry[]> {
   const { data } = await db()
     .from("audit_log")
     .select(
-      "id, action, entity, entity_id, details, created_at, change_set, undone_at, test_session_id, actor:members!actor_id(name, nickname)"
+      "id, action, entity, entity_id, details, created_at, change_set, undone_at, test_session_id, actor:members!actor_id(name)"
     )
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -3123,7 +3124,7 @@ export async function listRecentAudit(limit = 60): Promise<AuditEntry[]> {
   if (!raw) {
     const { data: legacy } = await db()
       .from("audit_log")
-      .select("id, action, entity, entity_id, details, created_at, actor:members!actor_id(name, nickname)")
+      .select("id, action, entity, entity_id, details, created_at, actor:members!actor_id(name)")
       .order("created_at", { ascending: false })
       .limit(limit);
     raw = legacy;
@@ -3140,7 +3141,7 @@ export async function listRecentAudit(limit = 60): Promise<AuditEntry[]> {
     id: r.id,
     action: r.action,
     entity: r.entity,
-    actor: r.actor ? r.actor.nickname || r.actor.name : null,
+    actor: r.actor ? r.actor.name : null,
     details: r.details ? JSON.stringify(r.details) : null,
     createdAt: r.created_at,
     changeSet: r.change_set ?? null,
@@ -3309,9 +3310,9 @@ export async function getSignupDetail(
     data.assigned_to
       ? db()
           .from("members")
-          .select("name, nickname")
+          .select("name")
           .eq("id", data.assigned_to)
-          .maybeSingle<{ name: string; nickname: string | null }>()
+          .maybeSingle<{ name: string }>()
       : Promise.resolve({ data: null }),
   ]);
   const { canWorkSignup } = await import("@/lib/rbac");
@@ -3319,7 +3320,7 @@ export async function getSignupDetail(
     signup: data,
     comments: (comments ?? []) as SignupComment[],
     assignedLabel: assigned.data
-      ? assigned.data.nickname || assigned.data.name
+      ? assigned.data.name
       : data.assigned_name,
     canWork: canWorkSignup(viewer, data),
     canVp: _canEditSignupVpFields(viewer, data),
@@ -3335,7 +3336,7 @@ export async function signupReassignTargets(
   if (!_ogxFunctions(viewer).includes(fn)) return [];
   const { data } = await db()
     .from("members")
-    .select("id, name, nickname, role, functions, sub_functions")
+    .select("id, name, role, functions, sub_functions")
     .eq("is_active", true);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const all = (data ?? []) as any[];
@@ -3346,7 +3347,7 @@ export async function signupReassignTargets(
     pool = pool.filter((m) => m.id === viewer.id || viewer.teamMemberIds.includes(m.id));
   else if (!viewer.isAdmin && !["LCP", "LCVP", "Director"].includes(viewer.role))
     pool = pool.filter((m) => m.id === viewer.id);
-  return pool.map((m) => ({ id: m.id, label: m.nickname || m.name }));
+  return pool.map((m) => ({ id: m.id, label: m.name }));
 }
 
 export interface OgxPlanCard {
@@ -3521,12 +3522,12 @@ export async function ogxDashboard(
     ),
     db()
       .from("members")
-      .select("id, name, nickname, role, stakeholder_id, team_name, functions, sub_functions")
+      .select("id, name, role, stakeholder_id, team_name, functions, sub_functions")
       .eq("is_active", true),
   ]);
   if (memberRes.error) throw new Error(memberRes.error.message);
   interface MemberLiteRow {
-    id: string; name: string; nickname: string | null; role: string;
+    id: string; name: string; role: string;
     stakeholder_id: string | null; team_name: string | null;
     functions: string[] | null; sub_functions: string[] | null;
   }
@@ -3575,10 +3576,10 @@ export async function ogxDashboard(
 
     const m = r.assigned_to ? byId.get(r.assigned_to) : undefined;
     if (m && (m.role === "Member" || m.role === "Coordinator"))
-      addOgxRow(init(board, m.id, m.nickname || m.name), r);
+      addOgxRow(init(board, m.id, m.name), r);
     if (tl)
       addOgxRow(
-        init(byTeam, tl.id, tl.team_name || `Team ${tl.nickname || tl.name}`),
+        init(byTeam, tl.id, tl.team_name || `Team ${tl.name}`),
         r
       );
   }
@@ -3633,8 +3634,8 @@ export async function ogxDashboard(
     plan,
     teamOptions: fnMembers
       .filter((m) => m.role === "Team Leader")
-      .map((m) => ({ id: m.id, label: m.team_name || `Team ${m.nickname || m.name}` })),
-    memberOptions: fnMembers.map((m) => ({ id: m.id, label: m.nickname || m.name })),
+      .map((m) => ({ id: m.id, label: m.team_name || `Team ${m.name}` })),
+    memberOptions: fnMembers.map((m) => ({ id: m.id, label: m.name })),
   };
 }
 
@@ -3951,7 +3952,6 @@ const BOOKING_SETTINGS_COLS =
 
 export interface MyIrBooking {
   settings: IrBookingSettings | null;
-  /** prefilled from the nickname/name for a first-time setup */
   suggestedSlug: string;
 }
 
@@ -3965,7 +3965,7 @@ export async function myIrBooking(viewer: Viewer): Promise<MyIrBooking | null> {
     .select(BOOKING_SETTINGS_COLS)
     .eq("member_id", viewer.id)
     .maybeSingle<IrBookingSettings>();
-  let suggested = (viewer.nickname || viewer.name || "")
+  let suggested = (viewer.name || "")
     .toLowerCase()
     .normalize("NFKD")
     .replace(/[^a-z0-9]+/g, "-")
@@ -4152,12 +4152,12 @@ export async function getBookingPage(slug: string): Promise<{
   if (!s || !s.active) return null;
   const { data: member } = await db()
     .from("members")
-    .select("name, nickname, is_active")
+    .select("name, is_active")
     .eq("id", s.member_id)
-    .maybeSingle<{ name: string; nickname: string | null; is_active: boolean }>();
+    .maybeSingle<{ name: string; is_active: boolean }>();
   if (!member?.is_active) return null;
   return {
-    memberName: member.nickname || member.name,
+    memberName: member.name,
     slotMinutes: s.slot_minutes,
     days: await freeBookingSlots(s),
   };
@@ -4239,12 +4239,12 @@ export async function getManageBooking(token: string): Promise<ManageBookingData
         .maybeSingle<IrBookingSettings>(),
       db()
         .from("members")
-        .select("name, nickname, is_active")
+        .select("name, is_active")
         .eq("id", call.member_id)
-        .maybeSingle<{ name: string; nickname: string | null; is_active: boolean }>(),
+        .maybeSingle<{ name: string; is_active: boolean }>(),
     ]);
     if (member?.is_active) {
-      memberName = member.nickname || member.name;
+      memberName = member.name;
       settings = s ?? null;
     }
   }
@@ -4374,7 +4374,7 @@ export async function streakStats(
 
   let rows: { assigned_to: string | null; contacted_at: string; fn: string }[];
   let members: {
-    id: string; name: string; nickname: string | null; role: string;
+    id: string; name: string; role: string;
     functions: string[] | null; sub_functions: string[] | null; is_active: boolean;
   }[];
   try {
@@ -4395,7 +4395,7 @@ export async function streakStats(
       ),
       db()
         .from("members")
-        .select("id, name, nickname, role, functions, sub_functions, is_active")
+        .select("id, name, role, functions, sub_functions, is_active")
         .eq("is_active", true),
     ]);
     if (memRes.error) throw new Error(memRes.error.message);
@@ -4442,7 +4442,7 @@ export async function streakStats(
     .map((m) => {
       const e = byMember.get(m.id);
       return {
-        name: (m.nickname || m.name) as string,
+        name: (m.name) as string,
         current: e ? currentStreak(e.days, today) : 0,
         today: e?.today ?? 0,
       };

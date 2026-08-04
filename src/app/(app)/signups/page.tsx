@@ -81,7 +81,7 @@ export default async function SignupsPage({
       streak={streak}
       viewer={{
         id: viewer.id,
-        name: viewer.nickname || viewer.name,
+        name: viewer.name,
         isLeader,
         isTl: viewer.role === "Team Leader",
         canVp:

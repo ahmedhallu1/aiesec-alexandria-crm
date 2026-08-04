@@ -24,7 +24,7 @@ export interface FeedbackItem {
   status: string;
   anonymous: boolean;
   created_at: string;
-  member: { name: string; nickname: string | null; email: string } | null;
+  member: { name: string; email: string } | null;
 }
 
 const FILTERS = [
@@ -108,7 +108,7 @@ export function FeedbackInboxView({ items }: { items: FeedbackItem[] }) {
         visible.map((f) => {
           const who = f.anonymous
             ? "Anonymous 🎭"
-            : f.member?.nickname || f.member?.name || "Unknown";
+            : f.member?.name || "Unknown";
           return (
             <Card key={f.id} className="py-0">
               <CardContent className="space-y-2 p-4">
@@ -210,7 +210,7 @@ export function FeedbackInboxView({ items }: { items: FeedbackItem[] }) {
           <DialogHeader>
             <DialogTitle>💙 Send the thank-you?</DialogTitle>
             <DialogDescription>
-              <b>{thankTarget?.member?.nickname || thankTarget?.member?.name}</b> gets a
+              <b>{thankTarget?.member?.name}</b> gets a
               bell notification next time they open Sodio AND a branded email —
               telling them their feedback was applied.
             </DialogDescription>

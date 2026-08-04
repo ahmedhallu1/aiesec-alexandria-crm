@@ -26,14 +26,14 @@ export async function buildAssistantContext(
     .slice(0, 150)
     .map(
       (a) =>
-        `- ${a.name} [${a.function}${a.product ? `/${a.product}` : ""}${a.project ? `/${a.project}` : ""}] stage=${a.stage} responsible=${a.responsible_nickname || a.responsible_name} contacts=${a.attempts} deals=${a.deals_count ?? 0} slots=${a.slots_count}${a.out_of_process ? ` ARCHIVED(${a.oop_reason ?? ""})` : ""}${a.next_step ? ` next="${a.next_step}" (${a.next_step_date ?? "no date"})` : ""} link=/accounts/${accountSlug(a.name).replace(/\(/g, "%28").replace(/\)/g, "%29")}`
+        `- ${a.name} [${a.function}${a.product ? `/${a.product}` : ""}${a.project ? `/${a.project}` : ""}] stage=${a.stage} responsible=${a.responsible_name} contacts=${a.attempts} deals=${a.deals_count ?? 0} slots=${a.slots_count}${a.out_of_process ? ` ARCHIVED(${a.oop_reason ?? ""})` : ""}${a.next_step ? ` next="${a.next_step}" (${a.next_step_date ?? "no date"})` : ""} link=/accounts/${accountSlug(a.name).replace(/\(/g, "%28").replace(/\)/g, "%29")}`
     )
     .join("\n");
 
   const memberLines = members
     .map(
       (m) =>
-        `- ${m.nickname || m.name} (${m.role}${(m.functions ?? []).length ? ` · ${(m.functions ?? []).join(",")}` : ""})`
+        `- ${m.name} (${m.role}${(m.functions ?? []).length ? ` · ${(m.functions ?? []).join(",")}` : ""})`
     )
     .join("\n");
 
@@ -55,7 +55,7 @@ export async function buildAssistantContext(
   const text = `## Sodio live data (scoped to what THIS user is allowed to see)
 
 ### Viewer
-${viewer.nickname || viewer.name} — role ${viewer.role}${viewer.isAdmin ? " (Admin/IM director)" : ""}, functions: ${viewer.functions.join(", ") || "—"}.
+${viewer.name} — role ${viewer.role}${viewer.isAdmin ? " (Admin/IM director)" : ""}, functions: ${viewer.functions.join(", ") || "—"}.
 
 ### KPIs (viewer's scope)
 Market Research (total accounts): ${dash.total.mr}

@@ -643,7 +643,7 @@ export function AccountsView({
             </span>
             {viewer.seesOthers && !cols.isVisible("responsible") ? (
               <p className="text-xs text-muted-foreground">
-                {row.responsible_nickname || row.responsible_name || "Unassigned"}
+                {row.responsible_name || "Unassigned"}
               </p>
             ) : null}
           </>
@@ -705,7 +705,7 @@ export function AccountsView({
       case "responsible":
         return (
           <span dir="auto">
-            {row.responsible_nickname || row.responsible_name || "Unassigned"}
+            {row.responsible_name || "Unassigned"}
           </span>
         );
       case "project":
@@ -948,7 +948,7 @@ export function AccountsView({
             value={filters.flag} placeholder="Flags"
             onChange={(v) => setParam("flag", v)}
             options={[
-              ["contact_limit", "⚠️ 3-contact limit"],
+              ["needs_podio", "🔎 Needs Podio checking"],
               ["next_step_missing", "🚨 No next step"],
             ]}
           />
@@ -1473,7 +1473,7 @@ function ArchivedList({
               <span className="font-medium" dir="auto">{row.name}</span>
               {seesOthers && !cols.isVisible("responsible") ? (
                 <p className="text-xs text-muted-foreground">
-                  {row.responsible_nickname || row.responsible_name || "Unassigned"}
+                  {row.responsible_name || "Unassigned"}
                 </p>
               ) : null}
             </>
@@ -1485,7 +1485,7 @@ function ArchivedList({
         case "source":
           return "worked, then archived";
         case "responsible":
-          return row.responsible_nickname || row.responsible_name || "Unassigned";
+          return row.responsible_name || "Unassigned";
         default:
           return null;
       }

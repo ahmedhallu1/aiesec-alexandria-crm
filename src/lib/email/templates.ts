@@ -109,12 +109,11 @@ export function escapeHtml(s: string): string {
 
 export function welcomeEmail(member: {
   name: string;
-  nickname: string | null;
   role: string;
   functions?: string[] | null;
   sub_functions?: string[] | null;
 }) {
-  const first = member.nickname || member.name.split(" ")[0];
+  const first = member.name.split(" ")[0];
 
   // module detection — mirrors the rbac.ts viewer predicates closely enough
   // for copy (the member row has no Viewer wrapper here)

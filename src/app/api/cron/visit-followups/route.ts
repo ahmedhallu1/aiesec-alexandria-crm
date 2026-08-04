@@ -19,7 +19,6 @@ interface VisitRow {
   member: {
     id: string;
     name: string;
-    nickname: string | null;
     email: string;
     role: string;
     stakeholder_id: string | null;
@@ -29,7 +28,6 @@ interface VisitRow {
 interface Leader {
   id: string;
   name: string;
-  nickname: string | null;
   email: string;
   role: string;
   is_active: boolean;
@@ -44,7 +42,7 @@ async function resolveLeader(member: VisitRow["member"]): Promise<Leader | null>
   if (member.role !== "Member" && member.role !== "Coordinator") return null;
   const { data } = await db()
     .from("members")
-    .select("id, name, nickname, email, role, is_active")
+    .select("id, name, email, role, is_active")
     .eq("id", member.stakeholder_id)
     .maybeSingle();
   const leader = data as Leader | null;
@@ -55,7 +53,7 @@ async function resolveLeader(member: VisitRow["member"]): Promise<Leader | null>
 const VISIT_SELECT =
   "id, visit_date, visit_time, next_step, followup_prompt_sent_at, " +
   "account:accounts!inner(id, name, out_of_process, is_test), " +
-  "member:members(id, name, nickname, email, role, stakeholder_id)";
+  "member:members(id, name, email, role, stakeholder_id)";
 
 /** Runs every 15 min (Supabase pg_cron). Two passes:
  *  1. Exactly 2 hours after a visit's scheduled time → "was it completed?"
@@ -91,13 +89,13 @@ export async function GET(req: NextRequest) {
 
     const leader = await resolveLeader(visit.member);
     const mail = visitFollowupEmail({
-      memberFirstName: visit.member.nickname || visit.member.name.split(" ")[0],
-      responsibleName: visit.member.nickname || visit.member.name,
+      memberFirstName: visit.member.name.split(" ")[0],
+      responsibleName: visit.member.name,
       accountName: visit.account.name,
       visitDate: visit.visit_date,
       visitTime: visit.visit_time,
       nextStep: visit.next_step,
-      leaderName: leader ? leader.nickname || leader.name.split(" ")[0] : null,
+      leaderName: leader ? leader.name.split(" ")[0] : null,
       reportUrl: `${env.appUrl}/accounts/${visit.account.id}?report=${visit.id}`,
     });
     try {
@@ -136,12 +134,12 @@ export async function GET(req: NextRequest) {
 
     const leader = await resolveLeader(visit.member);
     const mail = visitForgottenEmail({
-      memberFirstName: visit.member.nickname || visit.member.name.split(" ")[0],
-      responsibleName: visit.member.nickname || visit.member.name,
+      memberFirstName: visit.member.name.split(" ")[0],
+      responsibleName: visit.member.name,
       accountName: visit.account.name,
       visitDate: visit.visit_date,
       visitTime: visit.visit_time,
-      leaderName: leader ? leader.nickname || leader.name.split(" ")[0] : null,
+      leaderName: leader ? leader.name.split(" ")[0] : null,
       reportUrl: `${env.appUrl}/accounts/${visit.account.id}?report=${visit.id}`,
     });
     try {

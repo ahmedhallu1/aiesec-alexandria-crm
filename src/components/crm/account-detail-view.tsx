@@ -50,7 +50,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 
-type AttemptWithMember = ContactAttempt & { member: { name: string; nickname: string | null } | null };
+type AttemptWithMember = ContactAttempt & { member: { name: string } | null };
 
 interface Caps {
   edit: boolean;
@@ -307,7 +307,7 @@ export function AccountDetailView({
         fn={account.function}
         dealNumber={account.deals_count + 1}
         responsibleId={account.responsible_id}
-        responsibleLabel={account.responsible_nickname || account.responsible_name}
+        responsibleLabel={account.responsible_name}
         functionMembers={functionMembers}
         open={dealOpen}
         onOpenChange={setDealOpen}
@@ -360,7 +360,7 @@ function ResponsibleRow({
     return (
       <p className="text-sm text-muted-foreground">
         Responsible:{" "}
-        <b>{account.responsible_nickname || account.responsible_name || "Unassigned"}</b>
+        <b>{account.responsible_name || "Unassigned"}</b>
         {account.out_of_process && account.oop_reason ? (
           <span className="text-destructive"> · Archived: {account.oop_reason}</span>
         ) : null}
@@ -1053,7 +1053,7 @@ function CommentsCard({
                     {c.title}
                   </Badge>
                   <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                    {c.member?.nickname || c.member?.name || "—"} ·{" "}
+                    {c.member?.name || "—"} ·{" "}
                     {fmtDateTime(c.created_at)}
                   </span>
                   {canComment ? (
@@ -1404,13 +1404,13 @@ function TimelineCard({
                         {(d.allocations ?? [])
                           .map((a) => {
                             const n = a.slots_igv + a.slots_igta + a.slots_igte;
-                            return `${a.member?.nickname || a.member?.name || "?"} (${n})`;
+                            return `${a.member?.name || "?"} (${n})`;
                           })
                           .join(" · ")}
                       </p>
                     ) : null}
                     <p className="text-xs text-muted-foreground">
-                      {d.member?.nickname || d.member?.name || "—"} · {fmtDateTime(d.created_at)}
+                      {d.member?.name || "—"} · {fmtDateTime(d.created_at)}
                     </p>
                     <DealContracts deal={d} canEdit={canEdit} />
                   </div>
@@ -1488,7 +1488,7 @@ function TimelineCard({
                   </p>
                   {a.comment ? <p className="text-muted-foreground">{a.comment}</p> : null}
                   <p className="text-xs text-muted-foreground">
-                    {a.member?.nickname || a.member?.name} · {fmtDateTime(a.created_at)}
+                    {a.member?.name} · {fmtDateTime(a.created_at)}
                   </p>
                 </div>
               </div>

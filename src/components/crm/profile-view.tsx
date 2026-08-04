@@ -33,7 +33,6 @@ import { PasswordInput } from "@/components/ui/password-input";
 
 interface ProfileInfo {
   name: string;
-  nickname: string;
   email: string;
   phone: string;
   role: string;
@@ -70,7 +69,6 @@ export function ProfileView({
   } | null;
 }) {
   const router = useRouter();
-  const [nickname, setNickname] = useState(member.nickname);
   const [phone, setPhone] = useState(member.phone);
   const [dirty, setDirty] = useState(false);
   const [current, setCurrent] = useState("");
@@ -89,7 +87,7 @@ export function ProfileView({
 
   const saveProfile = () =>
     start(async () => {
-      const res = await updateProfile({ nickname: nickname.trim(), phone: cleanPhone(phone) });
+      const res = await updateProfile({ phone: cleanPhone(phone) });
       if (res.ok) {
         toast.success("Profile saved");
         setDirty(false);
@@ -119,7 +117,7 @@ export function ProfileView({
           <Avatar className="size-16 ring-2 ring-transparent transition group-hover:ring-primary/40">
             {member.photoUrl ? <AvatarImage src={member.photoUrl} alt="" /> : null}
             <AvatarFallback className="bg-primary text-lg font-bold text-primary-foreground">
-              {(member.nickname || member.name).slice(0, 2).toUpperCase()}
+              {(member.name).slice(0, 2).toUpperCase()}
             </AvatarFallback>
           </Avatar>
           <span className="absolute -bottom-1 -right-1 flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md transition group-hover:scale-110">
@@ -158,7 +156,7 @@ export function ProfileView({
         onOpenChange={setAvatarOpen}
         current={member.avatarUrl}
         googlePhoto={member.googlePhotoUrl}
-        fallback={(member.nickname || member.name).slice(0, 2).toUpperCase()}
+        fallback={(member.name).slice(0, 2).toUpperCase()}
       />
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -168,13 +166,6 @@ export function ProfileView({
             <CardTitle className="text-base">My info</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="grid gap-1.5">
-              <Label>Nickname</Label>
-              <Input
-                value={nickname}
-                onChange={(e) => { setNickname(e.target.value); setDirty(true); }}
-              />
-            </div>
             <div className="grid gap-1.5">
               <Label>Phone</Label>
               <Input
@@ -191,7 +182,7 @@ export function ProfileView({
               ) : null}
             </div>
             {dirty ? (
-              <Button size="sm" onClick={saveProfile} disabled={pending || !phoneOk || !nickname.trim()}>
+              <Button size="sm" onClick={saveProfile} disabled={pending || !phoneOk}>
                 {pending ? "Saving…" : "Save changes"}
               </Button>
             ) : null}
@@ -381,7 +372,7 @@ export function ProfileView({
                 >
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold">
-                      {p.nickname || p.name}
+                      {p.name}
                       <span className="ml-1.5 text-xs font-normal text-muted-foreground">
                         {p.role}
                         {p.functions.length ? ` · ${p.functions.join(", ")}` : ""}
@@ -393,7 +384,7 @@ export function ProfileView({
                   </div>
                   <span className="flex shrink-0 items-center gap-1">
                     {p.email ? (
-                      <Hint label={`Email ${p.nickname || p.name}`}>
+                      <Hint label={`Email ${p.name}`}>
                         <a className={btn} href={`mailto:${p.email}`} aria-label="Email">
                           <Mail className="size-3.5" />
                         </a>

@@ -253,7 +253,6 @@ export const OOP_REASONS = [
 export interface Member {
   id: string;
   name: string;
-  nickname: string | null;
   /** null = no AIESEC email yet (v24) — the member signs in with their PHONE
    *  in both login fields until the email lands and they Google-sign-in */
   email: string | null;
@@ -325,8 +324,27 @@ export interface AccountContact {
 
 /** Tag choices for phones ("Other" = free text). */
 export const CONTACT_TAGS = [
-  "Contact", "Whatsapp", "Manager", "HR", "CEO", "Owner", "Other",
+  "Contact", "Whatsapp", "Hotline", "Manager", "HR", "CEO", "Owner", "Other",
 ] as const;
+
+/** Which tags a PHONE may carry, given its shape (v33).
+ *
+ *  A hotline and a landline cannot receive WhatsApp — offering the tag invites
+ *  a member to set it and then wonder why the WhatsApp button does nothing.
+ *  A hotline is also never a person, so the people tags go too. */
+export function phoneTagsFor(value: string): string[] {
+  const v = cleanPhone(value ?? "");
+  if (HOTLINE_RE.test(v)) return ["Hotline", "Contact", "Other"];
+  // Egyptian landlines: +203… / +202… (or the local 03…/02… form)
+  const landline = /^(\+?20)?[23]\d{7,8}$/.test(v);
+  if (landline) return CONTACT_TAGS.filter((t) => t !== "Whatsapp" && t !== "Hotline");
+  return CONTACT_TAGS.filter((t) => t !== "Hotline");
+}
+
+/** A hotline tags itself — there is nothing else it could be. */
+export function guessPhoneTag(value: string): string | null {
+  return HOTLINE_RE.test(cleanPhone(value ?? "")) ? "Hotline" : null;
+}
 
 /** Tag choices for emails — no Whatsapp here. */
 export const EMAIL_TAGS = [
@@ -413,7 +431,8 @@ export function guessEmailTag(raw: string): string | null {
 export function guessContactTag(kind: AccountContact["kind"], value: string): string | null {
   if (kind === "link") return guessLinkTag(value);
   if (kind === "email") return guessEmailTag(value);
-  return null;
+  // a 5-digit hotline is unambiguous — nothing else has that shape
+  return guessPhoneTag(value);
 }
 
 export interface Account {
@@ -692,7 +711,14 @@ export function quickActions(contacts: AccountContact[] | null | undefined): {
 } {
   const list = contacts ?? [];
   const phones = list.filter((c) => c.kind === "phone" && c.value);
-  const wa = phones.find((c) => c.tag.toLowerCase() === "whatsapp") ?? phones[0] ?? null;
+  // a hotline or a landline can't receive WhatsApp, so it must never become
+  // the fallback — a dead WhatsApp button is worse than no button (v33)
+  const waCapable = phones.filter((c) => {
+    const v = cleanPhone(c.value);
+    return !HOTLINE_RE.test(v) && !/^(\+?20)?[23]\d{7,8}$/.test(v);
+  });
+  const wa =
+    waCapable.find((c) => c.tag.toLowerCase() === "whatsapp") ?? waCapable[0] ?? null;
   const call =
     phones.find((c) => c.tag.toLowerCase() !== "whatsapp") ?? phones[0] ?? null;
   const email = list.find((c) => c.kind === "email" && c.value) ?? null;

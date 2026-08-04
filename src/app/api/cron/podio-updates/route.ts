@@ -24,7 +24,6 @@ interface PodioRow {
   responsible: {
     id: string;
     name: string;
-    nickname: string | null;
     email: string;
     is_active: boolean;
   } | null;
@@ -63,7 +62,7 @@ export async function GET(req: NextRequest) {
         .select(
           "id, name, function, created_at, podio_update_every_days, podio_updated_at, " +
             "podio_update_notified_at, podio_update_second_notified_at, " +
-            "responsible:members!accounts_responsible_id_fkey(id, name, nickname, email, is_active)"
+            "responsible:members!accounts_responsible_id_fkey(id, name, email, is_active)"
         )
         .eq("podio_update_enabled", true)
         .eq("out_of_process", false)
@@ -82,7 +81,7 @@ export async function GET(req: NextRequest) {
   // VPs/Directors — the function label may live in sub_functions only
   const leadersRes = await db()
     .from("members")
-    .select("id, name, nickname, email, role, functions, sub_functions")
+    .select("id, name, email, role, functions, sub_functions")
     .eq("is_active", true)
     .in("role", ["LCVP", "Director"]);
   if (leadersRes.error) {
@@ -152,7 +151,7 @@ export async function GET(req: NextRequest) {
           accountFunction: a.function,
           everyDays: every,
           daysOverdue,
-          responsibleName: responsible ? responsible.nickname || responsible.name : null,
+          responsibleName: responsible ? responsible.name : null,
           accountUrl: url,
           secondReminder: pass === 2,
         });

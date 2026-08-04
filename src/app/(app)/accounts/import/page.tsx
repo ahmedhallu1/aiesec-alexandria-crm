@@ -23,7 +23,7 @@ export default async function ImportPage() {
       }}
       members={members.map((m) => ({
         id: m.id,
-        label: m.nickname || m.name,
+        label: m.name,
         functions: m.functions ?? [],
       }))}
     />

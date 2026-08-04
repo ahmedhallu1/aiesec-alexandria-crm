@@ -14,7 +14,6 @@ import { Separator } from "@/components/ui/separator";
 
 interface MemberInfo {
   name: string;
-  nickname: string;
   email: string;
   phone: string;
   role: string;
@@ -27,7 +26,6 @@ interface MemberInfo {
 export function OnboardingForm({ member }: { member: MemberInfo }) {
   const router = useRouter();
   const [name, setName] = useState(member.name);
-  const [nickname, setNickname] = useState(member.nickname);
   const [phone, setPhone] = useState(member.phone);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -35,7 +33,7 @@ export function OnboardingForm({ member }: { member: MemberInfo }) {
 
   const phoneOk = PHONE_RE.test(cleanPhone(phone));
   const passwordOk = password.length >= 8 && password === confirm;
-  const ready = name.trim().length >= 2 && nickname.trim().length >= 1 && phoneOk && passwordOk;
+  const ready = name.trim().length >= 2 && phoneOk && passwordOk;
 
   const fixInfoMailto = `mailto:${ADMIN_EMAIL}?subject=${encodeURIComponent(
     "Sodio — my info needs a correction"
@@ -47,7 +45,6 @@ export function OnboardingForm({ member }: { member: MemberInfo }) {
     start(async () => {
       const res = await completeOnboarding({
         name: name.trim(),
-        nickname: nickname.trim(),
         phone: cleanPhone(phone),
         password,
       });
@@ -69,14 +66,6 @@ export function OnboardingForm({ member }: { member: MemberInfo }) {
           <div className="grid gap-1.5">
             <Label>Full name *</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-          <div className="grid gap-1.5">
-            <Label>Nickname *</Label>
-            <Input
-              value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
-              placeholder="What the LC calls you"
-            />
           </div>
         </div>
         <div className="grid gap-1.5">

@@ -161,7 +161,6 @@ const parseSheetDate = (v: string | null): string | null => {
 interface MemberLite {
   id: string;
   name: string;
-  nickname: string | null;
   is_active: boolean;
 }
 
@@ -170,8 +169,8 @@ interface MemberLite {
 export function matchMemberByName(raw: string | null, members: MemberLite[]): string | null {
   const q = norm(raw ?? "");
   if (!q) return null;
-  // full name or nickname, exactly
-  const exact = members.find((m) => norm(m.name) === q || norm(m.nickname ?? "") === q);
+  // full name or exactly
+  const exact = members.find((m) => norm(m.name) === q || norm("") === q);
   if (exact) return exact.id;
 
   // v29: a BARE FIRST NAME is never enough. "Ahmed" on a tracker row used to
@@ -198,7 +197,7 @@ export async function importSignups(): Promise<{ imported: number; created: numb
   const { sheets } = clients();
   const { data: memberRows } = await db()
     .from("members")
-    .select("id, name, nickname, is_active")
+    .select("id, name, is_active")
     .eq("is_active", true);
   const members = (memberRows ?? []) as MemberLite[];
 

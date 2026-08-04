@@ -44,7 +44,6 @@ import { ColumnFilter } from "./data-table-kit";
 export interface MemberRow {
   id: string;
   name: string;
-  nickname: string | null;
   email: string | null;
   phone: string | null;
   functions: string[];
@@ -96,7 +95,7 @@ const COL_FILTERS: Record<
 };
 
 const MEMBER_SORTERS: Record<string, (m: MemberRow) => string | number | null> = {
-  member: (m) => m.nickname || m.name,
+  member: (m) => m.name,
   email: (m) => m.email,
   role: (m) => m.role,
   function: (m) => (m.functions.length ? m.functions.join(", ") : null),
@@ -132,7 +131,7 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
     ? byCols.filter((m) =>
         [
           m.name,
-          m.nickname ?? "",
+          "",
           m.email ?? "",
           m.phone ?? "",
           m.role,
@@ -231,7 +230,7 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
             <CardContent className="space-y-1.5 p-3.5" onClick={() => setEditing(m)}>
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="truncate font-semibold">{m.nickname || m.name}</p>
+                  <p className="truncate font-semibold">{m.name}</p>
                   <p className="truncate text-xs text-muted-foreground">{m.email ?? "no email — phone sign-in"}</p>
                 </div>
                 <Pencil className="size-4 shrink-0 text-muted-foreground" />
@@ -287,7 +286,7 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
                 {sorted.map((m) => (
                   <TableRow key={m.id} className={!m.is_active ? "opacity-50" : undefined}>
                     <TableCell className="font-medium">
-                      {m.nickname || m.name}
+                      {m.name}
                       {m.team_name ? (
                         <span className="ml-2 text-xs text-muted-foreground">{m.team_name}</span>
                       ) : null}
@@ -350,7 +349,7 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
         stakeholderOptions={members
           // a plain Member is never anyone's manager (v24 rule)
           .filter((m) => m.is_active && m.id !== editing?.id && m.role !== "Member")
-          .map((m) => m.nickname || m.name)}
+          .map((m) => m.name)}
         teams={teams}
         onOpenChange={(o) => {
           if (!o) { setEditing(null); setAdding(false); }
@@ -543,7 +542,6 @@ function MemberDialog({
   const [pending, start] = useTransition();
   const [form, setForm] = useState({
     name: member?.name ?? "",
-    nickname: member?.nickname ?? "",
     email: member?.email ?? "",
     phone: member?.phone ?? "",
     role: (member?.role ?? "Member") as MemberRole,
@@ -630,7 +628,6 @@ function MemberDialog({
       const res = await upsertMember({
         id: member?.id ?? null,
         name: form.name.trim(),
-        nickname: form.nickname.trim() || null,
         email: form.email.trim().toLowerCase() || null,
         phone: form.phone ? cleanPhone(form.phone) : null,
         role: form.role,
@@ -653,7 +650,7 @@ function MemberDialog({
       const res = await resetMemberPassword(member.id);
       if (res.ok)
         toast.success(
-          `${member.nickname || member.name} will sign in with Google next time and set a new password.`
+          `${member.name} will sign in with Google next time and set a new password.`
         );
       else toast.error(res.error);
     });
@@ -663,7 +660,7 @@ function MemberDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{member ? `Edit ${member.nickname || member.name}` : "Add member"}</DialogTitle>
+          <DialogTitle>{member ? `Edit ${member.name}` : "Add member"}</DialogTitle>
           <DialogDescription>
             Changes are saved to Sodio and written back to the Membership sheet.
           </DialogDescription>
@@ -674,10 +671,6 @@ function MemberDialog({
             <div className="grid gap-1.5">
               <Label>Full name *</Label>
               <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-            </div>
-            <div className="grid gap-1.5">
-              <Label>Nickname</Label>
-              <Input value={form.nickname} onChange={(e) => setForm((f) => ({ ...f, nickname: e.target.value }))} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">

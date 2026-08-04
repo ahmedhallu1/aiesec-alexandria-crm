@@ -15,7 +15,7 @@ export default async function TlPlanPage() {
   if (!needed) redirect("/");
 
   const peak = peakForPlanning();
-  const nickname = viewer.nickname || viewer.name.split(" ")[0];
+  const nickname = viewer.name.split(" ")[0];
   const isTl = viewer.role === "Team Leader";
 
   return (
