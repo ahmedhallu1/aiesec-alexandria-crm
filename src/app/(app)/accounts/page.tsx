@@ -37,13 +37,14 @@ export default async function AccountsPage({
         : undefined,
     // product/sub only apply to IGT rows — a lingering param after switching
     // the Function filter must not silently empty the list
-    product:
-      (params.product === "GTa" || params.product === "GTe") &&
-      (!params.fn || params.fn === "IGT")
-        ? params.product
-        : undefined,
+    // MULTI-SELECT (v33.3): every column filter can carry several picks as a
+    // comma list. Each pick is validated on its own, so one junk value in a
+    // hand-edited URL drops itself instead of the whole filter.
+    product: (!params.fn || params.fn === "IGT"
+      ? keepCsv(params.product, ["GTa", "GTe"])
+      : undefined) as AccountFilters["product"],
     project: params.project || undefined,
-    stage: params.stage && params.stage !== "Out of Process" ? (params.stage as Stage) : undefined,
+    stage: keepCsv(params.stage, undefined, (v) => v !== "Out of Process") as Stage | undefined,
     lastStatus: params.lastStatus || undefined,
     flag:
       params.flag === "needs_podio" || params.flag === "next_step_missing"
@@ -178,4 +179,20 @@ export default async function AccountsPage({
       }}
     />
   );
+}
+
+/** Keeps only the valid picks of a comma-joined filter value, so one bad
+ *  entry in a hand-edited URL drops itself rather than the whole filter. */
+function keepCsv(
+  raw: string | undefined,
+  allowed?: string[],
+  extra?: (v: string) => boolean
+): string | undefined {
+  const kept = (raw ?? "")
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean)
+    .filter((v) => (allowed ? allowed.includes(v) : true))
+    .filter((v) => (extra ? extra(v) : true));
+  return kept.length > 0 ? kept.join(",") : undefined;
 }

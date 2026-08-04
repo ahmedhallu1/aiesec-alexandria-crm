@@ -395,6 +395,16 @@ export function canSetRequestStateOnCreate(v: Viewer): boolean {
   );
 }
 
+/** THE INCOMING (IGT) EXPECTATION MAIL (v33.3) — the IGT function's leaders
+ *  only. It is the LC's formal promise to an incoming EP (visa, pickup,
+ *  accommodation, departure support), so it is signed by whoever is
+ *  accountable for those standards, not by whoever happens to be online. */
+export function canUseIgtExpectationMail(v: Viewer): boolean {
+  if (master(v)) return true;
+  if (v.role !== "LCVP" && v.role !== "Director") return false;
+  return icxFunctions(v).includes("IGT");
+}
+
 /** Numbered comments carry the author's label at the time of writing. */
 export function commentLabel(v: Viewer): "Member" | "TL" | "VP" | "Director" | "LCP" | "Admin" {
   if (v.role === "LCP") return "LCP";

@@ -15,6 +15,7 @@ import {
   canSeeLcConcerns,
   canSetRequestStateOnCreate,
   canUseAdminTools,
+  canUseIgtExpectationMail,
   canReassignAccount,
   claimTargetFunction,
   isClaimableAccount,
@@ -3998,6 +3999,140 @@ export async function createOgtExpectationDraft(input: OgtReviewedMail): Promise
     toIr: d.toIr,
     subject: d.subject,
   });
+  return { ok: true };
+}
+
+// ============================================ IGT expectation mail (v33.3)
+
+import { IGT_MAIL_CC } from "@/lib/email/igt-expectation";
+
+const igtMailSchema = z.object({
+  epName: z.string().trim().min(2, "The EP's name is required."),
+  projectName: z.string().trim().min(2, "The project name is required."),
+  year: z
+    .string()
+    .trim()
+    .regex(/^\d{4}$/, "The year should be four digits, like 2026."),
+});
+
+const igtReviewedSchema = z.object({
+  subject: z.string().trim().min(1, "The subject can't be empty."),
+  html: z.string().trim().min(1, "The email body can't be empty."),
+  toEp: z.string().trim().refine((v) => EMAIL_RE.test(v), "The EP email doesn't look valid."),
+  /** the IR is OPTIONAL here (unlike the OGT mail) — plenty of incoming EPs
+   *  arrive without one named, and blocking the mail on it helps nobody */
+  toIr: z
+    .string()
+    .trim()
+    .refine((v) => v === "" || EMAIL_RE.test(v), "The IR email doesn't look valid.")
+    .optional(),
+});
+
+export type IgtReviewedMail = z.infer<typeof igtReviewedSchema>;
+
+/** Step 1 — builds the exact mail (subject + HTML + signature) without
+ *  touching Gmail, so the VP reviews and edits it before anything is sent. */
+export async function previewIgtExpectationMail(
+  input: z.infer<typeof igtMailSchema>
+): Promise<ActionResult<{ subject: string; html: string }>> {
+  const viewer = await getViewer();
+  if (!canUseIgtExpectationMail(viewer))
+    return fail("The IGT leadership sends this mail.", "forbidden");
+  const parsed = igtMailSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0].message);
+  if (!viewer.email)
+    return fail("Your AIESEC email isn't on file yet — the EP replies to it, so it can't be blank.");
+
+  const { igtExpectationEmail } = await import("@/lib/email/igt-expectation");
+  return {
+    ok: true,
+    data: igtExpectationEmail({
+      ...parsed.data,
+      senderName: viewer.name,
+      senderPosition:
+        viewer.role === "Director"
+          ? "Director of Incoming Global Talent & Teacher"
+          : "Local Committee Vice President of Incoming Global Talent & Teacher",
+      senderEmail: viewer.email,
+      senderPhone: viewer.phone,
+    }),
+  };
+}
+
+/** The recipients, identically for the send and the draft: the EP on To, the
+ *  MC's customer-support inbox always on Cc, the IR too when there is one. */
+function igtRecipients(d: IgtReviewedMail) {
+  const ir = (d.toIr ?? "").trim();
+  return { to: d.toEp, cc: ir ? [IGT_MAIL_CC, ir] : [IGT_MAIL_CC] };
+}
+
+/** Step 2a — sends it from the VP's OWN Gmail, so the EP's reply reaches a
+ *  person rather than a robot mailbox. */
+export async function sendIgtExpectationMail(input: IgtReviewedMail): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!canUseIgtExpectationMail(viewer))
+    return fail("The IGT leadership sends this mail.", "forbidden");
+  const parsed = igtReviewedSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0].message);
+  const d = parsed.data;
+  if (!viewer.google_refresh_token)
+    return fail(
+      "Your Google access is missing — sign out, then sign in with Google once to grant it (it also powers your calendar reminders)."
+    );
+
+  const { to, cc } = igtRecipients(d);
+  try {
+    const { sendMemberEmail } = await import("@/lib/google/gmail");
+    const messageId = await sendMemberEmail(viewer.google_refresh_token, {
+      to: [to],
+      cc,
+      subject: d.subject,
+      html: d.html,
+    });
+    if (!messageId) return fail("Google didn't accept the email — try again.");
+    if (messageId === "sandbox") return { ok: true };
+  } catch (e) {
+    console.error("[igt-mail] send failed:", e);
+    return fail(
+      "Couldn't send the email. Sign out and sign in with Google again to refresh your access, then retry."
+    );
+  }
+  await logAudit(viewer.id, "igt_mail_sent", "system", null, { to, subject: d.subject });
+  return { ok: true };
+}
+
+/** Step 2b — the same mail as a DRAFT instead, for a VP who wants to attach
+ *  something or send it later. */
+export async function createIgtExpectationDraft(input: IgtReviewedMail): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!canUseIgtExpectationMail(viewer))
+    return fail("The IGT leadership sends this mail.", "forbidden");
+  const parsed = igtReviewedSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0].message);
+  const d = parsed.data;
+  if (!viewer.google_refresh_token)
+    return fail(
+      "Your Google access is missing — sign out, then sign in with Google once to grant it (it also powers your calendar reminders)."
+    );
+
+  const { to, cc } = igtRecipients(d);
+  try {
+    const { createMemberDraft } = await import("@/lib/google/gmail");
+    const draftId = await createMemberDraft(viewer.google_refresh_token, {
+      to,
+      cc,
+      subject: d.subject,
+      html: d.html,
+    });
+    if (!draftId) return fail("Google didn't accept the draft — try again.");
+    if (draftId === "sandbox") return { ok: true };
+  } catch (e) {
+    console.error("[igt-mail] draft failed:", e);
+    return fail(
+      "Couldn't create the draft. Sign out and sign in with Google again to refresh your access, then retry."
+    );
+  }
+  await logAudit(viewer.id, "igt_mail_draft", "system", null, { to, subject: d.subject });
   return { ok: true };
 }
 

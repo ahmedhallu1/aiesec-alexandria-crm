@@ -465,6 +465,16 @@ export function PageSizePicker({
 
 // ============================================================ column filters
 
+/** Splits a multi-select filter value ("IGV,IGT") into its picks. One place,
+ *  because the client filters and the server queries must agree exactly on
+ *  what a filter value MEANS — a mismatch shows the wrong rows silently. */
+export function multi(value: string | null | undefined): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
 export interface ColumnFilterOption {
   value: string;
   label: string;
@@ -494,33 +504,64 @@ export function ColumnFilter({
 }: {
   /** the column's name, for the accessible label and the empty state */
   label: string;
-  /** "" = no filter on this column */
+  /** "" = no filter. Several picks are comma-joined ("IGV,IGT") — see `multi` */
   value: string;
   options: ColumnFilterOption[];
   onChange: (value: string) => void;
   allLabel?: string;
 }) {
-  const active = !!value;
-  const current = options.find((o) => o.value === value);
+  const picked = multi(value);
+  const active = picked.length > 0;
+  const labelOf = (v: string) => options.find((o) => o.value === v)?.label ?? v;
+  const summary = active
+    ? picked.length === 1
+      ? labelOf(picked[0])
+      : `${picked.length} selected`
+    : "";
+
+  // MULTI-SELECT (v33.3): ticking adds, unticking removes, and the menu stays
+  // open so several picks are one visit instead of one-per-trip. Order is
+  // preserved so the URL is stable and shareable.
+  const toggle = (v: string) =>
+    onChange(
+      (picked.includes(v) ? picked.filter((p) => p !== v) : [...picked, v]).join(",")
+    );
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          aria-label={active ? `${label}: ${current?.label ?? value} — change filter` : `Filter by ${label}`}
-          title={active ? `${label}: ${current?.label ?? value}` : `Filter by ${label}`}
+          aria-label={active ? `${label}: ${summary} — change filter` : `Filter by ${label}`}
+          title={active ? `${label}: ${picked.map(labelOf).join(", ")}` : `Filter by ${label}`}
           className={cn(
-            "inline-flex size-5 shrink-0 items-center justify-center rounded transition-colors",
+            "relative inline-flex size-5 shrink-0 items-center justify-center rounded transition-colors",
             active
               ? "bg-primary text-primary-foreground"
               : "text-muted-foreground/50 hover:bg-muted hover:text-foreground"
           )}
         >
           <Filter className={cn("size-3", active && "fill-current")} />
+          {picked.length > 1 ? (
+            <span className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground ring-1 ring-background">
+              {picked.length}
+            </span>
+          ) : null}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-72 w-48 overflow-y-auto">
-        <DropdownMenuLabel className="text-xs">{label}</DropdownMenuLabel>
+      <DropdownMenuContent align="start" className="max-h-72 w-52 overflow-y-auto">
+        <DropdownMenuLabel className="flex items-center justify-between gap-2 text-xs">
+          <span>{label}</span>
+          {active ? (
+            <button
+              type="button"
+              className="text-[11px] font-medium text-primary hover:underline"
+              onClick={() => onChange("")}
+            >
+              Clear
+            </button>
+          ) : null}
+        </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuCheckboxItem checked={!active} onCheckedChange={() => onChange("")}>
           {allLabel}
@@ -528,9 +569,9 @@ export function ColumnFilter({
         {options.map((o) => (
           <DropdownMenuCheckboxItem
             key={o.value}
-            checked={value === o.value}
-            // re-picking the active option clears it — one click out, like Sheets
-            onCheckedChange={() => onChange(value === o.value ? "" : o.value)}
+            checked={picked.includes(o.value)}
+            onCheckedChange={() => toggle(o.value)}
+            onSelect={(e) => e.preventDefault()} // keep the menu open for the next pick
           >
             <span className="truncate" dir="auto">{o.label}</span>
           </DropdownMenuCheckboxItem>

@@ -39,7 +39,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { SortHeader, useTableSort, type SortDir } from "./sort-header";
-import { ColumnFilter } from "./data-table-kit";
+import { ColumnFilter, multi } from "./data-table-kit";
 
 export interface MemberRow {
   id: string;
@@ -66,6 +66,12 @@ export interface TeamRegistryRow {
 
 // click-to-sort accessors for the members table (v24.3 — universal sorting)
 /** Which columns carry a filter funnel, and what it offers. */
+/** No picks = no filter; several picks = match ANY of them. */
+function anyOf(raw: string | undefined, pred: (v: string) => boolean): boolean {
+  const picks = multi(raw);
+  return picks.length === 0 || picks.some(pred);
+}
+
 const COL_FILTERS: Record<
   string,
   { key: string; label: string; options: () => { value: string; label: string }[] }
@@ -121,11 +127,11 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
   const setCol = (k: string) => (v: string) =>
     setColFilter((f) => ({ ...f, [k]: v }));
   const matchesCols = (m: MemberRow) =>
-    (!colFilter.role || m.role === colFilter.role) &&
-    (!colFilter.fn || (m.functions ?? []).includes(colFilter.fn)) &&
-    (!colFilter.sub || (m.sub_functions ?? []).includes(colFilter.sub)) &&
-    (!colFilter.status ||
-      (colFilter.status === "active" ? m.is_active : !m.is_active));
+    // multi-select (v33.3): several picks on one column are an OR
+    anyOf(colFilter.role, (v) => m.role === v) &&
+    anyOf(colFilter.fn, (v) => (m.functions ?? []).includes(v)) &&
+    anyOf(colFilter.sub, (v) => (m.sub_functions ?? []).includes(v)) &&
+    anyOf(colFilter.status, (v) => (v === "active" ? m.is_active : !m.is_active));
 
   const byCols = members.filter(matchesCols);
   const shown = needle

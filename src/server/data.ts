@@ -397,6 +397,16 @@ export function applyScope<T extends { eq: any; in: any; or?: any }>(
 
 // ------------------------------------------------------------------ accounts
 
+/** Splits a multi-select filter value ("IGV,IGT") into its picks — the server
+ *  twin of `multi` in data-table-kit. */
+function pickList(value?: string | null): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+
 export interface AccountFilters {
   q?: string;
   fn?: AccountFunction;
@@ -575,22 +585,58 @@ async function buildAccountsQuery(
   if (!viewer.testMode) query = query.eq("is_test", false);
   if (filters.archived) query = query.eq("out_of_process", true);
   else if (!filters.includeArchived) query = query.eq("out_of_process", false);
-  if (filters.fn) query = query.eq("function", filters.fn);
-  if (filters.project) query = query.eq("project", filters.project);
-  if (filters.product) query = query.eq("product", filters.product);
-  // sub_product is free-ish text (may hold several values) — match loosely
-  if (filters.subProduct) query = query.ilike("sub_product", `%${filters.subProduct}%`);
-  if (filters.stage) query = query.eq("stage", filters.stage);
-  if (filters.lastStatus) query = query.eq("last_contact_status", filters.lastStatus);
-  // "none" = unassigned (imported market research awaiting an owner)
-  if (filters.responsibleId === "none") query = query.is("responsible_id", null);
-  else if (filters.responsibleId) query = query.eq("responsible_id", filters.responsibleId);
-  if (filters.teamId) {
-    const { data: team } = await db()
-      .from("members")
-      .select("id")
-      .eq("stakeholder_id", filters.teamId);
-    query = query.in("responsible_id", [filters.teamId, ...(team ?? []).map((t) => t.id)]);
+  // EVERY column filter is MULTI-SELECT (v33.3): the value is a comma-joined
+  // list, so one pick is `.eq` and several are `.in`. `pickList` is the same
+  // parser the UI uses — client and server must agree on what a filter value
+  // means, or the funnel icon says one thing and the rows show another.
+  const one = <T,>(vals: T[]): T | null => (vals.length === 1 ? vals[0] : null);
+  const eqOrIn = (col: string, raw?: string) => {
+    const vals = pickList(raw);
+    if (vals.length === 0) return;
+    const single = one(vals);
+    query = single !== null ? query.eq(col, single) : query.in(col, vals);
+  };
+
+  eqOrIn("function", filters.fn);
+  eqOrIn("project", filters.project);
+  eqOrIn("product", filters.product);
+  // sub_product is free-ish text (a row may hold several values) — match
+  // loosely, and OR the picks together rather than intersecting them
+  {
+    const subs = pickList(filters.subProduct);
+    if (subs.length === 1) query = query.ilike("sub_product", `%${subs[0]}%`);
+    else if (subs.length > 1)
+      query = query.or(subs.map((v) => `sub_product.ilike.%${v}%`).join(","));
+  }
+  eqOrIn("stage", filters.stage);
+  eqOrIn("last_contact_status", filters.lastStatus);
+
+  // Responsible carries a pseudo-value: "none" = unassigned. Mixed with real
+  // people it has to become an OR, because NULL is not `in` anything.
+  {
+    const resp = pickList(filters.responsibleId);
+    const wantsNone = resp.includes("none");
+    const ids = resp.filter((r) => r !== "none");
+    if (wantsNone && ids.length === 0) query = query.is("responsible_id", null);
+    else if (wantsNone && ids.length > 0)
+      query = query.or(
+        `responsible_id.is.null,responsible_id.in.(${ids.map((i) => `"${i}"`).join(",")})`
+      );
+    else if (ids.length === 1) query = query.eq("responsible_id", ids[0]);
+    else if (ids.length > 1) query = query.in("responsible_id", ids);
+  }
+
+  // a team filter means "this TL and everyone reporting to them" — several
+  // teams is the UNION of those people
+  {
+    const teams = pickList(filters.teamId);
+    if (teams.length > 0) {
+      const { data: team } = await db()
+        .from("members")
+        .select("id")
+        .in("stakeholder_id", teams);
+      query = query.in("responsible_id", [...teams, ...(team ?? []).map((t) => t.id)]);
+    }
   }
   // accounts can't be created in the future — clamp the range to today
   const today = new Date().toISOString().slice(0, 10);
@@ -3301,20 +3347,48 @@ export async function listSignupsPage(
         else q = q.or(`assigned_to.is.null,assigned_to.eq.${viewer.id}`);
       }
     }
-    if (filters.batch === "new" || filters.batch === "old") q = q.eq("batch", filters.batch);
-    if (filters.program) q = q.ilike("program", filters.program);
+    // MULTI-SELECT (v33.3) — same rule as the accounts list: a comma-joined
+    // value means "any of these".
+    {
+      const batches = pickList(filters.batch).filter((b) => b === "new" || b === "old");
+      if (batches.length === 1) q = q.eq("batch", batches[0]);
+      else if (batches.length > 1) q = q.in("batch", batches);
+    }
+    {
+      const programs = pickList(filters.program);
+      if (programs.length === 1) q = q.ilike("program", programs[0]);
+      else if (programs.length > 1)
+        q = q.or(programs.map((v) => `program.ilike.${v}`).join(","));
+    }
     if (filters.status) q = q.eq("status", filters.status);
-    // 🎯 Potential (v28): a specific stage, or "none" = no stage set yet
-    if (filters.potential === "none") q = q.is("status", null);
-    else if (
-      filters.potential &&
-      (SIGNUP_STATUSES as readonly string[]).includes(filters.potential)
-    )
-      q = q.eq("status", filters.potential);
+    // 🎯 Potential (v28): specific stages, or "none" = no stage set yet — and
+    // "none" can't be `in`-ed, so a mix becomes an OR
+    {
+      const picks = pickList(filters.potential);
+      const wantsNone = picks.includes("none");
+      const stages = picks.filter(
+        (v) => v !== "none" && (SIGNUP_STATUSES as readonly string[]).includes(v)
+      );
+      if (wantsNone && stages.length === 0) q = q.is("status", null);
+      else if (wantsNone && stages.length > 0)
+        q = q.or(`status.is.null,status.in.(${stages.map((v) => `"${v}"`).join(",")})`);
+      else if (stages.length === 1) q = q.eq("status", stages[0]);
+      else if (stages.length > 1) q = q.in("status", stages);
+    }
     // the display treats any y*/n* as Yes/No — the filter must match it
     const ynPat = (v: string) => (v === "Yes" ? "y%" : v === "No" ? "n%" : v);
-    if (filters.interested) q = q.ilike("interested", ynPat(filters.interested));
-    if (filters.contacted) q = q.ilike("contact_status", ynPat(filters.contacted));
+    {
+      const picks = pickList(filters.interested);
+      if (picks.length === 1) q = q.ilike("interested", ynPat(picks[0]));
+      else if (picks.length > 1)
+        q = q.or(picks.map((v) => `interested.ilike.${ynPat(v)}`).join(","));
+    }
+    {
+      const picks = pickList(filters.contacted);
+      if (picks.length === 1) q = q.ilike("contact_status", ynPat(picks[0]));
+      else if (picks.length > 1)
+        q = q.or(picks.map((v) => `contact_status.ilike.${ynPat(v)}`).join(","));
+    }
     if (filters.country) q = q.ilike("country", `%${filters.country}%`);
     // phone filter (v27, both directions): "missing" = null / empty / the
     // sheets' "deleted phone number" placeholder; "has" = a usable number
