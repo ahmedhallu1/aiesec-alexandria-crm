@@ -218,6 +218,10 @@ const ROLE_ALIASES: Record<string, string> = {
   coordinator: "Coordinator",
   member: "Member",
   director: "Director",
+  // v33 — the system caretaker. Unrecognised roles fall back to "Member", so
+  // until this alias existed an "Admin" on the sheet silently became a Member.
+  admin: "Admin",
+  "im director": "Admin",
 };
 
 function parseRole(raw: string | undefined): string {

@@ -41,7 +41,16 @@ export type AccountScope =
   | { kind: "functions"; fns: AccountFunction[] }
   | { kind: "members"; ids: string[] };
 
-const master = (v: Viewer) => v.isAdmin || v.role === "LCP";
+/** Absolute, whole-LC visibility.
+ *
+ *  A PURE admin — Role = "Admin" on the sheet, no operational rank — is the
+ *  system's caretaker and sees everything, same as the LCP. Someone who is a
+ *  caretaker ON TOP of a real job (Admin in their Sub Function while they run
+ *  a function) is NOT master: they keep their own modules and get the admin
+ *  TOOLS only, via `canUseAdminTools`. ADMIN_EMAILS stays master as the
+ *  break-glass account. */
+const master = (v: Viewer) =>
+  v.isAdmin || v.role === "LCP" || v.role === "Admin";
 
 /** The admin TOOLS — Health & Logs, the test view, the change journal (v33).
  *
