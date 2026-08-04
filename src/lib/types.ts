@@ -594,8 +594,16 @@ export function normalizeName(name: string): string {
 
 // ------------------------------------------------------------------ validation
 
-/** Loose shape check (server safety net) — real validation is normalizePhone. */
-export const PHONE_RE = /^\+?\d{7,15}$/;
+/** Egyptian HOTLINE / short code — 5 digits starting with 1 (16123, 19016).
+ *  Businesses print these instead of a landline, so a member copying the
+ *  number off a shopfront or a website has nothing else to type (v33). They
+ *  are national short codes: there is no country-code form, so they are stored
+ *  exactly as dialled. */
+export const HOTLINE_RE = /^1\d{4}$/;
+
+/** Loose shape check (server safety net) — real validation is normalizePhone.
+ *  Accepts a full number OR a hotline short code. */
+export const PHONE_RE = /^(?:\+?\d{7,15}|1\d{4})$/;
 export const EMAIL_RE = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]{2,}$/;
 export const URL_RE = /^https?:\/\/\S+\.\S+/i;
 
@@ -634,6 +642,9 @@ export interface PhoneCheck {
 export function normalizePhone(raw: string): PhoneCheck {
   let v = cleanPhone(raw);
   if (!v) return { ok: false, value: "", error: "Empty number." };
+  // a hotline is already canonical — never prefix it with +20, it isn't
+  // dialable that way
+  if (HOTLINE_RE.test(v)) return { ok: true, value: v };
   if (v.startsWith("00")) v = `+${v.slice(2)}`;
 
   // pull out the Egyptian national part when we can recognize it
@@ -650,14 +661,16 @@ export function normalizePhone(raw: string): PhoneCheck {
     return {
       ok: false,
       value: v,
-      error: "Egyptian numbers: mobile 01[0/1/2/5]XXXXXXXX or landline 03XXXXXXX (02 for Cairo).",
+      error:
+        "Egyptian numbers: mobile 01[0/1/2/5]XXXXXXXX, landline 03XXXXXXX (02 for Cairo), or a 5-digit hotline like 16123.",
     };
   }
   if (/^\+\d{7,15}$/.test(v)) return { ok: true, value: v }; // other international
   return {
     ok: false,
     value: v,
-    error: "Use an Egyptian number (01… mobile, 03… landline) or a full international one starting with +.",
+    error:
+      "Use an Egyptian number (01… mobile, 03… landline, or a 5-digit hotline like 16123) or a full international one starting with +.",
   };
 }
 

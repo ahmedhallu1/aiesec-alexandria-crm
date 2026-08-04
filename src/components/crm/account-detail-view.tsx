@@ -10,7 +10,7 @@ import {
   XCircle,
 } from "lucide-react";
 import {
-  addComment, confirmContractUploads, getContractUrl, markPodioUpdated,
+  addComment, confirmContractUploads, getContractUrl, getNextWorkingHours, markPodioUpdated,
   reassignAccount, recordDeal, reportVisit, requestContractUploads, reviveAccount,
   scheduleVisit, setOutOfProcess, setPodioUpdateCadence, setPodioUpdateEnabled,
   toggleCommentPin, toggleCommentArchive, updateAccount, updateAccountContacts,
@@ -92,6 +92,8 @@ export function AccountDetailView({
   // the viewer could click the button themselves (edit rights + active)
   const canAct = caps.edit && !account.out_of_process;
   const [contactOpen, setContactOpen] = useState(autoOpen === "contact" && canAct);
+  // pre-picked when the comment box detected a contact result (v33)
+  const [contactStatus, setContactStatus] = useState<string | undefined>(undefined);
   const [visitOpen, setVisitOpen] = useState(autoOpen === "visit" && canAct);
   // which visit the report dialog is open FOR — openable from the top button
   // or from any pending visit row in History
@@ -248,7 +250,16 @@ export function AccountDetailView({
           <PodioUpdateCard account={account} canEdit={caps.edit && active} />
         ) : null}
         <NextStepCard account={account} canEdit={caps.edit && active} />
-        <CommentsCard accountId={account.id} comments={comments} canComment={caps.edit} />
+        <CommentsCard
+          accountId={account.id}
+          comments={comments}
+          canComment={caps.edit}
+          onLogContact={
+            canAct
+              ? (status) => { setContactStatus(status); setContactOpen(true); }
+              : undefined
+          }
+        />
       </div>
 
       <TimelineCard
@@ -261,7 +272,12 @@ export function AccountDetailView({
       />
 
       {/* dialogs */}
-      <ContactDialog target={contactTarget} open={contactOpen} onOpenChange={setContactOpen} />
+      <ContactDialog
+        target={contactTarget}
+        open={contactOpen}
+        onOpenChange={setContactOpen}
+        defaultStatus={contactStatus}
+      />
       <VisitDialog
         account={account}
         pendingVisit={pendingVisit}
@@ -854,6 +870,31 @@ function NextStepCard({ account, canEdit }: { account: PipelineRow; canEdit: boo
             <CalendarPlus className="size-3.5" /> Next week
           </Button>
         ) : null}
+        {canEdit ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            title="Set the next step to your next working-hours session, so this account comes back exactly when you sit down to work it"
+            onClick={async () => {
+              const res = await getNextWorkingHours();
+              if (!res.ok || !res.data) {
+                toast.info("No upcoming working hours are booked for you yet — your TL or VP sets those on the calendar.");
+                return;
+              }
+              const d = new Date(res.data.startsAt);
+              setDate(
+                `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+              );
+              setTime(`${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`);
+              if (!step.trim()) setStep("Contact them again during working hours");
+              setDirty(true);
+              toast.success("Next step set to your next working hours ⏰");
+            }}
+          >
+            <CalendarPlus className="size-3.5" /> Next working hours
+          </Button>
+        ) : null}
         {canEdit && dirty ? (
           <Button size="sm" onClick={save} disabled={pending || (!!step && !date)}>
             {pending ? "Saving…" : "Save next step"}
@@ -866,12 +907,41 @@ function NextStepCard({ account, canEdit }: { account: PipelineRow; canEdit: boo
 
 /** Numbered comments: everyone logs as many as needed. TL/VP/LCP comments carry
  *  their label ("VP Comment #2"); numbering is automatic per label. */
+/** Comments that are really CONTACT LOGS (v33).
+ *
+ *  People type "no response" or "wrong number" into the comment box because
+ *  it's the nearest text field — and the account then looks untouched: no
+ *  contact count, no last-result, no next-step obligation, and the member
+ *  shows zero contacts on the leaderboard despite doing the work. The numbers
+ *  quietly stop being true.
+ *
+ *  So when a comment reads like a contact result, we say so and offer the
+ *  right button. Never blocking: it's a nudge, the comment still saves, and
+ *  plenty of legitimate comments mention these words in passing. */
+const CONTACT_RESULT_HINTS: { re: RegExp; status: string }[] = [
+  { re: /\b(no|didn'?t|didnt)\s*(response|answer|reply)\b|\bلم يرد\b|\bمردش\b/i, status: "No Response" },
+  { re: /\bwrong\s*(number|contact)\b|\bرقم غلط\b/i, status: "Wrong Contact" },
+  { re: /\bnot\s*interested\b|\brefused\b|\brejected\b|\bمش مهتم\b/i, status: "Not Interested" },
+  { re: /\b(interested|they want|wants? to)\b|\bمهتم\b/i, status: "Interested" },
+  { re: /\b(answered|responded|picked up|talked to|spoke)\b|\bرد\b/i, status: "Responded" },
+];
+
+function looksLikeContactLog(text: string): string | null {
+  const t = (text ?? "").trim();
+  // a long note is a real comment that happens to mention a word
+  if (t.length < 2 || t.length > 120) return null;
+  for (const h of CONTACT_RESULT_HINTS) if (h.re.test(t)) return h.status;
+  return null;
+}
+
 function CommentsCard({
-  accountId, comments, canComment,
+  accountId, comments, canComment, onLogContact,
 }: {
   accountId: string;
   comments: CommentWithMember[];
   canComment: boolean;
+  /** opens the real contact form with the detected result pre-picked */
+  onLogContact?: (status: string) => void;
 }) {
   const router = useRouter();
   const [body, setBody] = useState("");
@@ -1028,6 +1098,32 @@ function CommentsCard({
               onChange={(e) => setBody(e.target.value)}
               placeholder="Log a new comment — it gets numbered automatically"
             />
+            {onLogContact && looksLikeContactLog(body) ? (
+              <div className="rounded-lg border border-primary/40 bg-primary/5 p-3 text-xs">
+                <p className="font-medium text-foreground">
+                  That looks like a contact — log it as one?
+                </p>
+                <p className="mt-0.5 text-muted-foreground">
+                  A comment doesn&apos;t count the attempt, set the last result,
+                  or ask for a next step — so the account looks untouched and
+                  your numbers miss it.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      const status = looksLikeContactLog(body);
+                      if (status) onLogContact(status);
+                    }}
+                  >
+                    Log the contact instead
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={submit} disabled={pending}>
+                    No, it&apos;s just a comment
+                  </Button>
+                </div>
+              </div>
+            ) : null}
             <Button size="sm" variant="outline" onClick={submit} disabled={pending || body.trim().length < 2}>
               {pending ? "Saving…" : "Add comment"}
             </Button>

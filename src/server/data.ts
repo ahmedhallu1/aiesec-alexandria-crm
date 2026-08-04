@@ -4461,3 +4461,47 @@ export async function streakStats(
     topStreaks,
   };
 }
+
+/** The viewer's NEXT working-hours touch point (v33).
+ *
+ *  "Call them again during working hours" is the most common next step in a
+ *  raising team, and typing the date by hand means guessing when the session
+ *  actually is. This returns the next one the viewer is expected at, so the
+ *  next step can be set to it in one click — the account then resurfaces
+ *  exactly when they're sitting down to work it. */
+export async function nextWorkingHoursFor(
+  viewer: Viewer
+): Promise<{ id: string; startsAt: string; label: string } | null> {
+  try {
+    const { data } = await db()
+      .from("touch_points")
+      .select("id, starts_at, scope, kind, function_key, team_name")
+      .eq("kind", "working_hours")
+      .eq("status", "scheduled")
+      .gte("starts_at", new Date().toISOString())
+      .order("starts_at", { ascending: true })
+      .limit(20);
+    const rows = (data ?? []) as {
+      id: string; starts_at: string; scope: string;
+      function_key: string | null; team_name: string | null;
+    }[];
+    if (rows.length === 0) return null;
+    const fns = [...(viewer.functions ?? []), ...(viewer.sub_functions ?? [])];
+    // the soonest session this member actually belongs to
+    const mine = rows.find(
+      (r) =>
+        r.scope === "lc" ||
+        (r.scope === "function" && !!r.function_key && fns.includes(r.function_key)) ||
+        (r.scope === "team" && !!r.team_name && (viewer.team_name ?? "").includes(r.team_name))
+    );
+    if (!mine) return null;
+    return {
+      id: mine.id,
+      startsAt: mine.starts_at,
+      label: mine.starts_at,
+    };
+  } catch (e) {
+    console.error("[next-step] working-hours lookup failed:", e);
+    return null;
+  }
+}

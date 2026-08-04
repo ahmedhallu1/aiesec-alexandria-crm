@@ -35,7 +35,7 @@ export interface ContactTarget {
  *  captures the call's date + time (that becomes the next step). Enforces the
  *  next-step obligation and triggers the 3-contact-limit prompt. */
 export function ContactDialog({
-  target, open, onOpenChange, defaultMethod = "Call",
+  target, open, onOpenChange, defaultMethod = "Call", defaultStatus,
 }: {
   target: ContactTarget | null;
   open: boolean;
@@ -43,6 +43,9 @@ export function ContactDialog({
   /** v31.2: when the flow started from a WhatsApp/call/email tap, the method
    *  it was opened WITH — so a hand-over from the quick prompt keeps it. */
   defaultMethod?: ContactMethod;
+  /** v33: handed over from the "that looks like a contact" nudge, so the
+   *  result the member already typed is pre-picked */
+  defaultStatus?: string;
 }) {
   const [method, setMethod] = useState<ContactMethod>(defaultMethod);
   // a later open with a different clicked channel re-seeds the picker
@@ -52,7 +55,18 @@ export function ContactDialog({
     setSeededWith(defaultMethod);
     setMethod(defaultMethod);
   }
-  const [status, setStatus] = useState<UiStatus>("No Response");
+  const [status, setStatus] = useState<UiStatus>(
+    (STATUSES as readonly string[]).includes(defaultStatus ?? "")
+      ? (defaultStatus as UiStatus)
+      : "No Response"
+  );
+  // a later open carrying a different detected result re-seeds the picker
+  const [seededStatus, setSeededStatus] = useState(defaultStatus);
+  if (defaultStatus !== seededStatus) {
+    setSeededStatus(defaultStatus);
+    if ((STATUSES as readonly string[]).includes(defaultStatus ?? ""))
+      setStatus(defaultStatus as UiStatus);
+  }
   const [comment, setComment] = useState("");
   const [nextStep, setNextStep] = useState("");
   const [nextStepDate, setNextStepDate] = useState("");
