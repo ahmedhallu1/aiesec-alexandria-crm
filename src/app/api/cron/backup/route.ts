@@ -11,7 +11,8 @@ export const maxDuration = 300;
  *
  *  Supabase's free tier has no automated backups at all, so this is the only
  *  thing standing between a lost database and losing the LC's entire year.
- *  Dumps every table to JSON in the CRM Drive folder and keeps 30 days.
+ *  Dumps every table, gzipped, into the private `backups` bucket (30 days)
+ *  and emails an off-site copy to the IM mailbox.
  *
  *  Scheduled in pg_cron at 02:00 UTC (04:00 Cairo) — quiet hours, and after
  *  the day's work has landed. */
