@@ -994,6 +994,18 @@ export async function listTeamLeaders(viewer: Viewer): Promise<Member[]> {
   return members.filter((m) => m.role === "Team Leader");
 }
 
+/** Does this person work the given account function? BD and B2B are one crew,
+ *  so either label answers for both. Reads the Function AND Sub Function
+ *  columns, because half the LC carries its function in only one of them. */
+export function memberWorksFunction(
+  m: { functions?: string[] | null; sub_functions?: string[] | null },
+  fn: string
+): boolean {
+  const own = [...(m.functions ?? []), ...(m.sub_functions ?? [])];
+  if (fn === "B2B" || fn === "BD") return own.some((f) => f === "B2B" || f === "BD");
+  return own.includes(fn);
+}
+
 /** Team-filter options: the NORMAL teams only — a Team Leader with their
  *  members (v32.8).
  *
@@ -1003,14 +1015,24 @@ export async function listTeamLeaders(viewer: Viewer): Promise<Member[]> {
  *  take the one name that is a registered `Team` (a real TL team) and ignore
  *  the structural ones. A Team Leader whose cell names no registered team
  *  still gets a row, labelled after them ("Alex's team"), because their team
- *  exists whether or not anyone named it. */
+ *  exists whether or not anyone named it.
+ *
+ *  SCOPED TO THE LANE when `fn` is given (v33.1). The dashboard filter used to
+ *  list every team the VIEWER could see, so the LCP standing on the IGT lane
+ *  was offered the whole LC's teams and an IGV VP was offered B2B's — teams
+ *  whose accounts are not in that lane at all (`rowInLane` matches on the
+ *  account's own function), so picking one emptied the dashboard. */
 export async function listTeamFilterOptions(
-  viewer: Viewer
+  viewer: Viewer,
+  opts: { fn?: string } = {}
 ): Promise<{ id: string; label: string }[]> {
-  const [leads, { data: teamRows }] = await Promise.all([
+  const [allLeads, { data: teamRows }] = await Promise.all([
     listTeamLeaders(viewer),
     db().from("teams").select("name").eq("type", "Team"),
   ]);
+  const leads = opts.fn
+    ? allLeads.filter((m) => memberWorksFunction(m, opts.fn!))
+    : allLeads;
   const normal = new Set(
     ((teamRows ?? []) as { name: string }[]).map((t) => t.name.trim().toLowerCase())
   );

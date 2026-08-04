@@ -345,24 +345,32 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
             </p>
           </div>
         </Link>
+        {/* One toolbar, three EQUAL segments — notifications · appearance ·
+            sign out, in that order: the one you touch daily, the one you touch
+            sometimes, the one you touch last. Equal widths make it read as a
+            deliberate strip; a lone button shoved to the far edge read as an
+            accident. */}
         <div
           className={cn(
             "flex items-center",
-            !inDrawer && railed ? "flex-col gap-1" : "gap-1"
+            !inDrawer && railed ? "flex-col gap-1" : !inDrawer ? "gap-0.5" : "gap-1"
           )}
         >
           {!inDrawer && !railed ? (
             <>
-              <NotificationsBell canBroadcast={canBroadcast} />
-              <ThemeToggle className="text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
+              <NotificationsBell canBroadcast={canBroadcast} className="flex-1" />
+              <ThemeToggle className="flex-1 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
             </>
           ) : null}
-          <form action={signOutAction} className={cn(!inDrawer && !railed && "ml-auto")}>
+          <form action={signOutAction} className={cn(!inDrawer && !railed && "flex-1")}>
             <Button
               type="submit"
               variant="ghost"
               size="icon"
-              className="text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+              className={cn(
+                "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                !inDrawer && !railed && "w-full"
+              )}
               title="Sign out"
             >
               <LogOut className="size-4" />

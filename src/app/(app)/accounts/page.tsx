@@ -124,7 +124,7 @@ export default async function AccountsPage({
         ],
       }))}
       respOptions={respOptions}
-      teamOptions={await listTeamFilterOptions(viewer)}
+      teamOptions={await listTeamFilterOptions(viewer, { fn: filters.fn })}
       viewer={{
         id: viewer.id,
         name: viewer.name,
