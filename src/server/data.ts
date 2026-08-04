@@ -514,19 +514,22 @@ export async function listAccountsPage(
   // extra query for the page's ~100 accounts, never per row (v33). Archived
   // comments stay hidden, exactly as they are on the account page.
   if (rows.length > 0) {
-    const { data: cs } = await db()
+    // the FK column is member_id — an `author_id` hint silently errored the
+    // whole query, so every row rendered "—" (v33 fix)
+    const { data: cs, error: cErr } = await db()
       .from("account_comments")
-      .select("account_id, body, created_at, author:members!author_id(name, nickname)")
+      .select("account_id, body, created_at, author_label, member:members(name)")
       .in("account_id", rows.map((r) => r.id))
       .eq("archived", false)
       .order("created_at", { ascending: true });
+    if (cErr) console.error("[accounts] comment column query failed:", cErr.message);
     const byAccount = new Map<string, { body: string; author: string | null; at: string }[]>();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const c of ((cs ?? []) as any[])) {
       const list = byAccount.get(c.account_id) ?? [];
       list.push({
         body: c.body,
-        author: c.author ? c.author.nickname || c.author.name : null,
+        author: c.member?.name ?? c.author_label ?? null,
         at: c.created_at,
       });
       byAccount.set(c.account_id, list);

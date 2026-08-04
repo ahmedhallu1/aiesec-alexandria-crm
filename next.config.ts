@@ -1,24 +1,62 @@
 import type { NextConfig } from "next";
 
+/** THE CONTENT-SECURITY-POLICY (v33 audit, F-08).
+ *
+ *  Every host below is one this app actually talks to, enumerated from the
+ *  source rather than guessed:
+ *    dicebear + googleusercontent  member avatars
+ *    supabase.co                   the database and signed storage URLs
+ *    generativelanguage / googleapis  The Blue Man, Sheets, Drive, Gmail, Calendar
+ *    podio.com                     the automatic "does this company exist" check
+ *    core.aiesec.org.eg            the CORE analytics digest
+ *    googletagmanager / g-analytics  optional GA, only when the env var is set
+ *    docs.google.com               the B2C contract form, opened in a frame/tab
+ *
+ *  `script-src` keeps 'unsafe-inline' because Next.js App Router injects inline
+ *  bootstrap and hydration scripts; removing it needs a nonce threaded through
+ *  middleware, and getting that wrong white-screens the CRM for 70 people. The
+ *  policy still blocks the thing that matters most — loading attacker-hosted
+ *  script from any other origin — and `object-src 'none'`, `base-uri 'self'`
+ *  and `form-action 'self'` close plugin injection, base-tag hijacking and
+ *  form exfiltration outright. */
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://va.vercel-scripts.com",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https://api.dicebear.com https://*.googleusercontent.com https://*.supabase.co https://files.podio.com https://www.google-analytics.com",
+  "font-src 'self' data:",
+  [
+    "connect-src 'self'",
+    "https://*.supabase.co",
+    "https://generativelanguage.googleapis.com",
+    "https://www.googleapis.com",
+    "https://podio.com",
+    "https://core.aiesec.org.eg",
+    "https://www.google-analytics.com",
+    "https://va.vercel-scripts.com",
+  ].join(" "),
+  "frame-src 'self' https://docs.google.com",
+  "media-src 'self' data: blob:",
+  "worker-src 'self' blob:",
+  // no plugins, no <base> hijacking, no posting this app's forms elsewhere
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  "upgrade-insecure-requests",
+].join("; ");
+
 const nextConfig: NextConfig = {
   // Stop advertising the framework — free reconnaissance for anyone scanning.
   poweredByHeader: false,
 
-  /** Security headers (v33 audit).
-   *
-   *  Deliberately WITHOUT a full Content-Security-Policy for now: this app
-   *  loads Google avatars, DiceBear, Supabase and Google APIs, and a wrong
-   *  `script-src` would white-screen the whole CRM for 70 people. The headers
-   *  below are the ones that carry real protection with zero breakage risk;
-   *  `frame-ancestors` alone closes clickjacking, which is what a CRM behind a
-   *  login actually needs. A full CSP is tracked as a follow-up. */
+  /** Security headers (v33 audit). */
   async headers() {
     return [
       {
         source: "/:path*",
         headers: [
-          // clickjacking: nobody may frame this app, anywhere
-          { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+          { key: "Content-Security-Policy", value: CSP },
           { key: "X-Frame-Options", value: "DENY" },
           // stop MIME sniffing turning an upload into executable content
           { key: "X-Content-Type-Options", value: "nosniff" },

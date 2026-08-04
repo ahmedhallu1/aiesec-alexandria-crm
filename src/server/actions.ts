@@ -868,6 +868,38 @@ async function loadDeal(dealId: string): Promise<{ deal: DealRow; account: Pipel
 }
 
 /** Step 1 — issue signed upload URLs for the picked files (RBAC-checked). */
+
+/** Upload safety (v33 audit, F-17).
+ *
+ *  Contracts and CVs deliberately accept "any format" — the crew scans things
+ *  with whatever they have. But a handful of extensions are ACTIVE CONTENT: an
+ *  .html or .svg stored in a bucket and later opened from a signed URL runs
+ *  script on the storage origin, which is a convincing phishing surface even
+ *  though it can't reach this app's cookies (different origin). Executables
+ *  have no business here at all.
+ *
+ *  A denylist, not an allowlist, on purpose: the legitimate set is genuinely
+ *  open-ended (pdf, docx, xlsx, jpg, png, heic, zip, pages, odt…) and an
+ *  allowlist would reject real contracts and send people back to WhatsApp. */
+const UNSAFE_UPLOAD_EXTENSIONS = new Set([
+  "html", "htm", "xhtml", "shtml", "svg", "xml", "xsl",
+  "js", "mjs", "cjs", "jsx", "ts", "vbs", "ps1", "sh", "bash",
+  "exe", "msi", "bat", "cmd", "com", "scr", "pif", "jar", "app", "dmg",
+  "dll", "so", "deb", "rpm", "apk", "hta", "chm", "reg", "iso",
+]);
+
+/** Returns an error message when the file must not be stored, else null. */
+function unsafeUploadReason(name: string): string | null {
+  const clean = (name ?? "").trim().toLowerCase();
+  if (!clean) return "That file has no name.";
+  // a double extension ("cv.pdf.html") is the classic bypass — check the LAST
+  const ext = clean.includes(".") ? clean.split(".").pop()! : "";
+  if (!ext) return `"${name}" has no file extension — rename it and try again.`;
+  if (UNSAFE_UPLOAD_EXTENSIONS.has(ext))
+    return `".${ext}" files can't be uploaded — they can run code when opened. Save it as a PDF or an image instead.`;
+  return null;
+}
+
 export async function requestContractUploads(
   dealId: string,
   files: { name: string; type: string; size: number }[]
@@ -883,6 +915,8 @@ export async function requestContractUploads(
   for (const f of files) {
     if (f.size > CONTRACT_MAX_SIZE)
       return fail(`"${f.name}" is over 25 MB — compress it or upload a smaller scan.`);
+    const unsafe = unsafeUploadReason(f.name);
+    if (unsafe) return fail(unsafe);
   }
 
   const uploads: { path: string; signedUrl: string }[] = [];
@@ -5750,6 +5784,10 @@ export async function requestCvUpload(file: {
   if (!file?.name) return fail("Pick the CV file first.");
   if (file.size > CV_MAX_SIZE)
     return fail(`"${file.name}" is over 25 MB — compress it and try again.`);
+  {
+    const unsafe = unsafeUploadReason(file.name);
+    if (unsafe) return fail(unsafe);
+  }
 
   const safeName = file.name.replace(/[^\w.\- ()]+/g, "_").slice(-80);
   const path = `${Date.now()}-${crypto.randomUUID()}-${safeName}`;
