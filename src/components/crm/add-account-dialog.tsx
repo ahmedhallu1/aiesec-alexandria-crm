@@ -82,7 +82,12 @@ export function AddAccountDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  viewer: { id: string; canAssignOthers: boolean; allowedFns: Fn[] };
+  viewer: {
+    id: string;
+    canAssignOthers: boolean;
+    canSetRequestState: boolean;
+    allowedFns: Fn[];
+  };
   members: MemberOption[];
 }) {
   const router = useRouter();
@@ -93,6 +98,7 @@ export function AddAccountDialog({
   ]);
   const [requestedPodio, setRequestedPodio] = useState(false);
   const [responsible, setResponsible] = useState(viewer.id);
+  const [requestState, setRequestState] = useState("");
   const [block, setBlock] = useState<BlockInfo | null>(null);
   // freshly-created account → the "open it or add another?" popup
   const [added, setAdded] = useState<{ name: string; slug: string } | null>(null);
@@ -172,8 +178,14 @@ export function AddAccountDialog({
         industry: fn !== "IGT" && fn !== "B2C" ? form.industry : null,
         contacts,
         requested_podio: requestedPodio,
+        request_state: (requestState || null) as "Checking" | "Approved" | null,
         comment: form.comment,
-        responsible_id: responsible,
+        // only send an owner when one was actually PICKED. Sending the
+        // client's own id was how a stale page (rendered before a view-as
+        // switch) posted the previous identity and got "You can only assign
+        // accounts within your scope" — the server knows who you are.
+        responsible_id:
+          viewer.canAssignOthers && responsible !== viewer.id ? responsible : null,
       });
       if (!res.ok) {
         if (res.code === "duplicate" || res.code === "archived") {
@@ -379,6 +391,34 @@ export function AddAccountDialog({
                   </span>
                   <Switch checked={requestedPodio} onCheckedChange={setRequestedPodio} />
                 </label>
+                {/* REQUEST STATE AT CREATION (v33.2) — for people who hold
+                    Podio access (MMs, leaders, anyone tagged "has Podio").
+                    They usually already know what Podio said; making them
+                    save, reopen the account and edit it was busywork. */}
+                {viewer.canSetRequestState && requestedPodio ? (
+                  <div className="mt-2 grid gap-1.5 rounded-md border bg-background px-3 py-2">
+                    <span className="font-medium text-foreground">
+                      Request state — what Podio said
+                    </span>
+                    <Select
+                      value={requestState || "none"}
+                      onValueChange={(v) => setRequestState(v === "none" ? "" : v)}
+                    >
+                      <SelectTrigger className="h-8">
+                        <SelectValue placeholder="Not heard back yet" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Not heard back yet</SelectItem>
+                        <SelectItem value="Checking">Checking</SelectItem>
+                        <SelectItem value="Approved">Approved</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <span className="text-[11px] text-muted-foreground">
+                      &quot;Rejected&quot; archives an account, so it isn&apos;t offered
+                      here — set it on the account if the answer comes back no.
+                    </span>
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>

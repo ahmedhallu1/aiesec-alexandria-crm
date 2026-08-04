@@ -9,6 +9,8 @@ import {
   accountScope,
   allowedAccountFunctions as _allowedAccountFunctions,
   canSeeLcConcerns as _canSeeLcConcerns,
+  canFilterUnassigned,
+  canSeeUnassigned,
   canViewAccount,
   hasRaisingAccess,
   hasTmAccess,
@@ -564,7 +566,9 @@ async function buildAccountsQuery(
     query = applyScope(
       query,
       effScope,
-      effScope.kind === "members" ? _allowedAccountFunctions(viewer) : []
+      effScope.kind === "members" && canSeeUnassigned(viewer)
+        ? _allowedAccountFunctions(viewer)
+        : []
     );
   // test accounts live in a parallel universe: visible ONLY in test mode
   // (admin's "Show test data" toggle or any test view)
@@ -597,7 +601,13 @@ async function buildAccountsQuery(
   // NEEDS PODIO CHECKING: never submitted and nobody has set a request state,
   // so nobody knows whether the partner is already taken (v33)
   if (filters.flag === "needs_podio")
-    query = query.eq("requested_podio", false).is("request_state", null);
+    // UNOWNED accounts are excluded: nobody is going to submit a name that
+    // hasn't been given to anyone, and 1,300 of them would bury the real
+    // worklist (v33.2)
+    query = query
+      .eq("requested_podio", false)
+      .is("request_state", null)
+      .not("responsible_id", "is", null);
   if (filters.flag === "next_step_missing") query = query.eq("next_step_missing", true);
   if (filters.q) query = query.ilike("normalized_name", `%${normalizeName(filters.q)}%`);
   // column sorting (v24) — WHITELISTED fields only; anything else falls back
@@ -994,6 +1004,27 @@ export async function listTeamLeaders(viewer: Viewer): Promise<Member[]> {
   return members.filter((m) => m.role === "Team Leader");
 }
 
+/** How many ACTIVE accounts nobody owns, inside the viewer's scope (v33.2).
+ *  The Responsible filter only offers "— Unassigned" when there is something
+ *  to find — an empty option that always returns nothing is furniture. */
+export async function countUnassigned(
+  viewer: Viewer,
+  fn?: AccountFunction
+): Promise<number> {
+  if (!canFilterUnassigned(viewer)) return 0;
+  const scope = accountScope(viewer);
+  let q = db()
+    .from("accounts_pipeline")
+    .select("id", { count: "exact", head: true })
+    .is("responsible_id", null)
+    .eq("out_of_process", false);
+  if (!viewer.testMode) q = q.eq("is_test", false);
+  if (scope.kind === "functions") q = q.in("function", scope.fns);
+  if (fn) q = q.eq("function", fn);
+  const { count } = await q;
+  return count ?? 0;
+}
+
 /** Does this person work the given account function? BD and B2B are one crew,
  *  so either label answers for both. Reads the Function AND Sub Function
  *  columns, because half the LC carries its function in only one of them. */
@@ -1201,13 +1232,22 @@ export async function getDashboard(
   // responsibleId ("My numbers" / the member select) is ALSO applied in JS:
   // it scopes the KPI + conversion totals ONLY — leaderboards, drills and
   // goal progress always show the full picture.
-  const rows = await listAccounts(dashViewer, {
-    ...filters,
-    fn: undefined,
-    product: undefined,
-    responsibleId: undefined,
-    includeArchived: true,
-  });
+  // UNOWNED accounts are excluded from every dashboard number (v33.2). The
+  // 1,300 imported market-research names nobody has taken are not work anyone
+  // has done: counting them as Market Research inflates the top of the funnel
+  // and drags every conversion below it toward zero, so the lane looks like it
+  // is failing at contacting when really nobody has been given the names yet.
+  // They can carry nothing else — scheduling a visit or recording a deal both
+  // refuse until the account is assigned.
+  const rows = (
+    await listAccounts(dashViewer, {
+      ...filters,
+      fn: undefined,
+      product: undefined,
+      responsibleId: undefined,
+      includeArchived: true,
+    })
+  ).filter((r) => r.responsible_id != null);
   const inKpiScope = (r: PipelineRow) =>
     !filters.responsibleId || r.responsible_id === filters.responsibleId;
   const members = await listVisibleMembers(dashViewer);

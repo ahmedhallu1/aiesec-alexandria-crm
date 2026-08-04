@@ -1,11 +1,11 @@
 import {
-  getViewer, listAccountsPage, listManualArchived, listVisibleMembers,
+  countUnassigned, getViewer, listAccountsPage, listManualArchived, listVisibleMembers,
   listReassignTargetsForViewer, listTeamFilterOptions,
 } from "@/server/data";
 import type { AccountFilters } from "@/server/data";
 import {
   accountScope, allowedAccountFunctions, canManageArchive,
-  canViewArchive, icxFunctions,
+  canSetRequestStateOnCreate, canViewArchive, icxFunctions,
 } from "@/lib/rbac";
 import { AccountsView } from "@/components/crm/accounts-view";
 import { memberIsB2B, memberIsB2C, type Stage } from "@/lib/types";
@@ -74,11 +74,15 @@ export default async function AccountsPage({
     listReassignTargetsForViewer(viewer),
     archived ? listManualArchived() : Promise.resolve([]),
   ]);
-  // Responsible options: every visible member (+ Unassigned — only for scopes
-  // that can actually SEE ownerless accounts, i.e. function-wide and LCP;
-  // member/TL scopes filter by responsible ids and never match NULL)
+  // Responsible options: every visible member, plus "— Unassigned" — offered
+  // to VPs, Directors and the LCP only (distributing the unowned pool is the
+  // leadership act; an MM meets those accounts inline in their own list), and
+  // only when there actually ARE unowned accounts to find.
+  const unassignedCount = await countUnassigned(viewer, filters.fn);
   const respOptions = [
-    ...(scope.kind !== "members" ? [{ id: "none", label: "— Unassigned" }] : []),
+    ...(unassignedCount > 0
+      ? [{ id: "none", label: `— Unassigned (${unassignedCount})` }]
+      : []),
     ...members
       .filter((m) => m.role !== "LCP")
       .map((m) => ({ id: m.id, label: m.name }))
@@ -132,6 +136,7 @@ export default async function AccountsPage({
         isAdmin: viewer.isAdmin,
         canAssignOthers:
           viewer.isAdmin || ["LCP", "LCVP", "Director", "Team Leader"].includes(viewer.role),
+        canSetRequestState: canSetRequestStateOnCreate(viewer),
         canViewArchive: archiveAllowed,
         canManageArchive: canManageArchive(viewer),
         canRemoveArchived:

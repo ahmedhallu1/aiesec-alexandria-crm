@@ -13,6 +13,7 @@ import {
   canEditRequestState,
   canManageMembership,
   canSeeLcConcerns,
+  canSetRequestStateOnCreate,
   canUseAdminTools,
   canReassignAccount,
   claimTargetFunction,
@@ -169,6 +170,11 @@ const createAccountSchema = z.object({
   social_link: linkField,
   website: linkField,
   requested_podio: z.boolean().nullish(),
+  /** v33.2 — people who hold Podio access may record what it said as they
+   *  create the account. "Rejected" is deliberately not accepted here: it
+   *  ARCHIVES an account, and an account that is born archived is a mistake,
+   *  not a workflow. */
+  request_state: z.enum(["Checking", "Approved"]).nullish(),
   comment: z.string().trim().nullish(),
   responsible_id: z.string().uuid().nullish(),
   contacts: z
@@ -337,6 +343,7 @@ export async function createAccount(
       contacts,
       ...legacy,
       requested_podio: data.requested_podio ?? false,
+      request_state: canSetRequestStateOnCreate(viewer) ? data.request_state ?? null : null,
       responsible_id: responsibleId,
       created_by: viewer.id,
       // continuous Podio updates (v24): ON by default for IGV / B2C / BD,
@@ -2497,6 +2504,8 @@ const memberSchema = z
     stakeholder_name: z.string().trim().nullish(),
     team_name: z.string().trim().nullish(),
     is_active: z.boolean(),
+    /** v33.2 — holds the LC's Podio access, so they may set Request States */
+    has_podio: z.boolean().optional(),
   })
   .refine((m) => !!m.email || !!m.phone, {
     message: "A member needs an email OR a phone number (phone-only members sign in with their number).",
@@ -2542,6 +2551,7 @@ export async function upsertMember(
     stakeholder_name: m.stakeholder_name || null,
     team_name: m.team_name || null,
     is_active: m.is_active,
+    has_podio: m.has_podio ?? false,
   };
 
   let id = m.id ?? null;
@@ -5761,6 +5771,8 @@ export async function requestCvUpload(file: {
   name: string;
   type: string;
   size: number;
+  /** SHA-256 of the FILE BYTES, computed in the browser (v33.2) */
+  sha256?: string;
 }): Promise<ActionResult<{ path: string; signedUrl: string }>> {
   const viewer = await getViewer();
   // v27: the CV pool is IGT-only — Consideration crew + IGT leaders
@@ -5774,6 +5786,32 @@ export async function requestCvUpload(file: {
   {
     const unsafe = unsafeUploadReason(file.name);
     if (unsafe) return fail(unsafe);
+  }
+
+  // DUPLICATE CHECK, before a byte is stored (v33.2). The pool is shared and
+  // several people upload after the same IR call, so the same CV kept arriving
+  // twice. Checking the content hash here means an exact duplicate costs no
+  // storage and no Gemini call — and the person is told WHOSE copy already
+  // exists, so they can go read it instead of re-uploading it.
+  if (file.sha256 && /^[0-9a-f]{64}$/i.test(file.sha256)) {
+    const { data: dupe } = await db()
+      .from("cvs")
+      .select("id, file_name, created_at, uploaded_by, members!uploaded_by(name)")
+      .eq("file_hash", file.sha256.toLowerCase())
+      .limit(1)
+      .maybeSingle();
+    if (dupe) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const who = (dupe as any).members?.name as string | undefined;
+      const when = (dupe as { created_at?: string }).created_at?.slice(0, 10);
+      return fail(
+        `This exact CV is already in the pool — "${(dupe as { file_name?: string }).file_name ?? "uploaded"}"` +
+          (who ? `, uploaded by ${who}` : "") +
+          (when ? ` on ${when}` : "") +
+          ". Search the pool for it instead of uploading it again.",
+        "duplicate"
+      );
+    }
   }
 
   const safeName = file.name.replace(/[^\w.\- ()]+/g, "_").slice(-80);
@@ -5861,6 +5899,7 @@ export async function confirmCvUpload(input: {
   name: string;
   type: string;
   size: number;
+  sha256?: string;
   partnerLcId?: string | null;
   newLc?: { name: string; country?: string | null } | null;
 }): Promise<ActionResult<{ id: string; status: string; note?: string }>> {
@@ -5890,6 +5929,11 @@ export async function confirmCvUpload(input: {
       file_name: (input.name || "CV").slice(0, 200),
       mime_type: input.type || "application/octet-stream",
       size_bytes: input.size,
+      // the content hash is what makes the NEXT upload of this file bounce
+      file_hash:
+        input.sha256 && /^[0-9a-f]{64}$/i.test(input.sha256)
+          ? input.sha256.toLowerCase()
+          : null,
       extraction_status: "pending",
       uploaded_by: viewer.id,
       uploader_name: viewer.name,

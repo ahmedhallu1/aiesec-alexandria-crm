@@ -52,6 +52,7 @@ export interface MemberRow {
   stakeholder_name: string | null;
   team_name: string | null;
   is_active: boolean;
+  has_podio?: boolean | null;
   first_login_at: string | null;
   has_password: boolean;
 }
@@ -363,6 +364,10 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
  *  5 types are EB & LB (one each), Function & Function leaders (one per
  *  function) and Team (a TL's team — many per function). Add, rename or
  *  remove; the sheet's Teams tab follows automatically. */
+/** The functions that submit partners to Podio at all — the only ones for
+ *  which "has Podio access" means anything. */
+const PODIO_FUNCTIONS = ["IGV", "IGT", "B2B", "BD", "B2C"];
+
 const TEAM_TYPE_OPTIONS = ["Team", "Function leaders", "Function", "EB", "LB"] as const;
 
 function TeamsCard({ teams }: { teams: TeamRegistryRow[] }) {
@@ -550,6 +555,7 @@ function MemberDialog({
     stakeholder_name: member?.stakeholder_name ?? "",
     team_name: member?.team_name ?? "",
     is_active: member?.is_active ?? true,
+    has_podio: !!member?.has_podio,
   });
 
   const toggle = (key: "functions" | "sub_functions", value: string) =>
@@ -636,6 +642,7 @@ function MemberDialog({
         stakeholder_name: form.stakeholder_name || null,
         team_name: form.team_name.trim() || null,
         is_active: form.is_active,
+        has_podio: form.has_podio,
       });
       if (res.ok) {
         toast.success(member ? "Member updated — sheet synced" : "Member added — sheet synced");
@@ -879,6 +886,25 @@ function MemberDialog({
                 onCheckedChange={(v) => setForm((f) => ({ ...f, is_active: v }))}
               />
             </div>
+            {/* PODIO ACCESS (v33.2). Only meaningful for the functions that
+                submit partners — offering it to TM or OGX would be noise. */}
+            {PODIO_FUNCTIONS.some(
+              (f) => form.functions.includes(f) || form.sub_functions.includes(f)
+            ) ? (
+              <div className="flex items-end justify-between gap-3 pb-1">
+                <div>
+                  <Label>Has Podio access</Label>
+                  <p className="text-xs text-muted-foreground">
+                    They hold the LC&apos;s Podio login — so they can set an account&apos;s
+                    Request State themselves, like an MM
+                  </p>
+                </div>
+                <Switch
+                  checked={!!form.has_podio}
+                  onCheckedChange={(v) => setForm((f) => ({ ...f, has_podio: v }))}
+                />
+              </div>
+            ) : null}
           </div>
         </div>
 

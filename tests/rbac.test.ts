@@ -4,8 +4,12 @@ import {
   allowedAccountFunctions,
   canEditAccount,
   canReassignAccount,
+  canEditRequestState,
+  canFilterUnassigned,
   canSeeCvPool,
   canSeeLcConcerns,
+  canSeeUnassigned,
+  hasPodioAccess,
   canUseAdminTools,
   canViewAccount,
   considerationFunctions,
@@ -110,25 +114,70 @@ describe("account scope — the primary boundary", () => {
   });
 });
 
-describe("unowned accounts are claimable, owned ones are not", () => {
-  it("an account nobody owns can be taken, across functions", () => {
-    expect(isClaimableAccount(igvRaiser, account({ function: "IGT", responsible_id: null }))).toBe(true);
+describe("unowned accounts: MMs and up only (v33.2)", () => {
+  const igvTl = member({ id: "tl-igv", role: "Team Leader", functions: ["IGV"], sub_functions: ["Raising"] });
+  const igvCoord = member({ id: "co-igv", role: "Coordinator", functions: ["IGV"], sub_functions: ["Raising"] });
+
+  it("an MM can take an account nobody owns, across functions", () => {
+    expect(isClaimableAccount(igvTl, account({ function: "IGT", responsible_id: null }))).toBe(true);
+    expect(isClaimableAccount(igvCoord, account({ function: "IGT", responsible_id: null }))).toBe(true);
+    expect(canSeeUnassigned(igvTl)).toBe(true);
+  });
+
+  it("a plain MEMBER cannot — the unowned pool is a distribution problem", () => {
+    // 1,300 ownerless names buried in a member's own list stops it being a
+    // to-do list; handing them out is their MM's job
+    expect(canSeeUnassigned(igvRaiser)).toBe(false);
+    expect(isClaimableAccount(igvRaiser, account({ responsible_id: null }))).toBe(false);
+  });
+
+  it("only VPs, Directors and the LCP get the explicit Unassigned FILTER", () => {
+    expect(canFilterUnassigned(igvVp)).toBe(true);
+    expect(canFilterUnassigned(lcp)).toBe(true);
+    expect(canFilterUnassigned(igvTl)).toBe(false); // sees them inline, can't slice the pool
+    expect(canFilterUnassigned(igvRaiser)).toBe(false);
   });
 
   it("an OWNED account is never claimable — this is the IDOR guard", () => {
-    expect(isClaimableAccount(igvRaiser, account({ responsible_id: "other" }))).toBe(false);
+    expect(isClaimableAccount(igvTl, account({ responsible_id: "other" }))).toBe(false);
     expect(canReassignAccount(igvRaiser, account({ responsible_id: "other" }))).toBe(false);
   });
 
   it("an ARCHIVED unowned account is not claimable", () => {
     expect(
-      isClaimableAccount(igvRaiser, account({ responsible_id: null, out_of_process: true }))
+      isClaimableAccount(igvTl, account({ responsible_id: null, out_of_process: true }))
     ).toBe(false);
   });
 
   it("someone with no create rights cannot claim anything", () => {
-    const outsider = member({ functions: ["CXP"], sub_functions: ["CXP"] });
+    const outsider = member({ role: "Team Leader", functions: ["CXP"], sub_functions: ["CXP"] });
     expect(isClaimableAccount(outsider, account({ responsible_id: null }))).toBe(false);
+  });
+});
+
+describe("Podio access is a capability, not a rank (v33.2)", () => {
+  const acct = { function: "IGV", responsible_id: "podio-member", out_of_process: false };
+  const tagged = member({
+    id: "podio-member", functions: ["IGV"], sub_functions: ["Raising"], has_podio: true,
+  });
+  const untagged = member({ id: "podio-member", functions: ["IGV"], sub_functions: ["Raising"] });
+
+  it("a tagged member may set the Request State on their OWN account", () => {
+    expect(hasPodioAccess(tagged)).toBe(true);
+    expect(canEditRequestState(tagged, acct)).toBe(true);
+  });
+
+  it("an untagged member may not", () => {
+    expect(canEditRequestState(untagged, acct)).toBe(false);
+  });
+
+  it("the tag never reaches someone else's account", () => {
+    expect(canEditRequestState(tagged, { ...acct, responsible_id: "someone-else" })).toBe(false);
+  });
+
+  it("the tag is meaningless outside the functions that submit to Podio", () => {
+    const tmTagged = member({ functions: ["TM"], sub_functions: ["TM"], has_podio: true });
+    expect(hasPodioAccess(tmTagged)).toBe(false);
   });
 });
 

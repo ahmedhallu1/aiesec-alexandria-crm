@@ -1904,10 +1904,23 @@ function CvsTab({
       }
       setPhase("uploading");
       try {
+        // hash the bytes FIRST — an exact duplicate is refused before a byte
+        // is stored or a Gemini call is made (v33.2)
+        let sha256: string | undefined;
+        try {
+          const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+          sha256 = Array.from(new Uint8Array(digest))
+            .map((b) => b.toString(16).padStart(2, "0"))
+            .join("");
+        } catch {
+          // no crypto.subtle (very old browser / insecure origin) — upload
+          // still works, it just can't be de-duplicated
+        }
         const meta = {
           name: file.name,
           type: file.type || "application/octet-stream",
           size: file.size,
+          sha256,
         };
         const req = await requestCvUpload(meta);
         if (!req.ok || !req.data) {
