@@ -5375,6 +5375,63 @@ export async function completeIrCall(
 /** Cancels a SCHEDULED call (owner or VP/Director/LCP) — v28: a short reason
  *  is REQUIRED, the calendar event is removed (attendees notified), and the
  *  IR who booked it gets the reason by email + a link to rebook. */
+/** DELETES an IR-call log outright (v33.5).
+ *
+ *  Cancelling is for a scheduled call that won't happen — the IR is told and
+ *  the row stays as history. This is the other case: a log recorded by
+ *  mistake, a duplicate, or a test. It leaves nothing behind, so it is the
+ *  call's OWNER or a leader only, and it removes the calendar event with it.
+ *
+ *  No email: nobody was promised anything by a row that shouldn't exist. */
+export async function deleteIrCall(id: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  if (viewer.sandbox)
+    return fail("Deleting calls is disabled in the sandbox test view — a delete can't be undone on exit.");
+
+  const { data: call } = await db()
+    .from("ir_calls")
+    .select("id, member_id, member_name, partner_lc_name, calendar_event_id, called_at")
+    .eq("id", id)
+    .maybeSingle();
+  if (!call) return fail("That call is already gone.");
+
+  const isLeader =
+    viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
+  if (call.member_id !== viewer.id && !isLeader)
+    return fail("Only the person who logged this call — or a leader — can delete it.", "forbidden");
+
+  // the event on the owner's calendar goes with it; a stale invite for a call
+  // that no longer exists is worse than no invite
+  if (call.calendar_event_id) {
+    try {
+      const { data: owner } = await db()
+        .from("members")
+        .select("google_refresh_token")
+        .eq("id", call.member_id)
+        .maybeSingle();
+      const token = (owner as { google_refresh_token: string | null } | null)?.google_refresh_token;
+      if (token) {
+        const { deleteIrCallEvent } = await import("@/lib/google/calendar");
+        await deleteIrCallEvent(token, call.calendar_event_id);
+      }
+    } catch (e) {
+      console.warn("[ir-call] calendar cleanup on delete failed:", e);
+    }
+  }
+
+  await snapshotForUndo("ir_calls", id);
+  const { error } = await db().from("ir_calls").delete().eq("id", id);
+  if (error) return fail(error.message);
+  await recordUndo("ir_calls", id, "delete");
+  await logAudit(viewer.id, "ir_call_deleted", "ir_call", id, {
+    lc: call.partner_lc_name,
+    loggedBy: call.member_name,
+  });
+  revalidatePath("/consideration");
+  return { ok: true };
+}
+
 export async function cancelIrCall(id: string, reason: string): Promise<ActionResult> {
   const viewer = await getViewer();
   if (!hasConsiderationAccess(viewer)) return considerationFail();

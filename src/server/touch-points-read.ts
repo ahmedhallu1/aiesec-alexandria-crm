@@ -39,12 +39,53 @@ const fnsOf = (m: { functions?: string[] | null; sub_functions?: string[] | null
   ...(m.sub_functions ?? []),
 ];
 
+/** The teams a person belongs to. The membership sheet lists ALL of them in
+ *  one cell — "Suits, شماريخ" is the function-leaders team AND the LB — so a
+ *  team is a member of this list, never the whole string (v33.5).
+ *
+ *  Matching the whole cell was two bugs at once: a touch point was labelled
+ *  with the full list ("booked for Suits, شماريخ" instead of Hana's team), and
+ *  the audience only matched people whose cell was byte-identical, so anyone
+ *  belonging to a different combination of the same teams was silently left
+ *  out of the invite and the attendance sheet. */
+export function teamsOf(cell: string | null | undefined): string[] {
+  return (cell ?? "")
+    .split(/[,;]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+/** What to CALL a Team Leader's own team.
+ *
+ *  Most TL teams have no name at all: the registry holds EB, LB, function and
+ *  function-leaders teams, and a leader's cell lists those — Hana's reads
+ *  "Suits, شماريخ", which is the B2B function-leaders team and the LB, neither
+ *  of which is her team. So: the registered `Team` from her cell if one
+ *  exists, otherwise "Hana Wael's team", the same convention the dashboard
+ *  filters already use. The NAME is only a label — who actually belongs is
+ *  decided by who reports to her (v33.5). */
+export async function ownTeamName(v: {
+  name: string;
+  team_name: string | null;
+}): Promise<string> {
+  const names = teamsOf(v.team_name);
+  if (names.length > 0) {
+    const { data } = await db().from("teams").select("name").eq("type", "Team");
+    const registered = new Set(
+      ((data ?? []) as { name: string }[]).map((t) => t.name.trim().toLowerCase())
+    );
+    const real = names.find((n) => registered.has(n.toLowerCase()));
+    if (real) return real;
+  }
+  return `${v.name}'s team`;
+}
+
 /** Everyone expected at a touch point — the audience the invite goes to and
  *  the exact list attendance is taken over. */
 export async function touchPointAudience(tp: TouchPointRow): Promise<AudienceMember[]> {
   const { data } = await db()
     .from("members")
-    .select("id, name, email, role, team_name, functions, sub_functions")
+    .select("id, name, email, role, team_name, stakeholder_id, functions, sub_functions")
     .eq("is_active", true)
     .order("name");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -70,9 +111,14 @@ export async function touchPointAudience(tp: TouchPointRow): Promise<AudienceMem
     if (tp.scope === "function") return fnsOf(m).some((f) => functions.has(f));
     // a team point: that team's members INSIDE the point's own function, plus
     // any invited team's — and an invited FUNCTION comes along whole
+    // A TEAM IS WHO REPORTS TO THE LEADER, not who shares a string (v33.5).
+    // Most TL teams have no registered name, and the members' team cells list
+    // the structural teams instead — so name-matching quietly produced an
+    // audience of nobody. The manager link is the actual team; the name match
+    // stays for INVITED teams, which are named by definition.
+    if (tp.owner_id && m.stakeholder_id === tp.owner_id) return true;
     return (
-      (m.team_name &&
-        teams.has(m.team_name) &&
+      (teamsOf(m.team_name).some((t) => teams.has(t)) &&
         (ownFns.size === 0 || fnsOf(m).some((f) => ownFns.has(f)))) ||
       fnsOf(m).some((f) => invFns.has(f))
     );
@@ -103,8 +149,9 @@ export function viewerSeesTouchPoint(viewer: Viewer, tp: TouchPointRow): boolean
     ...(tp.function_key ? [tp.function_key] : []),
   ]);
   if (mine.some((f) => fns.has(f))) return true;
+  if (tp.owner_id && viewer.stakeholder_id === tp.owner_id) return true;
   const teams = [...(tp.invited_teams ?? []), ...(tp.team_name ? [tp.team_name] : [])];
-  return !!viewer.team_name && teams.includes(viewer.team_name);
+  return teamsOf(viewer.team_name).some((t) => teams.includes(t));
 }
 
 /** Every touch point the viewer may see in a window (the calendar month). */

@@ -28,6 +28,9 @@ export interface TourModules {
 function buildSteps(role: string, m: TourModules): TourStep[] {
   const steps: TourStep[] = [];
   const isLeader = role === "LCVP" || role === "Director" || role === "LCP";
+  // who TAKES attendance rather than receiving it: MMs and up, and all of TM
+  const records =
+    isLeader || role === "Team Leader" || role === "Coordinator" || m.tm;
 
   if (m.raising) {
     steps.push(
@@ -149,7 +152,12 @@ function buildSteps(role: string, m: TourModules): TourStep[] {
       openBy: '[data-tour="nav:open"]',
       target: "nav:/attendance",
       title: "Attendance",
-      body: "Meetings, working hours and outings are recorded here. If a mark looks wrong, Appeal it — the person who recorded it gets told.",
+      // whoever RECORDS attendance is told what they owe, not how to appeal
+      // it — a TM Coordinator being taught to appeal their own marks is the
+      // system talking to the wrong person (v33.5)
+      body: records
+        ? "Meetings, working hours and outings are recorded here. Fill yours in — until you do, it keeps reminding you, and appeals come to you."
+        : "Meetings, working hours and outings are recorded here. If a mark looks wrong, Appeal it — the person who recorded it gets told.",
     },
     {
       route: "/lc-feedback",

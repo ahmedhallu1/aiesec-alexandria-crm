@@ -109,14 +109,13 @@ const OWED_LOOKBACK_DAYS = 60;
  *  minutes early still counts as being there. */
 export const WORK_GRACE_MINUTES = 15;
 
-/** The rule, in one plain sentence — printed in the UI so nobody guesses. */
+/** The rule, SHORT (v33.5). The long version spelled out every action type,
+ *  the grace period and the gap — five lines nobody read, on a card whose real
+ *  message is "check this and confirm it". The detail still lives in the
+ *  Playbook for whoever wants it. */
 export const WORKING_HOURS_RULE =
-  `You are marked present automatically when you do at least ${WORK_MIN_ACTIONS} real work actions ` +
-  `(an account added or edited, a contact, a visit, a deal, a comment, a sign-up ` +
-  `or an IR call) inside the ` +
-  `${WORK_SESSION_HOURS}-hour session — from ${WORK_GRACE_MINUTES} minutes before it starts — ` +
-  `with at least ${WORK_MIN_GAP_MINUTES} minutes between your first and your last one. ` +
-  `Whoever runs the session still reviews it and confirms — nothing is final before that.`;
+  `Present = ${WORK_MIN_ACTIONS}+ real actions during the session, ` +
+  `${WORK_MIN_GAP_MINUTES}+ minutes apart.`;
 
 /** The window a working-hours session is judged over. */
 export function workWindow(startsAt: string): { from: string; to: string } {

@@ -19,7 +19,12 @@ import { Hint } from "./hint";
  *  nobody watches second-by-second, and the FOCUS refresh below means coming
  *  back to the tab is always instant and current — which is when staleness is
  *  actually noticed. */
-const MIN_GAP_MS = 20_000;
+/** v33.5 — raised 20s → 2min. Focus-driven refresh is cheap per event but a
+ *  member alt-tabbing between Sodio and WhatsApp fires it constantly, and each
+ *  one is a full server render. Two minutes still means "current when you come
+ *  back to it" for a CRM nobody watches second-by-second, and it cut the
+ *  refresh traffic of an active session by roughly six. */
+const MIN_GAP_MS = 120_000;
 
 export function AutoRefresh() {
   const router = useRouter();

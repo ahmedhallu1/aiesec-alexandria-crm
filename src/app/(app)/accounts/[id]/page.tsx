@@ -66,6 +66,7 @@ export default async function AccountPage({
   return (
     <AccountDetailView
       viewerId={viewer.id}
+      viewerName={viewer.name}
       account={account}
       attempts={attempts}
       visits={visits}

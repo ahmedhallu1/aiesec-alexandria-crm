@@ -5,12 +5,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   CalendarClock, Check, ChevronDown, ClipboardCheck, Copy, ExternalLink,
-  FileText, Globe2, ImagePlus, Link2, Loader2, Mail, Pencil, Phone, Plus, Send,
+  Building2, FileText, Globe2, ImagePlus, Link2, Loader2, Mail, Pencil, Phone, Plus, Send,
   Search, Settings2, Sparkles, Trash2, Upload, Video, X,
 } from "lucide-react";
 import {
   addPartnerLc, cancelIrCall, completeIrCall, confirmCvUpload, deleteCv,
-  createIgtExpectationDraft, deletePartnerLc, getCvFileUrl, previewIgtExpectationMail,
+  createIgtExpectationDraft, deleteIrCall, deletePartnerLc, getCvFileUrl,
+  previewIgtExpectationMail,
   recordIrCall, requestCvUpload, sendIgtExpectationMail,
   requestIrReschedule, rerunCvExtraction, saveIrBookingSettings,
   updateCvFields, updatePartnerLc,
@@ -34,7 +35,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -108,6 +109,127 @@ interface ViewerInfo {
   isVp: boolean;
   showCvs: boolean;
   showExpectation: boolean;
+}
+
+// ------------------------------------------------ partner LCs & IRs (v33.5)
+
+/** THE PARTNER-LC RECORD.
+ *
+ *  Everything the IR calls collected already existed — which LCs we talk to,
+ *  in which country, how many calls, how many CVs, and the actual PEOPLE on
+ *  the other side with their roles and emails — but it lived inside a ⚙ dialog
+ *  meant for renaming, so nobody read it. Relationships with partner LCs
+ *  outlive the term that built them; this is the page you hand over.
+ *
+ *  Clicking an LC in the call log lands here, on that LC. */
+function PartnerLcsTab({
+  lcs,
+  highlight,
+  viewer,
+}: {
+  lcs: (PartnerLc | PartnerLcDetail)[];
+  highlight?: string | null;
+  viewer: ViewerInfo;
+}) {
+  const [q, setQ] = useState("");
+  const detailed = lcs.filter((l): l is PartnerLcDetail => "calls" in l);
+  const needle = q.trim().toLowerCase();
+  const shown = detailed.filter(
+    (l) =>
+      !needle ||
+      l.name.toLowerCase().includes(needle) ||
+      (l.country ?? "").toLowerCase().includes(needle) ||
+      l.contacts.some((c) => (c.name ?? "").toLowerCase().includes(needle))
+  );
+  // the linked-to LC first, so the click lands on it
+  const ordered = highlight
+    ? [...shown].sort((a, b) => (a.id === highlight ? -1 : b.id === highlight ? 1 : 0))
+    : shown;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-56 flex-1">
+          <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="pl-8"
+            placeholder="Search an LC, a country or an IR…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </div>
+        <span className="text-sm text-muted-foreground">
+          {ordered.length} of {detailed.length}
+        </span>
+      </div>
+
+      {ordered.length === 0 ? (
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+            {detailed.length === 0
+              ? "No partner LCs yet — they appear as soon as calls are logged."
+              : "Nothing matches that search."}
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-2.5 md:grid-cols-2">
+          {ordered.map((lc) => (
+            <Card
+              key={lc.id}
+              className={cn(
+                "rise-in",
+                highlight === lc.id && "border-primary ring-1 ring-primary/40"
+              )}
+            >
+              <CardHeader className="pb-2">
+                <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+                  <span className="min-w-0 break-words" dir="auto">{lc.name}</span>
+                  {lc.country ? (
+                    <Badge variant="secondary" className="font-normal">{lc.country}</Badge>
+                  ) : null}
+                </CardTitle>
+                <CardDescription>
+                  {lc.calls} call{lc.calls === 1 ? "" : "s"}
+                  {viewer.showCvs ? ` · ${lc.cvs} CV${lc.cvs === 1 ? "" : "s"}` : ""}
+                  {lc.lastCallAt ? ` · last spoke ${fmtDateTime(lc.lastCallAt)}` : " · never spoken"}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-1.5">
+                {lc.contacts.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No named IR yet — the next booking collects one.
+                  </p>
+                ) : (
+                  lc.contacts.map((c, i) => (
+                    <div
+                      key={`${c.email ?? c.name ?? i}`}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-2.5 py-1.5"
+                    >
+                      <div className="min-w-0">
+                        <p className="min-w-0 break-words text-sm font-medium" dir="auto">
+                          {c.name || "—"}
+                        </p>
+                        {c.role ? (
+                          <p className="text-xs text-muted-foreground" dir="auto">{c.role}</p>
+                        ) : null}
+                      </div>
+                      {c.email ? (
+                        <Button asChild size="sm" variant="outline" className="h-7">
+                          <a href={`mailto:${c.email}`}>
+                            <Mail className="size-3.5" /> Email
+                          </a>
+                        </Button>
+                      ) : null}
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // -------------------------------------------- IGT expectation mail (v33.3)
@@ -650,9 +772,11 @@ function PartnerLcManageDialog({
 export function ConsiderationView({
   pageSize,
   pageSizeOptions,
-  tab, lcs, calls, cvs, q, viewer, booking, origin,
+  tab, lcs, calls, cvs, q, viewer, booking, origin, highlightLc,
 }: {
-  tab: "calls" | "cvs" | "expectation";
+  tab: "calls" | "cvs" | "expectation" | "lcs";
+  /** ?lc=<id> — the LC the log linked to, scrolled to and outlined */
+  highlightLc?: string | null;
   lcs: (PartnerLc | PartnerLcDetail)[];
   calls: CallsData;
   cvs: PageData<CvRow>;
@@ -692,6 +816,7 @@ export function ConsiderationView({
   const tabs = [
     { key: "calls", label: "IR calls", icon: Globe2 },
     ...(viewer.showCvs ? [{ key: "cvs", label: "CVs", icon: FileText }] : []),
+    { key: "lcs", label: "Partner LCs", icon: Building2 },
     ...(viewer.showExpectation
       ? [{ key: "expectation", label: "Expectation mail", icon: Mail }]
       : []),
@@ -736,7 +861,9 @@ export function ConsiderationView({
             <WalkingLoader label="Loading…" />
           </div>
         ) : null}
-        {tab === "expectation" && viewer.showExpectation ? (
+        {tab === "lcs" ? (
+          <PartnerLcsTab lcs={allLcs} highlight={highlightLc} viewer={viewer} />
+        ) : tab === "expectation" && viewer.showExpectation ? (
           <IgtExpectationTab />
         ) : tab === "calls" || !viewer.showCvs ? (
           <IrCallsTab
@@ -746,6 +873,7 @@ export function ConsiderationView({
             data={calls}
             lcs={allLcs}
             onLcCreated={lcAdded}
+            onOpenLc={(id) => setParams({ tab: "lcs", lc: id, page: null })}
             goPage={(p) => setParams({ page: String(p + 1) })}
             viewer={viewer}
             booking={booking}
@@ -1218,6 +1346,7 @@ const CALL_COLUMNS: TableColumn[] = [
   { key: "booker_email", label: "Booker email", defaultHidden: true },
   { key: "booker_phone", label: "Booker phone", defaultHidden: true },
   { key: "duration", label: "Duration", defaultHidden: true },
+  { key: "actions", label: "", required: true },
 ];
 
 const CALL_CELL_CLASS: Record<string, string> = {
@@ -1293,11 +1422,13 @@ const CV_SORTERS: Record<string, (c: CvRow) => string | number | null> = {
 
 function IrCallsTab({
   data, lcs, onLcCreated, goPage, viewer, booking, origin,
-  pageSize, pageSizeOptions, onPageSize,
+  pageSize, pageSizeOptions, onPageSize, onOpenLc,
 }: {
   pageSize: number;
   pageSizeOptions: number[];
   onPageSize: (n: number) => void;
+  /** jump to a partner LC's record from its name in the log */
+  onOpenLc: (lcId: string | null) => void;
   data: CallsData;
   lcs: (PartnerLc | PartnerLcDetail)[];
   onLcCreated: (lc: PartnerLc) => void;
@@ -1312,6 +1443,9 @@ function IrCallsTab({
   const [manualOpen, setManualOpen] = useState(false);
 
   const canTouch = (c: IrCallRow) => viewer.isVp || c.member_id === viewer.id;
+  const [deleting, setDeleting] = useState<IrCallRow | null>(null);
+  const [deletePending, startDelete] = useTransition();
+  const router = useRouter();
   const pages = Math.max(1, Math.ceil(data.total / pageSize));
 
   // ⚙ Columns + click-to-sort over the page in hand
@@ -1326,7 +1460,31 @@ function IrCallsTab({
       case "when":
         return fmtDateTime(c.called_at);
       case "lc":
-        return <span dir="auto">{c.partner_lc_name}</span>;
+        // the LC name is a link into its own record — who they are, how many
+        // calls we've had, which of their IRs we've spoken to (v33.5)
+        return (
+          <button
+            type="button"
+            className="text-left font-medium text-primary hover:underline"
+            dir="auto"
+            onClick={() => onOpenLc(c.partner_lc_id)}
+          >
+            {c.partner_lc_name}
+          </button>
+        );
+      case "actions":
+        return canTouch(c) ? (
+          <Hint label="Delete this log — for a duplicate or a mistake">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="size-7 text-muted-foreground hover:text-destructive"
+              onClick={() => setDeleting(c)}
+            >
+              <Trash2 className="size-3.5" />
+            </Button>
+          </Hint>
+        ) : null;
       case "by":
         return <span dir="auto">{c.member_name}</span>;
       case "status":
@@ -1517,7 +1675,48 @@ function IrCallsTab({
           </span>
           <ChevronDown className={cn("size-4 transition-transform", manualOpen && "rotate-180")} />
         </Button>
-        {manualOpen ? (
+        {/* DELETING A LOG is not the same as cancelling a call: cancelling tells
+          the IR and keeps the history, this is for a row that shouldn't
+          exist — a duplicate, a mis-click, a test (v33.5). */}
+      <Dialog open={!!deleting} onOpenChange={(o) => { if (!o) setDeleting(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete this call log?</DialogTitle>
+            <DialogDescription>
+              {deleting
+                ? `The log of the call with ${deleting.partner_lc_name} on ${fmtDateTime(deleting.called_at)} is removed for good, along with its calendar event. Nobody is emailed — to call it OFF and tell the IR, cancel it instead.`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDeleting(null)} disabled={deletePending}>
+              Keep it
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deletePending}
+              onClick={() => {
+                const target = deleting;
+                if (!target) return;
+                startDelete(async () => {
+                  const res = await deleteIrCall(target.id);
+                  if (!res.ok) {
+                    toast.error(res.error);
+                    return;
+                  }
+                  toast.success("Call log deleted");
+                  setDeleting(null);
+                  router.refresh();
+                });
+              }}
+            >
+              {deletePending ? "Deleting…" : "Delete the log"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {manualOpen ? (
           <div className="mt-2">
             <ManualCallForm lcs={lcs} onLcCreated={onLcCreated} canManageLcs={viewer.isVp} />
           </div>
