@@ -10,7 +10,7 @@ import {
   hasTmAccess,
   isTmCore,
 } from "@/lib/rbac";
-import { invitableTeams, listTouchPoints } from "@/server/touch-points-read";
+import { invitableTeams, listTouchPoints, ownTeamName } from "@/server/touch-points-read";
 import { LC_FUNCTIONS, NO_WORKING_HOURS_FUNCTIONS, touchPointLabel } from "@/lib/types";
 import { audienceLabel, expandTouchPointFns } from "@/lib/touch-points";
 import { cairoToUtc } from "@/lib/time";
@@ -127,8 +127,13 @@ export default async function CalendarPage({
   ];
   const ownExpanded = expandTouchPointFns(ownFns);
   const primaryFn = ownFns[0] ?? "";
+  // THE VIEWER'S OWN TEAM, resolved (v33.6). `viewer.team_name` is the whole
+  // comma-list from the membership sheet — "Suits, شماريخ" is the B2B
+  // function-leaders team and the LB, not anybody's team — so the picker was
+  // offering that string as if it were a team name.
+  const myTeamName = await ownTeamName(viewer);
   const [siblingTeams, allTeams] = await Promise.all([
-    primaryFn ? invitableTeams(primaryFn, viewer.team_name) : Promise.resolve([]),
+    primaryFn ? invitableTeams(primaryFn, myTeamName) : Promise.resolve([]),
     primaryFn ? invitableTeams(primaryFn, null) : Promise.resolve([]),
   ]);
   const otherFunctions = (LC_FUNCTIONS as string[]).filter(
@@ -155,8 +160,8 @@ export default async function CalendarPage({
           ? {
               scopes,
               functions: ownFns,
-              teams: picksAnyTeam ? allTeams : viewer.team_name ? [viewer.team_name] : [],
-              myTeam: viewer.team_name,
+              teams: picksAnyTeam ? allTeams : [myTeamName],
+              myTeam: myTeamName,
               siblingTeams,
               otherFunctions,
             }

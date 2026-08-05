@@ -3,6 +3,7 @@ import { cache } from "react";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/supabase";
+import { dashboardCacheKey } from "@/lib/dashboard-cache";
 import { env } from "@/lib/env";
 import {
   considerationFunctions,
@@ -470,12 +471,16 @@ export async function fetchAll<T>(build: () => any, max = MAX_FETCH_ROWS): Promi
 export async function listAccounts(
   viewer: Viewer,
   filters: AccountFilters = {},
-  max = MAX_FETCH_ROWS
+  max = MAX_FETCH_ROWS,
+  columns?: string
 ): Promise<PipelineRow[]> {
   const out: PipelineRow[] = [];
   for (let off = 0; off < max; off += DB_PAGE) {
     const attempt = async (bdSafe: boolean) =>
-      (await buildAccountsQuery(viewer, filters, bdSafe)).query.range(off, off + DB_PAGE - 1);
+      (await buildAccountsQuery(viewer, filters, bdSafe, false, columns)).query.range(
+        off,
+        off + DB_PAGE - 1
+      );
     let { data, error } = await attempt(false);
     // MIGRATION-0014 GRACE: before the migration runs, Postgres rejects the
     // "BD" enum value (22P02 on lc_function). Retry without BD so a deploy can
@@ -485,7 +490,7 @@ export async function listAccounts(
       ({ data, error } = await attempt(true));
     }
     if (error) throw error;
-    const chunk = (data ?? []) as PipelineRow[];
+    const chunk = (data ?? []) as unknown as PipelineRow[];
     out.push(...chunk);
     if (chunk.length < DB_PAGE || out.length >= max) break;
   }
@@ -530,7 +535,7 @@ export async function listAccountsPage(
     ({ data, error, count } = await fetchPage(served));
     if (error) throw error;
   }
-  const rows = (data ?? []) as PipelineRow[];
+  const rows = (data ?? []) as unknown as PipelineRow[];
   // The Comment column shows the WHOLE thread, not just the pinned line — one
   // extra query for the page's ~100 accounts, never per row (v33). Archived
   // comments stay hidden, exactly as they are on the account page.
@@ -564,7 +569,9 @@ async function buildAccountsQuery(
   viewer: Viewer,
   filters: AccountFilters,
   bdSafe: boolean,
-  withCount = false
+  withCount = false,
+  /** a narrowed projection, e.g. the dashboard's 16 fields */
+  columns?: string
 ) {
   const scope = accountScope(viewer);
   const effScope: AccountScope =
@@ -573,7 +580,11 @@ async function buildAccountsQuery(
       : scope;
   let query = db()
     .from("accounts_pipeline")
-    .select("*", withCount ? { count: "exact" } : undefined);
+    // COLUMNS ARE A HOSTING BILL (v33.6). The view has ~70 columns and the
+    // dashboard aggregates 16 of them, over ~4,000 rows, on every render —
+    // the rest is payload to ship, parse and throw away. Callers that know
+    // what they need say so; everyone else still gets the whole row.
+    .select(columns ?? "*", withCount ? { count: "exact" } : undefined);
   // the Archived TAB is LC-wide (v22.2): the archive is the shared blacklist,
   // so it skips the account scope. Everything else stays scoped (dashboards'
   // includeArchived reads included).
@@ -1232,6 +1243,40 @@ function addRowLane(s: FunnelStats, r: PipelineRow, lane: string) {
   }
 }
 
+/** How long a dashboard read may be reused. Long enough that a burst of
+ *  refreshes costs one query, short enough that "I just logged a contact"
+ *  shows up while you are still looking at the screen. */
+const DASHBOARD_TTL_SECONDS = 60;
+
+/** Exactly the columns the dashboard reads — every one of them is used by
+ *  `addRowLane`, `laneSlots`, `rowInLane` or a drill grouping. Adding a field
+ *  to those functions means adding it HERE too, or it arrives undefined and
+ *  the number it feeds silently reads zero. */
+const DASHBOARD_COLUMNS = [
+  "id",
+  "function",
+  "product",
+  "stage",
+  "attempts",
+  "visit_id",
+  "visit_done",
+  "out_of_process",
+  "contact_limit_reached",
+  "next_step_missing",
+  "deals_count",
+  "slots_count",
+  "slots_igv_count",
+  "slots_igta_count",
+  "slots_igte_count",
+  "responsible_id",
+  "responsible_name",
+  "responsible_role",
+  "responsible_team_name",
+  "responsible_stakeholder_id",
+  "created_at",
+  "is_test",
+].join(",");
+
 /** Dashboard visibility is FUNCTION-wide for everyone in the module (the goal
  *  and the numbers are a shared trigger) — members still only OPEN their own
  *  accounts; this affects aggregates only. */
@@ -1299,15 +1344,25 @@ export async function getDashboard(
   // is failing at contacting when really nobody has been given the names yet.
   // They can carry nothing else — scheduling a visit or recording a deal both
   // refuse until the account is assigned.
-  const rows = (
-    await listAccounts(dashViewer, {
-      ...filters,
-      fn: undefined,
-      product: undefined,
-      responsibleId: undefined,
-      includeArchived: true,
-    })
-  ).filter((r) => r.responsible_id != null);
+  const rowFilters = {
+    ...filters,
+    fn: undefined,
+    product: undefined,
+    responsibleId: undefined,
+    includeArchived: true,
+  };
+  const key = dashboardCacheKey(accountScope(dashViewer), !!dashViewer.testMode, {
+    from: rowFilters.from,
+    to: rowFilters.to,
+  });
+  const { unstable_cache } = await import("next/cache");
+  const readRows = unstable_cache(
+    async () =>
+      listAccounts(dashViewer, rowFilters, MAX_FETCH_ROWS, DASHBOARD_COLUMNS),
+    ["dashboard-rows", key],
+    { revalidate: DASHBOARD_TTL_SECONDS, tags: ["accounts"] }
+  );
+  const rows = (await readRows()).filter((r) => r.responsible_id != null);
   const inKpiScope = (r: PipelineRow) =>
     !filters.responsibleId || r.responsible_id === filters.responsibleId;
   const members = await listVisibleMembers(dashViewer);
@@ -1670,6 +1725,11 @@ export interface MemberDirectoryEntry {
    *  raising → opens · bd → money (EGP) · consideration/ogx → approvals (plan)
    *  · other → info only */
   mos: "raising" | "bd" | "b2c" | "consideration" | "ogx" | "other";
+  /** EVERY side this member works, in order (v33.6). Plenty of ICX MMs are
+   *  "Raising, Consideration" — showing one set of numbers and calling it
+   *  their MOS hid half their job, and made a whole side of the funnel
+   *  invisible to the person reviewing them. `mos` stays as the primary. */
+  mosAll: ("raising" | "bd" | "b2c" | "consideration" | "ogx" | "other")[];
   /** the member's MOS/KPIs — their own accounts' funnel numbers */
   kpis: {
     mr: number;
@@ -2085,6 +2145,28 @@ export async function listMembersDirectory(
     return "other";
   };
 
+  /** Every side, not just the dominant one — an ICX member labelled
+   *  "Raising, Consideration" does both jobs and is reviewed on both. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const classifyAll = (m: any): MemberDirectoryEntry["mosAll"] => {
+    const primary = classify(m);
+    const fns: string[] = m.functions ?? [];
+    const subs: string[] = m.sub_functions ?? [];
+    const icx = fns.includes("IGV") || fns.includes("IGT");
+    const out: MemberDirectoryEntry["mosAll"] = [primary];
+    if (
+      icx &&
+      primary === "raising" &&
+      subs.includes("Consideration") &&
+      m.role !== "LCVP" &&
+      m.role !== "Director"
+    )
+      out.push("consideration");
+    if (icx && primary === "consideration" && (subs.includes("Raising") || subs.includes("ICX")))
+      out.unshift("raising");
+    return out;
+  };
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const members = (membersData ?? []) as any[];
   // names resolve over EVERY active member (a dropped person can still be
@@ -2101,6 +2183,7 @@ export async function listMembersDirectory(
     team_name: m.team_name,
     manager: m.stakeholder_id ? nameById.get(m.stakeholder_id) ?? null : null,
     mos: classify(m),
+    mosAll: classifyAll(m),
     kpis: kpisById.get(m.id) ?? emptyAgg(),
   }));
 }
@@ -3821,7 +3904,13 @@ export interface PartnerLcDetail extends PartnerLc {
   calls: number;
   cvs: number;
   lastCallAt: string | null;
-  contacts: { name: string | null; role: string | null; email: string | null }[];
+  contacts: {
+    name: string | null;
+    role: string | null;
+    email: string | null;
+    /** with its country code — the booking collects it (v33.6) */
+    phone: string | null;
+  }[];
 }
 
 export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDetail[]> {
@@ -3837,11 +3926,12 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
       booker_name: string | null;
       booker_role: string | null;
       booker_email: string | null;
+      booker_phone: string | null;
       status: string;
     }>(() =>
       db()
         .from("ir_calls")
-        .select("partner_lc_id, called_at, booker_name, booker_role, booker_email, status")
+        .select("partner_lc_id, called_at, booker_name, booker_role, booker_email, booker_phone, status")
         .order("id")
     ),
     fetchAll<{ partner_lc_id: string | null }>(() =>
@@ -3862,7 +3952,12 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
       const key = (c.booker_email || c.booker_name || "").toLowerCase();
       if (!key || seen.has(key)) continue;
       seen.add(key);
-      contacts.push({ name: c.booker_name, role: c.booker_role, email: c.booker_email });
+      contacts.push({
+        name: c.booker_name,
+        role: c.booker_role,
+        email: c.booker_email,
+        phone: c.booker_phone,
+      });
       if (contacts.length >= 5) break;
     }
     return {
@@ -3892,6 +3987,8 @@ export interface IrCallRow {
   status: "scheduled" | "completed" | "cancelled";
   demand: string | null;
   b2c_campaigns: string | null;
+  /** the partner LC's own CV pool, if they shared one (v33.6) */
+  cv_pool_link: string | null;
   booker_name: string | null;
   booked_at: string | null;
   calendar_event_id: string | null;

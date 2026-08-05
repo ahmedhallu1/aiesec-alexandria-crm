@@ -65,6 +65,11 @@ export default async function ConsiderationPage({
         isVp: viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role),
         showCvs,
         showExpectation,
+        // removing a partner LC is an MM-and-up act: it is the shared
+        // registry every call and CV hangs off
+        canManageLcs:
+          viewer.isAdmin ||
+          ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(viewer.role),
       }}
     />
   );

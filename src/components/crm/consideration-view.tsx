@@ -109,6 +109,8 @@ interface ViewerInfo {
   isVp: boolean;
   showCvs: boolean;
   showExpectation: boolean;
+  /** MMs and above may remove a partner LC from the registry */
+  canManageLcs: boolean;
 }
 
 // ------------------------------------------------ partner LCs & IRs (v33.5)
@@ -132,6 +134,9 @@ function PartnerLcsTab({
   viewer: ViewerInfo;
 }) {
   const [q, setQ] = useState("");
+  const [removing, setRemoving] = useState<PartnerLcDetail | null>(null);
+  const [pending, start] = useTransition();
+  const router = useRouter();
   const detailed = lcs.filter((l): l is PartnerLcDetail => "calls" in l);
   const needle = q.trim().toLowerCase();
   const shown = detailed.filter(
@@ -163,6 +168,44 @@ function PartnerLcsTab({
         </span>
       </div>
 
+      <Dialog open={!!removing} onOpenChange={(o) => { if (!o) setRemoving(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Remove {removing?.name}?</DialogTitle>
+            <DialogDescription>
+              It disappears from the registry. This only works while nothing points at
+              it — an LC with calls or CVs against it stays, because deleting it would
+              orphan them.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setRemoving(null)} disabled={pending}>
+              Keep it
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={pending}
+              onClick={() => {
+                const target = removing;
+                if (!target) return;
+                start(async () => {
+                  const res = await deletePartnerLc(target.id);
+                  if (!res.ok) {
+                    toast.error(res.error);
+                    return;
+                  }
+                  toast.success(`"${target.name}" removed`);
+                  setRemoving(null);
+                  router.refresh();
+                });
+              }}
+            >
+              {pending ? "Removing…" : "Remove"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {ordered.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
@@ -183,9 +226,21 @@ function PartnerLcsTab({
             >
               <CardHeader className="pb-2">
                 <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-                  <span className="min-w-0 break-words" dir="auto">{lc.name}</span>
+                  <span className="min-w-0 flex-1 break-words" dir="auto">{lc.name}</span>
                   {lc.country ? (
                     <Badge variant="secondary" className="font-normal">{lc.country}</Badge>
+                  ) : null}
+                  {viewer.canManageLcs ? (
+                    <Hint label="Remove this LC — only works when no call or CV still points at it">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
+                        onClick={() => setRemoving(lc)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </Hint>
                   ) : null}
                 </CardTitle>
                 <CardDescription>
@@ -213,13 +268,28 @@ function PartnerLcsTab({
                           <p className="text-xs text-muted-foreground" dir="auto">{c.role}</p>
                         ) : null}
                       </div>
-                      {c.email ? (
-                        <Button asChild size="sm" variant="outline" className="h-7">
-                          <a href={`mailto:${c.email}`}>
-                            <Mail className="size-3.5" /> Email
-                          </a>
-                        </Button>
-                      ) : null}
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        {c.phone ? (
+                          <Hint label={`WhatsApp ${c.name ?? "them"} — ${c.phone}`}>
+                            <Button asChild size="icon" variant="outline" className="size-7">
+                              <a
+                                href={`https://wa.me/${c.phone.replace(/[^\d]/g, "")}`}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                <WhatsAppIcon className="size-3.5" />
+                              </a>
+                            </Button>
+                          </Hint>
+                        ) : null}
+                        {c.email ? (
+                          <Button asChild size="sm" variant="outline" className="h-7">
+                            <a href={`mailto:${c.email}`}>
+                              <Mail className="size-3.5" /> Email
+                            </a>
+                          </Button>
+                        ) : null}
+                      </div>
                     </div>
                   ))
                 )}
@@ -2030,6 +2100,7 @@ function CompleteCallDialog({ call, onClose }: { call: IrCallRow | null; onClose
   const [demand, setDemand] = useState<string[]>([]);
   const [demandOther, setDemandOther] = useState("");
   const [notes, setNotes] = useState("");
+  const [cvPoolLink, setCvPoolLink] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
 
@@ -2039,6 +2110,7 @@ function CompleteCallDialog({ call, onClose }: { call: IrCallRow | null; onClose
     setDemand([]);
     setDemandOther("");
     setNotes(call.notes ?? "");
+    setCvPoolLink(call.cv_pool_link ?? "");
     setFile(null);
     setLoadedFor(call.id);
   }
@@ -2072,6 +2144,7 @@ function CompleteCallDialog({ call, onClose }: { call: IrCallRow | null; onClose
         demand,
         demandOther: demandOther || null,
         notes: notes || null,
+        cvPoolLink: cvPoolLink.trim() || null,
         screenshot,
       });
       if (res.ok) {
@@ -2107,6 +2180,19 @@ function CompleteCallDialog({ call, onClose }: { call: IrCallRow | null; onClose
               onChange={(e) => setNotes(e.target.value)}
               placeholder="What was discussed, agreements, follow-ups…"
               rows={3}
+            />
+          </div>
+          {/* the LC's OWN CV pool, when they offer one (v33.6) — it used to
+              go into the notes, where nobody could find it again */}
+          <div className="space-y-1.5">
+            <Label htmlFor="cc-cvpool">Their CV pool (optional)</Label>
+            <Input
+              id="cc-cvpool"
+              type="url"
+              inputMode="url"
+              value={cvPoolLink}
+              onChange={(e) => setCvPoolLink(e.target.value)}
+              placeholder="https://… — a link they shared to their own CVs"
             />
           </div>
           <div className="space-y-1.5">
