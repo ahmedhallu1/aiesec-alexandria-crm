@@ -568,7 +568,12 @@ export async function moveAccountFunction(
   const allowed = allowedAccountFunctions(viewer);
   if (!canEditAccount(viewer, account))
     return fail("You are not allowed to edit this account.", "forbidden");
-  if (!allowed.includes(account.function as (typeof allowed)[number]))
+  // an ARCHIVED account can be moved out of any function — that is the whole
+  // point of reviving it into the one that can actually sell to them (v33.8)
+  if (
+    !account.out_of_process &&
+    !allowed.includes(account.function as (typeof allowed)[number])
+  )
     return fail("You can only move an account out of a function you work.", "forbidden");
   if (!allowed.includes(toFunction as (typeof allowed)[number]))
     return fail("You can only move an account into a function you work.", "forbidden");
@@ -3037,21 +3042,28 @@ export async function reviveAndAssign(
   if (!canReassignAccount(viewer, account))
     return fail("Only an MM or above can bring an archived account back.", "forbidden");
 
+  // whoever may work the archive may hand the revived account to anyone —
+  // the useful case is an IGV TL finding a company that belongs in IGT
   const target = toMemberId ?? viewer.id;
-  if (target !== viewer.id) {
-    const scope = reassignTargetScope(viewer);
-    const allowed =
-      scope.kind === "all" ||
-      (scope.kind === "members" && scope.ids.includes(target)) ||
-      scope.kind === "functions";
-    if (!allowed) return fail("You can only assign to your own people.", "forbidden");
-  }
 
   const revived = await reviveAccount(accountId);
   if (!revived.ok) return revived;
   const assigned = await reassignAccount(accountId, target);
   if (!assigned.ok) return assigned;
   return { ok: true, data: { slug: accountSlug(account.name) } };
+}
+
+/** Defers the first-sign-in planning step for a day (v33.8). */
+export async function skipPlanForNow(): Promise<ActionResult> {
+  const { PLAN_SKIP_COOKIE, PLAN_SKIP_HOURS } = await import("@/lib/plan-skip");
+  const { cookies } = await import("next/headers");
+  (await cookies()).set(PLAN_SKIP_COOKIE, "1", {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: PLAN_SKIP_HOURS * 3600,
+  });
+  return { ok: true };
 }
 
 export async function checkAccountNameLive(
@@ -6291,6 +6303,8 @@ export async function updateCvFields(
     email?: string | null;
     industry?: string | null;
     skills?: string | null;
+    /** the AI's read of the person, editable like everything else (v33.8) */
+    summary?: string | null;
     partnerLcId?: string | null;
   }
 ): Promise<ActionResult> {
@@ -6324,6 +6338,8 @@ export async function updateCvFields(
   }
   const skills = clean(patch.skills, 2000);
   if (skills !== undefined) update.skills = skills;
+  const summary = clean(patch.summary, 4000);
+  if (summary !== undefined) update.summary = summary;
   if (patch.partnerLcId !== undefined) {
     if (patch.partnerLcId) {
       const resolved = await resolvePartnerLc({ partnerLcId: patch.partnerLcId });
@@ -6346,18 +6362,45 @@ export async function updateCvFields(
 }
 
 /** 10-minute signed link to view/download the CV file (bucket stays private). */
-export async function getCvFileUrl(id: string): Promise<ActionResult<{ url: string }>> {
+export async function getCvFileUrl(
+  id: string,
+  /** true → the browser saves it, named for the person rather than
+   *  "Cv-2_kopyası.pdf" (v33.8) */
+  download = false
+): Promise<ActionResult<{ url: string; fileName: string }>> {
   const viewer = await getViewer();
   if (!canSeeCvPool(viewer)) return considerationFail();
   const { data: cv } = await db()
     .from("cvs")
-    .select("file_path")
+    .select("file_path, file_name, person_name, partner_lc_name, industry")
     .eq("id", id)
-    .maybeSingle<{ file_path: string }>();
+    .maybeSingle<{
+      file_path: string;
+      file_name: string | null;
+      person_name: string | null;
+      partner_lc_name: string | null;
+      industry: string | null;
+    }>();
   if (!cv) return fail("That CV no longer exists.");
-  const { data, error } = await db().storage.from("cvs").createSignedUrl(cv.file_path, 600);
+
+  // THE NAME MATTERS (v33.8). These get forwarded to enablers, and a folder
+  // of "Cv-2_kopyası.pdf" tells the person receiving them nothing. Named for
+  // who it is, where they came from and what they do.
+  const ext = (cv.file_name ?? "").includes(".")
+    ? `.${cv.file_name!.split(".").pop()}`
+    : "";
+  const safe = (v: string | null | undefined) =>
+    (v ?? "").replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim();
+  const parts = [safe(cv.person_name) || "CV", safe(cv.partner_lc_name), safe(cv.industry)]
+    .filter(Boolean)
+    .join(" — ");
+  const fileName = `${parts}${ext}`.slice(0, 150);
+
+  const { data, error } = await db()
+    .storage.from("cvs")
+    .createSignedUrl(cv.file_path, 600, download ? { download: fileName } : undefined);
   if (error || !data) return fail(error?.message ?? "Could not open the file — try again.");
-  return { ok: true, data: { url: data.signedUrl } };
+  return { ok: true, data: { url: data.signedUrl, fileName } };
 }
 
 /** Delete a CV (row + the stored file) — the uploader or a VP/Director/LCP.

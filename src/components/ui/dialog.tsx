@@ -47,62 +47,79 @@ function DialogOverlay({
   )
 }
 
-/** DIALOGS ARE MOVABLE (v33.7).
+/** DIALOGS ARE MOVABLE (v33.8).
  *
  *  A dialog covers the thing you opened it about: logging a contact hides the
- *  account's history, editing columns hides the table you are editing them
- *  for. The answer people reach for is closing it, checking, and reopening —
- *  losing whatever they had typed. Now you can drag it aside by its header
- *  and put it back.
+ *  history you want to check, editing columns hides the table. People close
+ *  it, look, and reopen — losing what they typed. Drag it aside by its header
+ *  instead.
  *
- *  Desktop only, deliberately: on a phone the dialog IS the screen, so there
- *  is nowhere to drag it to. Dragging is bounded to the viewport so a dialog
- *  can never be thrown off-screen, and the offset resets each time it opens.
+ *  MOVED VIA THE DOM, NOT VIA STATE. The first version set React state on
+ *  every pointermove: each move re-rendered the whole dialog, the transform
+ *  fought Radix's own `translate(-50%,-50%)` and its open animation, so the
+ *  thing jumped on grab and faded on release. Now the drag writes
+ *  `style.transform` directly — no re-render, nothing for React or Radix to
+ *  overwrite — which is exactly how a desktop window behaves.
+ *
+ *  Desktop only: on a phone the dialog IS the screen. Bounded so it can never
+ *  be thrown out of reach, and it starts centred every time it opens.
  */
-function useDialogDrag(open: boolean | undefined) {
-  const [offset, setOffset] = React.useState<{ x: number; y: number } | null>(null)
+function useDialogDrag() {
   const ref = React.useRef<HTMLDivElement>(null)
+  const offset = React.useRef({ x: 0, y: 0 })
 
-  React.useEffect(() => {
-    setOffset(null)
-  }, [open])
-
-  const onPointerDown = React.useCallback((e: React.PointerEvent) => {
-    // never steal a click from a control that lives in the header
-    if ((e.target as HTMLElement).closest("button,a,input,select,textarea,[role='button']"))
-      return
-    if (!window.matchMedia("(min-width: 768px) and (pointer: fine)").matches) return
-    e.preventDefault()
-    const startX = e.clientX
-    const startY = e.clientY
-    const box = ref.current?.getBoundingClientRect()
-    let base = { x: 0, y: 0 }
-    setOffset((o) => {
-      base = o ?? { x: 0, y: 0 }
-      return base
-    })
-    const move = (ev: PointerEvent) => {
-      const dx = ev.clientX - startX
-      const dy = ev.clientY - startY
-      // keep at least a corner of the dialog reachable
-      const maxX = window.innerWidth / 2 + (box ? box.width / 2 - 60 : 0)
-      const maxY = window.innerHeight / 2 + (box ? box.height / 2 - 40 : 0)
-      setOffset({
-        x: Math.max(-maxX, Math.min(maxX, base.x + dx)),
-        y: Math.max(-maxY, Math.min(maxY, base.y + dy)),
-      })
-    }
-    const up = () => {
-      window.removeEventListener("pointermove", move)
-      window.removeEventListener("pointerup", up)
-      document.body.style.userSelect = ""
-    }
-    document.body.style.userSelect = "none"
-    window.addEventListener("pointermove", move)
-    window.addEventListener("pointerup", up)
+  const apply = React.useCallback(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.transform = `translate(calc(-50% + ${offset.current.x}px), calc(-50% + ${offset.current.y}px))`
   }, [])
 
-  return { ref, offset, onPointerDown }
+  const onPointerDown = React.useCallback(
+    (e: React.PointerEvent) => {
+      const el = ref.current
+      if (!el) return
+      // a control inside the header keeps its click
+      if (
+        (e.target as HTMLElement).closest(
+          "button,a,input,select,textarea,[role='button'],[role='combobox']"
+        )
+      )
+        return
+      if (!window.matchMedia("(min-width: 768px) and (pointer: fine)").matches) return
+
+      const startX = e.clientX
+      const startY = e.clientY
+      const base = { ...offset.current }
+      const box = el.getBoundingClientRect()
+      // leave a grabbable strip on screen in every direction
+      const maxX = (window.innerWidth + box.width) / 2 - 80
+      const maxY = (window.innerHeight + box.height) / 2 - 60
+
+      el.style.transition = "none"
+      el.style.animation = "none" // don't let the open animation replay mid-drag
+      document.body.style.userSelect = "none"
+
+      const move = (ev: PointerEvent) => {
+        offset.current = {
+          x: Math.max(-maxX, Math.min(maxX, base.x + ev.clientX - startX)),
+          y: Math.max(-maxY, Math.min(maxY, base.y + ev.clientY - startY)),
+        }
+        apply()
+      }
+      const up = () => {
+        window.removeEventListener("pointermove", move)
+        window.removeEventListener("pointerup", up)
+        window.removeEventListener("pointercancel", up)
+        document.body.style.userSelect = ""
+      }
+      window.addEventListener("pointermove", move)
+      window.addEventListener("pointerup", up)
+      window.addEventListener("pointercancel", up)
+    },
+    [apply]
+  )
+
+  return { ref, onPointerDown }
 }
 
 function DialogContent({
@@ -113,9 +130,9 @@ function DialogContent({
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
 }) {
-  // Radix mounts a fresh Content each time the dialog opens, so the offset
-  // starts at zero every time without any extra bookkeeping
-  const { ref, offset, onPointerDown } = useDialogDrag(true)
+  // Radix mounts a fresh Content each time the dialog opens, so it always
+  // starts centred without any extra bookkeeping
+  const { ref, onPointerDown } = useDialogDrag()
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
@@ -128,14 +145,6 @@ function DialogContent({
           if ((e.target as HTMLElement).closest("[data-slot='dialog-header']"))
             onPointerDown(e)
         }}
-        style={
-          offset
-            ? {
-                transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px))`,
-                transition: "none",
-              }
-            : undefined
-        }
         className={cn(
           "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border bg-background p-6 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-w-lg",
           "[&_[data-slot='dialog-header']]:md:cursor-grab [&_[data-slot='dialog-header']]:md:active:cursor-grabbing",

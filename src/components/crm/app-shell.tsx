@@ -418,9 +418,37 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
         railed ? "justify-center px-0" : "px-5"
       )}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/brand/aiesec-white.png" alt="AIESEC" className="h-7 w-auto shrink-0" />
-      <div className={cn("leading-tight", railed && "hidden")}>
+      {/* TWO MARKS, ONE SLOT (v33.8). The AIESEC wordmark is a WIDE lockup —
+          squeezed into a 3.75rem rail it shrank to an illegible smear. The
+          rail gets the walking human instead, which is the same brand at a
+          square aspect, and the two cross-fade so the collapse reads as one
+          movement rather than a pop. */}
+      <span className="relative grid h-7 shrink-0 place-items-center">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/brand/aiesec-white.png"
+          alt="AIESEC"
+          className={cn(
+            "col-start-1 row-start-1 h-7 w-auto transition-all duration-300",
+            railed ? "scale-90 opacity-0" : "opacity-100"
+          )}
+        />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/brand/walk.png"
+          alt="AIESEC"
+          className={cn(
+            "walkman-tint col-start-1 row-start-1 h-8 w-8 object-contain transition-all duration-300",
+            railed ? "opacity-100" : "scale-90 opacity-0"
+          )}
+        />
+      </span>
+      <div
+        className={cn(
+          "overflow-hidden whitespace-nowrap leading-tight transition-all duration-300",
+          railed ? "ml-0 w-0 opacity-0" : "w-32 opacity-100"
+        )}
+      >
         <p className="text-sm font-black tracking-tight text-sidebar-foreground">Sodio</p>
         <p className="text-[10px] text-sidebar-foreground/60">AIESEC in Alexandria</p>
       </div>
@@ -453,7 +481,10 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
           never squashed. */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-30 hidden flex-col overflow-y-auto overscroll-contain bg-sidebar pb-[env(safe-area-inset-bottom)] transition-[width] duration-200 md:flex",
+          "fixed inset-y-0 left-0 z-30 hidden flex-col overflow-y-auto overscroll-contain bg-sidebar pb-[env(safe-area-inset-bottom)] md:flex",
+          // one easing for the whole collapse — the width, the wordmark and
+          // the labels all move together (v33.8)
+          "transition-[width] duration-300 ease-out",
           railed ? "w-[3.75rem]" : "w-60"
         )}
         data-railed={railed ? "true" : undefined}
@@ -507,7 +538,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
           profile's cards, the dashboard's drill-down) fully readable. */}
       <main
         className={cn(
-          "min-w-0 flex-1 px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-[calc(4rem+env(safe-area-inset-top))] transition-[margin] duration-200 md:px-8 md:pt-14",
+          "min-w-0 flex-1 px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-[calc(4rem+env(safe-area-inset-top))] transition-[margin] duration-300 ease-out md:px-8 md:pt-14",
           railed ? "md:ml-[3.75rem]" : "md:ml-60"
         )}
       >

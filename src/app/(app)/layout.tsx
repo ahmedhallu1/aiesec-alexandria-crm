@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { getViewer, listViewAsTargets, needsMmPlan, needsTlPlan } from "@/server/data";
+import { PLAN_SKIP_COOKIE } from "@/lib/plan-skip";
 import {
   hasRaisingAccess, hasTmAccess, hasOgxAccess, hasConsiderationAccess,
   canManageMembership, canSeePlanning, canUseAdminTools, seesEveryLane,
@@ -20,12 +22,29 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   // OGX & Consideration MMs must file their 6-month plan right after
   // onboarding — the numbers ARE their period goals
-  if (viewer.profile_completed_at && !viewer.impersonated && (await needsMmPlan(viewer)))
+  // SKIPPABLE (v33.8). Filing a 6-month plan is the right thing to ask on day
+  // one, but blocking the whole app until it's done meets a new member with a
+  // wall — and someone who doesn't know their numbers yet will type anything
+  // to get past it, which is worse than a blank. "Skip for now" sets a cookie
+  // for the day; the profile's My-plan card is always there, and the reminder
+  // comes back tomorrow.
+  const skipped = (await cookies()).get(PLAN_SKIP_COOKIE)?.value === "1";
+  if (
+    !skipped &&
+    viewer.profile_completed_at &&
+    !viewer.impersonated &&
+    (await needsMmPlan(viewer))
+  )
     redirect("/welcome/plan");
 
   // raising Team Leaders file their team's OPENS plan the same way (v22) —
   // it IS the team goal; editable later from the profile "My plan" card
-  if (viewer.profile_completed_at && !viewer.impersonated && (await needsTlPlan(viewer)))
+  if (
+    !skipped &&
+    viewer.profile_completed_at &&
+    !viewer.impersonated &&
+    (await needsTlPlan(viewer))
+  )
     redirect("/welcome/plan-tl");
 
   const raising = hasRaisingAccess(viewer);

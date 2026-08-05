@@ -384,11 +384,13 @@ const ACCOUNT_CELL_CLASS: Record<string, string> = {
  *  layout, the rest are the "I used to have this in my sheet" extras, one
  *  checkbox away in ⚙ Columns. */
 function accountColumns(viewer: ViewerInfo): TableColumn[] {
-  // A COLUMN THAT SAYS THE SAME THING ON EVERY ROW IS NOISE (v33.7).
-  // Product only earns its place when the viewer's accounts can differ: IGV
-  // is always IGV, B2B is always B2B. Project belongs to IGV alone — for
-  // IGT, B2B, BD and B2C there is nothing to put in it, so it isn't offered
-  // at all rather than offered and always empty.
+  // THE DEFAULT VIEW (v33.8): Date added · Account · (Product) · (Project) ·
+  // Status · Contacts · Quick actions · Comment.
+  //
+  // Product and Project are DYNAMIC, because a column that reads the same on
+  // every row is noise: Product only appears where the viewer's accounts can
+  // actually differ (IGV is always IGV, B2B always B2B), and Project exists
+  // for IGV alone — for IGT, B2B, BD and B2C there is nothing to put in it.
   const fns = viewer.allowedFns;
   const productVaries = fns.length > 1 || fns.includes("IGT");
   const hasProject = fns.includes("IGV");
@@ -397,23 +399,18 @@ function accountColumns(viewer: ViewerInfo): TableColumn[] {
     { key: "created_at", label: "Date added" },
     { key: "name", label: "Account", required: true },
     ...(productVaries
-      ? [
-          {
-            key: "product",
-            label: viewer.b2cOnly ? "Type" : "Product",
-          },
-        ]
+      ? [{ key: "product", label: viewer.b2cOnly ? "Type" : "Product" }]
       : []),
-    // IGV's Project IS its product distinction, so it takes the visible slot
-    ...(hasProject
-      ? [{ key: "project", label: "Project", defaultHidden: fns.length > 1 }]
-      : []),
+    ...(hasProject ? [{ key: "project", label: "Project" }] : []),
     { key: "stage", label: "Status" },
     { key: "attempts", label: "Contacts" },
-    { key: "next_step", label: "Next step" },
     { key: "quick", label: "Quick actions", required: true },
+    { key: "comment", label: "Comment" },
+    // one tick away, not in the way — the row already wears a badge when a
+    // next step is missing, which is the part that needs to be seen
+    { key: "next_step", label: "Next step", defaultHidden: true },
     ...(viewer.seesOthers
-      ? [{ key: "responsible", label: "Responsible" }]
+      ? [{ key: "responsible", label: "Responsible", defaultHidden: true }]
       : []),
     ...(viewer.igtAccess
       ? [{ key: "sub_product", label: "Sub product", defaultHidden: true }]
@@ -423,7 +420,6 @@ function accountColumns(viewer: ViewerInfo): TableColumn[] {
     { key: "deals", label: "Deals", defaultHidden: true },
     { key: "slots", label: "Opens", defaultHidden: true },
     { key: "last_contact", label: "Last contact", defaultHidden: true },
-    { key: "comment", label: "Comment", defaultHidden: true },
     { key: "updated_at", label: "Updated", defaultHidden: true },
     { key: "proposal", label: "Proposal", defaultHidden: true },
     { key: "podio", label: "Podio", defaultHidden: true },
@@ -690,7 +686,7 @@ export function AccountsView({
   // v33.7 bumped the id: the default column set changed (Product/Project are
   // dynamic now), and a layout saved against the old defaults would pin the
   // very columns this change removes.
-  const cols = useTableColumns("accounts-v2", accountColumns(viewer));
+  const cols = useTableColumns("accounts-v3", accountColumns(viewer));
 
   /** One cell of the desktop table, by column key. */
   const accountCell = (row: PipelineRow, key: string): React.ReactNode => {

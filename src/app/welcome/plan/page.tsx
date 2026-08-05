@@ -3,6 +3,7 @@ import { getViewer, needsMmPlan } from "@/server/data";
 import { peakForPlanning } from "@/lib/plan";
 import { MmPlanForm } from "@/components/crm/mm-plan-form";
 import { ThemeToggle } from "@/components/crm/theme-toggle";
+import { SkipPlanButton } from "@/components/crm/skip-plan-button";
 
 export const metadata = { title: "Your plan" };
 
@@ -37,6 +38,7 @@ export default async function MmPlanPage() {
         </div>
 
         <MmPlanForm months={peak.months} peakLabel={peak.label} />
+        <SkipPlanButton />
       </div>
     </main>
   );
