@@ -384,13 +384,30 @@ const ACCOUNT_CELL_CLASS: Record<string, string> = {
  *  layout, the rest are the "I used to have this in my sheet" extras, one
  *  checkbox away in ⚙ Columns. */
 function accountColumns(viewer: ViewerInfo): TableColumn[] {
+  // A COLUMN THAT SAYS THE SAME THING ON EVERY ROW IS NOISE (v33.7).
+  // Product only earns its place when the viewer's accounts can differ: IGV
+  // is always IGV, B2B is always B2B. Project belongs to IGV alone — for
+  // IGT, B2B, BD and B2C there is nothing to put in it, so it isn't offered
+  // at all rather than offered and always empty.
+  const fns = viewer.allowedFns;
+  const productVaries = fns.length > 1 || fns.includes("IGT");
+  const hasProject = fns.includes("IGV");
+
   return [
     { key: "created_at", label: "Date added" },
     { key: "name", label: "Account", required: true },
-    {
-      key: "product",
-      label: viewer.igvOnly ? "Project" : viewer.b2cOnly ? "Type" : "Product",
-    },
+    ...(productVaries
+      ? [
+          {
+            key: "product",
+            label: viewer.b2cOnly ? "Type" : "Product",
+          },
+        ]
+      : []),
+    // IGV's Project IS its product distinction, so it takes the visible slot
+    ...(hasProject
+      ? [{ key: "project", label: "Project", defaultHidden: fns.length > 1 }]
+      : []),
     { key: "stage", label: "Status" },
     { key: "attempts", label: "Contacts" },
     { key: "next_step", label: "Next step" },
@@ -398,9 +415,6 @@ function accountColumns(viewer: ViewerInfo): TableColumn[] {
     ...(viewer.seesOthers
       ? [{ key: "responsible", label: "Responsible" }]
       : []),
-    ...(viewer.igvOnly
-      ? []
-      : [{ key: "project", label: "Project", defaultHidden: true }]),
     ...(viewer.igtAccess
       ? [{ key: "sub_product", label: "Sub product", defaultHidden: true }]
       : []),
@@ -673,7 +687,10 @@ export function AccountsView({
   });
 
   // ⚙ Columns — the member's own order + visibility for THIS table
-  const cols = useTableColumns("accounts", accountColumns(viewer));
+  // v33.7 bumped the id: the default column set changed (Product/Project are
+  // dynamic now), and a layout saved against the old defaults would pin the
+  // very columns this change removes.
+  const cols = useTableColumns("accounts-v2", accountColumns(viewer));
 
   /** One cell of the desktop table, by column key. */
   const accountCell = (row: PipelineRow, key: string): React.ReactNode => {

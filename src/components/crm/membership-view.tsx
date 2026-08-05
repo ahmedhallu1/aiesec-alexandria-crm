@@ -53,6 +53,7 @@ export interface MemberRow {
   team_name: string | null;
   is_active: boolean;
   has_podio?: boolean | null;
+  left_at?: string | null;
   first_login_at: string | null;
   has_password: boolean;
 }
@@ -97,6 +98,8 @@ const COL_FILTERS: Record<
     options: () => [
       { value: "active", label: "Active" },
       { value: "inactive", label: "Inactive" },
+      // people removed from the sheet — the archive (v33.7)
+      { value: "left", label: "Left the LC" },
     ],
   },
 };
@@ -131,7 +134,11 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
     anyOf(colFilter.role, (v) => m.role === v) &&
     anyOf(colFilter.fn, (v) => (m.functions ?? []).includes(v)) &&
     anyOf(colFilter.sub, (v) => (m.sub_functions ?? []).includes(v)) &&
-    anyOf(colFilter.status, (v) => (v === "active" ? m.is_active : !m.is_active));
+    anyOf(colFilter.status, (v) =>
+      v === "active" ? m.is_active : v === "left" ? !!m.left_at : !m.is_active
+    ) &&
+    // people who LEFT are archived: out of the list unless you ask for them
+    (!!m.left_at === (colFilter.status ?? "").split(",").includes("left"));
 
   const byCols = members.filter(matchesCols);
   const shown = needle

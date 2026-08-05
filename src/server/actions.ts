@@ -3019,6 +3019,41 @@ export async function setPodioUpdateEnabled(
  *  as soon as the member types the name so nobody fills a whole form (and
  *  checks Podio…) only to discover the name is burned. Same checks as
  *  createAccount, read-only. */
+/** Brings an ARCHIVED account back into process and hands it to someone, from
+ *  the add-account dialog (v33.7).
+ *
+ *  The person hitting the block is doing market research right now — they have
+ *  fresh information about a company the LC wrote off months ago. Making them
+ *  hunt through the archive to act on it is how a good lead dies in a dialog.
+ *  Assignment is scoped: themselves, or someone they may already assign to. */
+export async function reviveAndAssign(
+  accountId: string,
+  toMemberId?: string
+): Promise<ActionResult<{ slug: string }>> {
+  const viewer = await getViewer();
+  const account = await loadAccount(accountId);
+  if (!account) return fail("That account no longer exists.");
+  if (!account.out_of_process) return fail("That account is already in process.");
+  if (!canReassignAccount(viewer, account))
+    return fail("Only an MM or above can bring an archived account back.", "forbidden");
+
+  const target = toMemberId ?? viewer.id;
+  if (target !== viewer.id) {
+    const scope = reassignTargetScope(viewer);
+    const allowed =
+      scope.kind === "all" ||
+      (scope.kind === "members" && scope.ids.includes(target)) ||
+      scope.kind === "functions";
+    if (!allowed) return fail("You can only assign to your own people.", "forbidden");
+  }
+
+  const revived = await reviveAccount(accountId);
+  if (!revived.ok) return revived;
+  const assigned = await reassignAccount(accountId, target);
+  if (!assigned.ok) return assigned;
+  return { ok: true, data: { slug: accountSlug(account.name) } };
+}
+
 export async function checkAccountNameLive(
   name: string,
   fn?: "IGV" | "IGT" | "B2B" | "BD" | "B2C"
@@ -3045,15 +3080,27 @@ export async function checkAccountNameLive(
       ok: true,
       data: {
         status: "blacklisted",
-        message: `"${clean}" is in the archive — this name is blocked.`,
+        message: `"${clean}" is on the blocked list — it can't be added while it's there.`,
         info: {
           reason: blacklisted.comments,
           project: blacklisted.project,
           link: blacklisted.link,
+          // a blocked NAME has no account behind it, so there is nothing to
+          // revive — lifting the block is the only way forward, and that
+          // stays a VP/Director call
+          unblock: viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role)
+            ? blacklisted.id
+            : null,
         },
       },
     };
-  if (duplicate && duplicate.out_of_process)
+  if (duplicate && duplicate.out_of_process) {
+    // AN MM CAN ACT ON IT (v33.7). Being told a name is archived and nothing
+    // else is a dead end: the person doing the market research has to go find
+    // the archive, search it, and work out whether the old reason still
+    // stands. TL and up get a link into the account and a one-click revive
+    // that assigns it to them.
+    const canRevive = canReassignAccount(viewer, duplicate);
     return {
       ok: true,
       data: {
@@ -3063,11 +3110,13 @@ export async function checkAccountNameLive(
           function: duplicate.function,
           reason: duplicate.oop_reason,
           archived_at: duplicate.oop_at?.slice(0, 10) ?? null,
-          was_responsible:
-            duplicate.responsible_name || "Unassigned",
+          was_responsible: duplicate.responsible_name || "Unassigned",
+          open: `/accounts/${duplicate.id}`,
+          revive: canRevive ? duplicate.id : null,
         },
       },
     };
+  }
   if (duplicate)
     return {
       ok: true,

@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { checkAccountNameLive, checkPodioNameLive, createAccount } from "@/server/actions";
+import {
+  checkAccountNameLive, checkPodioNameLive, createAccount, removeArchivedEntry,
+  reviveAndAssign,
+} from "@/server/actions";
 import type { PodioCheck } from "@/lib/podio";
 import {
   ACCOUNT_TYPES,
@@ -320,17 +323,63 @@ export function AddAccountDialog({
                   {nameCheck.status === "duplicate" ? "🚫 Already exists" : "🗄️ Archived / blocked"} —{" "}
                   {nameCheck.message}
                 </p>
-                {nameCheck.info.open ? (
-                  <a
-                    href={nameCheck.info.open}
-                    className="mt-1.5 inline-flex text-xs font-semibold text-primary underline-offset-2 hover:underline"
-                  >
-                    Open it and take it →
-                  </a>
-                ) : null}
+                <div className="mt-1.5 flex flex-wrap items-center gap-3">
+                  {nameCheck.info.open ? (
+                    <a
+                      href={nameCheck.info.open}
+                      className="text-xs font-semibold text-primary underline-offset-2 hover:underline"
+                    >
+                      {nameCheck.status === "archived"
+                        ? "See it in the archive →"
+                        : "Open it and take it →"}
+                    </a>
+                  ) : null}
+                  {/* the researcher has fresh information RIGHT NOW — let them
+                      act on it here instead of hunting the archive (v33.7) */}
+                  {nameCheck.info.revive ? (
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-primary underline-offset-2 hover:underline"
+                      onClick={() => {
+                        const id = nameCheck.info.revive!;
+                        startTransition(async () => {
+                          const res = await reviveAndAssign(id);
+                          if (!res.ok) {
+                            toast.error(res.error);
+                            return;
+                          }
+                          toast.success("Back in process — and it's yours 🙌");
+                          router.push(`/accounts/${id}`);
+                        });
+                      }}
+                    >
+                      Bring it back and take it
+                    </button>
+                  ) : null}
+                  {nameCheck.info.unblock ? (
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-primary underline-offset-2 hover:underline"
+                      onClick={() => {
+                        const id = nameCheck.info.unblock!;
+                        startTransition(async () => {
+                          const res = await removeArchivedEntry(id);
+                          if (!res.ok) {
+                            toast.error(res.error);
+                            return;
+                          }
+                          toast.success("Unblocked — you can add it now");
+                          setNameCheck({ status: "free" });
+                        });
+                      }}
+                    >
+                      Unblock this name
+                    </button>
+                  ) : null}
+                </div>
                 <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs text-foreground">
                   {Object.entries(nameCheck.info)
-                    .filter(([k, v]) => v && k !== "open")
+                    .filter(([k, v]) => v && !["open", "revive", "unblock"].includes(k))
                     .map(([k, v]) => (
                       <div key={k} className="contents">
                         <dt className="font-medium capitalize text-muted-foreground">

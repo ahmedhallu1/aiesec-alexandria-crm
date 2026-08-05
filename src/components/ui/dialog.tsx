@@ -47,6 +47,64 @@ function DialogOverlay({
   )
 }
 
+/** DIALOGS ARE MOVABLE (v33.7).
+ *
+ *  A dialog covers the thing you opened it about: logging a contact hides the
+ *  account's history, editing columns hides the table you are editing them
+ *  for. The answer people reach for is closing it, checking, and reopening —
+ *  losing whatever they had typed. Now you can drag it aside by its header
+ *  and put it back.
+ *
+ *  Desktop only, deliberately: on a phone the dialog IS the screen, so there
+ *  is nowhere to drag it to. Dragging is bounded to the viewport so a dialog
+ *  can never be thrown off-screen, and the offset resets each time it opens.
+ */
+function useDialogDrag(open: boolean | undefined) {
+  const [offset, setOffset] = React.useState<{ x: number; y: number } | null>(null)
+  const ref = React.useRef<HTMLDivElement>(null)
+
+  React.useEffect(() => {
+    setOffset(null)
+  }, [open])
+
+  const onPointerDown = React.useCallback((e: React.PointerEvent) => {
+    // never steal a click from a control that lives in the header
+    if ((e.target as HTMLElement).closest("button,a,input,select,textarea,[role='button']"))
+      return
+    if (!window.matchMedia("(min-width: 768px) and (pointer: fine)").matches) return
+    e.preventDefault()
+    const startX = e.clientX
+    const startY = e.clientY
+    const box = ref.current?.getBoundingClientRect()
+    let base = { x: 0, y: 0 }
+    setOffset((o) => {
+      base = o ?? { x: 0, y: 0 }
+      return base
+    })
+    const move = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX
+      const dy = ev.clientY - startY
+      // keep at least a corner of the dialog reachable
+      const maxX = window.innerWidth / 2 + (box ? box.width / 2 - 60 : 0)
+      const maxY = window.innerHeight / 2 + (box ? box.height / 2 - 40 : 0)
+      setOffset({
+        x: Math.max(-maxX, Math.min(maxX, base.x + dx)),
+        y: Math.max(-maxY, Math.min(maxY, base.y + dy)),
+      })
+    }
+    const up = () => {
+      window.removeEventListener("pointermove", move)
+      window.removeEventListener("pointerup", up)
+      document.body.style.userSelect = ""
+    }
+    document.body.style.userSelect = "none"
+    window.addEventListener("pointermove", move)
+    window.addEventListener("pointerup", up)
+  }, [])
+
+  return { ref, offset, onPointerDown }
+}
+
 function DialogContent({
   className,
   children,
@@ -55,13 +113,32 @@ function DialogContent({
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
 }) {
+  // Radix mounts a fresh Content each time the dialog opens, so the offset
+  // starts at zero every time without any extra bookkeeping
+  const { ref, offset, onPointerDown } = useDialogDrag(true)
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
       <DialogPrimitive.Content
+        ref={ref}
         data-slot="dialog-content"
+        onPointerDownCapture={(e) => {
+          // only the HEADER is a handle — dragging from the body would fight
+          // with selecting text in it
+          if ((e.target as HTMLElement).closest("[data-slot='dialog-header']"))
+            onPointerDown(e)
+        }}
+        style={
+          offset
+            ? {
+                transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px))`,
+                transition: "none",
+              }
+            : undefined
+        }
         className={cn(
           "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border bg-background p-6 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-w-lg",
+          "[&_[data-slot='dialog-header']]:md:cursor-grab [&_[data-slot='dialog-header']]:md:active:cursor-grabbing",
           className
         )}
         {...props}

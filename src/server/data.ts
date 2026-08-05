@@ -34,7 +34,7 @@ import type {
   Stage,
 } from "@/lib/types";
 import {
-  parsePhoneSessionKey, normalizeName } from "@/lib/types";
+  parsePhoneSessionKey, normalizeName, accountSlug } from "@/lib/types";
 import { monthOf, sprintOf } from "@/lib/plan";
 
 export interface PipelineRow extends AccountPipeline {
@@ -695,10 +695,25 @@ async function buildAccountsQuery(
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Accounts are addressed by an expressive slug (/accounts/hadana) built from
- *  the unique normalized name; raw UUIDs keep working for old links. Access is
- *  ALWAYS re-checked server-side (canViewAccount) — a member who guesses a URL
- *  outside their scope gets a 404, never the data. */
-export async function findAccountRow(idOrSlug: string): Promise<PipelineRow | null> {
+ *  the normalized name; raw UUIDs keep working for old links. Access is ALWAYS
+ *  re-checked server-side (canViewAccount).
+ *
+ *  A SLUG IS NOT A NAME (v33.7). It is the name with every space turned into a
+ *  dash — so a name that already CONTAINS a dash produces a slug that no
+ *  simple reversal can undo. "i-fikra software company" slugs to
+ *  "i-fikra-software-company", and the old lookup tried exactly two guesses,
+ *  all-dashes-were-spaces and no-change, matching neither. That account was
+ *  unreachable by its own link; worse, the guess "i fikra software company"
+ *  matched a DIFFERENT account in another function, so the URL opened someone
+ *  else's row — or 404'd for a viewer with no access to it.
+ *
+ *  So: ask the database for anything that could slug to this, using `_` (LIKE's
+ *  single-character wildcard) in every dash position, then compare real slugs
+ *  in JS. When several genuinely collide, prefer one the VIEWER can open. */
+export async function findAccountRow(
+  idOrSlug: string,
+  viewer?: Viewer
+): Promise<PipelineRow | null> {
   const raw = decodeURIComponent(idOrSlug);
   if (UUID_RE.test(raw)) {
     const { data } = await db()
@@ -708,24 +723,31 @@ export async function findAccountRow(idOrSlug: string): Promise<PipelineRow | nu
       .maybeSingle<PipelineRow>();
     return data ?? null;
   }
-  // slug: dashes were spaces (names containing real dashes are matched second).
-  // v23.2: a name can exist TWICE (archived in one world + active in the
-  // other) — the slug resolves to the ACTIVE one first, newest as tiebreak;
-  // archived rows are always reachable by their UUID link.
-  const candidates = [...new Set([raw.replace(/-/g, " "), raw])];
+
+  // every dash could have been a space OR a real dash in the name
+  const pattern = raw.replace(/[%_]/g, "").replace(/-/g, "_");
   const { data } = await db()
     .from("accounts_pipeline")
     .select("*")
-    .in("normalized_name", candidates)
+    .ilike("normalized_name", pattern)
     .order("out_of_process", { ascending: true })
     .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle<PipelineRow>();
-  return data ?? null;
+    .limit(20);
+  const rows = ((data ?? []) as PipelineRow[]).filter(
+    (r) => accountSlug(r.name) === raw || normalizeName(r.name) === raw.replace(/-/g, " ")
+  );
+  if (rows.length === 0) return null;
+  // an exact slug collision is rare but real (two names one dash apart) —
+  // hand back the one this viewer can actually work, not an arbitrary row
+  if (viewer) {
+    const mine = rows.find((r) => canViewAccount(viewer, r) && !(r.is_test && !viewer.testMode));
+    if (mine) return mine;
+  }
+  return rows[0];
 }
 
 export async function getAccount(viewer: Viewer, idOrSlug: string) {
-  const account = await findAccountRow(idOrSlug);
+  const account = await findAccountRow(idOrSlug, viewer);
   if (!account || !canViewAccount(viewer, account)) return null;
   // test accounts open ONLY in test mode — no guessing a test URL to see fake
   // data (a followup email could even hand out the link)
@@ -933,20 +955,28 @@ export async function checkAccountName(
     return { duplicate: null, blacklisted: null, crossWorldArchived: null };
   const serviceWorld = (f?: string | null) => f === "B2C" || f === "BD";
   const world: "OPENS" | "SERVICE" = serviceWorld(fn) ? "SERVICE" : "OPENS";
+  // TWO NAMES ONE DASH APART ARE THE SAME ACCOUNT (v33.7). "i fikra software
+  // company" and "i-fikra software company" normalise differently but slug
+  // IDENTICALLY, so both live at one URL — which is how the LC ended up with
+  // two of the same partner in different functions, one of them unreachable.
+  // A name that would collide on the URL is a duplicate.
+  const slugPattern = normalized.replace(/[%_]/g, "").replace(/[\s-]/g, "_");
   const [{ data: rows }, { data: blacklistHit }] = await Promise.all([
     db()
       .from("accounts_pipeline")
       .select("*")
-      .eq("normalized_name", normalized)
+      .ilike("normalized_name", slugPattern)
       .eq("is_test", false) // a hidden test account never blocks a real name
-      .limit(2),
+      .limit(10),
     db()
       .from("blacklist")
       .select("*")
       .eq("normalized_name", normalized)
       .maybeSingle<BlacklistEntry>(),
   ]);
-  const all = (rows ?? []) as PipelineRow[];
+  const all = ((rows ?? []) as PipelineRow[]).filter(
+    (r) => accountSlug(r.name) === accountSlug(name)
+  );
   const sameWorld = (r: PipelineRow) =>
     serviceWorld(r.function) === (world === "SERVICE");
   const active = all.find((r) => !r.out_of_process) ?? null;
