@@ -275,6 +275,10 @@ export interface Member {
   /** v33.2 — this person holds the LC's Podio access, so they may set an
    *  account's Request State like an MM. A capability, not a rank. */
   has_podio?: boolean | null;
+  /** v33.7 — when they disappeared from the Membership sheet. Set = they
+   *  LEFT the LC, and they belong in the archive rather than among the
+   *  actives. Cleared automatically if they reappear on the sheet. */
+  left_at?: string | null;
 }
 
 /** Session key for members WITHOUT an AIESEC email (v24): their JWT "email"

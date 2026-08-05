@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import Link from "next/link";
 import type { Metadata } from "next";
 import { canViewAccount } from "@/lib/rbac";
 import {
@@ -39,7 +39,13 @@ export default async function AccountPage({
   const { report, open } = await searchParams;
 
   const result = await getAccount(viewer, id);
-  if (!result) notFound();
+  // NOT A BARE 404 (v33.7). A raw "This page could not be found" made a
+  // permission boundary look like a broken app — people assumed the account
+  // had been deleted. The wording deliberately does NOT distinguish "no such
+  // account" from "not yours": that is the same security property the 404
+  // had, since confirming which one it is tells a URL-guesser the account
+  // exists.
+  if (!result) return <NoAccess />;
   const { account, attempts, visits, comments, deals } = result;
 
   const canEdit = canEditAccount(viewer, account);
@@ -89,5 +95,27 @@ export default async function AccountPage({
           : null
       }
     />
+  );
+}
+
+/** Shown for a slug that is unknown OR outside the viewer's scope — the two
+ *  are deliberately indistinguishable. */
+function NoAccess() {
+  return (
+    <div className="mx-auto max-w-lg py-16 text-center">
+      <p className="text-5xl">🔒</p>
+      <h1 className="mt-4 text-xl font-bold">You can&apos;t open this account</h1>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Either it doesn&apos;t exist, or it belongs to a function or a team you don&apos;t
+        work. If you think it should be yours, ask your MM or VP to reassign it —
+        they can hand it over in one click.
+      </p>
+      <Link
+        href="/accounts"
+        className="mt-6 inline-flex items-center rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
+      >
+        Back to Raising
+      </Link>
+    </div>
   );
 }

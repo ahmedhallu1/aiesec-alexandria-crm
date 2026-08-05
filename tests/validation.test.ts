@@ -214,3 +214,47 @@ describe("upload extension guard (F-17)", () => {
     expect(reason("contract")).not.toBeNull();
   });
 });
+
+describe("membership import — a row without identity must never be imported", () => {
+  // Mirrors the guard in parseSheetRow (v33.7). It lives in a module that
+  // pulls in googleapis, so the RULE is asserted here: what matters is that
+  // the check runs on the value that will be STORED, not on the raw cell.
+  const storablePhone = (raw: string | undefined) => {
+    const clean = raw?.trim();
+    if (!clean) return null;
+    const r = normalizePhone(clean);
+    return r.ok ? r.value : clean.replace(/[^0-9+]/g, "") || null;
+  };
+  const importable = (email: string | undefined, phone: string | undefined) => {
+    const e = email?.trim().toLowerCase();
+    const hasEmail = !!e && e.includes("@");
+    return hasEmail || !!storablePhone(phone);
+  };
+
+  it("a phone cell with no digits stores as nothing — so the row is skipped", () => {
+    // this is the exact shape that inserted a fresh member every 30 minutes:
+    // the raw cell was truthy, the stored value was null, nothing matched
+    for (const junk of ["—", "N/A", "n/a", "none", "-", "??"]) {
+      expect(storablePhone(junk), junk).toBeNull();
+      expect(importable(undefined, junk), junk).toBe(false);
+    }
+  });
+
+  it("an empty row is skipped", () => {
+    expect(importable(undefined, undefined)).toBe(false);
+    expect(importable("", "")).toBe(false);
+  });
+
+  it("an email alone is enough", () => {
+    expect(importable("a@aiesec.net", undefined)).toBe(true);
+  });
+
+  it("a real phone alone is enough — phone-only members sign in with it", () => {
+    expect(importable(undefined, "01099019374")).toBe(true);
+    expect(storablePhone("01099019374")).toBe("+201099019374");
+  });
+
+  it("a hotline is a usable identity too", () => {
+    expect(importable(undefined, "16123")).toBe(true);
+  });
+});

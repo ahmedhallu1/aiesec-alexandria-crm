@@ -342,14 +342,31 @@ function parseSheetRow(row: string[], cols: ColumnMap): SheetMemberRow | null {
   // (phone-only members sign in with their number until the email lands)
   if (!name?.trim()) return null;
   const hasEmail = !!cleanEmail && cleanEmail.includes("@");
-  if (!hasEmail && !cleanPhone) return null;
   const phoneCheck = cleanPhone ? normalizePhone(cleanPhone) : null;
+  // canonical +digits when possible so every digit-tail matcher agrees;
+  // unrecognized formats keep the raw value (stripped of separators)
+  const storedPhone =
+    phoneCheck?.ok ? phoneCheck.value : cleanPhone?.replace(/[^0-9+]/g, "") || null;
+
+  // IDENTITY OR NOTHING (v33.7). This used to test the RAW cell — so a phone
+  // column holding text with no digits ("—", "N/A", a note) passed the check
+  // and then stored as null. The row arrived with no email AND no phone,
+  // which is exactly what the import keys on: nothing matched, so every run
+  // INSERTED A NEW MEMBER. One member accumulated 33 copies at one per
+  // half-hour before anyone noticed. Test what will actually be STORED.
+  if (!hasEmail && !storedPhone) {
+    console.warn(
+      `[sheets] "${name.trim()}" has no usable email or phone — skipped. ` +
+        `Without one there is no way to tell them apart from a new person, ` +
+        `and re-importing would create a duplicate every run.`
+    );
+    return null;
+  }
+
   return {
     name: name.trim(),
     email: hasEmail ? cleanEmail : null,
-    // canonical +digits when possible so every digit-tail matcher agrees;
-    // unrecognized formats keep the raw value (stripped of separators)
-    phone: phoneCheck?.ok ? phoneCheck.value : cleanPhone?.replace(/[^0-9+]/g, "") || null,
+    phone: storedPhone,
     role: parseRole(role),
     functions: parseMulti(fns, LC_FUNCTIONS),
     // "LCVP, Admin" → rank LCVP, capability Admin. The capability rides in
@@ -482,13 +499,15 @@ export async function importMembership(): Promise<number> {
           continue;
         }
       }
-      await db().from("members").upsert(row, { onConflict: "email" });
+      // back on the sheet = back in the LC: clear the archive stamp
+      await db().from("members").upsert({ ...row, left_at: null }, { onConflict: "email" });
     } else {
       // phone-keyed row (no email yet)
       const tail = digitsOf(row.phone).slice(-9);
       if (tail) seenPhoneTails.push(tail);
       const phoneKeyedId = row.phone ? await findPhoneKeyed(row.phone) : null;
-      if (phoneKeyedId) await db().from("members").update(row).eq("id", phoneKeyedId);
+      if (phoneKeyedId)
+        await db().from("members").update({ ...row, left_at: null }).eq("id", phoneKeyedId);
       else await db().from("members").insert(row);
     }
   }
@@ -532,7 +551,15 @@ export async function importMembership(): Promise<number> {
         ? seenEmails.includes(mail) || env.adminEmails.includes(mail)
         : seenPhoneTails.some((t) => digitsOf(m.phone).endsWith(t));
       if (!stillListed) {
-        await db().from("members").update({ is_active: false }).eq("id", m.id);
+        // GONE FROM THE SHEET = LEFT THE LC (v33.7). Deactivating them was
+        // right; leaving them among the active members was not — the list is
+        // the register, and an alumnus sitting in it makes every count and
+        // every picker read as wrong. `left_at` moves them to the archive,
+        // and coming back (their row reappearing in the sheet) clears it.
+        await db()
+          .from("members")
+          .update({ is_active: false, left_at: new Date().toISOString() })
+          .eq("id", m.id);
       }
     }
   }
