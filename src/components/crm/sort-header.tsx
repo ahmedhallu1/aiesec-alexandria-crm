@@ -32,13 +32,20 @@ export function useTableSort<T>(
     initial ?? null
   );
 
+  /** THREE STATES, NOT TWO (v33.10): asc → desc → OFF. There was no way back
+   *  to the list's own order once you had sorted it, short of reloading the
+   *  page — so a click you didn't mean was a trap. The third click undoes it. */
   const toggle = useCallback((key: string, defaultDir: SortDir = "asc") => {
-    setSort((prev) =>
-      prev?.key === key
-        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
-        : { key, dir: defaultDir }
-    );
+    setSort((prev) => {
+      if (prev?.key !== key) return { key, dir: defaultDir };
+      const flipped: SortDir = prev.dir === "asc" ? "desc" : "asc";
+      // back at the direction we started in = a full cycle = clear it
+      return flipped === defaultDir ? null : { key, dir: flipped };
+    });
   }, []);
+
+  /** Explicit "back to the default order" for a Clear-sort control. */
+  const clear = useCallback(() => setSort(null), []);
 
   const sorted = useMemo(() => {
     if (!sort) return rows;
@@ -64,7 +71,7 @@ export function useTableSort<T>(
     });
   }, [rows, sort, accessors]);
 
-  return { sorted, sortKey: sort?.key ?? null, dir: sort?.dir ?? null, toggle };
+  return { sorted, sortKey: sort?.key ?? null, dir: sort?.dir ?? null, toggle, clear };
 }
 
 /** The header button — identical hover affordance to the accounts list's

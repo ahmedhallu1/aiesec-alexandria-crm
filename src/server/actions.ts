@@ -85,6 +85,27 @@ async function loadAccount(id: string): Promise<PipelineRow | null> {
   return data;
 }
 
+/** Runs a bulk operation a few rows at a time (v33.10).
+ *
+ *  Bulk assign was STRICTLY sequential, and every row costs ~5 round trips to
+ *  the database — load, snapshot, update, audit, revalidate. Fifty rows meant
+ *  two hundred and fifty trips end to end, which is why assigning a selection
+ *  "took too long in a weird way". Five at a time keeps the per-row RBAC and
+ *  journaling exactly as they were and cuts the wall time by about five.
+ *  Deliberately not unbounded: fifty parallel writes is how you exhaust a
+ *  connection pool. */
+async function inBatches<T, R>(
+  items: T[],
+  run: (item: T) => Promise<R>,
+  size = 5
+): Promise<R[]> {
+  const out: R[] = [];
+  for (let i = 0; i < items.length; i += size) {
+    out.push(...(await Promise.all(items.slice(i, i + size).map(run))));
+  }
+  return out;
+}
+
 function refresh(accountId?: string) {
   revalidatePath("/", "layout");
   if (accountId) revalidatePath(`/accounts/${accountId}`);
@@ -472,7 +493,8 @@ export async function updateAccount(
 
 export async function reassignAccount(
   accountId: string,
-  newResponsibleId: string
+  newResponsibleId: string,
+  opts?: { skipRefresh?: boolean }
 ): Promise<ActionResult> {
   const viewer = await getViewer();
   const account = await loadAccount(accountId);
@@ -522,9 +544,12 @@ export async function reassignAccount(
     ...(target.functions ?? []),
     ...(target.sub_functions ?? []),
   ].filter((f) => ["IGV", "IGT", "B2B", "BD", "B2C"].includes(f));
+  // a normal hand-over stays inside the function (the picker only offers
+  // people in it). Only a CLAIM or a revive moves an account — those are the
+  // cases where the account genuinely changes hands across functions.
   const movedFn = claimingForSelf
     ? claimTargetFunction(viewer, account)
-    : !targetInFunction && targetFns.length > 0
+    : account.out_of_process && !targetInFunction && targetFns.length > 0
       ? (targetFns[0] as typeof account.function)
       : null;
   const fnChanged = !!movedFn && movedFn !== account.function;
@@ -543,7 +568,7 @@ export async function reassignAccount(
     to: newResponsibleId,
     ...(fnChanged ? { function_from: account.function, function_to: movedFn } : {}),
   });
-  refresh(accountId);
+  if (!opts?.skipRefresh) refresh(accountId);
   return { ok: true };
 }
 
@@ -1627,15 +1652,15 @@ export async function bulkReassignAccounts(
 ): Promise<ActionResult<{ done: number; failed: number; emailed: boolean }>> {
   if (!Array.isArray(ids) || ids.length === 0) return fail("Select at least one account.");
   if (ids.length > 50) return fail("Max 50 accounts per bulk reassign — run it in batches.");
-  let done = 0;
-  let failed = 0;
   let emailed = false;
-  const doneIds: string[] = [];
-  for (const id of ids) {
-    const res = await reassignAccount(id, responsibleId);
-    if (res.ok) { done += 1; doneIds.push(id); }
-    else failed += 1;
-  }
+  const results = await inBatches(ids, (id) =>
+    reassignAccount(id, responsibleId, { skipRefresh: true })
+  );
+  const doneIds = ids.filter((_, i) => results[i].ok);
+  const done = doneIds.length;
+  const failed = ids.length - done;
+  // ONE revalidation for the whole batch instead of one per row
+  refresh();
 
   if (notifyByEmail && doneIds.length > 0) {
     try {
@@ -4409,7 +4434,7 @@ export async function claimSignup(id: string): Promise<ActionResult> {
 export async function reassignSignup(
   id: string,
   memberId: string | null,
-  opts?: { skipSheetPush?: boolean }
+  opts?: { skipSheetPush?: boolean; skipRefresh?: boolean }
 ): Promise<ActionResult> {
   const viewer = await getViewer();
   const signup = await loadSignup(id);
@@ -4459,6 +4484,18 @@ export async function reassignSignup(
   if ((target?.id ?? null) === signup.assigned_to && newName === signup.assigned_name)
     return { ok: true };
   await snapshotForUndo("signups", id);
+  // A HAND-OVER IS A FRESH START (v33.10). Contacted/Interested describe a
+  // conversation the PREVIOUS owner had; carrying them across makes the new
+  // person's list look worked when nobody has spoken to these people yet, and
+  // the funnel counts a contact twice. The comment history stays — that is
+  // the context worth keeping — but the workflow state resets.
+  const handedToSomeoneElse =
+    !!target && !!signup.assigned_to && target.id !== signup.assigned_to;
+  const reset =
+    handedToSomeoneElse || (!!target && !signup.assigned_to)
+      ? { contact_status: null, interested: null, contacted_at: null }
+      : {};
+
   const { error } = await db()
     .from("signups")
     .update(
@@ -4466,15 +4503,17 @@ export async function reassignSignup(
         assigned_to: target?.id ?? null,
         assigned_name: target ? target.name : null,
         assigned_at: target ? new Date().toISOString() : null,
+        ...reset,
       })
     )
     .eq("id", id);
   if (error) return fail(error.message);
   await logAudit(viewer.id, "signup_reassign", "signup", id, {
     to: target?.id ?? null,
+    reset: Object.keys(reset).length > 0,
   });
   if (!opts?.skipSheetPush) await pushSignupToSheet(id);
-  refresh();
+  if (!opts?.skipRefresh) refresh();
   return { ok: true };
 }
 
@@ -4489,15 +4528,14 @@ export async function bulkReassignSignups(
   if (!Array.isArray(ids) || ids.length === 0) return fail("Select at least one sign-up.");
   if (ids.length > 50)
     return fail("Max 50 sign-ups per bulk call — run it in batches.");
-  let done = 0;
-  let failed = 0;
-  const doneIds: string[] = [];
-  for (const id of ids) {
-    // per-row RBAC/scope re-runs inside; the sheet push is batched below
-    const res = await reassignSignup(id, memberId, { skipSheetPush: true });
-    if (res.ok) { done += 1; doneIds.push(id); }
-    else failed += 1;
-  }
+  // per-row RBAC/scope still re-runs inside; the sheet push is batched below
+  const results = await inBatches(ids, (id) =>
+    reassignSignup(id, memberId, { skipSheetPush: true, skipRefresh: true })
+  );
+  const doneIds = ids.filter((_, i) => results[i].ok);
+  const done = doneIds.length;
+  const failed = ids.length - done;
+  refresh();
 
   // ONE tab read + ONE batch write per sheet instead of ~3 calls per row
   if (doneIds.length > 0) {

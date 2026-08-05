@@ -96,7 +96,8 @@ export interface AttendanceTotals {
 
 export const ATTENDANCE_PAGE_SIZE = 50;
 /** the rows-per-page choices every paginated table offers (v31) */
-export const PAGE_SIZE_OPTIONS = [30, 50, 100, 200];
+export { PAGE_SIZES as PAGE_SIZE_OPTIONS } from "@/lib/page-size";
+import { PAGE_SIZES as PAGE_SIZE_OPTIONS } from "@/lib/page-size";
 
 /** How far back the history and the "needs recording" list look. The LC books
  *  a few hundred touch points a term — this keeps every query bounded. */

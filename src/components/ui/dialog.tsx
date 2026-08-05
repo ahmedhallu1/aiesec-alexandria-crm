@@ -145,6 +145,24 @@ function DialogContent({
       <DialogPrimitive.Content
         ref={ref}
         data-slot="dialog-content"
+        onPointerDownOutside={(e) => {
+          // A SELECT IS NOT "OUTSIDE" (v33.10). Radix renders Select, dropdown
+          // and popover content in a PORTAL at the document root, so releasing
+          // the pointer on an option counted as a click outside the dialog and
+          // closed the whole thing — losing everything typed. It happened on
+          // every contact log with a result dropdown.
+          const el = e.target as HTMLElement | null;
+          if (
+            el?.closest(
+              "[data-radix-popper-content-wrapper],[data-radix-select-content],[data-radix-select-viewport],[role='listbox'],[data-sonner-toaster]"
+            )
+          )
+            e.preventDefault();
+        }}
+        onFocusOutside={(e) => {
+          const el = e.target as HTMLElement | null;
+          if (el?.closest("[data-radix-popper-content-wrapper]")) e.preventDefault();
+        }}
         onPointerDownCapture={(e) => {
           // only the HEADER is a handle — dragging from the body would fight
           // with selecting text in it

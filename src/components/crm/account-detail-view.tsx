@@ -94,6 +94,16 @@ export function AccountDetailView({
   // ?open= deep links (Blue Man action chips) pre-open a dialog — only when
   // the viewer could click the button themselves (edit rights + active)
   const canAct = caps.edit && !account.out_of_process;
+  // the filtered list this account was opened from (v33.10)
+  const [backHref, setBackHref] = useState("/accounts");
+  useEffect(() => {
+    try {
+      const q = sessionStorage.getItem("sodio-accounts-query");
+      if (q) setBackHref(`/accounts${q}`);
+    } catch {
+      /* private mode — the plain list is fine */
+    }
+  }, []);
   const [contactOpen, setContactOpen] = useState(autoOpen === "contact" && canAct);
   // pre-picked when the comment box detected a contact result (v33)
   const [contactStatus, setContactStatus] = useState<string | undefined>(undefined);
@@ -121,8 +131,13 @@ export function AccountDetailView({
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
+      {/* BACK, NOT HOME (v33.10). This linked to a bare /accounts, so opening
+          an account from a filtered list and coming back dropped the filter —
+          you were returned to the top of 1,300 rows having lost your place.
+          The list remembers its own query (see `rememberAccountsQuery`), and
+          this returns to exactly it. */}
       <Link
-        href="/accounts"
+        href={backHref}
         className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="size-4" /> All accounts

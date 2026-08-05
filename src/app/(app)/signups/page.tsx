@@ -6,11 +6,11 @@ import {
 import { hasOgxAccess, ogxFunctions } from "@/lib/rbac";
 import { SignupsView } from "@/components/crm/signups-view";
 import type { OgxFunction } from "@/lib/types";
+import { PAGE_SIZES, pageSizeOf } from "@/lib/page-size";
 
 export const metadata = { title: "Sign-ups" };
 
 /** Rows per page (?size) — the universal table kit's picker drives it. */
-const PAGE_SIZES = [30, 50, 100, 200];
 const DEFAULT_PAGE_SIZE = 100;
 
 /** THE OGX WORKSPACE (v25): OGT & OGV sign-ups, two-way synced with the LC's
@@ -32,9 +32,7 @@ export default async function SignupsPage({
   const page = Math.max(0, (parseInt(sp.page ?? "1", 10) || 1) - 1);
   // rows per page — anything off the list falls back to the default (a
   // hand-typed ?size can't ask the DB for 10k rows)
-  const size = PAGE_SIZES.includes(Number(sp.size))
-    ? Number(sp.size)
-    : DEFAULT_PAGE_SIZE;
+  const size = pageSizeOf(sp.size);
   const [result, planCard, streak] = await Promise.all([
     listSignupsPage(
       viewer,
