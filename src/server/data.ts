@@ -11,6 +11,7 @@ import {
   canSeeLcConcerns as _canSeeLcConcerns,
   canFilterUnassigned,
   canSeeUnassigned,
+  canUseAdminTools,
   canViewAccount,
   hasRaisingAccess,
   hasTmAccess,
@@ -132,7 +133,10 @@ export interface ViewAsTarget {
 }
 export async function listViewAsTargets(): Promise<ViewAsTarget[]> {
   const real = await getRealViewer();
-  if (!real.isAdmin) return [];
+  // the admin CAPABILITY, not the env list (v33.4) — this returned [] for a
+  // capability-admin, and a picker with zero options doesn't look empty, it
+  // looks like a control that won't open
+  if (!canUseAdminTools(real)) return [];
   const { data } = await db()
     .from("members")
     .select("id, name, role, functions")
@@ -159,7 +163,10 @@ export async function listViewAsTargets(): Promise<ViewAsTarget[]> {
  *  the admin's `sodio-test-mode` cookie makes test accounts visible. */
 export const getViewer = cache(async (): Promise<Viewer> => {
   const real = await getRealViewer();
-  if (!real.isAdmin) return real;
+  // same capability gate as the picker and `startViewAs`: all three have to
+  // agree, or a capability-admin picks a member and the app quietly stays
+  // itself
+  if (!canUseAdminTools(real)) return real;
   const { cookies } = await import("next/headers");
   const jar = await cookies();
   const showTest = jar.get("sodio-test-mode")?.value === "1";

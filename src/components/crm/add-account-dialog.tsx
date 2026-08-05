@@ -393,34 +393,6 @@ export function AddAccountDialog({
                   </span>
                   <Switch checked={requestedPodio} onCheckedChange={setRequestedPodio} />
                 </label>
-                {/* REQUEST STATE AT CREATION (v33.2) — for people who hold
-                    Podio access (MMs, leaders, anyone tagged "has Podio").
-                    They usually already know what Podio said; making them
-                    save, reopen the account and edit it was busywork. */}
-                {viewer.canSetRequestState && requestedPodio ? (
-                  <div className="mt-2 grid gap-1.5 rounded-md border bg-background px-3 py-2">
-                    <span className="font-medium text-foreground">
-                      Request state — what Podio said
-                    </span>
-                    <Select
-                      value={requestState || "none"}
-                      onValueChange={(v) => setRequestState(v === "none" ? "" : v)}
-                    >
-                      <SelectTrigger className="h-8">
-                        <SelectValue placeholder="Not heard back yet" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Not heard back yet</SelectItem>
-                        <SelectItem value="Checking">Checking</SelectItem>
-                        <SelectItem value="Approved">Approved</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <span className="text-[11px] text-muted-foreground">
-                      &quot;Rejected&quot; archives an account, so it isn&apos;t offered
-                      here — set it on the account if the answer comes back no.
-                    </span>
-                  </div>
-                ) : null}
               </div>
             ) : !nameBlocked && podio && podio !== "checking" ? (
               // status "unknown" — Podio didn't answer. This used to render
@@ -454,6 +426,36 @@ export function AddAccountDialog({
                     </a>
                   ) : null}
                 </div>
+              </div>
+            ) : null}
+
+            {/* REQUEST STATE AT CREATION (v33.4).
+                It first shipped INSIDE the "not on Podio" box and behind the
+                "I already submitted it" switch — two conditions deep, so in
+                practice nobody ever saw it. It belongs here, under the Podio
+                area, for anyone who may set one: the verdict you most want to
+                record a state against is "already on Podio", which was
+                precisely the branch that never offered it. */}
+            {viewer.canSetRequestState && !nameBlocked ? (
+              <div className="grid gap-1.5 rounded-lg border bg-background px-3 py-2.5">
+                <Label className="text-xs">Request state — if you already know</Label>
+                <Select
+                  value={requestState || "none"}
+                  onValueChange={(v) => setRequestState(v === "none" ? "" : v)}
+                >
+                  <SelectTrigger className="h-8">
+                    <SelectValue placeholder="Not heard back yet" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Not heard back yet</SelectItem>
+                    <SelectItem value="Checking">Checking</SelectItem>
+                    <SelectItem value="Approved">Approved</SelectItem>
+                  </SelectContent>
+                </Select>
+                <span className="text-[11px] text-muted-foreground">
+                  &quot;Rejected&quot; archives an account, so it isn&apos;t offered here —
+                  set that on the account itself if the answer comes back no.
+                </span>
               </div>
             ) : null}
           </div>
