@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import crypto from "node:crypto";
 import { after } from "next/server";
 import { z } from "zod";
@@ -88,6 +88,13 @@ async function loadAccount(id: string): Promise<PipelineRow | null> {
 function refresh(accountId?: string) {
   revalidatePath("/", "layout");
   if (accountId) revalidatePath(`/accounts/${accountId}`);
+  // The dashboard's row read is cached for a minute to keep the hosting bill
+  // down (v33.6) — but "I just recorded a deal and nothing moved" is exactly
+  // the confusion that makes people stop trusting the numbers. `updateTag` is
+  // the read-your-own-writes one: it EXPIRES the entry, so the next render
+  // waits for fresh data instead of serving stale (revalidateTag would hand
+  // back the old numbers once more). Every write path already calls refresh().
+  updateTag("accounts");
 }
 
 /** Keeps the responsible's CALENDAR follow-up reminder in sync with the
@@ -515,7 +522,7 @@ export async function reassignAccount(
     .from("accounts")
     .update({
       responsible_id: newResponsibleId,
-      ...(fnChanged ? { function: movedFn } : {}),
+      ...(fnChanged ? { function: movedFn, ...fnSpecificReset(movedFn!) } : {}),
     })
     .eq("id", accountId);
   if (error) return fail(error.message);
@@ -523,6 +530,59 @@ export async function reassignAccount(
     from: account.responsible_id,
     to: newResponsibleId,
     ...(fnChanged ? { function_from: account.function, function_to: movedFn } : {}),
+  });
+  refresh(accountId);
+  return { ok: true };
+}
+
+/** Fields that only mean something inside ONE function, cleared when an
+ *  account moves to another (v33.6).
+ *
+ *  An IGV account carries a Project ("Skill Up!"); an IGT one carries a
+ *  product (GTa/GTe) and a sub-product. Claiming an IGV account into IGT left
+ *  the IGV project on it, so the account showed one function's badge and
+ *  another function's details — which is what made a claimed account look
+ *  like it was still in the function the claimer has no access to. */
+function fnSpecificReset(fn: string): Record<string, null> {
+  return {
+    ...(fn === "IGV" ? {} : { project: null }),
+    ...(fn === "IGT" ? {} : { product: null, sub_product: null }),
+    ...(fn === "B2C" ? {} : {}),
+  };
+}
+
+/** MOVE an account to another function (v33.6).
+ *
+ *  Only for someone who works BOTH sides — the LCP/admin, or a leader of two
+ *  functions, which happens for real (an OGT VP taking OGV as well). Anyone
+ *  else moving an account would be pushing it out of their own sight.
+ *  Function-specific fields are cleared, exactly as on a cross-function
+ *  claim. */
+export async function moveAccountFunction(
+  accountId: string,
+  toFunction: string
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const account = await loadAccount(accountId);
+  if (!account) return fail("That account no longer exists.");
+  const allowed = allowedAccountFunctions(viewer);
+  if (!canEditAccount(viewer, account))
+    return fail("You are not allowed to edit this account.", "forbidden");
+  if (!allowed.includes(account.function as (typeof allowed)[number]))
+    return fail("You can only move an account out of a function you work.", "forbidden");
+  if (!allowed.includes(toFunction as (typeof allowed)[number]))
+    return fail("You can only move an account into a function you work.", "forbidden");
+  if (toFunction === account.function) return { ok: true };
+
+  await snapshotForUndo("accounts", accountId);
+  const { error } = await db()
+    .from("accounts")
+    .update({ function: toFunction, ...fnSpecificReset(toFunction) })
+    .eq("id", accountId);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "move_function", "account", accountId, {
+    from: account.function,
+    to: toFunction,
   });
   refresh(accountId);
   return { ok: true };
@@ -4795,6 +4855,7 @@ export async function recordIrCall(input: {
   demand?: string[] | null;
   demandOther?: string | null;
   b2cCampaigns?: string | null;
+    cvPoolLink?: string | null;
   screenshot?: { name: string; mimeType: string; dataBase64: string } | null;
 }): Promise<ActionResult<{ id: string; screenshotWarning?: string }>> {
   const viewer = await getViewer();
@@ -4837,6 +4898,12 @@ export async function recordIrCall(input: {
       status: "completed",
       demand: demand.value,
       b2c_campaigns: input.b2cCampaigns?.trim().slice(0, 2000) || null,
+      // only a real http(s) link is stored — a half-typed one is worse than
+      // none, because it looks clickable and isn't
+      cv_pool_link: (() => {
+        const v = (input.cvPoolLink ?? "").trim().slice(0, 500);
+        return v && URL_RE.test(v) ? v : null;
+      })(),
       screenshot_drive_id: screenshot?.id ?? null,
       screenshot_name: screenshot?.name ?? null,
       screenshot_link: screenshot?.link ?? null,
@@ -5314,6 +5381,8 @@ export async function completeIrCall(
     demand?: string[] | null;
     demandOther?: string | null;
     b2cCampaigns?: string | null;
+    /** the partner LC's own CV pool, when they share one (v33.6) */
+    cvPoolLink?: string | null;
     notes?: string | null;
     screenshot?: { name: string; mimeType: string; dataBase64: string } | null;
   }
@@ -5353,6 +5422,12 @@ export async function completeIrCall(
       status: "completed",
       demand: demand.value,
       b2c_campaigns: input.b2cCampaigns?.trim().slice(0, 2000) || null,
+      // only a real http(s) link is stored — a half-typed one is worse than
+      // none, because it looks clickable and isn't
+      cv_pool_link: (() => {
+        const v = (input.cvPoolLink ?? "").trim().slice(0, 500);
+        return v && URL_RE.test(v) ? v : null;
+      })(),
       notes: input.notes?.trim().slice(0, 5000) || null,
       ...(screenshot
         ? {

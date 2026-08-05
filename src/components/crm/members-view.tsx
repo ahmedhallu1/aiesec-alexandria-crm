@@ -28,7 +28,10 @@ import { WhatsAppIcon } from "./icons";
  *  BD → the funnel + MONEY (EGP) as MOS ·
  *  consideration & OGX → APPROVALS (their filed plan — actuals come with the
  *  consideration module) · others (TM/F&L/…) → no numbers yet. */
-function mosMetrics(m: MemberDirectoryEntry): { label: string; value: string }[] {
+function mosMetrics(
+  m: MemberDirectoryEntry,
+  side: MemberDirectoryEntry["mos"] = m.mos
+): { label: string; value: string }[] {
   const k = m.kpis;
   const funnel = [
     { label: "MR", value: String(k.mr) },
@@ -37,18 +40,18 @@ function mosMetrics(m: MemberDirectoryEntry): { label: string; value: string }[]
     { label: "Done", value: String(k.visitsDone) },
     { label: "Deals", value: String(k.deals) },
   ];
-  if (m.mos === "raising") return [...funnel, { label: "Opens ★", value: String(k.slots) }];
-  if (m.mos === "b2c") {
+  if (side === "raising") return [...funnel, { label: "Opens ★", value: String(k.slots) }];
+  if (side === "b2c") {
     // B2C's MOS = deals signed — the funnel already ends in Deals, star it
     const b2cFunnel = funnel.map((f) =>
       f.label === "Deals" ? { ...f, label: "Deals ★" } : f
     );
     return b2cFunnel;
   }
-  if (m.mos === "bd")
+  if (side === "bd")
     return [...funnel, { label: "Opens", value: String(k.slots) },
       { label: "EGP ★", value: k.egp.toLocaleString("en") }];
-  if (m.mos === "ogx")
+  if (side === "ogx")
     // v29: the OGX row IS the dashboard funnel — Sign-ups → Contacted →
     // Interested → Applied → Accepted → Approved (the MOS), all live numbers
     return [
@@ -59,7 +62,7 @@ function mosMetrics(m: MemberDirectoryEntry): { label: string; value: string }[]
       { label: "Acc.", value: String(k.signupAccepted) },
       { label: "Approvals ★", value: String(k.signupApprovals) },
     ];
-  if (m.mos === "consideration")
+  if (side === "consideration")
     return [
       { label: "APL (plan)", value: String(k.planApplicants) },
       { label: "ACC (plan)", value: String(k.planAccepted) },
@@ -72,6 +75,15 @@ function mosMetrics(m: MemberDirectoryEntry): { label: string; value: string }[]
  *  and Coordinators); the individual roles stay in the list. */
 const MM_FILTER = "__mm";
 const MM_ROLES = ["Team Leader", "Coordinator"];
+
+/** Short name for a side, shown only when a member has more than one. */
+const SIDE_LABEL: Record<string, string> = {
+  raising: "Raising",
+  consideration: "Consid.",
+  bd: "BD",
+  b2c: "B2C",
+  ogx: "OGX",
+};
 
 const MOS_TAG: Record<MemberDirectoryEntry["mos"], string | null> = {
   raising: "MOS: Opens",
@@ -211,6 +223,10 @@ export function MembersView({
   const [q, setQ] = useState("");
   const [fn, setFn] = useState("");
   const [role, setRole] = useState("");
+  /** the SIDE of the work — Raising / Consideration / … (v33.6). An IGT MM
+   *  reviewing their function wants "show me the raising people" without
+   *  losing the ones who do both. */
+  const [side, setSide] = useState("");
 
   // the date window lives in the URL (?from/&to) — it's a SERVER filter: the
   // KPIs themselves are recounted, so it can't be done in the browser
@@ -261,6 +277,10 @@ export function MembersView({
     () => [...new Set(members.map((m) => m.role))],
     [members]
   );
+  const sides = useMemo(
+    () => [...new Set(members.flatMap((m) => m.sub_functions))].filter(Boolean).sort(),
+    [members]
+  );
 
   const filtered = members.filter((m) => {
     const needle = q.trim().toLowerCase();
@@ -272,6 +292,9 @@ export function MembersView({
     )
       return false;
     if (fn && !m.functions.includes(fn) && !m.sub_functions.includes(fn)) return false;
+    // someone who is Raising AND Consideration matches EITHER filter — they
+    // really do both, so hiding them from one of the two lists would be a lie
+    if (side && !m.sub_functions.includes(side)) return false;
     if (role === MM_FILTER) {
       if (!MM_ROLES.includes(m.role)) return false;
     } else if (role && m.role !== role) return false;
@@ -323,18 +346,35 @@ export function MembersView({
         return m.team_name ?? "—";
       case "manager":
         return m.manager ?? "—";
-      case "mos":
-        return mosMetrics(m).length > 0 ? (
-          <div className="flex max-w-md flex-wrap gap-x-3 gap-y-0.5">
-            {mosMetrics(m).map((c) => (
-              <span key={c.label} className="whitespace-nowrap text-xs text-muted-foreground">
-                {c.label} <b className="text-sm text-foreground">{c.value}</b>
-              </span>
+      case "mos": {
+        // one row PER SIDE (v33.6). An ICX MM who is "Raising, Consideration"
+        // does two jobs; showing one set of numbers hid half of what they are
+        // reviewed on. Labelled only when there is more than one, so the
+        // single-side rows read exactly as before.
+        const sides = (m.mosAll?.length ? m.mosAll : [m.mos]).filter(
+          (side) => mosMetrics(m, side).length > 0
+        );
+        if (sides.length === 0)
+          return <span className="text-xs text-muted-foreground">—</span>;
+        return (
+          <div className="space-y-1">
+            {sides.map((side) => (
+              <div key={side} className="flex max-w-md flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                {sides.length > 1 ? (
+                  <span className="w-16 shrink-0 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {SIDE_LABEL[side] ?? side}
+                  </span>
+                ) : null}
+                {mosMetrics(m, side).map((c) => (
+                  <span key={c.label} className="whitespace-nowrap text-xs text-muted-foreground">
+                    {c.label} <b className="text-sm text-foreground">{c.value}</b>
+                  </span>
+                ))}
+              </div>
             ))}
           </div>
-        ) : (
-          <span className="text-xs text-muted-foreground">—</span>
         );
+      }
       case "contact":
         return <ContactButtons m={m} />;
       case "email":
@@ -403,6 +443,19 @@ export function MembersView({
             ))}
           </SelectContent>
         </Select>
+        {sides.length > 1 ? (
+          <Select value={side || "__all"} onValueChange={(v) => setSide(v === "__all" ? "" : v)}>
+            <SelectTrigger className="h-9 w-auto min-w-28">
+              <SelectValue placeholder="Side" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all">Side: all</SelectItem>
+              {sides.map((sf) => (
+                <SelectItem key={sf} value={sf}>{sf}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
         <span className="text-sm text-muted-foreground">
           {filtered.length} member{filtered.length === 1 ? "" : "s"}
         </span>

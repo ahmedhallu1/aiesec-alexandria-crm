@@ -9,12 +9,7 @@ import {
   type Viewer,
 } from "@/lib/rbac";
 import {
-  NO_WORKING_HOURS_FUNCTIONS,
-  TOUCH_POINT_KINDS,
-  TOUCH_POINT_SCOPES,
-  touchPointLabel,
-  type TouchPointKind,
-  type TouchPointScope,
+  NO_WORKING_HOURS_FUNCTIONS, TOUCH_POINT_KINDS, TOUCH_POINT_SCOPES, WORK_SESSION_HOURS, touchPointLabel, type TouchPointKind, type TouchPointScope,
 } from "@/lib/types";
 import { audienceLabel, cairoWhen, expandTouchPointFns } from "@/lib/touch-points";
 import { cairoToUtc } from "@/lib/time";
@@ -258,6 +253,35 @@ export async function createTouchPoint(
     invitedTeams = [...new Set((input.invitedTeams ?? []).map((t) => clean(t, 60)))]
       .filter((t) => t && t !== teamName && known.has(t))
       .slice(0, 10);
+  }
+
+  // NO WORKING HOURS ON TOP OF THE LC'S (v33.6). An LC working-hours session
+  // already has everyone in it; a team session at the same moment doesn't add
+  // a session, it splits one — the members owe attendance twice and whoever
+  // records it has to guess which one they were in. Meetings and outings are
+  // free to overlap: a team meeting during LC working hours is a normal thing
+  // to do.
+  if (kind === "working_hours" && scope === "team") {
+    const from = new Date(startsAt.getTime() - WORK_SESSION_HOURS * 3600_000).toISOString();
+    const to = new Date(startsAt.getTime() + WORK_SESSION_HOURS * 3600_000).toISOString();
+    const { data: lcSessions } = await db()
+      .from("touch_points")
+      .select("starts_at")
+      .eq("scope", "lc")
+      .eq("kind", "working_hours")
+      .neq("status", "cancelled")
+      .gte("starts_at", from)
+      .lte("starts_at", to);
+    const clash = ((lcSessions ?? []) as { starts_at: string }[]).find((l) => {
+      const lcStart = new Date(l.starts_at).getTime();
+      const lcEnd = lcStart + WORK_SESSION_HOURS * 3600_000;
+      const mineEnd = startsAt.getTime() + WORK_SESSION_HOURS * 3600_000;
+      return startsAt.getTime() < lcEnd && lcStart < mineEnd;
+    });
+    if (clash)
+      return fail(
+        `The LC already runs working hours then (${cairoWhen(clash.starts_at)}) — your team is in that one. Pick another time, or book a team MEETING if you need your own slot.`
+      );
   }
 
   // TM / F&L / CXP have no working floor — no working hours for or with them

@@ -96,12 +96,18 @@ export function NotificationsBell({
         )}
         onClick={openPopup}
       >
-        <Bell className="size-4" />
-        {unread > 0 ? (
-          <span className="absolute -right-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-destructive text-[9px] font-bold text-white">
-            {unread > 9 ? "9+" : unread}
-          </span>
-        ) : null}
+        {/* the badge hangs off the BELL, not off the button (v33.6). The
+            sidebar footer stretches this trigger to a full segment, and a
+            badge pinned to the button's corner then floated far away from the
+            icon it belongs to. */}
+        <span className="relative inline-flex">
+          <Bell className="size-4" />
+          {unread > 0 ? (
+            <span className="absolute -right-2 -top-1.5 flex size-4 items-center justify-center rounded-full bg-destructive text-[9px] font-bold text-white">
+              {unread > 9 ? "9+" : unread}
+            </span>
+          ) : null}
+        </span>
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
