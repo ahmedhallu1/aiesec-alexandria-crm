@@ -272,12 +272,21 @@ export function canReassignAccount(v: Viewer, a: AccountLike): boolean {
   return false;
 }
 
-/** Who a given viewer may reassign an account to. */
+/** Who a given viewer may reassign an account TO (v33.9).
+ *
+ *  Anyone who may reassign an account at all may hand it to ANY member. The
+ *  hard question — "is this account yours to move?" — is already answered by
+ *  `canReassignAccount`; narrowing the destination as well only produced
+ *  dead ends. A company belongs to whoever can actually sell to them, and
+ *  that person is regularly in another function: an IGV TL who finds a
+ *  company that wants a teacher should hand it to IGT in one step rather
+ *  than through two VPs.
+ *
+ *  The target list is still a list of REAL members, so nothing lands
+ *  nowhere. */
 export function reassignTargetScope(v: Viewer): AccountScope {
-  if (master(v)) return { kind: "all" };
-  if (isIcxLead(v)) return { kind: "functions", fns: scopeFunctions(v) };
-  if (v.role === "Team Leader")
-    return { kind: "members", ids: [v.id, ...v.teamMemberIds] };
+  if (master(v) || isIcxLead(v)) return { kind: "all" };
+  if (v.role === "Team Leader" || v.role === "Coordinator") return { kind: "all" };
   return { kind: "members", ids: [] };
 }
 

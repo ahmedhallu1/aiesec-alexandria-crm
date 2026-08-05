@@ -343,7 +343,13 @@ export function AddAccountDialog({
                       onClick={() => {
                         const id = nameCheck.info.revive!;
                         startTransition(async () => {
-                          const res = await reviveAndAssign(id);
+                          // the project the member already picked in
+                          // this form travels with it (v33.9)
+                          const res = await reviveAndAssign(
+                            id,
+                            undefined,
+                            form.project ?? null
+                          );
                           if (!res.ok) {
                             toast.error(res.error);
                             return;

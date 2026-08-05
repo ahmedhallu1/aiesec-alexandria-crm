@@ -1073,13 +1073,11 @@ export async function listReassignTargets(viewer: Viewer, fn: AccountFunction): 
   if (scope.kind === "members" && scope.ids.length === 0) return [];
   let query = db().from("members").select("*").eq("is_active", true);
   if (scope.kind === "all" || scope.kind === "functions") {
-    // reassignment stays inside the account's function (B2B/BD = the B2B crew)
-    query =
-      fn === "B2B" || fn === "BD"
-        ? query.or("functions.ov.{B2B,BD},sub_functions.ov.{B2B,BD}")
-        : fn === "B2C"
-          ? query.or("functions.ov.{B2C},sub_functions.ov.{B2C}")
-          : query.contains("functions", [fn]);
+    // v33.9 — the destination is no longer pinned to the account's own
+    // function: a company belongs to whoever can sell to them, and that is
+    // regularly someone else's crew. Anyone who can HOLD an account is
+    // offerable; the account follows the person (`reassignAccount` moves it).
+    query = membersInFunctions(query, ACCOUNT_WORLD_FNS);
   } else {
     query = query.in("id", scope.ids);
   }
@@ -3930,6 +3928,15 @@ export async function listPartnerLcs(viewer: Viewer): Promise<PartnerLc[]> {
 /** What the IR calls have taught us about each partner LC (v29): the people
  *  who booked from it, plus how much history it carries. Shown in the LC
  *  registry so a name isn't just a name. */
+interface ManualLcContact {
+  id: string;
+  partner_lc_id: string;
+  name: string;
+  role: string | null;
+  email: string | null;
+  phone: string | null;
+}
+
 export interface PartnerLcDetail extends PartnerLc {
   calls: number;
   cvs: number;
@@ -3940,6 +3947,8 @@ export interface PartnerLcDetail extends PartnerLc {
     email: string | null;
     /** with its country code — the booking collects it (v33.6) */
     phone: string | null;
+    /** set when a person was added BY HAND (v33.9) — only those can be removed */
+    manualId?: string | null;
   }[];
 }
 
@@ -3948,7 +3957,7 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
   // Supabase caps one response at 1000 rows — page both whole-table reads on a
   // STABLE key (fetchAll re-runs the builder per page), then restore the
   // newest-first order the counts and the contacts loop rely on
-  const [lcs, calls, cvRows] = await Promise.all([
+  const [lcs, calls, cvRows, manual] = await Promise.all([
     listPartnerLcs(viewer),
     fetchAll<{
       partner_lc_id: string | null;
@@ -3967,7 +3976,22 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
     fetchAll<{ partner_lc_id: string | null }>(() =>
       db().from("cvs").select("partner_lc_id").order("id")
     ),
+    // IRs added BY HAND (v33.9) — the ones who never booked a call themselves
+    (async (): Promise<ManualLcContact[]> => {
+      // pre-0041 grace: the table may not exist yet on a lagging database
+      const { data } = await db()
+        .from("partner_lc_contacts")
+        .select("id, partner_lc_id, name, role, email, phone")
+        .order("created_at");
+      return (data ?? []) as ManualLcContact[];
+    })().catch(() => [] as ManualLcContact[]),
   ]);
+  const manualByLc = new Map<string, ManualLcContact[]>();
+  for (const c of manual) {
+    const list = manualByLc.get(c.partner_lc_id) ?? [];
+    list.push(c);
+    manualByLc.set(c.partner_lc_id, list);
+  }
   calls.sort((a, b) => (a.called_at < b.called_at ? 1 : a.called_at > b.called_at ? -1 : 0));
   const cvCounts = new Map<string, number>();
   for (const c of cvRows) {
@@ -3977,7 +4001,13 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
     const mine = calls.filter((c) => c.partner_lc_id === lc.id && c.status !== "cancelled");
     // one entry per person (most recent first), so the crew knows who to reach
     const seen = new Set<string>();
-    const contacts: PartnerLcDetail["contacts"] = [];
+    const contacts: PartnerLcDetail["contacts"] = (manualByLc.get(lc.id) ?? []).map(
+      (c) => ({ name: c.name, role: c.role, email: c.email, phone: c.phone, manualId: c.id })
+    );
+    const seenManual = new Set(
+      contacts.map((c) => (c.email || c.name || "").toLowerCase()).filter(Boolean)
+    );
+    for (const k of seenManual) seen.add(k);
     for (const c of mine) {
       const key = (c.booker_email || c.booker_name || "").toLowerCase();
       if (!key || seen.has(key)) continue;

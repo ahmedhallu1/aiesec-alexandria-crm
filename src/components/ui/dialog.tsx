@@ -71,7 +71,13 @@ function useDialogDrag() {
   const apply = React.useCallback(() => {
     const el = ref.current
     if (!el) return
-    el.style.transform = `translate(calc(-50% + ${offset.current.x}px), calc(-50% + ${offset.current.y}px))`
+    // THE `translate` LONGHAND, NOT `transform` (v33.9). Tailwind v4 centres
+    // this element with `translate: var(--tw-translate-x) var(--tw-translate-y)`
+    // — the CSS translate PROPERTY. Writing `transform` doesn't replace that,
+    // it COMPOSES with it, so the dialog jumped half its own size up and left
+    // the moment a drag began. Writing `translate` overrides the value cleanly
+    // and still leaves `transform` free for Radix's zoom animation.
+    el.style.translate = `calc(-50% + ${offset.current.x}px) calc(-50% + ${offset.current.y}px)`
   }, [])
 
   const onPointerDown = React.useCallback(
@@ -147,6 +153,13 @@ function DialogContent({
         }}
         className={cn(
           "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border bg-background p-6 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-w-lg",
+          // MOBILE-SAFE BY DEFAULT (v33.9). A dialog taller than the phone —
+          // which any form becomes once the keyboard is up — used to run off
+          // the screen with no way to reach its buttons, and every dialog had
+          // to remember to opt in. The base caps the height and scrolls, so
+          // anything built later is safe without thinking about it. Callers
+          // can still override: their classes come after these.
+          "max-h-[90dvh] overflow-y-auto overscroll-contain",
           "[&_[data-slot='dialog-header']]:md:cursor-grab [&_[data-slot='dialog-header']]:md:active:cursor-grabbing",
           className
         )}
