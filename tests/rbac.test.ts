@@ -131,11 +131,14 @@ describe("unowned accounts: MMs and up only (v33.2)", () => {
     expect(isClaimableAccount(igvRaiser, account({ responsible_id: null }))).toBe(false);
   });
 
-  it("only VPs, Directors and the LCP get the explicit Unassigned FILTER", () => {
+  it("the Unassigned FILTER follows who can SEE unowned accounts", () => {
+    // if you can work them you can isolate them; if you can't see them at all
+    // the option would only ever return nothing
     expect(canFilterUnassigned(igvVp)).toBe(true);
     expect(canFilterUnassigned(lcp)).toBe(true);
-    expect(canFilterUnassigned(igvTl)).toBe(false); // sees them inline, can't slice the pool
-    expect(canFilterUnassigned(igvRaiser)).toBe(false);
+    expect(canFilterUnassigned(igvTl)).toBe(true);
+    expect(canFilterUnassigned(igvCoord)).toBe(true);
+    expect(canFilterUnassigned(igvRaiser)).toBe(false); // a Member sees no pool
   });
 
   it("an OWNED account is never claimable — this is the IDOR guard", () => {

@@ -258,14 +258,47 @@ function IgtExpectationTab() {
               <Label>Subject</Label>
               <Input value={subject} onChange={(e) => setSubject(e.target.value)} />
             </div>
+            {/* WHO IT GOES TO — visible at the moment of review, because
+                "send" is irreversible and the addresses were typed a scroll
+                ago. Editable here too: catching a typo shouldn't mean
+                rebuilding the email (v33.4). */}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-1.5">
+                <Label>To — the EP</Label>
+                <Input
+                  type="email"
+                  value={form.toEp}
+                  onChange={(e) => setForm((f) => ({ ...f, toEp: e.target.value }))}
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label>Cc — the IR (optional)</Label>
+                <Input
+                  type="email"
+                  value={form.toIr}
+                  onChange={(e) => setForm((f) => ({ ...f, toIr: e.target.value }))}
+                  placeholder="Leave blank if there isn't one"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground sm:col-span-2">
+                <span className="font-medium">customer.support@aiesec.net.eg</span> is always
+                on Cc — the EP&apos;s fallback when this term ends.
+              </p>
+            </div>
             <div className="grid gap-1.5">
               <Label>Body</Label>
+              {/* The email carries its OWN colours (dark text, for the white
+                  background every mail client renders it on). Dropping that
+                  onto a dark app surface made it near-invisible, so the
+                  preview is a sheet of white paper in both themes — which is
+                  also exactly what the EP will see. */}
               <div
                 ref={bodyRef}
                 contentEditable
                 suppressContentEditableWarning
                 dir="auto"
-                className="max-h-[55vh] overflow-y-auto rounded-lg border bg-background p-4 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                style={{ backgroundColor: "#ffffff", color: "#1f2937" }}
+                className="max-h-[55vh] overflow-y-auto rounded-lg border p-4 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 dangerouslySetInnerHTML={{ __html: built.html }}
               />
             </div>

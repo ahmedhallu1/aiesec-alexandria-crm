@@ -167,9 +167,6 @@ export function igtExpectationEmail(o: IgtExpectationInput): {
         "Cost of Living in Alexandria"
       )}.`
     )}
-    ${li(
-      "The working hours will be 40 hours per week and there will be 2 days off per week (further details about the exact starting and ending time will be discussed with you and the managers in the center; it's flexible)."
-    )}
   </ol>
 
   ${p("If you still have any doubts, please do not hesitate to contact me.")}

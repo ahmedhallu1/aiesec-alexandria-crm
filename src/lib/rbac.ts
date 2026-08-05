@@ -199,12 +199,15 @@ export function canSeeUnassigned(v: Viewer): boolean {
   return master(v) || allowedAccountFunctions(v).length > 0;
 }
 
-/** Who gets the explicit "— Unassigned" FILTER — narrower still: VPs,
- *  Directors and the LCP. An MM meets unowned accounts inline in their list
- *  and can take one; slicing the whole pool to hand it out is the leadership
- *  act, and only they have people to hand it to. */
+/** Who gets the explicit "— Unassigned" filter option.
+ *
+ *  The same people who can SEE unowned accounts (v33.4). It was briefly
+ *  narrower — VPs and above — which left an MM looking at unowned rows in
+ *  their own list with no way to isolate them. If you can work them, you can
+ *  filter them; if you can't see them at all, the option would return
+ *  nothing. */
 export function canFilterUnassigned(v: Viewer): boolean {
-  return master(v) || isIcxLead(v);
+  return canSeeUnassigned(v);
 }
 
 /** Which function an account lands in when this viewer claims it. Their own

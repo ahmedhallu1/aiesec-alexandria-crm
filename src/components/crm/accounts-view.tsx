@@ -1012,10 +1012,11 @@ export function AccountsView({
             options={teamOptions.map((t) => [t.id, t.label])}
           />
         ) : null}
-        {/* Flags are TOGGLES, not a dropdown (v33.2): there are two of them and
-            each is a worklist you switch on and clear, not an attribute you
-            pick a value for. Podio checking also hides unowned accounts —
-            nobody is going to submit a name they haven't been given. */}
+        {/* Needs-Podio-checking is a TOGGLE: a worklist you switch on and
+            clear, not an attribute you pick a value for. It also hides unowned
+            accounts — nobody submits a name they haven't been given. (The "no
+            next step" toggle was dropped in v33.4: the missing-next-step badge
+            already shows on the row, so filtering to it added nothing.) */}
         {!archived ? (
           <>
             <FlagToggle
@@ -1024,13 +1025,6 @@ export function AccountsView({
                 setParam("flag", filters.flag === "needs_podio" ? "" : "needs_podio")
               }
               label="🔎 Needs Podio checking"
-            />
-            <FlagToggle
-              active={filters.flag === "next_step_missing"}
-              onClick={() =>
-                setParam("flag", filters.flag === "next_step_missing" ? "" : "next_step_missing")
-              }
-              label="🚨 No next step"
             />
           </>
         ) : null}

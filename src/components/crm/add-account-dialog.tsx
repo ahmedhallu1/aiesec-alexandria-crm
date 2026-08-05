@@ -149,6 +149,8 @@ export function AddAccountDialog({
   // unreachable Podio just leaves the manual link.
   const [podio, setPodio] = useState<PodioCheck | "checking" | null>(null);
   const podioSeq = useRef(0);
+  /** bumped by "Try again" — re-runs the check without retyping the name */
+  const [podioNonce, setPodioNonce] = useState(0);
   useEffect(() => {
     if (name.length < 2) {
       podioSeq.current++;
@@ -163,7 +165,7 @@ export function AddAccountDialog({
       setPodio(res.ok ? (res.data ?? null) : null);
     }, 600);
     return () => clearTimeout(t);
-  }, [name]);
+  }, [name, podioNonce]);
 
   const submit = () =>
     startTransition(async () => {
@@ -419,6 +421,39 @@ export function AddAccountDialog({
                     </span>
                   </div>
                 ) : null}
+              </div>
+            ) : !nameBlocked && podio && podio !== "checking" ? (
+              // status "unknown" — Podio didn't answer. This used to render
+              // NOTHING, so a failed check looked exactly like a check that
+              // never ran, and the member had no idea whether the name was
+              // safe to submit (v33.4).
+              <div className="rounded-lg border border-dashed p-3 text-xs">
+                <p className="font-medium text-foreground">
+                  Couldn&apos;t reach Podio just now
+                </p>
+                <p className="mt-1 text-muted-foreground">
+                  Nothing is wrong with the name — the check itself failed. Adding the
+                  account here is fine; check the form yourself before submitting it.
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    className="font-medium text-primary underline-offset-2 hover:underline"
+                    onClick={() => setPodioNonce((n) => n + 1)}
+                  >
+                    Try again
+                  </button>
+                  {PODIO_FORM_URL ? (
+                    <a
+                      href={PODIO_FORM_URL}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium text-primary underline-offset-2 hover:underline"
+                    >
+                      Open the Podio form →
+                    </a>
+                  ) : null}
+                </div>
               </div>
             ) : null}
           </div>
