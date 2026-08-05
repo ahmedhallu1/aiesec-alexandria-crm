@@ -160,9 +160,20 @@ export function parseSearchResults(body: string): string[] | null {
   try {
     const parsed = JSON.parse(body) as { contents?: { title?: string }[] }[];
     if (!Array.isArray(parsed)) return null;
+
+    // PODIO ANSWERS `[]` WHEN IT HAS NOTHING (verified against the live
+    // endpoint). That is a real answer — "no such partner" — and it is the
+    // MOST COMMON one, because a member typing a genuinely new company is the
+    // normal case. Reading it as "unusable" made the check appear broken
+    // exactly when it was working: every new name came back "unknown" while
+    // names Podio DID have answered fine (v33.4).
+    if (parsed.length === 0) return [];
+
+    // A NON-empty array with no `contents` anywhere is a different animal: the
+    // shape changed under us. That must stay `null` → "unknown", never a
+    // confident "free" that tells someone to submit a duplicate.
     const entry = parsed.find((e) => Array.isArray(e?.contents));
-    // a well-formed response with no matches is an EMPTY list, not a failure
-    if (!entry) return parsed.length > 0 ? [] : null;
+    if (!entry) return null;
     return (entry.contents ?? [])
       .map((c) => (typeof c?.title === "string" ? c.title : ""))
       .filter(Boolean);

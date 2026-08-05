@@ -129,6 +129,19 @@ describe("Podio search parsing — third-party JSON is untrusted", () => {
     expect(parseSearchResults(wrap([]))).toEqual([]);
   });
 
+  it("a BARE `[]` is Podio saying 'I don't have that' — not a failure", () => {
+    // verified against the live endpoint: a query Podio has no partner for
+    // returns exactly `[]`. Reading that as unusable made every genuinely new
+    // company name report "couldn't reach Podio", which is the common case.
+    expect(parseSearchResults("[]")).toEqual([]);
+  });
+
+  it("a non-empty response with no contents anywhere is a SHAPE CHANGE → null", () => {
+    // must never become a confident "free": that would tell a member to
+    // submit a partner another LC already registered
+    expect(parseSearchResults('[{"name":"app","data":{}}]')).toBeNull();
+  });
+
   it("returns NULL on unusable input so the caller says 'unknown', never 'free'", () => {
     // this is the safety property: a shape change must not tell a member the
     // company is free to submit when we simply could not read the answer

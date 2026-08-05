@@ -74,7 +74,12 @@ export function igtExpectationEmail(o: IgtExpectationInput): {
   const phone = (o.senderPhone ?? "").trim();
   const waDigits = phone.replace(/[^\d]/g, "");
 
-  const li = (html: string) => `<li style="margin:0 0 10px 0;">${html}</li>`;
+  // The list markers are stated EXPLICITLY. The app's CSS reset strips them
+// (so the review preview showed an unnumbered wall of text) and several mail
+// clients do the same — and this list is referred to by number in AIESEC's
+// standards, so "point 9" has to actually read 9.
+const li = (html: string) =>
+  `<li style="margin:0 0 10px 0;display:list-item;">${html}</li>`;
   const p = (html: string) => `<p style="margin:0 0 14px 0;">${html}</p>`;
 
   const html = `
@@ -90,7 +95,7 @@ export function igtExpectationEmail(o: IgtExpectationInput): {
   )}
 
   ${p(`<b>AIESEC in Alexandria Project details:</b>`)}
-  <ul style="margin:0 0 14px 0;padding-left:22px;">
+  <ul style="margin:0 0 14px 0;padding-left:22px;list-style-type:disc;">
     ${li(`Your project name is <b>${project}</b>`)}
     ${li("Your IPS [Incoming Preparation Seminar] date will be given to you upon your arrival.")}
   </ul>
@@ -99,7 +104,7 @@ export function igtExpectationEmail(o: IgtExpectationInput): {
     "There are a few things you should know before you come to Egypt, which I will introduce to you in this email; therefore, read it carefully and star this email!"
   )}
 
-  <ol style="margin:0 0 14px 0;padding-left:22px;">
+  <ol style="margin:0 0 14px 0;padding-left:22px;list-style-type:decimal;">
     ${li(
       `Our terms change per semester and per year (for vice presidents like me). If you are coming next year, my successor and his new team will be supporting you. We have a database of all of our people that are coming in the future; therefore, other AIESECers in the future might contact you if I am not here anymore. If you are feeling lost, you can send an email to ${a(
         `mailto:${vpEmail}`,
@@ -133,20 +138,20 @@ export function igtExpectationEmail(o: IgtExpectationInput): {
     )}
     ${li(
       `<b>Departure support:</b> Once you are leaving Egypt, AIESEC is here to guide you to go back to the airport, although we do not take you there.
-      <ul style="margin:8px 0 0 0;padding-left:20px;">
-        <li style="margin:0 0 6px 0;">If you are in Cairo, you can take an Uber or a Careem ("Egyptian Uber").</li>
+      <ul style="margin:8px 0 0 0;padding-left:20px;list-style-type:circle;">
+        <li style="margin:0 0 6px 0;display:list-item;">If you are in Cairo, you can take an Uber or a Careem ("Egyptian Uber").</li>
         <li>If you are outside Cairo, you will take a bus to Cairo and then an Uber or Careem.</li>
       </ul>`
     )}
     ${li(
       `<b>More expectations:</b> Egypt has a strong base of values and a strong military institution.
-      <ul style="margin:8px 0 0 0;padding-left:20px;">
-        <li style="margin:0 0 6px 0;">Do not take pictures of national or military buildings.</li>
-        <li style="margin:0 0 6px 0;">Try not to wear small shorts or a tank top; show the minimum you can from your skin (mainly legs). Swimsuits are fine at the beach.</li>
-        <li style="margin:0 0 6px 0;">Girls do not need to wear a scarf; it is not mandatory.</li>
-        <li style="margin:0 0 6px 0;">Do not drink on the streets; this is illegal.</li>
-        <li style="margin:0 0 6px 0;">Avoid physical contact with people of the opposite sex.</li>
-        <li style="margin:0 0 6px 0;">In accommodations, you cannot bring a person of a different sex. In Egypt, only married couples can stay together under the same roof.</li>
+      <ul style="margin:8px 0 0 0;padding-left:20px;list-style-type:circle;">
+        <li style="margin:0 0 6px 0;display:list-item;">Do not take pictures of national or military buildings.</li>
+        <li style="margin:0 0 6px 0;display:list-item;">Try not to wear small shorts or a tank top; show the minimum you can from your skin (mainly legs). Swimsuits are fine at the beach.</li>
+        <li style="margin:0 0 6px 0;display:list-item;">Girls do not need to wear a scarf; it is not mandatory.</li>
+        <li style="margin:0 0 6px 0;display:list-item;">Do not drink on the streets; this is illegal.</li>
+        <li style="margin:0 0 6px 0;display:list-item;">Avoid physical contact with people of the opposite sex.</li>
+        <li style="margin:0 0 6px 0;display:list-item;">In accommodations, you cannot bring a person of a different sex. In Egypt, only married couples can stay together under the same roof.</li>
         <li>Do not travel to Israel, Ethiopia, and/or Libya while on your exchange due to conflictual situations.</li>
       </ul>`
     )}
@@ -155,9 +160,9 @@ export function igtExpectationEmail(o: IgtExpectationInput): {
     )}
     ${li(
       `<b>Work Requirements:</b> You must attend all working days stated in the opportunity.
-      <ul style="margin:8px 0 0 0;padding-left:20px;">
-        <li style="margin:0 0 6px 0;">Request leave or early departure in advance and wait for company confirmation.</li>
-        <li style="margin:0 0 6px 0;">Procrastinating or not fulfilling your job description will lead to consequences.</li>
+      <ul style="margin:8px 0 0 0;padding-left:20px;list-style-type:circle;">
+        <li style="margin:0 0 6px 0;display:list-item;">Request leave or early departure in advance and wait for company confirmation.</li>
+        <li style="margin:0 0 6px 0;display:list-item;">Procrastinating or not fulfilling your job description will lead to consequences.</li>
         <li>Dress code: You can dress casually, but you should have a formal one.</li>
       </ul>`
     )}
