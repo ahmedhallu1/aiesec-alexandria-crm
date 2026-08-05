@@ -26,6 +26,8 @@ import { resolveAttendancePrompts } from "./attendance-read";
 import {
   getTouchPoint,
   invitableTeams,
+  ownTeamName,
+  teamsOf,
   tmLeadEmails,
   touchPointAudience,
   type TouchPointRow,
@@ -225,22 +227,27 @@ export async function createTouchPoint(
   let invitedTeams: string[] = [];
   if (scope === "team") {
     // the registry of teams in the function the viewer just proved they own
+    // the viewer's OWN team is the registered one in their cell, not the
+    // whole comma-list of every team they belong to (v33.5)
+    const mine = await ownTeamName(viewer);
     const known = new Set([
-      ...(viewer.team_name ? [viewer.team_name] : []), // registry may lag members.team_name
+      ...(mine ? [mine] : []), // registry may lag members.team_name
+      ...teamsOf(viewer.team_name),
       ...(await invitableTeams(functionKey!, null)),
     ]);
     // v29.3: a VP/Director can no longer reach this branch at all (they book
     // FUNCTION points) — only the LCP/admin still pick any team in the registry
     const picksAnyTeam = viewer.isAdmin || viewer.role === "LCP";
-    const picked = clean(input.teamName, 60) || viewer.team_name || "";
+    const picked = clean(input.teamName, 60) || mine || "";
     // a Team Leader / Coordinator owns exactly one team — never someone else's
     teamName = picksAnyTeam
       ? known.has(picked)
         ? picked
         : null
-      : picked && picked === viewer.team_name
-        ? picked
-        : null;
+      : // a TL/Coordinator books exactly one team: their own. The label is
+        // whatever `ownTeamName` resolved; membership comes from who reports
+        // to them, so a name they typed can never widen the audience.
+        mine;
     if (!teamName)
       return fail(
         picksAnyTeam

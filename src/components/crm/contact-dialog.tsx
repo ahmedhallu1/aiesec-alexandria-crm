@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { logContact, setOutOfProcess } from "@/server/actions";
+import { getNextWorkingHours, logContact, setOutOfProcess } from "@/server/actions";
 import type { ContactMethod } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -253,21 +253,54 @@ export function ContactDialog({
                       <Input type="date" min={today} value={nextStepDate} onChange={(e) => setNextStepDate(e.target.value)} />
                       <Input type="time" value={nextStepTime} onChange={(e) => setNextStepTime(e.target.value)} />
                     </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="w-fit"
-                      onClick={() => {
-                        const d = new Date();
-                        d.setDate(d.getDate() + 7);
-                        setNextStepDate(
-                          `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-                        );
-                      }}
-                    >
-                      Next week
-                    </Button>
+                    {/* the two shortcuts that cover almost every real next
+                        step — and the working-hours one belongs HERE most of
+                        all: you are setting it seconds after a call that
+                        didn't land (v33.5) */}
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="w-fit"
+                        onClick={() => {
+                          const d = new Date();
+                          d.setDate(d.getDate() + 7);
+                          setNextStepDate(
+                            `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+                          );
+                        }}
+                      >
+                        Next week
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="w-fit"
+                        onClick={async () => {
+                          const res = await getNextWorkingHours();
+                          if (!res.ok || !res.data) {
+                            toast.info(
+                              "No upcoming working hours are booked for you yet — your TL or VP sets those on the calendar."
+                            );
+                            return;
+                          }
+                          const d = new Date(res.data.startsAt);
+                          setNextStepDate(
+                            `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+                          );
+                          setNextStepTime(
+                            `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+                          );
+                          if (!nextStep.trim())
+                            setNextStep("Contact them again during working hours");
+                          toast.success("Next step set to your next working hours ⏰");
+                        }}
+                      >
+                        Next working hours
+                      </Button>
+                    </div>
                   </div>
                 </div>
               ) : null}

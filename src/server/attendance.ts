@@ -105,6 +105,7 @@ export interface AttendanceSheet {
   kind: string;
   whenLabel: string;
   audience: string;
+  scope: string;
   ownerName: string;
   note: string | null;
   recordedAt: string | null;
@@ -143,6 +144,7 @@ export async function loadAttendanceSheet(
       kind: tp.kind,
       whenLabel: cairoWhen(tp.starts_at),
       audience: audienceLabel(tp),
+      scope: tp.scope,
       ownerName: tp.owner_name,
       note: tp.note,
       recordedAt: tp.attendance_recorded_at,

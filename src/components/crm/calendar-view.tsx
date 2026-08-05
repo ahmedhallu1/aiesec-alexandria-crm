@@ -17,6 +17,7 @@ import { TouchPointManageDialog } from "./touch-point-manage-dialog";
 import { TouchPointDialog } from "./touch-point-dialog";
 import { TimelineDialog } from "./timeline-dialog";
 import type { CalendarVisit } from "@/server/data";
+import { bookedBy } from "@/lib/touch-point-label";
 
 /** Distinct, readable chip colors — one per member, assigned in a stable order. */
 const MEMBER_COLORS = [
@@ -63,6 +64,8 @@ export interface CalendarTouchPoint {
   /** Cairo start, 24h HH:MM — what the manage form edits */
   timeValue: string;
   note: string | null;
+  /** lc | function | team — an LC point reads as TM's, not a person's */
+  scope: string;
   ownerName: string;
   audience: string;
   cancelled: boolean;
@@ -414,7 +417,7 @@ export function CalendarView({
                     {t.cancelled ? " · cancelled" : ""}
                   </p>
                   <p className="break-words text-xs text-muted-foreground" dir="auto">
-                    {t.audience} · booked by {t.ownerName}
+                    {t.audience} · booked by {bookedBy(t)}
                   </p>
                   {t.note ? (
                     <p className="mt-0.5 break-words text-xs text-muted-foreground" dir="auto">{t.note}</p>
@@ -503,7 +506,7 @@ export function CalendarView({
                   </p>
                 </div>
                 <p className="mt-1 break-words text-xs text-muted-foreground" dir="auto">
-                  {t.audience} · booked by {t.ownerName}
+                  {t.audience} · booked by {bookedBy(t)}
                   {t.cancelled
                     ? " · cancelled"
                     : t.recorded

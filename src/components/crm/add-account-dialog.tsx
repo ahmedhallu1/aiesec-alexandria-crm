@@ -355,8 +355,10 @@ export function AddAccountDialog({
                 </p>
                 <p className="mt-1 text-foreground">
                   Do <b>not</b> submit it again. Someone already registered it —
-                  another LC, or us. Add it here and ask your MM to check whose it
-                  is and set the request state.
+                  another LC, or us. Add it here
+                  {viewer.canSetRequestState
+                    ? " and set its Podio state below once you know whose it is."
+                    : " and ask your MM to check whose it is and set its Podio state."}
                 </p>
               </div>
             ) : !nameBlocked && podio && podio !== "checking" && podio.status === "free" ? (
@@ -438,7 +440,7 @@ export function AddAccountDialog({
                 precisely the branch that never offered it. */}
             {viewer.canSetRequestState && !nameBlocked ? (
               <div className="grid gap-1.5 rounded-lg border bg-background px-3 py-2.5">
-                <Label className="text-xs">Request state — if you already know</Label>
+                <Label className="text-xs">Podio state — if you already know</Label>
                 <Select
                   value={requestState || "none"}
                   onValueChange={(v) => setRequestState(v === "none" ? "" : v)}
@@ -453,8 +455,9 @@ export function AddAccountDialog({
                   </SelectContent>
                 </Select>
                 <span className="text-[11px] text-muted-foreground">
-                  &quot;Rejected&quot; archives an account, so it isn&apos;t offered here —
-                  set that on the account itself if the answer comes back no.
+                  Where the name stands on Podio. &quot;Rejected&quot; archives an
+                  account, so it isn&apos;t offered here — set that on the account
+                  itself if the answer comes back no.
                 </span>
               </div>
             ) : null}

@@ -26,12 +26,14 @@ export default async function ConsiderationPage({
   const showCvs = canSeeCvPool(viewer);
   // the incoming-EP expectation mail is the IGT leadership's to send (v33.3)
   const showExpectation = canUseIgtExpectationMail(viewer);
-  const tab: "calls" | "cvs" | "expectation" =
+  const tab: "calls" | "cvs" | "expectation" | "lcs" =
     sp.tab === "cvs" && showCvs
       ? "cvs"
       : sp.tab === "expectation" && showExpectation
         ? "expectation"
-        : "calls";
+        : sp.tab === "lcs"
+          ? "lcs"
+          : "calls";
   const page = Math.max(0, (parseInt(sp.page ?? "1", 10) || 1) - 1);
   // rows per page is the member's own choice (v31) — whitelisted here
   const PAGE_SIZE_OPTIONS = [30, 50, 100, 200];
@@ -53,6 +55,7 @@ export default async function ConsiderationPage({
       calls={calls}
       cvs={cvs}
       q={sp.q ?? ""}
+      highlightLc={sp.lc ?? null}
       pageSize={pageSize}
       pageSizeOptions={PAGE_SIZE_OPTIONS}
       booking={booking}

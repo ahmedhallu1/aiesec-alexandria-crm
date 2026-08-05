@@ -30,6 +30,7 @@ import { FileDrop } from "./file-drop";
 import { Hint } from "./hint";
 import { MultiPick } from "./multi-pick";
 import { ContactsEditor, contactsValid } from "./contacts-editor";
+import { QuickActions } from "./quick-actions";
 import { WhatsAppIcon } from "./icons";
 import { ProposalDialog } from "./proposal-dialog";
 import { ConfettiBurst } from "./confetti";
@@ -38,7 +39,7 @@ import { StageBadge } from "./stage-badge";
 import { ContactDialog, type ContactTarget } from "./contact-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -66,11 +67,13 @@ const methodIcon = {
 
 export function AccountDetailView({
   account, attempts, visits, comments, deals, caps, reassignTargets,
-  functionMembers, autoReportVisitId, autoOpen, viewerId,
+  functionMembers, autoReportVisitId, autoOpen, viewerId, viewerName,
 }: {
   account: PipelineRow;
   /** the signed-in member — lets them TAKE an unowned account in one click */
   viewerId: string;
+  /** their name — the WhatsApp quick action opens with a ready intro */
+  viewerName: string;
   attempts: AttemptWithMember[];
   visits: Visit[];
   comments: CommentWithMember[];
@@ -241,7 +244,7 @@ export function AccountDetailView({
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <ContactInfoCard account={account} canEdit={caps.edit} />
+        <ContactInfoCard account={account} canEdit={caps.edit} viewerName={viewerName} />
         <DetailsCard account={account} canEdit={caps.edit} />
         {account.function !== "B2C" ? (
           <PodioCard account={account} canEdit={caps.edit} canEditState={caps.requestState} />
@@ -555,8 +558,8 @@ function DetailsCard({ account, canEdit }: { account: PipelineRow; canEdit: bool
 
 /** Tagged phones, emails & links — add as many as the account needs. */
 function ContactInfoCard({
-  account, canEdit,
-}: { account: PipelineRow; canEdit: boolean }) {
+  account, canEdit, viewerName,
+}: { account: PipelineRow; canEdit: boolean; viewerName: string }) {
   const initial: AccountContact[] =
     account.contacts && account.contacts.length > 0
       ? account.contacts
@@ -581,6 +584,20 @@ function ContactInfoCard({
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Contact info</CardTitle>
+        <CardDescription>
+          {/* The account page had every number and link but no way to USE one
+              without copying it out — the quick actions existed only on the
+              list. The page you open to work an account is exactly where you
+              reach for them (v33.5). */}
+          <span className="mt-1 flex flex-wrap items-center gap-1.5">
+            <QuickActions
+              contacts={rows}
+              max={8}
+              viewerName={viewerName}
+              accountName={account.name}
+            />
+          </span>
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
         <ContactsEditor
@@ -758,7 +775,7 @@ function PodioCard({
         </div>
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-medium">Request state</p>
+            <p className="text-sm font-medium">Podio state</p>
             <p className="text-xs text-muted-foreground">
               Set by TL / Coordinator / VP · Rejected = archived
             </p>

@@ -420,7 +420,13 @@ export function commentLabel(v: Viewer): "Member" | "TL" | "VP" | "Director" | "
 
 /** Membership management: EB (LCP + LCVPs) and admins — NOT Directors. */
 export function canManageMembership(v: Viewer): boolean {
-  return isEb(v);
+  // TM's MMs too (v33.5): keeping the membership sheet true — who is active,
+  // whose manager is whom, which team someone sits in — IS Talent Management's
+  // job, and routing every correction through an LCVP made the register drift
+  // between imports. TM's Team Leaders and Coordinators, not its members.
+  const tmMm =
+    hasTmAccess(v) && (v.role === "Team Leader" || v.role === "Coordinator");
+  return isEb(v) || tmMm;
 }
 
 // ------------------------------------------------------------------ OGX (v25)

@@ -86,6 +86,7 @@ export default async function CalendarPage({
         time,
         timeValue: time24,
         note: t.note,
+        scope: t.scope,
         ownerName: t.owner_name,
         audience: audienceLabel(t),
         cancelled: t.status === "cancelled",

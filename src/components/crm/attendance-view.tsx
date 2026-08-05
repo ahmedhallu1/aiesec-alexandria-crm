@@ -50,6 +50,7 @@ import {
   SortHeader, TableSettings, useTableColumns, useTableSort, type TableColumn,
 } from "./data-table-kit";
 import { Hint } from "./hint";
+import { bookedBy } from "@/lib/touch-point-label";
 
 /** /attendance (v29) — for EVERYONE.
  *  A member reads their own history and appeals a wrong row; a Team Leader
@@ -63,6 +64,7 @@ export interface OwedTouchPoint {
   kind: string;
   whenLabel: string;
   audience: string;
+  scope?: string | null;
   ownerName: string;
   isWorkingHours: boolean;
   windowClosed: boolean;
@@ -234,7 +236,7 @@ function RecordDialog({
           <DialogTitle dir="auto">{sheet ? sheet.label : "Attendance"}</DialogTitle>
           <DialogDescription dir="auto">
             {sheet
-              ? `${sheet.whenLabel} · ${sheet.audience} · booked by ${sheet.ownerName}`
+              ? `${sheet.whenLabel} · ${sheet.audience} · booked by ${bookedBy(sheet)}`
               : "Loading the audience…"}
           </DialogDescription>
         </DialogHeader>
@@ -673,7 +675,7 @@ export function AttendanceView({
                     {o.label}
                   </p>
                   <p className="truncate text-xs text-muted-foreground" dir="auto">
-                    {o.whenLabel} · {o.audience} · booked by {o.ownerName}
+                    {o.whenLabel} · {o.audience} · booked by {bookedBy(o)}
                   </p>
                 </div>
                 <Button size="sm" onClick={() => setRecording(o.id)}>

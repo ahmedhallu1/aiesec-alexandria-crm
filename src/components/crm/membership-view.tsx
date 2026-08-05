@@ -908,7 +908,7 @@ function MemberDialog({
                   <Label>Has Podio access</Label>
                   <p className="text-xs text-muted-foreground">
                     They hold the LC&apos;s Podio login — so they can set an account&apos;s
-                    Request State themselves, like an MM
+                    Podio state themselves, like an MM
                   </p>
                 </div>
                 <Switch
