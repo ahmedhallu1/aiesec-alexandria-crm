@@ -28,11 +28,11 @@ export interface SandboxState {
   sessionId: string | null;
 }
 
-/** One server-action call is one request, so a per-request uuid is exactly
- *  "the changes this one action made". Every journal row and the audit entry
- *  written during the call share it, which is what lets the Undo button on a
- *  log entry replay that action — and only that action — in reverse. */
-export const currentChangeSet = cache((): string => randomUUID());
+/** Re-exported so existing imports keep working — the definition lives in
+ *  `change-set.ts`, which both actions.ts and data.ts import the SAME way.
+ *  See that file for why that matters. */
+export { currentChangeSet } from "./change-set";
+import { currentChangeSet } from "./change-set";
 
 /** The OPEN LC-wide testing session, if any (v32).
  *

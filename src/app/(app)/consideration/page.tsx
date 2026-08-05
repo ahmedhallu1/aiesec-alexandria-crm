@@ -5,6 +5,7 @@ import {
 import { canSeeCvPool, canUseIgtExpectationMail, hasConsiderationAccess } from "@/lib/rbac";
 import { env } from "@/lib/env";
 import { ConsiderationView } from "@/components/crm/consideration-view";
+import { PAGE_SIZES, pageSizeOf } from "@/lib/page-size";
 
 export const metadata = { title: "Consideration" };
 
@@ -36,8 +37,7 @@ export default async function ConsiderationPage({
           : "calls";
   const page = Math.max(0, (parseInt(sp.page ?? "1", 10) || 1) - 1);
   // rows per page is the member's own choice (v31) — whitelisted here
-  const PAGE_SIZE_OPTIONS = [30, 50, 100, 200];
-  const pageSize = PAGE_SIZE_OPTIONS.includes(Number(sp.size)) ? Number(sp.size) : 50;
+  const pageSize = pageSizeOf(sp.size);
 
   const [lcs, calls, cvs, booking] = await Promise.all([
     listPartnerLcDetails(viewer),
@@ -57,7 +57,7 @@ export default async function ConsiderationPage({
       q={sp.q ?? ""}
       highlightLc={sp.lc ?? null}
       pageSize={pageSize}
-      pageSizeOptions={PAGE_SIZE_OPTIONS}
+      pageSizeOptions={PAGE_SIZES}
       booking={booking}
       origin={env.appUrl}
       viewer={{

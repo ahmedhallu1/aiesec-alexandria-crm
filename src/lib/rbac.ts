@@ -272,21 +272,22 @@ export function canReassignAccount(v: Viewer, a: AccountLike): boolean {
   return false;
 }
 
-/** Who a given viewer may reassign an account TO (v33.9).
+/** Who a given viewer may reassign an account TO.
  *
- *  Anyone who may reassign an account at all may hand it to ANY member. The
- *  hard question — "is this account yours to move?" — is already answered by
- *  `canReassignAccount`; narrowing the destination as well only produced
- *  dead ends. A company belongs to whoever can actually sell to them, and
- *  that person is regularly in another function: an IGV TL who finds a
- *  company that wants a teacher should hand it to IGT in one step rather
- *  than through two VPs.
+ *  Back to the original rule (v33.10): a Team Leader hands accounts to THEIR
+ *  OWN TEAM, a VP/Director inside their function, the LCP anywhere. v33.9
+ *  briefly opened this to every member on the theory that a company belongs
+ *  to whoever can sell to them — but it turned the picker into a list of the
+ *  whole LC, which is unusable and lets an account leave a team by accident.
  *
- *  The target list is still a list of REAL members, so nothing lands
- *  nowhere. */
+ *  The cross-function case that motivated it is served properly by the
+ *  ARCHIVE route instead (`canWorkArchived`): a burned account can be revived
+ *  into any function, which is where the need actually came from. */
 export function reassignTargetScope(v: Viewer): AccountScope {
-  if (master(v) || isIcxLead(v)) return { kind: "all" };
-  if (v.role === "Team Leader" || v.role === "Coordinator") return { kind: "all" };
+  if (master(v)) return { kind: "all" };
+  if (isIcxLead(v)) return { kind: "functions", fns: scopeFunctions(v) };
+  if (v.role === "Team Leader")
+    return { kind: "members", ids: [v.id, ...v.teamMemberIds] };
   return { kind: "members", ids: [] };
 }
 

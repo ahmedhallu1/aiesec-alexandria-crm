@@ -397,6 +397,10 @@ function accountColumns(viewer: ViewerInfo): TableColumn[] {
 
   return [
     { key: "created_at", label: "Date added" },
+    // WHOSE IS IT comes first for anyone who works through other people
+    // (v33.10) — an MM scanning a list reads the owner before the name.
+    // Members only ever see their own accounts, so it stays out of their way.
+    ...(viewer.seesOthers ? [{ key: "responsible", label: "Responsible" }] : []),
     { key: "name", label: "Account", required: true },
     ...(productVaries
       ? [{ key: "product", label: viewer.b2cOnly ? "Type" : "Product" }]
@@ -409,9 +413,6 @@ function accountColumns(viewer: ViewerInfo): TableColumn[] {
     // one tick away, not in the way — the row already wears a badge when a
     // next step is missing, which is the part that needs to be seen
     { key: "next_step", label: "Next step", defaultHidden: true },
-    ...(viewer.seesOthers
-      ? [{ key: "responsible", label: "Responsible", defaultHidden: true }]
-      : []),
     ...(viewer.igtAccess
       ? [{ key: "sub_product", label: "Sub product", defaultHidden: true }]
       : []),
@@ -686,7 +687,21 @@ export function AccountsView({
   // v33.7 bumped the id: the default column set changed (Product/Project are
   // dynamic now), and a layout saved against the old defaults would pin the
   // very columns this change removes.
-  const cols = useTableColumns("accounts-v3", accountColumns(viewer));
+  const cols = useTableColumns("accounts-v4", accountColumns(viewer));
+
+  // REMEMBER THE QUERY (v33.10) so opening an account and coming back returns
+  // to the same filtered list rather than the top of everything.
+  const searchString = searchParams.toString();
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(
+        "sodio-accounts-query",
+        searchString ? `?${searchString}` : ""
+      );
+    } catch {
+      /* private mode — the back link just goes to the plain list */
+    }
+  }, [searchString]);
 
   /** One cell of the desktop table, by column key. */
   const accountCell = (row: PipelineRow, key: string): React.ReactNode => {
@@ -711,11 +726,9 @@ export function AccountsView({
                 {row.name}
               </Link>
               <PinSign text={row.pinned_comment} />
-              {/* the whole point of the Podio worklist is to paste the name
-                  into the national form — so hand it over in one click */}
-              {filters.flag === "needs_podio" ? (
-                <CopyNameButton name={row.name} />
-              ) : null}
+              {/* copying a name is what you do with it: the Podio form, a
+                  WhatsApp message, a search. Always there (v33.10). */}
+              <CopyNameButton name={row.name} />
             </span>
             {viewer.seesOthers && !cols.isVisible("responsible") ? (
               <p className="text-xs text-muted-foreground">

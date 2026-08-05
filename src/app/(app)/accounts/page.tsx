@@ -9,6 +9,7 @@ import {
 } from "@/lib/rbac";
 import { AccountsView } from "@/components/crm/accounts-view";
 import { memberIsB2B, memberIsB2C, type Stage } from "@/lib/types";
+import { PAGE_SIZES, pageSizeOf } from "@/lib/page-size";
 
 export const metadata = { title: "Raising" };
 
@@ -64,8 +65,7 @@ export default async function AccountsPage({
   // the list is PAGINATED since the big market-research import (v22) — the
   // server returns one page + the total match count. Page size is the user's
   // pick (?size=30|50|100|200, default 100).
-  const SIZE_OPTIONS = [30, 50, 100, 200];
-  const pageSize = SIZE_OPTIONS.includes(Number(params.size)) ? Number(params.size) : 100;
+  const pageSize = pageSizeOf(params.size);
   const requestedPage = Math.max(0, (Number(params.page) || 1) - 1);
   const [{ rows, total, page }, members, reassignTo, manualArchived] = await Promise.all([
     listAccountsPage(viewer, filters, requestedPage, pageSize),
@@ -96,7 +96,7 @@ export default async function AccountsPage({
       total={total}
       page={page}
       pageSize={pageSize}
-      pageSizeOptions={SIZE_OPTIONS}
+      pageSizeOptions={PAGE_SIZES}
       manualArchived={manualArchived.map((b) => ({
         id: b.id,
         name: b.account_name,

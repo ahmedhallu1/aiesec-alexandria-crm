@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/supabase";
 import { dashboardCacheKey } from "@/lib/dashboard-cache";
+import { currentChangeSet } from "./change-set";
 import { env } from "@/lib/env";
 import {
   considerationFunctions,
@@ -590,11 +591,20 @@ async function buildAccountsQuery(
   // includeArchived reads included).
   // members/TLs also see the UNOWNED accounts of their own function(s) — the
   // imported market research nobody has taken yet (v32.4)
+  // THE PODIO WORKLIST IS FUNCTION-WIDE (v33.10). Checking a name on Podio is
+  // one person's errand done for everyone — an MM opening it wants every
+  // account in their function that still needs checking, not only the ones
+  // that happen to sit in their own team. It is a read-only queue: opening an
+  // account out of it still obeys the normal scope.
+  const podioWorklist = filters.flag === "needs_podio" && !filters.archived;
+  const worklistScope: AccountScope = podioWorklist
+    ? { kind: "functions", fns: _allowedAccountFunctions(viewer) }
+    : effScope;
   if (!filters.archived)
     query = applyScope(
       query,
-      effScope,
-      effScope.kind === "members" && canSeeUnassigned(viewer)
+      worklistScope,
+      worklistScope.kind === "members" && canSeeUnassigned(viewer)
         ? _allowedAccountFunctions(viewer)
         : []
     );
@@ -667,7 +677,7 @@ async function buildAccountsQuery(
   if (filters.flag === "needs_podio")
     // UNOWNED accounts are excluded: nobody is going to submit a name that
     // hasn't been given to anyone, and 1,300 of them would bury the real
-    // worklist (v33.2)
+    // worklist (v33.2). The SCOPE is widened separately — see below.
     query = query
       .eq("requested_podio", false)
       .is("request_state", null)
@@ -1073,11 +1083,13 @@ export async function listReassignTargets(viewer: Viewer, fn: AccountFunction): 
   if (scope.kind === "members" && scope.ids.length === 0) return [];
   let query = db().from("members").select("*").eq("is_active", true);
   if (scope.kind === "all" || scope.kind === "functions") {
-    // v33.9 — the destination is no longer pinned to the account's own
-    // function: a company belongs to whoever can sell to them, and that is
-    // regularly someone else's crew. Anyone who can HOLD an account is
-    // offerable; the account follows the person (`reassignAccount` moves it).
-    query = membersInFunctions(query, ACCOUNT_WORLD_FNS);
+    // reassignment stays inside the account's function (B2B/BD = the B2B crew)
+    query =
+      fn === "B2B" || fn === "BD"
+        ? query.or("functions.ov.{B2B,BD},sub_functions.ov.{B2B,BD}")
+        : fn === "B2C"
+          ? query.or("functions.ov.{B2C},sub_functions.ov.{B2C}")
+          : query.contains("functions", [fn]);
   } else {
     query = query.in("id", scope.ids);
   }
@@ -1276,6 +1288,32 @@ function addRowLane(s: FunnelStats, r: PipelineRow, lane: string) {
  *  shows up while you are still looking at the screen. */
 const DASHBOARD_TTL_SECONDS = 60;
 
+/** The registered `Team` names, lower-cased. Structural teams (EB, LB,
+ *  Function, Function leaders) are deliberately excluded — they are not
+ *  anybody's team. */
+async function registeredTeamNames(): Promise<Set<string>> {
+  try {
+    const { data } = await db().from("teams").select("name").eq("type", "Team");
+    return new Set(
+      ((data ?? []) as { name: string }[]).map((t) => t.name.trim().toLowerCase())
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+/** Picks the one REAL team out of a membership cell that lists several. */
+function teamLabelOf(cell: string | null, registered: Set<string>): string | null {
+  const names = (cell ?? "")
+    .split(/[,;]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  if (names.length === 0) return null;
+  const real = names.find((n) => registered.has(n.toLowerCase()));
+  // a cell with several names and no registered team names no team of theirs
+  return real ?? (names.length === 1 ? names[0] : null);
+}
+
 /** Exactly the columns the dashboard reads — every one of them is used by
  *  `addRowLane`, `laneSlots`, `rowInLane` or a drill grouping. Adding a field
  *  to those functions means adding it HERE too, or it arrives undefined and
@@ -1395,6 +1433,9 @@ export async function getDashboard(
     !filters.responsibleId || r.responsible_id === filters.responsibleId;
   const members = await listVisibleMembers(dashViewer);
   const byId = new Map(members.map((m) => [m.id, m]));
+  // the registered TL teams — the only names in a member's team cell that
+  // actually name THEIR team (v33.10)
+  const registeredTeams = await registeredTeamNames();
 
   // the viewer's team: themself (TL) or their manager — but ONLY if that
   // manager is a real Team Leader (the EB is not a team)
@@ -1443,9 +1484,13 @@ export async function getDashboard(
         : r.responsible_stakeholder_id ?? null;
     const mm = mmKey ? byId.get(mmKey) : undefined;
     if (mm && (mm.role === "Team Leader" || mm.role === "Coordinator")) {
-      const mmLabel = mm.team_name
-        ? `${mm.name} — ${mm.team_name}`
-        : mm.name;
+      // THE TEAM NAME, NOT THE WHOLE CELL (v33.10). `team_name` lists every
+      // team a person belongs to — Hana's reads "Suits, شماريخ", the B2B
+      // function-leaders team and the LB, neither of which is her team. The
+      // registered `Team` in that cell if there is one, otherwise just the
+      // person: "Hana Wael" beats "Hana Wael — Suits, شماريخ".
+      const own = teamLabelOf(mm.team_name, registeredTeams);
+      const mmLabel = own ? `${mm.name} — ${own}` : mm.name;
       addRowLane(getOrInit(byTeam, mm.id, mmLabel), r, lane);
     }
 
@@ -2373,7 +2418,10 @@ export async function logAudit(
   let change_set: string | null = null;
   let test_session_id: string | null = null;
   try {
-    const { currentChangeSet, lcTestSession } = await import("./sandbox");
+    // STATIC import — a dynamic one lands in a different module instance and
+    // gets its own `cache()` memo, which is exactly how the audit rows and
+    // their journal rows ended up with different ids (v33.10)
+    const { lcTestSession } = await import("./sandbox");
     change_set = currentChangeSet();
     test_session_id = await lcTestSession();
   } catch {
@@ -3425,8 +3473,13 @@ const SIGNUP_SORTABLE = new Set([
 export function signupViewsFor(v: Viewer): string[] {
   const leader =
     v.isAdmin || ["LCP", "LCVP", "Director"].includes(v.role);
+  // THE POOL IS NOT A MEMBER'S VIEW (v33.10). Sign-ups are handed out by the
+  // Team Leader — a member browsing the unclaimed pool picks the easy ones and
+  // the distribution stops being anyone's decision. MMs and above still see
+  // it, because assigning IS their job. A member lands on "My sign-ups".
+  const seesPool = leader || ["Team Leader", "Coordinator"].includes(v.role);
   return [
-    "unassigned",
+    ...(seesPool ? ["unassigned"] : []),
     "mine",
     ...(v.role === "Team Leader" ? ["team"] : []),
     ...(leader ? ["all"] : []),
@@ -3446,7 +3499,9 @@ export async function listSignupsPage(
   const fns = _ogxFunctions(viewer);
   if (fns.length === 0) return { rows: [], total: 0, page: 0, view: "unassigned" };
   const allowedViews = signupViewsFor(viewer);
-  const view = allowedViews.includes(filters.view ?? "") ? filters.view! : "unassigned";
+  const view = allowedViews.includes(filters.view ?? "")
+    ? filters.view!
+    : (allowedViews[0] ?? "mine");
 
   const build = () => {
     let q = db().from("signups").select("*", { count: "exact" });
