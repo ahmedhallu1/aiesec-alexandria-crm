@@ -510,11 +510,23 @@ export async function reassignAccount(
     (scope.kind === "members" && scope.ids.includes(target.id));
   if (!inScope) return fail("You can only reassign to members in your scope.", "forbidden");
 
-  // Claiming an unowned account MOVES it into the claimer's function (v32.6):
-  // the market research is theirs now, and leaving it filed under a function
-  // nobody works would hide it from the person who just took it.
-  const movedFn =
-    claimingForSelf ? claimTargetFunction(viewer, account) : null;
+  // AN ACCOUNT FOLLOWS ITS NEW OWNER (v32.6, widened v33.9).
+  //
+  // Claiming an unowned account moved it into the claimer's function already.
+  // The same has to be true of a REVIVED one and of any hand-over across
+  // functions: an IGT account brought back by an IGV MM is an IGV account
+  // now, or it lands in a function its new owner can't even open. The
+  // destination is the TARGET's function, not the mover's — handing a company
+  // to IGT should file it under IGT.
+  const targetFns = [
+    ...(target.functions ?? []),
+    ...(target.sub_functions ?? []),
+  ].filter((f) => ["IGV", "IGT", "B2B", "BD", "B2C"].includes(f));
+  const movedFn = claimingForSelf
+    ? claimTargetFunction(viewer, account)
+    : !targetInFunction && targetFns.length > 0
+      ? (targetFns[0] as typeof account.function)
+      : null;
   const fnChanged = !!movedFn && movedFn !== account.function;
 
   await snapshotForUndo("accounts", accountId);
@@ -3033,7 +3045,9 @@ export async function setPodioUpdateEnabled(
  *  Assignment is scoped: themselves, or someone they may already assign to. */
 export async function reviveAndAssign(
   accountId: string,
-  toMemberId?: string
+  toMemberId?: string,
+  /** required when the account lands in IGV — every IGV account carries one */
+  project?: string | null
 ): Promise<ActionResult<{ slug: string }>> {
   const viewer = await getViewer();
   const account = await loadAccount(accountId);
@@ -3046,10 +3060,37 @@ export async function reviveAndAssign(
   // the useful case is an IGV TL finding a company that belongs in IGT
   const target = toMemberId ?? viewer.id;
 
+  // WHERE IT LANDS. A revived account joins the function of whoever takes it,
+  // or it reappears somewhere its new owner can't open (v33.9). Moving INTO
+  // IGV needs a Project, because every IGV account has one and an account
+  // without it is broken the moment anyone filters by project.
+  const { data: targetRow } = await db()
+    .from("members")
+    .select("functions, sub_functions")
+    .eq("id", target)
+    .maybeSingle<{ functions: string[] | null; sub_functions: string[] | null }>();
+  const targetFns = [
+    ...(targetRow?.functions ?? []),
+    ...(targetRow?.sub_functions ?? []),
+  ].filter((f) => ["IGV", "IGT", "B2B", "BD", "B2C"].includes(f));
+  const landsIn = targetFns.includes(account.function)
+    ? account.function
+    : (targetFns[0] ?? account.function);
+
+  const cleanProject = (project ?? "").trim();
+  if (landsIn === "IGV" && !cleanProject)
+    return fail(
+      "This account lands in IGV, and every IGV account needs a project — pick one at the top of this form first."
+    );
+
   const revived = await reviveAccount(accountId);
   if (!revived.ok) return revived;
   const assigned = await reassignAccount(accountId, target);
   if (!assigned.ok) return assigned;
+  if (landsIn === "IGV" && cleanProject) {
+    await db().from("accounts").update({ project: cleanProject }).eq("id", accountId);
+  }
+  refresh(accountId);
   return { ok: true, data: { slug: accountSlug(account.name) } };
 }
 
@@ -5996,6 +6037,61 @@ export async function cancelBookedCall(input: {
  *  partner_lc_name snapshots on IR calls and CVs follow the rename so the
  *  logs read consistently. Sandbox-refused: the fan-out to child rows can't
  *  be journaled row-by-row. */
+/** Adds an IR contact to a partner LC (v33.9). MMs and above — the same
+ *  people who may fix an LC's name, because this is the same act: keeping the
+ *  registry true. */
+export async function addPartnerLcContact(input: {
+  partnerLcId: string;
+  name: string;
+  role?: string | null;
+  email?: string | null;
+  phone?: string | null;
+}): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  if (
+    !isConsiderationLead(viewer) &&
+    !["Team Leader", "Coordinator"].includes(viewer.role)
+  )
+    return fail("Only MMs, VPs/Directors or the LCP can add an IR.", "forbidden");
+  if (viewer.sandbox)
+    return fail("Partner-LC edits are disabled in the sandbox test view.");
+
+  const name = (input.name ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+  if (!name) return fail("The IR needs a name.");
+  const email = (input.email ?? "").trim().slice(0, 200) || null;
+  if (email && !EMAIL_RE.test(email)) return fail("That email doesn't look right.");
+
+  const { error } = await db().from("partner_lc_contacts").insert({
+    partner_lc_id: input.partnerLcId,
+    name,
+    role: (input.role ?? "").trim().slice(0, 120) || null,
+    email,
+    phone: (input.phone ?? "").trim().slice(0, 40) || null,
+    added_by: viewer.id,
+  });
+  if (error) return fail(error.message);
+  revalidatePath("/consideration");
+  return { ok: true };
+}
+
+/** Removes an IR contact that was added by hand. */
+export async function deletePartnerLcContact(id: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  if (
+    !isConsiderationLead(viewer) &&
+    !["Team Leader", "Coordinator"].includes(viewer.role)
+  )
+    return fail("Only MMs, VPs/Directors or the LCP can remove an IR.", "forbidden");
+  if (viewer.sandbox)
+    return fail("Partner-LC edits are disabled in the sandbox test view.");
+  const { error } = await db().from("partner_lc_contacts").delete().eq("id", id);
+  if (error) return fail(error.message);
+  revalidatePath("/consideration");
+  return { ok: true };
+}
+
 export async function updatePartnerLc(
   id: string,
   patch: { name: string; country?: string | null }

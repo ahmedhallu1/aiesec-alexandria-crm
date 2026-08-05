@@ -66,6 +66,8 @@ export function ViewAsBanner({
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  /** two-step Exit in a sandbox — the first click asks, the second discards */
+  const [confirmExit, setConfirmExit] = useState(false);
 
   const [mode, setMode] = useState<Mode>(modeProp);
   useEffect(() => setMode(modeProp), [modeProp]);
@@ -223,7 +225,17 @@ export function ViewAsBanner({
     });
   };
 
-  const exit = () =>
+  /** Exiting a SANDBOX throws away every change made inside it — which is the
+   *  point, and also the thing people forget. An account archived in a
+   *  sandbox came back the moment the session ended, twice, and nothing in
+   *  the interface had said it would (v33.9). So: confirm before discarding,
+   *  and name the number. Real mode exits straight out — nothing to lose. */
+  const exit = () => {
+    if (sandbox && !confirmExit) {
+      setConfirmExit(true);
+      return;
+    }
+    setConfirmExit(false);
     start(async () => {
       const res = await stopViewAs();
       if (res.ok) {
@@ -234,6 +246,7 @@ export function ViewAsBanner({
         router.refresh();
       } else toast.error(res.error);
     });
+  };
 
   // ------------------------------------------------------------- render
   const margin = collapsed ? MARGIN_COLLAPSED : MARGIN;
@@ -363,13 +376,18 @@ export function ViewAsBanner({
 
               <Button
                 size="sm"
-                variant="outline"
+                variant={confirmExit ? "destructive" : "outline"}
                 className="h-7 shrink-0 rounded-full px-3"
                 onClick={exit}
                 disabled={pending}
+                title={
+                  sandbox
+                    ? "Everything you did in this sandbox is undone when you leave"
+                    : "Return to your own account"
+                }
               >
                 <X className="size-3.5" />
-                Exit
+                {confirmExit ? "Discard & exit?" : "Exit"}
               </Button>
 
               <button

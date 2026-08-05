@@ -10,7 +10,8 @@ import {
 } from "lucide-react";
 import {
   addPartnerLc, cancelIrCall, completeIrCall, confirmCvUpload, deleteCv,
-  createIgtExpectationDraft, deleteIrCall, deletePartnerLc, getCvFileUrl,
+  addPartnerLcContact, createIgtExpectationDraft, deleteIrCall, deletePartnerLc,
+  getCvFileUrl,
   previewIgtExpectationMail,
   recordIrCall, requestCvUpload, sendIgtExpectationMail,
   requestIrReschedule, rerunCvExtraction, saveIrBookingSettings,
@@ -135,6 +136,10 @@ function PartnerLcsTab({
 }) {
   const [q, setQ] = useState("");
   const [removing, setRemoving] = useState<PartnerLcDetail | null>(null);
+  const [editingLc, setEditingLc] = useState<PartnerLcDetail | null>(null);
+  const [addingIrTo, setAddingIrTo] = useState<PartnerLcDetail | null>(null);
+  const [lcForm, setLcForm] = useState({ name: "", country: "" });
+  const [irForm, setIrForm] = useState({ name: "", role: "", email: "", phone: "" });
   const [pending, start] = useTransition();
   const router = useRouter();
   const detailed = lcs.filter((l): l is PartnerLcDetail => "calls" in l);
@@ -167,6 +172,153 @@ function PartnerLcsTab({
           {ordered.length} of {detailed.length}
         </span>
       </div>
+
+      {/* EDIT an LC — name and country, the two things that go wrong */}
+      <Dialog
+        open={!!editingLc}
+        onOpenChange={(o) => {
+          if (o && editingLc) setLcForm({ name: editingLc.name, country: editingLc.country ?? "" });
+          if (!o) setEditingLc(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit {editingLc?.name}</DialogTitle>
+            <DialogDescription>
+              The name appears on every call and CV from this LC — fixing it here fixes
+              it everywhere.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <div className="grid gap-1.5">
+              <Label>Name</Label>
+              <Input
+                value={lcForm.name || editingLc?.name || ""}
+                onChange={(e) => setLcForm((f) => ({ ...f, name: e.target.value }))}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Country</Label>
+              <CountryInput
+                value={lcForm.country}
+                onChange={(v) => setLcForm((f) => ({ ...f, country: v }))}
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setEditingLc(null)} disabled={pending}>
+              Cancel
+            </Button>
+            <Button
+              disabled={pending}
+              onClick={() => {
+                const target = editingLc;
+                if (!target) return;
+                start(async () => {
+                  const res = await updatePartnerLc(target.id, {
+                    name: lcForm.name || target.name,
+                    country: lcForm.country || null,
+                  });
+                  if (!res.ok) {
+                    toast.error(res.error);
+                    return;
+                  }
+                  toast.success("Partner LC updated");
+                  setEditingLc(null);
+                  router.refresh();
+                });
+              }}
+            >
+              {pending ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ADD AN IR — someone we know at that LC who never booked a call */}
+      <Dialog
+        open={!!addingIrTo}
+        onOpenChange={(o) => {
+          if (!o) {
+            setAddingIrTo(null);
+            setIrForm({ name: "", role: "", email: "", phone: "" });
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add an IR at {addingIrTo?.name}</DialogTitle>
+            <DialogDescription>
+              For the people you meet outside the booking link — over WhatsApp, at a
+              conference, through another LC.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <div className="grid gap-1.5">
+              <Label>Name *</Label>
+              <Input
+                value={irForm.name}
+                onChange={(e) => setIrForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="Their name"
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Role</Label>
+              <Input
+                value={irForm.role}
+                onChange={(e) => setIrForm((f) => ({ ...f, role: e.target.value }))}
+                placeholder="LCVP oGT, IR Manager…"
+              />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-1.5">
+                <Label>Email</Label>
+                <Input
+                  type="email"
+                  value={irForm.email}
+                  onChange={(e) => setIrForm((f) => ({ ...f, email: e.target.value }))}
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label>Phone</Label>
+                <Input
+                  value={irForm.phone}
+                  onChange={(e) => setIrForm((f) => ({ ...f, phone: e.target.value }))}
+                  placeholder="+90… with the country code"
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setAddingIrTo(null)} disabled={pending}>
+              Cancel
+            </Button>
+            <Button
+              disabled={pending || !irForm.name.trim()}
+              onClick={() => {
+                const target = addingIrTo;
+                if (!target) return;
+                start(async () => {
+                  const res = await addPartnerLcContact({
+                    partnerLcId: target.id,
+                    ...irForm,
+                  });
+                  if (!res.ok) {
+                    toast.error(res.error);
+                    return;
+                  }
+                  toast.success(`${irForm.name} added to ${target.name}`);
+                  setAddingIrTo(null);
+                  setIrForm({ name: "", role: "", email: "", phone: "" });
+                  router.refresh();
+                });
+              }}
+            >
+              {pending ? "Adding…" : "Add the IR"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!removing} onOpenChange={(o) => { if (!o) setRemoving(null); }}>
         <DialogContent className="max-w-md">
@@ -231,6 +383,18 @@ function PartnerLcsTab({
                     <Badge variant="secondary" className="font-normal">{lc.country}</Badge>
                   ) : null}
                   {viewer.canManageLcs ? (
+                    <Hint label="Edit this LC's name or country">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="size-7 shrink-0 text-muted-foreground hover:text-primary"
+                        onClick={() => setEditingLc(lc)}
+                      >
+                        <Pencil className="size-3.5" />
+                      </Button>
+                    </Hint>
+                  ) : null}
+                  {viewer.canManageLcs ? (
                     <Hint label="Remove this LC — only works when no call or CV still points at it">
                       <Button
                         size="icon"
@@ -250,9 +414,19 @@ function PartnerLcsTab({
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-1.5">
+                {viewer.canManageLcs ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 w-fit"
+                    onClick={() => setAddingIrTo(lc)}
+                  >
+                    <Plus className="size-3.5" /> Add an IR
+                  </Button>
+                ) : null}
                 {lc.contacts.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    No named IR yet — the next booking collects one.
+                    No named IR yet — add one, or the next booking collects it.
                   </p>
                 ) : (
                   lc.contacts.map((c, i) => (
