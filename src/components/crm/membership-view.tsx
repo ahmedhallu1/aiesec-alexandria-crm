@@ -894,7 +894,13 @@ function MemberDialog({
             </div>
             {/* PODIO ACCESS (v33.2). Only meaningful for the functions that
                 submit partners — offering it to TM or OGX would be noise. */}
-            {PODIO_FUNCTIONS.some(
+            {/* MEMBERS ONLY (v33.4): a TL, Coordinator, Director or VP can
+                already set a Request State by rank, so offering them a switch
+                that grants what they hold would just be a lie you could
+                toggle. The tag exists for the member who does the LC's
+                submissions without the title. */}
+            {form.role === "Member" &&
+            PODIO_FUNCTIONS.some(
               (f) => form.functions.includes(f) || form.sub_functions.includes(f)
             ) ? (
               <div className="flex items-end justify-between gap-3 pb-1">

@@ -1065,7 +1065,14 @@ export async function countUnassigned(
     .is("responsible_id", null)
     .eq("out_of_process", false);
   if (!viewer.testMode) q = q.eq("is_test", false);
+  // the count has to match exactly what the list would show: a leader sees
+  // their function's unowned accounts, an MM sees the ones they may claim
   if (scope.kind === "functions") q = q.in("function", scope.fns);
+  else if (scope.kind === "members") {
+    const claimable = _allowedAccountFunctions(viewer);
+    if (claimable.length === 0) return 0;
+    q = q.in("function", claimable);
+  }
   if (fn) q = q.eq("function", fn);
   const { count } = await q;
   return count ?? 0;

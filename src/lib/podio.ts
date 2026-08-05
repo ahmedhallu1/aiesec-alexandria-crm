@@ -61,7 +61,7 @@ function formBase(): string | null {
   return m ? m[1] : null;
 }
 
-async function fetchText(url: string, ms = 12_000): Promise<string | null> {
+async function fetchText(url: string, ms = 8_000): Promise<string | null> {
   try {
     const res = await fetch(url, {
       // the form is public; identify ourselves rather than spoofing a browser
