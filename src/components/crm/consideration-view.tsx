@@ -1448,16 +1448,18 @@ const CALL_SORTERS: Record<string, (c: IrCallRow) => string | number | null> = {
 
 /** The CV pool's columns (the desktop table — phones keep the cards). */
 const CV_COLUMNS: TableColumn[] = [
+  // the default view (v33.8): who, from where, what they do, when it landed
+  { key: "uploader", label: "Uploaded by" },
   { key: "person", label: "Person", required: true },
   { key: "lc", label: "Partner LC" },
   { key: "industry", label: "Industry" },
   { key: "skills", label: "Skills" },
-  { key: "summary", label: "Summary" },
+  { key: "created", label: "Uploaded" },
   { key: "status", label: "AI status" },
   { key: "contact", label: "Contact" },
-  { key: "created", label: "Uploaded" },
   { key: "actions", label: "Actions" },
-  { key: "uploader", label: "Uploaded by", defaultHidden: true },
+  // the summary is long — it belongs in the CV's own page, not a table cell
+  { key: "summary", label: "Summary", defaultHidden: true },
   { key: "email", label: "Email", defaultHidden: true },
   { key: "phone", label: "Phone", defaultHidden: true },
   { key: "file", label: "File name", defaultHidden: true },
@@ -2505,7 +2507,7 @@ function CvsTab({
   const pages = Math.max(1, Math.ceil(data.total / pageSize));
 
   // ⚙ Columns + click-to-sort for the desktop table (phones keep the cards)
-  const cols = useTableColumns("consideration-cvs", CV_COLUMNS);
+  const cols = useTableColumns("consideration-cvs-v2", CV_COLUMNS);
   const { sorted: sortedCvs, sortKey, dir, toggle: toggleSort } =
     useTableSort(data.rows, CV_SORTERS);
 
@@ -2629,11 +2631,6 @@ function CvsTab({
             ) : null}
             {canManage ? (
               <>
-                <Hint label="Fix the extracted fields">
-                  <Button variant="ghost" size="icon" className="size-8" onClick={() => setEditing(cv)}>
-                    <Pencil className="size-4" />
-                  </Button>
-                </Hint>
                 <Hint label="Delete this CV (file included)">
                   <Button
                     variant="ghost"
@@ -2765,9 +2762,23 @@ function CvsTab({
             </TableHeader>
             <TableBody>
               {sortedCvs.map((cv) => (
-                <TableRow key={cv.id}>
+                // the whole row opens the CV — everything you can do to it
+                // lives inside, so there is no separate "edit" trip (v33.8)
+                <TableRow
+                  key={cv.id}
+                  className="cursor-pointer"
+                  onClick={() => setEditing(cv)}
+                >
                   {cols.visible.map((c) => (
-                    <TableCell key={c.key} className={CV_CELL_CLASS[c.key]}>
+                    <TableCell
+                      key={c.key}
+                      className={CV_CELL_CLASS[c.key]}
+                      onClick={
+                        c.key === "actions" || c.key === "contact"
+                          ? (e) => e.stopPropagation()
+                          : undefined
+                      }
+                    >
                       {cvCell(cv, c.key)}
                     </TableCell>
                   ))}
@@ -2961,7 +2972,9 @@ function CvEditDialog({
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  const [form, setForm] = useState({ name: "", phone: "", email: "", industry: "", skills: "", lcId: "" });
+  const [form, setForm] = useState({
+    name: "", phone: "", email: "", industry: "", skills: "", summary: "", lcId: "",
+  });
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
 
   // closed → forget which CV we loaded, so reopening always rehydrates
@@ -2974,10 +2987,28 @@ function CvEditDialog({
       email: cv.email ?? "",
       industry: cv.industry ?? "",
       skills: cv.skills ?? "",
+      summary: cv.summary ?? "",
       lcId: cv.partner_lc_id ?? "",
     });
     setLoadedFor(cv.id);
   }
+
+  /** Open or download the file, named for the person (v33.8). The window is
+   *  opened BEFORE the await — Safari blocks a popup that arrives later. */
+  const openFile = (download: boolean) => {
+    if (!cv) return;
+    const w = window.open("", "_blank");
+    start(async () => {
+      const res = await getCvFileUrl(cv.id, download);
+      if (!res.ok || !res.data) {
+        w?.close();
+        toast.error(res.ok ? "Could not open the file." : res.error);
+        return;
+      }
+      if (w) w.location.href = res.data.url;
+      else window.location.href = res.data.url;
+    });
+  };
 
   const save = () => {
     if (!cv) return;
@@ -2988,6 +3019,7 @@ function CvEditDialog({
         email: form.email || null,
         industry: form.industry || null,
         skills: form.skills || null,
+        summary: form.summary || null,
         partnerLcId: form.lcId || null,
       });
       if (res.ok) {
@@ -3024,7 +3056,7 @@ function CvEditDialog({
                 id="cv-edit-phone"
                 value={form.phone}
                 onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                placeholder="+20…"
+                placeholder="+90… — with the country code"
               />
             </div>
             <div className="space-y-1.5">
@@ -3072,6 +3104,50 @@ function CvEditDialog({
               placeholder="C#, ERP, AutoCAD…"
             />
           </div>
+          {/* THE SUMMARY (v33.8) — the AI writes a paragraph about the person
+              and it had nowhere to be read: too long for a table cell, and
+              this dialog didn't show it. It's the fastest way to judge whether
+              a CV is worth forwarding. */}
+          <div className="space-y-1.5">
+            <Label htmlFor="cv-edit-summary">Summary</Label>
+            <Textarea
+              id="cv-edit-summary"
+              dir="auto"
+              rows={4}
+              value={form.summary}
+              onChange={(e) => setForm((f) => ({ ...f, summary: e.target.value }))}
+              placeholder="What the AI made of this CV — edit freely."
+            />
+          </div>
+
+          {/* everything you can DO with a CV, where you're already looking */}
+          <div className="flex flex-wrap items-center gap-2 border-t pt-3">
+            <Button variant="outline" size="sm" onClick={() => openFile(false)}>
+              <FileText className="size-4" /> Open the file
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => openFile(true)}>
+              <Upload className="size-4 rotate-180" /> Download
+            </Button>
+            {form.phone ? (
+              <Button asChild variant="outline" size="sm">
+                <a
+                  href={`https://wa.me/${form.phone.replace(/[^\d]/g, "")}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <WhatsAppIcon className="size-4" /> WhatsApp
+                </a>
+              </Button>
+            ) : null}
+            {form.email ? (
+              <Button asChild variant="outline" size="sm">
+                <a href={`mailto:${form.email}`}>
+                  <Mail className="size-4" /> Email
+                </a>
+              </Button>
+            ) : null}
+          </div>
+
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={onClose}>Cancel</Button>
             <Button onClick={save} disabled={pending}>

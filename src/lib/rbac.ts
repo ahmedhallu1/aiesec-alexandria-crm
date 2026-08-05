@@ -224,9 +224,31 @@ export function claimTargetFunction(
     : allowed[0];
 }
 
+/** THE ARCHIVE IS WORKABLE BY MMs, IN EVERY FUNCTION (v33.8).
+ *
+ *  An archived account is nobody's live work — it was written off. When a
+ *  member doing market research turns up fresh information about one, the
+ *  useful thing is for their MM to act on it there and then: revive it, move
+ *  it to the function that can actually sell to them, hand it to someone.
+ *  Making that a VP-only errand is how a good lead dies waiting.
+ *
+ *  Deliberately MMs and up, not everyone: resurrecting a company another
+ *  function deliberately burned should be someone's decision, not a click any
+ *  member can make by accident. Live accounts stay strictly scoped — this
+ *  applies to archived rows only. */
+export function canWorkArchived(v: Viewer, a: AccountLike): boolean {
+  if (!a.out_of_process) return false;
+  if (master(v) || isIcxLead(v)) return true;
+  return (
+    (v.role === "Team Leader" || v.role === "Coordinator") &&
+    allowedAccountFunctions(v).length > 0
+  );
+}
+
 /** Edit stays SCOPED (own/team/function) — the archive being world-readable
- *  never makes it world-editable. */
+ *  never makes it world-editable, EXCEPT for the MMs above. */
 export function canEditAccount(v: Viewer, a: AccountLike): boolean {
+  if (canWorkArchived(v, a)) return true;
   const scope = accountScope(v);
   if (scope.kind === "all") return true;
   if (scope.kind === "functions") return scope.fns.includes(a.function as AccountFunction);
@@ -240,6 +262,8 @@ export function canEditAccount(v: Viewer, a: AccountLike): boolean {
  *  LCVPs/Directors inside their function; LCP anywhere. Plain members never. */
 export function canReassignAccount(v: Viewer, a: AccountLike): boolean {
   if (master(v)) return true;
+  // an archived account can be handed to anyone by an MM (v33.8)
+  if (canWorkArchived(v, a)) return true;
   if (isIcxLead(v)) return scopeFunctions(v).includes(a.function as AccountFunction);
   // taking an unowned account needs no authority over anyone
   if (isClaimableAccount(v, a)) return true;

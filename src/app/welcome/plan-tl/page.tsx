@@ -3,6 +3,7 @@ import { getViewer, needsTlPlan } from "@/server/data";
 import { peakForPlanning } from "@/lib/plan";
 import { TlPlanForm } from "@/components/crm/tl-plan-form";
 import { ThemeToggle } from "@/components/crm/theme-toggle";
+import { SkipPlanButton } from "@/components/crm/skip-plan-button";
 
 export const metadata = { title: "Your team plan" };
 
@@ -39,6 +40,7 @@ export default async function TlPlanPage() {
         </div>
 
         <TlPlanForm months={peak.months} peakLabel={peak.label} mode="welcome" />
+        <SkipPlanButton />
       </div>
     </main>
   );
