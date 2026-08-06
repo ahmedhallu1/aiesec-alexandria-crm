@@ -61,6 +61,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Hint } from "./hint";
 import { SortHeader, useTableSort } from "./sort-header";
+import { TableHead } from "@/components/ui/table";
 
 // one import gives a table everything it needs
 export { SortHeader, useTableSort };
@@ -609,15 +610,21 @@ export function ColumnFilter({
   );
 }
 
-/** THE RESIZE HANDLE (v33.11).
+/** RESIZABLE COLUMNS — THE GENERAL RULE (v33.14).
  *
- *  A thin grab strip on the right edge of a header cell. Drag it and the
- *  column takes that width; double-click and it goes back to sizing itself.
- *  Width is stored per table per browser alongside order and visibility.
+ *  Every table built on `useTableColumns` gets this, not a chosen few: drag
+ *  the right edge of any header, double-click to reset. Widths live beside
+ *  order and visibility, per table per browser.
  *
- *  Written straight to `style.width` on the <col> during the drag and
- *  committed on release — a React state update per pointermove would re-render
- *  the whole table on every pixel.
+ *  IT SHRINKS PAST THE CONTENT on purpose. The first version could only grow
+ *  a column, because `width` under `table-layout: auto` is a suggestion the
+ *  browser overrides to fit the longest cell. `<ResizableHead>` pins the width
+ *  with min/max AND truncates the cell, so a column of long company names can
+ *  be squeezed to nothing useful if that is what you want on screen — the full
+ *  text is still there on hover and in the row.
+ *
+ *  The drag writes to the DOM and commits on release: a React state update per
+ *  pointermove would re-render the whole table on every pixel.
  */
 export function ColumnResizer({
   onCommit,
@@ -645,15 +652,15 @@ export function ColumnResizer({
         if (!th) return;
         const startX = e.clientX;
         const startW = current ?? th.getBoundingClientRect().width;
-        th.style.minWidth = "";
-        th.style.maxWidth = "";
         let next = startW;
-        const move = (ev: PointerEvent) => {
-          next = startW + (ev.clientX - startX);
-          const px = Math.max(60, Math.min(640, next));
+        const setW = (px: number) => {
           th.style.width = `${px}px`;
           th.style.minWidth = `${px}px`;
           th.style.maxWidth = `${px}px`;
+        };
+        const move = (ev: PointerEvent) => {
+          next = Math.max(48, Math.min(900, startW + (ev.clientX - startX)));
+          setW(next);
         };
         const up = () => {
           window.removeEventListener("pointermove", move);
@@ -670,6 +677,53 @@ export function ColumnResizer({
       className="absolute inset-y-0 -right-1.5 z-20 hidden w-3 cursor-col-resize touch-none select-none md:block hover:bg-primary/40"
     />
   );
+}
+
+/** A header cell that carries the width and the handle — the one thing every
+ *  table needs in order to be resizable. Wrap your <TableHead> content in it
+ *  (or use it INSTEAD of TableHead) and pass the columns api. */
+export function ResizableHead({
+  colKey,
+  cols,
+  className,
+  children,
+}: {
+  colKey: string;
+  cols: TableColumnsApi;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const w = cols.widths[colKey];
+  return (
+    <TableHead
+      className={cn("relative", w && "overflow-hidden", className)}
+      style={
+        w ? { width: `${w}px`, minWidth: `${w}px`, maxWidth: `${w}px` } : undefined
+      }
+    >
+      <span className={cn("block", w && "truncate")}>{children}</span>
+      <ColumnResizer
+        current={w}
+        onCommit={(px) => cols.setWidth(colKey, px)}
+        onReset={() => cols.clearWidth(colKey)}
+      />
+    </TableHead>
+  );
+}
+
+/** The matching body cell: honours a hand-set width by truncating rather than
+ *  forcing the column back open. */
+export function resizableCellStyle(
+  cols: TableColumnsApi,
+  colKey: string
+): { className: string; style?: React.CSSProperties } {
+  const w = cols.widths[colKey];
+  return w
+    ? {
+        className: "truncate",
+        style: { width: `${w}px`, minWidth: `${w}px`, maxWidth: `${w}px` },
+      }
+    : { className: "" };
 }
 
 /** A column header that carries BOTH affordances: click the name to sort,

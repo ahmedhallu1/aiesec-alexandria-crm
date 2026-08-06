@@ -28,7 +28,9 @@ import type {
   OpenAppeal,
 } from "@/server/attendance-read";
 import { ATTENDANCE_STATUSES, type AttendanceStatus } from "@/lib/types";
-import { PageSizePicker } from "./data-table-kit";
+import {
+  PageSizePicker, resizableCellStyle, ResizableHead,
+} from "./data-table-kit";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -878,16 +880,18 @@ export function AttendanceView({
                 <TableRow>
                   {cols.visible.map((c) =>
                     c.key === "actions" ? (
-                      <TableHead key={c.key} className="text-right">{c.label}</TableHead>
+                      <ResizableHead key={c.key} colKey={c.key} cols={cols} className="text-right">
+                        {c.label}
+                      </ResizableHead>
                     ) : (
-                      <TableHead key={c.key}>
+                      <ResizableHead key={c.key} colKey={c.key} cols={cols}>
                         <SortHeader
                           label={c.label}
                           onClick={() => toggleSort(c.key, c.key === "when" ? "desc" : "asc")}
                           active={sortKey === c.key}
                           dir={dir}
                         />
-                      </TableHead>
+                      </ResizableHead>
                     )
                   )}
                 </TableRow>

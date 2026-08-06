@@ -261,8 +261,15 @@ export function AccountDetailView({
       <div className="grid gap-4 lg:grid-cols-2">
         <ContactInfoCard account={account} canEdit={caps.edit} viewerName={viewerName} />
         <DetailsCard account={account} canEdit={caps.edit} />
+        {/* the Podio worklist grant covers BOTH fields (v33.14): "did we
+            submit it" and "what came back" are one act, and an MM sent to
+            check a name has to be able to record both. */}
         {account.function !== "B2C" ? (
-          <PodioCard account={account} canEdit={caps.edit} canEditState={caps.requestState} />
+          <PodioCard
+            account={account}
+            canEdit={caps.edit || caps.requestState}
+            canEditState={caps.requestState}
+          />
         ) : null}
         {account.function !== "B2B" ? (
           <PodioUpdateCard account={account} canEdit={caps.edit && active} />

@@ -18,7 +18,7 @@ import { fmtDateTime, SIGNUP_STATUSES, type OgxFunction, type SignupRow } from "
 import { cn } from "@/lib/utils";
 import { CountryInput } from "./country-input";
 import {
-  ColumnFilter, PageSizePicker, TableSettings, useTableColumns, type TableColumn,
+  ColumnFilter, PageSizePicker, resizableCellStyle, ResizableHead, TableSettings, useTableColumns, type TableColumn,
 } from "./data-table-kit";
 import { Hint } from "./hint";
 import { WhatsAppIcon } from "./icons";
@@ -336,9 +336,11 @@ function signupColumns(fn: OgxFunction, view: string): TableColumn[] {
     { key: "name", label: "Sign-up", required: true },
     // OGV sign-ups are ALL GV — the badge is dead weight there (v31)
     { key: "program", label: "Program", defaultHidden: fn === "OGV" },
-    // v33.12 — Batch takes this slot. The contact links live on the row's
-    // Contact BUTTON and in the detail; a column of icons duplicated them.
     { key: "batch", label: "Batch" },
+    // v33.14 — the CALL/WHATSAPP/EMAIL links, named as they are on the
+    // raising list. Removing the Contact BUTTON took these with it by
+    // accident; they are the part people actually use.
+    { key: "contact", label: "Quick actions" },
     { key: "assigned", label: "Assigned" },
     { key: "contacted", label: "Contacted" },
     { key: "interested", label: "Interested" },
@@ -537,7 +539,7 @@ export function SignupsView({
   viewer: ViewerInfo;
   filters: {
     q: string; batch: string; program: string; status: string; potential: string;
-    personStatus?: string;
+    personStatus?: string; assigned?: string; campaign?: string;
     interested: string; contacted: string; phone: string; sort: string; dir: string;
   };
 }) {
@@ -783,6 +785,34 @@ export function SignupsView({
         return pick("Status", filters.potential ?? "",
           [...SIGNUP_STATUSES.map((st) => [st, st] as [string, string]), ["none", "— None yet"]],
           (v) => setParams({ potential: v || null, status: null }));
+      case "assigned": {
+        // v33.14 — who holds it, straight from what's on the page
+        const seen = [
+          ...new Set(rows.map((r) => r.assigned_name).filter(Boolean)),
+        ] as string[];
+        return seen.length > 0
+          ? pick(
+              "Assigned",
+              filters.assigned ?? "",
+              [
+                ["__none", "🆕 Unassigned"] as [string, string],
+                ...seen.map((v) => [v, v] as [string, string]),
+              ],
+              (v) => setParams({ assigned: v || null })
+            )
+          : null;
+      }
+      case "campaign": {
+        const seen = [...new Set(rows.map((r) => r.campaign).filter(Boolean))] as string[];
+        return seen.length > 1
+          ? pick(
+              "Campaign",
+              filters.campaign ?? "",
+              seen.map((v) => [v, v] as [string, string]),
+              (v) => setParams({ campaign: v || null })
+            )
+          : null;
+      }
       case "person_status": {
         // v33.12 — any column whose values repeat gets a funnel; this one is
         // straight from the tracker, so the options come from what is
@@ -919,18 +949,10 @@ export function SignupsView({
       case "sub_product":
         return r.sub_product ?? "—";
       case "actions":
-        // ALWAYS THERE, unless the row is archived (v33.11). It used to appear
-        // only on UNCLAIMED sign-ups, so the moment anyone owned one — most
-        // often you — the way to log a contact disappeared from the list and
-        // you had to open the row to find it. Unclaimed → claims it first;
-        // already owned → straight into the contact flow.
-        return r.out_of_process ? null : detailLoading === r.id ? (
-          <Loader2 className="size-4 animate-spin" />
-        ) : (
-          <Button size="sm" variant="outline" disabled={pending} onClick={() => contact(r)}>
-            <Phone className="size-3.5" /> Contact
-          </Button>
-        );
+        // v33.14 — the Contact BUTTON is gone. Tapping the row opens the
+        // sign-up, and the call/WhatsApp/email links already sit in the
+        // Quick actions column; a third way in was just width.
+        return detailLoading === r.id ? <Loader2 className="size-4 animate-spin" /> : null;
       default:
         return null;
     }
@@ -1148,7 +1170,7 @@ export function SignupsView({
                     {contactLinks(r, "sm")}
                   </div>
                 ) : null}
-                {!r.out_of_process ? (
+                {false ? (
                   <Button
                     size="sm" className="w-full"
                     disabled={pending}
@@ -1607,6 +1629,8 @@ function SignupDetailDialog({
                 </SelectContent>
               </Select>
             </div>
+            {detail.canSetStatus ? (
+            <>
             {/* ONE STATUS FIELD (v33.13). Two controls wrote the same column —
                 "🎯 Potential" for the owner and "Status" in the VP block — so
                 the same sign-up read differently depending which you looked at,
@@ -1645,6 +1669,8 @@ function SignupDetailDialog({
                 </p>
               ) : null}
             </div>
+            </>
+            ) : null}
           </div>
         ) : null}
 

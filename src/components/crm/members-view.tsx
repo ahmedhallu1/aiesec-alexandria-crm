@@ -17,8 +17,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-  SortHeader, TableSettings, useTableColumns, useTableSort,
-  type SortDir, type TableColumn,
+  resizableCellStyle, ResizableHead, SortHeader, TableSettings, useTableColumns, useTableSort, type SortDir, type TableColumn,
 } from "./data-table-kit";
 import { Hint } from "./hint";
 import { WhatsAppIcon } from "./icons";
@@ -576,7 +575,9 @@ export function MembersView({
               <TableRow>
                 {cols.visible.map((c) =>
                   c.key === "contact" ? (
-                    <TableHead key={c.key}>{c.label}</TableHead>
+                    <ResizableHead key={c.key} colKey={c.key} cols={cols}>
+                      {c.label}
+                    </ResizableHead>
                   ) : (
                     <SortHead
                       key={c.key}
@@ -592,11 +593,18 @@ export function MembersView({
             <TableBody>
               {sorted.map((m) => (
                 <TableRow key={m.id}>
-                  {cols.visible.map((c) => (
-                    <TableCell key={c.key} className={DIRECTORY_CELL_CLASS[c.key]}>
+                  {cols.visible.map((c) => {
+                    const rz = resizableCellStyle(cols, c.key);
+                    return (
+                    <TableCell
+                      key={c.key}
+                      className={cn(DIRECTORY_CELL_CLASS[c.key], rz.className)}
+                      style={rz.style}
+                    >
                       {memberCell(m, c.key)}
                     </TableCell>
-                  ))}
+                    );
+                  })}
                 </TableRow>
               ))}
               {filtered.length === 0 ? (
