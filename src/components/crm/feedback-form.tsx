@@ -14,6 +14,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { FEEDBACK_CATEGORIES } from "@/lib/types";
+import { FeedbackAttachments, type FeedbackAttachment } from "./feedback-attachments";
 
 export function FeedbackForm({ showInboxLink }: { showInboxLink: boolean }) {
   const [type, setType] = useState<"Bug" | "Enhancement" | "Other">("Enhancement");
@@ -28,6 +29,8 @@ export function FeedbackForm({ showInboxLink }: { showInboxLink: boolean }) {
     setCategory(""); // the list changes with the type — never keep a stale pick
   };
 
+  const [attachments, setAttachments] = useState<FeedbackAttachment[]>([]);
+
   const submit = () =>
     startTransition(async () => {
       const res = await submitFeedback({
@@ -36,6 +39,7 @@ export function FeedbackForm({ showInboxLink }: { showInboxLink: boolean }) {
         message,
         page: "/feedback",
         anonymous,
+        attachments,
       });
       if (res.ok) {
         toast.success(
@@ -86,6 +90,11 @@ export function FeedbackForm({ showInboxLink }: { showInboxLink: boolean }) {
             onChange={(e) => setMessage(e.target.value)}
             rows={5}
             placeholder="The more detail, the faster the fix…"
+          />
+          <FeedbackAttachments
+            value={attachments}
+            onChange={setAttachments}
+            disabled={pending}
           />
         </div>
         <div className="flex items-center justify-between rounded-lg border p-3">

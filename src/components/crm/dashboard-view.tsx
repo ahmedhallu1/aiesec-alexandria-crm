@@ -539,11 +539,16 @@ function OgxPanel({ data, streak }: { data: OgxDashboardData; streak: StreakStat
         </CardContent>
       </Card>
 
+      {/* TWO BOARDS (v33.13) — members and MMs do different jobs, and ranking
+          them on one list flattered neither */}
       <div className="grid gap-4 rise-in rise-in-3">
-        <OgxLeaderboard
-          title={`${data.fn} — Members & Coordinators`}
-          groups={data.board}
-        />
+        <OgxLeaderboard title={`${data.fn} — Members`} groups={data.board} />
+        {data.mmBoard.length > 0 ? (
+          <OgxLeaderboard
+            title={`${data.fn} — MMs (Team Leaders & Coordinators)`}
+            groups={data.mmBoard}
+          />
+        ) : null}
       </div>
 
       {data.byTeam.length > 0 ? (

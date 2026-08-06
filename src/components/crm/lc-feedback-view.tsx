@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { FeedbackAttachments, type FeedbackAttachment } from "./feedback-attachments";
 
 /* ------------------------------------------------------------------ types */
 
@@ -157,6 +158,8 @@ export function LcFeedbackView({
   }, [members, query]);
 
   /* -------------------------------------------------------------- submit */
+  const [attachments, setAttachments] = useState<FeedbackAttachment[]>([]);
+
   const submit = () =>
     startTransition(async () => {
       const res = await submitLcFeedback({
@@ -165,6 +168,7 @@ export function LcFeedbackView({
         message,
         anonymous,
         touchPointId: aboutTouchPoint ? touchPointId : undefined,
+        attachments,
       });
       if (res.ok) {
         toast.success(positive ? "Shout-out sent 🎉" : "Concern filed privately 🤫");
@@ -396,6 +400,11 @@ export function LcFeedbackView({
                   ? "Tell them why they're great — they'll read this word for word…"
                   : "Be specific and fair — only the LCP reads this…"
               }
+            />
+            <FeedbackAttachments
+              value={attachments}
+              onChange={setAttachments}
+              disabled={pending}
             />
           </div>
 

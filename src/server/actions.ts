@@ -1010,6 +1010,63 @@ function unsafeUploadReason(name: string): string | null {
   return null;
 }
 
+/** ATTACHMENTS ON FEEDBACK (v33.13).
+ *
+ *  A bug report is usually a screenshot, and a concern about a person is often
+ *  evidence — both were being described in prose because there was nowhere to
+ *  put the file. Same signed-URL flow as contracts and CVs: the bytes go
+ *  browser → private bucket, never through the server (Vercel caps an action
+ *  body at ~4.5 MB), and the same extension guard applies.
+ *
+ *  Anyone signed in may attach to their OWN feedback — that is the whole
+ *  point of feedback — so the only gate is a real session. */
+const FEEDBACK_MAX_FILES = 5;
+const FEEDBACK_MAX_SIZE = 10 * 1024 * 1024;
+
+export async function requestFeedbackUploads(
+  files: { name: string; type: string; size: number }[]
+): Promise<ActionResult<{ uploads: { path: string; signedUrl: string; name: string }[] }>> {
+  const viewer = await getViewer();
+  if (!viewer?.id) return fail("Sign in first.", "forbidden");
+  if (files.length === 0) return fail("Pick a file first.");
+  if (files.length > FEEDBACK_MAX_FILES)
+    return fail(`At most ${FEEDBACK_MAX_FILES} files per message.`);
+  for (const f of files) {
+    if (f.size > FEEDBACK_MAX_SIZE)
+      return fail(`"${f.name}" is over 10 MB — a screenshot shouldn't be.`);
+    const unsafe = unsafeUploadReason(f.name);
+    if (unsafe) return fail(unsafe);
+  }
+
+  const uploads: { path: string; signedUrl: string; name: string }[] = [];
+  for (const f of files) {
+    const safeName = f.name.replace(/[^\w.\- ()]+/g, "_").slice(-80);
+    const path = `${viewer.id}/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
+    const { data, error } = await db().storage.from("feedback").createSignedUploadUrl(path);
+    if (error || !data) {
+      if (error?.message?.toLowerCase().includes("bucket"))
+        return fail("Feedback storage isn't set up yet — run migration 0042.");
+      return fail(error?.message ?? "Could not prepare the upload — try again.");
+    }
+    uploads.push({ path: data.path, signedUrl: data.signedUrl, name: safeName });
+  }
+  return { ok: true, data: { uploads } };
+}
+
+/** A 10-minute link to an attachment — inbox owners and the author. */
+export async function getFeedbackFileUrl(path: string): Promise<ActionResult<{ url: string }>> {
+  const viewer = await getViewer();
+  if (!viewer?.id) return fail("Sign in first.", "forbidden");
+  // a path always starts with the author's id, so this is cheap to check
+  const ownPath = path.startsWith(`${viewer.id}/`);
+  const { canSeeFeedbackInbox } = await import("@/lib/rbac");
+  if (!ownPath && !canSeeFeedbackInbox(viewer) && !canSeeLcConcerns(viewer))
+    return fail("Not yours to open.", "forbidden");
+  const { data, error } = await db().storage.from("feedback").createSignedUrl(path, 600);
+  if (error || !data) return fail(error?.message ?? "Could not open the file.");
+  return { ok: true, data: { url: data.signedUrl } };
+}
+
 export async function requestContractUploads(
   dealId: string,
   files: { name: string; type: string; size: number }[]
@@ -2362,12 +2419,27 @@ export async function reportVisit(
 
 // ================================================================== feedback
 
+/** Keeps only attachment records that point at a path this viewer just
+ *  uploaded — the client sends them back after the PUT, so they are checked
+ *  rather than trusted. */
+function cleanAttachments(
+  raw: { path: string; name: string }[] | undefined,
+  viewerId: string
+): { path: string; name: string }[] {
+  return (raw ?? [])
+    .filter((a) => typeof a?.path === "string" && a.path.startsWith(`${viewerId}/`))
+    .slice(0, 5)
+    .map((a) => ({ path: a.path, name: String(a.name ?? "file").slice(0, 120) }));
+}
+
 export async function submitFeedback(input: {
   type: "Bug" | "Enhancement" | "Other";
   category?: string;
   message: string;
   page?: string;
   anonymous?: boolean;
+  /** screenshots, usually — a bug is easier shown than described (v33.13) */
+  attachments?: { path: string; name: string }[];
 }): Promise<ActionResult> {
   const viewer = await getViewer();
   if (!input.message?.trim()) return fail("Tell us what happened first 🙂");
@@ -2384,6 +2456,9 @@ export async function submitFeedback(input: {
     category,
     message: input.message.trim(),
     page: input.page || null,
+    // the path always begins with the uploader's id, so an anonymous report
+    // keeps its screenshot without the path naming them to the reader
+    attachments: cleanAttachments(input.attachments, viewer.id),
   });
   if (error) {
     if (error.message.includes("category"))
@@ -3790,6 +3865,7 @@ export async function submitLcFeedback(input: {
   about: string[];
   message: string;
   anonymous?: boolean;
+  attachments?: { path: string; name: string }[];
   /** feedback about a TOUCH POINT the viewer attended (v29): it resolves to
    *  the session's OWNER as the target and names the session in the message,
    *  so both flows travel the exact same shout-out / private-inbox path. */
@@ -3837,6 +3913,7 @@ export async function submitLcFeedback(input: {
     positive: input.positive,
     about: targets.map((t) => t.id),
     message,
+    attachments: cleanAttachments(input.attachments, viewer.id),
   });
   if (error) {
     if (error.message.includes("lc_feedback"))
@@ -4757,10 +4834,14 @@ export async function setSignupPotential(
   if (!signup || !canWorkSignup(viewer, signup))
     return fail("You are not allowed to work this sign-up.", "forbidden");
   if (signup.out_of_process) return fail("This sign-up is archived (Out of Process).");
-  const POTENTIAL: readonly string[] = ["Applied", "Accepted", "Approved"];
+  // ONE STATUS FIELD (v33.13): every stage lives here now, not split between
+  // an owner's "Potential" and a VP's "Status" writing the same column.
   const next = status?.trim() || null;
-  if (next !== null && !POTENTIAL.includes(next))
-    return fail("Pick a valid potential stage.");
+  if (next !== null && !(SIGNUP_STATUSES as readonly string[]).includes(next))
+    return fail("Pick a valid status.");
+  // "Parents Approval" is still a VP call, whichever control you came from
+  if (next === "Parents Approval" && !canEditSignupVpFields(viewer, signup))
+    return fail('"Parents Approval" is set by your VP/Director.', "forbidden");
   // moving OFF the VP-set "Parents Approval" stays a VP move
   if (signup.status === "Parents Approval" && !canEditSignupVpFields(viewer, signup))
     return fail(

@@ -47,7 +47,6 @@ const waDigits = (phone: string | null) => {
 
 /** The member-movable "potential" pipeline (v28) — "Parents Approval" stays
  *  VP-set and lives only in the VP fields' status select. */
-const POTENTIAL_STAGES = ["Applied", "Accepted", "Approved"];
 
 const VIEW_LABELS: Record<string, string> = {
   unassigned: "🆕 Unassigned",
@@ -781,7 +780,7 @@ export function SignupsView({
         return pick("Interested", filters.interested ?? "", [["Yes", "Interested ✓"], ["No", "Not interested"]],
           (v) => setParams({ interested: v || null }));
       case "status":
-        return pick("🎯 Potential", filters.potential ?? "",
+        return pick("Status", filters.potential ?? "",
           [...SIGNUP_STATUSES.map((st) => [st, st] as [string, string]), ["none", "— None yet"]],
           (v) => setParams({ potential: v || null, status: null }));
       case "person_status": {
@@ -1076,7 +1075,7 @@ export function SignupsView({
             <SelectItem value="No">Not interested</SelectItem>
           </SelectContent>
         </Select>
-        {/* 🎯 Potential (v28): the pipeline stage — replaces the old Status
+        {/* Status (v33.13) — the pipeline stage, one field
             filter (same column; "None" = plain sign-ups, no stage yet) */}
         <Select
           value={filters.potential || "all"}
@@ -1086,7 +1085,7 @@ export function SignupsView({
         >
           <SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">🎯 Potential: any</SelectItem>
+            <SelectItem value="all">Status: any</SelectItem>
             {SIGNUP_STATUSES.map((s) => (
               <SelectItem key={s} value={s}>{s}</SelectItem>
             ))}
@@ -1608,12 +1607,15 @@ function SignupDetailDialog({
                 </SelectContent>
               </Select>
             </div>
-            {/* 🎯 Potential (v28): whoever owns the sign-up moves it down the
-                pipeline — system-only stages, never written to the sheet */}
+            {/* ONE STATUS FIELD (v33.13). Two controls wrote the same column —
+                "🎯 Potential" for the owner and "Status" in the VP block — so
+                the same sign-up read differently depending which you looked at,
+                and nothing said which was authoritative. This is the one, and
+                MMs and above set it. "Parents Approval" stays a VP move. */}
             <div className="grid gap-1.5">
-              <Label>🎯 Potential</Label>
+              <Label>Status</Label>
               <Select
-                value={POTENTIAL_STAGES.includes(s.status ?? "") ? s.status! : "__none"}
+                value={s.status ?? "__none"}
                 onValueChange={(v) =>
                   run(
                     () => setSignupPotential(s.id, v === "__none" ? null : v),
@@ -1628,7 +1630,9 @@ function SignupDetailDialog({
                 <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none">— Sign-up</SelectItem>
-                  {POTENTIAL_STAGES.map((st) => (
+                  {SIGNUP_STATUSES.filter(
+                    (st) => st !== "Parents Approval" || detail.canVp
+                  ).map((st) => (
                     <SelectItem key={st} value={st}>
                       {st === "Approved" ? "Approved 🏆" : st}
                     </SelectItem>
@@ -1682,26 +1686,6 @@ function SignupDetailDialog({
                   </Select>
                 </div>
               ) : null}
-              <div className="grid gap-1.5">
-                <Label>Status</Label>
-                <Select
-                  value={s.status ?? "__none"}
-                  onValueChange={(v) =>
-                    run(
-                      () => updateSignupVpFields(s.id, { status: v === "__none" ? null : v }),
-                      v === "Approved" ? "APPROVED — that's the MOS! 🎉" : "Status saved"
-                    )
-                  }
-                >
-                  <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none">—</SelectItem>
-                    {SIGNUP_STATUSES.map((st) => (
-                      <SelectItem key={st} value={st}>{st}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
             </div>
             {!s.out_of_process ? (
               !oopMode ? (
