@@ -293,7 +293,7 @@ function FlagToggle({
 function CopyNameButton({ name }: { name: string }) {
   const [done, setDone] = useState(false);
   return (
-    <Hint label={done ? "Copied" : "Copy the name for Podio"}>
+    <Hint label={done ? "Copied" : "Copy name"}>
       <Button
         type="button"
         variant="ghost"
@@ -305,7 +305,7 @@ function CopyNameButton({ name }: { name: string }) {
           navigator.clipboard.writeText(name).then(
             () => {
               setDone(true);
-              toast.success("Name copied");
+              toast.success("Copied");
               setTimeout(() => setDone(false), 1500);
             },
             () => toast.error("Couldn't copy — select the name and copy it by hand.")
@@ -1298,7 +1298,12 @@ export function AccountsView({
                       const filter = columnFilter(c.key);
                       // width + the grab strip on the right edge (v33.11)
                       const w = cols.widths[c.key];
-                      const style = w ? { width: `${w}px` } : undefined;
+                      // `width` alone is a SUGGESTION under table-layout:auto —
+                      // the browser overrides it to fit content, which is why
+                      // resizing appeared to do nothing. min+max pin it.
+                      const style = w
+                        ? { width: `${w}px`, minWidth: `${w}px`, maxWidth: `${w}px` }
+                        : undefined;
                       const resizer = (
                         <ColumnResizer
                           current={w}

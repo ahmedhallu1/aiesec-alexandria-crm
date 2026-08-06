@@ -2923,8 +2923,14 @@ export async function bulkDeleteArchived(
   ids: string[]
 ): Promise<ActionResult<{ deleted: number; failed: number }>> {
   const viewer = await getViewer();
-  const allowed = viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
-  if (!allowed) return fail("Only VPs, Directors or the LCP delete archived accounts.", "forbidden");
+  // MMs and above (v33.12) — the same people who may work the archive. Never a
+  // plain Member: this cascades through contacts, visits and deals, and the
+  // sandbox can't undo it.
+  const allowed =
+    viewer.isAdmin ||
+    ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(viewer.role);
+  if (!allowed)
+    return fail("Only MMs, VPs, Directors or the LCP delete archived accounts.", "forbidden");
   // a permanent delete cannot be journaled faithfully (children are gone) —
   // it has no place in ANY session that promises to undo everything on exit
   if (viewer.sandbox)

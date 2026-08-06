@@ -140,8 +140,11 @@ export default async function AccountsPage({
         canSetRequestState: canSetRequestStateOnCreate(viewer),
         canViewArchive: archiveAllowed,
         canManageArchive: canManageArchive(viewer),
+        // v33.12 — MMs and above, matching who may work the archive at all.
+        // It cascades and cannot be undone, so never a plain Member.
         canRemoveArchived:
-          viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role),
+          viewer.isAdmin ||
+          ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(viewer.role),
         allowedFns,
         showFnFilter: allowedFns.length > 1,
         // IGV-only viewers: every account is IGV, so the Product column is

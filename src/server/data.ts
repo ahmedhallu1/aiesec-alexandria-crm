@@ -3454,6 +3454,8 @@ export interface SignupFilters {
   interested?: string;
   contacted?: string;
   country?: string;
+  /** straight from the tracker — free-form, so the options come from the data */
+  personStatus?: string;
   /** rows with a missing/unusable phone (null, empty or "deleted…") */
   /** "missing" = no usable number · "has" = a number exists */
   phone?: "missing" | "has";
@@ -3512,7 +3514,18 @@ export async function listSignupsPage(
     if (view === "archived") q = q.eq("out_of_process", true);
     else q = q.eq("out_of_process", false);
     if (view === "unassigned") q = q.is("assigned_to", null);
-    else if (view === "mine") q = q.eq("assigned_to", viewer.id);
+    else if (view === "mine") {
+      // "MINE" MEANS WHAT YOU ANSWER FOR (v33.12): a member's own, a Team
+      // Leader's own plus their team's, a VP/Director/LCP every assigned
+      // sign-up in their function. A leader opening "My sign-ups" and seeing
+      // three rows while their function works four hundred was reading it as
+      // a personal inbox when it is their responsibility.
+      const leader = viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
+      if (leader) q = q.not("assigned_to", "is", null);
+      else if (viewer.role === "Team Leader")
+        q = q.in("assigned_to", [viewer.id, ...viewer.teamMemberIds]);
+      else q = q.eq("assigned_to", viewer.id);
+    }
     else if (view === "team")
       q = q.in("assigned_to", [viewer.id, ...viewer.teamMemberIds]);
     else if (view === "all" || view === "archived") {
@@ -3570,6 +3583,11 @@ export async function listSignupsPage(
         q = q.or(picks.map((v) => `contact_status.ilike.${ynPat(v)}`).join(","));
     }
     if (filters.country) q = q.ilike("country", `%${filters.country}%`);
+    {
+      const picks = pickList(filters.personStatus);
+      if (picks.length === 1) q = q.eq("person_status", picks[0]);
+      else if (picks.length > 1) q = q.in("person_status", picks);
+    }
     // phone filter (v27, both directions): "missing" = null / empty / the
     // sheets' "deleted phone number" placeholder; "has" = a usable number
     if (filters.phone === "missing")

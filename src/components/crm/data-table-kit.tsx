@@ -645,10 +645,15 @@ export function ColumnResizer({
         if (!th) return;
         const startX = e.clientX;
         const startW = current ?? th.getBoundingClientRect().width;
+        th.style.minWidth = "";
+        th.style.maxWidth = "";
         let next = startW;
         const move = (ev: PointerEvent) => {
           next = startW + (ev.clientX - startX);
-          th.style.width = `${Math.max(60, Math.min(640, next))}px`;
+          const px = Math.max(60, Math.min(640, next));
+          th.style.width = `${px}px`;
+          th.style.minWidth = `${px}px`;
+          th.style.maxWidth = `${px}px`;
         };
         const up = () => {
           window.removeEventListener("pointermove", move);
@@ -662,7 +667,7 @@ export function ColumnResizer({
         window.addEventListener("pointermove", move);
         window.addEventListener("pointerup", up);
       }}
-      className="absolute inset-y-0 -right-1 z-10 hidden w-2 cursor-col-resize touch-none select-none md:block hover:bg-primary/30"
+      className="absolute inset-y-0 -right-1.5 z-20 hidden w-3 cursor-col-resize touch-none select-none md:block hover:bg-primary/40"
     />
   );
 }

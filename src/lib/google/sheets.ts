@@ -322,6 +322,10 @@ export function mapColumns(header: string[]): ColumnMap {
   return map;
 }
 
+/** Role words, lower-cased — a value from the Role column showing up in the
+ *  Function column is the tell-tale of a shifted row. */
+const ROLE_WORDS = ["lcp", "lcvp", "director", "team leader", "coordinator", "member", "admin"];
+
 function parseSheetRow(row: string[], cols: ColumnMap): SheetMemberRow | null {
   const at = (field: string) => {
     const i = cols[field];
@@ -347,6 +351,38 @@ function parseSheetRow(row: string[], cols: ColumnMap): SheetMemberRow | null {
   // unrecognized formats keep the raw value (stripped of separators)
   const storedPhone =
     phoneCheck?.ok ? phoneCheck.value : cleanPhone?.replace(/[^0-9+]/g, "") || null;
+
+  // THE ROW MUST BE THE RIGHT SHAPE (v33.12).
+  //
+  // Two members arrived corrupted — phone "199", function "LCVP" — because
+  // their SHEET rows were typed one column across: the email sat in Phone,
+  // the role in Function, the function in Sub Function. Every value was
+  // individually plausible, so the import took them and wrote a member whose
+  // role was "Member", whose function was "LCVP" and whose phone was the
+  // digits out of their email address.
+  //
+  // Columns are found by header, so a shift like this is a typing mistake in
+  // one ROW, and the only place it can be caught is here: a cell that clearly
+  // belongs to a different column means the row is misaligned, and importing
+  // it does more damage than skipping it.
+  const looksShifted =
+    // an email in the phone column, or a phone in the email column
+    !!cleanPhone?.includes("@") ||
+    (!!cleanEmail && !cleanEmail.includes("@") && /\d{7,}/.test(cleanEmail)) ||
+    // a ROLE sitting in the Function column
+    ROLE_WORDS.some((r) => (fns ?? "").trim().toLowerCase() === r) ||
+    // a real role cell that names no role we know
+    (!!role?.trim() && parseRole(role) === "Member" && !/member/i.test(role));
+  if (looksShifted) {
+    console.error(
+      `[sheets] "${name.trim()}" looks like a SHIFTED row — email/phone/role/function ` +
+        `don't line up with their columns, so it was skipped rather than imported ` +
+        `wrong. Check that row in the Membership sheet. ` +
+        `(email=${JSON.stringify(cleanEmail)} phone=${JSON.stringify(cleanPhone)} ` +
+        `role=${JSON.stringify(role)} function=${JSON.stringify(fns)})`
+    );
+    return null;
+  }
 
   // IDENTITY OR NOTHING (v33.7). This used to test the RAW cell — so a phone
   // column holding text with no digits ("—", "N/A", a note) passed the check
