@@ -3466,6 +3466,8 @@ export interface SignupFilters {
   country?: string;
   /** straight from the tracker — free-form, so the options come from the data */
   personStatus?: string;
+  assigned?: string;
+  campaign?: string;
   /** rows with a missing/unusable phone (null, empty or "deleted…") */
   /** "missing" = no usable number · "has" = a number exists */
   phone?: "missing" | "has";
@@ -3492,8 +3494,9 @@ export function signupViewsFor(v: Viewer): string[] {
   const seesPool = leader || ["Team Leader", "Coordinator"].includes(v.role);
   return [
     ...(seesPool ? ["unassigned"] : []),
+    // v33.14 — "My team" is gone: since "mine" became what you ANSWER for
+    // (a TL's own plus their team's), the two tabs showed the same rows.
     "mine",
-    ...(v.role === "Team Leader" ? ["team"] : []),
     ...(leader ? ["all"] : []),
     "archived",
   ];
@@ -3598,6 +3601,25 @@ export async function listSignupsPage(
       if (picks.length === 1) q = q.eq("person_status", picks[0]);
       else if (picks.length > 1) q = q.in("person_status", picks);
     }
+    // WHO HOLDS IT (v33.14) — "__none" is the unassigned pool, which is NULL
+    // and therefore cannot be `in`-ed alongside names
+    {
+      const picks = pickList(filters.assigned);
+      const wantsNone = picks.includes("__none");
+      const names = picks.filter((p) => p !== "__none");
+      if (wantsNone && names.length === 0) q = q.is("assigned_to", null);
+      else if (wantsNone && names.length > 0)
+        q = q.or(
+          `assigned_name.is.null,assigned_name.in.(${names.map((n) => `"${n}"`).join(",")})`
+        );
+      else if (names.length === 1) q = q.eq("assigned_name", names[0]);
+      else if (names.length > 1) q = q.in("assigned_name", names);
+    }
+    {
+      const picks = pickList(filters.campaign);
+      if (picks.length === 1) q = q.eq("campaign", picks[0]);
+      else if (picks.length > 1) q = q.in("campaign", picks);
+    }
     // phone filter (v27, both directions): "missing" = null / empty / the
     // sheets' "deleted phone number" placeholder; "has" = a usable number
     if (filters.phone === "missing")
@@ -3638,6 +3660,8 @@ export interface SignupDetail {
   assignedLabel: string | null;
   canWork: boolean;
   canVp: boolean;
+  /** may move the sign-up along the pipeline — MMs and above (v33.14) */
+  canSetStatus: boolean;
 }
 
 export async function getSignupDetail(
@@ -3669,6 +3693,13 @@ export async function getSignupDetail(
       : data.assigned_name,
     canWork: canWorkSignup(viewer, data),
     canVp: _canEditSignupVpFields(viewer, data),
+    // THE STATUS IS AN MM'S CALL (v33.14). Applied / Accepted / Approved is
+    // the function's MOS, reported upward — a member records the conversation
+    // (Contacted, Interested) and their MM confirms what it became.
+    canSetStatus:
+      _canEditSignupVpFields(viewer, data) ||
+      ((viewer.role === "Team Leader" || viewer.role === "Coordinator") &&
+        canWorkSignup(viewer, data)),
   };
 }
 
@@ -3931,6 +3962,13 @@ export async function ogxDashboard(
     if (r.out_of_process) continue; // archived sign-ups leave every KPI
     // NOBODY'S = not in the funnel. The pool is a to-do list, not progress.
     if (!r.assigned_to) continue;
+    // AND NOT SOMEONE WHO HAS LEFT THIS FUNCTION (v33.14). People move: a TL
+    // who ran OGT and is now BD still held 240 OGT sign-ups, and every one of
+    // them counted toward OGT's peak. Work belongs to the function whose
+    // people are actually doing it — if the holder no longer works this
+    // function, the row is waiting to be re-assigned, not progress.
+    const holder = byId.get(r.assigned_to);
+    if (!holder || !inFn(holder)) continue;
     // this peak only — assigned_at is when it became work
     if (peakStart && !filters.from && !filters.to) {
       const day = (r.assigned_at ?? r.signed_up_at ?? "").slice(0, 10);
@@ -3951,10 +3989,13 @@ export async function ogxDashboard(
 
     // TWO BOARDS (v33.13): members and MMs are doing different jobs and were
     // ranked against each other on one list, which flattered neither.
-    const m = byId.get(r.assigned_to);
-    if (m?.role === "Member") addOgxRow(init(board, m.id, m.name), r);
-    else if (m && (m.role === "Team Leader" || m.role === "Coordinator"))
+    const m = holder;
+    if (m.role === "Member") addOgxRow(init(board, m.id, m.name), r);
+    // AN MM'S NUMBER IS THEIR TEAM'S (v33.14) — that is what they are held to.
+    // Their own rows land on their line, and so do their members'.
+    if (m.role === "Team Leader" || m.role === "Coordinator")
       addOgxRow(init(mmBoard, m.id, m.name), r);
+    else if (tl) addOgxRow(init(mmBoard, tl.id, tl.name), r);
 
     if (tl)
       addOgxRow(

@@ -25,8 +25,7 @@ import { normalizePhone, fmtDateTime } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { CountryInput } from "./country-input";
 import {
-  PageSizePicker, SortHeader, TableSettings, useTableColumns, useTableSort,
-  type TableColumn,
+  PageSizePicker, resizableCellStyle, ResizableHead, SortHeader, TableSettings, useTableColumns, useTableSort, type TableColumn,
 } from "./data-table-kit";
 import { FileDrop } from "./file-drop";
 import { Hint } from "./hint";
@@ -1992,8 +1991,10 @@ function IrCallsTab({
                   <TableHeader>
                     <TableRow>
                       {cols.visible.map((c) => (
-                        <TableHead
+                        <ResizableHead
                           key={c.key}
+                          colKey={c.key}
+                          cols={cols}
                           className={c.key === "screenshot" ? "text-right" : undefined}
                         >
                           <SortHeader
@@ -2002,7 +2003,7 @@ function IrCallsTab({
                             active={sortKey === c.key}
                             dir={dir}
                           />
-                        </TableHead>
+                        </ResizableHead>
                       ))}
                     </TableRow>
                   </TableHeader>

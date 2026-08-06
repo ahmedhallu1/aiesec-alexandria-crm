@@ -13,6 +13,7 @@ import {
   canEditRequestState,
   canManageMembership,
   canSeeLcConcerns,
+  canCheckPodio,
   canSetRequestStateOnCreate,
   canUseAdminTools,
   canUseIgtExpectationMail,
@@ -444,14 +445,23 @@ export async function updateAccount(
 ): Promise<ActionResult> {
   const viewer = await getViewer();
   const account = await loadAccount(accountId);
-  if (!account || !canEditAccount(viewer, account))
+  if (!account) return fail("That account no longer exists.");
+  // THE PODIO WORKLIST GRANT (v33.14) lets an MM sent to check a name record
+  // BOTH Podio fields on an account that is not otherwise theirs — and
+  // nothing else on it. `podioOnly` is that narrower door.
+  const fullEdit = canEditAccount(viewer, account);
+  const podioOnly = !fullEdit && canCheckPodio(viewer, account);
+  if (!fullEdit && !podioOnly)
     return fail("You are not allowed to edit this account.", "forbidden");
   const parsed = editableFields.safeParse(patch);
   if (!parsed.success) return fail(parsed.error.issues[0].message);
 
+  const PODIO_FIELDS = ["requested_podio", "request_state"];
   const update: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(parsed.data)) {
     if (value === undefined) continue;
+    if (podioOnly && !PODIO_FIELDS.includes(key))
+      return fail("From the Podio queue you can only record what Podio said.", "forbidden");
     if (key === "request_state" && !canEditRequestState(viewer, account))
       return fail("Request State is set by the TL, Coordinator or VP.", "forbidden");
     update[key] = value === "" ? null : value;
