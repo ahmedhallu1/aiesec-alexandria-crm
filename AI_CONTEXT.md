@@ -648,8 +648,8 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
   via the same `mapColumns` as the import (pure logic split into
   `sheet-row.ts`, locked by `tests/sheet-writeback.test.ts` on the current,
   legacy AND reordered layouts) and ABORTS LOUDLY when headers can't be
-  resolved. The shifted junk rows on the live sheet were cleaned up and the
-  real rows re-synced from the DB.
+  resolved. The live sheet held ZERO shifted rows at ship time (Ahmed had
+  been deleting them by hand) — the fix stops new ones from appearing.
   ④ **Removing a member's email created a stranded duplicate** (Menna's
   lockout): `findPhoneKeyed` only matches email-NULL rows, so a sheet row
   whose email was removed couldn't adopt the member's email-bearing DB row →
