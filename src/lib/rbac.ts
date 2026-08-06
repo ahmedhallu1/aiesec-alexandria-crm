@@ -162,6 +162,9 @@ type AccountLike = {
   function: string;
   responsible_id: string | null;
   out_of_process?: boolean;
+  /** the two fields the Podio worklist turns on (v33.13) */
+  requested_podio?: boolean | null;
+  request_state?: string | null;
 };
 
 /** In-scope accounts, plus (v22.2) EVERY archived account: the archive is the
@@ -169,6 +172,9 @@ type AccountLike = {
  *  burned it and why before wasting a call on it. */
 export function canViewAccount(v: Viewer, a: AccountLike): boolean {
   if (a.out_of_process) return true;
+  // an MM working the Podio queue may OPEN a row from it — read plus the one
+  // field the queue exists for, never edit or ownership (v33.13)
+  if (canCheckPodio(v, a)) return true;
   return canEditAccount(v, a);
 }
 
@@ -272,23 +278,46 @@ export function canReassignAccount(v: Viewer, a: AccountLike): boolean {
   return false;
 }
 
-/** Who a given viewer may reassign an account TO.
+/** Who a given viewer may reassign an account TO (v33.13).
  *
- *  Back to the original rule (v33.10): a Team Leader hands accounts to THEIR
- *  OWN TEAM, a VP/Director inside their function, the LCP anywhere. v33.9
- *  briefly opened this to every member on the theory that a company belongs
- *  to whoever can sell to them — but it turned the picker into a list of the
- *  whole LC, which is unusable and lets an account leave a team by accident.
+ *  ANYONE. The hard question — "is this account yours to move?" — is already
+ *  answered by `canReassignAccount`, which holds an MM to their own and their
+ *  team's rows. Once you have established that it IS theirs, restricting where
+ *  it can go only produced dead ends: a company that wants a teacher belongs
+ *  with IGT, and routing that through two VPs is how it stops happening.
  *
- *  The cross-function case that motivated it is served properly by the
- *  ARCHIVE route instead (`canWorkArchived`): a burned account can be revived
- *  into any function, which is where the need actually came from. */
+ *  The pairing is the point: you may give away only what is yours, but you may
+ *  give it to whoever should have it. Nobody can TAKE an account from someone
+ *  else, because that is the other predicate's job. */
 export function reassignTargetScope(v: Viewer): AccountScope {
-  if (master(v)) return { kind: "all" };
-  if (isIcxLead(v)) return { kind: "functions", fns: scopeFunctions(v) };
-  if (v.role === "Team Leader")
-    return { kind: "members", ids: [v.id, ...v.teamMemberIds] };
+  if (master(v) || isIcxLead(v)) return { kind: "all" };
+  if (v.role === "Team Leader" || v.role === "Coordinator") return { kind: "all" };
   return { kind: "members", ids: [] };
+}
+
+/** THE PODIO WORKLIST GRANT (v33.13).
+ *
+ *  Checking whether a company is already on Podio is one person's errand done
+ *  for the whole function, so the worklist spans it — but opening a row out of
+ *  it used to hit "you can't open this account", because the account belongs
+ *  to another team.
+ *
+ *  This grants exactly enough and no more: an MM of the account's own function
+ *  may open it and record what Podio said, WHILE it still needs checking. The
+ *  moment a state is set the grant lapses on its own, so it can never become a
+ *  standing back door into another team's accounts — and it never carries the
+ *  right to edit the account or change its owner. */
+export function canCheckPodio(v: Viewer, a: AccountLike): boolean {
+  if (a.out_of_process) return false;
+  // already answered → nothing left to check → no grant
+  if (a.requested_podio || a.request_state) return false;
+  const mm =
+    master(v) ||
+    isIcxLead(v) ||
+    v.role === "Team Leader" ||
+    v.role === "Coordinator";
+  if (!mm) return false;
+  return allowedAccountFunctions(v).includes(a.function as AccountFunction);
 }
 
 /** The Archived tab is open to EVERYONE (v22.2) — the archive is the shared
@@ -399,6 +428,7 @@ export function canEditOwnAttendanceRow(v: Viewer, tp: TouchPointRef): boolean {
  *  is the honest model — it's the same move as Admin in v33. A tagged member
  *  still only touches accounts they can already edit. */
 export function canEditRequestState(v: Viewer, a: AccountLike): boolean {
+  if (canCheckPodio(v, a)) return true; // the worklist grant (v33.13)
   if (master(v) || (isIcxLead(v) && scopeFunctions(v).includes(a.function as AccountFunction)))
     return true;
   if (v.role === "Team Leader")

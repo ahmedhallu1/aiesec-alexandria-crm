@@ -3770,9 +3770,12 @@ export interface OgxDashboardFilters {
 export interface OgxDashboardData {
   fn: OgxFunction;
   total: OgxFunnel;
-  /** Members & Coordinators only (the raising leaderboard rule) — ranked by
-   *  Approvals, every funnel number per person */
+  /** MEMBERS — ranked by Approvals, every funnel number per person */
   board: OgxBoardRow[];
+  /** MMs (Team Leaders + Coordinators) — their own assigned sign-ups. A
+   *  separate board because they are doing a different job, and ranking them
+   *  against members flattered neither (v33.13). */
+  mmBoard: OgxBoardRow[];
   /** per-TL-team drill (the assigned member's team) — [] when no teams exist */
   byTeam: OgxBoardRow[];
   /** the fn's filed mm_plans for the current month vs the LIVE pipeline
@@ -3827,6 +3830,8 @@ function addOgxRow(
 
 interface OgxDashSignup {
   assigned_to: string | null;
+  /** when it became someone's work — what the peak window is measured on */
+  assigned_at: string | null;
   contact_status: string | null;
   interested: string | null;
   status: string | null;
@@ -3851,7 +3856,9 @@ export async function ogxDashboard(
     fetchAll<OgxDashSignup>(() =>
       db()
         .from("signups")
-        .select("assigned_to, contact_status, interested, status, out_of_process, signed_up_at")
+        .select(
+          "assigned_to, assigned_at, contact_status, interested, status, out_of_process, signed_up_at"
+        )
         .eq("fn", fn)
         .order("id")
     ),
@@ -3884,6 +3891,7 @@ export async function ogxDashboard(
 
   const total = emptyOgxFunnel();
   const board = new Map<string, OgxBoardRow>();
+  const mmBoard = new Map<string, OgxBoardRow>();
   const byTeam = new Map<string, OgxBoardRow>();
   const init = (map: Map<string, OgxBoardRow>, key: string, label: string) => {
     let g = map.get(key);
@@ -3894,11 +3902,33 @@ export async function ogxDashboard(
     return g;
   };
 
+  // THE LANE IS THIS PEAK'S WORK (v33.13).
+  //
+  // Two things were inflating every number. UNASSIGNED sign-ups counted as
+  // "Sign-ups", so the top of the funnel was the whole imported tracker —
+  // thousands of rows nobody has been given — and every conversion under it
+  // read as near zero. And rows carried over from previous peaks counted
+  // alongside this one, so the lane never started from zero at a peak change.
+  //
+  // A sign-up enters this dashboard when it is ASSIGNED TO SOMEONE IN THIS
+  // PEAK. That is the moment it became someone's work, and it is what the
+  // funnel below it is measuring.
+  const { peakForPlanning } = await import("@/lib/plan");
+  const peakStart = peakForPlanning(new Date()).start ?? null;
+  const registered = await registeredTeamNames();
+
   for (const r of rows) {
     if (r.out_of_process) continue; // archived sign-ups leave every KPI
-    // date + team filters shape the WHOLE lane (KPIs, boards, drills)
+    // NOBODY'S = not in the funnel. The pool is a to-do list, not progress.
+    if (!r.assigned_to) continue;
+    // this peak only — assigned_at is when it became work
+    if (peakStart && !filters.from && !filters.to) {
+      const day = (r.assigned_at ?? r.signed_up_at ?? "").slice(0, 10);
+      if (day && day < peakStart) continue;
+    }
+    // an explicit date range overrides the peak default
     if (filters.from || filters.to) {
-      const day = signupDayIso(r.signed_up_at);
+      const day = signupDayIso(r.assigned_at ?? r.signed_up_at);
       if (!day) continue;
       if (filters.from && day < filters.from) continue;
       if (filters.to && day > filters.to) continue;
@@ -3909,12 +3939,17 @@ export async function ogxDashboard(
     // KPI totals — the member filter ("My numbers") scopes these ONLY
     if (!filters.member || r.assigned_to === filters.member) addOgxRow(total, r);
 
-    const m = r.assigned_to ? byId.get(r.assigned_to) : undefined;
-    if (m && (m.role === "Member" || m.role === "Coordinator"))
-      addOgxRow(init(board, m.id, m.name), r);
+    // TWO BOARDS (v33.13): members and MMs are doing different jobs and were
+    // ranked against each other on one list, which flattered neither.
+    const m = byId.get(r.assigned_to);
+    if (m?.role === "Member") addOgxRow(init(board, m.id, m.name), r);
+    else if (m && (m.role === "Team Leader" || m.role === "Coordinator"))
+      addOgxRow(init(mmBoard, m.id, m.name), r);
+
     if (tl)
       addOgxRow(
-        init(byTeam, tl.id, tl.team_name || `Team ${tl.name}`),
+        // the REGISTERED team out of the cell, never the whole comma-list
+        init(byTeam, tl.id, teamLabelOf(tl.team_name, registered) ?? `${tl.name}'s team`),
         r
       );
   }
@@ -3965,11 +4000,15 @@ export async function ogxDashboard(
     fn,
     total,
     board: [...board.values()].sort(rank),
+    mmBoard: [...mmBoard.values()].sort(rank),
     byTeam: [...byTeam.values()].sort(rank),
     plan,
     teamOptions: fnMembers
       .filter((m) => m.role === "Team Leader")
-      .map((m) => ({ id: m.id, label: m.team_name || `Team ${m.name}` })),
+      .map((m) => ({
+        id: m.id,
+        label: teamLabelOf(m.team_name, registered) ?? `${m.name}'s team`,
+      })),
     memberOptions: fnMembers.map((m) => ({ id: m.id, label: m.name })),
   };
 }
