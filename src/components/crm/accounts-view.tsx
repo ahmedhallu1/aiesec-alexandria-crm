@@ -30,7 +30,8 @@ import {
 import { Hint } from "./hint";
 import { QuickActions } from "./quick-actions";
 import {
-  ColumnFilter, multi, PageSizePicker, SortHeader, TableSettings, useTableColumns,
+  ColumnFilter, ColumnResizer, multi, PageSizePicker, SortHeader, TableSettings,
+  useTableColumns,
   useTableSort,
   type TableColumn,
 } from "./data-table-kit";
@@ -539,7 +540,7 @@ export function AccountsView({
     [router, searchParams, filters.sort, filters.dir]
   );
   const SortHead = ({
-    field, defaultDir = "desc", children, className, filter,
+    field, defaultDir = "desc", children, className, filter, style, after,
   }: {
     field: string;
     defaultDir?: "asc" | "desc";
@@ -547,8 +548,11 @@ export function AccountsView({
     className?: string;
     /** the column's funnel button, sitting beside the sortable name */
     filter?: React.ReactNode;
+    style?: React.CSSProperties;
+    /** the resize handle, positioned against the cell (v33.11) */
+    after?: React.ReactNode;
   }) => (
-    <TableHead className={className}>
+    <TableHead className={className} style={style}>
       <span className="inline-flex items-center gap-1">
       <button
         type="button"
@@ -574,6 +578,7 @@ export function AccountsView({
       </button>
       {filter}
       </span>
+      {after}
     </TableHead>
   );
 
@@ -1291,22 +1296,39 @@ export function AccountsView({
                     {cols.visible.map((c) => {
                       const sort = ACCOUNT_SORT[c.key];
                       const filter = columnFilter(c.key);
+                      // width + the grab strip on the right edge (v33.11)
+                      const w = cols.widths[c.key];
+                      const style = w ? { width: `${w}px` } : undefined;
+                      const resizer = (
+                        <ColumnResizer
+                          current={w}
+                          onCommit={(px) => cols.setWidth(c.key, px)}
+                          onReset={() => cols.clearWidth(c.key)}
+                        />
+                      );
                       return sort ? (
                         <SortHead
                           key={c.key}
                           field={sort.field}
                           defaultDir={sort.dir}
-                          className={ACCOUNT_HEAD_CLASS[c.key]}
+                          className={cn("relative", ACCOUNT_HEAD_CLASS[c.key])}
                           filter={filter}
+                          style={style}
+                          after={resizer}
                         >
                           {c.label}
                         </SortHead>
                       ) : (
-                        <TableHead key={c.key} className={ACCOUNT_HEAD_CLASS[c.key]}>
+                        <TableHead
+                          key={c.key}
+                          className={cn("relative", ACCOUNT_HEAD_CLASS[c.key])}
+                          style={style}
+                        >
                           <span className="inline-flex items-center gap-1">
                             {c.label}
                             {filter}
                           </span>
+                          {resizer}
                         </TableHead>
                       );
                     })}
@@ -1790,19 +1812,39 @@ function ArchivedList({
                         </TableCell>
                       ))}
                       <TableCell onClick={(e) => e.stopPropagation()}>
-                        {canManage ? (
-                          <Hint label="Back to active — puts it back in the raising process">
-                            <Button
-                              variant="ghost" size="icon" disabled={pending}
-                              className="size-7 text-muted-foreground hover:text-primary"
-                              onClick={() =>
-                                setConfirm({ mode: "revive", ids: [item.row.id], label: `"${item.row.name}"` })
-                              }
-                            >
-                              <RotateCcw className="size-3.5" />
-                            </Button>
-                          </Hint>
-                        ) : null}
+                        <span className="flex items-center gap-1">
+                          {canManage ? (
+                            <Hint label="Back to active — puts it back in the raising process">
+                              <Button
+                                variant="ghost" size="icon" disabled={pending}
+                                className="size-7 text-muted-foreground hover:text-primary"
+                                onClick={() =>
+                                  setConfirm({ mode: "revive", ids: [item.row.id], label: `"${item.row.name}"` })
+                                }
+                              >
+                                <RotateCcw className="size-3.5" />
+                              </Button>
+                            </Hint>
+                          ) : null}
+                          {/* DELETE FOR GOOD (v33.11) — as if it had never been
+                              added, so the name is free again. It existed only
+                              as a bulk action behind Select mode, which nobody
+                              found. Still VP/Director/LCP: this cascades and
+                              cannot be undone. */}
+                          {canRemove ? (
+                            <Hint label="Delete permanently — removes it and frees the name">
+                              <Button
+                                variant="ghost" size="icon" disabled={pending}
+                                className="size-7 text-muted-foreground hover:text-destructive"
+                                onClick={() =>
+                                  setConfirm({ mode: "delete", ids: [item.row.id], label: `"${item.row.name}"` })
+                                }
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            </Hint>
+                          ) : null}
+                        </span>
                       </TableCell>
                     </TableRow>
                   ) : (

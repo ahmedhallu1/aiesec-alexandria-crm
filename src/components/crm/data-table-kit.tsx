@@ -90,6 +90,10 @@ export interface TableColumnsApi {
   /** drop `key` at `index` of the ordered list — drag & drop */
   moveTo: (key: string, index: number) => void;
   reset: () => void;
+  /** hand-set column widths, and the setters behind the drag handle (v33.11) */
+  widths: Record<string, number>;
+  setWidth: (key: string, px: number) => void;
+  clearWidth: (key: string) => void;
   /** the member changed something (enables "Reset to default") */
   dirty: boolean;
 }
@@ -97,6 +101,10 @@ export interface TableColumnsApi {
 interface Prefs {
   order: string[];
   hidden: string[];
+  /** hand-set column widths in px, by key (v33.11). Absent = size to content,
+   *  which is the right default — a member only touches the one column whose
+   *  width is actually in their way. */
+  widths?: Record<string, number>;
 }
 
 const KEY_PREFIX = "elevate-table:";
@@ -188,13 +196,30 @@ export function useTableColumns(tableId: string, all: TableColumn[]): TableColum
     }
   };
 
+  /** MIN/MAX so a column can never be dragged to nothing or off the screen. */
+  const MIN_W = 60;
+  const MAX_W = 640;
+  const setWidth = (key: string, px: number) =>
+    write({
+      ...prefs,
+      widths: {
+        ...(prefs.widths ?? {}),
+        [key]: Math.round(Math.max(MIN_W, Math.min(MAX_W, px))),
+      },
+    });
+  const clearWidth = (key: string) => {
+    const widths = { ...(prefs.widths ?? {}) };
+    delete widths[key];
+    write({ ...prefs, widths });
+  };
+
   const toggle = (key: string) => {
     const col = byKey.get(key);
     if (!col || col.required) return;
     const hidden = new Set(prefs.hidden);
     if (hidden.has(key)) hidden.delete(key);
     else hidden.add(key);
-    write({ order: prefs.order, hidden: [...hidden] });
+    write({ ...prefs, hidden: [...hidden] });
   };
 
   const moveTo = (key: string, index: number) => {
@@ -204,7 +229,7 @@ export function useTableColumns(tableId: string, all: TableColumn[]): TableColum
     const order = [...prefs.order];
     order.splice(from, 1);
     order.splice(to, 0, key);
-    write({ order, hidden: prefs.hidden });
+    write({ ...prefs, order });
   };
 
   const move = (key: string, dir: -1 | 1) => moveTo(key, prefs.order.indexOf(key) + dir);
@@ -225,6 +250,9 @@ export function useTableColumns(tableId: string, all: TableColumn[]): TableColum
 
   return {
     visible,
+    widths: prefs.widths ?? {},
+    setWidth,
+    clearWidth,
     ordered,
     hiddenKeys: [...hiddenSet],
     isVisible: (key) => !hiddenSet.has(key),
@@ -578,6 +606,64 @@ export function ColumnFilter({
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/** THE RESIZE HANDLE (v33.11).
+ *
+ *  A thin grab strip on the right edge of a header cell. Drag it and the
+ *  column takes that width; double-click and it goes back to sizing itself.
+ *  Width is stored per table per browser alongside order and visibility.
+ *
+ *  Written straight to `style.width` on the <col> during the drag and
+ *  committed on release — a React state update per pointermove would re-render
+ *  the whole table on every pixel.
+ */
+export function ColumnResizer({
+  onCommit,
+  onReset,
+  current,
+}: {
+  onCommit: (px: number) => void;
+  onReset: () => void;
+  current?: number;
+}) {
+  return (
+    <span
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize column"
+      title="Drag to resize · double-click to reset"
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        onReset();
+      }}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const th = (e.target as HTMLElement).closest("th") as HTMLElement | null;
+        if (!th) return;
+        const startX = e.clientX;
+        const startW = current ?? th.getBoundingClientRect().width;
+        let next = startW;
+        const move = (ev: PointerEvent) => {
+          next = startW + (ev.clientX - startX);
+          th.style.width = `${Math.max(60, Math.min(640, next))}px`;
+        };
+        const up = () => {
+          window.removeEventListener("pointermove", move);
+          window.removeEventListener("pointerup", up);
+          document.body.style.cursor = "";
+          document.body.style.userSelect = "";
+          onCommit(next);
+        };
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", up);
+      }}
+      className="absolute inset-y-0 -right-1 z-10 hidden w-2 cursor-col-resize touch-none select-none md:block hover:bg-primary/30"
+    />
   );
 }
 

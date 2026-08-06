@@ -37,6 +37,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 
 const waDigits = (phone: string | null) => {
   const d = (phone ?? "").replace(/\D/g, "");
@@ -653,6 +654,12 @@ export function SignupsView({
   // then the detail dialog opens right away so you log what happened.
   const contact = (row: SignupRow) =>
     start(async () => {
+      // an owned sign-up is NOT claimed again — that would quietly take it off
+      // whoever has it. Only the unclaimed pool claims (v33.11).
+      if (row.assigned_to || row.assigned_name) {
+        openDetail(row.id);
+        return;
+      }
       const res = await claimSignup(row.id);
       if (res.ok) {
         toast.success("It's yours — log the contact ✍️");
@@ -661,6 +668,8 @@ export function SignupsView({
       } else toast.error(res.error);
     });
 
+  /** tell the person they were handed something (v33.11) */
+  const [notifyOnAssign, setNotifyOnAssign] = useState(true);
   const runBulk = (memberId: string | null) =>
     start(async () => {
       const ids = [...selected];
@@ -668,7 +677,11 @@ export function SignupsView({
       let failed = 0;
       // the server caps one call at 50 — feed it in chunks so select-all works
       for (let i = 0; i < ids.length; i += 50) {
-        const res = await bulkReassignSignups(ids.slice(i, i + 50), memberId);
+        const res = await bulkReassignSignups(
+          ids.slice(i, i + 50),
+          memberId,
+          notifyOnAssign
+        );
         if (!res.ok) { toast.error(res.error); return; }
         done += res.data?.done ?? 0;
         failed += res.data?.failed ?? 0;
@@ -891,13 +904,18 @@ export function SignupsView({
       case "sub_product":
         return r.sub_product ?? "—";
       case "actions":
-        return !r.assigned_to && !r.assigned_name && !r.out_of_process ? (
+        // ALWAYS THERE, unless the row is archived (v33.11). It used to appear
+        // only on UNCLAIMED sign-ups, so the moment anyone owned one — most
+        // often you — the way to log a contact disappeared from the list and
+        // you had to open the row to find it. Unclaimed → claims it first;
+        // already owned → straight into the contact flow.
+        return r.out_of_process ? null : detailLoading === r.id ? (
+          <Loader2 className="size-4 animate-spin" />
+        ) : (
           <Button size="sm" variant="outline" disabled={pending} onClick={() => contact(r)}>
             <Phone className="size-3.5" /> Contact
           </Button>
-        ) : detailLoading === r.id ? (
-          <Loader2 className="size-4 animate-spin" />
-        ) : null;
+        );
       default:
         return null;
     }
@@ -1115,7 +1133,7 @@ export function SignupsView({
                     {contactLinks(r, "sm")}
                   </div>
                 ) : null}
-                {!r.assigned_to && !r.assigned_name && !r.out_of_process ? (
+                {!r.out_of_process ? (
                   <Button
                     size="sm" className="w-full"
                     disabled={pending}
@@ -1316,6 +1334,10 @@ export function SignupsView({
             </SelectContent>
           </Select>
           <div className="flex justify-end gap-2">
+            <label className="mr-auto flex cursor-pointer items-center gap-2 text-sm">
+              <Switch checked={notifyOnAssign} onCheckedChange={setNotifyOnAssign} />
+              <span className="text-muted-foreground">Let them know</span>
+            </label>
             <Button
               variant="outline"
               onClick={() => { setAssignOpen(false); setAssignTarget(""); }}

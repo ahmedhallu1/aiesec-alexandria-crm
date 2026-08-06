@@ -370,6 +370,35 @@ function ResponsibleRow({
         >
           Take it
         </Button>
+        {/* OR GIVE IT STRAIGHT TO SOMEONE (v33.11). An MM taking an unowned
+            account only to reassign it a second later was two steps for one
+            decision — and the account briefly belonged to the wrong person in
+            between. The picker is their own people, exactly as everywhere
+            else. */}
+        {targets.filter((t) => t.id !== viewerId).length > 0 ? (
+          <Select
+            onValueChange={(id) =>
+              start(async () => {
+                const res = await reassignAccount(account.id, id);
+                if (res.ok) {
+                  toast.success("Assigned 🙌");
+                  router.refresh();
+                } else toast.error(res.error);
+              })
+            }
+          >
+            <SelectTrigger className="h-8 w-auto min-w-40">
+              <SelectValue placeholder="…or give it to" />
+            </SelectTrigger>
+            <SelectContent>
+              {targets
+                .filter((t) => t.id !== viewerId)
+                .map((t) => (
+                  <SelectItem key={t.id} value={t.id}>{t.label}</SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+        ) : null}
       </div>
     );
   }
