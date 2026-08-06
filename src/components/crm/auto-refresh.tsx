@@ -23,8 +23,13 @@ import { Hint } from "./hint";
  *  member alt-tabbing between Sodio and WhatsApp fires it constantly, and each
  *  one is a full server render. Two minutes still means "current when you come
  *  back to it" for a CRM nobody watches second-by-second, and it cut the
- *  refresh traffic of an active session by roughly six. */
-const MIN_GAP_MS = 120_000;
+ *  refresh traffic of an active session by roughly six.
+ *
+ *  v33.14 — raised again to TEN minutes with the project near its CPU
+ *  allowance. Every focus event is a full server render; a member alt-tabbing
+ *  between Sodio and WhatsApp all morning was generating dozens. The manual
+ *  refresh button is always there, and any action you take re-renders anyway. */
+const MIN_GAP_MS = 600_000;
 
 export function AutoRefresh() {
   const router = useRouter();

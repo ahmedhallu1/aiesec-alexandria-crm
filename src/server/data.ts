@@ -585,7 +585,12 @@ async function buildAccountsQuery(
     // dashboard aggregates 16 of them, over ~4,000 rows, on every render —
     // the rest is payload to ship, parse and throw away. Callers that know
     // what they need say so; everyone else still gets the whole row.
-    .select(columns ?? "*", withCount ? { count: "exact" } : undefined);
+    // "planned" instead of "exact" (v33.14): an exact count scans the whole
+    // filtered set on EVERY page load — four thousand rows to render twenty.
+    // The number only drives "N accounts in your scope" and the pager, and
+    // Postgres's own estimate is right to within a rounding error at this
+    // size, for a fraction of the work.
+    .select(columns ?? "*", withCount ? { count: "planned" } : undefined);
   // the Archived TAB is LC-wide (v22.2): the archive is the shared blacklist,
   // so it skips the account scope. Everything else stays scoped (dashboards'
   // includeArchived reads included).
@@ -1283,10 +1288,15 @@ function addRowLane(s: FunnelStats, r: PipelineRow, lane: string) {
   }
 }
 
-/** How long a dashboard read may be reused. Long enough that a burst of
- *  refreshes costs one query, short enough that "I just logged a contact"
- *  shows up while you are still looking at the screen. */
-const DASHBOARD_TTL_SECONDS = 60;
+/** How long a dashboard read may be reused.
+ *
+ *  RAISED TO 5 MINUTES (v33.14) with the project near its CPU allowance. The
+ *  dashboard reads ~4,000 rows and aggregates them in JS; on a working-hours
+ *  day with forty people in the system that read was being paid for again
+ *  every time anyone anywhere logged a contact, because each write expired the
+ *  SHARED entry. Numbers up to five minutes old on a dashboard nobody watches
+ *  second-by-second is a trade worth making to keep the system up. */
+const DASHBOARD_TTL_SECONDS = 300;
 
 /** The registered `Team` names, lower-cased. Structural teams (EB, LB,
  *  Function, Function leaders) are deliberately excluded — they are not
