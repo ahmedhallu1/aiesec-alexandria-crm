@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-06 · Version: v33.15
+Last updated: 2026-08-06 · Version: v33.16
 
 ---
 
@@ -610,6 +610,51 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-06 · v33.16** — **CALENDAR, BOOKING & ACCESS BATCH** (7 more
+  live reports; migration **0044 applied**).
+  ① **Mobile Arabic keyboards broke login**: JS `\d` matches neither
+  Arabic-Indic (٠-٩) nor Extended (۰-۹) digits, so `cleanPhone` and every
+  identifier/digit extraction DELETED them — a member typing their number on
+  an Arabic keyboard was told it doesn't exist. New `asciiDigits` in types.ts
+  TRANSLATES both ranges to ASCII, applied in cleanPhone, authorize()'s
+  identifier + phone-as-password paths, and probeMember. Also: a phone-only
+  member who already SET a password used to get the shape-based "type your
+  phone in both fields" tip — which no longer works for them and reads as
+  "your number isn't on the membership" (Akmal, then Mohanad). A probe-based
+  branch now says a password exists and to use it. Mohanad's password_hash
+  was cleared in prod (his phone-in-both door is open again).
+  ② **IR booking**: an availability window may END at midnight — "12 AM"
+  (00:00) and the old 23:59 workaround both read as 24:00 in the window-fit
+  check, the overlap detector AND the slot builder (a 22:00→23:59 window
+  used to silently lose its 23:30 slot by one minute). Time inputs step in
+  **5 minutes** (was 15) with a helper line under Add hours. **The buffer is
+  real now**: the slot GRID strides slot+buffer (no two offered slots can
+  ever be back-to-back — the old busy-pad check couldn't stop two IRs racing
+  for adjacent slots), on top of the existing booked-call padding.
+  ③ **F&L = LCP-level access** (by request): `master()` now includes anyone
+  with F&L in their FUNCTIONS column — every module, lane, and account,
+  incl. /signups (`ogxFunctions`/`canEditSignupVpFields` moved onto
+  master()). Deliberately NOT following: admin tools and the LC-concerns
+  inbox (people-feedback stays LCP+IM); F&L stays un-assignable as a
+  responsible and never runs working hours. Locked by new rbac tests.
+  ④ **Calendar "Only mine" switch**: hides the function's other visits/IR
+  calls/touch points, keeps the viewer's own (visits by member id, IR calls
+  by owner id — now carried in the DTO — touch points by a real audience
+  test: `memberInTouchPointAudience`, the per-member predicate factored out
+  of `touchPointAudience`). Persisted per browser (`sodio-calendar-mine`).
+  ⑤ **CUSTOM CALENDAR ITEMS** (migration **0044**, `calendar_items`):
+  Google-Calendar-style slots/tasks with an EXPLICIT assignee list —
+  deliberately NOT a touch-point kind (no derived audience, no attendance,
+  no reminder ladder). TL+ adds them: TL → self + their team, LCVP/Director
+  → their function, LCP-level → anyone (server re-validates every assignee);
+  owner or LCP-level deletes; assignees get a bell on add and remove.
+  Green 📌 chips on the grid/agenda/day panel; "Add item" in the header and
+  on any future day's panel. `src/server/calendar-items.ts` +
+  `calendar-item-dialog.tsx`.
+  ⑥ **Answered**: a TL sending a proposal email does NOT move the account —
+  `createProposalDraft` writes `proposal_sent` only; the only ownership
+  writer is the explicit reassign/claim picker.
 
 - **2026-08-06 · v33.15** — **THE PRODUCTION-INCIDENTS BATCH** (8 issues
   reported live from the winter-WH floor, all root-caused before fixing;

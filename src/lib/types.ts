@@ -646,8 +646,18 @@ export const URL_RE = /^https?:\/\/\S+\.\S+/i;
  *  cleanPhone, so the number LOOKED perfect and still failed validation, with
  *  nothing the member could see, select or delete — the error just never went
  *  away. What is on screen is now what gets validated. */
+/** Arabic-Indic (٠١٢٣٤٥٦٧٨٩) and Extended Arabic-Indic (۰۱۲۳۴۵۶۷۸۹) digits →
+ *  ASCII. Mobile Arabic keyboards produce these, and JS `\d` matches neither —
+ *  so a phone number that LOOKED perfectly right was silently reduced to
+ *  nothing and the member was told their number doesn't exist (v33.16). */
+export function asciiDigits(raw: string): string {
+  return raw
+    .replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, (c) => String(c.charCodeAt(0) - 0x06f0));
+}
+
 export function cleanPhone(raw: string): string {
-  const digits = raw.replace(/\D/g, "");
+  const digits = asciiDigits(raw).replace(/\D/g, "");
   // a leading "+" is the only non-digit that carries meaning, so it survives —
   // but only if it really leads: an invisible mark must not hide it. "00…" is
   // left alone for normalizePhone to convert.

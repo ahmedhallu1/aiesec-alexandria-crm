@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v33.15";
+export const PLAYBOOK_VERSION = "v33.16";
 
 interface Props {
   role: string;
@@ -235,6 +235,7 @@ const SECTIONS: Section[] = [
       <><b>Attendance is taken afterwards</b> — attended · late · absent, with a &quot;valid excuse?&quot; box. Team points are recorded by the Team Leader, function points by the VP/Director (MMs can edit, but never their own row), LC points by TM.</>,
       <><b>Working hours record themselves</b> 🤖 — <b>then a human confirms</b>: you&apos;re pre-filled as attended when you did at least <b>two real actions at least 10 minutes apart</b> during the session (log a contact, book a visit, record a deal, work a sign-up, log an IR call, add or update an account). Two clicks in a row won&apos;t fool it. The AI&apos;s answer is a <b>proposal</b> — your TL (team) / VP (function) / TM (LC) reviews it and hits <b>Confirm attendance</b>. Until they do, it counts as unrecorded and keeps reminding them. </>,
       <>Plans change: whoever booked a touch point (plus the function&apos;s VP/Director and TM) can <b>move it or cancel it</b> from the calendar — tap it and pick <b>Move or cancel</b>. A cancel needs a reason, and either way everyone invited is emailed again. </>,
+      <>The calendar has an <b>&quot;Only mine&quot;</b> switch (v33.16) — one tap hides the rest of the function&apos;s visits and IR calls and keeps what&apos;s actually yours. And <b>TLs and above can add 📌 custom items</b> — Google-Calendar-style slots and tasks with a title, a time and an assignee list (your team for a TL, your function for a VP/Director). Assignees get a bell, the item lands on their calendar, and whoever added it can remove it.</>,
       <>Check <b>Attendance</b> any time — your own history and rate, your team&apos;s if you lead one, your function&apos;s if you run one. Disagree with a mark? Hit <b>Appeal</b> and whoever recorded it hears from you, with TM on CC.</>,
       <>Owed a record? Sodio reminds you daily — and after <b>three reminders</b> it greets you with a prompt you can&apos;t wave away. Just fill it. 💙</>,
     ],

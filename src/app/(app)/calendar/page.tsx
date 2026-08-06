@@ -3,6 +3,7 @@ import { getViewer, listFunctionVisits, listIrCalls } from "@/server/data";
 import {
   accountScope,
   bookableTouchPointScopes,
+  canCreateCalendarItems,
   canEditTouchPoint,
   hasConsiderationAccess,
   hasOgxAccess,
@@ -10,7 +11,10 @@ import {
   hasTmAccess,
   isTmCore,
 } from "@/lib/rbac";
-import { invitableTeams, listTouchPoints, ownTeamName } from "@/server/touch-points-read";
+import {
+  invitableTeams, listTouchPoints, memberInTouchPointAudience, ownTeamName,
+} from "@/server/touch-points-read";
+import { assignableForItems, listCalendarItems } from "@/server/calendar-items";
 import { LC_FUNCTIONS, NO_WORKING_HOURS_FUNCTIONS, touchPointLabel } from "@/lib/types";
 import { audienceLabel, expandTouchPointFns } from "@/lib/touch-points";
 import { cairoToUtc } from "@/lib/time";
@@ -67,13 +71,16 @@ export default async function CalendarPage({
   const fromIso = cairoToUtc(from, "00:00").toISOString();
   const toIso = new Date(cairoToUtc(nextFirst, "00:00").getTime() - 1).toISOString();
 
-  const [visits, touchPointRows, irCallsRaw] = await Promise.all([
+  const canAddItems = canCreateCalendarItems(viewer);
+  const [visits, touchPointRows, irCallsRaw, itemRows, assignables] = await Promise.all([
     raising ? listFunctionVisits(viewer, from, to) : Promise.resolve([]),
     listTouchPoints(viewer, { from: fromIso, to: toIso }),
     // the month, NOT page 0 of the whole log (which caps at 50 rows)
     consideration
       ? listIrCalls(viewer, 0, 50, { fromIso, toIso })
       : Promise.resolve({ scheduled: [], rows: [] }),
+    listCalendarItems(viewer, fromIso, toIso),
+    canAddItems ? assignableForItems(viewer) : Promise.resolve([]),
   ]);
 
   const touchPoints = touchPointRows
@@ -92,6 +99,9 @@ export default async function CalendarPage({
         cancelled: t.status === "cancelled",
         recorded: !!t.attendance_recorded_at,
         canEdit: canEditTouchPoint(viewer, t),
+        // "only mine": is the viewer actually IN this point's audience (they
+        // may merely SEE other teams' points inside their function)
+        mine: memberInTouchPointAudience(viewer, t),
       };
     })
     // a DST edge could still hand back a row dated outside the grid's cells
@@ -109,10 +119,29 @@ export default async function CalendarPage({
         time,
         partnerLc: c.partner_lc_name as string,
         memberName: c.member_name as string,
+        memberId: (c.member_id as string | null) ?? null,
         status: c.status as string,
       };
     })
     .filter((c) => c.date >= from && c.date <= to);
+
+  const items = itemRows
+    .map((r) => {
+      const { date, time } = cairoParts(r.starts_at);
+      const end = r.ends_at ? cairoParts(r.ends_at) : null;
+      return {
+        id: r.id,
+        title: r.title,
+        date,
+        time,
+        endTime: end?.time ?? null,
+        note: r.note,
+        ownerName: r.owner_name,
+        assigneeNames: r.assignee_names ?? [],
+        canDelete: r.owner_id === viewer.id || accountScope(viewer).kind === "all",
+      };
+    })
+    .filter((r) => r.date >= from && r.date <= to);
 
   // what this viewer may book — and who they may pull in
   const scopes = bookableTouchPointScopes(viewer);
@@ -151,6 +180,9 @@ export default async function CalendarPage({
       visits={visits}
       touchPoints={touchPoints}
       irCalls={irCalls}
+      items={items}
+      canAddItems={canAddItems}
+      assignables={assignables}
       month={month}
       viewerId={viewer.id}
       openableMemberIds={scope.kind === "members" ? scope.ids : null}

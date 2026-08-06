@@ -48,9 +48,18 @@ export type AccountScope =
  *  caretaker ON TOP of a real job (Admin in their Sub Function while they run
  *  a function) is NOT master: they keep their own modules and get the admin
  *  TOOLS only, via `canUseAdminTools`. ADMIN_EMAILS stays master as the
- *  break-glass account. */
+ *  break-glass account.
+ *
+ *  F&L (v33.16, by the LCP's request): the Finance & Legality crew audits
+ *  every function's money and commitments, so the whole F&L FUNCTION gets
+ *  LCP-level access — every module, every lane, every account. Two things
+ *  deliberately do NOT follow: the admin tools (canUseAdminTools) and the
+ *  LC-concerns inbox (canSeeLcConcerns — feedback about PEOPLE stays with
+ *  the LCP + IM director). F&L people also stay un-assignable as account
+ *  responsibles (ACCOUNT_WORLD_FNS) — they see everything, they own nothing. */
 const master = (v: Viewer) =>
-  v.isAdmin || v.role === "LCP" || v.role === "Admin";
+  v.isAdmin || v.role === "LCP" || v.role === "Admin" ||
+  (v.functions ?? []).includes("F&L");
 
 /** The admin TOOLS — Health & Logs, the test view, the change journal (v33).
  *
@@ -513,9 +522,9 @@ import type { OgxFunction } from "./types";
 import type { SignupRow } from "./types";
 
 /** Which OGX functions this viewer works: OGT / OGV (functions OR
- *  sub_functions; LCP + admin see both). */
+ *  sub_functions; LCP-level viewers — incl. F&L since v33.16 — see both). */
 export function ogxFunctions(v: Viewer): OgxFunction[] {
-  if (v.isAdmin || v.role === "LCP") return ["OGT", "OGV"];
+  if (master(v)) return ["OGT", "OGV"];
   const all = [...(v.functions ?? []), ...(v.sub_functions ?? [])];
   const out: OgxFunction[] = [];
   if (all.includes("OGT")) out.push("OGT");
@@ -535,10 +544,18 @@ export function ogxLanes(v: Viewer): OgxFunction[] {
   return seesEveryLane(v) ? ["OGT", "OGV"] : ogxFunctions(v);
 }
 
+/** CUSTOM calendar items (v33.16) — Google-Calendar-style slots/tasks with an
+ *  explicit assignee list. Team Leaders and above create them: a TL for their
+ *  own team, an LCVP/Director for their function(s), LCP-level for anyone.
+ *  Members create none (their calendar is what they're invited to). */
+export function canCreateCalendarItems(v: Viewer): boolean {
+  return master(v) || ["Team Leader", "LCVP", "Director"].includes(v.role);
+}
+
 /** OGX leaders (VP/Director of the sign-up's function + LCP/admin) own the
  *  VP-only fields: VP comments, Country, Sub Product, Status, Out of Process. */
 export function canEditSignupVpFields(v: Viewer, s: { fn: OgxFunction }): boolean {
-  if (v.isAdmin || v.role === "LCP") return true;
+  if (master(v)) return true;
   return (
     (v.role === "LCVP" || v.role === "Director") && ogxFunctions(v).includes(s.fn)
   );

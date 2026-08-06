@@ -5367,7 +5367,14 @@ export async function saveIrBookingSettings(input: {
     if (!BOOKING_TIME_RE.test(from) || !BOOKING_TIME_RE.test(to))
       return fail("Each availability row needs a from and to time (e.g. 18:00 → 21:00).");
     const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
-    if (mins(to) - mins(from) < slotMinutes)
+    // "until MIDNIGHT" (v33.16): a to-time of 00:00 (the picker's "12 AM")
+    // means the END of the day, and 23:59 was every member's workaround for
+    // it — both read as 24:00, so a 22:00 → 00:00 window is 2 hours, not -22
+    const endMins = (t: string) => {
+      const m = mins(t);
+      return m === 0 || m === 1439 ? 1440 : m;
+    };
+    if (endMins(to) - mins(from) < slotMinutes)
       return fail(
         `The ${from} → ${to} window is shorter than one ${slotMinutes}-minute slot — widen it or drop it.`
       );
@@ -5395,6 +5402,11 @@ export async function saveIrBookingSettings(input: {
   // unique (member, called_at) index cannot race-guard — reject them
   {
     const toM = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+    // end 00:00 / 23:59 = midnight (must sort as the LATEST window, not the earliest)
+    const toEndM = (t: string) => {
+      const m = toM(t);
+      return m === 0 || m === 1439 ? 1440 : m;
+    };
     type Win = { from: number; to: number; label: string };
     const overlapIn = (list: Win[]): string | null => {
       const s = [...list].sort((a, b) => a.from - b.from);
@@ -5403,7 +5415,7 @@ export async function saveIrBookingSettings(input: {
       return null;
     };
     const win = (w: { from: string; to: string }): Win => ({
-      from: toM(w.from), to: toM(w.to), label: `${w.from} → ${w.to}`,
+      from: toM(w.from), to: toEndM(w.to), label: `${w.from} → ${w.to}`,
     });
     const weekly = new Map<number, Win[]>();
     const dated = new Map<string, Win[]>();

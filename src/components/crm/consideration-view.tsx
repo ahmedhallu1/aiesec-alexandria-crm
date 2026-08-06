@@ -1498,7 +1498,7 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
                     )}
                     <Input
                       type="time"
-                      step={900}
+                      step={300}
                       value={r.from}
                       onChange={(e) => setRow(i, { from: e.target.value })}
                       className="h-9 w-28"
@@ -1507,7 +1507,7 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
                     <span className="text-sm text-muted-foreground">→</span>
                     <Input
                       type="time"
-                      step={900}
+                      step={300}
                       value={r.to}
                       onChange={(e) => setRow(i, { to: e.target.value })}
                       className="h-9 w-28"
@@ -1534,6 +1534,11 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
               >
                 <Plus className="size-4" /> Add hours
               </Button>
+              <p className="text-xs text-muted-foreground">
+                Times are Cairo, in 5-minute steps. To run until midnight, set the
+                end to <b>12:00 AM</b> (00:00). Your buffer adds free space between
+                the slots people can book.
+              </p>
             </div>
           </div>
 

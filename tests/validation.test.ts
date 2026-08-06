@@ -47,6 +47,16 @@ describe("phone normalisation", () => {
     expect(PHONE_RE.test(cleanPhone("01099019374 / 01234567890"))).toBe(false);
   });
 
+  it("TRANSLATES Arabic-keyboard digits instead of deleting them (v33.16)", () => {
+    // a member typing their number on an Arabic mobile keyboard was told the
+    // number doesn't exist — the digits were stripped, not converted
+    expect(cleanPhone("٠١٠٩٩٠١٩٣٧٤")).toBe("01099019374");
+    expect(cleanPhone("۰۱۰۹۹۰۱۹۳۷۴")).toBe("01099019374");
+    const r = normalizePhone("٠١٠٢٣٤٧٧٩٨٣");
+    expect(r.ok).toBe(true);
+    expect(r.value).toBe("+201023477983");
+  });
+
   it("rejects letters, empty input and short numbers", () => {
     expect(normalizePhone("call me").ok).toBe(false);
     expect(normalizePhone("").ok).toBe(false);

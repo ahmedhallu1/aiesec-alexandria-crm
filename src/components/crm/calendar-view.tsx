@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
   CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, Loader2, Pencil,
+  Trash2, UserRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -16,6 +18,8 @@ import { Hint } from "./hint";
 import { TouchPointManageDialog } from "./touch-point-manage-dialog";
 import { TouchPointDialog } from "./touch-point-dialog";
 import { TimelineDialog } from "./timeline-dialog";
+import { CalendarItemDialog } from "./calendar-item-dialog";
+import { deleteCalendarItem } from "@/server/calendar-items";
 import type { CalendarVisit } from "@/server/data";
 import { bookedBy } from "@/lib/touch-point-label";
 
@@ -72,6 +76,8 @@ export interface CalendarTouchPoint {
   recorded: boolean;
   /** this viewer may move or cancel it (server-computed via canEditTouchPoint) */
   canEdit: boolean;
+  /** the viewer is actually IN this point's audience — "only mine" keeps it */
+  mine: boolean;
 }
 
 export interface CalendarIrCall {
@@ -80,20 +86,40 @@ export interface CalendarIrCall {
   time: string;
   partnerLc: string;
   memberName: string;
+  memberId: string | null;
   status: string;
 }
 
+/** A custom slot/task (v33.16) — invite-shaped, so it is always "mine". */
+export interface CalendarCustomItem {
+  id: string;
+  title: string;
+  date: string;
+  time: string;
+  endTime: string | null;
+  note: string | null;
+  ownerName: string;
+  assigneeNames: string[];
+  canDelete: boolean;
+}
+
 export function CalendarView({
-  visits, touchPoints = [], irCalls = [], month, viewerId, openableMemberIds,
-  showFunction = false, booking = null,
+  visits, touchPoints = [], irCalls = [], items = [], month, viewerId,
+  openableMemberIds, showFunction = false, booking = null,
+  canAddItems = false, assignables = [],
 }: {
   visits: CalendarVisit[];
   /** TM touch points the viewer belongs to (v29) */
   touchPoints?: CalendarTouchPoint[];
   /** consideration IR calls, for viewers with that access (v29) */
   irCalls?: CalendarIrCall[];
+  /** custom slots/tasks the viewer owns or is assigned to (v33.16) */
+  items?: CalendarCustomItem[];
   /** what this viewer may book — null when they may book nothing (v29.4) */
   booking?: CalendarBooking | null;
+  /** TL and above add custom items (v33.16) */
+  canAddItems?: boolean;
+  assignables?: { id: string; label: string }[];
   month: string;
   viewerId: string;
   /** member ids whose accounts the viewer may open — null = everyone shown */
@@ -110,6 +136,45 @@ export function CalendarView({
   // the day a touch point is being booked ON, driving TouchPointDialog
   const [bookDate, setBookDate] = useState<string | null>(null);
   const [bookOpen, setBookOpen] = useState(false);
+  // the day a custom item is being added ON, driving CalendarItemDialog
+  const [itemDate, setItemDate] = useState<string | null>(null);
+  const [itemOpen, setItemOpen] = useState(false);
+  const [deletePending, startDelete] = useTransition();
+  // "ONLY MINE" (v33.16): the whole function's visits/IR calls/points hide,
+  // the viewer's own stay. Read after mount so SSR and first paint agree.
+  const [mineOnly, setMineOnly] = useState(false);
+  useEffect(() => {
+    setMineOnly(localStorage.getItem("sodio-calendar-mine") === "1");
+  }, []);
+  const toggleMine = () => {
+    const next = !mineOnly;
+    setMineOnly(next);
+    localStorage.setItem("sodio-calendar-mine", next ? "1" : "0");
+  };
+
+  const shownVisits = useMemo(
+    () => (mineOnly ? visits.filter((v) => v.member.id === viewerId) : visits),
+    [visits, mineOnly, viewerId]
+  );
+  const shownTps = useMemo(
+    () => (mineOnly ? touchPoints.filter((t) => t.mine) : touchPoints),
+    [touchPoints, mineOnly]
+  );
+  const shownIr = useMemo(
+    () => (mineOnly ? irCalls.filter((c) => c.memberId === viewerId) : irCalls),
+    [irCalls, mineOnly, viewerId]
+  );
+
+  const removeItem = (it: CalendarCustomItem) => {
+    if (!confirm(`Remove "${it.title}" from the calendar?`)) return;
+    startDelete(async () => {
+      const res = await deleteCalendarItem(it.id);
+      if (res.ok) {
+        toast.success("Item removed");
+        router.refresh();
+      } else toast.error(res.error);
+    });
+  };
 
   /** Book on a chosen day: hand the date to TouchPointDialog and step out of
    *  the way (two stacked dialogs fight over the focus trap). */
@@ -126,7 +191,7 @@ export function CalendarView({
   // reshuffle when visits change order)
   const legend = useMemo(() => {
     const byMember = new Map<string, { id: string; label: string; count: number }>();
-    for (const v of visits) {
+    for (const v of shownVisits) {
       const label = v.member.name;
       const cur = byMember.get(v.member.id);
       if (cur) cur.count += 1;
@@ -135,7 +200,7 @@ export function CalendarView({
     return [...byMember.values()]
       .sort((a, b) => a.label.localeCompare(b.label))
       .map((m, i) => ({ ...m, color: MEMBER_COLORS[i % MEMBER_COLORS.length] }));
-  }, [visits]);
+  }, [shownVisits]);
   const colorOf = useMemo(
     () => new Map(legend.map((l) => [l.id, l.color])),
     [legend]
@@ -143,7 +208,7 @@ export function CalendarView({
 
   const tpByDate = useMemo(() => {
     const map = new Map<string, CalendarTouchPoint[]>();
-    for (const t of touchPoints) {
+    for (const t of shownTps) {
       const list = map.get(t.date) ?? [];
       list.push(t);
       map.set(t.date, list);
@@ -152,27 +217,38 @@ export function CalendarView({
     for (const list of map.values())
       list.sort((a, b) => a.timeValue.localeCompare(b.timeValue));
     return map;
-  }, [touchPoints]);
+  }, [shownTps]);
 
   const irByDate = useMemo(() => {
     const map = new Map<string, CalendarIrCall[]>();
-    for (const c of irCalls) {
+    for (const c of shownIr) {
       const list = map.get(c.date) ?? [];
       list.push(c);
       map.set(c.date, list);
     }
     return map;
-  }, [irCalls]);
+  }, [shownIr]);
 
   const byDate = useMemo(() => {
     const map = new Map<string, CalendarVisit[]>();
-    for (const v of visits) {
+    for (const v of shownVisits) {
       const list = map.get(v.visit_date) ?? [];
       list.push(v);
       map.set(v.visit_date, list);
     }
     return map;
-  }, [visits]);
+  }, [shownVisits]);
+
+  // custom items are invite-shaped — always the viewer's own, never filtered
+  const itemsByDate = useMemo(() => {
+    const map = new Map<string, CalendarCustomItem[]>();
+    for (const it of items) {
+      const list = map.get(it.date) ?? [];
+      list.push(it);
+      map.set(it.date, list);
+    }
+    return map;
+  }, [items]);
 
   // month grid, Saturday-first
   const [y, m] = month.split("-").map(Number);
@@ -196,7 +272,8 @@ export function CalendarView({
   const dayTps = day ? tpByDate.get(day) ?? [] : [];
   const dayIr = day ? irByDate.get(day) ?? [] : [];
   const dayVisits = day ? byDate.get(day) ?? [] : [];
-  const dayCount = dayTps.length + dayIr.length + dayVisits.length;
+  const dayItems = day ? itemsByDate.get(day) ?? [] : [];
+  const dayCount = dayTps.length + dayIr.length + dayVisits.length + dayItems.length;
 
   const chip = (v: CalendarVisit, full = false) => {
     const color = colorOf.get(v.member.id) ?? "#037EF3";
@@ -251,6 +328,18 @@ export function CalendarView({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1">
+          <Hint label="Show only what's YOURS — your visits, your IR calls, the touch points you're part of">
+            <Button
+              variant={mineOnly ? "default" : "outline"}
+              className="h-9"
+              onClick={toggleMine}
+            >
+              <UserRound className="size-4" /> Only mine
+            </Button>
+          </Hint>
+          {canAddItems ? (
+            <CalendarItemDialog assignables={assignables} viewerId={viewerId} />
+          ) : null}
           {booking ? <TouchPointDialog {...booking} /> : null}
           {/* the ROUTINE behind the one-offs: book the whole peak at once */}
           {booking ? (
@@ -377,6 +466,19 @@ export function CalendarView({
                           </p>
                         </Hint>
                       ))}
+                      {(itemsByDate.get(date) ?? []).map((it) => (
+                        <Hint
+                          key={it.id}
+                          label={`${it.title} · ${it.time}${it.endTime ? ` → ${it.endTime}` : ""} — added by ${it.ownerName}${it.note ? ` · ${it.note}` : ""}`}
+                        >
+                          <p
+                            className="truncate rounded bg-[#27AE60] px-1.5 py-0.5 text-[11px] font-semibold text-white"
+                            dir="auto"
+                          >
+                            {it.time} 📌 {it.title}
+                          </p>
+                        </Hint>
+                      ))}
                       {(byDate.get(date) ?? []).map((v) => chip(v))}
                     </div>
                   </>
@@ -389,7 +491,9 @@ export function CalendarView({
 
       {/* agenda list (phones) */}
       <div className="space-y-2 rise-in rise-in-2 sm:hidden">
-        {[...new Set([...tpByDate.keys(), ...irByDate.keys(), ...byDate.keys()])]
+        {[...new Set([
+          ...tpByDate.keys(), ...irByDate.keys(), ...byDate.keys(), ...itemsByDate.keys(),
+        ])]
           .sort()
           .map((date) => {
             const list = byDate.get(date) ?? [];
@@ -442,6 +546,20 @@ export function CalendarView({
                   <p className="break-words text-xs text-muted-foreground" dir="auto">{c.memberName}</p>
                 </div>
               ))}
+              {(itemsByDate.get(date) ?? []).map((it) => (
+                <div key={it.id} className="min-w-0 rounded-lg border border-[#27AE60]/40 p-2">
+                  <p className="break-words text-sm font-semibold" dir="auto">
+                    {it.time}{it.endTime ? ` → ${it.endTime}` : ""} · 📌 {it.title}
+                  </p>
+                  <p className="break-words text-xs text-muted-foreground" dir="auto">
+                    added by {it.ownerName}
+                    {it.assigneeNames.length > 0 ? ` · for ${it.assigneeNames.join(", ")}` : ""}
+                  </p>
+                  {it.note ? (
+                    <p className="mt-0.5 break-words text-xs text-muted-foreground" dir="auto">{it.note}</p>
+                  ) : null}
+                </div>
+              ))}
               {list.map((v) => chip(v, true))}
               {booking && date >= today ? (
                 <Button
@@ -457,17 +575,17 @@ export function CalendarView({
           </Card>
             );
           })}
-        {byDate.size + tpByDate.size + irByDate.size === 0 ? (
+        {byDate.size + tpByDate.size + irByDate.size + itemsByDate.size === 0 ? (
           <p className="py-10 text-center text-sm text-muted-foreground">
-            Nothing booked in {monthLabel(month)} yet.
+            Nothing {mineOnly ? "of yours " : ""}booked in {monthLabel(month)} yet.
           </p>
         ) : null}
       </div>
 
-      {visits.length + touchPoints.length + irCalls.length === 0 ? (
+      {shownVisits.length + shownTps.length + shownIr.length + items.length === 0 ? (
         <p className="hidden py-6 text-center text-sm text-muted-foreground sm:block">
-          Nothing booked in {monthLabel(month)} yet — visits come from account
-          pages{booking ? ", touch points from any day you click" : ""}. 🗓️
+          Nothing {mineOnly ? "of yours " : ""}booked in {monthLabel(month)} yet —
+          visits come from account pages{booking ? ", touch points from any day you click" : ""}. 🗓️
         </p>
       ) : null}
 
@@ -557,6 +675,41 @@ export function CalendarView({
               </div>
             ))}
 
+            {dayItems.map((it) => (
+              <div key={it.id} className="min-w-0 rounded-lg border border-[#27AE60]/40 p-2.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="shrink-0 rounded-full bg-[#27AE60]/15 px-2 py-0.5 text-xs font-bold text-[#27AE60]">
+                    {it.time}{it.endTime ? ` → ${it.endTime}` : ""}
+                  </span>
+                  <p className="min-w-0 flex-1 break-words text-sm font-semibold" dir="auto">
+                    📌 {it.title}
+                  </p>
+                  {it.canDelete ? (
+                    <Hint label="Remove this item (assignees get told)">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
+                        disabled={deletePending}
+                        onClick={() => removeItem(it)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </Hint>
+                  ) : null}
+                </div>
+                <p className="mt-1 break-words text-xs text-muted-foreground" dir="auto">
+                  added by {it.ownerName}
+                  {it.assigneeNames.length > 0 ? ` · for ${it.assigneeNames.join(", ")}` : " · personal"}
+                </p>
+                {it.note ? (
+                  <p className="mt-0.5 break-words text-xs text-muted-foreground" dir="auto">
+                    {it.note}
+                  </p>
+                ) : null}
+              </div>
+            ))}
+
             {dayVisits.map((v) => {
               const color = colorOf.get(v.member.id) ?? "#037EF3";
               const who = v.member.name;
@@ -608,15 +761,31 @@ export function CalendarView({
             ) : null}
           </div>
 
-          {booking ? (
-            <DialogFooter className="sm:justify-end">
+          {booking || canAddItems ? (
+            <DialogFooter className="gap-2 sm:justify-end">
               {day >= today ? (
-                <Button onClick={() => bookOn(day)}>
-                  <CalendarPlus className="size-4" /> Book a touch point on this day
-                </Button>
+                <>
+                  {canAddItems ? (
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setItemDate(day);
+                        setItemOpen(true);
+                        setDay(null);
+                      }}
+                    >
+                      <CalendarPlus className="size-4" /> Add item
+                    </Button>
+                  ) : null}
+                  {booking ? (
+                    <Button onClick={() => bookOn(day)}>
+                      <CalendarPlus className="size-4" /> Book a touch point on this day
+                    </Button>
+                  ) : null}
+                </>
               ) : (
                 <p className="text-xs text-muted-foreground">
-                  Touch points are booked ahead — pick today or a later day.
+                  Bookings go ahead — pick today or a later day.
                 </p>
               )}
             </DialogFooter>
@@ -634,6 +803,19 @@ export function CalendarView({
           defaultDate={bookDate ?? undefined}
           open={bookOpen}
           onOpenChange={setBookOpen}
+        />
+      ) : null}
+
+      {/* the day-panel-driven Add-item dialog, re-keyed so a new day re-seeds
+          its Date field */}
+      {canAddItems ? (
+        <CalendarItemDialog
+          key={itemDate ?? "no-day"}
+          assignables={assignables}
+          viewerId={viewerId}
+          defaultDate={itemDate ?? undefined}
+          open={itemOpen}
+          onOpenChange={setItemOpen}
         />
       ) : null}
 

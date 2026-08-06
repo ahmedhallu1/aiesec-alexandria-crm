@@ -4707,6 +4707,14 @@ export async function freeBookingSlots(
     .filter((b) => !Number.isNaN(b.start));
 
   const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  // a window ENDING at 00:00 ("12 AM") runs to midnight — and 23:59, every
+  // member's workaround while 00:00 was refused, means the same thing (v33.16:
+  // a 22:00→23:59 window used to silently lose its 23:30 slot by one minute)
+  const toEndMin = (t: string) => {
+    const m = toMin(t);
+    return m === 0 || m === 1439 ? 1440 : m;
+  };
+  const bufferMin = bufferMs / 60_000;
   const days: BookingDay[] = [];
   // iterate CALENDAR days from today's Cairo date — stepping raw 24h epochs
   // would skip/duplicate a day across a DST transition
@@ -4727,8 +4735,11 @@ export async function freeBookingSlots(
     const slots: BookingSlot[] = [];
     for (const w of windows) {
       const from = toMin(w.from);
-      const to = toMin(w.to);
-      for (let m = from; m + slotMin <= to; m += slotMin) {
+      const to = toEndMin(w.to);
+      // the grid itself carries the buffer (v33.16): slots step slot+buffer,
+      // so no two OFFERED slots can ever be back-to-back — the busy-pad check
+      // below alone couldn't stop two IRs racing for adjacent slots
+      for (let m = from; m + slotMin <= to; m += slotMin + bufferMin) {
         const hh = Math.floor(m / 60);
         const mm = m % 60;
         const hhmm = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;

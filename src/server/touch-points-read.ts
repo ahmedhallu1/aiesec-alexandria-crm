@@ -80,6 +80,53 @@ export async function ownTeamName(v: {
   return `${v.name}'s team`;
 }
 
+/** The pure per-member membership test behind `touchPointAudience` — also
+ *  powers the calendar's "only mine" filter (v33.16), where it answers "does
+ *  this touch point actually involve ME" without the whole-members scan. */
+export function memberInTouchPointAudience(
+  m: {
+    id: string;
+    team_name: string | null;
+    stakeholder_id: string | null;
+    functions: string[] | null;
+    sub_functions: string[] | null;
+  },
+  tp: TouchPointRow
+): boolean {
+  // the owner always belongs to their own touch point
+  if (tp.owner_id && m.id === tp.owner_id) return true;
+  const teams = new Set([...(tp.invited_teams ?? []), ...(tp.team_name ? [tp.team_name] : [])]);
+  const functions = expandTouchPointFns([
+    ...(tp.invited_functions ?? []),
+    ...(tp.function_key ? [tp.function_key] : []),
+  ]);
+  const invFns = expandTouchPointFns(tp.invited_functions ?? []);
+  // a team point belongs to ONE function — a team name matching across
+  // functions would drag strangers into someone's attendance sheet
+  const ownFns = expandTouchPointFns(tp.function_key ? [tp.function_key] : []);
+  if (tp.scope === "lc")
+    // TM / F&L / CXP have nothing that stamps work — an LC working-hours
+    // session must not judge people with no stampable workspace
+    return (
+      tp.kind !== "working_hours" ||
+      !fnsOf(m).some((f) => NO_WORKING_HOURS_FUNCTIONS.includes(f))
+    );
+  if (tp.scope === "function") return fnsOf(m).some((f) => functions.has(f));
+  // a team point: that team's members INSIDE the point's own function, plus
+  // any invited team's — and an invited FUNCTION comes along whole
+  // A TEAM IS WHO REPORTS TO THE LEADER, not who shares a string (v33.5).
+  // Most TL teams have no registered name, and the members' team cells list
+  // the structural teams instead — so name-matching quietly produced an
+  // audience of nobody. The manager link is the actual team; the name match
+  // stays for INVITED teams, which are named by definition.
+  if (tp.owner_id && m.stakeholder_id === tp.owner_id) return true;
+  return (
+    (teamsOf(m.team_name).some((t) => teams.has(t)) &&
+      (ownFns.size === 0 || fnsOf(m).some((f) => ownFns.has(f)))) ||
+    fnsOf(m).some((f) => invFns.has(f))
+  );
+}
+
 /** Everyone expected at a touch point — the audience the invite goes to and
  *  the exact list attendance is taken over. */
 export async function touchPointAudience(tp: TouchPointRow): Promise<AudienceMember[]> {
@@ -90,39 +137,7 @@ export async function touchPointAudience(tp: TouchPointRow): Promise<AudienceMem
     .order("name");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const all = (data ?? []) as any[];
-  const teams = new Set([...(tp.invited_teams ?? []), ...(tp.team_name ? [tp.team_name] : [])]);
-  const functions = expandTouchPointFns([
-    ...(tp.invited_functions ?? []),
-    ...(tp.function_key ? [tp.function_key] : []),
-  ]);
-  const invFns = expandTouchPointFns(tp.invited_functions ?? []);
-  // a team point belongs to ONE function — a team name matching across
-  // functions would drag strangers into someone's attendance sheet
-  const ownFns = expandTouchPointFns(tp.function_key ? [tp.function_key] : []);
-
-  const keep = all.filter((m) => {
-    if (tp.scope === "lc")
-      // TM / F&L / CXP have nothing that stamps work — an LC working-hours
-      // session must not judge people with no stampable workspace
-      return (
-        tp.kind !== "working_hours" ||
-        !fnsOf(m).some((f) => NO_WORKING_HOURS_FUNCTIONS.includes(f))
-      );
-    if (tp.scope === "function") return fnsOf(m).some((f) => functions.has(f));
-    // a team point: that team's members INSIDE the point's own function, plus
-    // any invited team's — and an invited FUNCTION comes along whole
-    // A TEAM IS WHO REPORTS TO THE LEADER, not who shares a string (v33.5).
-    // Most TL teams have no registered name, and the members' team cells list
-    // the structural teams instead — so name-matching quietly produced an
-    // audience of nobody. The manager link is the actual team; the name match
-    // stays for INVITED teams, which are named by definition.
-    if (tp.owner_id && m.stakeholder_id === tp.owner_id) return true;
-    return (
-      (teamsOf(m.team_name).some((t) => teams.has(t)) &&
-        (ownFns.size === 0 || fnsOf(m).some((f) => ownFns.has(f)))) ||
-      fnsOf(m).some((f) => invFns.has(f))
-    );
-  });
+  const keep = all.filter((m) => memberInTouchPointAudience(m, tp));
   // the owner always belongs to their own touch point
   const withOwner =
     tp.owner_id && !keep.some((m) => m.id === tp.owner_id)

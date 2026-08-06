@@ -5,7 +5,7 @@ import { authConfig } from "./auth.config";
 import { db } from "./supabase";
 import { sendEmail } from "./google/gmail";
 import { welcomeEmail } from "./email/templates";
-import { phoneSessionKey, type Member } from "./types";
+import { asciiDigits, phoneSessionKey, type Member } from "./types";
 
 async function findMember(email: string): Promise<Member | null> {
   const { data: member } = await db()
@@ -19,7 +19,8 @@ async function findMember(email: string): Promise<Member | null> {
 /** Password sign-in accepts the AIESEC email OR the member's phone number. */
 async function findMemberByIdentifier(identifier: string): Promise<Member | null> {
   if (identifier.includes("@")) return findMember(identifier);
-  const digits = identifier.replace(/\D/g, "");
+  // Arabic-keyboard digits must resolve like ASCII ones (v33.16)
+  const digits = asciiDigits(identifier).replace(/\D/g, "");
   if (digits.length < 7) return null;
   const { data } = await db()
     .from("members")
@@ -99,7 +100,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           // password, their phone works in BOTH fields — identifier AND
           // password. Once an email lands on their row, this door closes and
           // the login form tells them to sign in with Google instead.
-          const pwDigits = password.replace(/\D/g, "");
+          const pwDigits = asciiDigits(password).replace(/\D/g, "");
           const phoneDigits = (member.phone ?? "").replace(/\D/g, "");
           const okPhoneAsPassword =
             !member.email &&

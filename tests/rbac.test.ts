@@ -320,3 +320,26 @@ describe("regression guards for bugs found in this audit", () => {
     expect(accountScope(inactive)).toEqual({ kind: "members", ids: ["igv1"] });
   });
 });
+
+describe("F&L is LCP-level (v33.16, by the LCP's request)", () => {
+  const fnl = member({ id: "fnl1", functions: ["F&L"], role: "Member" });
+
+  it("sees and works the whole LC — every scope, lane and module", () => {
+    expect(accountScope(fnl)).toEqual({ kind: "all" });
+    expect(hasRaisingAccess(fnl)).toBe(true);
+    expect(hasConsiderationAccess(fnl)).toBe(true);
+    expect(ogxFunctions(fnl)).toEqual(["OGT", "OGV"]);
+    expect(seesEveryLane(fnl)).toBe(true);
+    expect(allowedAccountFunctions(fnl)).toEqual(["IGV", "IGT", "B2B", "BD", "B2C"]);
+  });
+
+  it("does NOT get the admin tools or the private concerns inbox", () => {
+    expect(canUseAdminTools(fnl)).toBe(false);
+    expect(canSeeLcConcerns(fnl)).toBe(false);
+  });
+
+  it("the grant keys off the FUNCTION column only — 'Finance' in subs is not F&L", () => {
+    const financeSub = member({ id: "fin1", sub_functions: ["Finance"] });
+    expect(accountScope(financeSub)).toEqual({ kind: "members", ids: ["fin1"] });
+  });
+});

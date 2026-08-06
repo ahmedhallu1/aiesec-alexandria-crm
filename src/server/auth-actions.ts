@@ -22,7 +22,8 @@ async function probeMember(identifier: string): Promise<LoginProbe | null> {
     const { data } = await db().from("members").select(cols).ilike("email", identifier).maybeSingle<LoginProbe>();
     return data ?? null;
   }
-  const digits = identifier.replace(/\D/g, "");
+  const { asciiDigits } = await import("@/lib/types");
+  const digits = asciiDigits(identifier).replace(/\D/g, "");
   if (digits.length < 7) return null;
   const { data } = await db()
     .from("members")
@@ -76,6 +77,16 @@ export async function loginWithPassword(
           return {
             error:
               "Your AIESEC email is on Sodio now 🎉 — sign in with GOOGLE once to unlock everything (calendar, Gmail drafts). After that you can set a password from your Profile.",
+          };
+        // a phone-only member who already SET a password: the phone-in-both-
+        // fields door closed the moment they did — telling them to use it
+        // (the shape-based tip below) reads as "your number isn't on the
+        // membership". Same membership-confirmation precedent as the branch
+        // above.
+        if (probe && !probe.email && probe.password_hash && !email.includes("@"))
+          return {
+            error:
+              "This number IS on Sodio — but a password was set for this account, so the phone-in-both-fields trick no longer works. Type your phone + that PASSWORD. Forgot it? Ask the IM team to reset it.",
           };
         // the phone tip keys off the identifier SHAPE, not the probe — the
         // login form must not confirm who is or isn't a member
