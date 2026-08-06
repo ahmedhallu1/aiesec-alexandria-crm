@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath, updateTag } from "next/cache";
+import { revalidatePath } from "next/cache";
 import crypto from "node:crypto";
 import { after } from "next/server";
 import { z } from "zod";
@@ -109,13 +109,12 @@ async function inBatches<T, R>(
 function refresh(accountId?: string) {
   revalidatePath("/", "layout");
   if (accountId) revalidatePath(`/accounts/${accountId}`);
-  // The dashboard's row read is cached for a minute to keep the hosting bill
-  // down (v33.6) — but "I just recorded a deal and nothing moved" is exactly
-  // the confusion that makes people stop trusting the numbers. `updateTag` is
-  // the read-your-own-writes one: it EXPIRES the entry, so the next render
-  // waits for fresh data instead of serving stale (revalidateTag would hand
-  // back the old numbers once more). Every write path already calls refresh().
-  updateTag("accounts");
+  // The dashboard's row read is SHARED between everyone with the same scope,
+  // so expiring it here meant one member logging a contact made forty people
+  // re-read four thousand rows. With the project near its CPU allowance that
+  // is the single most expensive habit in the system, so the entry now lives
+  // out its five minutes (v33.14). Account PAGES and lists are unaffected —
+  // revalidatePath above still refreshes those immediately.
 }
 
 /** Keeps the responsible's CALENDAR follow-up reminder in sync with the
