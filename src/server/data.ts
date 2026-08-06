@@ -11,7 +11,10 @@ import {
   accountScope,
   allowedAccountFunctions as _allowedAccountFunctions,
   canSeeLcConcerns as _canSeeLcConcerns,
+  canEditAccount,
+  canEditRequestState,
   canFilterUnassigned,
+  canReassignAccount,
   canSeeUnassigned,
   canUseAdminTools,
   canViewAccount,
@@ -44,6 +47,12 @@ export interface PipelineRow extends AccountPipeline {
   /** the account's own birth as a History entry (v31) — only `getAccount`
    *  fills it; list reads leave it undefined (one row = one extra query). */
   creation?: AccountCreationEntry;
+  /** per-row capability flags for the list's INLINE edits (v33.17) — only
+   *  `listAccountsPage` fills them (the server re-checks on every mutation
+   *  anyway); other producers leave them undefined. */
+  can_edit?: boolean;
+  can_reassign?: boolean;
+  can_request_state?: boolean;
 }
 
 /** The FIRST entry of an account's History: the account being added. */
@@ -547,6 +556,13 @@ export async function listAccountsPage(
     if (error) throw error;
   }
   const rows = (data ?? []) as unknown as PipelineRow[];
+  // Per-row capability flags so the list can offer INLINE edits (v33.17) —
+  // display hints only; every mutation re-runs the same predicates server-side.
+  for (const r of rows) {
+    r.can_edit = canEditAccount(viewer, r);
+    r.can_reassign = canReassignAccount(viewer, r);
+    r.can_request_state = canEditRequestState(viewer, r);
+  }
   // The Comment column shows the WHOLE thread, not just the pinned line — one
   // extra query for the page's ~100 accounts, never per row (v33). Archived
   // comments stay hidden, exactly as they are on the account page.
@@ -3489,6 +3505,7 @@ export async function listRecentAudit(limit = 60): Promise<AuditEntry[]> {
 import {
   canEditSignupVpFields as _canEditSignupVpFields,
   canViewSignup as _canViewSignup,
+  canWorkSignup as _canWorkSignup,
   ogxFunctions as _ogxFunctions,
   ogxLanes as _ogxLanes,
 } from "@/lib/rbac";
@@ -3624,12 +3641,21 @@ export function signupViewsFor(v: Viewer): string[] {
 /** Paginated, scoped sign-ups list. Scope: leaders → their function(s); TL →
  *  own + team + the unassigned pool; members → own + unassigned. The
  *  "archived" view (Out of Process) is read-only browsing for the crew. */
+/** A list row + what THIS viewer may do to it inline (v33.17) — mirrors
+ *  getSignupDetail's canWork/canVp/canSetStatus, so the table can offer the
+ *  same edits the dialog does without a round-trip per row. */
+export type SignupListRow = SignupRow & {
+  can_work?: boolean;
+  can_set_status?: boolean;
+  can_vp?: boolean;
+};
+
 export async function listSignupsPage(
   viewer: Viewer,
   filters: SignupFilters,
   page: number,
   pageSize = 100
-): Promise<{ rows: SignupRow[]; total: number; page: number; view: string }> {
+): Promise<{ rows: SignupListRow[]; total: number; page: number; view: string }> {
   const fns = _ogxFunctions(viewer);
   if (fns.length === 0) return { rows: [], total: 0, page: 0, view: "unassigned" };
   const allowedViews = signupViewsFor(viewer);
@@ -3767,6 +3793,21 @@ export async function listSignupsPage(
       .order("id");
   };
 
+  // inline-edit capability flags, same rules as getSignupDetail (v33.17)
+  const withCaps = (rows: SignupRow[]): SignupListRow[] =>
+    rows.map((r) => {
+      const work = _canWorkSignup(viewer, r);
+      const vp = _canEditSignupVpFields(viewer, r);
+      return {
+        ...r,
+        can_work: work,
+        can_vp: vp,
+        can_set_status:
+          vp ||
+          ((viewer.role === "Team Leader" || viewer.role === "Coordinator") && work),
+      };
+    });
+
   let from = Math.max(0, page) * pageSize;
   let { data, count, error } = await build().range(from, from + pageSize - 1);
   if (error && from > 0) {
@@ -3779,9 +3820,14 @@ export async function listSignupsPage(
   if ((data ?? []).length === 0 && total > 0 && from >= total) {
     const lastPage = Math.max(0, Math.ceil(total / pageSize) - 1);
     const res2 = await build().range(lastPage * pageSize, lastPage * pageSize + pageSize - 1);
-    return { rows: (res2.data ?? []) as SignupRow[], total, page: lastPage, view };
+    return { rows: withCaps((res2.data ?? []) as SignupRow[]), total, page: lastPage, view };
   }
-  return { rows: (data ?? []) as SignupRow[], total, page: Math.floor(from / pageSize), view };
+  return {
+    rows: withCaps((data ?? []) as SignupRow[]),
+    total,
+    page: Math.floor(from / pageSize),
+    view,
+  };
 }
 
 export interface SignupDetail {
@@ -4714,7 +4760,6 @@ export async function freeBookingSlots(
     const m = toMin(t);
     return m === 0 || m === 1439 ? 1440 : m;
   };
-  const bufferMin = bufferMs / 60_000;
   const days: BookingDay[] = [];
   // iterate CALENDAR days from today's Cairo date — stepping raw 24h epochs
   // would skip/duplicate a day across a DST transition
@@ -4736,30 +4781,42 @@ export async function freeBookingSlots(
     for (const w of windows) {
       const from = toMin(w.from);
       const to = toEndMin(w.to);
-      // the grid itself carries the buffer (v33.16): slots step slot+buffer,
-      // so no two OFFERED slots can ever be back-to-back — the busy-pad check
-      // below alone couldn't stop two IRs racing for adjacent slots
-      for (let m = from; m + slotMin <= to; m += slotMin + bufferMin) {
+      // THE BUFFER RE-ANCHORS THE GRID AFTER A BOOKED CALL (v33.17, the
+      // LCP's spec): with nothing booked the grid is contiguous — 6:00,
+      // 6:30, 7:00. Once 6:00 is taken (30m slot, 10m buffer) the next
+      // offered slot is 6:40, then 7:10 — the grid resumes AT the buffer's
+      // edge instead of skipping to the next untouched gridline.
+      const dayStartMs = cairoToUtc(ymd, "00:00").getTime();
+      let m = from;
+      let guard = 0;
+      while (m + slotMin <= to && guard++ < 500) {
         const hh = Math.floor(m / 60);
         const mm = m % 60;
         const hhmm = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
         const start = cairoToUtc(ymd, hhmm);
         const startMs = start.getTime();
-        if (startMs < notBefore) continue;
-        // buffer pads every existing call on BOTH sides — back-to-back slots
-        // within the buffer of a booked call are excluded
-        if (
-          busy.some(
-            (b) =>
-              startMs < b.start + b.ms + bufferMs &&
-              b.start - bufferMs < startMs + slotMs
-          )
-        )
+        // buffer pads every existing call on BOTH sides
+        const clash = busy.find(
+          (b) =>
+            startMs < b.start + b.ms + bufferMs &&
+            b.start - bufferMs < startMs + slotMs
+        );
+        if (clash) {
+          // everything until the call's end + buffer is unbookable — resume
+          // the grid right there (never move backwards: a call's leading
+          // buffer can clash with a slot that started BEFORE the call)
+          const resumeMin = Math.ceil((clash.start + clash.ms + bufferMs - dayStartMs) / 60_000);
+          m = Math.max(m + slotMin, resumeMin);
           continue;
-        const iso = start.toISOString();
-        if (seen.has(iso)) continue;
-        seen.add(iso);
-        slots.push({ iso, label: _slotLabel(hh, mm) });
+        }
+        if (startMs >= notBefore) {
+          const iso = start.toISOString();
+          if (!seen.has(iso)) {
+            seen.add(iso);
+            slots.push({ iso, label: _slotLabel(hh, mm) });
+          }
+        }
+        m += slotMin;
       }
     }
     if (slots.length === 0) continue;

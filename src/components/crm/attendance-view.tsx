@@ -9,14 +9,12 @@ import {
   Clock,
   Hand,
   Loader2,
-  RefreshCw,
   Sparkles,
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   appealAttendance,
-  computeWorkingHoursAttendance,
   loadAttendanceSheet,
   resolveAppeal,
   saveAttendance,
@@ -213,19 +211,6 @@ function RecordDialog({
       } else toast.error(res.error);
     });
 
-  const recompute = () =>
-    start(async () => {
-      const res = await computeWorkingHoursAttendance(touchPointId);
-      if (res.ok) {
-        const d = res.data!;
-        toast.success(
-          `Recomputed — ${d.attended} in, ${d.absent} out${d.skipped > 0 ? ` (${d.skipped} left as edited)` : ""}. Confirm below to finish.`
-        );
-        setReloadKey((k) => k + 1);
-        router.refresh();
-      } else toast.error(res.error);
-    });
-
   const missing = (sheet?.rows ?? []).filter((r) => !r.locked && !draft[r.memberId]?.status).length;
   // a working-hours session can't be hand-written before it has even finished
   // (the server refuses it) — don't offer the button
@@ -267,17 +252,14 @@ function RecordDialog({
                     : "Sodio filled this in from everyone's work activity. Correct whatever looks wrong, then confirm — until you do, this session keeps reminding you."}
                 </p>
                 <p className="mt-1 text-muted-foreground">{sheet.rule}</p>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <Button size="sm" variant="outline" onClick={recompute} disabled={pending || !sheet.windowClosed}>
-                    {pending ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
-                    Recompute
-                  </Button>
-                  {!sheet.windowClosed ? (
-                    <span className="text-[11px] text-muted-foreground">
-                      The session is still open — it computes once the window closes.
-                    </span>
-                  ) : null}
-                </div>
+                {/* v33.17: the sheet computes ITSELF on open once the window
+                    closes — the Recompute button became a chore, not a tool */}
+                {!sheet.windowClosed ? (
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    The session is still open — it computes itself the moment
+                    you open this sheet after it ends.
+                  </p>
+                ) : null}
               </div>
             ) : null}
 

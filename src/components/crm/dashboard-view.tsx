@@ -36,6 +36,8 @@ interface Props {
   /** the OGV contact streak (v27) — set only on ?fn=OGV, null when the viewer
    *  isn't a streak player */
   streak?: StreakStats | null;
+  /** the TM lane (v33.17) — set only on ?fn=TM */
+  tm?: import("@/server/tm-stats").TmStats | null;
   total: FunnelStats;
   byFunction: DrillGroup[];
   byTeam: DrillGroup[];
@@ -95,7 +97,7 @@ function sprintRange(): { from: string; to: string } {
 }
 
 export function DashboardView({
-  consideration, ogx, streak,
+  consideration, ogx, streak, tm,
   total, byFunction, byTeam, memberBoard, mmBoard, teamBoard,
   views, activeFn, laneLabel, scopeLabel,
   showTeamDrill, teamOptions, memberOptions, filters, viewerId, showMyNumbers,
@@ -196,7 +198,9 @@ export function DashboardView({
         ) : null}
       </div>
 
-      {activeFn.startsWith("CONS") && consideration ? (
+      {activeFn === "TM" && tm ? (
+        <TmPanel stats={tm} />
+      ) : activeFn.startsWith("CONS") && consideration ? (
         <ConsiderationPanel stats={consideration} />
       ) : (
         <>
@@ -375,7 +379,9 @@ export function DashboardView({
             <CardTitle className="text-base">Drill-down</CardTitle>
           </CardHeader>
           <CardContent>
-            <Tabs defaultValue={byFunction.length > 1 ? "function" : "team"}>
+            {/* "By MM" opens by default (v33.17) — who's carrying the lane is
+              the first thing a leader looks for; products are one tap away */}
+          <Tabs defaultValue={showTeamDrill ? "team" : "function"}>
               <TabsList className="flex-wrap">
                 {byFunction.length > 1 ? <TabsTrigger value="function">By product</TabsTrigger> : null}
                 {showTeamDrill ? <TabsTrigger value="team">By MM</TabsTrigger> : null}
@@ -407,6 +413,194 @@ export function DashboardView({
 /** A Consideration lane (v29 — one per product): the IR-call pulse for that
  *  function, plus the CV pool on the IGT lane only (the pool is an IGT hunt,
  *  so the IGV lane omits those cards rather than showing zeros). */
+/** THE TM LANE (v33.17): does the LC show up, record itself, plan, and
+ *  deliver. Self-contained like ConsiderationPanel — it replaces the account
+ *  body entirely on ?fn=TM. */
+// literal classes so Tailwind's scanner sees them (never built at runtime)
+const TM_FN_BAR: Record<string, string> = {
+  IGV: "bg-gv", OGV: "bg-gv", IGT: "bg-gt", OGT: "bg-gt", IGTa: "bg-gt",
+  IGTe: "bg-gte", B2B: "bg-primary", BD: "bg-chart-4", B2C: "bg-chart-2",
+};
+
+function TmPanel({ stats }: { stats: import("@/server/tm-stats").TmStats }) {
+  const kpi = (label: string, value: string | number, sub?: string) => {
+    const card = (
+      <Card className="kpi-card rise-in h-full" title={sub}>
+        <CardContent className="flex h-full flex-col justify-between gap-2 px-4 py-3.5">
+          <p className="kpi-label break-words text-xs font-bold uppercase tracking-wide text-muted-foreground">
+            {label}
+          </p>
+          <p className="kpi-value text-3xl font-black leading-none tabular-nums xl:text-4xl">
+            {typeof value === "number" ? value.toLocaleString("en") : value}
+          </p>
+        </CardContent>
+      </Card>
+    );
+    return sub ? <Hint label={sub}>{card}</Hint> : card;
+  };
+  const a = stats.attendance;
+  const p = stats.plans;
+  const bar = (planned: number, actual: number) => {
+    const w = planned > 0 ? Math.min(100, Math.round((actual / planned) * 100)) : actual > 0 ? 100 : 0;
+    return (
+      <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+        <div className="h-full rounded-full bg-primary" style={{ width: `${w}%` }} />
+      </div>
+    );
+  };
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 rise-in rise-in-1 lg:grid-cols-4">
+        {kpi("Attendance rate", `${a.rate}%`, `Showed up (attended + late) across every confirmed touch point, ${stats.windowLabel}`)}
+        {kpi("Sessions held", a.sessions, `Touch points with confirmed attendance, ${stats.windowLabel}`)}
+        {kpi("Awaiting record", a.owed, "Past touch points whose attendance nobody confirmed yet — the chase list")}
+        {kpi("Active members", stats.membersActive, "Everyone currently on the membership")}
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card className="rise-in rise-in-2">
+          <CardHeader><CardTitle className="text-base">Attendance — {stats.windowLabel}</CardTitle></CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <div className="flex flex-wrap gap-2 text-xs">
+              <Badge variant="outline" className="border-success/50 text-success">✓ {a.attended} attended</Badge>
+              <Badge variant="outline" className="border-warning/50 text-warning">⏰ {a.late} late</Badge>
+              <Badge variant="outline" className="border-destructive/50 text-destructive">✗ {a.absent} absent</Badge>
+              <Badge variant="outline">🙏 {a.excused} excused</Badge>
+              {a.cancelled > 0 ? <Badge variant="outline">🚫 {a.cancelled} cancelled</Badge> : null}
+            </div>
+            {a.byKind.length > 0 ? (
+              <div className="space-y-1.5">
+                {a.byKind.map((k) => (
+                  <div key={k.kind} className="flex items-center justify-between gap-2">
+                    <span className="capitalize text-muted-foreground">
+                      {k.kind.replace("_", " ")} · {k.sessions} session{k.sessions === 1 ? "" : "s"}
+                    </span>
+                    <span className="font-semibold tabular-nums">{k.rate}%</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-muted-foreground">No confirmed sessions in the window yet.</p>
+            )}
+            {a.lowMembers.length > 0 ? (
+              <div className="border-t pt-2">
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Weakest showing (≥3 records)
+                </p>
+                {a.lowMembers.map((m) => (
+                  <div key={m.name} className="flex items-center justify-between gap-2 text-xs">
+                    <span dir="auto">{m.name}</span>
+                    <span className="tabular-nums text-muted-foreground">{m.rate}% of {m.records}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <Card className="rise-in rise-in-2">
+          <CardHeader><CardTitle className="text-base">Attendance by function</CardTitle></CardHeader>
+          <CardContent className="space-y-1.5 text-sm">
+            {a.byFunction.length === 0 ? (
+              <p className="text-muted-foreground">Nothing recorded in the window yet.</p>
+            ) : (
+              a.byFunction.map((f) => (
+                <div key={f.fn} className="flex items-center gap-2">
+                  <span className="w-12 shrink-0 font-semibold">{f.fn}</span>
+                  <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className={cn("h-full rounded-full", TM_FN_BAR[f.fn] ?? "bg-primary")}
+                      style={{ width: `${f.rate}%` }}
+                    />
+                  </div>
+                  <span className="w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+                    {f.rate}% · {f.records}
+                  </span>
+                </div>
+              ))
+            )}
+            <p className="pt-1 text-xs text-muted-foreground">
+              A member counts in each of their functions; working hours never judge TM/F&L/CXP.
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="rise-in rise-in-3">
+          <CardHeader><CardTitle className="text-base">Plans — {stats.monthLabel}</CardTitle></CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <div>
+              <div className="flex items-center justify-between">
+                <span>MM plans filed (consideration/OGX)</span>
+                <span className="font-semibold tabular-nums">{p.mmFiled}/{p.mmTotal}</span>
+              </div>
+              {p.mmMissing.length > 0 ? (
+                <p className="mt-0.5 text-xs text-muted-foreground" dir="auto">
+                  Missing: {p.mmMissing.join(", ")}
+                </p>
+              ) : null}
+            </div>
+            <div>
+              <div className="flex items-center justify-between">
+                <span>Raising MM plans filed (opens)</span>
+                <span className="font-semibold tabular-nums">{p.tlFiled}/{p.tlTotal}</span>
+              </div>
+              {p.tlMissing.length > 0 ? (
+                <p className="mt-0.5 text-xs text-muted-foreground" dir="auto">
+                  Missing: {p.tlMissing.join(", ")}
+                </p>
+              ) : null}
+            </div>
+            <div className="border-t pt-2">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                VP planning sheet (this month&apos;s cells)
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {p.vpLanes.map((l) => (
+                  <Badge
+                    key={l.fn}
+                    variant="outline"
+                    className={l.filed ? "border-success/50 text-success" : "border-muted-foreground/40 text-muted-foreground"}
+                  >
+                    {l.filed ? "✓" : "—"} {l.fn}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rise-in rise-in-3">
+          <CardHeader><CardTitle className="text-base">Plan vs delivered — {stats.monthLabel}</CardTitle></CardHeader>
+          <CardContent className="space-y-2.5 text-sm">
+            {stats.goals.length === 0 ? (
+              <p className="text-muted-foreground">
+                No plan cells for this month yet — they appear once the VP
+                planning lands.
+              </p>
+            ) : (
+              stats.goals.map((g) => (
+                <div key={g.fn} className="space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold">{g.fn}</span>
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {g.actual.toLocaleString("en")} / {g.planned.toLocaleString("en")} {g.unit}
+                    </span>
+                  </div>
+                  {bar(g.planned, g.actual)}
+                </div>
+              ))
+            )}
+            <p className="pt-1 text-xs text-muted-foreground">
+              OGX approvals are approximate (status set this month) — the status
+              carries no date of its own.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 function ConsiderationPanel({ stats }: { stats: import("@/server/data").ConsiderationStats }) {
   // same shape as KpiCard (v30.1): name + number only, the explainer moved into
   // the hover hint — a 2-up phone grid never clips the number

@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { getBookingPage } from "@/server/data";
+import { db } from "@/lib/supabase";
 import { ThemeToggle } from "@/components/crm/theme-toggle";
 import { BookingView, BookingCredit } from "@/components/crm/booking-view";
 
@@ -42,6 +43,14 @@ export default async function BookPage({
 }) {
   const { slug } = await params;
   const data = await load(slug);
+  // the KNOWN partner LCs (names + countries only — they're AIESEC entities,
+  // not secrets): the booking form suggests them so IRs stop re-typing their
+  // LC into a duplicate ("kocaeli" / "Lc kocaeli" / "AIESEC in Kocaeli"), and
+  // a recognized name auto-fills the country (v33.17)
+  const { data: lcRows } = data
+    ? await db().from("partner_lcs").select("name, country").order("name").limit(1000)
+    : { data: [] };
+  const knownLcs = ((lcRows ?? []) as { name: string; country: string | null }[]);
 
   return (
     <main className="aurora relative flex min-h-screen items-center justify-center overflow-hidden bg-sidebar p-4">
@@ -52,6 +61,7 @@ export default async function BookPage({
           memberName={data.memberName}
           slotMinutes={data.slotMinutes}
           days={data.days}
+          knownLcs={knownLcs}
         />
       ) : (
         <div className="rise-in relative z-10 w-full max-w-md rounded-2xl bg-card p-8 text-center shadow-2xl">

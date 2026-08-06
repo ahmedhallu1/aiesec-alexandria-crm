@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-06 · Version: v33.16
+Last updated: 2026-08-06 · Version: v33.17
 
 ---
 
@@ -610,6 +610,52 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-06 · v33.17** — **THE SPEED & TM BATCH** (12 more floor reports).
+  ① **Inline editing on the Raising table**: Podio (Requested + request
+  state, Rejected still confirms + archives) and Responsible are compact
+  selects right in the row; the Comment column gained a ➕ quick-comment
+  button. Per-row `can_edit/can_reassign/can_request_state` flags computed in
+  `listAccountsPage` (the actions still re-check).
+  ② **Inline editing on the sign-ups table**: Contacted / Interested /
+  Status editable from the row (per-row `can_work/can_set_status/can_vp`
+  flags in `listSignupsPage`; Parents Approval stays VP-gated).
+  ③ **Buffer semantics corrected** (the LCP's spec): the grid is contiguous
+  when nothing is booked; a booked call re-anchors it — 6:00 call, 30m slot,
+  10m buffer → next offered is 6:40, then 7:10. (v33.16's stride-always
+  version lasted one release.)
+  ④ **The 5-minute time picker is REAL**: Chrome ignores `step` on native
+  time inputs, so the availability From/To became hour + minute(00-55 by 5)
+  + AM/PM selects (`TimeSelect`); a 23:59 legacy value snaps to the grid.
+  ⑤ **Dashboard drill-down defaults to "By MM"**.
+  ⑥ **Partner-LC duplicates**: `normalizeLcName` (diacritics, case,
+  whitespace, "AIESEC in "/"LC " prefixes — Turkish İ/ı folded) now guards
+  BOTH creation paths (`addPartnerLc` + `bookIrCall`), the public booking
+  page suggests known LCs (datalist) and auto-fills the country on a match
+  (a country is also adopted onto a countryless row, add-only), and the
+  three live duplicate pairs (İstanbul Asia, Eskişehir, kocaeli) were merged
+  in prod with their calls/CVs/contacts repointed.
+  ⑦ **Mobile sign-up cards were dead to taps** — iOS Safari only synthesizes
+  clicks on pointer-styled elements; the card got `cursor-pointer` (+
+  role=button) and opens the details again.
+  ⑧ **Scheduled IR calls** gained With / Partner-LC filters (client-side).
+  ⑨ **CV upload**: the "(optional)" label lied — the server has required the
+  LC since v29; the label and the "— No LC yet" picker option are gone.
+  ⑩ **Working-hours attendance computes itself**: opening the sheet after
+  the window closes runs the engine automatically (guarded: never after a
+  human confirmed, never in sandbox, never twice) — the Recompute button is
+  gone. The nightly cron remains the fallback.
+  ⑪ **THE TM DASHBOARD** (`?fn=TM`, TM core only — `isTmCore`; new
+  `src/server/tm-stats.ts` + `TmPanel`): attendance rate/late/absent/excused
+  over the last 30 days' CONFIRMED sessions, by kind and by member-function
+  (multi-function members count in each lane; TM/F&L/CXP never judged on
+  working hours), weakest-showing members (≥3 records), the awaiting-record
+  chase count, MM/TL plan-filing compliance for the month (with missing
+  names), the VP planning sheet's per-lane cells, and plan-vs-delivered
+  bars (ICX opens from deals; OGX approvals approximated by status-set-this-
+  month — the status has no date column). TM core also gained the
+  /dashboard tab (layout gate).
+  ⑫ Answered in v33.16 and still true: proposal emails never move accounts.
 
 - **2026-08-06 · v33.16** — **CALENDAR, BOOKING & ACCESS BATCH** (7 more
   live reports; migration **0044 applied**).

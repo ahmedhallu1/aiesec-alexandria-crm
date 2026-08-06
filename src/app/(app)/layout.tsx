@@ -4,7 +4,7 @@ import { getViewer, listViewAsTargets, needsMmPlan, needsTlPlan } from "@/server
 import { PLAN_SKIP_COOKIE } from "@/lib/plan-skip";
 import {
   hasRaisingAccess, hasTmAccess, hasOgxAccess, hasConsiderationAccess,
-  canManageMembership, canSeePlanning, canUseAdminTools, seesEveryLane,
+  canManageMembership, canSeePlanning, canUseAdminTools, isTmCore, seesEveryLane,
 } from "@/lib/rbac";
 import { signOut } from "@/lib/auth";
 import { AppShell } from "@/components/crm/app-shell";
@@ -74,7 +74,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // tab never leads someone to an empty page.
   // v32: the LC-wide overseers (TM & F&L leadership) own no module of their
   // own but read EVERY lane, so the tab has to exist for them too.
-  const dashboard = raising || ogx || consideration || seesEveryLane(viewer);
+  // v33.17: TM core (incl. TM's TLs/Coordinators) gained the TM lane
+  const dashboard =
+    raising || ogx || consideration || seesEveryLane(viewer) || isTmCore(viewer);
   const extraRoutes = [
     ...(calendar ? ["/calendar"] : []),
     ...(tm ? ["/members"] : []),

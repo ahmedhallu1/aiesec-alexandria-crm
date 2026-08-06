@@ -13,7 +13,7 @@ import {
   reassignSignup, reviveSignup, runSignupsImport, setSignupOop,
   setSignupPotential, updateSignupContact, updateSignupVpFields,
 } from "@/server/actions";
-import type { OgxPlanCard, SignupDetail, StreakStats } from "@/server/data";
+import type { OgxPlanCard, SignupDetail, SignupListRow, StreakStats } from "@/server/data";
 import { fmtDateTime, SIGNUP_STATUSES, type OgxFunction, type SignupRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { CountryInput } from "./country-input";
@@ -528,7 +528,7 @@ export function SignupsView({
   rows, total, page, pageSize, pageSizeOptions, activeView, views, fns, activeFn,
   targets, planCard, streak, viewer, filters, filterOptions,
 }: {
-  rows: SignupRow[];
+  rows: SignupListRow[];
   /** every value each filterable column holds across the WHOLE set — a filter
    *  built from the visible page could only offer what happened to be on it */
   filterOptions: Record<string, string[]>;
@@ -877,8 +877,71 @@ export function SignupsView({
     </ContactLinks>
   );
 
+  // v33.17 — INLINE EDITING on the desktop rows: Contacted / Interested /
+  // Status save straight from the table, no dialog round-trip. Same server
+  // actions and same rules as the detail dialog; the per-row can_* flags
+  // come from listSignupsPage.
+  const inlineContact = (
+    r: SignupListRow,
+    field: "contactStatus" | "interested",
+    v: string
+  ) =>
+    start(async () => {
+      const val = v === "__unset" ? null : v;
+      const res = await updateSignupContact(
+        r.id,
+        field === "contactStatus" ? { contactStatus: val } : { interested: val }
+      );
+      if (res.ok) {
+        toast.success("Saved");
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
+  const inlineStatus = (r: SignupListRow, v: string) =>
+    start(async () => {
+      const res = await setSignupPotential(r.id, v === "__none" ? null : v);
+      if (res.ok) {
+        toast.success(
+          v === "Approved"
+            ? "APPROVED — that's the MOS! 🎉"
+            : v === "__none"
+              ? "Back to plain sign-up"
+              : `Moved to ${v} 📈`
+        );
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
+  /** Compact Yes/No/— select for the Contacted & Interested cells. */
+  const inlineYnSelect = (
+    r: SignupListRow,
+    field: "contactStatus" | "interested",
+    raw: string | null
+  ) => (
+    <div onClick={(e) => e.stopPropagation()}>
+      <Select
+        value={raw && /^y/i.test(raw) ? "Yes" : raw && /^n/i.test(raw) ? "No" : "__unset"}
+        onValueChange={(v) => inlineContact(r, field, v)}
+      >
+        <SelectTrigger
+          size="sm"
+          className="data-[size=sm]:h-7 gap-1 px-2 text-xs"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <SelectValue placeholder="—" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__unset">—</SelectItem>
+          <SelectItem value="Yes">Yes</SelectItem>
+          <SelectItem value="No">No</SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
   /** One cell of the desktop table, by column key. */
-  const signupCell = (r: SignupRow, key: string): React.ReactNode => {
+  const signupCell = (r: SignupListRow, key: string): React.ReactNode => {
     switch (key) {
       case "signed_up_at":
         return (
@@ -915,17 +978,49 @@ export function SignupsView({
           </Badge>
         );
       case "contacted":
-        return yn(r.contact_status);
+        return r.can_work && !r.out_of_process
+          ? inlineYnSelect(r, "contactStatus", r.contact_status)
+          : yn(r.contact_status);
       case "interested":
-        return yn(r.interested);
-      case "status":
-        return r.out_of_process ? (
-          <span className="text-destructive">🗄️ {r.oop_reason ?? "OOP"}</span>
-        ) : r.status ? (
-          <Badge className={r.status === "Approved" ? "bg-emerald-600" : ""}>{r.status}</Badge>
-        ) : (
-          <span className="text-muted-foreground">—</span>
+        return r.can_work && !r.out_of_process
+          ? inlineYnSelect(r, "interested", r.interested)
+          : yn(r.interested);
+      case "status": {
+        if (r.out_of_process)
+          return <span className="text-destructive">🗄️ {r.oop_reason ?? "OOP"}</span>;
+        // "Parents Approval" is a VP move BOTH ways — for everyone else the
+        // cell is read-only while a sign-up sits there
+        const vpLocked = r.status === "Parents Approval" && !r.can_vp;
+        if (!r.can_set_status || vpLocked)
+          return r.status ? (
+            <Badge className={r.status === "Approved" ? "bg-emerald-600" : ""}>{r.status}</Badge>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          );
+        return (
+          <div onClick={(e) => e.stopPropagation()}>
+            <Select value={r.status ?? "__none"} onValueChange={(v) => inlineStatus(r, v)}>
+              <SelectTrigger
+                size="sm"
+                className="data-[size=sm]:h-7 gap-1 px-2 text-xs"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <SelectValue placeholder="—" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none">— Sign-up</SelectItem>
+                {SIGNUP_STATUSES.filter(
+                  (st) => st !== "Parents Approval" || r.can_vp
+                ).map((st) => (
+                  <SelectItem key={st} value={st}>
+                    {st === "Approved" ? "Approved 🏆" : st}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         );
+      }
       case "country":
         return r.country ?? "—";
       case "person_status":
@@ -1151,7 +1246,16 @@ export function SignupsView({
           </Card>
         ) : (
           rows.map((r) => (
-            <Card key={r.id} onClick={() => openDetail(r.id)}>
+            // cursor-pointer is LOAD-BEARING on iOS: Safari only synthesizes
+            // click events from taps on elements that look clickable — without
+            // it the mobile cards were dead to the touch (v33.17)
+            <Card
+              key={r.id}
+              role="button"
+              tabIndex={0}
+              className="cursor-pointer active:bg-muted/40"
+              onClick={() => openDetail(r.id)}
+            >
               <CardContent className="space-y-1.5 p-3.5">
                 <p className="flex items-center gap-2 font-semibold">
                   {canBulk ? (

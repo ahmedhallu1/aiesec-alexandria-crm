@@ -4,7 +4,8 @@ import {
 import type { AccountFilters } from "@/server/data";
 import {
   considerationFunctions, accountScope, icxFunctions, isB2B, isB2C,
-  isBd, ogxLanes, raisingFunctions, seesEveryLane } from "@/lib/rbac";
+  isBd, isTmCore, ogxLanes, raisingFunctions, seesEveryLane } from "@/lib/rbac";
+import { tmStats } from "@/server/tm-stats";
 import { memberIsB2C, type OgxFunction } from "@/lib/types";
 import { DashboardView, type DashboardScopeView } from "@/components/crm/dashboard-view";
 
@@ -85,6 +86,9 @@ export default async function DashboardPage({
   // WITHOUT granting them the sign-ups module itself.
   const ogxFns = ogxLanes(viewer);
   for (const f of ogxFns) views.push({ key: f, label: f });
+  // TM (v33.17): the LC through TM's eyes — attendance, plan compliance,
+  // plan-vs-actual. TM core only (the people who run touch points + records).
+  if (isTmCore(viewer)) views.push({ key: "TM", label: "TM" });
 
   const defaultView = views[0]?.key ?? "all";
   const requestedFn =
@@ -101,13 +105,13 @@ export default async function DashboardPage({
   // CONS_* / OGT / OGV are pseudo-lanes — getDashboard never receives them:
   // it runs on the viewer's first REAL account lane (or "all", which for a
   // pure-OGX viewer scopes to their own — empty — accounts and returns fast)
-  const SPECIAL_LANES = new Set(["CONS", "CONS_IGV", "CONS_IGT", "OGT", "OGV"]);
+  const SPECIAL_LANES = new Set(["CONS", "CONS_IGV", "CONS_IGT", "OGT", "OGV", "TM"]);
   const baseLane = views.find((v) => !SPECIAL_LANES.has(v.key))?.key ?? "all";
   const isOgxLane = activeFn === "OGT" || activeFn === "OGV";
   const consLane: "IGV" | "IGT" | null =
     activeFn === "CONS_IGV" ? "IGV" : activeFn === "CONS_IGT" ? "IGT" : null;
 
-  const [data, teamFilterOptions, members, consideration, ogx, streak] = await Promise.all([
+  const [data, teamFilterOptions, members, consideration, ogx, streak, tm] = await Promise.all([
     getDashboard(viewer, filters, SPECIAL_LANES.has(activeFn) ? baseLane : activeFn),
     listTeamFilterOptions(viewer, { fn: filters.fn ?? undefined }),
     listVisibleMembers(viewer),
@@ -124,6 +128,7 @@ export default async function DashboardPage({
     // it lived only on /signups before. `streakStats` decides who has one
     // (it returns null for anyone it doesn't consider an OGV streak player).
     isOgxLane ? streakStats(viewer, activeFn) : Promise.resolve(null),
+    activeFn === "TM" ? tmStats(viewer) : Promise.resolve(null),
   ]);
 
   // Member filter = the people whose accounts are actually IN this lane, and
@@ -185,6 +190,7 @@ export default async function DashboardPage({
       consideration={consideration}
       ogx={ogx}
       streak={streak}
+      tm={tm}
       total={data.total}
       byFunction={data.byFunction}
       byTeam={data.byTeam}

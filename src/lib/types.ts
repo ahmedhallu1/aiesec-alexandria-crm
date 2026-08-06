@@ -720,6 +720,25 @@ export function accountSlug(name: string): string {
   return encodeURIComponent(normalizeName(name).replace(/\s+/g, "-"));
 }
 
+/** Partner-LC name normalizer (v33.17). IRs abroad type their LC free-hand on
+ *  the public booking page, so the registry grew duplicates: "İstanbul Asia" /
+ *  "istanbul asia" (Turkish dotted İ), "Eskişehir" / "AIESEC in Eskişehir",
+ *  "kocaeli" / "Lc kocaeli", double spaces. Two names are THE SAME LC when
+ *  they normalize equal: diacritics stripped, case folded, whitespace
+ *  collapsed, and the boilerplate "AIESEC in " / "LC " prefixes dropped. */
+export function normalizeLcName(raw: string): string {
+  return (raw ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/ı/g, "i") // Turkish dotless ı survives NFD — fold it too
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^aiesec\s+in\s+/, "")
+    .replace(/^(lc|mc)\s+/, "")
+    .trim();
+}
+
 /** SQL LIKE pattern matching every normalized_name that could slug to `raw`.
  *
  *  Every dash (a space OR a real dash in the name) and every LIKE metachar

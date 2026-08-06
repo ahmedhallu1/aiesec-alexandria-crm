@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { CalendarCheck2, Clock, Globe2, Mail, Phone, Video, Loader2 } from "lucide-react";
 import { bookIrCall } from "@/server/actions";
 import type { BookingDay } from "@/server/data";
-import { normalizePhone } from "@/lib/types";
+import { normalizeLcName, normalizePhone } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { CountryInput } from "./country-input";
 import { Button } from "@/components/ui/button";
@@ -25,12 +25,14 @@ const EMAIL_RE = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]{2,}$/;
 const BOOKER_ROLES = ["Member", "MM (Team Leader / Coordinator)", "LCVP", "LCP"] as const;
 
 export function BookingView({
-  slug, memberName, slotMinutes, days,
+  slug, memberName, slotMinutes, days, knownLcs = [],
 }: {
   slug: string;
   memberName: string;
   slotMinutes: number;
   days: BookingDay[];
+  /** LCs we already know — suggested so a re-typed name never duplicates */
+  knownLcs?: { name: string; country: string | null }[];
 }) {
   const [pending, start] = useTransition();
   const [dayIdx, setDayIdx] = useState(0);
@@ -50,6 +52,20 @@ export function BookingView({
   const day = days[Math.min(dayIdx, Math.max(0, days.length - 1))];
   const slot = day?.slots.find((s) => s.iso === slotIso) ?? null;
   const emailOk = EMAIL_RE.test(email.trim());
+  // a typed name we already KNOW (normalized: case, diacritics, "AIESEC in"/
+  // "LC" prefixes) — auto-fills the country and lands on the same registry row
+  const knownLc =
+    lcName.trim().length >= 3
+      ? knownLcs.find((l) => normalizeLcName(l.name) === normalizeLcName(lcName)) ?? null
+      : null;
+  const onLcInput = (v: string) => {
+    setLcName(v);
+    const hit =
+      v.trim().length >= 3
+        ? knownLcs.find((l) => normalizeLcName(l.name) === normalizeLcName(v))
+        : null;
+    if (hit?.country) setCountry(hit.country);
+  };
   // the crew reaches IRs on WhatsApp, so the number must carry a country code
   const phoneCheck = normalizePhone(phone);
   const phoneOk = phoneCheck.ok && phoneCheck.value.startsWith("+");
@@ -207,12 +223,25 @@ export function BookingView({
                     id="bk-lc"
                     dir="auto"
                     value={lcName}
-                    onChange={(e) => setLcName(e.target.value)}
+                    onChange={(e) => onLcInput(e.target.value)}
                     placeholder="e.g. AIESEC in Tunis"
                     className="h-10 pl-8"
                     maxLength={120}
+                    list="bk-lc-known"
                   />
+                  <datalist id="bk-lc-known">
+                    {knownLcs.map((l) => (
+                      <option key={l.name} value={l.name} />
+                    ))}
+                  </datalist>
                 </div>
+                {knownLc ? (
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                    ✓ We already know {knownLc.name}
+                    {knownLc.country ? ` (${knownLc.country})` : ""} — you&apos;ll land
+                    on the same record.
+                  </p>
+                ) : null}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="bk-email">Your email *</Label>

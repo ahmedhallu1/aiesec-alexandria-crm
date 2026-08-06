@@ -6,13 +6,16 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   AlertTriangle, Archive, Check, CheckCircle2, CheckSquare, CircleAlert,
-  ChevronDown, Copy, FileUp, Loader2, Phone, Plus, RotateCcw, Search, Trash2, Users2, X,
+  ChevronDown, Copy, FileUp, Loader2, MessageSquarePlus, Phone, Plus, RotateCcw, Search,
+  Trash2, Users2, X,
   XCircle,
 } from "lucide-react";
 import type { PipelineRow } from "@/server/data";
 import {
-  addArchivedAccount, bulkArchiveAccounts, bulkDeleteArchived, bulkReassignAccounts,
-  bulkReviveAccounts, importArchivedBulk, removeArchivedEntry,
+  addArchivedAccount, addComment, bulkArchiveAccounts, bulkDeleteArchived,
+  bulkReassignAccounts,
+  bulkReviveAccounts, importArchivedBulk, reassignAccount, removeArchivedEntry,
+  updateAccount,
 } from "@/server/actions";
 import {
   accountSlug, fmtDateTime, fmtTime, IGT_SUB_PRODUCTS, IGV_PROJECTS, OOP_REASONS, productBadge,
@@ -50,6 +53,7 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from "@/components/ui/tooltip";
@@ -343,6 +347,131 @@ function SelectDot({ checked, onToggle }: { checked: boolean; onToggle: () => vo
   );
 }
 
+// --------------------------------------------- inline list edits (v33.17)
+
+/** The Podio column, editable in place — no need to open the account. The
+ *  server re-checks every rule; "Rejected" ARCHIVES the account (like Not
+ *  Interested), so it confirms first. Read-only for archived rows, viewers
+ *  without edit rights, and a state the viewer has no authority to change. */
+function PodioInlineCell({ row }: { row: PipelineRow }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const canState = !!row.can_request_state;
+  const value = row.request_state ?? (row.requested_podio ? "Requested" : "—");
+  if (
+    row.out_of_process ||
+    (!row.can_edit && !canState) ||
+    // a state someone with authority set — flipping "requested" under it
+    // changes nothing this column shows, and clearing it needs that authority
+    (row.request_state && !canState)
+  )
+    return <>{value}</>;
+  const apply = (v: string) => {
+    if (v === value) return;
+    if (
+      v === "Rejected" &&
+      !window.confirm(
+        `Mark "${row.name}" as Rejected on Podio? Like Not Interested, this ARCHIVES the account — the name goes to the archive and can never be added again.`
+      )
+    )
+      return;
+    // request_state only travels when the viewer may set it — the server
+    // refuses the key (even null) otherwise
+    const patch =
+      v === "—"
+        ? canState
+          ? { requested_podio: false, request_state: null }
+          : { requested_podio: false }
+        : v === "Requested"
+          ? canState
+            ? { requested_podio: true, request_state: null }
+            : { requested_podio: true }
+          : { requested_podio: true, request_state: v as "Checking" | "Approved" | "Rejected" };
+    start(async () => {
+      const res = await updateAccount(row.id, patch);
+      if (res.ok) {
+        toast.success(
+          v === "Rejected"
+            ? `"${row.name}" marked Rejected — archived.`
+            : "Podio state saved."
+        );
+        router.refresh();
+      } else toast.error(res.error);
+    });
+  };
+  return (
+    <div className="w-fit" onClick={(e) => e.stopPropagation()}>
+      <Select value={value} onValueChange={apply} disabled={pending}>
+        <SelectTrigger size="sm" className="h-7 gap-1 px-2 text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="—">—</SelectItem>
+          <SelectItem value="Requested">Requested</SelectItem>
+          {canState ? (
+            <>
+              <SelectItem value="Checking">Checking</SelectItem>
+              <SelectItem value="Approved">Approved</SelectItem>
+              <SelectItem value="Rejected">Rejected (archives)</SelectItem>
+            </>
+          ) : null}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+/** The Responsible column, editable in place: hand the account over without
+ *  opening it. Targets are the viewer's RBAC-correct reassign list; the
+ *  server re-checks per account. */
+function ResponsibleInlineCell({
+  row, targets,
+}: {
+  row: PipelineRow;
+  targets: MemberOption[];
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  if (!row.can_reassign || row.out_of_process || targets.length === 0)
+    return <span dir="auto">{row.responsible_name || "Unassigned"}</span>;
+  const known = row.responsible_id != null && targets.some((m) => m.id === row.responsible_id);
+  const apply = (v: string) => {
+    if (v === row.responsible_id) return;
+    start(async () => {
+      const res = await reassignAccount(row.id, v);
+      if (res.ok) {
+        const t = targets.find((m) => m.id === v);
+        toast.success(`"${row.name}" reassigned to ${t?.label ?? "them"}.`);
+        router.refresh();
+      } else toast.error(res.error);
+    });
+  };
+  return (
+    <div className="w-fit" onClick={(e) => e.stopPropagation()}>
+      <Select value={row.responsible_id ?? ""} onValueChange={apply} disabled={pending}>
+        <SelectTrigger size="sm" className="h-7 max-w-44 gap-1 px-2 text-xs">
+          <SelectValue placeholder="Unassigned" />
+        </SelectTrigger>
+        <SelectContent>
+          {/* the current responsible may sit outside the viewer's target list
+              (e.g. filtered scope) — show them, but only as the current value */}
+          {!known && row.responsible_id ? (
+            <SelectItem value={row.responsible_id} disabled>
+              {row.responsible_name || "Current responsible"}
+            </SelectItem>
+          ) : null}
+          {targets.map((m) => (
+            <SelectItem key={m.id} value={m.id}>
+              {m.label}
+              {m.functions.length ? ` · ${m.functions.join(", ")}` : ""}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 // ------------------------------------------------- universal table columns
 
 /** Which SERVER sort field each column maps to (the list is server-sorted +
@@ -503,6 +632,8 @@ export function AccountsView({
   // the channel the member actually tapped — it pre-selects the method
   const [contactMethod, setContactMethod] = useState<ContactMethod>("Call");
   const [addOpen, setAddOpen] = useState(false);
+  // quick comment from the list (v33.17) — one dialog for the whole table
+  const [quickComment, setQuickComment] = useState<{ id: string; name: string } | null>(null);
   const [addArchivedOpen, setAddArchivedOpen] = useState(false);
   const [importArchivedOpen, setImportArchivedOpen] = useState(false);
   const [navPending, startNav] = useTransition();
@@ -806,11 +937,9 @@ export function AccountsView({
           </div>
         );
       case "responsible":
-        return (
-          <span dir="auto">
-            {row.responsible_name || "Unassigned"}
-          </span>
-        );
+        // editable in place (v33.17) — falls back to plain text for archived
+        // rows and viewers without the authority to move it
+        return <ResponsibleInlineCell row={row} targets={reassignTargets} />;
       case "project":
         return row.project ?? "—";
       case "sub_product":
@@ -838,23 +967,44 @@ export function AccountsView({
         // the WHOLE thread, the way a sheet would show it: newest first, each
         // line attributed, the full text on hover. Not just the pinned one.
         const all = row.comments_all ?? [];
-        if (all.length === 0) return "—";
+        // quick-comment right from the list (v33.17) — edit-gated
+        const addBtn = row.can_edit ? (
+          <Hint label="Add a comment — right from the list">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-6 shrink-0 text-muted-foreground hover:text-primary"
+              onClick={(e) => {
+                e.stopPropagation();
+                setQuickComment({ id: row.id, name: row.name });
+              }}
+            >
+              <MessageSquarePlus className="size-3.5" />
+            </Button>
+          </Hint>
+        ) : null;
+        if (all.length === 0)
+          return <span className="inline-flex items-center gap-1">—{addBtn}</span>;
         const newestFirst = [...all].reverse();
         // just the comments themselves — who said it and when is detail that
         // belongs in the account's Comments card, not in a scanning column
         const full = newestFirst.map((c) => c.body).join("\n\n");
         return (
-          <span dir="auto" title={full} className="block max-w-[26rem] space-y-0.5">
-            {newestFirst.slice(0, 3).map((c, i) => (
-              <span key={i} className="block truncate leading-tight">
-                {c.body}
-              </span>
-            ))}
-            {newestFirst.length > 3 ? (
-              <span className="block text-[10px] opacity-60">
-                +{newestFirst.length - 3} more — open the account
-              </span>
-            ) : null}
+          <span className="flex items-start gap-1">
+            <span dir="auto" title={full} className="block min-w-0 max-w-[26rem] flex-1 space-y-0.5">
+              {newestFirst.slice(0, 3).map((c, i) => (
+                <span key={i} className="block truncate leading-tight">
+                  {c.body}
+                </span>
+              ))}
+              {newestFirst.length > 3 ? (
+                <span className="block text-[10px] opacity-60">
+                  +{newestFirst.length - 3} more — open the account
+                </span>
+              ) : null}
+            </span>
+            {addBtn}
           </span>
         );
       }
@@ -863,7 +1013,8 @@ export function AccountsView({
       case "proposal":
         return row.proposal_sent ? "✅ sent" : "—";
       case "podio":
-        return row.request_state ?? (row.requested_podio ? "Requested" : "—");
+        // editable in place (v33.17) — plain text when the viewer can't edit
+        return <PodioInlineCell row={row} />;
       default:
         return null;
     }
@@ -1505,6 +1656,10 @@ export function AccountsView({
         open={!!contactTarget}
         defaultMethod={contactMethod}
         onOpenChange={(o) => !o && setContactTarget(null)}
+      />
+      <QuickCommentDialog
+        target={quickComment}
+        onOpenChange={(o) => !o && setQuickComment(null)}
       />
       <AddAccountDialog
         open={addOpen}
@@ -2157,6 +2312,61 @@ function BulkReassignDialog({
           <Button onClick={submit} disabled={pending || ids.length === 0 || !target}>
             {pending ? <Loader2 className="size-4 animate-spin" /> : <Users2 className="size-4" />}
             Reassign
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Quick comment from the list (v33.17) — the same numbered, attributed
+ *  comment the account page files, without opening the account. */
+function QuickCommentDialog({
+  target, onOpenChange,
+}: {
+  target: { id: string; name: string } | null;
+  onOpenChange: (o: boolean) => void;
+}) {
+  const router = useRouter();
+  const [body, setBody] = useState("");
+  const [pending, start] = useTransition();
+  // a fresh account = a fresh comment box
+  const targetId = target?.id;
+  useEffect(() => setBody(""), [targetId]);
+
+  const submit = () =>
+    start(async () => {
+      if (!target) return;
+      const res = await addComment(target.id, body);
+      if (res.ok) {
+        toast.success("Comment added 💬");
+        setBody("");
+        onOpenChange(false);
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
+  return (
+    <Dialog open={!!target} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle dir="auto">💬 Comment on {target?.name}</DialogTitle>
+          <DialogDescription>
+            Lands in the account&apos;s Comments card — numbered and attributed
+            like any other comment.
+          </DialogDescription>
+        </DialogHeader>
+        <Textarea
+          dir="auto"
+          rows={3}
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          placeholder="What happened / what to know…"
+        />
+        <DialogFooter>
+          <Button onClick={submit} disabled={pending || body.trim().length === 0}>
+            {pending ? <Loader2 className="size-4 animate-spin" /> : <MessageSquarePlus className="size-4" />}
+            Add comment
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -1195,6 +1195,52 @@ function DemandPicker({
  *  A stored custom value not in the list is appended so it never disappears. */
 const SLOT_CHOICES = [15, 30, 45, 60, 90, 120];
 const BUFFER_CHOICES = [0, 5, 10, 15, 30];
+
+/** 12-hour time picker in REAL 5-minute steps (v33.17). The native
+ *  `<input type="time" step>` was a lie: Chrome's dropdown ignores `step`
+ *  and lists every minute — so members kept picking un-alignable times.
+ *  Value in/out stays 24h "HH:MM". */
+function TimeSelect({
+  value, onChange, ariaLabel,
+}: { value: string; onChange: (v: string) => void; ariaLabel: string }) {
+  const [hh, mm] = value.split(":").map(Number);
+  const isPm = hh >= 12;
+  const hour12 = hh % 12 === 0 ? 12 : hh % 12;
+  const emit = (h12: number, minute: number, pm: boolean) => {
+    const h24 = pm ? (h12 % 12) + 12 : h12 % 12;
+    onChange(`${String(h24).padStart(2, "0")}:${String(minute).padStart(2, "0")}`);
+  };
+  // snap a legacy minute (e.g. 23:59) onto the 5-min grid for the picker
+  const minute5 = Math.min(55, Math.round((mm || 0) / 5) * 5);
+  return (
+    <div className="flex items-center gap-1" aria-label={ariaLabel}>
+      <Select value={String(hour12)} onValueChange={(v) => emit(Number(v), minute5, isPm)}>
+        <SelectTrigger className="h-9 w-16"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          {Array.from({ length: 12 }, (_, i) => i + 1).map((h) => (
+            <SelectItem key={h} value={String(h)}>{h}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <span className="text-sm text-muted-foreground">:</span>
+      <Select value={String(minute5)} onValueChange={(v) => emit(hour12, Number(v), isPm)}>
+        <SelectTrigger className="h-9 w-16"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          {Array.from({ length: 12 }, (_, i) => i * 5).map((m) => (
+            <SelectItem key={m} value={String(m)}>{String(m).padStart(2, "0")}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Select value={isPm ? "PM" : "AM"} onValueChange={(v) => emit(hour12, minute5, v === "PM")}>
+        <SelectTrigger className="h-9 w-[4.25rem]"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="AM">AM</SelectItem>
+          <SelectItem value="PM">PM</SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
 const NOTICE_CHOICES: { value: number; label: string }[] = [
   { value: 15, label: "15 minutes" },
   { value: 60, label: "1 hour" },
@@ -1496,22 +1542,16 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
                         </SelectContent>
                       </Select>
                     )}
-                    <Input
-                      type="time"
-                      step={300}
+                    <TimeSelect
                       value={r.from}
-                      onChange={(e) => setRow(i, { from: e.target.value })}
-                      className="h-9 w-28"
-                      aria-label="From"
+                      onChange={(v) => setRow(i, { from: v })}
+                      ariaLabel="From"
                     />
                     <span className="text-sm text-muted-foreground">→</span>
-                    <Input
-                      type="time"
-                      step={300}
+                    <TimeSelect
                       value={r.to}
-                      onChange={(e) => setRow(i, { to: e.target.value })}
-                      className="h-9 w-28"
-                      aria-label="To"
+                      onChange={(v) => setRow(i, { to: v })}
+                      ariaLabel="To"
                     />
                     <Hint label="Remove this window">
                       <Button
@@ -1536,8 +1576,8 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
               </Button>
               <p className="text-xs text-muted-foreground">
                 Times are Cairo, in 5-minute steps. To run until midnight, set the
-                end to <b>12:00 AM</b> (00:00). Your buffer adds free space between
-                the slots people can book.
+                end to <b>12:00 AM</b>. The buffer kicks in around <b>booked</b> calls:
+                a 6:00 call with a 10-min buffer makes the next bookable slot 6:40.
               </p>
             </div>
           </div>
@@ -1692,6 +1732,23 @@ function IrCallsTab({
   const [rescheduling, setRescheduling] = useState<IrCallRow | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
 
+  // v33.17 — filters over the scheduled list: with a handful of calls booked
+  // you scan them; with more, you filter by who takes the call or which LC
+  // it's with. Client-side only — the list is already in hand.
+  const [schedWith, setSchedWith] = useState("");
+  const [schedLc, setSchedLc] = useState("");
+  const schedWithOptions = [...new Set(data.scheduled.map((c) => c.member_name))].sort(
+    (a, b) => a.localeCompare(b)
+  );
+  const schedLcOptions = [...new Set(data.scheduled.map((c) => c.partner_lc_name))].sort(
+    (a, b) => a.localeCompare(b)
+  );
+  const scheduledShown = data.scheduled.filter(
+    (c) =>
+      (!schedWith || c.member_name === schedWith) &&
+      (!schedLc || c.partner_lc_name === schedLc)
+  );
+
   const canTouch = (c: IrCallRow) => viewer.isVp || c.member_id === viewer.id;
   const [deleting, setDeleting] = useState<IrCallRow | null>(null);
   const [deletePending, startDelete] = useTransition();
@@ -1814,7 +1871,56 @@ function IrCallsTab({
             </p>
           </CardHeader>
           <CardContent className="space-y-2">
-            {data.scheduled.map((c) => (
+            {data.scheduled.length > 3 ? (
+              <div className="flex flex-wrap items-center gap-2 pb-1">
+                <Select
+                  value={schedWith || "__all"}
+                  onValueChange={(v) => setSchedWith(v === "__all" ? "" : v)}
+                >
+                  <SelectTrigger size="sm" className="w-40 text-xs">
+                    <SelectValue placeholder="With" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all">With — everyone</SelectItem>
+                    {schedWithOptions.map((m) => (
+                      <SelectItem key={m} value={m}>{m}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={schedLc || "__all"}
+                  onValueChange={(v) => setSchedLc(v === "__all" ? "" : v)}
+                >
+                  <SelectTrigger size="sm" className="w-44 text-xs">
+                    <SelectValue placeholder="Partner LC" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all">Partner LC — all</SelectItem>
+                    {schedLcOptions.map((lc) => (
+                      <SelectItem key={lc} value={lc}>{lc}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {schedWith || schedLc ? (
+                  <Hint label="Clear the filters">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 text-muted-foreground"
+                      onClick={() => { setSchedWith(""); setSchedLc(""); }}
+                    >
+                      <X className="size-4" />
+                    </Button>
+                  </Hint>
+                ) : null}
+              </div>
+            ) : null}
+            {scheduledShown.length === 0 ? (
+              <p className="py-2 text-sm text-muted-foreground">
+                No scheduled calls match these filters.
+              </p>
+            ) : null}
+            {scheduledShown.map((c) => (
               <div
                 key={c.id}
                 className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3"
@@ -2855,13 +2961,12 @@ function CvsTab({
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Partner LC (optional)</Label>
+              <Label>Partner LC</Label>
               <PartnerLcPicker
                 lcs={lcs}
                 value={lcId}
                 onChange={setLcId}
                 onCreated={onLcCreated}
-                allowNone
                 manage={{ canEdit: viewer.isVp }}
               />
             </div>

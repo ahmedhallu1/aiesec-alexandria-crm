@@ -132,7 +132,29 @@ export async function loadAttendanceSheet(
     listAttendanceFor(touchPointId),
     isWorkingHours ? workingHoursVerdicts(tp) : Promise.resolve([]),
   ]);
-  const byMember = new Map(existing.map((r) => [r.member_id, r]));
+  let rowsForSheet = existing;
+  // AUTO PRE-FILL ON OPEN (v33.17): a finished working-hours session used to
+  // sit empty until the reviewer clicked "Recompute" (or the nightly cron
+  // got there first). Opening the sheet IS the request to compute — run the
+  // engine when the window has closed and no pre-fill exists yet. Guards:
+  // never after a human confirmed (attendance_recorded_at — rows they left
+  // auto would otherwise be rewritable), never in a sandbox, never twice.
+  if (
+    isWorkingHours &&
+    tp.status === "scheduled" &&
+    !tp.attendance_recorded_at &&
+    workWindowClosed(tp.starts_at) &&
+    !viewer.sandbox &&
+    !existing.some((r) => r.automatic)
+  ) {
+    try {
+      await runWorkingHoursAttendance(tp.id);
+      rowsForSheet = await listAttendanceFor(touchPointId);
+    } catch (e) {
+      console.error("[attendance] auto pre-fill failed:", e);
+    }
+  }
+  const byMember = new Map(rowsForSheet.map((r) => [r.member_id, r]));
   const verdictBy = new Map(verdicts.map((v) => [v.memberId, v]));
   const canOwn = canEditOwnAttendanceRow(viewer, tp);
 

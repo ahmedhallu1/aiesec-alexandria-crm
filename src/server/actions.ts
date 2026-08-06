@@ -53,6 +53,7 @@ import {
   FEEDBACK_INBOX_EMAILS,
   guessEmailTag,
   guessLinkTag,
+  normalizeLcName,
   LC_FUNCTIONS,
   MEMBER_ROLES,
   normalizePhone,
@@ -5174,6 +5175,11 @@ export async function addPartnerLc(input: {
   const name = input.name?.trim();
   if (!name) return fail("The partner LC needs a name.");
   const country = input.country?.trim() || null;
+  // NORMALIZED duplicate check (v33.17): "Lc kocaeli", "kocaeli" and
+  // "AIESEC in Kocaeli" are one LC — the unique lower(name) index can't see
+  // that, so match the whole (small) registry by normalized name first
+  const dup = await findPartnerLcByNormalizedName(name);
+  if (dup) return { ok: true, data: dup };
   const { data: created, error } = await db()
     .from("partner_lcs")
     .insert({ name, country, created_by: viewer.id })
@@ -5194,6 +5200,21 @@ export async function addPartnerLc(input: {
   await recordUndo("partner_lcs", created.id, "insert");
   await logAudit(viewer.id, "partner_lc_add", "partner_lc", created.id, { name });
   return { ok: true, data: created as PartnerLc };
+}
+
+/** The whole registry compared by `normalizeLcName` — small table, and the
+ *  only way to catch "İstanbul Asia" vs "istanbul asia" or "Lc kocaeli" vs
+ *  "kocaeli" (the unique index is exact-lower only). */
+async function findPartnerLcByNormalizedName(name: string): Promise<PartnerLc | null> {
+  const norm = normalizeLcName(name);
+  if (!norm) return null;
+  const { data } = await db()
+    .from("partner_lcs")
+    .select("id, name, country")
+    .limit(1000);
+  return (
+    ((data ?? []) as PartnerLc[]).find((p) => normalizeLcName(p.name) === norm) ?? null
+  );
 }
 
 async function resolvePartnerLc(input: {
@@ -5606,18 +5627,19 @@ export async function bookIrCall(input: {
     return fail("That slot was just taken (or is no longer offered) — pick another one.");
   const whenLabel = `${day.label} · ${slot.label} (Cairo time)`;
 
-  // resolve / create the partner LC by name, case-insensitively
+  // resolve / create the partner LC by NORMALIZED name (v33.17): IRs type
+  // their LC free-hand, and "kocaeli" / "Lc kocaeli" / "AIESEC in Kocaeli"
+  // must land on ONE registry row, not mint duplicates
   const esc = lcName.replaceAll("%", "\\%").replaceAll("_", "\\_");
-  let lc: PartnerLc | null = null;
-  const { data: existingLc } = await db()
-    .from("partner_lcs")
-    .select("id, name, country")
-    .ilike("name", esc)
-    .maybeSingle<PartnerLc>();
-  if (existingLc) {
-    // anonymous input never MUTATES an existing internal record — the crew
-    // sets/corrects an LC's country from inside Sodio
-    lc = existingLc;
+  let lc: PartnerLc | null = await findPartnerLcByNormalizedName(lcName);
+  if (lc) {
+    // anonymous input never MUTATES an existing internal record — with ONE
+    // add-only exception: a row missing its country may take the booker's
+    // (nothing is overwritten, and the crew can still correct it in Sodio)
+    if (!lc.country && country) {
+      await db().from("partner_lcs").update({ country }).eq("id", lc.id).is("country", null);
+      lc = { ...lc, country };
+    }
   } else {
     const ins = await db()
       .from("partner_lcs")
