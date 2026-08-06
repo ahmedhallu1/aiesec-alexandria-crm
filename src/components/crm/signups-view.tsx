@@ -337,7 +337,9 @@ function signupColumns(fn: OgxFunction, view: string): TableColumn[] {
     { key: "name", label: "Sign-up", required: true },
     // OGV sign-ups are ALL GV — the badge is dead weight there (v31)
     { key: "program", label: "Program", defaultHidden: fn === "OGV" },
-    { key: "contact", label: "Contact" },
+    // v33.12 — Batch takes this slot. The contact links live on the row's
+    // Contact BUTTON and in the detail; a column of icons duplicated them.
+    { key: "batch", label: "Batch" },
     { key: "assigned", label: "Assigned" },
     { key: "contacted", label: "Contacted" },
     { key: "interested", label: "Interested" },
@@ -349,7 +351,6 @@ function signupColumns(fn: OgxFunction, view: string): TableColumn[] {
     { key: "email", label: "Email", defaultHidden: true },
     { key: "phone", label: "Phone", defaultHidden: true },
     { key: "ep_id", label: "EP ID", defaultHidden: true },
-    { key: "batch", label: "Batch", defaultHidden: true },
     { key: "university", label: "University", defaultHidden: true },
     { key: "grad_year", label: "Grad year", defaultHidden: true },
     { key: "home_lc", label: "Home LC", defaultHidden: true },
@@ -537,6 +538,7 @@ export function SignupsView({
   viewer: ViewerInfo;
   filters: {
     q: string; batch: string; program: string; status: string; potential: string;
+    personStatus?: string;
     interested: string; contacted: string; phone: string; sort: string; dir: string;
   };
 }) {
@@ -744,7 +746,7 @@ export function SignupsView({
   // ⚙ Columns — one preference per view × function: the unassigned pool wants
   // different columns from "My sign-ups", and OGV from OGT
   const cols = useTableColumns(
-    `signups:${activeView}:${activeFn}`,
+    `signups-v2:${activeView}:${activeFn}`,
     signupColumns(activeFn, activeView)
   );
 
@@ -782,6 +784,20 @@ export function SignupsView({
         return pick("🎯 Potential", filters.potential ?? "",
           [...SIGNUP_STATUSES.map((st) => [st, st] as [string, string]), ["none", "— None yet"]],
           (v) => setParams({ potential: v || null, status: null }));
+      case "person_status": {
+        // v33.12 — any column whose values repeat gets a funnel; this one is
+        // straight from the tracker, so the options come from what is
+        // actually in the page rather than a guessed list.
+        const seen = [...new Set(rows.map((r) => r.person_status).filter(Boolean))] as string[];
+        return seen.length > 1
+          ? pick(
+              "Person status",
+              filters.personStatus ?? "",
+              seen.map((v) => [v, v] as [string, string]),
+              (v) => setParams({ personStatus: v || null })
+            )
+          : null;
+      }
       case "phone":
         return pick("Phone", filters.phone ?? "", [["has", "✅ Has phone"], ["missing", "📵 Missing phone"]],
           (v) => setParams({ phone: v || null }));

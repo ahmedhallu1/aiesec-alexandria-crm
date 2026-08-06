@@ -11,6 +11,12 @@ import {
  *  membership (EB) → planning → accounts (the module-less see Soon there). */
 export default async function Home() {
   const viewer = await getViewer();
+  // THE EB STEERS (v33.12) — the LCP and the LCVPs open on the Dashboard,
+  // because the numbers are the first thing they came for. It has to be
+  // checked BEFORE the module redirects, or an LCVP with raising access
+  // lands in Raising like everyone else.
+  if (viewer.isAdmin || viewer.role === "LCP" || viewer.role === "LCVP")
+    redirect("/dashboard");
   if (hasRaisingAccess(viewer)) redirect("/accounts");
   if (hasOgxAccess(viewer)) redirect("/signups");
   if (hasConsiderationAccess(viewer)) redirect("/consideration");

@@ -46,6 +46,7 @@ export default async function SignupsPage({
         interested: sp.interested,
         contacted: sp.contacted,
         country: sp.country,
+        personStatus: sp.personStatus,
         phone: sp.phone === "missing" || sp.phone === "has" ? sp.phone : undefined,
         q: sp.q,
         sort: sp.sort,
@@ -90,6 +91,7 @@ export default async function SignupsPage({
       filters={{
         q: sp.q ?? "",
         batch: sp.batch ?? "",
+        personStatus: sp.personStatus ?? "",
         program: sp.program ?? "",
         status: sp.status ?? "",
         potential: sp.potential ?? "",
