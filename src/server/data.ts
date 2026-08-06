@@ -1290,13 +1290,26 @@ function addRowLane(s: FunnelStats, r: PipelineRow, lane: string) {
 
 /** How long a dashboard read may be reused.
  *
- *  RAISED TO 5 MINUTES (v33.14) with the project near its CPU allowance. The
- *  dashboard reads ~4,000 rows and aggregates them in JS; on a working-hours
- *  day with forty people in the system that read was being paid for again
- *  every time anyone anywhere logged a contact, because each write expired the
- *  SHARED entry. Numbers up to five minutes old on a dashboard nobody watches
- *  second-by-second is a trade worth making to keep the system up. */
-const DASHBOARD_TTL_SECONDS = 300;
+ *  30 MINUTES (v33.15), raised deliberately with the project against its CPU
+ *  allowance and a working-hours day tomorrow.
+ *
+ *  WHAT IS ACTUALLY CACHED: only the dashboard's aggregate — the KPI row, the
+ *  conversion strip, the leaderboards and the drills. It reads ~4,000 account
+ *  rows and folds them in JS, which is the single most expensive thing the
+ *  system does, and it is SHARED between everyone with the same scope, so one
+ *  read serves a whole function.
+ *
+ *  WHAT IS NOT: everything else. The accounts list, an account page, sign-ups,
+ *  the calendar, attendance — all still read live on every request, and every
+ *  write still refreshes them immediately. Logging a contact updates the
+ *  account in front of you at once; it is only the dashboard's totals that may
+ *  lag.
+ *
+ *  THE COST: a number on the dashboard can be up to half an hour behind. The
+ *  dashboard is a steering instrument, not a live scoreboard — nobody makes a
+ *  decision on the difference between 61 and 62 opens — and the Refresh button
+ *  is always there for someone who wants it now. */
+const DASHBOARD_TTL_SECONDS = 1800;
 
 /** The registered `Team` names, lower-cased. Structural teams (EB, LB,
  *  Function, Function leaders) are deliberately excluded — they are not
