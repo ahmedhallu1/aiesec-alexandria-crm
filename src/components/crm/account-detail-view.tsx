@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Archive, ArchiveRestore, ArrowLeft, CalendarPlus, CheckCircle2, FileText, Loader2, Mail,
-  MessageSquareText, Paperclip, Phone, Pin, PinOff, Plus, RotateCcw, Sparkles, Trophy, Upload, X,
+  MessageSquareText, Paperclip, Pencil, Phone, Pin, PinOff, Plus, RotateCcw, Sparkles, Trophy,
+  Upload, X,
   XCircle,
 } from "lucide-react";
 import {
@@ -14,11 +15,12 @@ import {
   reassignAccount, recordDeal, reportVisit, requestContractUploads, reviveAccount,
   scheduleVisit, setOutOfProcess, setPodioUpdateCadence, setPodioUpdateEnabled,
   toggleCommentPin, toggleCommentArchive, updateAccount, updateAccountContacts,
+  updateComment, updateContactAttempt, updateDeal,
 } from "@/server/actions";
 import type {
   AccountCreationEntry, CommentWithMember, DealWithMember, PipelineRow,
 } from "@/server/data";
-import type { ContactAttempt, Visit } from "@/lib/types";
+import type { AccountFunction, ContactAttempt, ContactMethod, Visit } from "@/lib/types";
 import {
   ACCOUNT_TYPES, B2C_CONTRACT_FORM_URL, B2C_TYPES,
   fmtClock12, fmtDateTime, IGT_SUB_PRODUCTS, IGV_PROJECTS, INDUSTRIES,
@@ -57,8 +59,10 @@ interface Caps {
   edit: boolean;
   reassign: boolean;
   requestState: boolean;
-  /** B2B ↔ BD relabel — the crew's two labels on one account (v33.15) */
-  flipFn: boolean;
+  /** the full set of functions the viewer may MOVE this account between —
+   *  [] = no move. Generalizes v33.15's B2B↔BD flip (v33.19): whoever may
+   *  edit the account and works BOTH functions may relabel it. */
+  fnTargets: AccountFunction[];
 }
 
 const methodIcon = {
@@ -262,7 +266,7 @@ export function AccountDetailView({
 
       <div className="grid gap-4 lg:grid-cols-2">
         <ContactInfoCard account={account} canEdit={caps.edit} viewerName={viewerName} />
-        <DetailsCard account={account} canEdit={caps.edit} canFlipFn={caps.flipFn} />
+        <DetailsCard account={account} canEdit={caps.edit} fnTargets={caps.fnTargets} />
         {/* the Podio worklist grant covers BOTH fields (v33.14): "did we
             submit it" and "what came back" are one act, and an MM sent to
             check a name has to be able to record both. */}
@@ -295,6 +299,7 @@ export function AccountDetailView({
         deals={deals}
         creation={account.creation ?? null}
         canEdit={caps.edit}
+        fn={account.function}
         onReportVisit={caps.edit && active ? setReportVisitId : undefined}
         onMoveVisit={caps.edit && active ? () => setVisitOpen(true) : undefined}
       />
@@ -460,8 +465,8 @@ function ResponsibleRow({
 /** Details: type / industry / sub-product (multi-select). All phones, emails
  *  and links live in the tagged Contact info card. */
 function DetailsCard({
-  account, canEdit, canFlipFn,
-}: { account: PipelineRow; canEdit: boolean; canFlipFn: boolean }) {
+  account, canEdit, fnTargets,
+}: { account: PipelineRow; canEdit: boolean; fnTargets: AccountFunction[] }) {
   const [form, setForm] = useState({
     project: account.project ?? "",
     account_type: account.account_type ?? "",
@@ -486,15 +491,43 @@ function DetailsCard({
       const { fn, ...rest } = form;
       const res = await updateAccount(account.id, {
         ...rest,
-        // the B2B↔BD relabel rides the same save — sent only when the USER
-        // changed it and it differs from the live value
-        ...(canFlipFn && fnTouched && (fn === "B2B" || fn === "BD") && fn !== account.function
+        // a function MOVE rides the same save — sent only when the USER
+        // changed it and it differs from the live value (v33.19: any pair
+        // of the viewer's own functions, not just B2B↔BD)
+        ...(fnTouched && fn !== account.function && fnTargets.includes(fn)
           ? { function: fn }
           : {}),
       });
       if (res.ok) { toast.success("Saved"); setDirty(false); setFnTouched(false); }
       else toast.error(res.error);
     });
+
+  // the Function select — rendered on BOTH card variants (a B2C account may
+  // move to the viewer's other functions too)
+  const fnRow =
+    fnTargets.length >= 2 ? (
+      <div className="grid gap-1 sm:grid-cols-[110px_1fr] sm:items-center sm:gap-2">
+        <Label className="text-xs text-muted-foreground">Function</Label>
+        <div className="grid min-w-0 gap-1">
+          <Select
+            value={fnTouched ? form.fn : account.function}
+            onValueChange={(v) => { set("fn")(v); setFnTouched(true); }}
+          >
+            <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {fnTargets.map((f) => (
+                <SelectItem key={f} value={f}>{f}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {fnTouched && form.fn !== account.function ? (
+            <p className="text-[11px] text-muted-foreground">
+              Saving moves this account (and its numbers) to the {form.fn} lane.
+            </p>
+          ) : null}
+        </div>
+      </div>
+    ) : null;
 
   const listRow = (label: string, key: "account_type") => {
     const value = form[key];
@@ -535,6 +568,7 @@ function DetailsCard({
       <Card>
         <CardHeader><CardTitle className="text-base">Details</CardTitle></CardHeader>
         <CardContent className="space-y-3">
+          {fnRow}
           <div className="grid gap-1 sm:grid-cols-[110px_1fr] sm:items-center sm:gap-2">
             <Label className="text-xs text-muted-foreground">Type</Label>
             {canEdit ? (
@@ -565,28 +599,7 @@ function DetailsCard({
     <Card>
       <CardHeader><CardTitle className="text-base">Details</CardTitle></CardHeader>
       <CardContent className="space-y-3">
-        {canFlipFn && (account.function === "B2B" || account.function === "BD") ? (
-          <div className="grid gap-1 sm:grid-cols-[110px_1fr] sm:items-center sm:gap-2">
-            <Label className="text-xs text-muted-foreground">Function</Label>
-            <div className="grid min-w-0 gap-1">
-              <Select
-                value={fnTouched ? form.fn : account.function}
-                onValueChange={(v) => { set("fn")(v); setFnTouched(true); }}
-              >
-                <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="B2B">B2B</SelectItem>
-                  <SelectItem value="BD">BD</SelectItem>
-                </SelectContent>
-              </Select>
-              {fnTouched && form.fn !== account.function ? (
-                <p className="text-[11px] text-muted-foreground">
-                  Saving moves this account (and its numbers) to the {form.fn} lane.
-                </p>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
+        {fnRow}
         {account.function !== "IGT" ? (
           <>
             {account.function === "IGV" ? (
@@ -1054,6 +1067,8 @@ function CommentsCard({
   const router = useRouter();
   const [body, setBody] = useState("");
   const [showArchived, setShowArchived] = useState(false);
+  // v33.19: a comment's TEXT is editable (author or LCP — server-enforced)
+  const [editing, setEditing] = useState<{ id: string; body: string } | null>(null);
   const [pending, start] = useTransition();
 
   // number over the FULL list (so #n never shifts when archived ones hide)
@@ -1167,6 +1182,19 @@ function CommentsCard({
                   {canComment ? (
                     <span className="flex shrink-0 items-center">
                       {c.archived ? null : (
+                        <Hint label="Edit this comment's text — the label and number stay">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-6 text-muted-foreground hover:text-foreground"
+                            disabled={pending}
+                            onClick={() => setEditing({ id: c.id, body: c.body })}
+                          >
+                            <Pencil className="size-3.5" />
+                          </Button>
+                        </Hint>
+                      )}
+                      {c.archived ? null : (
                         <Hint label={c.pinned ? "Unpin this comment" : "Pin — highlights it AND shows a 📌 on the accounts list"}>
                           <Button
                             variant="ghost"
@@ -1238,6 +1266,45 @@ function CommentsCard({
           </div>
         ) : null}
       </CardContent>
+
+      {/* v33.19: edit a comment's words — number, label and pin state stay */}
+      <Dialog open={!!editing} onOpenChange={(o) => { if (!o) setEditing(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Edit comment</DialogTitle>
+            <DialogDescription>
+              Only the words change — the label, number and pin stay. Only the
+              author (or the LCP) can save.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            rows={3}
+            dir="auto"
+            value={editing?.body ?? ""}
+            onChange={(e) =>
+              setEditing((cur) => (cur ? { ...cur, body: e.target.value } : cur))
+            }
+          />
+          <DialogFooter>
+            <Button
+              disabled={pending || !editing || editing.body.trim().length < 2}
+              onClick={() =>
+                start(async () => {
+                  if (!editing) return;
+                  const res = await updateComment(editing.id, editing.body);
+                  if (res.ok) {
+                    toast.success("Comment updated");
+                    setEditing(null);
+                    router.refresh();
+                  } else toast.error(res.error);
+                })
+              }
+            >
+              {pending ? "Saving…" : "Save changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
@@ -1462,7 +1529,7 @@ function DealContracts({ deal, canEdit }: { deal: DealWithMember; canEdit: boole
 }
 
 function TimelineCard({
-  attempts, visits, deals, creation, canEdit, onReportVisit, onMoveVisit,
+  attempts, visits, deals, creation, canEdit, fn, onReportVisit, onMoveVisit,
 }: {
   attempts: AttemptWithMember[];
   visits: Visit[];
@@ -1470,11 +1537,18 @@ function TimelineCard({
   /** the account's own creation — the oldest entry of the History (v31) */
   creation: AccountCreationEntry | null;
   canEdit: boolean;
+  /** the account's function — decides which fields a deal EDIT shows (v33.19) */
+  fn: AccountFunction;
   /** present when the viewer may report pending visits — makes their rows clickable */
   onReportVisit?: (visitId: string) => void;
   /** present when the viewer may MOVE a booked visit (v33.18) */
   onMoveVisit?: () => void;
 }) {
+  // v33.19: History entries are EDITABLE — a wrong click shouldn't need the
+  // IM team. The pencil shows for anyone who may edit the account; the
+  // server enforces author-or-LCP and a refused click toasts its message.
+  const [editAttempt, setEditAttempt] = useState<AttemptWithMember | null>(null);
+  const [editDeal, setEditDeal] = useState<{ deal: DealWithMember; no: number } | null>(null);
   return (
     <Card>
       <CardHeader><CardTitle className="text-base">History</CardTitle></CardHeader>
@@ -1524,6 +1598,18 @@ function TimelineCard({
                     </p>
                     <DealContracts deal={d} canEdit={canEdit} />
                   </div>
+                  {canEdit ? (
+                    <Hint label="Edit this deal — note, amount or its opens">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="-mr-1 -mt-1 size-6 shrink-0 text-muted-foreground hover:text-foreground"
+                        onClick={() => setEditDeal({ deal: d, no: deals.length - i })}
+                      >
+                        <Pencil className="size-3.5" />
+                      </Button>
+                    </Hint>
+                  ) : null}
                 </div>
               );
             })}
@@ -1613,6 +1699,21 @@ function TimelineCard({
                     {a.member?.name} · {fmtDateTime(a.created_at)}
                   </p>
                 </div>
+                {/* Visit Scheduled / Not Interested rows carry a side effect
+                    (a booked visit / the archive) — the server refuses to
+                    rewrite those, so no pencil is offered on them */}
+                {canEdit && a.status !== "Visit Scheduled" && a.status !== "Not Interested" ? (
+                  <Hint label="Edit this log — method, result or comment">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-6 shrink-0 text-muted-foreground hover:text-foreground"
+                      onClick={() => setEditAttempt(a)}
+                    >
+                      <Pencil className="size-3.5" />
+                    </Button>
+                  </Hint>
+                ) : null}
               </div>
             ))}
           </div>
@@ -1620,7 +1721,259 @@ function TimelineCard({
         {/* the oldest entry of them all: the account joining the CRM */}
         {creation ? <CreationEntry creation={creation} /> : null}
       </CardContent>
+      {editAttempt ? (
+        <AttemptEditDialog
+          key={editAttempt.id}
+          attempt={editAttempt}
+          onOpenChange={(o) => { if (!o) setEditAttempt(null); }}
+        />
+      ) : null}
+      {editDeal ? (
+        <DealEditDialog
+          key={editDeal.deal.id}
+          deal={editDeal.deal}
+          dealNo={editDeal.no}
+          fn={fn}
+          onOpenChange={(o) => { if (!o) setEditDeal(null); }}
+        />
+      ) : null}
     </Card>
+  );
+}
+
+/** EDIT a logged contact attempt (v33.19): method, result, comment. Results
+ *  that fire side effects (Not Interested → archive, Visit Scheduled → a
+ *  booked visit) can only be set by LOGGING a contact — never by an edit. */
+const EDITABLE_ATTEMPT_RESULTS = [
+  "No Response", "Waiting for response", "Responded", "Interested", "Wrong Contact",
+] as const;
+
+function AttemptEditDialog({
+  attempt, onOpenChange,
+}: { attempt: AttemptWithMember; onOpenChange: (o: boolean) => void }) {
+  const router = useRouter();
+  const [method, setMethod] = useState<ContactMethod>(attempt.method);
+  // a legacy status ("Call Scheduled") isn't offered — it stays unless the
+  // member picks a real one (the patch simply omits an untouched status)
+  const [status, setStatus] = useState<string>(
+    (EDITABLE_ATTEMPT_RESULTS as readonly string[]).includes(attempt.status) ? attempt.status : ""
+  );
+  const [comment, setComment] = useState(attempt.comment ?? "");
+  const [pending, start] = useTransition();
+
+  const submit = () =>
+    start(async () => {
+      const res = await updateContactAttempt(attempt.id, {
+        ...(method !== attempt.method ? { method } : {}),
+        ...(status && status !== attempt.status ? { status } : {}),
+        ...(comment.trim() !== (attempt.comment ?? "") ? { comment: comment.trim() || null } : {}),
+      });
+      if (res.ok) {
+        toast.success("Contact log updated");
+        onOpenChange(false);
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
+  return (
+    <Dialog open onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Edit contact log</DialogTitle>
+          <DialogDescription>
+            Fixes a wrong click — only whoever logged it (or the LCP) can save.
+            Archiving and visit results are set by logging a contact, not here.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="grid gap-1.5">
+              <Label>Method</Label>
+              <Select
+                value={method}
+                onValueChange={(v) => {
+                  const m = v as ContactMethod;
+                  setMethod(m);
+                  // "Waiting for response" is meaningless on a Call (v33.19)
+                  if (m === "Call" && status === "Waiting for response") setStatus("No Response");
+                }}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {(["Call", "WhatsApp", "Email"] as const).map((m) => (
+                    <SelectItem key={m} value={m}>{m}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Result</Label>
+              <Select value={status || undefined} onValueChange={setStatus}>
+                <SelectTrigger><SelectValue placeholder={attempt.status} /></SelectTrigger>
+                <SelectContent>
+                  {EDITABLE_ATTEMPT_RESULTS
+                    .filter((s) => s !== "Waiting for response" || method !== "Call")
+                    .map((s) => (
+                      <SelectItem key={s} value={s}>{s}</SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid gap-1.5">
+            <Label>Comment</Label>
+            <Textarea
+              rows={2}
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder="What was said, who you reached…"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button onClick={submit} disabled={pending}>
+            {pending ? "Saving…" : "Save changes"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** EDIT a deal (v33.19): note, amount & benefits (BD), and its opens — which
+ *  recompute the account's counters server-side. A deal whose opens are SPLIT
+ *  across members keeps them locked (rewriting someone else's attribution
+ *  needs a corrective deal, not an edit). */
+function DealEditDialog({
+  deal, dealNo, fn, onOpenChange,
+}: {
+  deal: DealWithMember;
+  dealNo: number;
+  fn: AccountFunction;
+  onOpenChange: (o: boolean) => void;
+}) {
+  const router = useRouter();
+  const customSplit = (deal.allocations ?? []).length > 1;
+  const mixed = fn === "B2B" || fn === "BD";
+  const isBD = fn === "BD";
+  const isB2C = fn === "B2C";
+  const showIgv = fn === "IGV" || mixed;
+  const showIgta = fn === "IGT" || mixed;
+  const showIgte = fn === "IGT" || mixed;
+  // B2C deals carry no details; a custom split locks the opens
+  const opensEditable = !isB2C && !customSplit;
+  // money fields: BD's MOS — also shown when the deal already carries an
+  // amount/benefits (e.g. recorded while the account was BD, later moved)
+  const showMoney = isBD || (deal.amount ?? 0) > 0 || !!deal.benefits;
+
+  const [igv, setIgv] = useState(String(deal.slots_igv ?? 0));
+  const [igta, setIgta] = useState(String(deal.slots_igta ?? 0));
+  const [igte, setIgte] = useState(String(deal.slots_igte ?? 0));
+  const [amount, setAmount] = useState(deal.amount ? String(deal.amount) : "");
+  const [benefits, setBenefits] = useState(deal.benefits ?? "");
+  const [note, setNote] = useState(deal.note ?? "");
+  const [pending, start] = useTransition();
+
+  const nIgv = showIgv ? Math.max(0, Number(igv) || 0) : (deal.slots_igv ?? 0);
+  const nIgta = showIgta ? Math.max(0, Number(igta) || 0) : (deal.slots_igta ?? 0);
+  const nIgte = showIgte ? Math.max(0, Number(igte) || 0) : (deal.slots_igte ?? 0);
+  const total = nIgv + nIgta + nIgte;
+  const opensChanged =
+    opensEditable &&
+    (nIgv !== (deal.slots_igv ?? 0) ||
+      nIgta !== (deal.slots_igta ?? 0) ||
+      nIgte !== (deal.slots_igte ?? 0));
+  // a non-B2C/BD deal needs at least one open (mirrors the server)
+  const totalOk = !opensChanged || isBD || total >= 1;
+  const nAmount = amount.trim() === "" ? null : Math.max(0, Number(amount) || 0);
+
+  const submit = () =>
+    start(async () => {
+      const res = await updateDeal(deal.id, {
+        ...(opensChanged ? { slotsIgv: nIgv, slotsIgta: nIgta, slotsIgte: nIgte } : {}),
+        ...(showMoney && nAmount !== (deal.amount || null) ? { amount: nAmount } : {}),
+        ...(showMoney && benefits.trim() !== (deal.benefits ?? "")
+          ? { benefits: benefits.trim() || null }
+          : {}),
+        ...(note.trim() !== (deal.note ?? "") ? { note: note.trim() || null } : {}),
+      });
+      if (res.ok) {
+        toast.success("Deal updated");
+        onOpenChange(false);
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
+  const numField = (label: string, colorClass: string, value: string, onChange: (v: string) => void) => (
+    <div className="grid gap-1.5">
+      <Label className={colorClass}>{label} opens</Label>
+      <Input type="number" min={0} inputMode="numeric" value={value} onChange={(e) => onChange(e.target.value)} />
+    </div>
+  );
+
+  return (
+    <Dialog open onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Edit deal #{dealNo}</DialogTitle>
+          <DialogDescription>
+            Fixes a wrong number — the account&apos;s totals recompute from all
+            its deals. Only the deal&apos;s owner, their leaders or the LCP can save.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          {customSplit ? (
+            <p className="rounded-md border border-warning/50 bg-warning/10 px-2.5 py-1.5 text-xs text-muted-foreground">
+              This deal&apos;s opens are <b>split across members</b> — they can&apos;t be
+              edited here. Record a corrective deal instead; the note{showMoney ? ", amount" : ""} and
+              benefits stay editable.
+            </p>
+          ) : null}
+          {opensEditable ? (
+            <div className={cn("grid gap-3", mixed ? "grid-cols-3" : showIgta ? "grid-cols-2" : "grid-cols-1")}>
+              {showIgv ? numField(isBD ? "IGV (optional)" : "IGV", "text-gv", igv, setIgv) : null}
+              {showIgta ? numField(isBD ? "IGTa (optional)" : "IGTa", "text-gt", igta, setIgta) : null}
+              {showIgte ? numField(isBD ? "IGTe (optional)" : "IGTe", "text-gte", igte, setIgte) : null}
+            </div>
+          ) : null}
+          {opensEditable && !totalOk ? (
+            <p className="text-xs font-medium text-warning">A deal needs at least one open.</p>
+          ) : null}
+          {showMoney ? (
+            <>
+              <div className="grid gap-1.5">
+                <Label className="text-success">Deal amount (EGP)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  inputMode="numeric"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="e.g. 15000"
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label>Other benefits</Label>
+                <Input
+                  value={benefits}
+                  onChange={(e) => setBenefits(e.target.value)}
+                  placeholder="e.g. venue for events, media exposure…"
+                />
+              </div>
+            </>
+          ) : null}
+          <div className="grid gap-1.5">
+            <Label>Note</Label>
+            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. summer peak bulk deal" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button onClick={submit} disabled={pending || !totalOk}>
+            {pending ? "Saving…" : "Save changes"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

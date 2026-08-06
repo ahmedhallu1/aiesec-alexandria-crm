@@ -1,6 +1,6 @@
 import { canSeeLcConcerns } from "@/lib/rbac";
 import {
-  getViewer, listAllMembers, listAttendedTouchPoints, listLcFeedback,
+  getViewer, listAllMembers, listLcFeedback, listPastTouchPointsForFeedback,
   type LcFeedbackRow,
 } from "@/server/data";
 import { LcFeedbackView } from "@/components/crm/lc-feedback-view";
@@ -14,7 +14,9 @@ export default async function LcFeedbackPage() {
   const [all, inbox, touchPoints] = await Promise.all([
     listAllMembers(),
     isInboxOwner ? listLcFeedback(viewer) : Promise.resolve([] as LcFeedbackRow[]),
-    listAttendedTouchPoints(viewer).catch(() => []),
+    // ANY past session the viewer was part of — not just the ones a register
+    // marked them present at (v33.19)
+    listPastTouchPointsForFeedback(viewer).catch(() => []),
   ]);
 
   const members = all

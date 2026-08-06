@@ -1,12 +1,13 @@
 import { redirect } from "next/navigation";
 import {
-  getViewer, listSignupsPage, ogxPlanCard, signupFilterOptions, signupReassignTargets,
+  cicCallerTargets, getViewer, listSignupLogs, listSignupsPage, ogxPlanCard, seesCicQueue,
+  signupFilterOptions, signupReassignTargets,
   signupViewsFor,
   streakStats,
 } from "@/server/data";
 import { hasOgxAccess, ogxFunctions } from "@/lib/rbac";
 import { SignupsView } from "@/components/crm/signups-view";
-import type { OgxFunction } from "@/lib/types";
+import type { OgxFunction, SignupLog } from "@/lib/types";
 import { PAGE_SIZES, pageSizeOf } from "@/lib/page-size";
 
 export const metadata = { title: "Sign-ups" };
@@ -63,9 +64,30 @@ export default async function SignupsPage({
   ]);
 
   const isLeader = viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
-  const targets = isLeader || viewer.role === "Team Leader"
-    ? await signupReassignTargets(viewer, activeFn)
-    : [];
+  // CIC (v33.19) is handed out by MMs and above — Coordinators included, who
+  // are NOT part of the reassign flow. One fetch, two audiences: `targets`
+  // keeps its exact old meaning (the bulk/reassign pickers), `cicTargets`
+  // feeds the second-caller picker.
+  const canCic = seesCicQueue(viewer);
+  const needsTargets = isLeader || viewer.role === "Team Leader";
+  // two DIFFERENT questions: who may own a sign-up (reassign scope) vs who may
+  // make the verification call (the whole function — a Coordinator must be
+  // able to hand it to someone other than themselves)
+  const [targets, cicTargets] = await Promise.all([
+    needsTargets ? signupReassignTargets(viewer, activeFn) : Promise.resolve([]),
+    canCic ? cicCallerTargets(viewer, activeFn) : Promise.resolve([]),
+  ]);
+
+  /** One sign-up's edit history for the detail dialog — an inline Server
+   *  Function (Next 16's `use server` at the top of a function body). The
+   *  viewer is read from the session HERE and `listSignupLogs` re-checks the
+   *  sign-up against their scope, so the id is the only thing the client
+   *  gets to choose. */
+  async function loadSignupLogs(signupId: string): Promise<SignupLog[]> {
+    "use server";
+    const v = await getViewer();
+    return listSignupLogs(v, signupId);
+  }
 
   return (
     <SignupsView
@@ -80,6 +102,8 @@ export default async function SignupsPage({
       fns={fns}
       activeFn={activeFn}
       targets={targets}
+      cicTargets={cicTargets}
+      loadLogs={loadSignupLogs}
       planCard={planCard}
       streak={streak}
       viewer={{
@@ -87,6 +111,7 @@ export default async function SignupsPage({
         name: viewer.name,
         isLeader,
         isTl: viewer.role === "Team Leader",
+        canCic,
         canVp:
           viewer.isAdmin ||
           viewer.role === "LCP" ||

@@ -273,18 +273,21 @@ export function canEditAccount(v: Viewer, a: AccountLike): boolean {
   return a.responsible_id != null && scope.ids.includes(a.responsible_id);
 }
 
-/** Flip an account between the crew's two labels — B2B (opens) ↔ BD (money).
- *  B2B & BD are one membership picking the label per account, so anyone who
- *  may EDIT the account and may CREATE under BOTH labels may relabel it:
- *  the crew on their own accounts, their TLs on team accounts, the function's
- *  VP/Director (and IGV/IGT VPs/Directors, whose scope already covers B2B/BD),
- *  LCP/admin. Archived rows move through revive/reassign instead. */
-export function canFlipB2bBd(v: Viewer, a: AccountLike): boolean {
-  if (a.out_of_process) return false;
-  if (a.function !== "B2B" && a.function !== "BD") return false;
-  if (!canEditAccount(v, a)) return false;
+/** Which functions this viewer may RELABEL an account between (v33.19).
+ *
+ *  The B2B↔BD flip (v33.15) was the first case of a general rule: whoever
+ *  may EDIT an account and works BOTH its current function and the target
+ *  may move it — "I work IGV and IGT" is the same situation as the B2B/BD
+ *  crew's two labels. LCP-level viewers (incl. F&L) span all five. Archived
+ *  rows move through revive/reassign instead. Returns [] when no move is
+ *  possible; otherwise the full set the picker should offer (incl. the
+ *  current function, so the select renders its value). */
+export function accountFnTargets(v: Viewer, a: AccountLike): AccountFunction[] {
+  if (a.out_of_process) return [];
+  if (!canEditAccount(v, a)) return [];
   const allowed = allowedAccountFunctions(v);
-  return allowed.includes("B2B") && allowed.includes("BD");
+  if (!allowed.includes(a.function as AccountFunction)) return [];
+  return allowed.length >= 2 ? allowed : [];
 }
 
 /** Responsibility: Team Leaders choose between themselves and their members;

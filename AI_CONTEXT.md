@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-06 · Version: v33.18
+Last updated: 2026-08-07 · Version: v33.19
 
 ---
 
@@ -610,6 +610,69 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-07 · v33.19** — **THE HOSTING, CIC & CONSISTENCY RELEASE**
+  (migration **0045 applied**: CIC columns, `signup_logs`,
+  `ir_calls.event_calendar`).
+  ① **THE VERCEL CPU FIX.** Fluid CPU sat at ~98% of Hobby, and the cause was
+  not the app: the two sheet imports re-parsed everything every 15–30 minutes,
+  day and night, whether or not a cell had moved. Three changes: a Drive
+  `modifiedTime` **change check** (unchanged → the import exits in ~1s;
+  `?force=1` overrides), a **night pause** (01:00–07:00 Cairo), and
+  `.github/workflows/imports.yml` + `scripts/run-import.mjs`, which run the
+  SAME exported functions on **GitHub Actions** — off Vercel entirely. Both
+  schedules run until the secrets are added and one manual run is green;
+  `supabase/cron.sql` documents the two `cron.unschedule` calls that retire
+  the Vercel twins, so there is no window where nothing runs. (Cloudflare's
+  free tier was assessed and REJECTED: a 10ms CPU cap can't host bcrypt +
+  googleapis.)
+  ② **A member could not see seven of his own accounts.** v33.14 swapped the
+  list count to Postgres's ESTIMATE; it guessed 20 where a member had 27, and
+  since the page size is also 20 the pager concluded "one page" and hid
+  itself — on desktop and mobile alike. Back to an exact count: one cheap
+  indexed query, and nobody loses sight of their work to save it.
+  ③ **An account follows its owner, always.** Cross-function hand-overs move
+  the account (v33.18 covered the picker; this covers the DEFAULTS and the
+  data): IGTe → IGV lands on **Global Classroom**, other directions leave the
+  new function's fields for the mover. The two live strays (IGTa accounts
+  owned by IGV members — the reason IGV members showed on the IGT dashboard)
+  were moved. The inline owner chip drops its ` · FN` suffix.
+  ④ **The function switch is UNIVERSAL** (`accountFnTargets` replaces
+  `canFlipB2bBd`): anyone who may edit an account and works BOTH functions
+  moves it between them — IGV+IGT, B2B+BD, LCP/F&L across all five. The
+  world-aware name check and 23505 mapping still gate every move.
+  ⑤ **CIC — Customer Interview Calls** (the OGX second call): a sign-up the
+  first assignee marked Contacted that never got a status appears in a new
+  **📞 CIC** tab for MMs+, who hand it to a SECOND caller to verify the first
+  call and follow up. The first assignee keeps the row and their KPIs/MOS
+  untouched — the second call lives in `cic_*` columns and can never move the
+  funnel. Every change (assigned / contacted / interested / status / CIC) is
+  written to **`signup_logs`** and shown as a collapsible History in the
+  detail dialog. The CIC caller pool is the whole function (deliberately NOT
+  the reassign scope, which would let a Coordinator pick only themselves).
+  ⑥ **IR calls get a Meet link without a member Google grant**: the event is
+  created on the **IM mailbox calendar** (`ir_calls.event_calendar` records
+  which calendar owns it), the IR is invited by email, the member is invited
+  too, and the link shows on the IR-calls page. Cancel and reschedule follow
+  the right calendar. Temporary until every member has AIESEC credentials.
+  ⑦ **A promotion releases the member-level sign-up pool** (the Marwan case):
+  Member/Coordinator → TL+ releases their status-less sign-ups to Unassigned,
+  from BOTH the import and the in-app editor. His 61 were released (none
+  carried a status, so no MOS moved).
+  ⑧ **Attendance stops judging the caretaker**: role **Admin** is never in a
+  touch-point audience or on an attendance sheet; inactive members drop out.
+  ⑨ **Calendar scope filter**: Everyone · Mine · My team · My function
+  (replaces the binary "Only mine"; key `sodio-calendar-scope`).
+  ⑩ **Feedback on ANY past touch point you were part of** — attendance is no
+  longer required (`listPastTouchPointsForFeedback`; `submitLcFeedback`
+  re-verifies "can see it + it's past" instead of an attendance row).
+  ⑪ **Editing what you logged**: contact attempts, comments and deal details
+  (incl. opens, which recompute the account's counters) are editable from
+  History. Side-effect logs (Visit Scheduled / Not Interested) stay locked —
+  rewriting one would mean silently un-booking a visit or un-archiving an
+  account. ⑫ **"Waiting for response" is hidden on Call** (it means a message
+  sent). ⑬ The floating **test-view chip** got the same grab handle the
+  sidebar tabs got in v33.18.
 
 - **2026-08-06 · v33.18** — **ATTENDANCE TRUTH, MOVES & 12-HOUR EVERYWHERE.**
   ① **The working-hours engine called real work "absent"**: the rule wanted

@@ -104,8 +104,48 @@ export interface CalendarCustomItem {
   canDelete: boolean;
 }
 
+/** Whose items the calendar shows (v33.19 — replaced the "Only mine" switch). */
+type CalScope = "all" | "mine" | "team" | "function";
+
+const SCOPE_OPTIONS: {
+  key: CalScope;
+  label: string;
+  hint: string;
+  /** the empty state's subject — "Nothing {…}booked in August yet." */
+  empty: string;
+}[] = [
+  {
+    key: "all",
+    label: "Everyone",
+    hint: "Everything you can see — the whole function's visits, IR calls and touch points",
+    empty: "",
+  },
+  {
+    key: "mine",
+    label: "Mine",
+    hint: "Only what's YOURS — your visits, your IR calls, the touch points you're part of",
+    empty: "of yours ",
+  },
+  {
+    key: "team",
+    label: "My team",
+    hint: "You and your team — their visits and IR calls, and the touch points you're part of",
+    empty: "for your team ",
+  },
+  {
+    key: "function",
+    label: "My function",
+    hint: "Everyone who works one of your functions — plus every touch point you can see",
+    empty: "for your function ",
+  },
+];
+
+const isCalScope = (v: unknown): v is CalScope =>
+  v === "all" || v === "mine" || v === "team" || v === "function";
+
 export function CalendarView({
   visits, touchPoints = [], irCalls = [], items = [], month, viewerId,
+  teamMemberIds = [], memberFnIds = [],
   openableMemberIds, showFunction = false, booking = null,
   canAddItems = false, assignables = [],
 }: {
@@ -123,6 +163,10 @@ export function CalendarView({
   assignables?: { id: string; label: string }[];
   month: string;
   viewerId: string;
+  /** the viewer's direct team (v33.19) — drives the "My team" scope */
+  teamMemberIds?: string[];
+  /** active members sharing a function with the viewer — the "My function" scope */
+  memberFnIds?: string[];
   /** member ids whose accounts the viewer may open — null = everyone shown */
   openableMemberIds: string[] | null;
   /** LCP/admin see the whole LC — hovering a visit also names its function */
@@ -141,29 +185,47 @@ export function CalendarView({
   const [itemDate, setItemDate] = useState<string | null>(null);
   const [itemOpen, setItemOpen] = useState(false);
   const [deletePending, startDelete] = useTransition();
-  // "ONLY MINE" (v33.16): the whole function's visits/IR calls/points hide,
-  // the viewer's own stay. Read after mount so SSR and first paint agree.
-  const [mineOnly, setMineOnly] = useState(false);
+  // WHOSE ITEMS (v33.19, was the v33.16 "Only mine" switch): Everyone · Mine ·
+  // My team · My function. Read after mount so SSR and first paint agree.
+  const [viewScope, setViewScope] = useState<CalScope>("all");
   useEffect(() => {
-    setMineOnly(localStorage.getItem("sodio-calendar-mine") === "1");
+    const saved = localStorage.getItem("sodio-calendar-scope");
+    if (isCalScope(saved)) setViewScope(saved);
   }, []);
-  const toggleMine = () => {
-    const next = !mineOnly;
-    setMineOnly(next);
-    localStorage.setItem("sodio-calendar-mine", next ? "1" : "0");
+  const pickScope = (s: CalScope) => {
+    setViewScope(s);
+    try {
+      localStorage.setItem("sodio-calendar-scope", s);
+    } catch { /* private mode — the choice just won't stick */ }
   };
+  const scopeMeta =
+    SCOPE_OPTIONS.find((o) => o.key === viewScope) ?? SCOPE_OPTIONS[0];
+
+  /** Which member ids a visit / IR call must belong to — null = no filter. */
+  const ownerIds = useMemo(() => {
+    if (viewScope === "all") return null;
+    if (viewScope === "mine") return new Set([viewerId]);
+    if (viewScope === "team") return new Set([viewerId, ...teamMemberIds]);
+    return new Set([viewerId, ...memberFnIds]);
+  }, [viewScope, viewerId, teamMemberIds, memberFnIds]);
 
   const shownVisits = useMemo(
-    () => (mineOnly ? visits.filter((v) => v.member.id === viewerId) : visits),
-    [visits, mineOnly, viewerId]
+    () => (ownerIds ? visits.filter((v) => ownerIds.has(v.member.id)) : visits),
+    [visits, ownerIds]
   );
+  // touch points are already function-scoped server-side, and they have no
+  // single "owner" to match a team against — so "My function" keeps everything
+  // visible and the two narrower scopes keep the ones the viewer is IN
   const shownTps = useMemo(
-    () => (mineOnly ? touchPoints.filter((t) => t.mine) : touchPoints),
-    [touchPoints, mineOnly]
+    () =>
+      viewScope === "mine" || viewScope === "team"
+        ? touchPoints.filter((t) => t.mine)
+        : touchPoints,
+    [touchPoints, viewScope]
   );
   const shownIr = useMemo(
-    () => (mineOnly ? irCalls.filter((c) => c.memberId === viewerId) : irCalls),
-    [irCalls, mineOnly, viewerId]
+    () => (ownerIds ? irCalls.filter((c) => c.memberId && ownerIds.has(c.memberId)) : irCalls),
+    [irCalls, ownerIds]
   );
 
   const removeItem = (it: CalendarCustomItem) => {
@@ -329,15 +391,31 @@ export function CalendarView({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1">
-          <Hint label="Show only what's YOURS — your visits, your IR calls, the touch points you're part of">
-            <Button
-              variant={mineOnly ? "default" : "outline"}
-              className="h-9"
-              onClick={toggleMine}
-            >
-              <UserRound className="size-4" /> Only mine
-            </Button>
-          </Hint>
+          {/* whose items — one h-9 segmented control on the filter baseline */}
+          <div
+            role="group"
+            aria-label="Whose items to show"
+            className="flex h-9 shrink-0 items-center gap-0.5 rounded-md border p-0.5"
+          >
+            {SCOPE_OPTIONS.map((o) => (
+              <Hint key={o.key} label={o.hint}>
+                <button
+                  type="button"
+                  aria-pressed={viewScope === o.key}
+                  onClick={() => pickScope(o.key)}
+                  className={cn(
+                    "flex h-8 items-center gap-1 rounded px-2 text-xs font-semibold transition-colors",
+                    viewScope === o.key
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  {o.key === "mine" ? <UserRound className="size-3.5" /> : null}
+                  {o.label}
+                </button>
+              </Hint>
+            ))}
+          </div>
           {canAddItems ? (
             <CalendarItemDialog assignables={assignables} viewerId={viewerId} />
           ) : null}
@@ -578,14 +656,14 @@ export function CalendarView({
           })}
         {byDate.size + tpByDate.size + irByDate.size + itemsByDate.size === 0 ? (
           <p className="py-10 text-center text-sm text-muted-foreground">
-            Nothing {mineOnly ? "of yours " : ""}booked in {monthLabel(month)} yet.
+            Nothing {scopeMeta.empty}booked in {monthLabel(month)} yet.
           </p>
         ) : null}
       </div>
 
       {shownVisits.length + shownTps.length + shownIr.length + items.length === 0 ? (
         <p className="hidden py-6 text-center text-sm text-muted-foreground sm:block">
-          Nothing {mineOnly ? "of yours " : ""}booked in {monthLabel(month)} yet —
+          Nothing {scopeMeta.empty}booked in {monthLabel(month)} yet —
           visits come from account pages{booking ? ", touch points from any day you click" : ""}. 🗓️
         </p>
       ) : null}

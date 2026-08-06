@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ChevronDown, Eye, Loader2, X } from "lucide-react";
+import { ChevronDown, Eye, GripVertical, Loader2, X } from "lucide-react";
 import { setViewAsMode, startViewAs, stopViewAs } from "@/server/actions";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -296,18 +296,28 @@ export function ViewAsBanner({
           </button>
         ) : (
           <>
-            {/* drag handle — ONLY this area moves the chip */}
+            {/* THE GRIP is the only drag origin (v33.19). The label used to be
+                grabbable too, so a press meant to read the chip moved it and a
+                near-miss on a button dragged instead of clicking. size-8 = a
+                32px touch target; touch-none so a drag isn't stolen by the
+                page's scroll. */}
             <div
+              aria-hidden
               onPointerDown={onDragStart}
               onPointerMove={onDragMove}
               onPointerUp={onDragEnd}
               onPointerCancel={onDragEnd}
               title="Drag to move — snaps to the nearest edge"
               className={cn(
-                "flex shrink-0 touch-none items-center gap-2 self-stretch",
+                "-ml-1.5 grid size-8 shrink-0 touch-none place-items-center rounded-full text-muted-foreground/60 transition-colors hover:bg-muted hover:text-foreground",
                 dragging ? "cursor-grabbing" : "cursor-grab",
               )}
             >
+              <GripVertical className="size-4" />
+            </div>
+
+            {/* status — reading the chip never moves it */}
+            <div className="flex shrink-0 items-center gap-2">
               {pending ? (
                 <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
               ) : (

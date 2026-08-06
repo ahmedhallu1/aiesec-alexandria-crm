@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getViewer, listFunctionVisits, listIrCalls } from "@/server/data";
+import { getViewer, listAllMembers, listFunctionVisits, listIrCalls } from "@/server/data";
 import {
   accountScope,
   bookableTouchPointScopes,
@@ -73,16 +73,33 @@ export default async function CalendarPage({
   const toIso = new Date(cairoToUtc(nextFirst, "00:00").getTime() - 1).toISOString();
 
   const canAddItems = canCreateCalendarItems(viewer);
-  const [visits, touchPointRows, irCallsRaw, itemRows, assignables] = await Promise.all([
-    raising ? listFunctionVisits(viewer, from, to) : Promise.resolve([]),
-    listTouchPoints(viewer, { from: fromIso, to: toIso }),
-    // the month, NOT page 0 of the whole log (which caps at 50 rows)
-    consideration
-      ? listIrCalls(viewer, 0, 50, { fromIso, toIso })
-      : Promise.resolve({ scheduled: [], rows: [] }),
-    listCalendarItems(viewer, fromIso, toIso),
-    canAddItems ? assignableForItems(viewer) : Promise.resolve([]),
+  const [visits, touchPointRows, irCallsRaw, itemRows, assignables, allMembers] =
+    await Promise.all([
+      raising ? listFunctionVisits(viewer, from, to) : Promise.resolve([]),
+      listTouchPoints(viewer, { from: fromIso, to: toIso }),
+      // the month, NOT page 0 of the whole log (which caps at 50 rows)
+      consideration
+        ? listIrCalls(viewer, 0, 50, { fromIso, toIso })
+        : Promise.resolve({ scheduled: [], rows: [] }),
+      listCalendarItems(viewer, fromIso, toIso),
+      canAddItems ? assignableForItems(viewer) : Promise.resolve([]),
+      listAllMembers(),
+    ]);
+
+  // "MY FUNCTION" (v33.19): who counts as a colleague — every ACTIVE member
+  // sharing at least one function with the viewer. B2B and BD are one crew, so
+  // the sets are expanded before they're compared.
+  const myFnSet = expandTouchPointFns([
+    ...(viewer.functions ?? []),
+    ...(viewer.sub_functions ?? []),
   ]);
+  const memberFnIds = allMembers
+    .filter(
+      (m) =>
+        m.is_active &&
+        [...(m.functions ?? []), ...(m.sub_functions ?? [])].some((f) => myFnSet.has(f))
+    )
+    .map((m) => m.id);
 
   const touchPoints = touchPointRows
     .map((t) => {
@@ -186,6 +203,8 @@ export default async function CalendarPage({
       assignables={assignables}
       month={month}
       viewerId={viewer.id}
+      teamMemberIds={viewer.teamMemberIds}
+      memberFnIds={memberFnIds}
       openableMemberIds={scope.kind === "members" ? scope.ids : null}
       showFunction={scope.kind === "all" || isTmCore(viewer)}
       booking={

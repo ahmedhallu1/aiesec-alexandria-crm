@@ -210,8 +210,26 @@ export interface SignupRow {
   contacted_at: string | null;
   last_edited_at: string | null;
   sodio_touched: boolean;
+  /** CIC — the second caller who verifies + follows up (v33.19). Kept apart
+   *  from the funnel columns so the first assignee's KPIs never move. */
+  cic_assigned_to: string | null;
+  cic_assigned_name: string | null;
+  cic_assigned_at: string | null;
+  cic_contact_status: string | null;
+  cic_interested: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** One row of a sign-up's edit history (v33.19). */
+export interface SignupLog {
+  id: string;
+  signup_id: string;
+  member_name: string;
+  field: string;
+  old_value: string | null;
+  new_value: string | null;
+  at: string;
 }
 
 export interface SignupComment {

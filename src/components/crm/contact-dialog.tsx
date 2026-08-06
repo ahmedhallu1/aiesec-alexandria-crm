@@ -179,8 +179,12 @@ export function ContactDialog({
                     onValueChange={(v) => {
                       const m = v as ContactMethod;
                       setMethod(m);
-                      // an untouched result follows the method's default
+                      // an untouched result follows the method's default; and
+                      // switching to Call must never LEAVE "Waiting for
+                      // response" selected (it's hidden there) — snap it back
                       if (!statusTouched) setStatus(defaultResultFor(m));
+                      else if (m === "Call" && status === "Waiting for response")
+                        setStatus("No Response");
                     }}
                   >
                     <SelectTrigger><SelectValue /></SelectTrigger>
@@ -213,11 +217,16 @@ export function ContactDialog({
                   >
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {STATUSES.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          {s === "Visit Scheduled" ? "🗓️ " : ""}{s}
-                        </SelectItem>
-                      ))}
+                      {STATUSES
+                        // "Waiting for response" means a message SENT and no
+                        // reply yet — meaningless on a Call, where you either
+                        // reached them or didn't (v33.19)
+                        .filter((s) => s !== "Waiting for response" || method !== "Call")
+                        .map((s) => (
+                          <SelectItem key={s} value={s}>
+                            {s === "Visit Scheduled" ? "🗓️ " : ""}{s}
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                 </div>

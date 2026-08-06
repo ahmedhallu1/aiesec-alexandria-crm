@@ -90,9 +90,13 @@ export function memberInTouchPointAudience(
     stakeholder_id: string | null;
     functions: string[] | null;
     sub_functions: string[] | null;
+    role?: string | null;
   },
   tp: TouchPointRow
 ): boolean {
+  // the ADMIN is the system's caretaker, not an attendee (v33.19, by the
+  // LCP's request): never in any audience, never on an attendance sheet
+  if (m.role === "Admin") return false;
   // the owner always belongs to their own touch point
   if (tp.owner_id && m.id === tp.owner_id) return true;
   const teams = new Set([...(tp.invited_teams ?? []), ...(tp.team_name ? [tp.team_name] : [])]);
@@ -141,7 +145,7 @@ export async function touchPointAudience(tp: TouchPointRow): Promise<AudienceMem
   // the owner always belongs to their own touch point
   const withOwner =
     tp.owner_id && !keep.some((m) => m.id === tp.owner_id)
-      ? [...keep, ...all.filter((m) => m.id === tp.owner_id)]
+      ? [...keep, ...all.filter((m) => m.id === tp.owner_id && m.role !== "Admin")]
       : keep;
   return withOwner.map((m) => ({
     id: m.id,

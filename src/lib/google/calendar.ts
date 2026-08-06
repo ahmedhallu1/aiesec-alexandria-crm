@@ -441,6 +441,97 @@ export async function createIrCallEvent(
   return { id, meetLink };
 }
 
+/** IR-CALL MEET LINK WITHOUT A MEMBER GRANT (v33.19).
+ *
+ *  Members who signed in with a password (no Google grant) couldn't create a
+ *  Meet on their own calendar, so their booked IRs got no link and no invite.
+ *  The fix mirrors visits: create the event on the IM MAILBOX calendar (which
+ *  has the scope), invite the IR as an attendee (Google emails them), and the
+ *  Meet link comes back for the IR-calls page. Admins/other crew simply don't
+ *  join — the invite is the IR's, the link is on the page. Returns null if the
+ *  mailbox lacks calendar scope (caller falls back to a linkless call). */
+export async function createIrCallEventOnMailbox(input: {
+  partnerLc: string;
+  start: Date;
+  minutes: number;
+  description?: string | null;
+  attendeeEmail?: string | null;
+  /** the CRM member hosting — invited so it lands on their calendar too */
+  ownerEmail?: string | null;
+  guestsCanInvite?: boolean;
+}): Promise<{ id: string; meetLink: string | null; calendarId: string } | null> {
+  const calendarId = await getVisitsCalendarId();
+  if (!calendarId) return null;
+  const end = new Date(input.start.getTime() + input.minutes * 60_000);
+  const attendees = [...new Set([input.attendeeEmail, input.ownerEmail].filter(Boolean))].map(
+    (email) => ({ email: email as string })
+  );
+  try {
+    const res = await mailboxCalendar().events.insert({
+      calendarId,
+      conferenceDataVersion: 1,
+      sendUpdates: attendees.length ? "all" : "none",
+      requestBody: {
+        summary: `IR call — ${input.partnerLc}`,
+        ...(input.description ? { description: input.description } : {}),
+        start: { dateTime: input.start.toISOString(), timeZone: LC_TIMEZONE },
+        end: { dateTime: end.toISOString(), timeZone: LC_TIMEZONE },
+        ...(attendees.length ? { attendees } : {}),
+        guestsCanInviteOthers: input.guestsCanInvite ?? true,
+        conferenceData: {
+          createRequest: {
+            requestId: `irm-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+            conferenceSolutionKey: { type: "hangoutsMeet" },
+          },
+        },
+      },
+    });
+    const id = res.data.id ?? null;
+    if (!id) return null;
+    const meetLink =
+      res.data.hangoutLink ??
+      res.data.conferenceData?.entryPoints?.find((e) => e.entryPointType === "video")?.uri ??
+      null;
+    return { id, meetLink, calendarId };
+  } catch (e) {
+    console.error("[calendar] mailbox IR event failed:", e);
+    return null;
+  }
+}
+
+/** Reschedule an IR event on the MAILBOX calendar. Best-effort. */
+export async function updateIrCallEventOnMailbox(
+  eventId: string | null,
+  start: Date,
+  minutes: number
+): Promise<void> {
+  const calendarId = await getVisitsCalendarId();
+  if (!calendarId || !eventId) return;
+  const end = new Date(start.getTime() + minutes * 60_000);
+  try {
+    await mailboxCalendar().events.patch({
+      calendarId, eventId, sendUpdates: "all",
+      requestBody: {
+        start: { dateTime: start.toISOString(), timeZone: LC_TIMEZONE },
+        end: { dateTime: end.toISOString(), timeZone: LC_TIMEZONE },
+      },
+    });
+  } catch (e) {
+    console.error("[calendar] mailbox IR reschedule failed:", e);
+  }
+}
+
+/** Delete an IR event from the MAILBOX calendar (notifies the IR). */
+export async function deleteIrCallEventOnMailbox(eventId: string): Promise<void> {
+  const calendarId = await getVisitsCalendarId();
+  if (!calendarId) return;
+  try {
+    await mailboxCalendar().events.delete({ calendarId, eventId, sendUpdates: "all" });
+  } catch {
+    // already gone
+  }
+}
+
 /** Moves a booked IR call to a new time (public reschedule) — attendees get
  *  Google's update email. Best-effort: no grant / no event id → no-op. */
 export async function updateIrCallEvent(

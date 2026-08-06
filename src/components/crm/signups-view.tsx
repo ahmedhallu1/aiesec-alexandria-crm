@@ -5,16 +5,21 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
-  Archive, Check, LayoutDashboard, Loader2, Mail, Phone, RefreshCw, RotateCcw,
+  Archive, Check, ChevronDown, History, LayoutDashboard, Loader2, Mail, Phone,
+  PhoneCall, RefreshCw, RotateCcw,
   Search, UserMinus, UserRound, Users2, X,
 } from "lucide-react";
 import {
-  addSignupComment, bulkReassignSignups, bulkReviveSignups, claimSignup, openSignupDetail,
+  addSignupComment, assignCicCaller, bulkReassignSignups, bulkReviveSignups, claimSignup,
+  openSignupDetail,
   reassignSignup, reviveSignup, runSignupsImport, setSignupOop,
-  setSignupPotential, updateSignupContact, updateSignupVpFields,
+  setSignupPotential, updateCicContact, updateSignupContact, updateSignupVpFields,
 } from "@/server/actions";
 import type { OgxPlanCard, SignupDetail, SignupListRow, StreakStats } from "@/server/data";
-import { fmtDateTime, SIGNUP_STATUSES, type OgxFunction, type SignupRow } from "@/lib/types";
+import {
+  fmtDateTime, SIGNUP_STATUSES,
+  type OgxFunction, type SignupLog, type SignupRow,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { CountryInput } from "./country-input";
 import {
@@ -57,8 +62,25 @@ const VIEW_LABELS: Record<string, string> = {
   unassigned: "🆕 Unassigned",
   mine: "My sign-ups",
   team: "My team",
+  // CIC — Customer Interview Call (v33.19)
+  cic: "📞 CIC",
   all: "All",
   archived: "🗄️ Archived",
+};
+
+/** CIC = a SECOND person re-calls a sign-up the first assignee marked
+ *  Contacted that never got a status — verifying the first call really
+ *  happened, and following up. The first assignee KEEPS the row and their
+ *  KPIs/MOS; the second call is recorded separately in the cic_* fields. */
+const CIC_BLURB =
+  "Customer Interview Calls: a second caller re-calls sign-ups marked Contacted that never got a status — checking the first call really happened and following up. The first assignee keeps the row and the KPIs.";
+
+const VIEW_HINTS: Record<string, string> = {
+  unassigned: "Nobody holds these yet — hand them out.",
+  mine: "What you answer for.",
+  cic: CIC_BLURB,
+  all: "Every sign-up in the function.",
+  archived: "Out of Process — browsable, revivable by a VP.",
 };
 
 // Official AIESEC product colors (same as the accounts module's badges).
@@ -288,6 +310,8 @@ interface ViewerInfo {
   name: string;
   isLeader: boolean;
   isTl: boolean;
+  /** MMs and above — may hand a sign-up to a SECOND caller (seesCicQueue) */
+  canCic: boolean;
   canVp: boolean;
 }
 
@@ -324,6 +348,9 @@ const SIGNUP_CELL_CLASS: Record<string, string> = {
   referral: "max-w-40 truncate text-sm text-muted-foreground",
   background: "max-w-44 truncate text-sm text-muted-foreground",
   sub_product: "text-sm text-muted-foreground",
+  cic_assigned: "text-sm",
+  cic_contacted: "text-sm",
+  cic_interested: "text-sm",
 };
 
 /**
@@ -332,10 +359,17 @@ const SIGNUP_CELL_CLASS: Record<string, string> = {
  *  · Unassigned — no Status, no Country (nothing is set there yet) and, for
  *    OGV, no Program (they're all GV) — instead **Person status** + **Campaign**,
  *    the two things that actually help you pick who to call.
+ *  · 📞 CIC — the second-caller columns (who is on it, and THEIR
+ *    contacted/interested) instead of the pool's intake columns.
  *  · Every other view keeps the classic set.
+ *
+ * The stored preference is keyed per view × function, so "default hidden
+ * outside the CIC view" really is per-view — nothing is force-shown over a
+ * member's own ⚙ Columns choice.
  */
 function signupColumns(fn: OgxFunction, view: string): TableColumn[] {
   const pool = view === "unassigned";
+  const cic = view === "cic";
   return [
     { key: "signed_up_at", label: "Signed up" },
     { key: "name", label: "Sign-up", required: true },
@@ -349,6 +383,11 @@ function signupColumns(fn: OgxFunction, view: string): TableColumn[] {
     { key: "assigned", label: "Assigned" },
     { key: "contacted", label: "Contacted" },
     { key: "interested", label: "Interested" },
+    // CIC (v33.19) — the SECOND call, kept beside the first so the two are
+    // never confused. Off everywhere but the CIC view.
+    { key: "cic_assigned", label: "2nd caller", defaultHidden: !cic },
+    { key: "cic_contacted", label: "CIC contacted", defaultHidden: !cic },
+    { key: "cic_interested", label: "CIC interested", defaultHidden: !cic },
     { key: "person_status", label: "Person status", defaultHidden: !pool },
     { key: "campaign", label: "Campaign", defaultHidden: !pool },
     { key: "status", label: "Status", defaultHidden: pool },
@@ -526,7 +565,7 @@ function SignupContactPrompt({
 
 export function SignupsView({
   rows, total, page, pageSize, pageSizeOptions, activeView, views, fns, activeFn,
-  targets, planCard, streak, viewer, filters, filterOptions,
+  targets, cicTargets, loadLogs, planCard, streak, viewer, filters, filterOptions,
 }: {
   rows: SignupListRow[];
   /** every value each filterable column holds across the WHOLE set — a filter
@@ -542,6 +581,10 @@ export function SignupsView({
   fns: OgxFunction[];
   activeFn: OgxFunction;
   targets: { id: string; label: string }[];
+  /** who a CIC second call can be handed to — empty for anyone below an MM */
+  cicTargets: { id: string; label: string }[];
+  /** server function (declared in the page) — one sign-up's edit history */
+  loadLogs: (signupId: string) => Promise<SignupLog[]>;
   planCard: OgxPlanCard | null;
   streak: StreakStats | null;
   viewer: ViewerInfo;
@@ -913,16 +956,52 @@ export function SignupsView({
       } else toast.error(res.error);
     });
 
+  // ---- CIC (v33.19): the SECOND caller. Every rule (who may assign, who the
+  // caller may be, whose columns move) is enforced server-side — here we just
+  // offer the control and surface whatever comes back.
+  const assignCic = (r: SignupListRow, callerId: string) =>
+    start(async () => {
+      const res = await assignCicCaller(r.id, callerId);
+      if (res.ok) {
+        toast.success(
+          `📞 CIC handed to ${cicTargets.find((t) => t.id === callerId)?.label ?? "them"}`
+        );
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
+  const inlineCic = (
+    r: SignupListRow,
+    field: "contactStatus" | "interested",
+    v: string
+  ) =>
+    start(async () => {
+      const val = v === "__unset" ? null : v;
+      const res = await updateCicContact(
+        r.id,
+        field === "contactStatus" ? { contactStatus: val } : { interested: val }
+      );
+      if (res.ok) {
+        toast.success("CIC saved");
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
+  /** Records the second call: the assigned caller themself, or any MM+. */
+  const canRecordCic = (r: SignupListRow) =>
+    viewer.canCic || r.cic_assigned_to === viewer.id;
+
   /** Compact Yes/No/— select for the Contacted & Interested cells. */
   const inlineYnSelect = (
     r: SignupListRow,
     field: "contactStatus" | "interested",
-    raw: string | null
+    raw: string | null,
+    onPick: (v: string) => void = (v) => inlineContact(r, field, v)
   ) => (
     <div onClick={(e) => e.stopPropagation()}>
       <Select
         value={raw && /^y/i.test(raw) ? "Yes" : raw && /^n/i.test(raw) ? "No" : "__unset"}
-        onValueChange={(v) => inlineContact(r, field, v)}
+        onValueChange={onPick}
       >
         <SelectTrigger
           size="sm"
@@ -985,6 +1064,45 @@ export function SignupsView({
         return r.can_work && !r.out_of_process
           ? inlineYnSelect(r, "interested", r.interested)
           : yn(r.interested);
+      case "cic_assigned":
+        // MMs+ hand the second call out from the cell; everyone else reads it
+        return viewer.canCic && cicTargets.length > 0 && !r.out_of_process ? (
+          <div onClick={(e) => e.stopPropagation()}>
+            <Select
+              value={r.cic_assigned_to ?? undefined}
+              onValueChange={(v) => assignCic(r, v)}
+            >
+              <SelectTrigger
+                size="sm"
+                className="data-[size=sm]:h-7 w-36 gap-1 px-2 text-xs"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <SelectValue placeholder="— not assigned" />
+              </SelectTrigger>
+              <SelectContent>
+                {cicTargets.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>{t.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : r.cic_assigned_name ? (
+          <span className="flex items-center gap-1 text-muted-foreground" dir="auto">
+            <PhoneCall className="size-3.5 shrink-0" /> {r.cic_assigned_name}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">— not assigned</span>
+        );
+      case "cic_contacted":
+        return canRecordCic(r) && !r.out_of_process
+          ? inlineYnSelect(r, "contactStatus", r.cic_contact_status, (v) =>
+              inlineCic(r, "contactStatus", v))
+          : yn(r.cic_contact_status);
+      case "cic_interested":
+        return canRecordCic(r) && !r.out_of_process
+          ? inlineYnSelect(r, "interested", r.cic_interested, (v) =>
+              inlineCic(r, "interested", v))
+          : yn(r.cic_interested);
       case "status": {
         if (r.out_of_process)
           return <span className="text-destructive">🗄️ {r.oop_reason ?? "OOP"}</span>;
@@ -1118,22 +1236,37 @@ export function SignupsView({
             ))}
           </div>
         ) : null}
-        {views.map((v) => (
-          <button
-            key={v}
-            type="button"
-            onClick={() => setParams({ view: v })}
-            className={cn(
-              "rounded-full border px-3 py-1 text-sm font-medium transition-colors",
-              activeView === v
-                ? "border-primary bg-primary text-primary-foreground"
-                : "border-border bg-card text-muted-foreground hover:border-primary/50"
-            )}
-          >
-            {VIEW_LABELS[v] ?? v}
-          </button>
-        ))}
+        {/* the tab list comes from the server's signupViewsFor — nothing is
+            hardcoded here, a new view only needs a label (+ hint) above */}
+        {views.map((v) => {
+          const chip = (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setParams({ view: v })}
+              className={cn(
+                "rounded-full border px-3 py-1 text-sm font-medium transition-colors",
+                activeView === v
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-card text-muted-foreground hover:border-primary/50"
+              )}
+            >
+              {VIEW_LABELS[v] ?? v}
+            </button>
+          );
+          return VIEW_HINTS[v] ? (
+            <Hint key={v} label={VIEW_HINTS[v]}>{chip}</Hint>
+          ) : (
+            chip
+          );
+        })}
       </div>
+      {activeView === "cic" ? (
+        <p className="rounded-lg border border-primary/30 bg-primary/5 p-2.5 text-xs text-muted-foreground">
+          <b className="text-foreground">📞 CIC — Customer Interview Calls.</b>{" "}
+          {CIC_BLURB}
+        </p>
+      ) : null}
 
       {/* filters */}
       <div className="flex flex-wrap items-center gap-2">
@@ -1272,6 +1405,21 @@ export function SignupsView({
                     {r.assigned_to || r.assigned_name ? `👤 ${r.assigned_name ?? "assigned"}` : "🆕 unassigned"}
                   </span>
                 </div>
+                {/* CIC (v33.19) — read-only on phones; the record lives in the
+                    detail dialog one tap away */}
+                {activeView === "cic" ? (
+                  <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                    <Badge variant="outline" className="text-[10px]" dir="auto">
+                      📞 2nd: {r.cic_assigned_name ?? "not assigned"}
+                    </Badge>
+                    <Badge variant="outline" className="text-[10px]">
+                      CIC contacted: {r.cic_contact_status ?? "—"}
+                    </Badge>
+                    <Badge variant="outline" className="text-[10px]">
+                      CIC interested: {r.cic_interested ?? "—"}
+                    </Badge>
+                  </div>
+                ) : null}
                 <p className="text-xs text-muted-foreground">
                   {r.signed_up_at ?? ""} · EP {r.ep_id}
                 </p>
@@ -1535,6 +1683,9 @@ export function SignupsView({
           key={detail.signup.id}
           detail={detail}
           targets={targets}
+          cicTargets={cicTargets}
+          viewer={viewer}
+          loadLogs={loadLogs}
           onClose={() => setDetail(null)}
           onChanged={(id) => { openDetail(id); router.refresh(); }}
         />
@@ -1566,11 +1717,83 @@ function Field({ label, value }: { label: string; value: string | null }) {
   );
 }
 
+/** The sign-up's edit history (v33.19) — collapsed by default, fetched the
+ *  first time it's opened through the page's `loadLogs` server function. */
+function SignupHistory({
+  signupId, loadLogs,
+}: {
+  signupId: string;
+  loadLogs: (signupId: string) => Promise<SignupLog[]>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [logs, setLogs] = useState<SignupLog[] | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (!next || logs || loading) return;
+    setLoading(true);
+    loadLogs(signupId)
+      .then((rows) => setLogs(rows))
+      .catch(() => setLogs([]))
+      .finally(() => setLoading(false));
+  };
+
+  const label = (field: string) =>
+    ({
+      contacted: "contacted",
+      interested: "interested",
+      status: "status",
+      assigned: "assigned",
+      cic_assigned: "2nd caller",
+      cic_contacted: "CIC contacted",
+      cic_interested: "CIC interested",
+    } as Record<string, string>)[field] ?? field.replace(/_/g, " ");
+
+  return (
+    <div className="space-y-2 border-t pt-3">
+      <button
+        type="button"
+        onClick={toggle}
+        className="flex w-full items-center gap-1.5 text-sm font-semibold hover:text-primary"
+      >
+        <History className="size-4" /> History
+        <ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} />
+      </button>
+      {open ? (
+        loading ? (
+          <p className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin" /> Loading…
+          </p>
+        ) : logs && logs.length > 0 ? (
+          <div className="space-y-1">
+            {logs.map((l) => (
+              <p key={l.id} className="text-xs text-muted-foreground" dir="auto">
+                <span className="font-medium text-foreground">{l.member_name}</span>{" "}
+                changed {label(l.field)}: {l.old_value ?? "—"} → {l.new_value ?? "—"}{" "}
+                · {fmtDateTime(l.at)}
+              </p>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Nothing recorded yet — edits from here on show up in this list.
+          </p>
+        )
+      ) : null}
+    </div>
+  );
+}
+
 function SignupDetailDialog({
-  detail, targets, onClose, onChanged,
+  detail, targets, cicTargets, viewer, loadLogs, onClose, onChanged,
 }: {
   detail: SignupDetail | null;
   targets: { id: string; label: string }[];
+  cicTargets: { id: string; label: string }[];
+  viewer: ViewerInfo;
+  loadLogs: (signupId: string) => Promise<SignupLog[]>;
   onClose: () => void;
   onChanged: (id: string) => void;
 }) {
@@ -1788,6 +2011,116 @@ function SignupDetailDialog({
           </div>
         ) : null}
 
+        {/* CIC — the SECOND call (v33.19). A different person re-calls a
+            sign-up the first assignee marked Contacted that never got a
+            status: did that call really happen, and what came of it. The
+            first assignee keeps the row and the KPIs — these fields are
+            recorded apart from the funnel's Contacted/Interested. */}
+        {!s.out_of_process &&
+        (viewer.canCic || s.cic_assigned_to === viewer.id || s.cic_assigned_name) ? (
+          <div className="space-y-3 rounded-lg border p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-semibold">📞 CIC — second call</p>
+              <Hint label={CIC_BLURB}>
+                <span className="cursor-help text-xs text-muted-foreground underline decoration-dotted">
+                  what&apos;s this?
+                </span>
+              </Hint>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <div className="grid gap-1.5">
+                <Label>2nd caller</Label>
+                {viewer.canCic && cicTargets.length > 0 ? (
+                  <Select
+                    value={s.cic_assigned_to ?? undefined}
+                    onValueChange={(v) =>
+                      run(() => assignCicCaller(s.id, v), "📞 CIC call handed over")
+                    }
+                  >
+                    <SelectTrigger><SelectValue placeholder="— not assigned" /></SelectTrigger>
+                    <SelectContent>
+                      {cicTargets.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>{t.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <p className="text-sm" dir="auto">
+                    {s.cic_assigned_name ?? (
+                      <span className="text-muted-foreground">— not assigned</span>
+                    )}
+                  </p>
+                )}
+              </div>
+              {viewer.canCic || s.cic_assigned_to === viewer.id ? (
+                <>
+                  <div className="grid gap-1.5">
+                    <Label>CIC contacted</Label>
+                    <Select
+                      value={
+                        s.cic_contact_status && /^y/i.test(s.cic_contact_status)
+                          ? "Yes"
+                          : s.cic_contact_status && /^n/i.test(s.cic_contact_status)
+                            ? "No"
+                            : "__unset"
+                      }
+                      onValueChange={(v) =>
+                        run(
+                          () =>
+                            updateCicContact(s.id, {
+                              contactStatus: v === "__unset" ? null : v,
+                            }),
+                          "CIC saved"
+                        )
+                      }
+                    >
+                      <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__unset">—</SelectItem>
+                        <SelectItem value="Yes">Yes</SelectItem>
+                        <SelectItem value="No">No</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label>CIC interested</Label>
+                    <Select
+                      value={
+                        s.cic_interested && /^y/i.test(s.cic_interested)
+                          ? "Yes"
+                          : s.cic_interested && /^n/i.test(s.cic_interested)
+                            ? "No"
+                            : "__unset"
+                      }
+                      onValueChange={(v) =>
+                        run(
+                          () =>
+                            updateCicContact(s.id, {
+                              interested: v === "__unset" ? null : v,
+                            }),
+                          "CIC saved"
+                        )
+                      }
+                    >
+                      <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__unset">—</SelectItem>
+                        <SelectItem value="Yes">Yes</SelectItem>
+                        <SelectItem value="No">No</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              ) : null}
+            </div>
+            {s.cic_assigned_at ? (
+              <p className="text-[10px] text-muted-foreground">
+                Handed over {fmtDateTime(s.cic_assigned_at)}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
         {/* VP-only fields */}
         {detail.canVp ? (
           <div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-3">
@@ -1915,6 +2248,9 @@ function SignupDetailDialog({
             </div>
           ) : null}
         </div>
+
+        {/* who changed what, and when */}
+        <SignupHistory signupId={s.id} loadLogs={loadLogs} />
 
         <Button variant="outline" onClick={() => { onClose(); router.refresh(); }}>
           Close

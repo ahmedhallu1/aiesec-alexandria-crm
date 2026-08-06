@@ -1,0 +1,79 @@
+# Sheet imports OFF Vercel (v33.19) — see scripts/run-import.mjs.
+#
+# Why: these two jobs were the biggest slice of the Vercel Fluid CPU bill, and
+# they never serve a browser. GitHub Actions runs them for free at the same
+# cadence. Working hours only (04:00–22:00 UTC ≈ 06:00–00:00 Cairo) — the
+# scripts ALSO skip when the sheet hasn't changed, so a quiet day costs a few
+# seconds of API calls and nothing else.
+#
+# BEFORE ENABLING: add the repo secrets listed in scripts/run-import.mjs, run
+# each job once with "Run workflow" (workflow_dispatch) to confirm it's green,
+# THEN unschedule the Vercel/pg_cron twins:
+#   select cron.unschedule('membership-import');
+#   select cron.unschedule('signups-import');
+# Until you do, both run — harmless (each import is idempotent and the
+# unchanged-check makes the loser a no-op), and it means zero downtime while
+# you verify.
+
+name: Sheet imports
+
+on:
+  schedule:
+    # sign-ups every 15 min, membership every 30 min — inside working hours
+    - cron: "*/15 4-21 * * *"
+    - cron: "0,30 4-21 * * *"
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Which import to run"
+        required: true
+        default: both
+        type: choice
+        options: [both, membership, signups]
+      force:
+        description: "Ignore the unchanged-since check"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: sheet-imports
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GOOGLE_SERVICE_ACCOUNT_KEY_BASE64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY_BASE64 }}
+      DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
+      GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
+      GMAIL_SENDER: ${{ secrets.GMAIL_SENDER }}
+      AUTH_GOOGLE_ID: ${{ secrets.AUTH_GOOGLE_ID }}
+      AUTH_GOOGLE_SECRET: ${{ secrets.AUTH_GOOGLE_SECRET }}
+      NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
+      ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm i -D tsx --no-audit --no-fund
+
+      # the 15-minute tick always carries sign-ups; membership rides the
+      # :00/:30 tick. workflow_dispatch honours the chosen job.
+      - name: Sign-ups import
+        if: >-
+          github.event_name == 'schedule' ||
+          github.event.inputs.job == 'both' || github.event.inputs.job == 'signups'
+        run: node --import tsx scripts/run-import.mjs signups ${{ github.event.inputs.force == 'true' && '--force' || '' }}
+
+      - name: Membership import
+        if: >-
+          (github.event_name == 'schedule' && github.event.schedule == '0,30 4-21 * * *') ||
+          github.event.inputs.job == 'both' || github.event.inputs.job == 'membership'
+        run: node --import tsx scripts/run-import.mjs membership ${{ github.event.inputs.force == 'true' && '--force' || '' }}

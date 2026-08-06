@@ -90,3 +90,22 @@ select cron.schedule(
   '0 2 * * *',
   $$ select net.http_get(url := '<APP_URL>/api/cron/backup?key=<CRON_SECRET>') $$
 );
+
+-- ===================================================================
+-- v33.19 — HOSTING CPU. Two changes, in this order:
+--
+-- 1) The import routes now SKIP when the sheet hasn't changed and pause
+--    01:00–07:00 Cairo, so these jobs cost near-zero on a quiet night even
+--    while they stay scheduled here.
+--
+-- 2) The imports also run in GitHub Actions (.github/workflows/imports.yml),
+--    which costs Vercel NOTHING. Once a manual run there is green, retire the
+--    Vercel twins — the app keeps working either way, so there is no window
+--    where nothing runs:
+--
+--      select cron.unschedule('membership-import');
+--      select cron.unschedule('signups-import');
+--
+--    To go back (GitHub down, secrets rotated), re-run the two cron.schedule
+--    calls above and disable the workflow.
+-- ===================================================================

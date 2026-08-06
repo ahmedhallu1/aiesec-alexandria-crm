@@ -195,7 +195,26 @@ export function matchMemberByName(raw: string | null, members: MemberLite[]): st
 /** Imports every tab. New rows land whole (batched); rows never touched in
  *  Sodio track the sheet; touched rows only refresh their INTAKE columns.
  *  Row-diffing keeps the 15-min runs cheap: unchanged rows cost nothing. */
-export async function importSignups(): Promise<{ imported: number; created: number }> {
+export async function importSignups(
+  opts?: { force?: boolean }
+): Promise<{ imported: number; created: number; skipped?: boolean }> {
+  // NOTHING CHANGED → NOTHING TO IMPORT (v33.19). The tracker spreadsheets
+  // sit untouched most of the day while this ran every 15 minutes and
+  // re-parsed ~8,000 rows each time. One Drive metadata call per spreadsheet
+  // answers it; the parse only happens when a sheet actually moved.
+  const sheetIds = [...new Set(SIGNUP_TABS.map((t) => t.spreadsheetId))];
+  const { sheetChangedSince, markSheetSeen } = await import("./sheets");
+  const changes = opts?.force
+    ? sheetIds.map((id) => ({ id, changed: true, token: null as string | null }))
+    : await Promise.all(
+        sheetIds.map(async (id) => ({
+          id,
+          ...(await sheetChangedSince(id, `seen:signups:${id}`)),
+        }))
+      );
+  const changedIds = new Set(changes.filter((c) => c.changed).map((c) => c.id));
+  if (changedIds.size === 0) return { imported: 0, created: 0, skipped: true };
+
   const { sheets } = clients();
   const { data: memberRows } = await db()
     .from("members")
@@ -207,6 +226,7 @@ export async function importSignups(): Promise<{ imported: number; created: numb
   let created = 0;
 
   for (const cfg of SIGNUP_TABS) {
+    if (!changedIds.has(cfg.spreadsheetId)) continue;
     // a tracker name may belong to someone who LEFT the function (moved to
     // BD, OGV↔OGT…) but is still active in the LC — they must not keep
     // collecting this function's sign-ups, so matching is scoped to the
@@ -375,6 +395,8 @@ export async function importSignups(): Promise<{ imported: number; created: numb
       }
     }
   }
+  // remember each spreadsheet's modifiedTime so the next run can skip it
+  for (const c of changes) if (c.changed) await markSheetSeen(`seen:signups:${c.id}`, c.token);
   return { imported, created };
 }
 

@@ -611,12 +611,13 @@ async function buildAccountsQuery(
     // dashboard aggregates 16 of them, over ~4,000 rows, on every render —
     // the rest is payload to ship, parse and throw away. Callers that know
     // what they need say so; everyone else still gets the whole row.
-    // "planned" instead of "exact" (v33.14): an exact count scans the whole
-    // filtered set on EVERY page load — four thousand rows to render twenty.
-    // The number only drives "N accounts in your scope" and the pager, and
-    // Postgres's own estimate is right to within a rounding error at this
-    // size, for a fraction of the work.
-    .select(columns ?? "*", withCount ? { count: "planned" } : undefined);
+    // Back to "exact" (v33.19). v33.14's planner estimate was wrong exactly
+    // where it hurts: it guessed 20 for a member's 27 accounts, and since the
+    // page size is also 20, the pager concluded "one page" and hid itself —
+    // seven accounts unreachable, the header lying. An exact indexed count on
+    // the LIST is one cheap query per page view; the estimate's savings were
+    // never worth a member losing sight of their own accounts.
+    .select(columns ?? "*", withCount ? { count: "exact" } : undefined);
   // the Archived TAB is LC-wide (v22.2): the archive is the shared blacklist,
   // so it skips the account scope. Everything else stays scoped (dashboards'
   // includeArchived reads included).
@@ -2883,6 +2884,45 @@ export async function cascadeMemberRename(memberId: string, name: string): Promi
   if (mgrErr) console.error("[rename] members.stakeholder_name failed:", mgrErr.message);
 }
 
+/** A PROMOTION RELEASES MEMBER-LEVEL WORK (v33.19).
+ *
+ *  Sign-ups are assigned to the person who works them. When a Member or
+ *  Coordinator becomes a Team Leader (or above), the pool they were handed
+ *  as an individual isn't theirs to keep — a TL distributes, they don't sit
+ *  on 61 sign-ups. Releasing to Unassigned lets their new team pick them up.
+ *
+ *  Only rows WITHOUT a status (no Applied/Accepted/Approved MOS) are released
+ *  — a completed approval is history, not a live assignment. Best-effort;
+ *  logged. `oldRole`/`newRole` come from the caller comparing before/after. */
+export async function releaseSignupsOnPromotion(
+  memberId: string,
+  oldRole: string,
+  newRole: string
+): Promise<number> {
+  const wasMm = oldRole === "Member" || oldRole === "Coordinator";
+  const nowLead = ["Team Leader", "LCVP", "Director", "LCP", "Admin"].includes(newRole);
+  if (!wasMm || !nowLead) return 0;
+  const { data } = await db()
+    .from("signups")
+    .update({
+      assigned_to: null,
+      assigned_name: null,
+      assigned_at: null,
+      contact_status: null,
+      interested: null,
+      sodio_touched: true,
+      last_edited_at: new Date().toISOString(),
+    })
+    .eq("assigned_to", memberId)
+    .is("status", null)
+    .eq("out_of_process", false)
+    .select("id");
+  const n = (data ?? []).length;
+  if (n > 0)
+    console.log(`[signups] released ${n} member-level sign-ups on ${oldRole}→${newRole} promotion`);
+  return n;
+}
+
 export async function pruneStalePlans(): Promise<{ mm: number; tl: number }> {
   const { data: members } = await db()
     .from("members")
@@ -3465,6 +3505,43 @@ export async function listAttendedTouchPoints(
     }));
 }
 
+/** Every PAST touch point the viewer can see — the pick-list for feedback about
+ *  a session (v33.19). Attendance is no longer the gate: the LCP asked for
+ *  feedback on anything they were part of, and a missing attendance row means
+ *  nobody took the register, not that nobody was there. Cancelled points are
+ *  out (there was no session to review), the viewer's own are out (nobody to
+ *  send a shout-out to), newest first. */
+export async function listPastTouchPointsForFeedback(
+  viewer: Viewer
+): Promise<AttendedTouchPointOption[]> {
+  const { touchPointLabel } = await import("@/lib/types");
+  const { cairoWhen } = await import("@/lib/touch-points");
+  const { viewerSeesTouchPoint } = await import("./touch-points-read");
+  const { data, error } = await db()
+    .from("touch_points")
+    .select("*")
+    .lte("starts_at", new Date().toISOString())
+    .neq("status", "cancelled")
+    .order("starts_at", { ascending: false })
+    // visibility is a JS filter, so read a wider slab than the 60 we keep
+    .limit(300);
+  if (error) {
+    console.error("[lc-feedback] past touch points failed:", error.message);
+    return [];
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[])
+    .filter((tp) => viewerSeesTouchPoint(viewer, tp))
+    // no organiser left = nobody to send a shout-out to
+    .filter((tp) => tp.owner_id && tp.owner_id !== viewer.id)
+    .slice(0, 60)
+    .map((tp) => ({
+      id: tp.id,
+      label: `${touchPointLabel(tp.scope, tp.kind)} · ${cairoWhen(tp.starts_at)}`,
+      ownerName: tp.owner_name,
+    }));
+}
+
 export interface LcFeedbackRow {
   id: string;
   positive: boolean;
@@ -3668,6 +3745,32 @@ export async function signupFilterOptions(
   return read();
 }
 
+/** MMs and above (the people who distribute) — TL/Coordinator/VP/Director/
+ *  LCP/admin. Members are excluded (the CIC queue is a distribution job). */
+/** A sign-up's edit history (v33.19) — newest first, capped. */
+export async function listSignupLogs(
+  viewer: Viewer,
+  signupId: string
+): Promise<import("@/lib/types").SignupLog[]> {
+  const { data: row } = await db()
+    .from("signups").select("*").eq("id", signupId).maybeSingle<SignupRow>();
+  if (!row || !_canViewSignup(viewer, row)) return [];
+  const { data } = await db()
+    .from("signup_logs")
+    .select("id, signup_id, member_name, field, old_value, new_value, at")
+    .eq("signup_id", signupId)
+    .order("at", { ascending: false })
+    .limit(50);
+  return (data ?? []) as import("@/lib/types").SignupLog[];
+}
+
+export function seesCicQueue(v: Viewer): boolean {
+  return (
+    v.isAdmin ||
+    ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(v.role)
+  );
+}
+
 export function signupViewsFor(v: Viewer): string[] {
   const leader =
     v.isAdmin || ["LCP", "LCVP", "Director"].includes(v.role);
@@ -3681,6 +3784,10 @@ export function signupViewsFor(v: Viewer): string[] {
     // v33.14 — "My team" is gone: since "mine" became what you ANSWER for
     // (a TL's own plus their team's), the two tabs showed the same rows.
     "mine",
+    // CIC — Customer Interview Calls (v33.19): a SECOND caller verifies the
+    // first contact and follows up. MMs+ see the queue; members see "My CIC"
+    // (the ones handed to them as the second caller).
+    "cic",
     ...(leader ? ["all"] : []),
     "archived",
   ];
@@ -3725,6 +3832,16 @@ export async function listSignupsPage(
     if (view === "archived") q = q.eq("out_of_process", true);
     else q = q.eq("out_of_process", false);
     if (view === "unassigned") q = q.is("assigned_to", null);
+    else if (view === "cic") {
+      // the CIC pool: contacted by the first assignee, no status yet, not
+      // out of process. MMs+ see the whole function's queue to hand out; a
+      // member sees only the ones they were made the SECOND caller on.
+      q = q
+        .not("assigned_to", "is", null)
+        .eq("contact_status", "Yes")
+        .is("status", null);
+      if (!seesCicQueue(viewer)) q = q.eq("cic_assigned_to", viewer.id);
+    }
     else if (view === "mine") {
       // "MINE" MEANS WHAT YOU ANSWER FOR (v33.12): a member's own, a Team
       // Leader's own plus their team's, a VP/Director/LCP every assigned
@@ -3948,6 +4065,37 @@ export async function signupReassignTargets(
   else if (!viewer.isAdmin && !["LCP", "LCVP", "Director"].includes(viewer.role))
     pool = pool.filter((m) => m.id === viewer.id);
   return pool.map((m) => ({ id: m.id, label: m.name }));
+}
+
+/** Who can be handed a CIC second call (v33.19).
+ *
+ *  Deliberately NOT `signupReassignTargets`: that list answers "who may OWN
+ *  this sign-up", which a Team Leader scopes to their team and a Coordinator
+ *  to themselves — so a Coordinator opening the CIC queue could only ever
+ *  pick their own name. A verification call is a different job: the point is
+ *  that a DIFFERENT person calls, so the pool is the whole function's crew
+ *  (never the LCP). `assignCicCaller` re-checks the function and refuses the
+ *  first assignee, so widening the picker grants nothing the server allows. */
+export async function cicCallerTargets(
+  viewer: Viewer,
+  fn: OgxFunction
+): Promise<{ id: string; label: string }[]> {
+  if (!_ogxFunctions(viewer).includes(fn)) return [];
+  if (!seesCicQueue(viewer)) return [];
+  const { data } = await db()
+    .from("members")
+    .select("id, name, role, functions, sub_functions")
+    .eq("is_active", true)
+    .order("name");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const all = (data ?? []) as any[];
+  return all
+    .filter(
+      (m) =>
+        m.role !== "LCP" &&
+        [...(m.functions ?? []), ...(m.sub_functions ?? [])].includes(fn)
+    )
+    .map((m) => ({ id: m.id, label: m.name }));
 }
 
 export interface OgxPlanCard {

@@ -64,7 +64,7 @@ export function LcFeedbackView({
   inbox,
 }: {
   members: LiteMember[];
-  /** touch points the viewer attended (v29) — empty hides the whole tab */
+  /** past touch points the viewer was part of (v33.19) — empty hides the tab */
   touchPoints: AttendedTouchPointOption[];
   viewer: LiteViewer;
   isInboxOwner: boolean;
@@ -192,7 +192,7 @@ export function LcFeedbackView({
         <div>
           <h1 className="text-2xl font-bold">Feedback 💙</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Appreciate someone — or a touch point you attended — or raise a
+            Appreciate someone — or a touch point you were part of — or raise a
             concern. Positive notes reach the person (or the organiser)
             directly; concerns go privately to the LCP only.
           </p>
@@ -267,7 +267,7 @@ export function LcFeedbackView({
               <>
                 <Select value={touchPointId} onValueChange={setTouchPointId}>
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Pick a touch point you attended…" />
+                    <SelectValue placeholder="Pick a past touch point…" />
                   </SelectTrigger>
                   <SelectContent>
                     {touchPoints.map((t) => (
@@ -282,7 +282,7 @@ export function LcFeedbackView({
                     ? positive
                       ? `Goes to ${chosenTouchPoint.ownerName}, who organised it.`
                       : `Filed privately — ${chosenTouchPoint.ownerName} organised it.`
-                    : "Only sessions you were marked attended (or late) at show here."}
+                    : "Every past session you were part of shows here — you don't have to have been marked present."}
                 </p>
               </>
             ) : (

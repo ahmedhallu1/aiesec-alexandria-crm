@@ -441,10 +441,64 @@ async function relinkStakeholders(): Promise<void> {
   }
 }
 
+/** HAS THIS SPREADSHEET CHANGED SINCE WE LAST IMPORTED IT? (v33.19)
+ *
+ *  The imports ran every 15–30 minutes around the clock and did the FULL
+ *  parse-and-upsert every time, whether or not a single cell had moved —
+ *  which is most of the day, and it was the biggest line on the hosting
+ *  bill. Drive tells us for free: one metadata call returns the file's
+ *  `modifiedTime`. If it matches what we stored after the last run, there is
+ *  nothing to do. Returns the token to store on success, or null when
+ *  unchanged (caller exits). Fails OPEN — any doubt runs the import. */
+export async function sheetChangedSince(
+  spreadsheetId: string,
+  key: string
+): Promise<{ changed: boolean; token: string | null }> {
+  try {
+    const { drive } = clients();
+    const res = await drive.files.get({
+      fileId: spreadsheetId,
+      fields: "modifiedTime",
+      supportsAllDrives: true,
+    });
+    const token = res.data.modifiedTime ?? null;
+    if (!token) return { changed: true, token: null };
+    const { data } = await db()
+      .from("app_settings")
+      .select("value")
+      .eq("key", key)
+      .maybeSingle();
+    const seen =
+      data?.value && typeof data.value === "object" && "t" in data.value
+        ? (data.value as { t: string }).t
+        : null;
+    return { changed: seen !== token, token };
+  } catch (e) {
+    console.error("[sheets] change check failed (running the import anyway):", e);
+    return { changed: true, token: null };
+  }
+}
+
+export async function markSheetSeen(key: string, token: string | null): Promise<void> {
+  if (!token) return;
+  await db()
+    .from("app_settings")
+    .upsert({ key, value: { t: token } }, { onConflict: "key" })
+    .then(({ error }) => {
+      if (error) console.error("[sheets] seen-stamp failed:", error.message);
+    });
+}
+
 /** Reads the Membership sheet and upserts the members table.
- *  Members missing from the sheet are deactivated (never deleted). */
-export async function importMembership(): Promise<number> {
+ *  Members missing from the sheet are deactivated (never deleted).
+ *  `opts.force` skips the unchanged-since check (manual runs / after edits). */
+export async function importMembership(opts?: { force?: boolean }): Promise<number> {
   const id = await ensureSpreadsheet("CRM — Membership", MEMBERSHIP_HEADERS);
+  // nothing moved on the sheet since the last run → nothing to import (v33.19)
+  const change = opts?.force
+    ? { changed: true, token: null }
+    : await sheetChangedSince(id, "seen:membership");
+  if (!change.changed) return -1; // -1 = "skipped, unchanged"
   const { sheets } = clients();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: id,
@@ -456,18 +510,18 @@ export async function importMembership(): Promise<number> {
   // an email-less member is matched to their DB row by phone tail
   const findPhoneKeyed = async (
     phone: string
-  ): Promise<{ id: string; isActive: boolean; name: string } | null> => {
+  ): Promise<{ id: string; isActive: boolean; name: string; role: string } | null> => {
     const digits = digitsOf(phone);
     if (digits.length < 7) return null;
     const { data } = await db()
       .from("members")
-      .select("id, name, phone, is_active")
+      .select("id, name, role, phone, is_active")
       .is("email", null)
       .not("phone", "is", null)
       .ilike("phone", `%${digits.slice(-8)}%`)
       .limit(10);
     const rows = (data ?? []) as {
-      id: string; name: string; phone: string | null; is_active: boolean;
+      id: string; name: string; role: string; phone: string | null; is_active: boolean;
     }[];
     // exact digits first — a shared tail must never merge two people; ACTIVE
     // rows win ties so a deactivated duplicate can't shadow the live identity
@@ -475,11 +529,11 @@ export async function importMembership(): Promise<number> {
       cands.find((m) => m.is_active) ?? cands[0] ?? null;
     const exacts = rows.filter((m) => digitsOf(m.phone) === digits);
     const exact = pick(exacts);
-    if (exact) return { id: exact.id, isActive: exact.is_active, name: exact.name };
+    if (exact) return { id: exact.id, isActive: exact.is_active, name: exact.name, role: exact.role };
     const tail = digits.slice(-9);
     const tails = rows.filter((m) => digitsOf(m.phone).endsWith(tail));
     const hit = pick(tails);
-    return hit ? { id: hit.id, isActive: hit.is_active, name: hit.name } : null;
+    return hit ? { id: hit.id, isActive: hit.is_active, name: hit.name, role: hit.role } : null;
   };
 
   // The email-REMOVAL transition (v33.15): a member's email was taken off the
@@ -531,6 +585,9 @@ export async function importMembership(): Promise<number> {
   const seenPhoneTails: string[] = [];
   /** members whose NAME changed in this run — their snapshots follow */
   const renamed: { id: string; name: string }[] = [];
+  /** members whose ROLE changed Member/Coordinator → TL+ this run — their
+   *  member-level sign-ups are released (v33.19) */
+  const promoted: { id: string; oldRole: string; newRole: string }[] = [];
   let count = 0;
   for (const raw of dataRows) {
     const row = parseSheetRow(raw, cols);
@@ -542,13 +599,15 @@ export async function importMembership(): Promise<number> {
       // inserting a duplicate — the member keeps their id, accounts, history
       const { data: existing } = await db()
         .from("members")
-        .select("id, name")
+        .select("id, name, role")
         .ilike("email", row.email)
-        .maybeSingle<{ id: string; name: string }>();
+        .maybeSingle<{ id: string; name: string; role: string }>();
       // a corrected SPELLING must travel to the snapshot columns (v33.18) —
       // otherwise the old string keeps appearing in every filter built from
       // them ("Elina Tallat" beside "Elina Talaat")
       if (existing && existing.name !== row.name) renamed.push({ id: existing.id, name: row.name });
+      if (existing && existing.role !== row.role)
+        promoted.push({ id: existing.id, oldRole: existing.role, newRole: row.role });
       if (!existing && row.phone) {
         const phoneKeyed = await findPhoneKeyed(row.phone);
         if (phoneKeyed) {
@@ -574,6 +633,8 @@ export async function importMembership(): Promise<number> {
       const phoneKeyed = row.phone ? await findPhoneKeyed(row.phone) : null;
       if (phoneKeyed && phoneKeyed.name !== row.name)
         renamed.push({ id: phoneKeyed.id, name: row.name });
+      if (phoneKeyed && phoneKeyed.role !== row.role)
+        promoted.push({ id: phoneKeyed.id, oldRole: phoneKeyed.role, newRole: row.role });
       if (phoneKeyed?.isActive) {
         await db().from("members").update({ ...row, left_at: null }).eq("id", phoneKeyed.id);
       } else {
@@ -604,6 +665,14 @@ export async function importMembership(): Promise<number> {
     for (const r of renamed)
       await cascadeMemberRename(r.id, r.name).catch((e) =>
         console.error("[sheets] rename cascade failed:", e)
+      );
+  }
+  // a promotion to TL+ releases the member-level sign-up pool (v33.19)
+  if (promoted.length > 0) {
+    const { releaseSignupsOnPromotion } = await import("@/server/data");
+    for (const p of promoted)
+      await releaseSignupsOnPromotion(p.id, p.oldRole, p.newRole).catch((e) =>
+        console.error("[sheets] promotion release failed:", e)
       );
   }
 
@@ -658,6 +727,7 @@ export async function importMembership(): Promise<number> {
       }
     }
   }
+  await markSheetSeen("seen:membership", change.token);
   return count;
 }
 

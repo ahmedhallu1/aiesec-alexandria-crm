@@ -8,10 +8,11 @@ import bcrypt from "bcryptjs";
 import { db } from "@/lib/supabase";
 import { env } from "@/lib/env";
 import {
+  accountFnTargets,
+  accountScope,
   allowedAccountFunctions,
   canEditAccount,
   canEditRequestState,
-  canFlipB2bBd,
   canManageMembership,
   canSeeLcConcerns,
   canCheckPodio,
@@ -64,7 +65,7 @@ import {
   VISIT_RESULTS,
   URL_RE,
 } from "@/lib/types";
-import type { AccountContact, Member, MemberRole, Visit } from "@/lib/types";
+import type { AccountContact, AccountFunction, Member, MemberRole, Visit } from "@/lib/types";
 
 export type ActionResult<T = undefined> =
   | { ok: true; data?: T }
@@ -431,9 +432,9 @@ const editableFields = z.object({
   email: emailField,
   social_link: linkField,
   website: linkField,
-  // the only legal function CHANGE is the B2B↔BD relabel (one crew, two
-  // labels) — enum-restricting it keeps IGV/IGT/B2C flips schema-impossible
-  function: z.enum(["B2B", "BD"]).nullish(),
+  // v33.19: a function change may target any of the five — the server
+  // validates the pair against the VIEWER's own functions (accountFnTargets)
+  function: z.enum(["IGV", "IGT", "B2B", "BD", "B2C"]).nullish(),
   sub_product: z.string().trim().nullish(),
   project: z.string().trim().nullish(),
   account_type: z.string().trim().nullish(),
@@ -472,33 +473,38 @@ export async function updateAccount(
     if (key === "request_state" && !canEditRequestState(viewer, account))
       return fail("Request State is set by the TL, Coordinator or VP.", "forbidden");
     if (key === "function") {
-      // B2B ↔ BD relabel (v33.15) — one crew, two labels, flippable by
-      // whoever may edit the account AND create under both labels
+      // UNIVERSAL relabel (v33.19, generalizing v33.15's B2B↔BD): whoever
+      // may edit the account and works BOTH functions may move it — an
+      // IGV+IGT member flips between those two, LCP-level across all five.
       if (value === account.function || value == null) continue;
-      if (
-        (account.function !== "B2B" && account.function !== "BD") ||
-        !canFlipB2bBd(viewer, account)
-      )
+      const targets = accountFnTargets(viewer, account);
+      if (!targets.includes(value as AccountFunction))
         return fail(
-          "Only the B2B/BD crew or their leaders can flip an account between B2B and BD.",
+          "You can only move an account between functions YOU work.",
           "forbidden"
         );
-      // 0034: B2B is the OPENS name-world, BD the SERVICE world — the name
-      // must be re-checked in the TARGET world (its archive + the blacklist)
-      const check = await checkAccountName(account.name, value as "B2B" | "BD", {
+      // 0034: the name must be re-checked in the TARGET world (its archive +
+      // the opens blacklist) — B2B/IGV/IGT are the opens world, BD/B2C the
+      // service world
+      const check = await checkAccountName(account.name, value as AccountFunction, {
         excludeId: account.id,
       });
       if (check.duplicate)
         return fail(
           `"${account.name}" already exists ${
             check.duplicate.out_of_process ? "archived " : ""
-          }in the ${value === "BD" ? "BD/B2C" : "raising"} world — revive that one instead.`
+          }in ${value}'s world — revive that one instead.`
         );
       if (check.blacklisted)
         return fail(
-          `"${account.name}" is on the raising blacklist — it can't become a B2B account.`
+          `"${account.name}" is on the raising blacklist — it can't move there.`
         );
       update.function = value;
+      Object.assign(update, fnSpecificReset(value as string));
+      // IGTe → IGV lands on the teaching project by default (v33.19); every
+      // other direction leaves the new function's fields for the mover
+      if (value === "IGV" && account.function === "IGT" && account.product === "GTe")
+        update.project = "Global Classroom";
       continue;
     }
     update[key] = value === "" ? null : value;
@@ -621,6 +627,13 @@ export async function reassignAccount(
     .update({
       responsible_id: newResponsibleId,
       ...(fnChanged ? { function: movedFn, ...fnSpecificReset(movedFn!) } : {}),
+      // IGTe → IGV carries a sensible default (v33.19): Global Classroom is
+      // the teaching project, the natural landing for a GTe company. Every
+      // other direction leaves the new function's fields for the owner to
+      // pick (an IGV→IGT mover chooses GTa/GTe themselves).
+      ...(fnChanged && movedFn === "IGV" && account.function === "IGT" && account.product === "GTe"
+        ? { project: "Global Classroom" }
+        : {}),
     })
     .eq("id", accountId);
   if (error)
@@ -1872,6 +1885,178 @@ export async function addComment(
   return { ok: true };
 }
 
+/** EDIT a logged contact attempt (v33.19) — a wrong click shouldn't need the
+ *  IM team. Author or LCP-level only; edits NEVER re-fire side effects (no
+ *  archive on Not Interested, no visit booking on Visit Scheduled — those
+ *  belong to logContact), so status may not move to/from "Visit Scheduled". */
+export async function updateContactAttempt(
+  attemptId: string,
+  patch: { method?: string; status?: string; comment?: string | null }
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const { data: attempt } = await db()
+    .from("contact_attempts")
+    .select("id, account_id, member_id, method, status")
+    .eq("id", attemptId)
+    .maybeSingle<{ id: string; account_id: string; member_id: string; method: string; status: string }>();
+  if (!attempt) return fail("That contact log no longer exists.");
+  const account = await loadAccount(attempt.account_id);
+  if (!account || !canEditAccount(viewer, account))
+    return fail("You are not allowed to edit this account's logs.", "forbidden");
+  const lcpLevel = accountScope(viewer).kind === "all";
+  if (attempt.member_id !== viewer.id && !lcpLevel)
+    return fail("Only whoever logged this contact (or the LCP) can edit it.", "forbidden");
+  const update: Record<string, unknown> = {};
+  if (patch.method !== undefined) {
+    if (!["Call", "WhatsApp", "Email"].includes(patch.method)) return fail("Pick a real method.");
+    update.method = patch.method;
+  }
+  if (patch.status !== undefined) {
+    const ok = ["No Response", "Waiting for response", "Responded", "Interested", "Wrong Contact"];
+    if (!ok.includes(patch.status))
+      return fail("That result can't be set from an edit — archive/visit results are set by logging a contact.");
+    if (attempt.status === "Visit Scheduled" || attempt.status === "Not Interested")
+      return fail("This log carries a side effect (visit/archive) — it can't be rewritten.");
+    update.status = patch.status;
+  }
+  if (patch.comment !== undefined) update.comment = patch.comment?.trim() || null;
+  if (Object.keys(update).length === 0) return { ok: true };
+  await snapshotForUndo("contact_attempts", attemptId);
+  const { error } = await db().from("contact_attempts").update(update).eq("id", attemptId);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "contact_edit", "account", attempt.account_id, {
+    attempt: attemptId, fields: Object.keys(update),
+  });
+  refresh(attempt.account_id);
+  return { ok: true };
+}
+
+/** EDIT a comment's text (v33.19). Author or LCP-level; the label/number and
+ *  pin state stay — only the words change. */
+export async function updateComment(
+  commentId: string,
+  body: string
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const clean = body?.trim();
+  if (!clean) return fail("The comment can't be empty — archive it instead.");
+  const { data: comment } = await db()
+    .from("account_comments")
+    .select("id, account_id, member_id")
+    .eq("id", commentId)
+    .maybeSingle<{ id: string; account_id: string; member_id: string | null }>();
+  if (!comment) return fail("That comment no longer exists.");
+  const account = await loadAccount(comment.account_id);
+  if (!account || !canEditAccount(viewer, account))
+    return fail("You are not allowed to edit this account's comments.", "forbidden");
+  const lcpLevel = accountScope(viewer).kind === "all";
+  if (comment.member_id !== viewer.id && !lcpLevel)
+    return fail("Only the comment's author (or the LCP) can edit it.", "forbidden");
+  await snapshotForUndo("account_comments", commentId);
+  const { error } = await db().from("account_comments").update({ body: clean }).eq("id", commentId);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "comment_edit", "account", comment.account_id, { comment: commentId });
+  refresh(comment.account_id);
+  return { ok: true };
+}
+
+/** EDIT a deal's details (v33.19): note, amount, benefits — and its OPENS,
+ *  which recomputes the account's counters from the sum of all its deals.
+ *  Opens edits are refused when the deal carries a CUSTOM multi-member split
+ *  (rewriting someone else's attribution needs a re-record, not an edit). */
+export async function updateDeal(
+  dealId: string,
+  patch: {
+    slotsIgv?: number; slotsIgta?: number; slotsIgte?: number;
+    amount?: number | null; benefits?: string | null; note?: string | null;
+  }
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const { data: deal } = await db()
+    .from("deals")
+    .select("*, allocations:deal_allocations(id, member_id, slots_igv, slots_igta, slots_igte)")
+    .eq("id", dealId)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .maybeSingle<any>();
+  if (!deal) return fail("That deal no longer exists.");
+  const account = await loadAccount(deal.account_id);
+  if (!account || !canEditAccount(viewer, account))
+    return fail("You are not allowed to edit this account's deals.", "forbidden");
+  const lcpLevel = accountScope(viewer).kind === "all";
+  const isLead = viewer.role === "LCVP" || viewer.role === "Director";
+  if (deal.member_id !== viewer.id && !lcpLevel && !isLead)
+    return fail("Only the deal's owner, their leaders or the LCP can edit it.", "forbidden");
+
+  const update: Record<string, unknown> = {};
+  if (patch.note !== undefined) update.note = patch.note?.trim() || null;
+  if (patch.benefits !== undefined) update.benefits = patch.benefits?.trim() || null;
+  if (patch.amount !== undefined) {
+    if (patch.amount !== null && (!Number.isFinite(patch.amount) || patch.amount < 0))
+      return fail("The amount must be a positive number (EGP).");
+    update.amount = patch.amount;
+  }
+  const editingOpens =
+    patch.slotsIgv !== undefined || patch.slotsIgta !== undefined || patch.slotsIgte !== undefined;
+  if (editingOpens) {
+    const allocs = (deal.allocations ?? []) as { id: string }[];
+    if (allocs.length > 1)
+      return fail(
+        "This deal's opens are SPLIT across members — edit by deleting nothing: record a corrective deal instead."
+      );
+    const igv = Math.max(0, Math.trunc(patch.slotsIgv ?? deal.slots_igv ?? 0));
+    const igta = Math.max(0, Math.trunc(patch.slotsIgta ?? deal.slots_igta ?? 0));
+    const igte = Math.max(0, Math.trunc(patch.slotsIgte ?? deal.slots_igte ?? 0));
+    const total = igv + igta + igte;
+    if (total <= 0 && account.function !== "B2C" && account.function !== "BD")
+      return fail("A deal needs at least one open.");
+    update.slots_igv = igv;
+    update.slots_igta = igta;
+    update.slots_igte = igte;
+    update.slots = Math.max(total, account.function === "B2C" || account.function === "BD" ? 0 : 1);
+  }
+  if (Object.keys(update).length === 0) return { ok: true };
+
+  await snapshotForUndo("deals", dealId);
+  const { error } = await db().from("deals").update(update).eq("id", dealId);
+  if (error) return fail(error.message);
+
+  if (editingOpens) {
+    // keep the single default allocation in lockstep with the deal
+    const allocs = (deal.allocations ?? []) as { id: string }[];
+    if (allocs.length === 1) {
+      await db()
+        .from("deal_allocations")
+        .update({
+          slots_igv: update.slots_igv, slots_igta: update.slots_igta, slots_igte: update.slots_igte,
+        })
+        .eq("id", allocs[0].id);
+    }
+    // the account's counters are DERIVED — recompute from the sum of deals
+    const { data: sums } = await db()
+      .from("deals")
+      .select("slots, slots_igv, slots_igta, slots_igte")
+      .eq("account_id", deal.account_id);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const all = (sums ?? []) as any[];
+    const agg = (k: string) => all.reduce((n, d) => n + (d[k] ?? 0), 0);
+    await db()
+      .from("accounts")
+      .update({
+        slots_count: agg("slots"),
+        slots_igv_count: agg("slots_igv"),
+        slots_igta_count: agg("slots_igta"),
+        slots_igte_count: agg("slots_igte"),
+        deals_count: all.length,
+      })
+      .eq("id", deal.account_id);
+  }
+  await logAudit(viewer.id, "deal_edit", "account", deal.account_id, {
+    deal: dealId, fields: Object.keys(update),
+  });
+  refresh(deal.account_id);
+  return { ok: true };
+}
+
 /** Pin/unpin a comment — pinned comments are highlighted and surface as a 📌
  *  on the accounts list so nobody contacts the account without seeing it. */
 export async function toggleCommentPin(
@@ -2059,6 +2244,7 @@ export async function logContact(
   // "Waiting for response" is NOT an answer — a WhatsApp/Email-only history
   // must still trip the 3-contacts prompt (matches the view's
   // no_response_attempts filter since migration 0043)
+  // eslint-disable-next-line prefer-const
   let { count: answered, error: answeredErr } = await db()
     .from("contact_attempts")
     .select("id", { count: "exact", head: true })
@@ -2817,12 +3003,22 @@ export async function upsertMember(
 
   let id = m.id ?? null;
   if (id) {
+    // capture the role BEFORE the update so a promotion can release the
+    // member-level sign-up pool (v33.19 — the Marwan case)
+    const { data: before } = await db()
+      .from("members").select("role").eq("id", id).maybeSingle<{ role: string }>();
     // never ERASE an existing email with an empty field — adding one is the
     // phone-only upgrade path, removing one only happens via the sheet
     const { email: emailValue, ...rest } = row;
     const updatePayload = emailValue ? row : rest;
     const { error } = await db().from("members").update(updatePayload).eq("id", id);
     if (error) return fail(error.message);
+    if (before && before.role !== m.role) {
+      const { releaseSignupsOnPromotion } = await import("./data");
+      await releaseSignupsOnPromotion(id, before.role, m.role).catch((e) =>
+        console.error("[members] promotion release failed:", e)
+      );
+    }
   } else if (row.email) {
     const { data: created, error } = await db()
       .from("members")
@@ -3948,7 +4144,7 @@ export async function saveTlPlan(
 // ================================================================== LC people feedback (v21)
 
 /** Feedback about PEOPLE in the LC (not the system) — or, since v29, about a
- *  TOUCH POINT the author attended, which reaches its organiser: positive
+ *  PAST TOUCH POINT the author was part of, which reaches its organiser: positive
  *  shout-outs go straight to the person (bell + email); negative concerns land
  *  in an inbox only the LCP + admin can read. The author is always stored for
  *  accountability but NEVER shown when anonymous. */
@@ -3958,7 +4154,7 @@ export async function submitLcFeedback(input: {
   message: string;
   anonymous?: boolean;
   attachments?: { path: string; name: string }[];
-  /** feedback about a TOUCH POINT the viewer attended (v29): it resolves to
+  /** feedback about a past TOUCH POINT the viewer can see (v29): it resolves to
    *  the session's OWNER as the target and names the session in the message,
    *  so both flows travel the exact same shout-out / private-inbox path. */
   touchPointId?: string;
@@ -3969,18 +4165,17 @@ export async function submitLcFeedback(input: {
   const about = [...new Set(input.about ?? [])].filter((id) => id && id !== viewer.id);
 
   if (input.touchPointId) {
-    // you may only review a session you actually showed up to
-    const { data: att } = await db()
-      .from("touch_point_attendance")
-      .select("status")
-      .eq("touch_point_id", input.touchPointId)
-      .eq("member_id", viewer.id)
-      .maybeSingle<{ status: string }>();
-    if (!att || !["attended", "late"].includes(att.status))
-      return fail("You can only give feedback on a touch point you attended.");
-    const { getTouchPoint } = await import("./touch-points-read");
+    // v33.19: the gate is "a PAST session you can see", not an attendance row —
+    // a missing register means nobody took it, not that nobody was there
+    const { getTouchPoint, viewerSeesTouchPoint } = await import("./touch-points-read");
     const tp = await getTouchPoint(input.touchPointId);
     if (!tp) return fail("That touch point no longer exists.");
+    if (!viewerSeesTouchPoint(viewer, tp))
+      return fail("You can only give feedback on a touch point you were part of.");
+    if (tp.status === "cancelled")
+      return fail("That touch point was cancelled — there was no session to review.");
+    if (new Date(tp.starts_at).getTime() > Date.now())
+      return fail("That touch point hasn't happened yet 🙂");
     if (!tp.owner_id) return fail("That touch point has no organiser left to send it to.");
     if (tp.owner_id === viewer.id) return fail("That's your own touch point 🙂");
     const { touchPointLabel } = await import("@/lib/types");
@@ -4690,7 +4885,13 @@ export async function reassignSignup(
     !!target && !!signup.assigned_to && target.id !== signup.assigned_to;
   const reset =
     handedToSomeoneElse || (!!target && !signup.assigned_to)
-      ? { contact_status: null, interested: null, contacted_at: null }
+      ? {
+          contact_status: null, interested: null, contacted_at: null,
+          // the CIC belongs to the FIRST call's context — a hand-over voids
+          // the second-call assignment too (v33.19)
+          cic_assigned_to: null, cic_assigned_name: null, cic_assigned_at: null,
+          cic_contact_status: null, cic_interested: null,
+        }
       : {};
 
   const { error } = await db()
@@ -4705,6 +4906,9 @@ export async function reassignSignup(
     )
     .eq("id", id);
   if (error) return fail(error.message);
+  await logSignupChange(
+    viewer, id, "assigned", signup.assigned_name ?? null, target ? target.name : null
+  );
   await logAudit(viewer.id, "signup_reassign", "signup", id, {
     to: target?.id ?? null,
     reset: Object.keys(reset).length > 0,
@@ -4869,10 +5073,137 @@ export async function updateSignupContact(
     )
     .eq("id", id);
   if (error) return fail(error.message);
+  if (input.contactStatus !== undefined)
+    await logSignupChange(viewer, id, "contacted", signup.contact_status ?? null, contact);
+  if (input.interested !== undefined)
+    await logSignupChange(viewer, id, "interested", signup.interested ?? null, clean(input.interested));
   await logAudit(viewer.id, "signup_contact", "signup", id, input);
   pushSignupToSheet(id);
   stampSignupActivity(viewer); // contact update = today's streak saved
   await stampWork(viewer.id, "signup_contact"); // v29: counts towards working hours
+  refresh();
+  return { ok: true };
+}
+
+/** A sign-up EDIT LOG entry (v33.19) — who changed what, when. Best-effort. */
+async function logSignupChange(
+  viewer: { id: string; name: string },
+  signupId: string,
+  field: string,
+  oldValue: string | null,
+  newValue: string | null
+): Promise<void> {
+  if (oldValue === newValue) return;
+  await db()
+    .from("signup_logs")
+    .insert({
+      signup_id: signupId,
+      member_id: viewer.id,
+      member_name: viewer.name,
+      field,
+      old_value: oldValue,
+      new_value: newValue,
+    })
+    .then(({ error }) => {
+      if (error) console.error("[signups] log failed:", error.message);
+    });
+}
+
+/** CIC — assign the SECOND caller (v33.19). MMs+ only. The first assignee and
+ *  their contacted/interested/KPIs are untouched: the second call lives in
+ *  the cic_* columns. */
+export async function assignCicCaller(
+  id: string,
+  callerId: string
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const { seesCicQueue } = await import("./data");
+  if (!seesCicQueue(viewer)) return fail("CIC is handed out by MMs and above.", "forbidden");
+  const signup = await loadSignup(id);
+  if (!signup) return fail("Sign-up not found.");
+  if (!canWorkSignup(viewer, signup) && !canEditSignupVpFields(viewer, signup))
+    return fail("This sign-up isn't in your function.", "forbidden");
+  if (signup.contact_status !== "Yes" || signup.status)
+    return fail("Only a contacted sign-up with no status yet goes to CIC.");
+  const { data: caller } = await db()
+    .from("members")
+    .select("id, name, functions, sub_functions")
+    .eq("id", callerId)
+    .eq("is_active", true)
+    .maybeSingle<{ id: string; name: string; functions: string[] | null; sub_functions: string[] | null }>();
+  if (!caller) return fail("Pick an active member.");
+  if (![...(caller.functions ?? []), ...(caller.sub_functions ?? [])].includes(signup.fn))
+    return fail(`The second caller must work ${signup.fn}.`);
+  if (caller.id === signup.assigned_to)
+    return fail("The second caller can't be the first assignee — that's the whole point.");
+  await snapshotForUndo("signups", id);
+  const { error } = await db()
+    .from("signups")
+    .update({
+      cic_assigned_to: caller.id,
+      cic_assigned_name: caller.name,
+      cic_assigned_at: new Date().toISOString(),
+      // a fresh second call starts blank — the first call's numbers stay put
+      cic_contact_status: null,
+      cic_interested: null,
+    })
+    .eq("id", id);
+  if (error) return fail(error.message);
+  await logSignupChange(viewer, id, "cic_assigned", signup.cic_assigned_name ?? null, caller.name);
+  await import("./notify").then(({ notifyMembers }) =>
+    notifyMembers(
+      [caller.id],
+      "info",
+      `📞 CIC call to make — ${signup.name}`,
+      "A customer interview call: check the first contact really happened and follow up.",
+      viewer.id,
+      "/signups"
+    )
+  );
+  await logAudit(viewer.id, "cic_assign", "signup", id, { caller: caller.id });
+  refresh();
+  return { ok: true };
+}
+
+/** CIC — the second caller records THEIR contacted/interested (v33.19). Writes
+ *  only cic_* columns; the funnel's Contacted/Interested (the first call) are
+ *  never touched, so KPIs/MOS are safe. */
+export async function updateCicContact(
+  id: string,
+  input: { contactStatus?: string | null; interested?: string | null }
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const signup = await loadSignup(id);
+  if (!signup) return fail("Sign-up not found.");
+  const { seesCicQueue } = await import("./data");
+  const isSecondCaller = signup.cic_assigned_to === viewer.id;
+  if (!isSecondCaller && !seesCicQueue(viewer))
+    return fail("Only the assigned CIC caller (or an MM) can record this.", "forbidden");
+  if (!isSecondCaller && !canWorkSignup(viewer, signup) && !canEditSignupVpFields(viewer, signup))
+    return fail("This sign-up isn't in your function.", "forbidden");
+  const clean = (v: string | null | undefined) => {
+    const t = (v ?? "").trim();
+    if (!t) return null;
+    return /^y/i.test(t) ? "Yes" : /^n/i.test(t) ? "No" : t;
+  };
+  const update: Record<string, unknown> = {};
+  if (input.contactStatus !== undefined) {
+    const next = clean(input.contactStatus);
+    await logSignupChange(viewer, id, "cic_contacted", signup.cic_contact_status ?? null, next);
+    update.cic_contact_status = next;
+  }
+  if (input.interested !== undefined) {
+    const next = clean(input.interested);
+    await logSignupChange(viewer, id, "cic_interested", signup.cic_interested ?? null, next);
+    update.cic_interested = next;
+  }
+  if (Object.keys(update).length === 0) return { ok: true };
+  await snapshotForUndo("signups", id);
+  const { error } = await db().from("signups").update(update).eq("id", id);
+  if (error) return fail(error.message);
+  stampSignupActivity(viewer);
+  await stampWork(viewer.id, "signup_contact");
+  await logAudit(viewer.id, "cic_contact", "signup", id, input);
   refresh();
   return { ok: true };
 }
@@ -4947,6 +5278,7 @@ export async function setSignupPotential(
     .update(touchSignup({ status: next }))
     .eq("id", id);
   if (error) return fail(error.message);
+  await logSignupChange(viewer, id, "status", signup.status ?? null, next);
   await stampWork(viewer.id, "signup_status"); // v33.18: counts towards working hours
   await logAudit(viewer.id, "signup_potential", "signup", id, {
     from: signup.status,
@@ -5715,33 +6047,58 @@ export async function bookIrCall(input: {
     return fail("Could not book the slot — try again.");
   }
 
-  // best-effort calendar event on the OWNER's own calendar (a dead grant
-  // must never fail the booking): the IR is a real attendee (Google emails
-  // the invite) and a Meet room is provisioned
+  // best-effort calendar event + Meet room (a dead grant must never fail the
+  // booking): the IR is a real attendee (Google emails the invite).
+  // The IR is an ATTENDEE — they read this description. It must carry nothing
+  // internal: no CRM link (they can't open it), no Sodio branding they have
+  // no context for. Just who is meeting whom (v32.8).
+  const eventDescription = `AIESEC IR call.\nPartner LC: ${lc.name}${
+    country ? ` (${country})` : ""
+  }${bookerName ? `\nBooked by: ${bookerName}` : ""}${
+    bookerPhone ? ` · ${bookerPhone}` : ""
+  } <${bookerEmail}>\nHost: ${owner.name}, AIESEC in Alexandria.`;
   let meetLink: string | null = null;
   try {
-    const { createIrCallEvent } = await import("@/lib/google/calendar");
-    const event = await createIrCallEvent(owner.google_refresh_token, {
-      partnerLc: lc.name,
-      start,
-      minutes: settings.slot_minutes,
-      attendeeEmail: bookerEmail,
-      guestsCanInvite: settings.guests_can_invite ?? true,
-      // The IR is an ATTENDEE — they read this description. It must carry
-      // nothing internal: no CRM link (they can't open it), no Sodio branding
-      // they have no context for. Just who is meeting whom (v32.8).
-      description: `AIESEC IR call.\nPartner LC: ${lc.name}${
-        country ? ` (${country})` : ""
-      }${bookerName ? `\nBooked by: ${bookerName}` : ""}${
-        bookerPhone ? ` · ${bookerPhone}` : ""
-      } <${bookerEmail}>\nHost: ${owner.name}, AIESEC in Alexandria.`,
-    });
-    if (event) {
-      meetLink = event.meetLink;
+    const {
+      createIrCallEvent, createIrCallEventOnMailbox,
+    } = await import("@/lib/google/calendar");
+    // TIER 1 — the owner's own calendar (they run the Meet)
+    const own = owner.google_refresh_token
+      ? await createIrCallEvent(owner.google_refresh_token, {
+          partnerLc: lc.name, start, minutes: settings.slot_minutes,
+          attendeeEmail: bookerEmail,
+          guestsCanInvite: settings.guests_can_invite ?? true,
+          description: eventDescription,
+        })
+      : null;
+    if (own) {
+      meetLink = own.meetLink;
       await db()
         .from("ir_calls")
-        .update({ calendar_event_id: event.id, meet_link: event.meetLink })
+        .update({ calendar_event_id: own.id, meet_link: own.meetLink, event_calendar: "owner" })
         .eq("id", created.id);
+    } else {
+      // TIER 2 — the member has no Google grant (password sign-in): host the
+      // event + Meet on the IM MAILBOX calendar so the IR still gets an invite
+      // and the crew still gets a link (v33.19). The owner is invited too so
+      // it lands on their calendar even without a grant.
+      const viaMailbox = await createIrCallEventOnMailbox({
+        partnerLc: lc.name, start, minutes: settings.slot_minutes,
+        attendeeEmail: bookerEmail,
+        ownerEmail: owner.email,
+        guestsCanInvite: settings.guests_can_invite ?? true,
+        description: eventDescription,
+      });
+      if (viaMailbox) {
+        meetLink = viaMailbox.meetLink;
+        await db()
+          .from("ir_calls")
+          .update({
+            calendar_event_id: viaMailbox.id, meet_link: viaMailbox.meetLink,
+            event_calendar: "mailbox",
+          })
+          .eq("id", created.id);
+      }
     }
   } catch (e) {
     console.error("[ir-booking] calendar event failed:", e);
@@ -5900,7 +6257,7 @@ export async function deleteIrCall(id: string): Promise<ActionResult> {
 
   const { data: call } = await db()
     .from("ir_calls")
-    .select("id, member_id, member_name, partner_lc_name, calendar_event_id, called_at")
+    .select("id, member_id, member_name, partner_lc_name, calendar_event_id, event_calendar, called_at")
     .eq("id", id)
     .maybeSingle();
   if (!call) return fail("That call is already gone.");
@@ -5914,15 +6271,20 @@ export async function deleteIrCall(id: string): Promise<ActionResult> {
   // that no longer exists is worse than no invite
   if (call.calendar_event_id) {
     try {
-      const { data: owner } = await db()
-        .from("members")
-        .select("google_refresh_token")
-        .eq("id", call.member_id)
-        .maybeSingle();
-      const token = (owner as { google_refresh_token: string | null } | null)?.google_refresh_token;
-      if (token) {
-        const { deleteIrCallEvent } = await import("@/lib/google/calendar");
-        await deleteIrCallEvent(token, call.calendar_event_id);
+      if ((call as { event_calendar?: string | null }).event_calendar === "mailbox") {
+        const { deleteIrCallEventOnMailbox } = await import("@/lib/google/calendar");
+        await deleteIrCallEventOnMailbox(call.calendar_event_id);
+      } else {
+        const { data: owner } = await db()
+          .from("members")
+          .select("google_refresh_token")
+          .eq("id", call.member_id)
+          .maybeSingle();
+        const token = (owner as { google_refresh_token: string | null } | null)?.google_refresh_token;
+        if (token) {
+          const { deleteIrCallEvent } = await import("@/lib/google/calendar");
+          await deleteIrCallEvent(token, call.calendar_event_id);
+        }
       }
     } catch (e) {
       console.warn("[ir-call] calendar cleanup on delete failed:", e);
@@ -5991,8 +6353,13 @@ export async function cancelIrCall(id: string, reason: string): Promise<ActionRe
     !(await sandboxSuppressed("IR-call calendar event delete"))
   ) {
     try {
-      const { deleteIrCallEvent } = await import("@/lib/google/calendar");
-      await deleteIrCallEvent(ownerToken, call.calendar_event_id);
+      if ((call as { event_calendar?: string | null }).event_calendar === "mailbox") {
+        const { deleteIrCallEventOnMailbox } = await import("@/lib/google/calendar");
+        await deleteIrCallEventOnMailbox(call.calendar_event_id);
+      } else {
+        const { deleteIrCallEvent } = await import("@/lib/google/calendar");
+        await deleteIrCallEvent(ownerToken, call.calendar_event_id);
+      }
     } catch (e) {
       console.error("[ir-calls] calendar delete failed:", e);
     }
@@ -6208,16 +6575,22 @@ export async function rescheduleBookedCall(input: {
   if (!movedRows?.length)
     return fail("This booking just changed on the other side — reload the page and try again.");
 
-  // move the calendar event (attendees get Google's update) — best-effort
+  // move the calendar event (attendees get Google's update) — best-effort,
+  // on whichever calendar hosts it (owner's or the IM mailbox fallback)
   if (call.calendar_event_id) {
     try {
-      const { updateIrCallEvent } = await import("@/lib/google/calendar");
-      await updateIrCallEvent(
-        owner.google_refresh_token,
-        call.calendar_event_id,
-        start,
-        settings.slot_minutes
-      );
+      if ((call as { event_calendar?: string | null }).event_calendar === "mailbox") {
+        const { updateIrCallEventOnMailbox } = await import("@/lib/google/calendar");
+        await updateIrCallEventOnMailbox(call.calendar_event_id, start, settings.slot_minutes);
+      } else {
+        const { updateIrCallEvent } = await import("@/lib/google/calendar");
+        await updateIrCallEvent(
+          owner.google_refresh_token,
+          call.calendar_event_id,
+          start,
+          settings.slot_minutes
+        );
+      }
     } catch (e) {
       console.error("[ir-booking] calendar reschedule failed:", e);
     }

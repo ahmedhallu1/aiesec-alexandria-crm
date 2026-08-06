@@ -460,10 +460,11 @@ function ResponsibleInlineCell({
               {row.responsible_name || "Current responsible"}
             </SelectItem>
           ) : null}
+          {/* just the name — the inline chip is already scoped to this lane,
+              so the function suffix only added noise to the owner cell (v33.19) */}
           {targets.map((m) => (
             <SelectItem key={m.id} value={m.id}>
               {m.label}
-              {m.functions.length ? ` · ${m.functions.join(", ")}` : ""}
             </SelectItem>
           ))}
         </SelectContent>

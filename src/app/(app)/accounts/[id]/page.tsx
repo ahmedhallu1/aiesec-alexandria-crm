@@ -5,7 +5,7 @@ import {
   findAccountRow, getAccount, getViewer, listFunctionMembers, listReassignTargets,
 } from "@/server/data";
 import {
-  accountScope, canEditAccount, canEditRequestState, canFlipB2bBd, canReassignAccount,
+  accountFnTargets, accountScope, canEditAccount, canEditRequestState, canReassignAccount,
 } from "@/lib/rbac";
 import { AccountDetailView } from "@/components/crm/account-detail-view";
 
@@ -90,7 +90,7 @@ export default async function AccountPage({
         edit: canEditAccount(viewer, account),
         reassign: canReassignAccount(viewer, account),
         requestState: canEditRequestState(viewer, account),
-        flipFn: canFlipB2bBd(viewer, account),
+        fnTargets: accountFnTargets(viewer, account),
       }}
       reassignTargets={reassignTargets.map((m) => ({
         id: m.id,
