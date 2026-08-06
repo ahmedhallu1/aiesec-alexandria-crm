@@ -20,9 +20,15 @@ import { WhatsAppIcon } from "./icons";
 const METHODS: ContactMethod[] = ["Call", "WhatsApp", "Email"];
 /** results offered in the UI ("Call Scheduled" is legacy-only) */
 const STATUSES = [
-  "No Response", "Responded", "Interested", "Not Interested", "Wrong Contact", "Visit Scheduled",
+  "No Response", "Waiting for response", "Responded", "Interested", "Not Interested",
+  "Wrong Contact", "Visit Scheduled",
 ] as const;
 type UiStatus = (typeof STATUSES)[number];
+
+/** A WhatsApp or an email SENT is normally "no reply yet" — that's the
+ *  default result for those methods; a call's default stays "No Response". */
+const defaultResultFor = (m: ContactMethod): UiStatus =>
+  m === "WhatsApp" || m === "Email" ? "Waiting for response" : "No Response";
 
 export interface ContactTarget {
   id: string;
@@ -47,25 +53,32 @@ export function ContactDialog({
    *  result the member already typed is pre-picked */
   defaultStatus?: string;
 }) {
+  const seededStatusValid = (STATUSES as readonly string[]).includes(defaultStatus ?? "");
   const [method, setMethod] = useState<ContactMethod>(defaultMethod);
+  const [status, setStatus] = useState<UiStatus>(
+    seededStatusValid ? (defaultStatus as UiStatus) : defaultResultFor(defaultMethod)
+  );
+  // a hand-picked OR nudge-detected result is never overwritten by a method
+  // change — only an untouched method default follows the channel
+  const [statusTouched, setStatusTouched] = useState(seededStatusValid);
   // a later open with a different clicked channel re-seeds the picker
   // (adjust-during-render — the value is still freely changeable by hand)
   const [seededWith, setSeededWith] = useState<ContactMethod>(defaultMethod);
   if (defaultMethod !== seededWith) {
     setSeededWith(defaultMethod);
     setMethod(defaultMethod);
+    // ...and the method's default result follows, unless a detected result
+    // (the nudge hand-over) or the member's own pick is in play
+    if (!statusTouched && !seededStatusValid) setStatus(defaultResultFor(defaultMethod));
   }
-  const [status, setStatus] = useState<UiStatus>(
-    (STATUSES as readonly string[]).includes(defaultStatus ?? "")
-      ? (defaultStatus as UiStatus)
-      : "No Response"
-  );
   // a later open carrying a different detected result re-seeds the picker
   const [seededStatus, setSeededStatus] = useState(defaultStatus);
   if (defaultStatus !== seededStatus) {
     setSeededStatus(defaultStatus);
-    if ((STATUSES as readonly string[]).includes(defaultStatus ?? ""))
+    if (seededStatusValid) {
       setStatus(defaultStatus as UiStatus);
+      setStatusTouched(true);
+    }
   }
   const [comment, setComment] = useState("");
   const [nextStep, setNextStep] = useState("");
@@ -87,7 +100,9 @@ export function ContactDialog({
     !isVisitScheduled && !isNotInterested && !target.hasPendingVisit && !nextStepAlreadySet;
 
   const reset = () => {
-    setMethod(defaultMethod); setStatus("No Response"); setComment("");
+    setMethod(defaultMethod);
+    setStatus(seededStatusValid ? (defaultStatus as UiStatus) : defaultResultFor(defaultMethod));
+    setStatusTouched(seededStatusValid); setComment("");
     setNextStep(""); setNextStepDate(""); setNextStepTime("");
     setScheduledDate(""); setScheduledTime("");
     setLimitPrompt(false); setOopReason("");
@@ -159,7 +174,15 @@ export function ContactDialog({
               <div className="grid grid-cols-2 gap-3">
                 <div className="grid gap-2">
                   <Label>How?</Label>
-                  <Select value={method} onValueChange={(v) => setMethod(v as ContactMethod)}>
+                  <Select
+                    value={method}
+                    onValueChange={(v) => {
+                      const m = v as ContactMethod;
+                      setMethod(m);
+                      // an untouched result follows the method's default
+                      if (!statusTouched) setStatus(defaultResultFor(m));
+                    }}
+                  >
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {METHODS.map((m) => (
@@ -181,7 +204,13 @@ export function ContactDialog({
                 </div>
                 <div className="grid gap-2">
                   <Label>Result</Label>
-                  <Select value={status} onValueChange={(v) => setStatus(v as UiStatus)}>
+                  <Select
+                    value={status}
+                    onValueChange={(v) => {
+                      setStatus(v as UiStatus);
+                      setStatusTouched(true);
+                    }}
+                  >
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {STATUSES.map((s) => (

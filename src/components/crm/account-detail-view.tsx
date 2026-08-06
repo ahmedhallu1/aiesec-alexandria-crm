@@ -57,6 +57,8 @@ interface Caps {
   edit: boolean;
   reassign: boolean;
   requestState: boolean;
+  /** B2B ↔ BD relabel — the crew's two labels on one account (v33.15) */
+  flipFn: boolean;
 }
 
 const methodIcon = {
@@ -260,7 +262,7 @@ export function AccountDetailView({
 
       <div className="grid gap-4 lg:grid-cols-2">
         <ContactInfoCard account={account} canEdit={caps.edit} viewerName={viewerName} />
-        <DetailsCard account={account} canEdit={caps.edit} />
+        <DetailsCard account={account} canEdit={caps.edit} canFlipFn={caps.flipFn} />
         {/* the Podio worklist grant covers BOTH fields (v33.14): "did we
             submit it" and "what came back" are one act, and an MM sent to
             check a name has to be able to record both. */}
@@ -456,14 +458,21 @@ function ResponsibleRow({
 
 /** Details: type / industry / sub-product (multi-select). All phones, emails
  *  and links live in the tagged Contact info card. */
-function DetailsCard({ account, canEdit }: { account: PipelineRow; canEdit: boolean }) {
+function DetailsCard({
+  account, canEdit, canFlipFn,
+}: { account: PipelineRow; canEdit: boolean; canFlipFn: boolean }) {
   const [form, setForm] = useState({
     project: account.project ?? "",
     account_type: account.account_type ?? "",
     industry: account.industry ?? "",
     sub_product: account.sub_product ?? "",
+    fn: account.function,
   });
   const [dirty, setDirty] = useState(false);
+  // only a flip the USER made is ever sent — a refresh that changed
+  // account.function underneath must not turn a stale form value into an
+  // accidental flip-back
+  const [fnTouched, setFnTouched] = useState(false);
   const [pending, start] = useTransition();
   const allOk = true;
 
@@ -473,8 +482,16 @@ function DetailsCard({ account, canEdit }: { account: PipelineRow; canEdit: bool
   };
   const save = () =>
     start(async () => {
-      const res = await updateAccount(account.id, form);
-      if (res.ok) { toast.success("Saved"); setDirty(false); }
+      const { fn, ...rest } = form;
+      const res = await updateAccount(account.id, {
+        ...rest,
+        // the B2B↔BD relabel rides the same save — sent only when the USER
+        // changed it and it differs from the live value
+        ...(canFlipFn && fnTouched && (fn === "B2B" || fn === "BD") && fn !== account.function
+          ? { function: fn }
+          : {}),
+      });
+      if (res.ok) { toast.success("Saved"); setDirty(false); setFnTouched(false); }
       else toast.error(res.error);
     });
 
@@ -547,6 +564,28 @@ function DetailsCard({ account, canEdit }: { account: PipelineRow; canEdit: bool
     <Card>
       <CardHeader><CardTitle className="text-base">Details</CardTitle></CardHeader>
       <CardContent className="space-y-3">
+        {canFlipFn && (account.function === "B2B" || account.function === "BD") ? (
+          <div className="grid gap-1 sm:grid-cols-[110px_1fr] sm:items-center sm:gap-2">
+            <Label className="text-xs text-muted-foreground">Function</Label>
+            <div className="grid min-w-0 gap-1">
+              <Select
+                value={fnTouched ? form.fn : account.function}
+                onValueChange={(v) => { set("fn")(v); setFnTouched(true); }}
+              >
+                <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="B2B">B2B</SelectItem>
+                  <SelectItem value="BD">BD</SelectItem>
+                </SelectContent>
+              </Select>
+              {fnTouched && form.fn !== account.function ? (
+                <p className="text-[11px] text-muted-foreground">
+                  Saving moves this account (and its numbers) to the {form.fn} lane.
+                </p>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         {account.function !== "IGT" ? (
           <>
             {account.function === "IGV" ? (

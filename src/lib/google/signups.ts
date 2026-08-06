@@ -162,6 +162,8 @@ interface MemberLite {
   id: string;
   name: string;
   is_active: boolean;
+  functions?: string[] | null;
+  sub_functions?: string[] | null;
 }
 
 /** Loose sheet-name → member matching ("menna ahmed", "Yaseen", "A.Samir"):
@@ -197,7 +199,7 @@ export async function importSignups(): Promise<{ imported: number; created: numb
   const { sheets } = clients();
   const { data: memberRows } = await db()
     .from("members")
-    .select("id, name, is_active")
+    .select("id, name, is_active, functions, sub_functions")
     .eq("is_active", true);
   const members = (memberRows ?? []) as MemberLite[];
 
@@ -205,6 +207,13 @@ export async function importSignups(): Promise<{ imported: number; created: numb
   let created = 0;
 
   for (const cfg of SIGNUP_TABS) {
+    // a tracker name may belong to someone who LEFT the function (moved to
+    // BD, OGV↔OGT…) but is still active in the LC — they must not keep
+    // collecting this function's sign-ups, so matching is scoped to the
+    // tab's own function
+    const fnMembers = members.filter((m) =>
+      [...(m.functions ?? []), ...(m.sub_functions ?? [])].includes(cfg.fn)
+    );
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: cfg.spreadsheetId,
       range: `'${cfg.tab}'!${TAB_RANGE}`,
@@ -247,7 +256,12 @@ export async function importSignups(): Promise<{ imported: number; created: numb
         batch: cfg.batch,
         name,
         signed_up_at: cell(row, H.signed_up_at),
-        phone: cell(row, H.phone),
+        // tracker placeholders ("-", "deleted phone number") are not phones —
+        // store null so the UI never renders dead Call/WhatsApp buttons
+        phone: (() => {
+          const p = cell(row, H.phone);
+          return p && /\d/.test(p) ? p : null;
+        })(),
         email: cell(row, H.email),
         gender: cell(row, H.gender),
         dob: cell(row, H.dob),
@@ -266,7 +280,7 @@ export async function importSignups(): Promise<{ imported: number; created: numb
       const statusIsOop = !!statusCell && /out of process/i.test(statusCell);
       const workflow = {
         assigned_name: rawAssigned,
-        assigned_to: matchMemberByName(rawAssigned, members),
+        assigned_to: matchMemberByName(rawAssigned, fnMembers),
         contact_status: cell(row, H.contact_status),
         interested: cell(row, H.interested),
         country: cell(row, H.country),

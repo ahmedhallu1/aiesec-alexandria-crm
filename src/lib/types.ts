@@ -19,6 +19,9 @@ export type IgtProduct = "GTa" | "GTe";
 export type ContactMethod = "Call" | "WhatsApp" | "Email";
 export type ContactStatus =
   | "No Response"
+  /** v33.15: sent a WhatsApp/Email, no reply yet — the default result for
+   *  those methods. Counts as UNANSWERED for the 3-contact rule. */
+  | "Waiting for response"
   | "Responded"
   | "Interested"
   | "Not Interested"
@@ -705,6 +708,19 @@ export function normalizePhone(raw: string): PhoneCheck {
  *  prefer the active row, archived rows are linked by UUID. */
 export function accountSlug(name: string): string {
   return encodeURIComponent(normalizeName(name).replace(/\s+/g, "-"));
+}
+
+/** SQL LIKE pattern matching every normalized_name that could slug to `raw`.
+ *
+ *  Every dash (a space OR a real dash in the name) and every LIKE metachar
+ *  the name itself may contain (`_` `%` `\`) becomes the SINGLE-character
+ *  wildcard `_` — position-preserving by construction. The old code STRIPPED
+ *  `_`/`%`, which shortened the pattern so a name like "omama_burgerhouse"
+ *  could never match its own row: 32 live accounts were unreachable (v33.15).
+ *  Callers must still verify candidates with an exact accountSlug comparison
+ *  in JS — the wildcard pattern is deliberately wider than the slug. */
+export function slugLikePattern(raw: string): string {
+  return raw.replace(/[%_\\-]/g, "_");
 }
 
 /** Quick-action targets from an account's tagged contacts.

@@ -115,7 +115,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             // no email → a synthetic phone-keyed session identity
             email: member.email ?? phoneSessionKey(member.phone ?? ""),
             name: member.name,
-            image: member.avatar_url || member.photo_url,
+            // NEVER the uploaded avatar_url: a base64 data URL here lands in
+            // the JWT session cookie, chunks past Vercel's ~14KB header limit
+            // and 494-locks the member out. Avatars render from the DB row.
+            image:
+              member.photo_url && member.photo_url.startsWith("https://")
+                ? member.photo_url
+                : null,
           };
         } catch (e) {
           console.error("[auth] credentials check failed:", e);
@@ -126,6 +132,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ],
   callbacks: {
     ...authConfig.callbacks,
+    async jwt({ token }) {
+      // The session cookie must stay small: a data-URL or otherwise oversized
+      // picture would chunk the cookie past Vercel's header limit (494).
+      if (
+        typeof token.picture === "string" &&
+        (token.picture.startsWith("data:") || token.picture.length > 2000)
+      ) {
+        token.picture = null;
+      }
+      return token;
+    },
     async signIn({ user, account, profile }) {
       if (account?.provider !== "google") return true; // credentials already checked
       const email = user.email?.toLowerCase();

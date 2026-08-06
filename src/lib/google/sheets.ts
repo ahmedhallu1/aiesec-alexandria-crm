@@ -27,11 +27,12 @@ import type { Member, MemberRole } from "@/lib/types";
  *  "CRM — Visits"            export mirror
  */
 
-/** Final Membership sheet structure (column order is the contract):
- *  A Name · B Nickname · C Email · D Phone · E Role · F Function (multi) ·
- *  G Sub Function (multi) · H Stakeholder (by NAME) · I Team Name · J Active */
+/** Membership sheet headers — used ONLY to seed a brand-new blank sheet.
+ *  The layout is NOT a positional contract any more: both the import and the
+ *  write-back resolve columns by header name (v33 removed Nickname from the
+ *  live sheet, so this list matches the current 9-column layout). */
 const MEMBERSHIP_HEADERS = [
-  "Name", "Nickname", "Email", "Phone",
+  "Name", "Email", "Phone",
   "Role (LCP/VP/TL/Coordinator/Member)",
   "Function (IGV/IGT/OGV/OGT)",
   "Sub Function (Raising/Consideration/ICX/OGX)",
@@ -281,46 +282,13 @@ interface SheetMemberRow {
   is_active: boolean;
 }
 
-/** COLUMN INDEX BY HEADER NAME (v33).
- *
- *  The importer used to destructure the row positionally, so deleting or
- *  reordering ONE column on the Membership sheet silently shifted every field
- *  after it — deleting "Nickname" would have written emails into the nickname
- *  slot and phones into email for all 77 members, twice an hour, with no
- *  error. Columns are now found by their header, so the sheet's layout is free
- *  to change and the code doesn't have to be redeployed in lockstep.
- *
- *  Matching is loose (case, spaces and punctuation ignored) because the real
- *  headers carry parenthetical hints like "Role (LCP/VP/TL/Coordinator/Member)". */
-const COLUMN_ALIASES: Record<string, string[]> = {
-  name: ["name", "fullname"],
-  email: ["email", "aiesecemail"],
-  phone: ["phone", "phonenumber", "mobile"],
-  role: ["role"],
-  functions: ["function", "functions"],
-  subs: ["subfunction", "subfunctions"],
-  stakeholder: ["stakeholder", "manager"],
-  team: ["teamname", "team"],
-  active: ["active", "activeyesno"],
-};
-
-const normHeader = (h: string) => (h ?? "").toLowerCase().replace(/[^a-z]/g, "");
-
-export type ColumnMap = Record<string, number>;
-
-/** Builds field → column index from the sheet's own header row. */
-export function mapColumns(header: string[]): ColumnMap {
-  const map: ColumnMap = {};
-  header.forEach((cell, i) => {
-    const h = normHeader(cell);
-    for (const [field, aliases] of Object.entries(COLUMN_ALIASES)) {
-      if (map[field] !== undefined) continue;
-      // startsWith so "rolelcpvptlcoordinatormember" still matches "role"
-      if (aliases.some((a) => h === a || h.startsWith(a))) map[field] = i;
-    }
-  });
-  return map;
-}
+// Header resolution + write-back row building live in sheet-row.ts (pure, so
+// the column-alignment property is unit-testable without googleapis).
+export { mapColumns, buildMemberSheetRow } from "./sheet-row";
+export type { ColumnMap, MemberWriteBack } from "./sheet-row";
+import {
+  buildMemberSheetRow, mapColumns, type ColumnMap, type MemberWriteBack,
+} from "./sheet-row";
 
 /** Role words, lower-cased — a value from the Role column showing up in the
  *  Function column is the tell-tale of a shifted row. */
@@ -486,22 +454,59 @@ export async function importMembership(): Promise<number> {
 
   const digitsOf = (s: string | null | undefined) => (s ?? "").replace(/\D/g, "");
   // an email-less member is matched to their DB row by phone tail
-  const findPhoneKeyed = async (phone: string): Promise<string | null> => {
+  const findPhoneKeyed = async (
+    phone: string
+  ): Promise<{ id: string; isActive: boolean } | null> => {
     const digits = digitsOf(phone);
     if (digits.length < 7) return null;
     const { data } = await db()
       .from("members")
-      .select("id, phone")
+      .select("id, phone, is_active")
       .is("email", null)
       .not("phone", "is", null)
       .ilike("phone", `%${digits.slice(-8)}%`)
       .limit(10);
-    const rows = (data ?? []) as { id: string; phone: string | null }[];
-    // exact digits first — a shared tail must never merge two people
-    const exact = rows.find((m) => digitsOf(m.phone) === digits);
-    if (exact) return exact.id;
+    const rows = (data ?? []) as { id: string; phone: string | null; is_active: boolean }[];
+    // exact digits first — a shared tail must never merge two people; ACTIVE
+    // rows win ties so a deactivated duplicate can't shadow the live identity
+    const pick = (cands: typeof rows) =>
+      cands.find((m) => m.is_active) ?? cands[0] ?? null;
+    const exacts = rows.filter((m) => digitsOf(m.phone) === digits);
+    const exact = pick(exacts);
+    if (exact) return { id: exact.id, isActive: exact.is_active };
     const tail = digits.slice(-9);
-    return rows.find((m) => digitsOf(m.phone).endsWith(tail))?.id ?? null;
+    const tails = rows.filter((m) => digitsOf(m.phone).endsWith(tail));
+    const hit = pick(tails);
+    return hit ? { id: hit.id, isActive: hit.is_active } : null;
+  };
+
+  // The email-REMOVAL transition (v33.15): a member's email was taken off the
+  // sheet but their DB row still carries it, so findPhoneKeyed (email-null
+  // rows only) misses them and the import used to INSERT a duplicate — which
+  // the next run then deactivated, stranding the member's session on
+  // /inactive. Adopt the existing row instead: EXACT full-digit phone match
+  // only, and only when that row's email appears NOWHERE on the sheet — both
+  // guards together mean this can never merge two people sharing a tail.
+  const findEmailRowByExactPhone = async (
+    phone: string,
+    sheetEmails: Set<string>
+  ): Promise<string | null> => {
+    const digits = digitsOf(phone);
+    if (digits.length < 7) return null;
+    const { data } = await db()
+      .from("members")
+      .select("id, phone, email")
+      .not("email", "is", null)
+      .not("phone", "is", null)
+      .ilike("phone", `%${digits.slice(-8)}%`)
+      .limit(10);
+    const rows = (data ?? []) as { id: string; phone: string | null; email: string | null }[];
+    const exact = rows.find(
+      (m) =>
+        digitsOf(m.phone) === digits &&
+        !sheetEmails.has((m.email ?? "").trim().toLowerCase())
+    );
+    return exact?.id ?? null;
   };
 
   // the FIRST row is the header — it decides where every field lives
@@ -511,6 +516,14 @@ export async function importMembership(): Promise<number> {
     return 0;
   }
   const dataRows = rows.slice(1);
+
+  // every email present ANYWHERE on the sheet — the email-removal adoption
+  // must know an email is truly gone, not merely sitting on a later row
+  const allSheetEmails = new Set<string>();
+  for (const raw of dataRows) {
+    const e = cols.email !== undefined ? (raw[cols.email] ?? "").trim().toLowerCase() : "";
+    if (e.includes("@")) allSheetEmails.add(e);
+  }
 
   const seenEmails: string[] = [];
   const seenPhoneTails: string[] = [];
@@ -529,9 +542,18 @@ export async function importMembership(): Promise<number> {
         .ilike("email", row.email)
         .maybeSingle<{ id: string }>();
       if (!existing && row.phone) {
-        const phoneKeyedId = await findPhoneKeyed(row.phone);
-        if (phoneKeyedId) {
-          await db().from("members").update(row).eq("id", phoneKeyedId);
+        const phoneKeyed = await findPhoneKeyed(row.phone);
+        if (phoneKeyed) {
+          await db().from("members").update(row).eq("id", phoneKeyed.id);
+          continue;
+        }
+        // the email was CHANGED on the sheet (typo fix, domain move): the old
+        // email-bearing row won't match by email OR by findPhoneKeyed
+        // (email-null only) — adopt it by exact phone; its old email is by
+        // definition absent from the sheet, so the guard holds
+        const adoptId = await findEmailRowByExactPhone(row.phone, allSheetEmails);
+        if (adoptId) {
+          await db().from("members").update({ ...row, left_at: null }).eq("id", adoptId);
           continue;
         }
       }
@@ -541,10 +563,27 @@ export async function importMembership(): Promise<number> {
       // phone-keyed row (no email yet)
       const tail = digitsOf(row.phone).slice(-9);
       if (tail) seenPhoneTails.push(tail);
-      const phoneKeyedId = row.phone ? await findPhoneKeyed(row.phone) : null;
-      if (phoneKeyedId)
-        await db().from("members").update({ ...row, left_at: null }).eq("id", phoneKeyedId);
-      else await db().from("members").insert(row);
+      const phoneKeyed = row.phone ? await findPhoneKeyed(row.phone) : null;
+      if (phoneKeyed?.isActive) {
+        await db().from("members").update({ ...row, left_at: null }).eq("id", phoneKeyed.id);
+      } else {
+        // email removed from the sheet? adopt the member's existing row
+        // (keeps their id, accounts, sign-ups) and clear the email — the
+        // sheet is the source of truth, and this opens the phone door.
+        // This outranks REVIVING an inactive email-less row: a deactivated
+        // duplicate must never shadow the identity that owns the history.
+        const adoptId = row.phone
+          ? await findEmailRowByExactPhone(row.phone, allSheetEmails)
+          : null;
+        if (adoptId)
+          await db()
+            .from("members")
+            .update({ ...row, email: null, left_at: null })
+            .eq("id", adoptId);
+        else if (phoneKeyed)
+          await db().from("members").update({ ...row, left_at: null }).eq("id", phoneKeyed.id);
+        else await db().from("members").insert(row);
+      }
     }
   }
 
@@ -758,43 +797,50 @@ export async function writeTeamsTab(
 
 // ------------------------------------------------------------------ write-back
 
-export interface MemberWriteBack {
-  name: string;
-  /** null = no AIESEC email yet — the row is located by PHONE instead */
-  email: string | null;
-  phone: string | null;
-  role: string;
-  functions: string[];
-  sub_functions: string[];
-  stakeholder_name: string | null;
-  team_name: string | null;
-  is_active: boolean;
-}
-
 /** Writes one member's row back to the Membership sheet (found by email —
  *  or, for members without one yet, by phone digits — appended if new) so
  *  in-app edits survive the next import. Best-effort: callers should .catch()
- *  and keep going — the DB row is already saved. */
+ *  and keep going — the DB row is already saved.
+ *
+ *  COLUMNS ARE RESOLVED BY HEADER (v33.15). The old writer assumed the
+ *  pre-v33 10-column layout (with Nickname); after the Nickname column was
+ *  deleted it could no longer FIND anyone's row (it read C:D expecting
+ *  Email/Phone) and appended a one-column-shifted duplicate on every first
+ *  sign-in — which the import's shifted-row guard then skipped forever. */
 export async function writeMemberToSheet(m: MemberWriteBack): Promise<void> {
   if (await sandboxSuppressed("membership sheet write-back")) return;
   const id = await ensureSpreadsheet("CRM — Membership", MEMBERSHIP_HEADERS);
   const { sheets } = clients();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: id,
-    range: "C2:D1000", // emails + phones (the phone is the email-less fallback key)
+    range: "A1:Z1000",
   });
   const rows = (res.data.values ?? []) as string[][];
+  const cols = mapColumns((rows[0] ?? []) as string[]);
+  // never guess positions — a shifted write corrupts the row for every
+  // future import. Throwing is safe: all callers .catch() and log.
+  if (cols.name === undefined || (cols.email === undefined && cols.phone === undefined)) {
+    throw new Error(
+      "[sheets] membership header not recognised — write-back aborted " +
+        "(sheet layout changed?): " + JSON.stringify(rows[0] ?? [])
+    );
+  }
+  const dataRows = rows.slice(1);
   const digitsOf = (s: string) => s.replace(/\D/g, "");
+  const cellAt = (r: string[], i: number | undefined) => (i === undefined ? "" : r[i] ?? "");
   const phoneRowIdx = () => {
     if (!m.phone) return -1;
     const tail = digitsOf(m.phone).slice(-9);
-    return rows.findIndex(
-      (r) => !((r[0] ?? "").trim()) && tail && digitsOf(r[1] ?? "").endsWith(tail)
+    if (!tail) return -1;
+    return dataRows.findIndex(
+      (r) => !cellAt(r, cols.email).trim() && digitsOf(cellAt(r, cols.phone)).endsWith(tail)
     );
   };
   let idx = -1;
   if (m.email) {
-    idx = rows.findIndex((r) => (r[0] ?? "").trim().toLowerCase() === m.email!.toLowerCase());
+    idx = dataRows.findIndex(
+      (r) => cellAt(r, cols.email).trim().toLowerCase() === m.email!.toLowerCase()
+    );
     // the email just landed on a previously phone-only member: fill THEIR old
     // email-less row instead of appending a duplicate the import would re-adopt
     if (idx < 0) idx = phoneRowIdx();
@@ -802,33 +848,22 @@ export async function writeMemberToSheet(m: MemberWriteBack): Promise<void> {
     idx = phoneRowIdx();
   }
 
-  const rowValues = [
-    m.name,
-    "",
-    m.email ?? "",
-    m.phone ?? "",
-    m.role,
-    m.functions.join(", "),
-    m.sub_functions.join(", "),
-    m.stakeholder_name ?? "",
-    m.team_name ?? "",
-    m.is_active ? "Yes" : "No",
-  ];
+  const out = buildMemberSheetRow(cols, idx >= 0 ? dataRows[idx] ?? [] : [], m);
 
   if (idx >= 0) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: id,
       range: `A${idx + 2}`,
       valueInputOption: "RAW",
-      requestBody: { values: [rowValues] },
+      requestBody: { values: [out] },
     });
   } else {
     await sheets.spreadsheets.values.append({
       spreadsheetId: id,
-      range: "A1:J1",
+      range: "A1",
       valueInputOption: "RAW",
       insertDataOption: "INSERT_ROWS",
-      requestBody: { values: [rowValues] },
+      requestBody: { values: [out] },
     });
   }
 }

@@ -11,6 +11,7 @@ import {
   allowedAccountFunctions,
   canEditAccount,
   canEditRequestState,
+  canFlipB2bBd,
   canManageMembership,
   canSeeLcConcerns,
   canCheckPodio,
@@ -427,6 +428,9 @@ const editableFields = z.object({
   email: emailField,
   social_link: linkField,
   website: linkField,
+  // the only legal function CHANGE is the B2B↔BD relabel (one crew, two
+  // labels) — enum-restricting it keeps IGV/IGT/B2C flips schema-impossible
+  function: z.enum(["B2B", "BD"]).nullish(),
   sub_product: z.string().trim().nullish(),
   project: z.string().trim().nullish(),
   account_type: z.string().trim().nullish(),
@@ -464,6 +468,36 @@ export async function updateAccount(
       return fail("From the Podio queue you can only record what Podio said.", "forbidden");
     if (key === "request_state" && !canEditRequestState(viewer, account))
       return fail("Request State is set by the TL, Coordinator or VP.", "forbidden");
+    if (key === "function") {
+      // B2B ↔ BD relabel (v33.15) — one crew, two labels, flippable by
+      // whoever may edit the account AND create under both labels
+      if (value === account.function || value == null) continue;
+      if (
+        (account.function !== "B2B" && account.function !== "BD") ||
+        !canFlipB2bBd(viewer, account)
+      )
+        return fail(
+          "Only the B2B/BD crew or their leaders can flip an account between B2B and BD.",
+          "forbidden"
+        );
+      // 0034: B2B is the OPENS name-world, BD the SERVICE world — the name
+      // must be re-checked in the TARGET world (its archive + the blacklist)
+      const check = await checkAccountName(account.name, value as "B2B" | "BD", {
+        excludeId: account.id,
+      });
+      if (check.duplicate)
+        return fail(
+          `"${account.name}" already exists ${
+            check.duplicate.out_of_process ? "archived " : ""
+          }in the ${value === "BD" ? "BD/B2C" : "raising"} world — revive that one instead.`
+        );
+      if (check.blacklisted)
+        return fail(
+          `"${account.name}" is on the raising blacklist — it can't become a B2B account.`
+        );
+      update.function = value;
+      continue;
+    }
     update[key] = value === "" ? null : value;
   }
   if (Object.keys(update).length === 0) return { ok: true };
@@ -485,7 +519,12 @@ export async function updateAccount(
 
   await snapshotForUndo("accounts", accountId);
   const { error } = await db().from("accounts").update(update).eq("id", accountId);
-  if (error) return fail(error.message);
+  if (error)
+    return fail(
+      error.code === "23505"
+        ? "That name is taken in the other world's archive — the flip was blocked."
+        : error.message
+    );
   // next step touched (or the account auto-archived) → keep the calendar
   // follow-up reminder in sync
   if (
@@ -494,7 +533,12 @@ export async function updateAccount(
   ) {
     await syncNextStepReminder(accountId);
   }
-  await logAudit(viewer.id, "update", "account", accountId, { fields: Object.keys(update) });
+  await logAudit(viewer.id, "update", "account", accountId, {
+    fields: Object.keys(update),
+    ...("function" in update
+      ? { function_from: account.function, function_to: update.function }
+      : {}),
+  });
   await stampWork(viewer.id, "account_updated"); // v29: counts towards working hours
   refresh(accountId);
   return { ok: true };
@@ -1877,7 +1921,8 @@ const contactSchema = z.object({
   accountId: z.string().uuid(),
   method: z.enum(["Call", "WhatsApp", "Email"]),
   status: z.enum([
-    "No Response", "Responded", "Interested", "Not Interested", "Wrong Contact", "Visit Scheduled",
+    "No Response", "Waiting for response", "Responded", "Interested", "Not Interested",
+    "Wrong Contact", "Visit Scheduled",
   ]),
   comment: z.string().trim().optional(),
   nextStep: z.string().trim().optional(),
@@ -1943,7 +1988,7 @@ export async function logContact(
   if (error) {
     if (error.message.includes("enum contact_status"))
       return fail(
-        'The database is missing the "Visit Scheduled" value — run migration 0007 in the Supabase SQL editor (it ends with a schema reload).'
+        "The database is missing a contact-result value — run migrations 0007 and 0043 in the Supabase SQL editor (each ends with a schema reload)."
       );
     return fail(error.message);
   }
@@ -1995,11 +2040,24 @@ export async function logContact(
     .from("contact_attempts")
     .select("id", { count: "exact", head: true })
     .eq("account_id", accountId);
-  const { count: answered } = await db()
+  // "Waiting for response" is NOT an answer — a WhatsApp/Email-only history
+  // must still trip the 3-contacts prompt (matches the view's
+  // no_response_attempts filter since migration 0043)
+  let { count: answered, error: answeredErr } = await db()
     .from("contact_attempts")
     .select("id", { count: "exact", head: true })
     .eq("account_id", accountId)
-    .neq("status", "No Response");
+    .not("status", "in", '("No Response","Waiting for response")');
+  if (answeredErr) {
+    // pre-0043 DB: the new literal can't be cast to the enum and the WHOLE
+    // query errors — falling back keeps the prompt honest instead of firing
+    // "3 contacts without an answer" on accounts that answered
+    ({ count: answered } = await db()
+      .from("contact_attempts")
+      .select("id", { count: "exact", head: true })
+      .eq("account_id", accountId)
+      .neq("status", "No Response"));
+  }
 
   refresh(accountId);
   // BUSINESS RULE: 3 contacts without a final answer → prompt for Out of Process

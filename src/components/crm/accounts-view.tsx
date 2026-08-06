@@ -58,7 +58,7 @@ import { DEFAULT_PAGE_SIZE } from "@/lib/page-size";
 /** Contact results offered in the "Last result" filter (matches the log
  *  dialog; "Call Scheduled" is legacy and kept only for old rows). */
 const LAST_STATUS_OPTIONS = [
-  "No Response", "Responded", "Interested", "Not Interested",
+  "No Response", "Waiting for response", "Responded", "Interested", "Not Interested",
   "Wrong Contact", "Visit Scheduled",
 ] as const;
 
@@ -235,7 +235,8 @@ function ContactsCell({ row }: { row: PipelineRow }) {
           <span
             className={cn(
               "text-[10px]",
-              row.last_contact_status === "No Response"
+              row.last_contact_status === "No Response" ||
+                row.last_contact_status === "Waiting for response"
                 ? "text-warning"
                 : row.last_contact_status === "Not Interested"
                   ? "text-destructive"

@@ -264,6 +264,20 @@ export function canEditAccount(v: Viewer, a: AccountLike): boolean {
   return a.responsible_id != null && scope.ids.includes(a.responsible_id);
 }
 
+/** Flip an account between the crew's two labels — B2B (opens) ↔ BD (money).
+ *  B2B & BD are one membership picking the label per account, so anyone who
+ *  may EDIT the account and may CREATE under BOTH labels may relabel it:
+ *  the crew on their own accounts, their TLs on team accounts, the function's
+ *  VP/Director (and IGV/IGT VPs/Directors, whose scope already covers B2B/BD),
+ *  LCP/admin. Archived rows move through revive/reassign instead. */
+export function canFlipB2bBd(v: Viewer, a: AccountLike): boolean {
+  if (a.out_of_process) return false;
+  if (a.function !== "B2B" && a.function !== "BD") return false;
+  if (!canEditAccount(v, a)) return false;
+  const allowed = allowedAccountFunctions(v);
+  return allowed.includes("B2B") && allowed.includes("BD");
+}
+
 /** Responsibility: Team Leaders choose between themselves and their members;
  *  LCVPs/Directors inside their function; LCP anywhere. Plain members never. */
 export function canReassignAccount(v: Viewer, a: AccountLike): boolean {

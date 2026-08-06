@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-04 · Version: v33
+Last updated: 2026-08-06 · Version: v33.15
 
 ---
 
@@ -610,6 +610,90 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-06 · v33.15** — **THE PRODUCTION-INCIDENTS BATCH** (8 issues
+  reported live from the winter-WH floor, all root-caused before fixing;
+  migration **0043 applied**).
+  ① **A member was 494-locked out of the site** (Vercel
+  `REQUEST_HEADER_TOO_LARGE`): the credentials `authorize()` returned
+  `image: member.avatar_url` — a 33KB uploaded-avatar DATA URL — which
+  Auth.js's default jwt callback stored in the session cookie: ~45KB across
+  ~12 chunked cookies, past Vercel's ~14KB header cap, rejected at the edge
+  before any app code could even clear it. Nothing in the app reads
+  `session.user.image` (avatars render from the DB row), so the token now
+  carries only a short https photo_url or null, and a defense-in-depth `jwt`
+  callback strips any `data:`/oversized picture from every token mint. The
+  affected member clears site cookies once and signs in with phone +
+  password (he HAS a password — the phone-in-both-fields door closes the
+  moment one is set; that part was working as designed).
+  ② **32 live accounts were unreachable at their own URLs** ("you don't have
+  access", admin included — 16 of them BD, because that crew names accounts
+  after Instagram handles): the v33.7 slug lookup STRIPPED `_`/`%` from its
+  ILIKE pattern (shortening it so "omama_burgerhouse" could never match its
+  own row) instead of neutralizing them. New `slugLikePattern` in types.ts
+  turns every LIKE metachar (and dash) into the single-char wildcard `_` —
+  position-preserving — with the exact accountSlug comparison in JS kept
+  (now encoding-agnostic, so Arabic names with real dashes resolve too).
+  Same fix in `checkAccountName`, which had silently stopped blocking
+  duplicates of underscore/percent names. Tests: `tests/slug-lookup.test.ts`
+  pins "every real account name resolves at its own URL" over the actual
+  regression set.
+  ③ **The membership write-back was corrupting the sheet on every first
+  sign-in**: `writeMemberToSheet` still wrote POSITIONALLY against the
+  pre-v33 10-column layout (Nickname included) — after v33 deleted that
+  column it could no longer find anyone's row (it read C:D expecting
+  Email/Phone) and appended a one-column-shifted duplicate, which the
+  import's shifted-row guard then skipped forever (so in-app edits were
+  silently reverted half-hourly). The writer now resolves columns BY HEADER
+  via the same `mapColumns` as the import (pure logic split into
+  `sheet-row.ts`, locked by `tests/sheet-writeback.test.ts` on the current,
+  legacy AND reordered layouts) and ABORTS LOUDLY when headers can't be
+  resolved. The shifted junk rows on the live sheet were cleaned up and the
+  real rows re-synced from the DB.
+  ④ **Removing a member's email created a stranded duplicate** (Menna's
+  lockout): `findPhoneKeyed` only matches email-NULL rows, so a sheet row
+  whose email was removed couldn't adopt the member's email-bearing DB row →
+  duplicate inserted → next import deactivated it → her phone-keyed session
+  resolved to the DEAD duplicate (memberByPhoneDigits preferred email-less
+  rows regardless of is_active) → every onboarding submit bounced to
+  /inactive, which read as "the Enter Sodio button doesn't work". Fixes: the
+  import's email-less branch now ADOPTS an email-bearing row by EXACT
+  full-digit phone match when that email is gone from the entire sheet
+  (clearing the email — the sheet is the source of truth);
+  `memberByPhoneDigits` prefers ACTIVE rows; her duplicate was merged away
+  in prod.
+  ⑤ **B2B ↔ BD flip exists**: the Details card gains a Function switch on
+  B2B/BD accounts (`canFlipB2bBd` in rbac = may edit the account + may
+  create under BOTH labels — crew, their TLs, the function's + IGV/IGT
+  VPs/Directors, LCP/admin). Server-side the flip re-runs the world-aware
+  name check against the TARGET world (0034 put BD in the service world:
+  `checkAccountName` gained `excludeId`) and maps the 23505 race; audit rows
+  carry function_from/to. Lanes, KPIs, mirrors and deal rules all read the
+  live column, so the account moves whole.
+  ⑥ **"Waiting for response" contact result** (migration **0043**: enum value
+  + accounts_pipeline counts it in `no_response_attempts`): the DEFAULT
+  result for WhatsApp and Email attempts (Call keeps "No Response"; a
+  hand-picked result is never overwritten by a method change). It counts as
+  UNANSWERED for the 3-contact rule both in the view and in logContact's
+  `answered` count. Offered in the Log dialog + Last-result filter; renders
+  amber like "No Response".
+  ⑦ **OGT sign-ups stop resurrecting the old membership**: the import
+  matched tracker "Assigned to" names against ALL active members, so people
+  who LEFT the function but stayed in the LC (Menna → OGV ×130, Hana Wael →
+  BD ×99) kept collecting OGT rows every 15 min — matching is now scoped to
+  the tab's own function, the 229 rows were released to Unassigned
+  (sodio_touched=true so the sheet can't re-apply them), ~576 rows carrying
+  a raw ex-member name with no match were cleared the same way, and the
+  Assigned filter is built from CURRENT membership (active + in-function,
+  LCP excluded) instead of raw sheet names — which also swept OGV's leftover
+  nickname options.
+  ⑧ **Dead Call/WhatsApp buttons on phone-less sign-ups**: tracker
+  placeholder phones ("-", "deleted phone number") passed truthiness guards
+  and rendered `tel:-` / `wa.me/null` buttons on mobile cards, the desktop
+  quick-actions cell and the detail dialog — all four spots now gate on
+  `hasPhone` (digits exist), the importer nulls digit-free phones, the 62
+  existing placeholder rows were nulled in prod, and the phone=missing
+  filter treats "-" as missing.
 
 - **2026-08-04 · v33** — **THE HARDENING RELEASE: an audit, a test suite, and
   the first real backups.** Migrations **0033–0037 all applied**.

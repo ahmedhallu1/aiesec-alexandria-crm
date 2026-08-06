@@ -35,7 +35,7 @@ import type {
   Stage,
 } from "@/lib/types";
 import {
-  parsePhoneSessionKey, normalizeName, accountSlug } from "@/lib/types";
+  parsePhoneSessionKey, normalizeName, accountSlug, slugLikePattern } from "@/lib/types";
 import { monthOf, sprintOf } from "@/lib/plan";
 
 export interface PipelineRow extends AccountPipeline {
@@ -118,11 +118,21 @@ async function memberByPhoneDigits(
     .not("phone", "is", null)
     .ilike("phone", `%${phoneDigits}%`)
     .limit(10);
-  const rows = (data ?? []) as unknown as { email: string | null; phone: string | null }[];
+  const rows = (data ?? []) as unknown as {
+    email: string | null;
+    phone: string | null;
+    is_active?: boolean;
+  }[];
   const exact = rows.filter(
     (m) => (m.phone ?? "").replace(/\D/g, "") === phoneDigits
   );
-  return (exact.find((m) => !m.email) ?? exact[0] ?? null) as Record<string, unknown> | null;
+  // ACTIVE rows first: a deactivated duplicate (an import hiccup) must never
+  // shadow the member's live row and strand their session on /inactive
+  return (exact.find((m) => !m.email && m.is_active !== false) ??
+    exact.find((m) => m.is_active !== false) ??
+    exact.find((m) => !m.email) ??
+    exact[0] ??
+    null) as Record<string, unknown> | null;
 }
 
 /** The members an admin can test-view as — [] for everyone else. Powers the
@@ -729,7 +739,12 @@ export async function findAccountRow(
   idOrSlug: string,
   viewer?: Viewer
 ): Promise<PipelineRow | null> {
-  const raw = decodeURIComponent(idOrSlug);
+  let raw = idOrSlug;
+  try {
+    raw = decodeURIComponent(idOrSlug);
+  } catch {
+    // a hand-typed URL with a stray % — match it as-is
+  }
   if (UUID_RE.test(raw)) {
     const { data } = await db()
       .from("accounts_pipeline")
@@ -739,8 +754,13 @@ export async function findAccountRow(
     return data ?? null;
   }
 
-  // every dash could have been a space OR a real dash in the name
-  const pattern = raw.replace(/[%_]/g, "").replace(/-/g, "_");
+  // Every dash could have been a space OR a real dash — and a name may hold
+  // LIKE metacharacters itself ("omama_burgerhouse", "purity 101%"). Each such
+  // character must become the SINGLE-char wildcard `_`, never be stripped:
+  // stripping shortens the pattern and it can then match nothing at all
+  // (32 live accounts were unreachable that way). The JS slug comparison
+  // below keeps the wider pattern exact.
+  const pattern = slugLikePattern(raw);
   const { data } = await db()
     .from("accounts_pipeline")
     .select("*")
@@ -749,7 +769,12 @@ export async function findAccountRow(
     .order("created_at", { ascending: false })
     .limit(20);
   const rows = ((data ?? []) as PipelineRow[]).filter(
-    (r) => accountSlug(r.name) === raw || normalizeName(r.name) === raw.replace(/-/g, " ")
+    (r) =>
+      accountSlug(r.name) === raw ||
+      // slugs percent-encode non-ASCII (Arabic names) while `raw` arrives
+      // decoded — compare the decoded forms too
+      decodeURIComponent(accountSlug(r.name)) === raw ||
+      normalizeName(r.name) === raw.replace(/-/g, " ")
   );
   if (rows.length === 0) return null;
   // an exact slug collision is rare but real (two names one dash apart) —
@@ -963,7 +988,8 @@ export interface NameCheckResult {
  *  a partnership.) A cross-world archived match is a non-blocking heads-up. */
 export async function checkAccountName(
   name: string,
-  fn?: AccountFunction
+  fn?: AccountFunction,
+  opts?: { excludeId?: string }
 ): Promise<NameCheckResult> {
   const normalized = normalizeName(name);
   if (!normalized)
@@ -974,8 +1000,10 @@ export async function checkAccountName(
   // company" and "i-fikra software company" normalise differently but slug
   // IDENTICALLY, so both live at one URL — which is how the LC ended up with
   // two of the same partner in different functions, one of them unreachable.
-  // A name that would collide on the URL is a duplicate.
-  const slugPattern = normalized.replace(/[%_]/g, "").replace(/[\s-]/g, "_");
+  // A name that would collide on the URL is a duplicate. LIKE metacharacters
+  // in the name itself (_ % \) become single-char wildcards — stripping them
+  // shortened the pattern and silently disabled this check for such names.
+  const slugPattern = slugLikePattern(normalized).replace(/\s/g, "_");
   const [{ data: rows }, { data: blacklistHit }] = await Promise.all([
     db()
       .from("accounts_pipeline")
@@ -990,7 +1018,7 @@ export async function checkAccountName(
       .maybeSingle<BlacklistEntry>(),
   ]);
   const all = ((rows ?? []) as PipelineRow[]).filter(
-    (r) => accountSlug(r.name) === accountSlug(name)
+    (r) => accountSlug(r.name) === accountSlug(name) && r.id !== opts?.excludeId
   );
   const sameWorld = (r: PipelineRow) =>
     serviceWorld(r.function) === (world === "SERVICE");
@@ -3517,6 +3545,36 @@ export async function signupFilterOptions(
   const read = unstable_cache(
     async () => {
       const out: Record<string, string[]> = {};
+      // CURRENT membership of this function — the Assigned filter must offer
+      // the people who work the lane TODAY, not every name the trackers ever
+      // held (ex-members and people who moved functions kept appearing there)
+      const { data: crew } = await db()
+        .from("members")
+        .select("id, name, role, functions, sub_functions")
+        .eq("is_active", true);
+      const fnCrew = (
+        (crew ?? []) as {
+          id: string;
+          name: string;
+          role: string;
+          functions: string[] | null;
+          sub_functions: string[] | null;
+        }[]
+      ).filter(
+        (m) =>
+          m.role !== "LCP" &&
+          [...(m.functions ?? []), ...(m.sub_functions ?? [])].includes(fn)
+      );
+      const collapse = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+      const currentNames = new Set(fnCrew.map((m) => collapse(m.name)));
+      // the trackers hold loose spellings ("A.Samir", first+last) that the
+      // importer's matcher DOES resolve to current members — those stored
+      // values must stay filterable, or filtering by the member's full name
+      // would return nothing (the query matches assigned_name verbatim)
+      const { matchMemberByName } = await import("@/lib/google/signups");
+      const crewLite = fnCrew.map((m) => ({ id: m.id, name: m.name, is_active: true }));
+      const belongsToCurrent = (v: string) =>
+        currentNames.has(collapse(v)) || matchMemberByName(v, crewLite) !== null;
       for (const col of COLUMNS) {
         const { data } = await db()
           .from("signups")
@@ -3529,7 +3587,13 @@ export async function signupFilterOptions(
           const v = String(row[col] ?? "").trim();
           if (v) seen.add(v);
         }
-        out[col] = [...seen].sort((a, b) => a.localeCompare(b)).slice(0, 200);
+        const values =
+          col === "assigned_name"
+            ? // keep the STORED casing (the filter queries eq/in on it), but
+              // only names that belong to the lane's current membership
+              [...seen].filter(belongsToCurrent)
+            : [...seen];
+        out[col] = values.sort((a, b) => a.localeCompare(b)).slice(0, 200);
       }
       return out;
     },
@@ -3681,11 +3745,17 @@ export async function listSignupsPage(
       else if (picks.length > 1) q = q.in("campaign", picks);
     }
     // phone filter (v27, both directions): "missing" = null / empty / the
-    // sheets' "deleted phone number" placeholder; "has" = a usable number
+    // sheets' "deleted phone number" or "-" placeholders; "has" = a usable
+    // number (the importer nulls digit-free phones since v33.15 — the
+    // placeholder branches cover rows imported before that)
     if (filters.phone === "missing")
-      q = q.or("phone.is.null,phone.eq.,phone.ilike.%deleted%");
+      q = q.or("phone.is.null,phone.eq.,phone.eq.-,phone.ilike.%deleted%");
     else if (filters.phone === "has")
-      q = q.not("phone", "is", null).neq("phone", "").not("phone", "ilike", "%deleted%");
+      q = q
+        .not("phone", "is", null)
+        .neq("phone", "")
+        .neq("phone", "-")
+        .not("phone", "ilike", "%deleted%");
     if (filters.q) {
       const safe = filters.q.replaceAll(",", " ").replaceAll("(", "").replaceAll(")", "");
       q = q.or(`name.ilike.%${safe}%,ep_id.ilike.%${safe}%,phone.ilike.%${safe}%`);

@@ -45,6 +45,11 @@ const waDigits = (phone: string | null) => {
   return d.startsWith("20") ? d : d.startsWith("0") ? `2${d}` : `20${d}`;
 };
 
+/** A usable phone has DIGITS — tracker placeholders like "-" or "deleted
+ *  phone number" are truthy strings, and gating on truthiness rendered dead
+ *  Call/WhatsApp buttons (tel:-, wa.me/null) on phone-less sign-ups. */
+const hasPhone = (phone: string | null) => !!waDigits(phone);
+
 /** The member-movable "potential" pipeline (v28) — "Parents Approval" stays
  *  VP-set and lives only in the VP fields' status select. */
 
@@ -839,7 +844,7 @@ export function SignupsView({
   /** The WhatsApp / call / email shortcuts — every click raises the log prompt. */
   const contactLinks = (r: SignupRow, size: "sm" | "icon" = "icon") => (
     <ContactLinks onUsed={(channel) => setQuickContact({ row: r, channel })}>
-      {r.phone ? (
+      {hasPhone(r.phone) ? (
         <>
           <Hint label={`WhatsApp ${r.phone}`}>
             <Button asChild variant="outline" size={size === "icon" ? "icon" : "sm"} className={size === "icon" ? "size-7" : "flex-1"}>
@@ -894,7 +899,7 @@ export function SignupsView({
       case "program":
         return <ProgramBadge program={r.program} fn={r.fn} />;
       case "contact":
-        return r.phone || r.email ? (
+        return hasPhone(r.phone) || r.email ? (
           <span className="flex items-center gap-1">{contactLinks(r)}</span>
         ) : (
           <span className="text-xs text-muted-foreground">no phone</span>
@@ -1166,7 +1171,7 @@ export function SignupsView({
                 <p className="text-xs text-muted-foreground">
                   {r.signed_up_at ?? ""} · EP {r.ep_id}
                 </p>
-                {r.phone || r.email ? (
+                {hasPhone(r.phone) || r.email ? (
                   <div className="flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
                     {contactLinks(r, "sm")}
                   </div>
@@ -1533,7 +1538,7 @@ function SignupDetailDialog({
         ) : null}
 
         {/* intake data — read-only, straight from the sign-up */}
-        {s.phone ? (
+        {hasPhone(s.phone) ? (
           <div className="flex gap-2">
             <Button asChild variant="outline" size="sm">
               <a href={`https://wa.me/${waDigits(s.phone)}`} target="_blank" rel="noreferrer">
