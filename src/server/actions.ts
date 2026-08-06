@@ -4340,7 +4340,29 @@ async function loadSignup(id: string): Promise<SignupRow | null> {
 
 /** After every sign-up mutation: reload row + comments and push the workflow
  *  cells back to the tracker sheet ("as fast as possible" two-way sync). */
-async function pushSignupToSheet(id: string): Promise<void> {
+/** Mirrors one sign-up back to the tracker sheet — AFTER the response.
+ *
+ *  THIS USED TO BLOCK EVERY EDIT (v33.11). Ticking "Contacted", setting
+ *  Interested, saving a comment: each awaited a full Google Sheets round trip
+ *  — locate the row by EP ID in a tab read, then write it — before the member
+ *  saw anything happen. Three DB reads and a Sheets call for one checkbox is
+ *  why "any action on OGX is very slow".
+ *
+ *  The sheet is a MIRROR, not the source of truth: Sodio owns the workflow
+ *  fields once a row is touched. So the write belongs after the response, not
+ *  in front of it. `after()` keeps the lambda alive to finish it — a bare
+ *  floating promise can be frozen mid-flight on Vercel. */
+function pushSignupToSheet(id: string): void {
+  after(async () => {
+    try {
+      await pushSignupToSheetNow(id);
+    } catch (e) {
+      console.error("[signups] deferred sheet write failed:", id, e);
+    }
+  });
+}
+
+async function pushSignupToSheetNow(id: string): Promise<void> {
   const signup = await loadSignup(id);
   if (!signup) return;
   const [{ data: comments }, assigned] = await Promise.all([
@@ -4423,7 +4445,7 @@ export async function claimSignup(id: string): Promise<ActionResult> {
   if (!claimed?.length)
     return fail("Someone already took this one — refresh the list.");
   await logAudit(viewer.id, "signup_claim", "signup", id, { ep_id: signup.ep_id });
-  await pushSignupToSheet(id);
+  pushSignupToSheet(id);
   stampSignupActivity(viewer); // claiming = today's streak saved
   await stampWork(viewer.id, "signup_claim"); // v29: counts towards working hours
   refresh();
@@ -4512,7 +4534,7 @@ export async function reassignSignup(
     to: target?.id ?? null,
     reset: Object.keys(reset).length > 0,
   });
-  if (!opts?.skipSheetPush) await pushSignupToSheet(id);
+  if (!opts?.skipSheetPush) pushSignupToSheet(id);
   if (!opts?.skipRefresh) refresh();
   return { ok: true };
 }
@@ -4523,8 +4545,11 @@ export async function reassignSignup(
  *  unassigned/own/team rows), keeps sodio_touched, and pushes to the sheet. */
 export async function bulkReassignSignups(
   ids: string[],
-  memberId: string | null
-): Promise<ActionResult<{ done: number; failed: number }>> {
+  memberId: string | null,
+  /** v33.11 — tell them, the way the accounts version does. Handing someone
+   *  forty sign-ups without a word is how a pile sits untouched for a week. */
+  notify = false
+): Promise<ActionResult<{ done: number; failed: number; notified: boolean }>> {
   if (!Array.isArray(ids) || ids.length === 0) return fail("Select at least one sign-up.");
   if (ids.length > 50)
     return fail("Max 50 sign-ups per bulk call — run it in batches.");
@@ -4537,8 +4562,12 @@ export async function bulkReassignSignups(
   const failed = ids.length - done;
   refresh();
 
-  // ONE tab read + ONE batch write per sheet instead of ~3 calls per row
-  if (doneIds.length > 0) {
+  // ONE tab read + ONE batch write per sheet instead of ~3 calls per row —
+  // and AFTER the response (v33.11), so a fifty-row assign returns as soon as
+  // the database is right instead of holding the member while Google catches
+  // up. The 15-minute import reconciles anything that fails.
+  if (doneIds.length > 0)
+    after(async () => {
     try {
       const [{ data: signups }, { data: comments }] = await Promise.all([
         db().from("signups").select("*").in("id", doneIds),
@@ -4568,10 +4597,61 @@ export async function bulkReassignSignups(
       // the DB is right either way — the 15-min import reconciles the sheet
       console.error("[signups] batch write-back failed:", e);
     }
+    });
+
+  // the heads-up: a bell always, an email when there is an address (and never
+  // to yourself — you know what you just did)
+  let notified = false;
+  if (notify && memberId && doneIds.length > 0) {
+    try {
+      const viewer = await getViewer();
+      if (memberId !== viewer.id) {
+        const { data: target } = await db()
+          .from("members")
+          .select("id, name, email, role")
+          .eq("id", memberId)
+          .maybeSingle<{ id: string; name: string; email: string | null; role: string }>();
+        if (target) {
+          const { data: rows } = await db()
+            .from("signups")
+            .select("name")
+            .in("id", doneIds);
+          const names = ((rows ?? []) as { name: string }[]).map((r) => r.name);
+          const { notifyMembers } = await import("./notify");
+          await notifyMembers(
+            [target.id],
+            "broadcast",
+            `🆕 ${viewer.name} assigned you ${names.length} sign-up${names.length === 1 ? "" : "s"}`,
+            `${names.slice(0, 5).join(" · ")}${names.length > 5 ? ` · +${names.length - 5} more` : ""} — they're yours now, reach out!`,
+            null,
+            "/signups?view=mine"
+          );
+          if (target.email && target.role !== "LCP") {
+            const { accountsAssignedEmail } = await import("@/lib/email/templates");
+            const mail = accountsAssignedEmail({
+              memberName: target.name,
+              managerName: viewer.name,
+              accountNames: names,
+              accountsUrl: `${env.appUrl}/signups?view=mine`,
+            });
+            after(async () => {
+              try {
+                const { sendEmail } = await import("@/lib/google/gmail");
+                await sendEmail({ to: [target.email!], subject: mail.subject, html: mail.html });
+              } catch (e) {
+                console.error("[signups] assignment email failed:", e);
+              }
+            });
+          }
+          notified = true;
+        }
+      }
+    } catch (e) {
+      console.error("[signups] assignment heads-up failed:", e);
+    }
   }
 
-  refresh();
-  return { ok: true, data: { done, failed } };
+  return { ok: true, data: { done, failed, notified } };
 }
 
 /** Member/MM workflow edits: Contacted (Yes/No) + Interested (Yes/No). */
@@ -4615,7 +4695,7 @@ export async function updateSignupContact(
     .eq("id", id);
   if (error) return fail(error.message);
   await logAudit(viewer.id, "signup_contact", "signup", id, input);
-  await pushSignupToSheet(id);
+  pushSignupToSheet(id);
   stampSignupActivity(viewer); // contact update = today's streak saved
   await stampWork(viewer.id, "signup_contact"); // v29: counts towards working hours
   refresh();
@@ -4650,7 +4730,7 @@ export async function addSignupComment(id: string, body: string): Promise<Action
   if (inserted) await recordUndo("signup_comments", inserted.id, "insert");
   await db().from("signups").update(touchSignup()).eq("id", id);
   await logAudit(viewer.id, "signup_comment", "signup", id);
-  await pushSignupToSheet(id);
+  pushSignupToSheet(id);
   stampSignupActivity(viewer); // commenting = today's streak saved
   await stampWork(viewer.id, "signup_comment"); // v29: counts towards working hours
   refresh();
@@ -4693,7 +4773,7 @@ export async function setSignupPotential(
     to: next,
   });
   // the push stamps Time Stamp etc. — the status cell itself stays system-only
-  await pushSignupToSheet(id);
+  pushSignupToSheet(id);
   refresh();
   return { ok: true };
 }
@@ -4729,7 +4809,7 @@ export async function updateSignupVpFields(
     .eq("id", id);
   if (error) return fail(error.message);
   await logAudit(viewer.id, "signup_vp_fields", "signup", id, input);
-  await pushSignupToSheet(id);
+  pushSignupToSheet(id);
   refresh();
   return { ok: true };
 }
@@ -4748,7 +4828,7 @@ export async function setSignupOop(id: string, reason: string): Promise<ActionRe
     .eq("id", id);
   if (error) return fail(error.message);
   await logAudit(viewer.id, "signup_oop", "signup", id, { reason });
-  await pushSignupToSheet(id);
+  pushSignupToSheet(id);
   refresh();
   return { ok: true };
 }
@@ -4784,7 +4864,7 @@ export async function reviveSignup(id: string): Promise<ActionResult> {
     .eq("id", id);
   if (error) return fail(error.message);
   await logAudit(viewer.id, "signup_revive", "signup", id);
-  await pushSignupToSheet(id);
+  pushSignupToSheet(id);
   refresh();
   return { ok: true };
 }
