@@ -521,9 +521,12 @@ function SignupContactPrompt({
 
 export function SignupsView({
   rows, total, page, pageSize, pageSizeOptions, activeView, views, fns, activeFn,
-  targets, planCard, streak, viewer, filters,
+  targets, planCard, streak, viewer, filters, filterOptions,
 }: {
   rows: SignupRow[];
+  /** every value each filterable column holds across the WHOLE set — a filter
+   *  built from the visible page could only offer what happened to be on it */
+  filterOptions: Record<string, string[]>;
   total: number;
   page: number;
   pageSize: number;
@@ -787,9 +790,7 @@ export function SignupsView({
           (v) => setParams({ potential: v || null, status: null }));
       case "assigned": {
         // v33.14 — who holds it, straight from what's on the page
-        const seen = [
-          ...new Set(rows.map((r) => r.assigned_name).filter(Boolean)),
-        ] as string[];
+        const seen = filterOptions.assigned_name ?? [];
         return seen.length > 0
           ? pick(
               "Assigned",
@@ -803,8 +804,8 @@ export function SignupsView({
           : null;
       }
       case "campaign": {
-        const seen = [...new Set(rows.map((r) => r.campaign).filter(Boolean))] as string[];
-        return seen.length > 1
+        const seen = filterOptions.campaign ?? [];
+        return seen.length > 0
           ? pick(
               "Campaign",
               filters.campaign ?? "",
@@ -817,8 +818,8 @@ export function SignupsView({
         // v33.12 — any column whose values repeat gets a funnel; this one is
         // straight from the tracker, so the options come from what is
         // actually in the page rather than a guessed list.
-        const seen = [...new Set(rows.map((r) => r.person_status).filter(Boolean))] as string[];
-        return seen.length > 1
+        const seen = filterOptions.person_status ?? [];
+        return seen.length > 0
           ? pick(
               "Person status",
               filters.personStatus ?? "",
@@ -1246,10 +1247,13 @@ export function SignupsView({
                         <SelectDot checked={selected.has(r.id)} onToggle={() => toggle(r.id)} />
                       </TableCell>
                     ) : null}
-                    {cols.visible.map((c) => (
+                    {cols.visible.map((c) => {
+                      const rz = resizableCellStyle(cols, c.key);
+                      return (
                       <TableCell
                         key={c.key}
-                        className={SIGNUP_CELL_CLASS[c.key]}
+                        className={cn(SIGNUP_CELL_CLASS[c.key], rz.className)}
+                        style={rz.style}
                         onClick={
                           c.key === "contact" || c.key === "actions"
                             ? (e) => e.stopPropagation()
@@ -1258,7 +1262,8 @@ export function SignupsView({
                       >
                         {signupCell(r, c.key)}
                       </TableCell>
-                    ))}
+                      );
+                    })}
                   </TableRow>
                 ))
               )}

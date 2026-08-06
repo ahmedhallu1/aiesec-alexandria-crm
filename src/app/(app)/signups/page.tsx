@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import {
-  getViewer, listSignupsPage, ogxPlanCard, signupReassignTargets, signupViewsFor,
+  getViewer, listSignupsPage, ogxPlanCard, signupFilterOptions, signupReassignTargets,
+  signupViewsFor,
   streakStats,
 } from "@/server/data";
 import { hasOgxAccess, ogxFunctions } from "@/lib/rbac";
@@ -75,6 +76,7 @@ export default async function SignupsPage({
       pageSizeOptions={PAGE_SIZES}
       activeView={result.view}
       views={signupViewsFor(viewer)}
+      filterOptions={await signupFilterOptions(viewer, activeFn)}
       fns={fns}
       activeFn={activeFn}
       targets={targets}

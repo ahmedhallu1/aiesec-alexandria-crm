@@ -3497,6 +3497,48 @@ const SIGNUP_SORTABLE = new Set([
 ]);
 
 /** Which list views this viewer may open (server-enforced). */
+/** THE VALUES A COLUMN ACTUALLY HOLDS, across the WHOLE set (v33.15).
+ *
+ *  Column filters were built from the rows on screen, so with 20 rows a page
+ *  the "Campaign" funnel offered whatever those twenty happened to contain and
+ *  filtering by anything else was impossible. A filter has to know every value
+ *  in the data, not every value in the viewport.
+ *
+ *  One cheap distinct read per column, cached for five minutes: these lists
+ *  change when a tracker import lands, not between clicks.
+ */
+export async function signupFilterOptions(
+  viewer: Viewer,
+  fn: OgxFunction
+): Promise<Record<string, string[]>> {
+  if (!_ogxLanes(viewer).includes(fn)) return {};
+  const COLUMNS = ["campaign", "person_status", "assigned_name", "country", "program"];
+  const { unstable_cache } = await import("next/cache");
+  const read = unstable_cache(
+    async () => {
+      const out: Record<string, string[]> = {};
+      for (const col of COLUMNS) {
+        const { data } = await db()
+          .from("signups")
+          .select(col)
+          .eq("fn", fn)
+          .not(col, "is", null)
+          .limit(5000);
+        const seen = new Set<string>();
+        for (const row of (data ?? []) as unknown as Record<string, unknown>[]) {
+          const v = String(row[col] ?? "").trim();
+          if (v) seen.add(v);
+        }
+        out[col] = [...seen].sort((a, b) => a.localeCompare(b)).slice(0, 200);
+      }
+      return out;
+    },
+    ["signup-filter-options", fn],
+    { revalidate: 300 }
+  );
+  return read();
+}
+
 export function signupViewsFor(v: Viewer): string[] {
   const leader =
     v.isAdmin || ["LCP", "LCVP", "Director"].includes(v.role);
@@ -3527,9 +3569,14 @@ export async function listSignupsPage(
   const fns = _ogxFunctions(viewer);
   if (fns.length === 0) return { rows: [], total: 0, page: 0, view: "unassigned" };
   const allowedViews = signupViewsFor(viewer);
+  // DEFAULT TO YOUR OWN WORK (v33.15). The pool was the landing view, so
+  // every MM and member opened on a list of hundreds of names that were not
+  // theirs, and had to click away to find what they were actually doing.
   const view = allowedViews.includes(filters.view ?? "")
     ? filters.view!
-    : (allowedViews[0] ?? "mine");
+    : allowedViews.includes("mine")
+      ? "mine"
+      : (allowedViews[0] ?? "mine");
 
   const build = () => {
     let q = db().from("signups").select("*", { count: "exact" });
@@ -4253,6 +4300,33 @@ export async function listIrCalls(
 ): Promise<{ scheduled: IrCallRow[]; rows: IrCallRow[]; total: number; page: number }> {
   if (!_hasConsiderationAccess(viewer))
     return { scheduled: [], rows: [], total: 0, page: 0 };
+
+  // IGV AND IGT CONSIDERATION ARE SEPARATE FLOORS (v33.15).
+  //
+  // They market different programmes to different LCs and were reading each
+  // other's whole call log. `ir_calls` carries no product column — a call
+  // belongs to whoever made it — so the split is by the OWNER's function: an
+  // IGV consideration member sees calls made by IGV people, IGT by IGT. The
+  // LCP/admin and anyone who oversees both still see everything, and a
+  // consideration person attached to no product keeps the full view rather
+  // than an empty one.
+  const mine = considerationFunctions(viewer);
+  let ownerIds: string[] | null = null;
+  const seesBoth =
+    viewer.isAdmin || viewer.role === "LCP" || mine.length !== 1;
+  if (!seesBoth) {
+    const { data: peers } = await db()
+      .from("members")
+      .select("id, functions, sub_functions");
+    ownerIds = ((peers ?? []) as {
+      id: string; functions: string[] | null; sub_functions: string[] | null;
+    }[])
+      .filter((m) =>
+        [...(m.functions ?? []), ...(m.sub_functions ?? [])].includes(mine[0])
+      )
+      .map((m) => m.id);
+  }
+
   const from = Math.max(0, page) * pageSize;
   let schedQ = db()
     .from("ir_calls")
@@ -4269,6 +4343,11 @@ export async function listIrCalls(
   if (range) {
     schedQ = schedQ.gte("called_at", range.fromIso).lte("called_at", range.toIso);
     logQ = logQ.gte("called_at", range.fromIso).lte("called_at", range.toIso);
+  }
+  if (ownerIds) {
+    // an empty peer list would match nothing, which is the right answer
+    schedQ = schedQ.in("member_id", ownerIds);
+    logQ = logQ.in("member_id", ownerIds);
   }
   const [sched, log] = await Promise.all([
     schedQ.limit(500),

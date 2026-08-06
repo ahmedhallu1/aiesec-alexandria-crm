@@ -30,7 +30,8 @@ import {
 import { Hint } from "./hint";
 import { QuickActions } from "./quick-actions";
 import {
-  ColumnFilter, ColumnResizer, multi, PageSizePicker, SortHeader, TableSettings,
+  ColumnFilter, ColumnResizer, multi, PageSizePicker, resizableCellStyle, SortHeader,
+  TableSettings,
   useTableColumns,
   useTableSort,
   type TableColumn,
@@ -52,6 +53,7 @@ import {
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { DEFAULT_PAGE_SIZE } from "@/lib/page-size";
 
 /** Contact results offered in the "Last result" filter (matches the log
  *  dialog; "Call Scheduled" is legacy and kept only for old rows). */
@@ -1362,14 +1364,18 @@ export function AccountsView({
                             onToggle={() => toggleSelected(row.id)}
                           />
                         </TableCell>
-                        {cols.visible.map((c) => (
-                          <TableCell
-                            key={c.key}
-                            className={ACCOUNT_CELL_CLASS[c.key]}
-                          >
-                            {accountCell(row, c.key)}
-                          </TableCell>
-                        ))}
+                        {cols.visible.map((c) => {
+                          const rz = resizableCellStyle(cols, c.key);
+                          return (
+                            <TableCell
+                              key={c.key}
+                              className={cn(ACCOUNT_CELL_CLASS[c.key], rz.className)}
+                              style={rz.style}
+                            >
+                              {accountCell(row, c.key)}
+                            </TableCell>
+                          );
+                        })}
                       </TableRow>
                     ))
                   )}
@@ -1391,7 +1397,12 @@ export function AccountsView({
               value={pageSize}
               options={pageSizeOptions}
               label="Accounts per page"
-              onChange={(n) => setParam("size", n === 100 ? "" : String(n))}
+              // v33.15 — this cleared the param for 100 because 100 USED to be
+              // the default, so picking it silently gave you the new default of
+              // 20. Compare against the real default, or better: always set it.
+              onChange={(n) =>
+                setParam("size", n === DEFAULT_PAGE_SIZE ? "" : String(n))
+              }
             />
           </span>
           <div className="flex items-center gap-2">
