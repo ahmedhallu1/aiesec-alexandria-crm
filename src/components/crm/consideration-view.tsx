@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import {
   CalendarClock, Check, ChevronDown, ClipboardCheck, Copy, ExternalLink,
   Building2, FileText, Globe2, ImagePlus, Link2, Loader2, Mail, Pencil, Phone, Plus, Send,
-  Search, Settings2, Sparkles, Trash2, Upload, Video, X,
+  Search, Settings2, Sparkles, Trash2, Upload, UserRound, Video, X,
 } from "lucide-react";
 import {
   addPartnerLc, cancelIrCall, completeIrCall, confirmCvUpload, deleteCv,
@@ -1649,6 +1649,11 @@ const CALL_CELL_CLASS: Record<string, string> = {
   duration: "whitespace-nowrap text-sm text-muted-foreground",
 };
 
+/** "Thu" — the Cairo weekday (v33.18). A date alone doesn't tell you which
+ *  DAY a call lands on, which is the thing people actually plan around. */
+const dayName = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-US", { weekday: "short", timeZone: "Africa/Cairo" });
+
 const CALL_SORTERS: Record<string, (c: IrCallRow) => string | number | null> = {
   when: (c) => c.called_at,
   lc: (c) => c.partner_lc_name,
@@ -1737,14 +1742,21 @@ function IrCallsTab({
   // it's with. Client-side only — the list is already in hand.
   const [schedWith, setSchedWith] = useState("");
   const [schedLc, setSchedLc] = useState("");
-  const schedWithOptions = [...new Set(data.scheduled.map((c) => c.member_name))].sort(
-    (a, b) => a.localeCompare(b)
-  );
+  // v33.18 — "Mine" is the filter everyone reaches for first, so it's a chip,
+  // not a dropdown entry. The "With" list therefore leaves the viewer OUT
+  // (matched by id, never by name — two members can share a first name).
+  const [schedMine, setSchedMine] = useState(false);
+  const schedWithOptions = [
+    ...new Set(
+      data.scheduled.filter((c) => c.member_id !== viewer.id).map((c) => c.member_name)
+    ),
+  ].sort((a, b) => a.localeCompare(b));
   const schedLcOptions = [...new Set(data.scheduled.map((c) => c.partner_lc_name))].sort(
     (a, b) => a.localeCompare(b)
   );
   const scheduledShown = data.scheduled.filter(
     (c) =>
+      (!schedMine || c.member_id === viewer.id) &&
       (!schedWith || c.member_name === schedWith) &&
       (!schedLc || c.partner_lc_name === schedLc)
   );
@@ -1765,7 +1777,7 @@ function IrCallsTab({
     const chip = CALL_STATUS_CHIP[c.status] ?? CALL_STATUS_CHIP.completed;
     switch (key) {
       case "when":
-        return fmtDateTime(c.called_at);
+        return `${dayName(c.called_at)} · ${fmtDateTime(c.called_at)}`;
       case "lc":
         // the LC name is a link into its own record — who they are, how many
         // calls we've had, which of their IRs we've spoken to (v33.5)
@@ -1873,6 +1885,21 @@ function IrCallsTab({
           <CardContent className="space-y-2">
             {data.scheduled.length > 3 ? (
               <div className="flex flex-wrap items-center gap-2 pb-1">
+                <Hint label="Only the calls you take">
+                  <Button
+                    variant={schedMine ? "default" : "outline"}
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => {
+                      const next = !schedMine;
+                      setSchedMine(next);
+                      // "With someone else" and "mine" can never both hold
+                      if (next) setSchedWith("");
+                    }}
+                  >
+                    <UserRound className="size-3.5" /> Mine
+                  </Button>
+                </Hint>
                 <Select
                   value={schedWith || "__all"}
                   onValueChange={(v) => setSchedWith(v === "__all" ? "" : v)}
@@ -1901,13 +1928,13 @@ function IrCallsTab({
                     ))}
                   </SelectContent>
                 </Select>
-                {schedWith || schedLc ? (
+                {schedMine || schedWith || schedLc ? (
                   <Hint label="Clear the filters">
                     <Button
                       variant="ghost"
                       size="icon"
                       className="size-8 text-muted-foreground"
-                      onClick={() => { setSchedWith(""); setSchedLc(""); }}
+                      onClick={() => { setSchedMine(false); setSchedWith(""); setSchedLc(""); }}
                     >
                       <X className="size-4" />
                     </Button>
@@ -1938,7 +1965,7 @@ function IrCallsTab({
                     ) : null}
                   </div>
                   <p className="break-words text-sm text-muted-foreground">
-                    {fmtDateTime(c.called_at)}
+                    {`${dayName(c.called_at)} · ${fmtDateTime(c.called_at)}`}
                     {c.booker_name ? ` · booked by ${c.booker_name}` : ""}
                     {" · with "}
                     <span dir="auto">{c.member_name}</span>
@@ -2142,7 +2169,7 @@ function IrCallsTab({
                           {c.partner_lc_name}
                         </p>
                         <span className="shrink-0 text-xs text-muted-foreground">
-                          {fmtDateTime(c.called_at)}
+                          {`${dayName(c.called_at)} · ${fmtDateTime(c.called_at)}`}
                         </span>
                       </div>
                       <div className="mt-0.5 flex flex-wrap items-center gap-1.5">

@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-06 · Version: v33.17
+Last updated: 2026-08-06 · Version: v33.18
 
 ---
 
@@ -610,6 +610,50 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-06 · v33.18** — **ATTENDANCE TRUTH, MOVES & 12-HOUR EVERYWHERE.**
+  ① **The working-hours engine called real work "absent"**: the rule wanted
+  2+ actions **10 minutes apart**, so a BURST — ten contacts logged inside
+  four minutes — failed the span test and marked a member out of a session
+  they visibly worked (verified in prod against the Aug 6 LC session). The
+  rule is now spread **OR** volume: `WORK_BURST_ACTIONS = 5` actions however
+  tightly packed also counts. Six action types stamped nothing at all —
+  proposal drafts, CV uploads, sign-up status/VP edits, Podio-updated,
+  archiving — so a member could work a whole session invisibly; all now
+  stamp (19 stamp sites, was 13).
+  ② **A rename now travels** (`cascadeMemberRename` in data.ts, called from
+  BOTH the in-app editor and the membership import, which is where renames
+  actually happen): the IR log, touch points, calendar items, sign-up
+  assignments and every member's manager-by-name carry a NAME SNAPSHOT, so a
+  corrected spelling left the old string behind and filters offered the same
+  person twice ("Elina Tallat" beside "Elina Talaat"). Prod snapshots fixed.
+  ③ **An account follows its new owner across functions** (v32.6 did this
+  only for claims and revives): any hand-over to someone who doesn't work
+  the account's function moves it to theirs — leaving it behind was the bug,
+  since it vanished from the new owner's list and kept counting on the old
+  function's dashboard. The account page's picker offers the WHOLE raising
+  world (IGV/IGT/B2B/BD/B2C) for UNOWNED accounts and for LCP-level viewers;
+  a cross-world move maps 23505 to a readable archived-namesake message.
+  ④ **Booked visits can be MOVED**: `scheduleVisit` already rescheduled in
+  place (same row, same calendar event) — the UI never offered it. The
+  History's pending visit gained "Move it", and the dialog now RE-SEEDS its
+  date/time when the pending visit changes (it seeded once at mount, so
+  "Reschedule" opened on a stale date and saving moved the visit back).
+  ⑤ **12-hour time everywhere** (`fmtClock12` for stored wall-clock strings):
+  calendar visit chips + day panel, all six visit emails incl. the invite
+  SUBJECT, touch-point when-labels, attendance times, the account timeline.
+  Values feeding `<input type="time">` deliberately stay 24h.
+  ⑥ **TM dashboard drill-downs**: By function / By role / By member tabs —
+  the member table is the chase list (worst rate first, colour-coded, with
+  the attended/late/absent split on hover).
+  ⑦ **Scheduled IR calls**: a **Mine** chip, the viewer dropped from the
+  "With" list (compared by id, not name), and **weekday names** on scheduled
+  rows and the call log.
+  ⑧ **Arrange tabs has a real grab handle**: there was no drag implementation
+  at all — anchors are natively draggable, so people were grabbing the link
+  and fighting their own clicks. A `GripVertical` handle (32px touch target)
+  is now the only place a drag can start, with drop-target cues; the ↑/↓
+  buttons stay as the touch/keyboard path.
 
 - **2026-08-06 · v33.17** — **THE SPEED & TM BATCH** (12 more floor reports).
   ① **Inline editing on the Raising table**: Podio (Requested + request

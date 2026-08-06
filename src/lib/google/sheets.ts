@@ -456,28 +456,30 @@ export async function importMembership(): Promise<number> {
   // an email-less member is matched to their DB row by phone tail
   const findPhoneKeyed = async (
     phone: string
-  ): Promise<{ id: string; isActive: boolean } | null> => {
+  ): Promise<{ id: string; isActive: boolean; name: string } | null> => {
     const digits = digitsOf(phone);
     if (digits.length < 7) return null;
     const { data } = await db()
       .from("members")
-      .select("id, phone, is_active")
+      .select("id, name, phone, is_active")
       .is("email", null)
       .not("phone", "is", null)
       .ilike("phone", `%${digits.slice(-8)}%`)
       .limit(10);
-    const rows = (data ?? []) as { id: string; phone: string | null; is_active: boolean }[];
+    const rows = (data ?? []) as {
+      id: string; name: string; phone: string | null; is_active: boolean;
+    }[];
     // exact digits first — a shared tail must never merge two people; ACTIVE
     // rows win ties so a deactivated duplicate can't shadow the live identity
     const pick = (cands: typeof rows) =>
       cands.find((m) => m.is_active) ?? cands[0] ?? null;
     const exacts = rows.filter((m) => digitsOf(m.phone) === digits);
     const exact = pick(exacts);
-    if (exact) return { id: exact.id, isActive: exact.is_active };
+    if (exact) return { id: exact.id, isActive: exact.is_active, name: exact.name };
     const tail = digits.slice(-9);
     const tails = rows.filter((m) => digitsOf(m.phone).endsWith(tail));
     const hit = pick(tails);
-    return hit ? { id: hit.id, isActive: hit.is_active } : null;
+    return hit ? { id: hit.id, isActive: hit.is_active, name: hit.name } : null;
   };
 
   // The email-REMOVAL transition (v33.15): a member's email was taken off the
@@ -527,6 +529,8 @@ export async function importMembership(): Promise<number> {
 
   const seenEmails: string[] = [];
   const seenPhoneTails: string[] = [];
+  /** members whose NAME changed in this run — their snapshots follow */
+  const renamed: { id: string; name: string }[] = [];
   let count = 0;
   for (const raw of dataRows) {
     const row = parseSheetRow(raw, cols);
@@ -538,9 +542,13 @@ export async function importMembership(): Promise<number> {
       // inserting a duplicate — the member keeps their id, accounts, history
       const { data: existing } = await db()
         .from("members")
-        .select("id")
+        .select("id, name")
         .ilike("email", row.email)
-        .maybeSingle<{ id: string }>();
+        .maybeSingle<{ id: string; name: string }>();
+      // a corrected SPELLING must travel to the snapshot columns (v33.18) —
+      // otherwise the old string keeps appearing in every filter built from
+      // them ("Elina Tallat" beside "Elina Talaat")
+      if (existing && existing.name !== row.name) renamed.push({ id: existing.id, name: row.name });
       if (!existing && row.phone) {
         const phoneKeyed = await findPhoneKeyed(row.phone);
         if (phoneKeyed) {
@@ -564,6 +572,8 @@ export async function importMembership(): Promise<number> {
       const tail = digitsOf(row.phone).slice(-9);
       if (tail) seenPhoneTails.push(tail);
       const phoneKeyed = row.phone ? await findPhoneKeyed(row.phone) : null;
+      if (phoneKeyed && phoneKeyed.name !== row.name)
+        renamed.push({ id: phoneKeyed.id, name: row.name });
       if (phoneKeyed?.isActive) {
         await db().from("members").update({ ...row, left_at: null }).eq("id", phoneKeyed.id);
       } else {
@@ -585,6 +595,16 @@ export async function importMembership(): Promise<number> {
         else await db().from("members").insert(row);
       }
     }
+  }
+
+  // spelling corrections reach ir_calls / touch_points / calendar_items /
+  // sign-up assignments / manager-by-name (v33.18)
+  if (renamed.length > 0) {
+    const { cascadeMemberRename } = await import("@/server/data");
+    for (const r of renamed)
+      await cascadeMemberRename(r.id, r.name).catch((e) =>
+        console.error("[sheets] rename cascade failed:", e)
+      );
   }
 
   await relinkStakeholders();

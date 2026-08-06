@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   accountSlug,
   cleanPhone,
+  fmtClock12,
+  normalizeLcName,
   normalizeName,
   normalizePhone,
   EMAIL_RE,
@@ -266,5 +268,41 @@ describe("membership import — a row without identity must never be imported", 
 
   it("a hotline is a usable identity too", () => {
     expect(importable(undefined, "16123")).toBe(true);
+  });
+});
+
+describe("partner LC names (v33.17) — one LC, one row", () => {
+  it("folds the spellings IRs actually type into one key", () => {
+    const same = [
+      "kocaeli", "Kocaeli", "Lc kocaeli", "LC Kocaeli", "AIESEC in Kocaeli",
+      "  aiesec  in   kocaeli  ",
+    ];
+    const keys = new Set(same.map(normalizeLcName));
+    expect(keys.size, [...keys].join(" | ")).toBe(1);
+  });
+
+  it("folds Turkish dotted/dotless i and diacritics", () => {
+    expect(normalizeLcName("İstanbul Asia")).toBe(normalizeLcName("istanbul asia"));
+    expect(normalizeLcName("Eskişehir")).toBe(normalizeLcName("AIESEC in Eskisehir"));
+  });
+
+  it("still tells DIFFERENT LCs apart", () => {
+    expect(normalizeLcName("Lc Ankara")).not.toBe(normalizeLcName("Lc Antalya"));
+    expect(normalizeLcName("Baku ADA")).not.toBe(normalizeLcName("Baku Qafqaz"));
+  });
+});
+
+describe("12-hour clock (v33.18)", () => {
+  it("converts stored wall-clock strings", () => {
+    expect(fmtClock12("18:30")).toBe("6:30 PM");
+    expect(fmtClock12("00:05")).toBe("12:05 AM");
+    expect(fmtClock12("12:00")).toBe("12:00 PM");
+    expect(fmtClock12("09:00:00")).toBe("9:00 AM");
+  });
+
+  it("hands back anything it can't parse instead of inventing a time", () => {
+    expect(fmtClock12("")).toBe("");
+    expect(fmtClock12(null)).toBe("");
+    expect(fmtClock12("soon")).toBe("soon");
   });
 });

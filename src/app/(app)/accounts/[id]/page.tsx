@@ -5,7 +5,7 @@ import {
   findAccountRow, getAccount, getViewer, listFunctionMembers, listReassignTargets,
 } from "@/server/data";
 import {
-  canEditAccount, canEditRequestState, canFlipB2bBd, canReassignAccount,
+  accountScope, canEditAccount, canEditRequestState, canFlipB2bBd, canReassignAccount,
 } from "@/lib/rbac";
 import { AccountDetailView } from "@/components/crm/account-detail-view";
 
@@ -49,9 +49,16 @@ export default async function AccountPage({
   const { account, attempts, visits, comments, deals } = result;
 
   const canEdit = canEditAccount(viewer, account);
+  // DISTRIBUTING AN UNOWNED ACCOUNT crosses functions (v33.18): the picker
+  // offers the whole raising world, and the account follows its new owner.
+  // LCP-level viewers get the same freedom on any account.
+  const wideTargets =
+    account.responsible_id == null || accountScope(viewer).kind === "all";
   const [reassignTargets, functionMembers] = await Promise.all([
     canReassignAccount(viewer, account)
-      ? listReassignTargets(viewer, account.function)
+      ? listReassignTargets(viewer, account.function, {
+          anyRaisingFunction: wideTargets,
+        })
       : Promise.resolve([]),
     // the deal opens-split picker: everyone in the account's function
     canEdit ? listFunctionMembers(account.function) : Promise.resolve([]),

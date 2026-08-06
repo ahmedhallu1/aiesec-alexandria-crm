@@ -1,5 +1,5 @@
 import { env } from "@/lib/env";
-import { ROLE_BLURBS } from "@/lib/types";
+import { fmtClock12, ROLE_BLURBS } from "@/lib/types";
 
 /** AIESEC-branded transactional email layout.
  *  Blue #0A2540, Cyan #037EF3 — table-based so it renders everywhere. */
@@ -223,7 +223,7 @@ export function visitReportEmail(opts: {
         <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Visit report from ${escapeHtml(opts.memberName)}</h1>
         ${detailsTable([
           ["Account", opts.accountName],
-          ["Visit date", `${opts.visitDate} ${opts.visitTime.slice(0, 5)}`],
+          ["Visit date", `${opts.visitDate} ${fmtClock12(opts.visitTime)}`],
           ["Completed", opts.done ? "Yes" : "No"],
           ["Visit comment", opts.visitComment],
           ["Next step", opts.nextStep],
@@ -255,7 +255,7 @@ export function visitFollowupEmail(opts: {
         <p>This visit was scheduled — was it completed?</p>
         ${detailsTable([
           ["Account", opts.accountName],
-          ["When", `${opts.visitDate} at ${opts.visitTime.slice(0, 5)}`],
+          ["When", `${opts.visitDate} at ${fmtClock12(opts.visitTime)}`],
           ["Responsible", opts.responsibleName],
           ["Planned next step", opts.nextStep],
         ])}
@@ -290,7 +290,7 @@ export function visitForgottenEmail(opts: {
         it's still unreported, and the account is frozen in the pipeline in the meantime.</p>
         ${detailsTable([
           ["Account", opts.accountName],
-          ["Visit was", `${opts.visitDate} at ${opts.visitTime.slice(0, 5)}`],
+          ["Visit was", `${opts.visitDate} at ${fmtClock12(opts.visitTime)}`],
           ["Responsible", opts.responsibleName],
           ["Waiting since", "1 week+"],
         ])}
@@ -322,7 +322,7 @@ export function visitInviteEmail(opts: {
   accountUrl: string;
 }) {
   return {
-    subject: `🗓️ Visit invite — ${opts.accountName} (${opts.visitDate} ${opts.visitTime.slice(0, 5)})`,
+    subject: `🗓️ Visit invite — ${opts.accountName} (${opts.visitDate} ${fmtClock12(opts.visitTime)})`,
     html: emailLayout({
       preheader: `Calendar invite for your visit to ${opts.accountName}`,
       body: `
@@ -331,7 +331,7 @@ export function visitInviteEmail(opts: {
         <b>24 hours</b> and <b>1 hour</b> before.</p>
         ${detailsTable([
           ["Account", opts.accountName],
-          ["When", `${opts.visitDate} at ${opts.visitTime.slice(0, 5)}`],
+          ["When", `${opts.visitDate} at ${fmtClock12(opts.visitTime)}`],
           ["Notes", opts.notes],
           ["Shared with", opts.sharedWith.length ? opts.sharedWith.join(", ") : "just you"],
         ])}
@@ -362,7 +362,7 @@ export function visitAnnouncementEmail(opts: {
           ["Account", opts.accountName],
           ["Product", opts.product],
           ["Responsible", opts.responsibleName],
-          ["When", `${opts.visitDate} at ${opts.visitTime.slice(0, 5)}`],
+          ["When", `${opts.visitDate} at ${fmtClock12(opts.visitTime)}`],
           ["Notes", opts.notes],
         ])}
         <p style="color:#5c6b80;font-size:13px;">You're getting this because you're part of this

@@ -113,6 +113,7 @@ const cairoTime = (iso: string) =>
     timeZone: "Africa/Cairo",
     hour: "numeric",
     minute: "2-digit",
+    hour12: true,
   });
 
 // ------------------------------------------------------------------ recording

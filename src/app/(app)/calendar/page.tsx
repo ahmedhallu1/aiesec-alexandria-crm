@@ -27,8 +27,9 @@ const cairoParts = (iso: string) => {
   const date = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit",
   }).format(d);
+  // 12h, for every DISPLAY surface (v33.18)
   const time = d.toLocaleTimeString("en-US", {
-    timeZone: "Africa/Cairo", hour: "numeric", minute: "2-digit",
+    timeZone: "Africa/Cairo", hour: "numeric", minute: "2-digit", hour12: true,
   });
   // 24h, for the date/time inputs of the manage form
   const time24 = new Intl.DateTimeFormat("en-GB", {

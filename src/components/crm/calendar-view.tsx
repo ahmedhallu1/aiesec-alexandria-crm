@@ -21,6 +21,7 @@ import { TimelineDialog } from "./timeline-dialog";
 import { CalendarItemDialog } from "./calendar-item-dialog";
 import { deleteCalendarItem } from "@/server/calendar-items";
 import type { CalendarVisit } from "@/server/data";
+import { fmtClock12 } from "@/lib/types";
 import { bookedBy } from "@/lib/touch-point-label";
 
 /** Distinct, readable chip colors — one per member, assigned in a stable order. */
@@ -291,14 +292,14 @@ export function CalendarView({
     const style = { borderLeftColor: color, backgroundColor: `${color}1a`, color };
     const body = (
       <>
-        {v.done ? "✓ " : ""}{v.visit_time?.slice(0, 5)} {v.account.name}
+        {v.done ? "✓ " : ""}{fmtClock12(v.visit_time)} {v.account.name}
         {full ? <span className="opacity-75"> · {who}</span> : null}
       </>
     );
     return (
       <Hint
         key={v.id}
-        label={`${v.account.name} — ${who} · ${v.visit_time?.slice(0, 5)} · ${status}${
+        label={`${v.account.name} — ${who} · ${fmtClock12(v.visit_time)} · ${status}${
           showFunction ? ` · ${v.account.function}` : ""
         }`}
       >
@@ -722,7 +723,7 @@ export function CalendarView({
                       className="shrink-0 rounded-full px-2 py-0.5 text-xs font-bold"
                       style={{ backgroundColor: `${color}1a`, color }}
                     >
-                      {v.visit_time?.slice(0, 5)}
+                      {fmtClock12(v.visit_time)}
                     </span>
                     <p className="min-w-0 flex-1 break-words text-sm font-semibold" dir="auto">
                       {v.account.name}

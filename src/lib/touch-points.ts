@@ -16,6 +16,7 @@ export function cairoWhen(iso: string): string {
     timeZone: "Africa/Cairo",
     hour: "numeric",
     minute: "2-digit",
+    hour12: true,
   });
   return `${day} · ${time} (Cairo time)`;
 }

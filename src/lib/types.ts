@@ -324,6 +324,11 @@ export const NO_WORKING_HOURS_FUNCTIONS = ["TM", "F&L", "CXP"];
 export const WORK_SESSION_HOURS = 4;
 export const WORK_MIN_ACTIONS = 2;
 export const WORK_MIN_GAP_MINUTES = 10;
+/** …OR this many actions in the window, however tightly packed (v33.18).
+ *  The gap rule alone called a BURST of real work "absent": someone who
+ *  logged ten contacts back-to-back in four minutes was marked out of a
+ *  session they clearly worked. Two clicks are still spam; ten are a shift. */
+export const WORK_BURST_ACTIONS = 5;
 
 /** A tagged phone number, email or link on an account ("CEO", "LinkedIn", …). */
 export interface AccountContact {
@@ -820,6 +825,19 @@ export function fmtDateTime(iso: string | null | undefined): string {
     day: "2-digit", month: "short", year: "numeric",
     hour: "numeric", minute: "2-digit", hour12: true,
   });
+}
+
+/** "18:30" (a wall-clock string, not an instant) → "6:30 PM" (v33.18).
+ *  Visit times and touch-point times are stored as Cairo wall-clock strings,
+ *  so they were rendered raw — the one place 24h survived in the UI. */
+export function fmtClock12(hhmm: string | null | undefined): string {
+  const m = /^(\d{1,2}):(\d{2})/.exec((hhmm ?? "").trim());
+  if (!m) return hhmm ?? "";
+  const h = Number(m[1]);
+  if (!Number.isFinite(h) || h > 23) return hhmm ?? "";
+  const suffix = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${m[2]} ${suffix}`;
 }
 
 /** "2:05 PM" from an ISO timestamp (12-hour). */

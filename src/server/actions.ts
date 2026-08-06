@@ -25,7 +25,9 @@ import {
   commentLabel,
   reassignTargetScope,
 } from "@/lib/rbac";
-import { cairoDayIso, checkAccountName, getViewer, logAudit, type PipelineRow } from "./data";
+import {
+  cairoDayIso, cascadeMemberRename, checkAccountName, getViewer, logAudit, type PipelineRow,
+} from "./data";
 import { recordUndo, sandboxSuppressed, snapshotForUndo } from "./sandbox";
 // v29: every real piece of work stamps work_activity — the raw material of
 // AUTOMATIC working-hours attendance (see src/server/attendance.ts)
@@ -579,10 +581,13 @@ export async function reassignAccount(
   // nobody is losing it (v32.4)
   const claimingForSelf =
     isClaimableAccount(viewer, account) && target.id === viewer.id;
+  // an UNOWNED account is nobody's to lose, so distributing it may cross
+  // functions — the account then follows its new owner (v33.18)
+  const distributingUnowned = account.responsible_id == null;
   const inScope =
     claimingForSelf ||
     scope.kind === "all" ||
-    (scope.kind === "functions" && targetInFunction) ||
+    (scope.kind === "functions" && (targetInFunction || distributingUnowned)) ||
     (scope.kind === "members" && scope.ids.includes(target.id));
   if (!inScope) return fail("You can only reassign to members in your scope.", "forbidden");
 
@@ -598,12 +603,14 @@ export async function reassignAccount(
     ...(target.functions ?? []),
     ...(target.sub_functions ?? []),
   ].filter((f) => ["IGV", "IGT", "B2B", "BD", "B2C"].includes(f));
-  // a normal hand-over stays inside the function (the picker only offers
-  // people in it). Only a CLAIM or a revive moves an account — those are the
-  // cases where the account genuinely changes hands across functions.
+  // v33.18 — ANY cross-function hand-over moves it, not just claims and
+  // revives. Leaving an account in a function its new owner can't open was
+  // the bug: it vanished from their list and kept counting on the old
+  // function's dashboard. If the target doesn't work the account's function
+  // but does work a raising one, the account moves to theirs.
   const movedFn = claimingForSelf
     ? claimTargetFunction(viewer, account)
-    : account.out_of_process && !targetInFunction && targetFns.length > 0
+    : !targetInFunction && targetFns.length > 0
       ? (targetFns[0] as typeof account.function)
       : null;
   const fnChanged = !!movedFn && movedFn !== account.function;
@@ -616,7 +623,14 @@ export async function reassignAccount(
       ...(fnChanged ? { function: movedFn, ...fnSpecificReset(movedFn!) } : {}),
     })
     .eq("id", accountId);
-  if (error) return fail(error.message);
+  if (error)
+    return fail(
+      // moving across the name WORLDS (0034: BD/B2C vs the opens side) can
+      // collide with an archived namesake there
+      error.code === "23505"
+        ? `"${account.name}" already exists in ${movedFn}'s world (probably archived) — revive that one instead.`
+        : error.message
+    );
   await logAudit(viewer.id, "reassign", "account", accountId, {
     from: account.responsible_id,
     to: newResponsibleId,
@@ -724,6 +738,7 @@ export async function setOutOfProcess(
     await deleteMailboxVisitEvent(pending.calendar_event_id).catch(() => {});
   }
   await syncNextStepReminder(accountId); // drop the follow-up reminder too
+  await stampWork(viewer.id, "account_archived"); // v33.18
   await logAudit(viewer.id, "out_of_process", "account", accountId, { reason });
   refresh(accountId);
   return { ok: true };
@@ -2853,6 +2868,13 @@ export async function upsertMember(
   if (targetId === id) targetId = null;
   await db().from("members").update({ stakeholder_id: targetId }).eq("id", id);
 
+  // a corrected spelling must reach the SNAPSHOT columns too (v33.18) — the
+  // IR log, touch points, calendar items, sign-up assignments and every
+  // member's manager-by-name, or the old string keeps showing up in filters
+  await cascadeMemberRename(id!, m.name).catch((e) =>
+    console.error("[members] rename cascade failed:", e)
+  );
+
   const { writeMemberToSheet } = await import("@/lib/google/sheets");
   await writeMemberToSheet(row).catch((e) =>
     console.error("[sheets] membership write-back failed:", e)
@@ -3136,6 +3158,7 @@ export async function markPodioUpdated(accountId: string): Promise<ActionResult>
     })
     .eq("id", accountId);
   if (error) return fail(error.message);
+  await stampWork(viewer.id, "podio_updated"); // v33.18
   await logAudit(viewer.id, "podio_updated", "account", accountId);
   refresh(accountId);
   return { ok: true };
@@ -3586,6 +3609,7 @@ export async function createProposalDraft(
 
   // proposal drafted → mark the flag the sheet mirrors track
   await db().from("accounts").update({ proposal_sent: true }).eq("id", accountId);
+  await stampWork(viewer.id, "proposal_email"); // v33.18: counts towards working hours
   await logAudit(viewer.id, "proposal_draft", "account", accountId, {
     product,
     to: recipientEmail,
@@ -4923,6 +4947,7 @@ export async function setSignupPotential(
     .update(touchSignup({ status: next }))
     .eq("id", id);
   if (error) return fail(error.message);
+  await stampWork(viewer.id, "signup_status"); // v33.18: counts towards working hours
   await logAudit(viewer.id, "signup_potential", "signup", id, {
     from: signup.status,
     to: next,
@@ -4963,6 +4988,7 @@ export async function updateSignupVpFields(
     )
     .eq("id", id);
   if (error) return fail(error.message);
+  await stampWork(viewer.id, "signup_vp_fields"); // v33.18
   await logAudit(viewer.id, "signup_vp_fields", "signup", id, input);
   pushSignupToSheet(id);
   refresh();
@@ -6673,6 +6699,7 @@ export async function confirmCvUpload(input: {
   if (error) return fail(error.message);
 
   await recordUndo("cvs", created.id, "insert");
+  await stampWork(viewer.id, "cv_upload"); // v33.18: counts towards working hours
   await logAudit(viewer.id, "cv_upload", "cv", created.id, { file: input.name });
   const result = await runCvExtraction(created.id);
   refresh();

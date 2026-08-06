@@ -2,6 +2,7 @@ import { db } from "@/lib/supabase";
 import { canRecordAttendance, isTmCore, type Viewer } from "@/lib/rbac";
 import {
   touchPointLabel,
+  WORK_BURST_ACTIONS,
   WORK_MIN_ACTIONS,
   WORK_MIN_GAP_MINUTES,
   WORK_SESSION_HOURS,
@@ -115,8 +116,9 @@ export const WORK_GRACE_MINUTES = 15;
  *  message is "check this and confirm it". The detail still lives in the
  *  Playbook for whoever wants it. */
 export const WORKING_HOURS_RULE =
-  `Present = ${WORK_MIN_ACTIONS}+ real actions during the session, ` +
-  `${WORK_MIN_GAP_MINUTES}+ minutes apart.`;
+  `Present = ${WORK_MIN_ACTIONS}+ real actions during the session ` +
+  `${WORK_MIN_GAP_MINUTES}+ minutes apart — or ${WORK_BURST_ACTIONS}+ actions ` +
+  `however close together.`;
 
 /** The window a working-hours session is judged over. */
 export function workWindow(startsAt: string): { from: string; to: string } {
@@ -492,7 +494,13 @@ export async function workingHoursVerdicts(tp: TouchPointRow): Promise<WorkVerdi
     const times = (byMember.get(m.id) ?? []).sort((a, b) => a - b);
     const spanMinutes =
       times.length < 2 ? 0 : Math.round((times[times.length - 1] - times[0]) / 60_000);
-    const attended = times.length >= WORK_MIN_ACTIONS && spanMinutes >= WORK_MIN_GAP_MINUTES;
+    // SPREAD **OR** VOLUME (v33.18). The gap rule alone marked a BURST of
+    // real work absent: a member who logged ten contacts inside four minutes
+    // was called out of a session they visibly worked. Two quick clicks are
+    // still spam; WORK_BURST_ACTIONS of them are a shift.
+    const attended =
+      (times.length >= WORK_MIN_ACTIONS && spanMinutes >= WORK_MIN_GAP_MINUTES) ||
+      times.length >= WORK_BURST_ACTIONS;
     return {
       memberId: m.id,
       status: (attended ? "attended" : "absent") as AttendanceStatus,

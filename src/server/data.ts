@@ -1127,14 +1127,25 @@ export async function listReassignTargetsForViewer(viewer: Viewer): Promise<Memb
   return (data ?? []) as Member[];
 }
 
-export async function listReassignTargets(viewer: Viewer, fn: AccountFunction): Promise<Member[]> {
+export async function listReassignTargets(
+  viewer: Viewer,
+  fn: AccountFunction,
+  opts?: { anyRaisingFunction?: boolean }
+): Promise<Member[]> {
   const scope = reassignTargetScope(viewer);
   if (scope.kind === "members" && scope.ids.length === 0) return [];
   let query = db().from("members").select("*").eq("is_active", true);
   if (scope.kind === "all" || scope.kind === "functions") {
-    // reassignment stays inside the account's function (B2B/BD = the B2B crew)
-    query =
-      fn === "B2B" || fn === "BD"
+    // HANDING AN ACCOUNT ACROSS FUNCTIONS (v33.18). Distribution isn't always
+    // inside one function: an unowned company researched by IGV may belong to
+    // B2C, and whoever distributes the pool needs the whole raising world in
+    // the picker. The account then FOLLOWS its new owner (reassignAccount).
+    query = opts?.anyRaisingFunction
+      ? query.or(
+          `functions.ov.{${ACCOUNT_WORLD_FNS.join(",")}},sub_functions.ov.{B2B,BD,B2C}`
+        )
+      : // otherwise reassignment stays inside the account's function
+        fn === "B2B" || fn === "BD"
         ? query.or("functions.ov.{B2B,BD},sub_functions.ov.{B2B,BD}")
         : fn === "B2C"
           ? query.or("functions.ov.{B2C},sub_functions.ov.{B2C}")
@@ -2835,6 +2846,43 @@ export async function prunePlansForMember(m: {
  *  sub-function change made in the Google Sheet — the way most of these
  *  actually happen — cleans up on its own. Returns how many rows went.
  *  Idempotent, and safe to run at any time. */
+/** A RENAME MUST TRAVEL (v33.18).
+ *
+ *  Several tables keep a member's name as a SNAPSHOT next to the id — the IR
+ *  log, touch points, custom calendar items, sign-up assignments — because
+ *  they must still read correctly when a member leaves. The cost is that a
+ *  spelling correction on the membership sheet ("Elina Tallat" → "Elina
+ *  Talaat") left the old string behind, and every filter built from those
+ *  snapshots then offered the SAME person twice.
+ *
+ *  So: whenever a member's name changes, the snapshots follow. Best-effort by
+ *  design — a rename must never fail because a side table hiccuped. */
+export async function cascadeMemberRename(memberId: string, name: string): Promise<void> {
+  const clean = (name ?? "").trim();
+  if (!memberId || !clean) return;
+  const jobs: { table: string; col: string }[] = [
+    { table: "ir_calls", col: "member_name" },
+    { table: "touch_points", col: "owner_name" },
+    { table: "calendar_items", col: "owner_name" },
+    { table: "signups", col: "assigned_name" },
+  ];
+  for (const j of jobs) {
+    const { error } = await db()
+      .from(j.table)
+      .update({ [j.col]: clean })
+      .eq(j.table === "signups" ? "assigned_to" : j.table === "ir_calls" ? "member_id" : "owner_id", memberId)
+      .neq(j.col, clean);
+    if (error) console.error(`[rename] ${j.table}.${j.col} failed:`, error.message);
+  }
+  // the manager is carried BY NAME on every member row (the sheet's own shape)
+  const { error: mgrErr } = await db()
+    .from("members")
+    .update({ stakeholder_name: clean })
+    .eq("stakeholder_id", memberId)
+    .neq("stakeholder_name", clean);
+  if (mgrErr) console.error("[rename] members.stakeholder_name failed:", mgrErr.message);
+}
+
 export async function pruneStalePlans(): Promise<{ mm: number; tl: number }> {
   const { data: members } = await db()
     .from("members")

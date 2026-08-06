@@ -440,6 +440,33 @@ function TmPanel({ stats }: { stats: import("@/server/tm-stats").TmStats }) {
   };
   const a = stats.attendance;
   const p = stats.plans;
+  // the drill-down cap: past ~40 names this stops being a list and starts
+  // being a database — the rest is one tap away in Attendance
+  const MEMBER_ROWS = 40;
+  const rateTone = (r: number) =>
+    r < 50 ? "text-destructive" : r < 75 ? "text-warning" : "text-success";
+  /** one horizontal bar row: label · fill · rate over records/people */
+  const rateRow = (
+    key: string, label: string, rate: number,
+    records: number, people: number, barClass: string
+  ) => (
+    <div
+      key={key}
+      className="flex items-center gap-2"
+      title={`${rate}% showed up · ${records} attendance record${records === 1 ? "" : "s"} · ${people} ${people === 1 ? "person" : "people"}`}
+    >
+      <span className="w-24 shrink-0 truncate font-semibold">{label}</span>
+      <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+        <div className={cn("h-full rounded-full", barClass)} style={{ width: `${rate}%` }} />
+      </div>
+      <span className="w-20 shrink-0 text-right text-xs tabular-nums">
+        <span className="font-semibold">{rate}%</span>
+        <span className="block text-[10px] text-muted-foreground">
+          {records} · {people} ppl
+        </span>
+      </span>
+    </div>
+  );
   const bar = (planned: number, actual: number) => {
     const w = planned > 0 ? Math.min(100, Math.round((actual / planned) * 100)) : actual > 0 ? 100 : 0;
     return (
@@ -498,30 +525,103 @@ function TmPanel({ stats }: { stats: import("@/server/tm-stats").TmStats }) {
           </CardContent>
         </Card>
 
+        {/* THE DRILL-DOWN (v33.18): the same attendance rows cut three ways —
+          function, role level, person. "By function" opens by default (the
+          shape of the LC); "By member" is the chase list, worst rate first. */}
         <Card className="rise-in rise-in-2">
-          <CardHeader><CardTitle className="text-base">Attendance by function</CardTitle></CardHeader>
-          <CardContent className="space-y-1.5 text-sm">
-            {a.byFunction.length === 0 ? (
-              <p className="text-muted-foreground">Nothing recorded in the window yet.</p>
-            ) : (
-              a.byFunction.map((f) => (
-                <div key={f.fn} className="flex items-center gap-2">
-                  <span className="w-12 shrink-0 font-semibold">{f.fn}</span>
-                  <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className={cn("h-full rounded-full", TM_FN_BAR[f.fn] ?? "bg-primary")}
-                      style={{ width: `${f.rate}%` }}
-                    />
-                  </div>
-                  <span className="w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-                    {f.rate}% · {f.records}
-                  </span>
-                </div>
-              ))
-            )}
-            <p className="pt-1 text-xs text-muted-foreground">
-              A member counts in each of their functions; working hours never judge TM/F&L/CXP.
-            </p>
+          <CardHeader><CardTitle className="text-base">Attendance drill-down</CardTitle></CardHeader>
+          <CardContent className="text-sm">
+            <Tabs defaultValue="function">
+              <TabsList className="flex-wrap">
+                <TabsTrigger value="function">By function</TabsTrigger>
+                <TabsTrigger value="role">By role</TabsTrigger>
+                <TabsTrigger value="member">By member</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="function" className="space-y-1.5">
+                {a.byFunction.length === 0 ? (
+                  <p className="text-muted-foreground">Nothing recorded in the window yet.</p>
+                ) : (
+                  a.byFunction.map((f) =>
+                    rateRow(f.fn, f.fn, f.rate, f.records, f.people, TM_FN_BAR[f.fn] ?? "bg-primary")
+                  )
+                )}
+                <p className="pt-1 text-xs text-muted-foreground">
+                  A member counts in each of their functions; working hours never judge TM/F&L/CXP.
+                </p>
+              </TabsContent>
+
+              <TabsContent value="role" className="space-y-1.5">
+                {a.byRole.length === 0 ? (
+                  <p className="text-muted-foreground">Nothing recorded in the window yet.</p>
+                ) : (
+                  a.byRole.map((r) => rateRow(r.role, r.role, r.rate, r.records, r.people, "bg-primary"))
+                )}
+                <p className="pt-1 text-xs text-muted-foreground">
+                  Every attendance record grouped by the member&apos;s role, top of
+                  the LC down.
+                </p>
+              </TabsContent>
+
+              <TabsContent value="member" className="space-y-2">
+                {a.byMember.length === 0 ? (
+                  <p className="text-muted-foreground">Nothing recorded in the window yet.</p>
+                ) : (
+                  <>
+                    <div className="-mx-2 overflow-x-auto px-2">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Member</TableHead>
+                            <TableHead>Role</TableHead>
+                            <TableHead>Functions</TableHead>
+                            <TableHead className="text-right">Rate</TableHead>
+                            <TableHead className="text-right">Records</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {a.byMember.slice(0, MEMBER_ROWS).map((m) => (
+                            <TableRow key={m.id}>
+                              <TableCell className="font-medium" dir="auto">{m.name}</TableCell>
+                              <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                                {m.role}
+                              </TableCell>
+                              <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                                {m.fns || "—"}
+                              </TableCell>
+                              <TableCell
+                                className={cn("text-right font-semibold tabular-nums", rateTone(m.rate))}
+                              >
+                                {m.rate}%
+                              </TableCell>
+                              <TableCell
+                                className="text-right tabular-nums text-muted-foreground"
+                                title={`${m.attended} attended · ${m.late} late · ${m.absent} absent`}
+                              >
+                                {m.records}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    {a.byMember.length > MEMBER_ROWS ? (
+                      <p className="text-xs text-muted-foreground">
+                        +{a.byMember.length - MEMBER_ROWS} more —{" "}
+                        <Link href="/attendance" className="font-medium text-primary hover:underline">
+                          the full record lives in Attendance
+                        </Link>
+                        .
+                      </p>
+                    ) : null}
+                    <p className="text-xs text-muted-foreground">
+                      Worst rate first. Hover a record count for the
+                      attended/late/absent split.
+                    </p>
+                  </>
+                )}
+              </TabsContent>
+            </Tabs>
           </CardContent>
         </Card>
 

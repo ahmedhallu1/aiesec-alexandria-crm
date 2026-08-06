@@ -6,8 +6,12 @@ import { monthOf } from "@/lib/plan";
 import { NO_WORKING_HOURS_FUNCTIONS } from "@/lib/types";
 import { isPlanningMm, isPlanningTl, laneOpensActual } from "./data";
 
-/** THE TM DASHBOARD (v33.17) — the LC through TM's eyes: does the LC show
+/** THE TM DASHBOARD (v33.18) — the LC through TM's eyes: does the LC show
  *  up, does it record itself, does it plan, does it deliver the plan.
+ *
+ *  v33.18 cuts the SAME attendance rows three ways — by function, by role
+ *  level, and by member (the chase list) — from one pass over the rows;
+ *  nothing is re-queried per grouping.
  *
  *  Attendance is attributed to a MEMBER's function(s) (the pattern the rest
  *  of the codebase uses — an LC-scope touch point has no function of its
@@ -32,7 +36,14 @@ export interface TmStats {
     absent: number;
     excused: number;
     byKind: { kind: string; sessions: number; rate: number }[];
-    byFunction: { fn: string; rate: number; records: number }[];
+    byFunction: { fn: string; rate: number; records: number; people: number }[];
+    /** the same rows grouped by the member's ROLE, seniority order */
+    byRole: { role: string; rate: number; records: number; people: number }[];
+    /** every member with ≥1 record, worst rate first — the chase list */
+    byMember: {
+      id: string; name: string; role: string; fns: string;
+      rate: number; records: number; attended: number; late: number; absent: number;
+    }[];
     /** members with the weakest showing (≥3 records so one miss isn't a verdict) */
     lowMembers: { name: string; rate: number; records: number }[];
   };
@@ -52,6 +63,8 @@ export interface TmStats {
 
 const WINDOW_DAYS = 30;
 const MAJOR_FNS = ["IGV", "IGT", "B2B", "BD", "B2C", "OGV", "OGT", "TM", "F&L", "CXP"];
+/** seniority, so the role drill reads top-down like the LC's own hierarchy */
+const ROLE_ORDER = ["LCP", "LCVP", "Director", "Team Leader", "Coordinator", "Member", "Admin"];
 
 type MemberLite = {
   id: string;
@@ -102,7 +115,7 @@ export async function tmStats(viewer: Viewer): Promise<TmStats | null> {
   const recordedIds = recorded.map((t) => t.id);
   const kindBy = new Map(recorded.map((t) => [t.id, t.kind]));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let attRows: any[] = [];
+  const attRows: any[] = [];
   for (let i = 0; i < recordedIds.length; i += 100) {
     const { data } = await db()
       .from("touch_point_attendance")
@@ -113,8 +126,12 @@ export async function tmStats(viewer: Viewer): Promise<TmStats | null> {
 
   let attended = 0, late = 0, absent = 0, excused = 0;
   const byKindAgg = new Map<string, { showed: number; total: number; sessions: Set<string> }>();
-  const byFnAgg = new Map<string, { showed: number; total: number }>();
-  const byMemberAgg = new Map<string, { showed: number; total: number }>();
+  const byFnAgg = new Map<string, { showed: number; total: number; people: Set<string> }>();
+  const byRoleAgg = new Map<string, { showed: number; total: number; people: Set<string> }>();
+  const byMemberAgg = new Map<
+    string,
+    { showed: number; total: number; attended: number; late: number; absent: number }
+  >();
   for (const r of attRows) {
     const showed = r.status === "attended" || r.status === "late";
     if (r.status === "attended") attended += 1;
@@ -132,14 +149,25 @@ export async function tmStats(viewer: Viewer): Promise<TmStats | null> {
     const m = memberBy.get(r.member_id);
     if (m) {
       for (const fn of fnsOf(m)) {
-        const f = byFnAgg.get(fn) ?? { showed: 0, total: 0 };
+        const f = byFnAgg.get(fn) ?? { showed: 0, total: 0, people: new Set<string>() };
         f.showed += showed ? 1 : 0;
         f.total += 1;
+        f.people.add(r.member_id);
         byFnAgg.set(fn, f);
       }
-      const me = byMemberAgg.get(r.member_id) ?? { showed: 0, total: 0 };
+      const roleKey = m.role || "Member";
+      const rl = byRoleAgg.get(roleKey) ?? { showed: 0, total: 0, people: new Set<string>() };
+      rl.showed += showed ? 1 : 0;
+      rl.total += 1;
+      rl.people.add(r.member_id);
+      byRoleAgg.set(roleKey, rl);
+      const me = byMemberAgg.get(r.member_id)
+        ?? { showed: 0, total: 0, attended: 0, late: 0, absent: 0 };
       me.showed += showed ? 1 : 0;
       me.total += 1;
+      if (r.status === "attended") me.attended += 1;
+      else if (r.status === "late") me.late += 1;
+      else if (r.status === "absent") me.absent += 1;
       byMemberAgg.set(r.member_id, me);
     }
   }
@@ -155,6 +183,41 @@ export async function tmStats(viewer: Viewer): Promise<TmStats | null> {
     }))
     .sort((a, b) => a.rate - b.rate)
     .slice(0, 5);
+
+  // the per-member drill: worst rate first, then whoever has the most records
+  // (a 40%-of-20 is a bigger problem than a 40%-of-3)
+  const byMember = [...byMemberAgg.entries()]
+    .map(([id, v]) => {
+      const m = memberBy.get(id);
+      const majors = m ? fnsOf(m) : [];
+      const list = majors.length > 0 ? majors : (m?.functions ?? []);
+      return {
+        id,
+        name: m?.name ?? "?",
+        role: m?.role || "Member",
+        fns: list.join(", "),
+        rate: pct(v.showed, v.total),
+        records: v.total,
+        attended: v.attended,
+        late: v.late,
+        absent: v.absent,
+      };
+    })
+    .sort((a, b) => a.rate - b.rate || b.records - a.records);
+
+  const byRole = [...byRoleAgg.entries()]
+    .map(([role, v]) => ({
+      role,
+      rate: pct(v.showed, v.total),
+      records: v.total,
+      people: v.people.size,
+    }))
+    .sort((a, b) => {
+      const ia = ROLE_ORDER.indexOf(a.role);
+      const ib = ROLE_ORDER.indexOf(b.role);
+      // an unknown role sinks below the known ladder rather than jumping it
+      return (ia < 0 ? ROLE_ORDER.length : ia) - (ib < 0 ? ROLE_ORDER.length : ib);
+    });
 
   // ---------------------------------------------------------------- plans
   const planShape = (m: MemberLite) => ({
@@ -242,8 +305,15 @@ export async function tmStats(viewer: Viewer): Promise<TmStats | null> {
       byFunction: [...byFnAgg.entries()]
         // working hours never judge TM/F&L/CXP — tiny samples there are noise
         .filter(([fn, v]) => v.total >= 3 || !NO_WORKING_HOURS_FUNCTIONS.includes(fn))
-        .map(([fn, v]) => ({ fn, rate: pct(v.showed, v.total), records: v.total }))
+        .map(([fn, v]) => ({
+          fn,
+          rate: pct(v.showed, v.total),
+          records: v.total,
+          people: v.people.size,
+        }))
         .sort((a, b) => b.records - a.records),
+      byRole,
+      byMember,
       lowMembers,
     },
     plans: {

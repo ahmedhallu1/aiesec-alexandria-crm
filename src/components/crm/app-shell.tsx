@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronsLeft,
   ChevronsRight,
+  GripVertical,
   Building2,
   CalendarCheck2,
   CalendarDays,
@@ -122,6 +123,13 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
   // v26: members arrange their OWN sidebar — order persisted per browser
   const [navOrder, setNavOrder] = useState<string[] | null>(null);
   const [sortMode, setSortMode] = useState(false);
+  // v33.18: drag-to-reorder, but ONLY from the grip. `dragArmed` is raised by
+  // the handle's pointer-down and is what puts `draggable` on the row — so a
+  // press on the label or the icon is still just a click on the link, and the
+  // drag can never fight the navigation. Reset on dragend / pointer-up / exit.
+  const [dragArmed, setDragArmed] = useState(false);
+  const [dragHref, setDragHref] = useState<string | null>(null);
+  const [overHref, setOverHref] = useState<string | null>(null);
   // v33: the tab the logo goes to. Arranging your tabs without being able to
   // say which one is HOME only got you halfway — a B2C coordinator who lives
   // in Raising shouldn't land wherever the priority list happens to point.
@@ -162,12 +170,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
   const effectiveHome =
     homePin && orderedItems.some((i) => i.href === homePin) ? homePin : homeHref;
 
-  const moveItem = (href: string, dir: -1 | 1) => {
-    const hrefs = orderedItems.map((i) => i.href);
-    const idx = hrefs.indexOf(href);
-    const to = idx + dir;
-    if (idx < 0 || to < 0 || to >= hrefs.length) return;
-    [hrefs[idx], hrefs[to]] = [hrefs[to], hrefs[idx]];
+  const persistOrder = (hrefs: string[]) => {
     setNavOrder(hrefs);
     try {
       localStorage.setItem("sodio-nav-order", JSON.stringify(hrefs));
@@ -176,20 +179,124 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
     }
   };
 
+  const moveItem = (href: string, dir: -1 | 1) => {
+    const hrefs = orderedItems.map((i) => i.href);
+    const idx = hrefs.indexOf(href);
+    const to = idx + dir;
+    if (idx < 0 || to < 0 || to >= hrefs.length) return;
+    [hrefs[idx], hrefs[to]] = [hrefs[to], hrefs[idx]];
+    persistOrder(hrefs);
+  };
+
+  /** Drop `href` onto position `to` — splice-move, the same semantics the
+   *  table kit's column reorder uses, so both drags feel identical. */
+  const moveHrefTo = (href: string, to: number) => {
+    const hrefs = orderedItems.map((i) => i.href);
+    const from = hrefs.indexOf(href);
+    const target = Math.max(0, Math.min(hrefs.length - 1, to));
+    if (from < 0 || from === target) return;
+    hrefs.splice(from, 1);
+    hrefs.splice(target, 0, href);
+    persistOrder(hrefs);
+  };
+
+  const endDrag = () => {
+    setDragArmed(false);
+    setDragHref(null);
+    setOverHref(null);
+  };
+
+  // the nav is in arrange mode: grips, arrows and the home star show, and the
+  // rows accept a drag (the rail has no room for any of it)
+  const arranging = sortMode && !railed;
+
   const navList = (
     <nav className={cn("flex flex-1 flex-col gap-1 p-3", railed && "items-center px-1.5")}>
-      {orderedItems.map((item) => {
+      {orderedItems.map((item, index) => {
         const active =
           pathname === item.href ||
           (item.href === "/accounts" && pathname === "/") ||
           (item.href !== "/feedback" && pathname.startsWith(item.href + "/")) ||
           (item.href === "/feedback" && pathname === "/feedback");
         return (
-          <div key={item.href} className="flex items-center gap-1">
+          <div
+            key={item.href}
+            // ⚠️ ONLY the grip arms this. Without `dragArmed` the attribute is
+            // absent, so a press anywhere else in the row starts no drag.
+            draggable={arranging && dragArmed}
+            onDragStart={(e) => {
+              if (!arranging || !dragArmed) {
+                e.preventDefault();
+                return;
+              }
+              setDragHref(item.href);
+              e.dataTransfer.effectAllowed = "move";
+              try {
+                e.dataTransfer.setData("text/plain", item.href);
+              } catch {
+                /* some browsers refuse — the state carries it */
+              }
+            }}
+            onDragOver={(e) => {
+              if (!dragHref) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              if (overHref !== item.href) setOverHref(item.href);
+            }}
+            onDragLeave={(e) => {
+              // moving between the row's own children (grip → label) must not
+              // flicker the cue off
+              if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+              setOverHref((h) => (h === item.href ? null : h));
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              let href = dragHref;
+              if (!href) {
+                try {
+                  href = e.dataTransfer.getData("text/plain") || null;
+                } catch {
+                  href = null;
+                }
+              }
+              if (href) moveHrefTo(href, index);
+              endDrag();
+            }}
+            onDragEnd={endDrag}
+            className={cn(
+              "flex items-center gap-1 rounded-lg transition-opacity",
+              arranging && dragHref === item.href && "opacity-60",
+              arranging &&
+                overHref === item.href &&
+                dragHref !== item.href &&
+                "ring-1 ring-inset ring-primary/50"
+            )}
+          >
+          {arranging ? (
+            <span
+              aria-hidden
+              title="Drag to move this tab"
+              // pointer-down ARMS the row's draggable; a plain click that never
+              // becomes a drag disarms it again on release
+              onMouseDown={() => setDragArmed(true)}
+              onTouchStart={() => setDragArmed(true)}
+              onMouseUp={() => setDragArmed(false)}
+              onTouchEnd={() => setDragArmed(false)}
+              // size-8 = a 32px touch target on phones. No `touch-none`: HTML5
+              // drag doesn't fire on touch anyway (the ↑ ↓ buttons are that
+              // path), and blocking it here would kill scrolling on the grip.
+              className="flex size-8 shrink-0 cursor-grab items-center justify-center rounded text-sidebar-foreground/45 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground active:cursor-grabbing"
+            >
+              <GripVertical className="size-4" />
+            </span>
+          ) : null}
           <Link
             href={item.href}
             title={railed ? item.label : undefined}
             data-tour={`nav:${item.href}`}
+            // an <a> is natively draggable — that is what made the WHOLE tab
+            // grabbable with no affordance. The grip is the only handle now.
+            draggable={false}
             onClick={(e) => {
               setOpen(false);
               // modified clicks open a new tab — this tab never navigates
@@ -208,7 +315,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
               <span className="min-w-0 flex-1 truncate">{item.label}</span>
             )}
           </Link>
-          {sortMode && !railed ? (
+          {arranging ? (
             <span className="flex shrink-0 items-center gap-0.5 pr-1">
               <button
                 type="button"
@@ -260,11 +367,19 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
           </div>
         );
       })}
-      <div className={cn("mt-0.5 flex items-center gap-2 px-3", railed && "hidden")}>
+      <div
+        className={cn(
+          "mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 px-3",
+          railed && "hidden"
+        )}
+      >
         <button
           type="button"
           className="text-[11px] font-medium text-sidebar-foreground/45 transition-colors hover:text-sidebar-foreground/80"
-          onClick={() => setSortMode((s) => !s)}
+          onClick={() => {
+            setSortMode((s) => !s);
+            endDrag(); // leaving arrange mode never leaves a row armed or dimmed
+          }}
         >
           {sortMode ? "✓ Done arranging" : "↕ Arrange tabs"}
         </button>
@@ -283,6 +398,12 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
           >
             Reset
           </button>
+        ) : null}
+        {/* the grip is the affordance; this line just names the second path */}
+        {sortMode ? (
+          <span className="basis-full text-[11px] text-sidebar-foreground/35">
+            drag <GripVertical className="inline size-3 align-[-2px]" /> or use ↑ ↓
+          </span>
         ) : null}
       </div>
     </nav>

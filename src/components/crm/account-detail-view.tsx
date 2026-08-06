@@ -21,7 +21,7 @@ import type {
 import type { ContactAttempt, Visit } from "@/lib/types";
 import {
   ACCOUNT_TYPES, B2C_CONTRACT_FORM_URL, B2C_TYPES,
-  fmtDateTime, IGT_SUB_PRODUCTS, IGV_PROJECTS, INDUSTRIES,
+  fmtClock12, fmtDateTime, IGT_SUB_PRODUCTS, IGV_PROJECTS, INDUSTRIES,
   OOP_REASONS,
   VISIT_RESULTS, podioDefaultDays, productBadge,
 } from "@/lib/types";
@@ -296,6 +296,7 @@ export function AccountDetailView({
         creation={account.creation ?? null}
         canEdit={caps.edit}
         onReportVisit={caps.edit && active ? setReportVisitId : undefined}
+        onMoveVisit={caps.edit && active ? () => setVisitOpen(true) : undefined}
       />
 
       {/* dialogs */}
@@ -1461,7 +1462,7 @@ function DealContracts({ deal, canEdit }: { deal: DealWithMember; canEdit: boole
 }
 
 function TimelineCard({
-  attempts, visits, deals, creation, canEdit, onReportVisit,
+  attempts, visits, deals, creation, canEdit, onReportVisit, onMoveVisit,
 }: {
   attempts: AttemptWithMember[];
   visits: Visit[];
@@ -1471,6 +1472,8 @@ function TimelineCard({
   canEdit: boolean;
   /** present when the viewer may report pending visits — makes their rows clickable */
   onReportVisit?: (visitId: string) => void;
+  /** present when the viewer may MOVE a booked visit (v33.18) */
+  onMoveVisit?: () => void;
 }) {
   return (
     <Card>
@@ -1549,7 +1552,7 @@ function TimelineCard({
                   <CalendarPlus className="mt-0.5 size-4 text-primary" />
                   <div className="min-w-0 flex-1">
                     <p className="font-medium">
-                      Visit · {v.visit_date} at {v.visit_time?.slice(0, 5)}{" "}
+                      Visit · {v.visit_date} at {fmtClock12(v.visit_time)}{" "}
                       {v.done === null ? (
                         <Badge variant="outline" className="ml-1">pending</Badge>
                       ) : v.done ? (
@@ -1562,8 +1565,20 @@ function TimelineCard({
                     {v.next_step ? <p className="text-muted-foreground">Next: {v.next_step}</p> : null}
                   </div>
                   {reportable ? (
-                    <span className="mt-0.5 inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-primary">
-                      <CheckCircle2 className="size-3.5" /> Report it
+                    <span className="mt-0.5 flex shrink-0 flex-col items-end gap-1">
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-primary">
+                        <CheckCircle2 className="size-3.5" /> Report it
+                      </span>
+                      {/* v33.18: a booked visit can MOVE, not only be reported */}
+                      {onMoveVisit ? (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                          onClick={(e) => { e.stopPropagation(); onMoveVisit(); }}
+                        >
+                          <CalendarPlus className="size-3" /> Move it
+                        </button>
+                      ) : null}
                     </span>
                   ) : null}
                 </div>
@@ -1669,6 +1684,16 @@ function VisitDialog({
   const [notes, setNotes] = useState("");
   const [failed, setFailed] = useState(false);
   const [pending, start] = useTransition();
+  // RE-SEED when the pending visit changes (v33.18): the fields were filled
+  // once at mount, so after a refresh — or when a visit got booked from the
+  // contact dialog — "Reschedule" opened on the OLD date, and saving it
+  // silently moved the visit back. Adjust-during-render; still hand-editable.
+  const [seeded, setSeeded] = useState(pendingVisit?.id ?? null);
+  if ((pendingVisit?.id ?? null) !== seeded) {
+    setSeeded(pendingVisit?.id ?? null);
+    setDate(pendingVisit?.visit_date ?? "");
+    setTime(pendingVisit?.visit_time?.slice(0, 5) ?? "");
+  }
 
   const submit = () =>
     start(async () => {
