@@ -234,7 +234,12 @@ export function BookingView({
   }
 
   return (
-    <div className="rise-in relative z-10 w-full max-w-2xl rounded-2xl bg-card p-6 shadow-2xl md:p-8">
+    <div
+      className="rise-in relative z-10 w-full max-w-2xl rounded-2xl bg-card p-6 shadow-2xl md:p-8"
+      // what the EDGE thinks of this connection — invisible, but it makes
+      // "the zone detection isn't working" answerable without guessing
+      data-ip-zone={ipZone ?? "none"}
+    >
       <BrandHeader />
       <h1 className="text-center text-2xl font-bold text-card-foreground">
         Book an IR call with <span className="text-primary">{memberName}</span>
