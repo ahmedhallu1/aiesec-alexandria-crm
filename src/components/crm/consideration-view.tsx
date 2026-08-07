@@ -22,6 +22,7 @@ import type {
   CvRow, IrAvailabilityRow, IrCallRow, MyIrBooking, PartnerLc,
 } from "@/server/data";
 import { normalizePhone, fmtDateTime } from "@/lib/types";
+import { whenLabelInZone } from "@/lib/timezones";
 import { cn } from "@/lib/utils";
 import { CountryInput } from "./country-input";
 import {
@@ -1970,6 +1971,14 @@ function IrCallsTab({
                     {" · with "}
                     <span dir="auto">{c.member_name}</span>
                   </p>
+                  {/* WHAT TIME IT IS FOR THEM (v33.22) — we work in Cairo, the
+                      IR works at home. Worth seeing before you wonder why
+                      nobody joined at what is 3 AM in Jakarta. */}
+                  {c.booker_tz ? (
+                    <p className="break-words text-xs text-muted-foreground/80">
+                      🌍 {whenLabelInZone(c.called_at, c.booker_tz)} their time
+                    </p>
+                  ) : null}
                   {c.meet_link ? (
                     <a
                       href={c.meet_link}

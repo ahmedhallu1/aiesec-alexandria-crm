@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -9,7 +9,8 @@ import {
 import { cancelBookedCall, rescheduleBookedCall } from "@/server/actions";
 import type { BookingDay, ManageBookingData } from "@/server/data";
 import { cn } from "@/lib/utils";
-import { BookingCredit } from "./booking-view";
+import { BookingCredit, groupSlotsInZone } from "./booking-view";
+import { isValidZone, whenLabelInZone, zoneOffsetLabel } from "@/lib/timezones";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -44,9 +45,23 @@ export function ManageBookingView({
   const [movedTo, setMovedTo] = useState<string | null>(null);
   const [cancelled, setCancelled] = useState(false);
 
-  const days: BookingDay[] = data.days;
+  // THE IR'S OWN CLOCK (v33.22) — same rule as the booking page: their zone
+  // if the browser knows it, else the one recorded when they booked, else
+  // Cairo. Detected after mount so the server render can't mismatch.
+  const [tz, setTz] = useState(
+    isValidZone(data.bookerTz) ? String(data.bookerTz) : "Africa/Cairo"
+  );
+  useEffect(() => {
+    const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (detected && isValidZone(detected)) setTz(detected);
+  }, []);
+  const days: BookingDay[] = useMemo(
+    () => groupSlotsInZone(data.days, tz),
+    [data.days, tz]
+  );
   const day = days[Math.min(dayIdx, Math.max(0, days.length - 1))];
   const slot = day?.slots.find((s) => s.iso === slotIso) ?? null;
+  const whenLabel = whenLabelInZone(data.startIso, tz);
 
   const doReschedule = () =>
     start(async () => {
@@ -87,8 +102,9 @@ export function ManageBookingView({
       <h1 className="text-center text-2xl font-bold text-card-foreground">
         Your IR call with <span className="text-primary">{data.memberName}</span>
       </h1>
-      <p className="mt-1 flex items-center justify-center gap-1 text-center text-xs font-medium text-muted-foreground">
-        <Clock className="size-3.5" /> Times are in Cairo (GMT+2/+3)
+      <p className="mt-1 flex flex-wrap items-center justify-center gap-1 text-center text-xs font-medium text-muted-foreground">
+        <Clock className="size-3.5 shrink-0" /> Times shown in your own time
+        zone — {tz.replaceAll("_", " ")} {zoneOffsetLabel(new Date(), tz)}
       </p>
 
       <div className="mt-5 space-y-2 rounded-xl border p-4 text-sm">
@@ -102,7 +118,7 @@ export function ManageBookingView({
         </div>
         <p className="text-muted-foreground">
           <CalendarClock className="mr-1 inline size-4 align-[-2px]" />
-          {movedTo ?? data.whenLabel} · {data.durationMinutes} minutes
+          {movedTo ?? whenLabel} · {data.durationMinutes} minutes
         </p>
         {status === "cancelled" && (data.cancelReason || reason.trim()) ? (
           <p className="text-muted-foreground" dir="auto">

@@ -867,7 +867,11 @@ export function irBookingConfirmEmail(opts: {
   bookerName: string | null;
   memberName: string;
   partnerLc: string;
+  /** THE IR'S OWN LOCAL TIME (v33.22) — their clock leads, ours follows */
   whenLabel: string;
+  /** the same instant in Cairo, shown as the secondary line. Null when we
+   *  don't know their zone, in which case whenLabel IS Cairo time. */
+  cairoLabel?: string | null;
   slotMinutes: number;
   meetLink: string | null;
   manageUrl: string;
@@ -887,7 +891,8 @@ export function irBookingConfirmEmail(opts: {
         ${detailsTable([
           ["With", opts.memberName],
           ["Your LC", opts.partnerLc],
-          ["When", opts.whenLabel],
+          ["When (your time)", opts.whenLabel],
+          ["Same moment in Cairo", opts.cairoLabel ?? null],
           ["Duration", `${opts.slotMinutes} minutes`],
           ["Google Meet", opts.meetLink],
         ])}
@@ -895,7 +900,11 @@ export function irBookingConfirmEmail(opts: {
         <p>Plans changed? You can move or cancel this call yourself — no
         account needed:</p>
         ${button(opts.rescheduled ? "Manage this booking" : "Reschedule or cancel", opts.manageUrl)}
-        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">All times are Cairo time (GMT+2/+3). Booked through Sodio — AIESEC in Alexandria.</p>`,
+        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">${
+          opts.cairoLabel
+            ? "Times are shown in your own time zone, and the calendar invite will show it in whatever zone your calendar is set to."
+            : "All times are Cairo time (GMT+2/+3)."
+        } Booked through Sodio — AIESEC in Alexandria.</p>`,
     }),
   };
 }
@@ -981,7 +990,7 @@ export function irCallCancelledByMemberEmail(opts: {
         ${button("Book a new time", opts.bookingUrl)}`
             : `<p>Reach back out to them to line up a new time.</p>`
         }
-        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">All times are Cairo time (GMT+2/+3). Sent via Sodio — AIESEC in Alexandria.</p>`,
+        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">Times are shown in your own time zone. Sent via Sodio — AIESEC in Alexandria.</p>`,
     }),
   };
 }
@@ -1015,7 +1024,7 @@ export function irRescheduleRequestEmail(opts: {
         <p>Pick whichever new time suits you from their live availability — it
         takes a few seconds and the current time stays booked until you do:</p>
         ${button("Pick a new time", opts.manageUrl)}
-        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">All times are Cairo time (GMT+2/+3). Sent via Sodio — AIESEC in Alexandria.</p>`,
+        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">Times are shown in your own time zone. Sent via Sodio — AIESEC in Alexandria.</p>`,
     }),
   };
 }
@@ -1077,8 +1086,106 @@ export function lcConcernEmail(opts: { count: number }) {
          inbox — nothing about it is repeated in this email on purpose.</p>
       ${button("Open the inbox", `${env.appUrl}/lc-feedback`)}
       <p style="color:#64748b;font-size:13px;margin-top:16px;">
-        Only the LCP and the TM leadership can read this inbox.
+        Only TM, the LCP and F&amp;L's LCVP can read this inbox.
       </p>
     ` }),
+  };
+}
+
+/** Someone in the inbox passed a piece of feedback on to you (v33.22). The
+ *  MESSAGE travels; the author never does — a shared concern is still
+ *  anonymous if it was filed anonymously. */
+export function lcSharedFeedbackEmail(opts: {
+  sharedBy: string;
+  kind: string;
+  message: string;
+  note: string | null;
+}) {
+  return {
+    subject: `📨 ${opts.sharedBy} shared ${opts.kind} with you`,
+    html: emailLayout({ body: `
+      <h2 style="margin:0 0 12px;font-size:20px;">Shared with you</h2>
+      <p><b>${escapeHtml(opts.sharedBy)}</b> passed you ${escapeHtml(opts.kind)} from the LC
+         feedback inbox, because it needs you.</p>
+      <blockquote style="margin:14px 0;padding:10px 14px;border-left:3px solid #037EF3;background:#f8fafc;color:#0f172a;white-space:pre-wrap;">${escapeHtml(opts.message)}</blockquote>
+      ${opts.note ? `<p style="white-space:pre-wrap;"><b>${escapeHtml(opts.sharedBy)} adds:</b> ${escapeHtml(opts.note)}</p>` : ""}
+      <p style="color:#64748b;font-size:13px;margin-top:16px;">
+        Who wrote it is not shown — feedback can be filed anonymously, and
+        sharing it never reveals the author.
+      </p>
+    ` }),
+  };
+}
+
+/** The loop closes (v33.22): the person who spoke up hears that it was
+ *  handled. Filing into silence is how people stop filing. */
+export function lcFeedbackHandledEmail(opts: {
+  name: string;
+  handledBy: string;
+  original: string;
+  note: string | null;
+}) {
+  return {
+    subject: "✅ Your feedback was handled",
+    html: emailLayout({ body: `
+      <h2 style="margin:0 0 12px;font-size:20px;">Thank you for speaking up</h2>
+      <p>Hi ${escapeHtml(opts.name)} — the feedback you filed has been handled by
+         <b>${escapeHtml(opts.handledBy)}</b>.</p>
+      <blockquote style="margin:14px 0;padding:10px 14px;border-left:3px solid #037EF3;background:#f8fafc;color:#0f172a;white-space:pre-wrap;">${escapeHtml(opts.original)}</blockquote>
+      ${opts.note ? `<p style="white-space:pre-wrap;"><b>What happened:</b> ${escapeHtml(opts.note)}</p>` : ""}
+      <p style="color:#64748b;font-size:13px;margin-top:16px;">
+        Your name was never shown to anyone if you filed this anonymously —
+        that hasn't changed.
+      </p>
+    ` }),
+  };
+}
+
+/** THE TIME-ZONE CORRECTION (v33.22, one-off).
+ *
+ *  Bookings made before the public page spoke the visitor's own clock were
+ *  shown Cairo time with a footnote. Nothing about them is WRONG — the call
+ *  is at the instant it always was, and the calendar invite has always been
+ *  right — but an IR who read "6:00 PM" as their own 6 PM would be an hour or
+ *  six out. So: confirm, in their words, in their zone, with the option to
+ *  move it if that turns out not to work. Never an apology for a broken
+ *  booking; there isn't one. */
+export function irTimeZoneConfirmEmail(opts: {
+  bookerName: string | null;
+  memberName: string;
+  partnerLc: string;
+  /** the call in the IR's own zone — the headline */
+  theirLabel: string;
+  /** the same instant in Cairo — what the first email said */
+  cairoLabel: string;
+  meetLink: string | null;
+  manageUrl: string;
+}): { subject: string; html: string } {
+  return {
+    subject: `📅 Your IR call with ${opts.memberName} — ${opts.theirLabel}`,
+    html: externalEmailLayout({
+      preheader: `Confirming your IR call: ${opts.theirLabel} (that is ${opts.cairoLabel}).`,
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Confirming your IR call 🌍</h1>
+        <p>Hi${opts.bookerName ? ` ${escapeHtml(opts.bookerName)}` : ""} — quick
+        confirmation of your call with <b>${escapeHtml(opts.memberName)}</b> of
+        AIESEC in Alexandria. Nothing has changed; we are just writing the time
+        out in <b>your</b> local time, because the booking page you used showed
+        it in <b>Cairo</b> time.</p>
+        ${detailsTable([
+          ["Your local time", opts.theirLabel],
+          ["Cairo time (what the first email said)", opts.cairoLabel],
+          ["With", opts.memberName],
+          ["Your LC", opts.partnerLc],
+          ["Google Meet", opts.meetLink],
+        ])}
+        <p>Both lines are the same moment — and your calendar invite has always
+        been correct, since Google shows it in whatever zone your calendar is
+        set to.</p>
+        <p>If that time doesn't work now that you see it in your own clock, you
+        can move it yourself in a few seconds — no account needed:</p>
+        ${button("Reschedule or cancel", opts.manageUrl)}
+        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">From now on our booking pages show every time in your own time zone. Sent via Sodio — AIESEC in Alexandria.</p>`,
+    }),
   };
 }

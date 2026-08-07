@@ -592,6 +592,8 @@ export function SignupsView({
   filters: {
     q: string; batch: string; program: string; status: string; potential: string;
     personStatus?: string; assigned?: string; campaign?: string;
+    /** CIC tab only — "the second calls handed to me" */
+    cicMine?: string;
     interested: string; contacted: string; phone: string; sort: string; dir: string;
   };
 }) {
@@ -1317,6 +1319,27 @@ export function SignupsView({
             className="h-9 w-52 pl-8"
           />
         </div>
+        {/* 🙋 MINE (v33.22) — one tap to your own rows inside a list that
+            holds the team's or the function's. In the CIC tab it means the
+            second calls handed to YOU, which is a different column. */}
+        {viewer.isLeader || viewer.isTl || viewer.canCic ? (
+          <button
+            type="button"
+            onClick={() =>
+              cicView
+                ? setParams({ cicMine: filters.cicMine ? null : "1" })
+                : setParams({ assigned: filters.assigned === viewer.name ? null : viewer.name })
+            }
+            className={cn(
+              "h-9 shrink-0 rounded-md border px-3 text-sm font-medium transition-colors",
+              (cicView ? !!filters.cicMine : filters.assigned === viewer.name)
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-input hover:bg-muted"
+            )}
+          >
+            🙋 Mine
+          </button>
+        ) : null}
         {/* Column-backed filters (Batch · Program · Contacted · Interested ·
             Potential · Phone) live on the COLUMN HEADERS now. The mobile
             card view has no header to hang them on, so it keeps the chips. */}

@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v33.21";
+export const PLAYBOOK_VERSION = "v33.22";
 
 interface Props {
   role: string;
@@ -69,6 +69,7 @@ const SECTIONS: Section[] = [
       <><b>Need the room? Collapse the sidebar</b> (v33): the <b>Collapse</b> row at the foot of the nav shrinks it to an icon rail and gives the table ~15rem back. Tabs keep their tooltips, and your choice sticks on that browser.</>,
       <><b>Nicknames are gone</b> (v33) — everyone is their full name everywhere. Two Farahs and two Hanas made &quot;who is this?&quot; a real question exactly where it mattered: the Responsible column, your manager, the leaderboard.</>,
       <><b>Every table is yours to shape</b> 🧩 (v31): hit <b>⚙ Columns</b> on any list — accounts, sign-ups, members, attendance, IR calls, CVs — to <b>drag columns into the order you like</b>, switch extra ones on (project, industry, opens, campaign, person status…) or hide what you don&apos;t use, and <b>Reset</b> when you want the default back. Pick how many rows per page, and click any header to sort. Your layout is remembered on your own device. No more &quot;the sheet was more flexible&quot;.</>,
+      <><b>🙋 Mine</b> (v33.22): on <b>Raising</b> and <b>Sign-ups</b>, one tap narrows a list that holds other people&apos;s rows down to your own — your team&apos;s list, your function&apos;s list, or the unowned pool mixed in with yours. In the 📞 CIC tab it shows the second calls handed to you.</>,
       <><b>Anything that floats can be moved — grab it by the dots</b> ⣿ (v33.21): a popup covering the row you opened it about, the Blue Man sitting on your last table rows, the test-view chip. The <b>⣿ handle</b> marks where to grab (a popup&apos;s sits at the top of its title, the Blue Man&apos;s in its blue header). Desktop only — on a phone the popup is the screen.</>,
       <><b>Contacting someone always gets recorded</b>: tap WhatsApp, Call or Email on an account or a sign-up and the link opens as usual — then Sodio asks how it went, with the method already filled in. One tap to log it, or &quot;Not now&quot; if you mis-clicked.</>,
       <>First sign-in is <b>Google only</b> (it grants your calendar reminders + Gmail drafts). Onboarding then sets your password.</>,
@@ -200,7 +201,7 @@ const SECTIONS: Section[] = [
       <>You edit <b>Contacted</b> (Yes/No), <b>Interested</b> (Yes/No) and <b>comments</b> — everything else (phone, email, program, referral, university…) is the sign-up&apos;s own data, read-only in the details.</>,
       <>Comments are an <b>organized log</b>: yours land in the sheet&apos;s Comment cell, the VP&apos;s in the VP Comment cell — each entry stamped with the author and time. Assigned/contacted dates stamp themselves.</>,
       <><b>VP/Director only</b>: VP comments, <b>Country</b> (autocomplete), <b>Sub Product</b> (OGT: GTa/GTe) and <b>Out of Process</b> (archives the sign-up with a reason; revivable). The Applied / Accepted / Approved statuses belong to the sign-up&apos;s <b>owner</b> since v28 — see the potential flow above.</>,
-      <><b>📞 CIC — the second call</b> (v33.19): a sign-up marked <b>Contacted</b> that never got a status shows up in the CIC tab, where an MM+ hands it to a <b>second caller</b> — someone else in the function who checks the first call really happened and follows up. It is <b>not</b> a hand-over: the sign-up stays with its first assignee and keeps counting for them; the second call is recorded in its own columns. Since v33.21 you can hand out a whole batch at once — select rows → <b>Assign 2nd caller…</b>. On credit: both callers carry the sign-up and the <b>contact</b>; the <b>outcome</b> (Applied → Approved) counts for whoever took it there.</>,
+      <><b>📞 CIC — the second call</b> (v33.19): a sign-up whose <b>Contacted</b> is answered — <b>Yes or No</b> — that never got a status shows up in the CIC tab (a &quot;No&quot; is a call that happened and didn&apos;t land, which is exactly what a second call re-tries; a sign-up still in the unassigned pool is waiting for its FIRST call and never appears), where an MM+ hands it to a <b>second caller</b> — someone else in the function who checks the first call really happened and follows up. It is <b>not</b> a hand-over: the sign-up stays with its first assignee and keeps counting for them; the second call is recorded in its own columns. Since v33.21 you can hand out a whole batch at once — select rows → <b>Assign 2nd caller…</b>. On credit: both callers carry the sign-up and the <b>contact</b>; the <b>outcome</b> (Applied → Approved) counts for whoever took it there.</>,
       <><b>Approved is the MOS</b> 🏆 — accepted by the host entity, paid, contract signed, ready to start the travel process. Your real Approvals count shows in the members directory.</>,
       <>VPs/Directors: the <b>Expectation mail</b> tab builds the pre-approval &quot;Home Entity Expectation Setting&quot; email — review the final version, edit inline, and send it from your own Gmail (EP + IR in To, customer support in CC, your signature at the end).</>,
     ],
@@ -291,6 +292,7 @@ const SECTIONS: Section[] = [
     audience: "Everyone",
     color: "#037EF3",
     points: [
+      <><b>The inbox is organised</b> (v33.22, for TM / the LCP / F&amp;L&apos;s LCVP): concerns, session reviews and shout-outs are three separate piles, each filtered by <b>Open · Done · Archived</b> (&quot;seen&quot; is gone — reading something is not handling it). Every piece can be <b>shared</b> with whoever can act on it (they get the message, never the author&apos;s name), <b>archived</b>, marked <b>done</b>, or answered with <b>&quot;tell them it&apos;s handled&quot;</b> — which reaches the person who wrote it <i>even if they were anonymous</i>. Sodio knows who they are; you still don&apos;t.</>,
       <><b>0.</b> Two feedback doors (v21): <b>Sodio feedback</b> (bugs/ideas) lives on your <b>Profile</b>; the sidebar&apos;s <b>Feedback</b> is about PEOPLE and SESSIONS — 🎉 shout-outs reach the person directly, 😟 concerns go to a private inbox only the <b>LCP and TM</b> read, anonymously if you like.</>,
       <><b>1.</b> If it&apos;s not in Sodio, it didn&apos;t happen.</>,
       <><b>2.</b> Every in-process account has a next step with a date — always.</>,

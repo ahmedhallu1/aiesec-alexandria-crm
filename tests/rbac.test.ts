@@ -262,9 +262,23 @@ describe("B2C / BD isolation", () => {
 });
 
 describe("admin is a capability, not a rank", () => {
-  it("a PURE Admin sees everything", () => {
-    expect(accountScope(pureAdmin)).toEqual({ kind: "all" });
+  // v33.22, by the IM director's own call: Role = "Admin" is the caretaker
+  // seat — Health, logs, the change journal — and NOT a key to the LC's data.
+  it("a PURE Admin gets the tools and NOT the LC", () => {
     expect(canUseAdminTools(pureAdmin)).toBe(true);
+    expect(accountScope(pureAdmin)).not.toEqual({ kind: "all" });
+    expect(canSeeLcConcerns(pureAdmin)).toBe(false);
+  });
+
+  it("whoever LEADS IM has whole-LC access — it follows the job", () => {
+    const imDirector = member({
+      id: "im-dir", role: "Director", functions: ["IM"], sub_functions: [],
+    });
+    expect(accountScope(imDirector)).toEqual({ kind: "all" });
+    expect(canSeeLcConcerns(imDirector)).toBe(true);
+    // ...but a plain IM member is just a member
+    const imMember = member({ id: "im-mem", role: "Member", functions: ["IM"] });
+    expect(accountScope(imMember)).not.toEqual({ kind: "all" });
   });
 
   it("a VP who ALSO keeps the system running keeps only their own modules", () => {
@@ -284,15 +298,25 @@ describe("admin is a capability, not a rank", () => {
 });
 
 describe("the private concerns inbox", () => {
-  it("is open to the LCP and the TM leadership only", () => {
+  // v33.22: TM owns people, so the whole TM FUNCTION handles concerns —
+  // plus the LCP, F&L's LCVP, and whoever leads IM.
+  it("is open to TM, the LCP and F&L's LCVP", () => {
     expect(canSeeLcConcerns(lcp)).toBe(true);
     expect(canSeeLcConcerns(tmVp)).toBe(true);
+    expect(canSeeLcConcerns(flVp)).toBe(true);
+    expect(
+      canSeeLcConcerns(member({ id: "tm-mem", role: "Member", functions: ["TM"] }))
+    ).toBe(true);
   });
   it("is closed to every other leader and member", () => {
     expect(canSeeLcConcerns(igtVp)).toBe(false);
     expect(canSeeLcConcerns(b2cDirector)).toBe(false);
     expect(canSeeLcConcerns(igvRaiser)).toBe(false);
-    expect(canSeeLcConcerns(flVp)).toBe(false);
+    expect(canSeeLcConcerns(pureAdmin)).toBe(false);
+    // F&L below its LCVP has LCP-level DATA access but not the people inbox
+    expect(
+      canSeeLcConcerns(member({ id: "fl-mem", role: "Member", functions: ["F&L"] }))
+    ).toBe(false);
   });
 });
 

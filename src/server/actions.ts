@@ -4249,6 +4249,9 @@ export async function submitLcFeedback(input: {
     about: targets.map((t) => t.id),
     message,
     attachments: cleanAttachments(input.attachments, viewer.id),
+    // v33.22: session feedback is its own KIND in the inbox, not a concern
+    // with a session name glued to the front of it
+    touch_point_id: input.touchPointId ?? null,
   });
   if (error) {
     if (error.message.includes("lc_feedback"))
@@ -4280,20 +4283,25 @@ export async function submitLcFeedback(input: {
     }
   }
   // A CONCERN is quiet — never to the person it's about — but the people who
-  // must act on it are told: the LCP and the TM leadership (v32.8). Both get
-  // the bell and the mail; both can open the inbox.
+  // must act on it are told. Since v33.22 that list is exactly who can OPEN
+  // the inbox (`canSeeLcConcerns`): TM, the LCP, F&L's LCVP and the IM
+  // director. Telling someone about a concern they cannot then read was the
+  // old bug in miniature.
   if (!input.positive) {
     const { data: owners } = await db()
       .from("members")
       .select("id, name, email, role, functions, sub_functions")
       .eq("is_active", true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const inboxOwners = ((owners ?? []) as any[]).filter(
-      (m) =>
+    const inboxOwners = ((owners ?? []) as any[]).filter((m) => {
+      const fns = [...(m.functions ?? []), ...(m.sub_functions ?? [])];
+      return (
         m.role === "LCP" ||
-        (["LCVP", "Director"].includes(m.role) &&
-          [...(m.functions ?? []), ...(m.sub_functions ?? [])].includes("TM"))
-    );
+        fns.includes("TM") ||
+        (m.role === "LCVP" && fns.includes("F&L")) ||
+        ((m.role === "Director" || m.role === "LCVP") && fns.includes("IM"))
+      );
+    });
     if (inboxOwners.length > 0) {
       const { notifyMembers } = await import("./notify");
       await notifyMembers(
@@ -4333,15 +4341,187 @@ export async function submitLcFeedback(input: {
   return { ok: true };
 }
 
+/** THE INBOX HAS THREE STATES (v33.22): new · done · archived.
+ *
+ *  "Seen" and "done" were the same thing in practice — nobody opened a
+ *  concern and left it half-handled on purpose — so the middle state is gone
+ *  and `archived` takes its place: filed away, not a to-do, not a resolution.
+ *  Closing one records WHO closed it and when. */
 export async function setLcFeedbackStatus(
   id: string,
-  status: "new" | "seen" | "done"
+  status: "new" | "done" | "archived"
 ): Promise<ActionResult> {
   const viewer = await getViewer();
   if (!canSeeLcConcerns(viewer))
-    return fail("Only the LCP and the TM leadership manage this inbox.", "forbidden");
-  const { error } = await db().from("lc_feedback").update({ status }).eq("id", id);
+    return fail("Only TM, the LCP and F&L's LCVP manage this inbox.", "forbidden");
+  if (!["new", "done", "archived"].includes(status)) return fail("Unknown status.");
+  await snapshotForUndo("lc_feedback", id);
+  const { error } = await db()
+    .from("lc_feedback")
+    .update({
+      status,
+      resolved_by: status === "new" ? null : viewer.id,
+      resolved_at: status === "new" ? null : new Date().toISOString(),
+    })
+    .eq("id", id);
   if (error) return fail(error.message);
+  await logAudit(viewer.id, "lc_feedback_status", "lc_feedback", id, { status });
+  refresh();
+  return { ok: true };
+}
+
+/** PASS IT ON (v33.22) — most concerns need someone who wasn't in the inbox:
+ *  the person's TL, the function's VP, whoever can actually do something.
+ *  Sharing sends the feedback itself (bell + email) and records who it went
+ *  to, so the same name is never looped in twice.
+ *
+ *  ANONYMITY SURVIVES SHARING: the author is never named, exactly as in the
+ *  inbox. Sharing a concern is not a way to find out who filed it. */
+export async function shareLcFeedback(
+  id: string,
+  memberIds: string[],
+  note?: string
+): Promise<ActionResult<{ shared: number }>> {
+  const viewer = await getViewer();
+  if (!canSeeLcConcerns(viewer))
+    return fail("Only TM, the LCP and F&L's LCVP manage this inbox.", "forbidden");
+  const ids = [...new Set((memberIds ?? []).filter(Boolean))].slice(0, 20);
+  if (ids.length === 0) return fail("Pick at least one person.");
+  const { data: row } = await db()
+    .from("lc_feedback")
+    .select("id, message, positive, anonymous, shared_with, touch_point_id")
+    .eq("id", id)
+    .maybeSingle<{
+      id: string;
+      message: string;
+      positive: boolean;
+      anonymous: boolean;
+      shared_with: string[] | null;
+      touch_point_id: string | null;
+    }>();
+  if (!row) return fail("That feedback no longer exists.");
+  const { data: people } = await db()
+    .from("members")
+    .select("id, name, email")
+    .in("id", ids)
+    .eq("is_active", true);
+  const targets = (people ?? []) as { id: string; name: string; email: string | null }[];
+  if (targets.length === 0) return fail("Nobody active in that list.");
+
+  const kind = row.touch_point_id
+    ? "session feedback"
+    : row.positive
+      ? "a shout-out"
+      : "a concern";
+  const trimmed = (note ?? "").trim().slice(0, 500);
+  const body = `${row.message}${trimmed ? `\n\n— ${viewer.name}: ${trimmed}` : ""}`;
+
+  const { notifyMembers } = await import("./notify");
+  await notifyMembers(
+    targets.map((t) => t.id),
+    "lc_feedback",
+    `${viewer.name} shared ${kind} with you`,
+    body.slice(0, 400),
+    // the SHARER is named (they chose to pass it on); the AUTHOR never is
+    viewer.id,
+    "/lc-feedback"
+  );
+  if (!(await sandboxSuppressed("share lc feedback"))) {
+    const { lcSharedFeedbackEmail } = await import("@/lib/email/templates");
+    const mail = lcSharedFeedbackEmail({
+      sharedBy: viewer.name,
+      kind,
+      message: row.message,
+      note: trimmed || null,
+    });
+    await Promise.all(
+      targets
+        .filter((t) => t.email)
+        .map((t) =>
+          sendEmail({ to: [t.email!], ...mail }).catch((e) =>
+            console.error("[lc-feedback] share mail failed:", e)
+          )
+        )
+    );
+  }
+  await snapshotForUndo("lc_feedback", id);
+  const merged = [...new Set([...(row.shared_with ?? []), ...targets.map((t) => t.id)])];
+  await db().from("lc_feedback").update({ shared_with: merged }).eq("id", id);
+  await logAudit(viewer.id, "lc_feedback_share", "lc_feedback", id, { to: targets.length });
+  refresh();
+  return { ok: true, data: { shared: targets.length } };
+}
+
+/** CLOSE THE LOOP (v33.22) — tell whoever filed it that it was handled, with
+ *  an optional word about what happened. Filing a concern into silence is how
+ *  people stop filing them.
+ *
+ *  Works for ANONYMOUS feedback too: the system knows the author even when
+ *  the reader doesn't, and telling them changes nothing about who can see
+ *  their name. Marks the feedback done in the same move. */
+export async function tellLcFeedbackAuthor(
+  id: string,
+  comment?: string
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!canSeeLcConcerns(viewer))
+    return fail("Only TM, the LCP and F&L's LCVP manage this inbox.", "forbidden");
+  const { data: row } = await db()
+    .from("lc_feedback")
+    .select("id, author_id, anonymous, positive, message")
+    .eq("id", id)
+    .maybeSingle<{
+      id: string;
+      author_id: string | null;
+      anonymous: boolean;
+      positive: boolean;
+      message: string;
+    }>();
+  if (!row) return fail("That feedback no longer exists.");
+  if (!row.author_id) return fail("Nobody to tell — the author has left the LC.");
+  const { data: author } = await db()
+    .from("members")
+    .select("id, name, email, is_active")
+    .eq("id", row.author_id)
+    .maybeSingle<{ id: string; name: string; email: string | null; is_active: boolean }>();
+  if (!author?.is_active) return fail("Nobody to tell — the author has left the LC.");
+
+  const said = (comment ?? "").trim().slice(0, 800);
+  const { notifyMembers } = await import("./notify");
+  await notifyMembers(
+    [author.id],
+    "lc_feedback",
+    "✅ Your feedback was handled",
+    said || "Thank you for speaking up — it was read and acted on.",
+    viewer.id,
+    "/lc-feedback"
+  );
+  if (author.email && !(await sandboxSuppressed("lc feedback handled email"))) {
+    const { lcFeedbackHandledEmail } = await import("@/lib/email/templates");
+    await sendEmail({
+      to: [author.email],
+      ...lcFeedbackHandledEmail({
+        name: author.name,
+        handledBy: viewer.name,
+        original: row.message,
+        note: said || null,
+      }),
+    }).catch((e) => console.error("[lc-feedback] handled mail failed:", e));
+  }
+  await snapshotForUndo("lc_feedback", id);
+  const { error } = await db()
+    .from("lc_feedback")
+    .update({
+      author_told_at: new Date().toISOString(),
+      resolution: said || null,
+      status: "done",
+      resolved_by: viewer.id,
+      resolved_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "lc_feedback_told_author", "lc_feedback", id, {});
+  refresh();
   return { ok: true };
 }
 
@@ -5133,10 +5313,17 @@ export async function updateSignupContact(
   return { ok: true };
 }
 
-/** The sheet writes this column free-hand ("yes", "YES", "Y") and every other
- *  reader in the module treats it as /^y/i — the CIC gate must agree, or a
- *  row that displays and COUNTS as contacted silently skips the queue. */
-const isYes = (v: string | null | undefined) => /^y/i.test((v ?? "").trim());
+/** CIC's own entry rule (v33.22), kept in ONE place so the queue query in
+ *  data.ts and this gate can never drift apart again:
+ *
+ *  the first call HAPPENED — Contacted is answered, Yes or No. "No" is not an
+ *  absence of a call, it's a call that didn't land, and that is precisely
+ *  what a second caller re-tries. The old gate matched /^y/i, so every "No"
+ *  was refused by the server and hidden from the queue.
+ *
+ *  The sheet writes the column free-hand ("yes", "YES", "Y", "no", "N"), so
+ *  the test is emptiness, not equality. */
+const contactAnswered = (v: string | null | undefined) => (v ?? "").trim() !== "";
 
 /** A sign-up EDIT LOG entry (v33.19) — who changed what, when. Best-effort. */
 async function logSignupChange(
@@ -5183,7 +5370,11 @@ export async function assignCicCaller(
   // predicate is the right gate: MM+ inside the sign-up's function.
   if (!ogxFunctions(viewer).includes(signup.fn))
     return fail("This sign-up isn't in your function.", "forbidden");
-  if (!isYes(signup.contact_status) || signup.status)
+  // the same three conditions the queue itself is built from — held by a real
+  // member, first call answered, no status yet
+  if (!signup.assigned_to)
+    return fail("Assign the sign-up to someone first — CIC verifies a call that happened.");
+  if (!contactAnswered(signup.contact_status) || signup.status)
     return fail("Only a contacted sign-up with no status yet goes to CIC.");
   const { data: caller } = await db()
     .from("members")
@@ -5985,6 +6176,9 @@ export async function bookIrCall(input: {
   country?: string | null;
   bookerName?: string | null;
   bookerRole?: string | null;
+  /** the IANA zone the IR was LOOKING at while they picked (v33.22) — the
+   *  page renders in it, and every later email speaks it back to them */
+  tz?: string | null;
 }): Promise<
   ActionResult<{ memberName: string; whenLabel: string; meetLink: string | null }>
 > {
@@ -6021,6 +6215,9 @@ export async function bookIrCall(input: {
       "Add your number with its country code, e.g. +20 10 1234 5678 or +33 6 12 34 56 78."
     );
   const bookerPhone = phoneCheck.value;
+  // untrusted: an unknown zone must never reach toLocaleString, which throws
+  const { isValidZone, whenLabelInZone } = await import("@/lib/timezones");
+  const bookerTz = isValidZone(input.tz) ? String(input.tz) : null;
   const start = new Date(String(input.startIso ?? ""));
   if (!input.startIso || Number.isNaN(start.getTime()))
     return fail("Pick a time slot first.");
@@ -6081,6 +6278,10 @@ export async function bookIrCall(input: {
   if (!day || !slot)
     return fail("That slot was just taken (or is no longer offered) — pick another one.");
   const whenLabel = `${day.label} · ${slot.label} (Cairo time)`;
+  // WHAT THE IR SEES vs WHAT WE SEE (v33.22): the crew works in Cairo, the IR
+  // works at home, and both labels describe the same instant. Their label
+  // leads in everything sent to them; ours leads in everything sent to us.
+  const theirLabel = bookerTz ? whenLabelInZone(startIso, bookerTz) : null;
 
   // resolve / create the partner LC by NORMALIZED name (v33.17): IRs type
   // their LC free-hand, and "kocaeli" / "Lc kocaeli" / "AIESEC in Kocaeli"
@@ -6095,10 +6296,14 @@ export async function bookIrCall(input: {
       await db().from("partner_lcs").update({ country }).eq("id", lc.id).is("country", null);
       lc = { ...lc, country };
     }
+    // same add-only rule for the zone — it becomes the fallback for this
+    // LC's older calls, which carry no zone of their own
+    if (bookerTz)
+      await db().from("partner_lcs").update({ timezone: bookerTz }).eq("id", lc.id).is("timezone", null);
   } else {
     const ins = await db()
       .from("partner_lcs")
-      .insert({ name: lcName, country })
+      .insert({ name: lcName, country, timezone: bookerTz })
       .select("id, name, country")
       .single();
     if (ins.error) {
@@ -6131,6 +6336,7 @@ export async function bookIrCall(input: {
       manage_token: manageToken,
       booked_at: new Date().toISOString(),
       duration_minutes: settings.slot_minutes,
+      booker_tz: bookerTz,
       member_id: owner.id,
       member_name: memberName,
     })
@@ -6248,7 +6454,8 @@ export async function bookIrCall(input: {
       bookerName,
       memberName,
       partnerLc: lc.name,
-      whenLabel,
+      whenLabel: theirLabel ?? whenLabel,
+      cairoLabel: theirLabel ? whenLabel : null,
       slotMinutes: settings.slot_minutes,
       meetLink,
       manageUrl: `${env.appUrl}/book/manage/${manageToken}`,
@@ -6263,7 +6470,7 @@ export async function bookIrCall(input: {
     slug,
     when: whenLabel,
   });
-  return { ok: true, data: { memberName, whenLabel, meetLink } };
+  return { ok: true, data: { memberName, whenLabel: theirLabel ?? whenLabel, meetLink } };
 }
 
 /** The in-call notes: demand domains + "when are your B2C campaigns?" + free
@@ -6473,12 +6680,17 @@ export async function cancelIrCall(id: string, reason: string): Promise<ActionRe
   if (call.booker_email) {
     try {
       const { irCallCancelledByMemberEmail } = await import("@/lib/email/templates");
-      const { cairoWhenLabel } = await import("./data");
+      const { cairoWhenLabel, bookerZoneFor } = await import("./data");
+      const { whenLabelInZone } = await import("@/lib/timezones");
+      // THEIR clock, not ours (v33.22)
+      const zone = await bookerZoneFor(call.booker_tz, call.partner_lc_id);
       const mail = irCallCancelledByMemberEmail({
         bookerName: call.booker_name,
         memberName: call.member_name,
         partnerLc: call.partner_lc_name,
-        whenLabel: cairoWhenLabel(call.called_at),
+        whenLabel: zone
+          ? whenLabelInZone(call.called_at, zone)
+          : cairoWhenLabel(call.called_at),
         reason: cleanReason,
         bookingUrl: bookingSlug?.active ? `${env.appUrl}/book/${bookingSlug.slug}` : null,
       });
@@ -6532,12 +6744,16 @@ export async function requestIrReschedule(
   // in the sandbox test view sendEmail is suppressed and the stamp is journaled
   try {
     const { irRescheduleRequestEmail } = await import("@/lib/email/templates");
-    const { cairoWhenLabel } = await import("./data");
+    const { cairoWhenLabel, bookerZoneFor } = await import("./data");
+    const { whenLabelInZone } = await import("@/lib/timezones");
+    const zone = await bookerZoneFor(call.booker_tz, call.partner_lc_id);
     const mail = irRescheduleRequestEmail({
       bookerName: call.booker_name,
       memberName: call.member_name,
       partnerLc: call.partner_lc_name,
-      whenLabel: cairoWhenLabel(call.called_at),
+      whenLabel: zone
+        ? whenLabelInZone(call.called_at, zone)
+        : cairoWhenLabel(call.called_at),
       reason: why,
       manageUrl: `${env.appUrl}/book/manage/${call.manage_token}`,
     });
@@ -6654,8 +6870,13 @@ export async function rescheduleBookedCall(input: {
   if (!day || !slot)
     return fail("That slot was just taken (or is no longer offered) — pick another one.");
   const newWhen = `${day.label} · ${slot.label} (Cairo time)`;
-  const { cairoWhenLabel } = await import("./data");
+  const { cairoWhenLabel, bookerZoneFor } = await import("./data");
+  const { whenLabelInZone } = await import("@/lib/timezones");
   const oldWhen = cairoWhenLabel(call.called_at);
+  // the IR moved it from a page drawn in THEIR zone — the confirmation has to
+  // agree with what they were looking at (v33.22)
+  const zone = await bookerZoneFor(call.booker_tz, call.partner_lc_id);
+  const newWhenTheirs = zone ? whenLabelInZone(startIso, zone) : null;
 
   const { data: movedRows, error } = await db()
     .from("ir_calls")
@@ -6736,7 +6957,8 @@ export async function rescheduleBookedCall(input: {
         bookerName: call.booker_name,
         memberName: owner.name,
         partnerLc: call.partner_lc_name,
-        whenLabel: newWhen,
+        whenLabel: newWhenTheirs ?? newWhen,
+        cairoLabel: newWhenTheirs ? newWhen : null,
         slotMinutes: settings.slot_minutes,
         meetLink: call.meet_link,
         manageUrl: `${env.appUrl}/book/manage/${call.manage_token}`,
@@ -6753,7 +6975,7 @@ export async function rescheduleBookedCall(input: {
     from: oldWhen,
     to: newWhen,
   });
-  return { ok: true, data: { whenLabel: newWhen } };
+  return { ok: true, data: { whenLabel: newWhenTheirs ?? newWhen } };
 }
 
 /** PUBLIC — the manage page's Cancel: a short reason is required; the call is

@@ -3614,42 +3614,86 @@ export async function listPastTouchPointsForFeedback(
 
 export interface LcFeedbackRow {
   id: string;
+  /** what KIND of feedback this is — the inbox is grouped by it (v33.22).
+   *  A session note and a concern about a person need different handling, and
+   *  gluing the session's name onto the message never let the inbox tell them
+   *  apart. Rows filed before 0046 have no touch point, so old session notes
+   *  read as their positive/negative kind. */
+  kind: "concern" | "shoutout" | "session";
   positive: boolean;
   anonymous: boolean;
   author: string | null; // hidden (null) when anonymous
+  /** the author is still an active member, so "tell them it's handled" works */
+  canTellAuthor: boolean;
+  authorTold: boolean;
   aboutNames: string[];
+  sessionLabel: string | null;
   message: string;
-  status: "new" | "seen" | "done";
+  attachments: { path: string; name: string }[];
+  status: "new" | "done" | "archived";
+  resolution: string | null;
+  resolvedBy: string | null;
+  resolvedAt: string | null;
+  sharedWith: string[];
   created_at: string;
 }
 
-/** The LC people-feedback inbox — LCP + admin ONLY. Anonymous rows never
- *  expose the author, not even here. */
+/** The LC people-feedback inbox — `canSeeLcConcerns` (TM, the LCP, F&L's
+ *  LCVP and the IM director). Anonymous rows never expose the author, not
+ *  even here. */
 export async function listLcFeedback(viewer: Viewer): Promise<LcFeedbackRow[]> {
   if (!_canSeeLcConcerns(viewer)) return [];
+  const { touchPointLabel } = await import("@/lib/types");
+  const { cairoWhen } = await import("@/lib/touch-points");
   const [{ data }, { data: membersData }] = await Promise.all([
     db()
       .from("lc_feedback")
-      .select("id, positive, anonymous, author_id, about, message, status, created_at")
+      .select(
+        "id, positive, anonymous, author_id, about, message, status, created_at, " +
+          "attachments, touch_point_id, resolution, resolved_by, resolved_at, " +
+          "shared_with, author_told_at, touch_point:touch_points(kind, scope, starts_at)"
+      )
       .order("created_at", { ascending: false })
       .limit(300),
-    db().from("members").select("id, name"),
+    db().from("members").select("id, name, is_active"),
   ]);
-  const nameById = new Map(
+  const byId = new Map(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ((membersData ?? []) as any[]).map((m) => [m.id, m.name])
+    ((membersData ?? []) as any[]).map((m) => [m.id, m])
   );
+  const nameOf = (id: string | null) =>
+    (id && byId.get(id)?.name) || "(left the LC)";
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return ((data ?? []) as any[]).map((r) => ({
-    id: r.id,
-    positive: r.positive,
-    anonymous: r.anonymous,
-    author: r.anonymous ? null : nameById.get(r.author_id) ?? "(left the LC)",
-    aboutNames: (r.about ?? []).map((id: string) => nameById.get(id) ?? "(left the LC)"),
-    message: r.message,
-    status: r.status,
-    created_at: r.created_at,
-  }));
+  return ((data ?? []) as any[]).map((r) => {
+    const tp = Array.isArray(r.touch_point) ? r.touch_point[0] : r.touch_point;
+    return {
+      id: r.id,
+      kind: (r.touch_point_id
+        ? "session"
+        : r.positive
+          ? "shoutout"
+          : "concern") as LcFeedbackRow["kind"],
+      positive: r.positive,
+      anonymous: r.anonymous,
+      author: r.anonymous ? null : nameOf(r.author_id),
+      canTellAuthor: !!r.author_id && !!byId.get(r.author_id)?.is_active,
+      authorTold: !!r.author_told_at,
+      aboutNames: (r.about ?? []).map((id: string) => nameOf(id)),
+      sessionLabel: tp
+        ? `${touchPointLabel(tp.scope, tp.kind)} · ${cairoWhen(tp.starts_at)}`
+        : null,
+      message: r.message,
+      attachments: Array.isArray(r.attachments) ? r.attachments : [],
+      status: (r.status === "done" || r.status === "archived"
+        ? r.status
+        : "new") as LcFeedbackRow["status"],
+      resolution: r.resolution ?? null,
+      resolvedBy: r.resolved_by ? nameOf(r.resolved_by) : null,
+      resolvedAt: r.resolved_at ?? null,
+      sharedWith: (r.shared_with ?? []).map((id: string) => nameOf(id)),
+      created_at: r.created_at,
+    };
+  });
 }
 
 /** Recent audit-log rows (admin page). Actor joined for a readable name. */
@@ -3721,6 +3765,8 @@ export interface SignupFilters {
   personStatus?: string;
   assigned?: string;
   campaign?: string;
+  /** CIC view only — narrow the queue to the second calls handed to ME */
+  cicMine?: boolean;
   /** rows with a missing/unusable phone (null, empty or "deleted…") */
   /** "missing" = no usable number · "has" = a number exists */
   phone?: "missing" | "has";
@@ -3903,16 +3949,24 @@ export async function listSignupsPage(
     else q = q.eq("out_of_process", false);
     if (view === "unassigned") q = q.is("assigned_to", null);
     else if (view === "cic") {
-      // the CIC pool: contacted by the first assignee, no status yet, not
-      // out of process. MMs+ see the whole function's queue to hand out; a
-      // member sees only the ones they were made the SECOND caller on.
+      // THE CIC POOL (rule tightened + widened in v33.22):
+      //   · held by a REAL Sodio member (assigned_to, not a raw sheet name) —
+      //     the journey is pool → assigned → first call → CIC, so a row still
+      //     waiting for its FIRST call must never appear here;
+      //   · Contacted ANSWERED — Yes or No. The first caller reached them or
+      //     didn't; either way the call happened and is what gets verified.
+      //     The old rule matched "y%" only, so every "No" sat in nobody's
+      //     queue — the exact rows a second call exists for.
+      //   · no status yet, and not out of process.
       q = q
         .not("assigned_to", "is", null)
-        // free sheet text: "yes" / "YES" / "Y" all count, exactly as the
-        // Contacted filter and every KPI read it (v33.19 review)
-        .ilike("contact_status", "y%")
+        .not("contact_status", "is", null)
+        .neq("contact_status", "")
         .is("status", null);
-      if (!seesCicQueue(viewer)) q = q.eq("cic_assigned_to", viewer.id);
+      // a member below MM only ever sees their own second calls; an MM can
+      // ask for the same view with the 🙋 Mine chip
+      if (!seesCicQueue(viewer) || filters.cicMine)
+        q = q.eq("cic_assigned_to", viewer.id);
     }
     else if (view === "mine") {
       // "MINE" MEANS WHAT YOU ANSWER FOR (v33.12): a member's own, a Team
@@ -4709,6 +4763,9 @@ export interface IrCallRow {
   cancel_reason: string | null;
   reschedule_requested_at: string | null;
   duration_minutes: number | null;
+  /** the IANA zone the IR booked in (v33.22) — null for pre-0047 bookings,
+   *  where `bookerZoneFor` falls back to the LC's zone or country */
+  booker_tz: string | null;
 }
 
 /** IR calls — one SHARED international-relations effort: every module member
@@ -5194,6 +5251,28 @@ export function cairoWhenLabel(iso: string): string {
 
 const MANAGE_TOKEN_RE = /^[0-9a-f-]{20,64}$/i;
 
+/** WHICH CLOCK THIS IR READS BY (v33.22), best evidence first:
+ *   1. the zone recorded on the booking — what they were actually looking at;
+ *   2. the zone their LC has used before;
+ *   3. their LC's country, which pins most countries to one zone.
+ *  Null when none of the three answers, and the caller then says Cairo time
+ *  plainly rather than inventing a zone for them. */
+export async function bookerZoneFor(
+  bookerTz: string | null | undefined,
+  partnerLcId: string | null | undefined
+): Promise<string | null> {
+  const { isValidZone, zoneForCountry } = await import("@/lib/timezones");
+  if (isValidZone(bookerTz)) return String(bookerTz);
+  if (!partnerLcId) return null;
+  const { data: lc } = await db()
+    .from("partner_lcs")
+    .select("timezone, country")
+    .eq("id", partnerLcId)
+    .maybeSingle<{ timezone: string | null; country: string | null }>();
+  if (isValidZone(lc?.timezone)) return String(lc!.timezone);
+  return zoneForCountry(lc?.country ?? null);
+}
+
 /** Everything the PUBLIC /book/manage/<token> page renders: the booking's
  *  state + (while it's still scheduled) the member's CURRENT free slots for a
  *  reschedule — the call being moved doesn't block itself. Null for unknown
@@ -5203,7 +5282,14 @@ export interface ManageBookingData {
   memberName: string;
   partnerLc: string;
   status: "scheduled" | "completed" | "cancelled";
+  /** Cairo label — the page RE-RENDERS everything in the IR's own zone, so
+   *  this is only the server-side fallback before hydration (v33.22) */
   whenLabel: string;
+  /** the UTC instant, so the client can draw it in any zone */
+  startIso: string;
+  /** the zone this booking was made in, when we know it — else the partner
+   *  LC's zone, else the country's. Null = we genuinely don't know. */
+  bookerTz: string | null;
   durationMinutes: number;
   meetLink: string | null;
   cancelReason: string | null;
@@ -5220,7 +5306,7 @@ export async function getManageBooking(token: string): Promise<ManageBookingData
   const { data: call } = await db()
     .from("ir_calls")
     .select(
-      "id, member_id, member_name, partner_lc_name, called_at, status, duration_minutes, meet_link, cancel_reason, reschedule_requested_at"
+      "id, member_id, member_name, partner_lc_name, called_at, status, duration_minutes, meet_link, cancel_reason, reschedule_requested_at, booker_tz, partner_lc_id"
     )
     .eq("manage_token", clean)
     .maybeSingle<{
@@ -5234,6 +5320,8 @@ export async function getManageBooking(token: string): Promise<ManageBookingData
       meet_link: string | null;
       cancel_reason: string | null;
       reschedule_requested_at: string | null;
+      booker_tz: string | null;
+      partner_lc_id: string | null;
     }>();
   if (!call) return null;
 
@@ -5265,6 +5353,8 @@ export async function getManageBooking(token: string): Promise<ManageBookingData
     partnerLc: call.partner_lc_name,
     status: call.status,
     whenLabel: cairoWhenLabel(call.called_at),
+    startIso: call.called_at,
+    bookerTz: await bookerZoneFor(call.booker_tz, call.partner_lc_id),
     durationMinutes: call.duration_minutes ?? settings?.slot_minutes ?? 30,
     meetLink: call.meet_link,
     cancelReason: call.cancel_reason,

@@ -41,34 +41,43 @@ export type AccountScope =
   | { kind: "functions"; fns: AccountFunction[] }
   | { kind: "members"; ids: string[] };
 
+/** LEADS INFORMATION MANAGEMENT — the function that owns this system (v33.22).
+ *
+ *  Whole-LC access follows the JOB, not the person: whoever leads IM keeps
+ *  Sodio running, which means reading every function's data to diagnose it.
+ *  A future IM director inherits it by appearing on the membership sheet —
+ *  no env var to change, no redeploy. */
+const leadsIm = (v: Viewer) =>
+  (v.role === "Director" || v.role === "LCVP") &&
+  [...(v.functions ?? []), ...(v.sub_functions ?? [])].includes("IM");
+
 /** Absolute, whole-LC visibility.
  *
- *  A PURE admin — Role = "Admin" on the sheet, no operational rank — is the
- *  system's caretaker and sees everything, same as the LCP. Someone who is a
- *  caretaker ON TOP of a real job (Admin in their Sub Function while they run
- *  a function) is NOT master: they keep their own modules and get the admin
- *  TOOLS only, via `canUseAdminTools`. ADMIN_EMAILS stays master as the
+ *  ROLE = "Admin" IS NOT THIS (v33.22, by the IM director's own call). An
+ *  admin is the system's caretaker — Health, the logs, the change journal —
+ *  and that is a capability, not a rank: it must not quietly hand someone
+ *  every function's accounts, sign-ups and people-feedback. Full access is
+ *  the IM LEADER's (`leadsIm`), plus the LCP, plus ADMIN_EMAILS as the
  *  break-glass account.
  *
  *  F&L (v33.16, by the LCP's request): the Finance & Legality crew audits
  *  every function's money and commitments, so the whole F&L FUNCTION gets
  *  LCP-level access — every module, every lane, every account. Two things
- *  deliberately do NOT follow: the admin tools (canUseAdminTools) and the
- *  LC-concerns inbox (canSeeLcConcerns — feedback about PEOPLE stays with
- *  the LCP + IM director). F&L people also stay un-assignable as account
- *  responsibles (ACCOUNT_WORLD_FNS) — they see everything, they own nothing. */
+ *  deliberately do NOT follow: the admin tools (canUseAdminTools) and F&L
+ *  people stay un-assignable as account responsibles (ACCOUNT_WORLD_FNS) —
+ *  they see everything, they own nothing. */
 const master = (v: Viewer) =>
-  v.isAdmin || v.role === "LCP" || v.role === "Admin" ||
+  v.isAdmin || v.role === "LCP" || leadsIm(v) ||
   (v.functions ?? []).includes("F&L");
 
 /** The admin TOOLS — Health & Logs, the test view, the change journal (v33).
  *
  *  Deliberately NOT the same thing as `master`. Someone can be the system's
  *  caretaker without being handed every function's data: an LCVP who also
- *  keeps the system running still sees only THEIR modules, plus these tools.
- *  Full cross-LC visibility stays with the LCP and with ADMIN_EMAILS (the IM
- *  director), so marking someone Admin on the sheet can never quietly widen
- *  who reads the whole LC. */
+ *  keeps the system running still sees only THEIR modules, plus these tools;
+ *  and since v33.22 a pure Role = "Admin" is exactly that — the tools and
+ *  nothing else. Sub-function "Admin" still counts, for the membership sheets
+ *  that carried it before the Sub Function column was emptied outside ICX. */
 export function canUseAdminTools(v: Viewer): boolean {
   return v.isAdmin || v.role === "Admin" || (v.sub_functions ?? []).includes("Admin");
 }
@@ -679,11 +688,14 @@ export function canSeeCvPool(v: Viewer): boolean {
  *  sees it, gets the email and the bell, and can work it — same as the LCP.
  *  Nobody else, ever: this is the private channel. */
 export function canSeeLcConcerns(v: Viewer): boolean {
-  if (v.isAdmin || v.role === "LCP") return true;
-  return (
-    (v.role === "LCVP" || v.role === "Director") &&
-    [...(v.functions ?? []), ...(v.sub_functions ?? [])].includes("TM")
-  );
+  // the IM director (break-glass — they maintain the inbox itself) and the LCP
+  if (v.isAdmin || v.role === "LCP" || leadsIm(v)) return true;
+  const fns = [...(v.functions ?? []), ...(v.sub_functions ?? [])];
+  // TM owns people (v33.22 — the whole function, not only its leadership:
+  // handling a concern is TM's daily work, not an executive act)
+  if (fns.includes("TM")) return true;
+  // F&L's LCVP, who carries the LC's legality side
+  return v.role === "LCVP" && fns.includes("F&L");
 }
 
 /** Feedback inbox: ONLY the IM director (admin) and the IM coach. */

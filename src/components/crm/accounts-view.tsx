@@ -1203,6 +1203,17 @@ export function AccountsView({
             accounts — nobody submits a name they haven't been given. (The "no
             next step" toggle was dropped in v33.4: the missing-next-step badge
             already shows on the row, so filtering to it added nothing.) */}
+        {/* 🙋 MINE (v33.22) — one tap to "just my accounts", for everyone whose
+            list holds someone else's rows: a Team Leader's team, a leader's
+            function, and a Coordinator's share of the unowned pool. A plain
+            Member's list is already only theirs, so they never see it. */}
+        {viewer.seesOthers ? (
+          <FlagToggle
+            active={filters.resp === viewer.id}
+            onClick={() => setParam("resp", filters.resp === viewer.id ? "" : viewer.id)}
+            label="🙋 Mine"
+          />
+        ) : null}
         {!archived ? (
           <>
             <FlagToggle

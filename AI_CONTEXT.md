@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-07 · Version: v33.21
+Last updated: 2026-08-07 · Version: v33.22
 
 ---
 
@@ -47,8 +47,9 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0024_function_leaders_type` → `0025_ogx_signups` → … → `0032_ir_booker_role` →
 `0033_change_journal_lc_test` → `0033_touch_point_announced` →
 `0034_bd_service_world` → `0035_ir_booker_phone` →
-`0036_virtual_touch_points_and_routines` → `0037_admin_member_role`
-(**all applied**, 0033–0037 during v33).
+`0036_virtual_touch_points_and_routines` → `0037_admin_member_role` → … →
+`0045_cic_signup_logs_ir_event_source` → `0046_lc_feedback_inbox` →
+`0047_ir_call_timezone` (**all applied**, 0046–0047 during v33.22).
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
@@ -610,6 +611,64 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-07 · v33.22** — **TIME ZONES, ACCESS & THE FEEDBACK INBOX**
+  (migrations **0046 + 0047 applied**).
+  ① **THE IR CALENDAR NOW SPEAKS THE IR'S CLOCK.** Every booking was always
+  stored as a UTC instant and every Google invite was always right — but the
+  public booking page RENDERED Cairo time with a one-line footnote, so an IR
+  in Jakarta picked "6:00 PM" meaning 6 PM at home and was four hours out.
+  Google Calendar draws in the viewer's zone; now so do we. The browser
+  reports the zone (`Intl.DateTimeFormat().resolvedOptions().timeZone`), the
+  day strip is **regrouped** in it — a Cairo midnight slot is the previous
+  evening in Algiers, so relabelling alone would have been wrong — the zone is
+  changeable from a picker, and it **prefills the country** (`countryForZone`).
+  The zone is stored on the booking (`ir_calls.booker_tz`) and on the LC
+  (`partner_lcs.timezone`, add-only), so every later email speaks it:
+  confirmations, reschedules and cancellations lead with **their** time and
+  carry Cairo as the second line. The manage/reschedule page is drawn the same
+  way. Internally nothing changes — the crew still reads Cairo — except that a
+  scheduled call now also shows *their* local time, so nobody wonders why an
+  IR missed a call that fell at 3 AM their side. `src/lib/timezones.ts` holds
+  the country⇄zone tables (every one of the 194 countries resolves; 14 new
+  tests, 133 total) and one label function shared by the pages and the mail,
+  so the screen and the email can never disagree.
+  **The 15 upcoming bookings were emailed a confirmation** — same moment,
+  written in their local time, with the reschedule link and a plain statement
+  that nothing changed (`scripts/ir-timezone-confirmations.mjs`; one LC was
+  missing its country and was fixed in prod first).
+  ② **Full access follows the JOB, not a flag.** Role = **Admin** used to be
+  `master()` — whole-LC visibility for anyone marked a caretaker. It now
+  grants **only the admin tools** (Health, logs, the change journal). Whole-LC
+  access is the **IM leader's** (`leadsIm`: Function IM + Role Director/LCVP),
+  plus the LCP, F&L and ADMIN_EMAILS as break-glass. A future IM director
+  inherits it from the membership sheet with no env var to change.
+  (Prompted by the Sub Function column being emptied outside ICX — every
+  predicate reads functions OR sub-functions, so nothing else moved.)
+  ③ **THE FEEDBACK INBOX IS AN INBOX** (0046). It was one flat list with a
+  new/seen/done dropdown. Now: grouped by **kind** — 😟 concerns · 📅 sessions
+  (a real `touch_point_id`, not a session name glued to the message) · 🎉
+  shout-outs — and filtered by state. **Seen and done were the same thing**
+  (the LCP's call), so the middle state is gone: `new · done · archived`, with
+  who closed it and when. Every row can be **shared** with anyone in the LC
+  (bell + email carrying the message — never the author, so anonymity survives
+  being passed on), **archived**, **marked done**, or answered with **"tell
+  them it's handled"** + an optional note, which reaches the author *even when
+  they filed anonymously* — Sodio knows who wrote it, the reader still
+  doesn't. Attachments open from the inbox. Access is **TM (the whole
+  function), the LCP, F&L's LCVP and the IM director**, and the concern
+  notification now goes to exactly that list instead of a narrower one.
+  ④ **CIC's entry rule was refusing the rows it exists for**: it matched
+  Contacted `y%`, so every **"No"** — a call that happened and didn't land,
+  which is precisely what a second caller re-tries — sat in nobody's queue.
+  The rule is now *held by a real Sodio member* + *Contacted answered (Yes or
+  No)* + *no status yet*, in ONE place (`contactAnswered`) shared by the query
+  and the server gate so they can't drift apart again. A row still in the
+  unassigned pool never enters CIC: it is waiting for its FIRST call.
+  ⑤ **🙋 Mine** — one tap to your own rows, on Raising and on Sign-ups, for
+  anyone whose list holds other people's: a TL's team, a leader's function, a
+  Coordinator's share of the unowned pool. In the CIC tab it means the second
+  calls handed to you.
 
 - **2026-08-07 · v33.21** — **SIX MORE FROM THE FLOOR** (no migration).
   (1) **A Coordinator had no Responsible column.** The test was "does my scope

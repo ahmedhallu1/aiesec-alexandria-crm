@@ -7,7 +7,10 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { fmtDateTime } from "@/lib/types";
 import type { AttendedTouchPointOption, LcFeedbackRow } from "@/server/data";
-import { submitLcFeedback, setLcFeedbackStatus } from "@/server/actions";
+import {
+  getFeedbackFileUrl, setLcFeedbackStatus, shareLcFeedback, submitLcFeedback,
+  tellLcFeedbackAuthor,
+} from "@/server/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -441,7 +444,12 @@ export function LcFeedbackView({
       </Card>
 
       {isInboxOwner ? (
-        <LcFeedbackInbox rows={inbox} open={inboxOpen} onOpenChange={setInboxOpen} />
+        <LcFeedbackInbox
+          rows={inbox}
+          people={members.map((m) => ({ id: m.id, label: m.label, role: m.role }))}
+          open={inboxOpen}
+          onOpenChange={setInboxOpen}
+        />
       ) : null}
     </div>
   );
@@ -449,79 +457,409 @@ export function LcFeedbackView({
 
 /* ------------------------------------------------------------------ inbox */
 
+/** THE INBOX IS AN INBOX NOW (v33.22).
+ *
+ *  It used to be one flat list with a new/seen/done dropdown — everything
+ *  mixed together (a shout-out beside a serious concern beside a note about
+ *  Thursday's meeting), nothing to do with a row except change its state, and
+ *  no way to bring in the person who could actually act.
+ *
+ *  Now: grouped by KIND, filtered by state, and every row can be passed on,
+ *  closed, archived, or answered back to whoever wrote it. */
+const KIND_TABS = [
+  { key: "concern", label: "😟 Concerns" },
+  { key: "session", label: "📅 Sessions" },
+  { key: "shoutout", label: "🎉 Shout-outs" },
+] as const;
+
+const STATE_TABS = [
+  { key: "open", label: "Open" },
+  { key: "done", label: "Done" },
+  { key: "archived", label: "Archived" },
+] as const;
+
 function LcFeedbackInbox({
   rows,
+  people,
   open,
   onOpenChange,
 }: {
   rows: LcFeedbackRow[];
+  /** who a piece of feedback can be passed on to — the active LC */
+  people: { id: string; label: string; role: string }[];
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
   const router = useRouter();
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+  const [kind, setKind] = useState<(typeof KIND_TABS)[number]["key"]>("concern");
+  const [state, setState] = useState<(typeof STATE_TABS)[number]["key"]>("open");
+  const [shareFor, setShareFor] = useState<LcFeedbackRow | null>(null);
+  const [tellFor, setTellFor] = useState<LcFeedbackRow | null>(null);
 
-  const setStatus = (id: string, status: LcFeedbackRow["status"]) => {
+  const run = (id: string, fn: () => Promise<{ ok: boolean; error?: string }>, ok: string) => {
     setPendingId(id);
     startTransition(async () => {
-      const res = await setLcFeedbackStatus(id, status);
+      const res = await fn();
       if (!res.ok) toast.error(res.error);
-      else router.refresh();
+      else {
+        toast.success(ok);
+        router.refresh();
+      }
       setPendingId(null);
     });
   };
 
+  const inState = (r: LcFeedbackRow) =>
+    state === "open" ? r.status === "new" : r.status === state;
+  const shown = rows.filter((r) => r.kind === kind && inState(r));
+  const countOf = (k: string) => rows.filter((r) => r.kind === k && r.status === "new").length;
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Feedback inbox</DialogTitle>
-        </DialogHeader>
-        {rows.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
-            Nothing here yet — quiet LC, happy LC. 💙
-          </p>
-        ) : (
-          <div className="grid gap-3">
-            {rows.map((r) => (
-              <div key={r.id} className="rounded-xl border p-3">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <Badge variant={r.positive ? "default" : "destructive"}>
-                    {r.positive ? "🎉 Shout-out" : "😟 Concern"}
-                  </Badge>
-                  {r.aboutNames.map((n, i) => (
-                    <Badge key={`${r.id}-${i}`} variant="secondary" className="rounded-full">
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Feedback inbox</DialogTitle>
+          </DialogHeader>
+
+          {/* what KIND — a concern, a session review and a shout-out are three
+              different jobs and never belonged in one pile */}
+          <div className="flex flex-wrap gap-1.5">
+            {KIND_TABS.map((t) => {
+              const n = countOf(t.key);
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setKind(t.key)}
+                  className={cn(
+                    "rounded-full border px-3 py-1 text-xs font-semibold transition-colors",
+                    kind === t.key
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-input hover:bg-muted"
+                  )}
+                >
+                  {t.label}
+                  {n > 0 ? (
+                    <span className="ml-1.5 rounded-full bg-primary px-1.5 text-[10px] text-primary-foreground">
                       {n}
-                    </Badge>
-                  ))}
-                </div>
-                <p className="mt-2 whitespace-pre-wrap text-sm text-start" dir="auto">
-                  {r.message}
-                </p>
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs text-muted-foreground">
-                    {r.author ?? "Anonymous 🎭"} · {fmtDateTime(r.created_at)}
-                  </p>
-                  <Select
-                    value={r.status}
-                    onValueChange={(v) => setStatus(r.id, v as LcFeedbackRow["status"])}
-                    disabled={pendingId === r.id}
-                  >
-                    <SelectTrigger className="h-8 w-28 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="new">New</SelectItem>
-                      <SelectItem value="seen">Seen</SelectItem>
-                      <SelectItem value="done">Done</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {STATE_TABS.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setState(t.key)}
+                className={cn(
+                  "rounded-md border px-2.5 py-1 text-xs transition-colors",
+                  state === t.key ? "border-foreground/40 bg-muted font-semibold" : "border-input"
+                )}
+              >
+                {t.label}
+              </button>
             ))}
           </div>
-        )}
+
+          {shown.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              Nothing here — quiet LC, happy LC. 💙
+            </p>
+          ) : (
+            <div className="grid gap-3">
+              {shown.map((r) => (
+                <div key={r.id} className="rounded-xl border p-3">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge variant={r.positive ? "default" : "destructive"}>
+                      {r.kind === "session"
+                        ? "📅 Session"
+                        : r.positive
+                          ? "🎉 Shout-out"
+                          : "😟 Concern"}
+                    </Badge>
+                    {r.sessionLabel ? (
+                      <Badge variant="outline" className="rounded-full">{r.sessionLabel}</Badge>
+                    ) : (
+                      r.aboutNames.map((n, i) => (
+                        <Badge key={`${r.id}-${i}`} variant="secondary" className="rounded-full">
+                          {n}
+                        </Badge>
+                      ))
+                    )}
+                  </div>
+                  <p className="mt-2 whitespace-pre-wrap text-sm text-start" dir="auto">
+                    {r.message}
+                  </p>
+                  {r.attachments.length > 0 ? (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {r.attachments.map((a) => (
+                        <AttachmentChip key={a.path} path={a.path} name={a.name} />
+                      ))}
+                    </div>
+                  ) : null}
+                  {r.resolution ? (
+                    <p className="mt-2 rounded-lg bg-muted/60 p-2 text-xs text-muted-foreground" dir="auto">
+                      <b className="text-foreground">Handled</b>
+                      {r.resolvedBy ? ` by ${r.resolvedBy}` : ""}: {r.resolution}
+                    </p>
+                  ) : null}
+                  {r.sharedWith.length > 0 ? (
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      📨 Shared with {r.sharedWith.join(" · ")}
+                    </p>
+                  ) : null}
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {r.author ?? "Anonymous 🎭"} · {fmtDateTime(r.created_at)}
+                    {r.authorTold ? " · ✅ author told" : ""}
+                  </p>
+
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <Button
+                      size="sm" variant="outline" className="h-8 text-xs"
+                      disabled={pendingId === r.id}
+                      onClick={() => setShareFor(r)}
+                    >
+                      📨 Share
+                    </Button>
+                    {r.canTellAuthor ? (
+                      <Button
+                        size="sm" variant="outline" className="h-8 text-xs"
+                        disabled={pendingId === r.id}
+                        onClick={() => setTellFor(r)}
+                      >
+                        💬 Tell them it&apos;s done
+                      </Button>
+                    ) : null}
+                    {r.status !== "done" ? (
+                      <Button
+                        size="sm" className="h-8 text-xs"
+                        disabled={pendingId === r.id}
+                        onClick={() =>
+                          run(r.id, () => setLcFeedbackStatus(r.id, "done"), "Marked done ✅")
+                        }
+                      >
+                        <Check className="size-3.5" /> Done
+                      </Button>
+                    ) : null}
+                    {r.status !== "archived" ? (
+                      <Button
+                        size="sm" variant="ghost" className="h-8 text-xs"
+                        disabled={pendingId === r.id}
+                        onClick={() =>
+                          run(r.id, () => setLcFeedbackStatus(r.id, "archived"), "Archived 🗄️")
+                        }
+                      >
+                        🗄️ Archive
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm" variant="ghost" className="h-8 text-xs"
+                        disabled={pendingId === r.id}
+                        onClick={() =>
+                          run(r.id, () => setLcFeedbackStatus(r.id, "new"), "Back in the inbox")
+                        }
+                      >
+                        ↩️ Reopen
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <ShareFeedbackDialog
+        row={shareFor}
+        people={people}
+        onClose={() => setShareFor(null)}
+        onDone={() => { setShareFor(null); router.refresh(); }}
+      />
+      <TellAuthorDialog
+        row={tellFor}
+        onClose={() => setTellFor(null)}
+        onDone={() => { setTellFor(null); router.refresh(); }}
+      />
+    </>
+  );
+}
+
+/** A 10-minute signed link to whatever the author attached. */
+function AttachmentChip({ path, name }: { path: string; name: string }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={async () => {
+        // open the tab BEFORE the await, or Safari blocks it as a popup
+        const tab = window.open("", "_blank");
+        setBusy(true);
+        const res = await getFeedbackFileUrl(path);
+        setBusy(false);
+        if (res.ok && res.data) tab?.location.assign(res.data.url);
+        else { tab?.close(); toast.error(res.ok ? "Could not open it." : res.error); }
+      }}
+      className="rounded-full border px-2.5 py-1 text-xs hover:bg-muted"
+    >
+      📎 {name}
+    </button>
+  );
+}
+
+/** Pass a piece of feedback to whoever can act on it. The author is never
+ *  named — sharing must not be a way around anonymity. */
+function ShareFeedbackDialog({
+  row, people, onClose, onDone,
+}: {
+  row: LcFeedbackRow | null;
+  people: { id: string; label: string; role: string }[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [picked, setPicked] = useState<string[]>([]);
+  const [note, setNote] = useState("");
+  const [q, setQ] = useState("");
+  const [pending, start] = useTransition();
+  const list = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return people
+      .filter((p) => !needle || p.label.toLowerCase().includes(needle))
+      .slice(0, 40);
+  }, [people, q]);
+
+  return (
+    <Dialog
+      open={!!row}
+      onOpenChange={(o) => { if (!o) { onClose(); setPicked([]); setNote(""); setQ(""); } }}
+    >
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Share this feedback</DialogTitle>
+        </DialogHeader>
+        <p className="text-xs text-muted-foreground">
+          They get the message itself by bell and email. <b>Who wrote it is
+          never shown</b> — sharing is not a way around anonymity.
+        </p>
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search the LC…"
+            className="pl-8"
+          />
+        </div>
+        <div className="max-h-56 overflow-y-auto rounded-lg border">
+          {list.map((p) => {
+            const on = picked.includes(p.id);
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() =>
+                  setPicked((cur) =>
+                    on ? cur.filter((x) => x !== p.id) : [...cur, p.id].slice(0, 20)
+                  )
+                }
+                className={cn(
+                  "flex w-full items-center justify-between gap-2 border-b px-3 py-2 text-start text-sm last:border-b-0",
+                  on ? "bg-primary/10 font-semibold" : "hover:bg-muted"
+                )}
+              >
+                <span className="min-w-0 truncate" dir="auto">{p.label}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{p.role}</span>
+              </button>
+            );
+          })}
+          {list.length === 0 ? (
+            <p className="p-3 text-center text-sm text-muted-foreground">Nobody by that name.</p>
+          ) : null}
+        </div>
+        <Textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          rows={2}
+          dir="auto"
+          placeholder="Anything you want to add (optional)…"
+        />
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button
+            disabled={picked.length === 0 || pending}
+            onClick={() =>
+              start(async () => {
+                if (!row) return;
+                const res = await shareLcFeedback(row.id, picked, note);
+                if (!res.ok) toast.error(res.error);
+                else {
+                  toast.success(`📨 Shared with ${res.data?.shared ?? picked.length}`);
+                  setPicked([]); setNote(""); setQ("");
+                  onDone();
+                }
+              })
+            }
+          >
+            Share
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Close the loop with whoever filed it — anonymous or not. */
+function TellAuthorDialog({
+  row, onClose, onDone,
+}: {
+  row: LcFeedbackRow | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [note, setNote] = useState("");
+  const [pending, start] = useTransition();
+  return (
+    <Dialog open={!!row} onOpenChange={(o) => { if (!o) { onClose(); setNote(""); } }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Tell them it&apos;s handled</DialogTitle>
+        </DialogHeader>
+        <p className="text-xs text-muted-foreground">
+          The person who filed this gets a bell and an email saying it was
+          read and acted on — and it goes to Done. Anonymous feedback works
+          too: Sodio knows who wrote it even when you don&apos;t, and this
+          reveals nothing to anyone.
+        </p>
+        <Textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          rows={3}
+          dir="auto"
+          placeholder="What happened, in a line or two (optional)…"
+        />
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button
+            disabled={pending}
+            onClick={() =>
+              start(async () => {
+                if (!row) return;
+                const res = await tellLcFeedbackAuthor(row.id, note);
+                if (!res.ok) toast.error(res.error);
+                else { toast.success("They know 💬"); setNote(""); onDone(); }
+              })
+            }
+          >
+            Send it
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
   );

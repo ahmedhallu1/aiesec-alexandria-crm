@@ -1,11 +1,14 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { CalendarCheck2, Clock, Globe2, Mail, Phone, Video, Loader2 } from "lucide-react";
 import { bookIrCall } from "@/server/actions";
 import type { BookingDay } from "@/server/data";
 import { normalizeLcName, normalizePhone } from "@/lib/types";
+import {
+  COUNTRY_ZONES, countryForZone, isValidZone, zoneOffsetLabel,
+} from "@/lib/timezones";
 import { cn } from "@/lib/utils";
 import { CountryInput } from "./country-input";
 import { Button } from "@/components/ui/button";
@@ -16,6 +19,55 @@ import {
 import { Label } from "@/components/ui/label";
 
 const EMAIL_RE = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]{2,}$/;
+
+/** REGROUP THE SERVER'S CAIRO DAYS INTO THE VISITOR'S DAYS (v33.22).
+ *
+ *  A slot is a UTC instant; which DAY it falls on depends entirely on who is
+ *  looking. A Cairo evening slot is the same evening in Istanbul, the small
+ *  hours in Jakarta and that morning in São Paulo — so the strip has to be
+ *  rebuilt per zone, not just relabelled. */
+export function groupSlotsInZone(days: BookingDay[], tz: string): BookingDay[] {
+  const zone = isValidZone(tz) ? tz : "Africa/Cairo";
+  const dayKey = new Intl.DateTimeFormat("en-CA", {
+    timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit",
+  });
+  const dayLabel = new Intl.DateTimeFormat("en-US", {
+    timeZone: zone, weekday: "short", month: "short", day: "numeric",
+  });
+  const clock = new Intl.DateTimeFormat("en-US", {
+    timeZone: zone, hour: "numeric", minute: "2-digit", hour12: true,
+  });
+  const out = new Map<string, BookingDay>();
+  for (const d of days)
+    for (const s of d.slots) {
+      const at = new Date(s.iso);
+      if (Number.isNaN(at.getTime())) continue;
+      const key = dayKey.format(at);
+      let bucket = out.get(key);
+      if (!bucket) {
+        bucket = { date: key, label: dayLabel.format(at), slots: [] };
+        out.set(key, bucket);
+      }
+      bucket.slots.push({ iso: s.iso, label: clock.format(at) });
+    }
+  return [...out.values()]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((d) => ({ ...d, slots: d.slots.sort((a, b) => a.iso.localeCompare(b.iso)) }));
+}
+
+/** The zone list for the picker: everything the browser knows (all modern
+ *  engines ship `supportedValuesOf`), else the ones we carry ourselves. */
+function allZones(current: string): string[] {
+  let list: string[] = [];
+  try {
+    list = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] })
+      .supportedValuesOf?.("timeZone") ?? [];
+  } catch {
+    list = [];
+  }
+  if (list.length === 0) list = [...new Set(Object.values(COUNTRY_ZONES).flat())].sort();
+  return list.includes(current) ? list : [current, ...list];
+}
 
 /** The PUBLIC /book/<slug> experience (v27, upgraded v28): a Cairo-time date
  *  strip (length = the member's max-advance setting) → the free slots of the
@@ -37,6 +89,15 @@ export function BookingView({
   const [pending, start] = useTransition();
   const [dayIdx, setDayIdx] = useState(0);
   const [slotIso, setSlotIso] = useState<string | null>(null);
+  // THE PAGE IS DRAWN IN THE VISITOR'S OWN TIME ZONE (v33.22).
+  //
+  // It used to render Cairo time with a footnote, which is how an IR books
+  // "6:00 PM" believing it is 6 PM at home. Google Calendar renders in the
+  // viewer's zone and so do we. Server-rendered as Cairo and switched on
+  // mount — reading the browser during render would mismatch hydration.
+  const [tz, setTz] = useState("Africa/Cairo");
+  const zoneOptions = useMemo(() => allZones(tz), [tz]);
+  const [countryTouched, setCountryTouched] = useState(false);
   const [lcName, setLcName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -49,8 +110,31 @@ export function BookingView({
     meetLink: string | null;
   } | null>(null);
 
-  const day = days[Math.min(dayIdx, Math.max(0, days.length - 1))];
+  useEffect(() => {
+    const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (detected && isValidZone(detected)) setTz(detected);
+  }, []);
+  // THE ZONE ALREADY SAYS WHICH COUNTRY THEY ARE IN — offer it instead of
+  // asking twice. It only ever fills a field the IR hasn't touched: a typed
+  // country wins, and so does a known LC's own country.
+  useEffect(() => {
+    if (countryTouched) return;
+    const guess = countryForZone(tz);
+    if (guess) setCountry(guess);
+  }, [tz, countryTouched]);
+
+  // the server groups slots by CAIRO day; regroup them by the visitor's day,
+  // which is a different calendar once the offset crosses midnight
+  const viewDays = useMemo(() => groupSlotsInZone(days, tz), [days, tz]);
+  const day = viewDays[Math.min(dayIdx, Math.max(0, viewDays.length - 1))];
   const slot = day?.slots.find((s) => s.iso === slotIso) ?? null;
+  // a zone change can move the picked slot to another day — keep the picked
+  // TIME and follow it, rather than silently losing the selection
+  useEffect(() => {
+    if (!slotIso) return;
+    const i = viewDays.findIndex((d) => d.slots.some((s) => s.iso === slotIso));
+    if (i >= 0) setDayIdx(i);
+  }, [viewDays, slotIso]);
   const emailOk = EMAIL_RE.test(email.trim());
   // a typed name we already KNOW (normalized: case, diacritics, "AIESEC in"/
   // "LC" prefixes) — auto-fills the country and lands on the same registry row
@@ -64,7 +148,7 @@ export function BookingView({
       v.trim().length >= 3
         ? knownLcs.find((l) => normalizeLcName(l.name) === normalizeLcName(v))
         : null;
-    if (hit?.country) setCountry(hit.country);
+    if (hit?.country) { setCountryTouched(true); setCountry(hit.country); }
   };
   // the crew reaches IRs on WhatsApp, so the number must carry a country code
   const phoneCheck = normalizePhone(phone);
@@ -105,6 +189,8 @@ export function BookingView({
         country: country || null,
         bookerName: bookerName.trim(),
         bookerRole,
+        // what zone they were LOOKING at — every later email speaks it back
+        tz,
       });
       if (res.ok && res.data) setDone(res.data);
       else if (!res.ok) toast.error(res.error);
@@ -151,11 +237,34 @@ export function BookingView({
       <p className="mt-1 text-center text-sm text-muted-foreground">
         AIESEC in Alexandria · {slotMinutes}-minute call
       </p>
-      <p className="mt-1 flex items-center justify-center gap-1 text-center text-xs font-medium text-muted-foreground">
-        <Clock className="size-3.5" /> Times are in Cairo (GMT+2/+3)
-      </p>
+      {/* WHAT CLOCK THIS PAGE IS ON — stated plainly, and changeable. */}
+      <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5 text-xs text-muted-foreground">
+        <Clock className="size-3.5 shrink-0" />
+        <span>Times shown in</span>
+        <select
+          value={tz}
+          onChange={(e) => {
+            setTz(e.target.value);
+            setCountryTouched(false); // a new zone re-guesses the country
+          }}
+          className="h-7 max-w-[13rem] rounded-md border bg-background px-1.5 text-xs font-semibold text-card-foreground"
+          aria-label="Your time zone"
+        >
+          {zoneOptions.map((z) => (
+            <option key={z} value={z}>
+              {z.replaceAll("_", " ")}
+            </option>
+          ))}
+        </select>
+        <span className="font-semibold text-card-foreground">
+          {zoneOffsetLabel(new Date(), tz)}
+        </span>
+        <span className="w-full text-center text-[11px] sm:w-auto">
+          · Cairo is {zoneOffsetLabel(new Date(), "Africa/Cairo")}
+        </span>
+      </div>
 
-      {days.length === 0 ? (
+      {viewDays.length === 0 ? (
         <p className="mt-8 pb-2 text-center text-sm text-muted-foreground">
           No free slots right now — {memberName}&apos;s calendar is full. Check
           back in a few days. 😴
@@ -164,7 +273,7 @@ export function BookingView({
         <>
           {/* date strip — only days with availability */}
           <div className="mt-5 flex gap-2 overflow-x-auto pb-1">
-            {days.map((d, i) => {
+            {viewDays.map((d, i) => {
               const on = i === dayIdx;
               return (
                 <button
@@ -294,7 +403,7 @@ export function BookingView({
                 <CountryInput
                   id="bk-country"
                   value={country}
-                  onChange={setCountry}
+                  onChange={(v) => { setCountryTouched(true); setCountry(v); }}
                   placeholder="Start typing…"
                 />
               </div>
