@@ -26,6 +26,8 @@
  *    AUTH_GOOGLE_SECRET, GMAIL_SENDER)
  */
 
+import "./_node-compat.mjs";
+
 const which = process.argv[2];
 const force = process.argv.includes("--force");
 

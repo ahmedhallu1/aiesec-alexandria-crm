@@ -206,6 +206,32 @@ export async function touchPointsNeedingRecord(viewer: Viewer): Promise<TouchPoi
   return ((data ?? []) as TouchPointRow[]).filter((tp) => canRecordAttendance(viewer, tp));
 }
 
+/** EVERY past touch point this viewer may record — recorded or not (v33.19.2).
+ *
+ *  `touchPointsNeedingRecord` is the CHASE list (unrecorded only). This is the
+ *  PICKER: choose a session and open its sheet, whether to fill it in for the
+ *  first time or to look at what was recorded. Same authority gate, so the
+ *  picker can never offer a session the sheet would then refuse. */
+export async function recordableTouchPoints(
+  viewer: Viewer,
+  days = 120
+): Promise<TouchPointRow[]> {
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  const { data, error } = await db()
+    .from("touch_points")
+    .select("*")
+    .eq("status", "scheduled")
+    .lte("starts_at", new Date().toISOString())
+    .gte("starts_at", since)
+    .order("starts_at", { ascending: false })
+    .limit(300);
+  if (error) {
+    console.error("[attendance] recordable query failed:", error.message);
+    return [];
+  }
+  return ((data ?? []) as TouchPointRow[]).filter((tp) => canRecordAttendance(viewer, tp));
+}
+
 /** The nag-ladder bookkeeping columns live on `touch_points` but aren't part
  *  of the calendar's row type — the cron needs them. */
 export type OwedTouchPoint = TouchPointRow & {

@@ -70,7 +70,9 @@ export function LcFeedbackView({
   isInboxOwner: boolean;
   inbox: LcFeedbackRow[];
 }) {
-  const [positive, setPositive] = useState(true);
+  // opens on CONCERN (v33.19.2): a shout-out is easy to give unprompted;
+  // the harder thing is the one worth lowering the barrier for
+  const [positive, setPositive] = useState(false);
   const [target, setTarget] = useState<"people" | "touchpoint">("people");
   const [touchPointId, setTouchPointId] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
@@ -279,9 +281,7 @@ export function LcFeedbackView({
                 </Select>
                 <p className="text-xs text-muted-foreground">
                   {chosenTouchPoint
-                    ? positive
-                      ? `Goes to ${chosenTouchPoint.ownerName}, who organised it.`
-                      : `Filed privately — ${chosenTouchPoint.ownerName} organised it.`
+                    ? "Goes to the people who run the LC's sessions — TM, the LCP and F&L — not to whoever booked it."
                     : "Every past session you were part of shows here — you don't have to have been marked present."}
                 </p>
               </>
@@ -415,7 +415,7 @@ export function LcFeedbackView({
               <p className="text-xs text-muted-foreground">
                 {positive
                   ? "They'll know someone appreciated them — just not who."
-                  : "The LCP won't see your name either."}
+                  : "No one will see your name, the mic is yours."}
               </p>
             </div>
             <Switch checked={anonymous} onCheckedChange={setAnonymous} />

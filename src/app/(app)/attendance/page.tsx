@@ -11,6 +11,7 @@ import {
   PAGE_SIZE_OPTIONS,
   listAttendanceHistory,
   listOpenAppeals,
+  recordableTouchPoints,
   touchPointsNeedingRecord,
   workWindowClosed,
 } from "@/server/attendance-read";
@@ -47,11 +48,23 @@ export default async function AttendancePage({
   const page = Math.max(1, Number(params.page) || 1);
   const pageSize = pageSizeOf(params.size);
 
-  const [owedRows, history, appeals] = await Promise.all([
+  const [owedRows, history, appeals, pickable] = await Promise.all([
     touchPointsNeedingRecord(viewer),
     listAttendanceHistory(viewer, { ...filters, page, pageSize }),
     listOpenAppeals(viewer),
+    recordableTouchPoints(viewer),
   ]);
+
+  // THE PICKER (v33.19.2): choose a session and open its sheet — the chase
+  // list only ever showed the UNRECORDED ones, so revisiting a session you
+  // already recorded meant hunting through the history table.
+  const pickableTouchPoints = pickable.map((tp) => ({
+    id: tp.id,
+    label: touchPointLabel(tp.scope, tp.kind),
+    whenLabel: cairoWhen(tp.starts_at),
+    audience: audienceLabel(tp),
+    recorded: !!tp.attendance_recorded_at,
+  }));
 
   const owed = owedRows.map((tp) => ({
     id: tp.id,
@@ -76,6 +89,7 @@ export default async function AttendancePage({
   return (
     <AttendanceView
       owed={owed}
+      pickable={pickableTouchPoints}
       history={history.rows}
       total={history.total}
       page={history.page}

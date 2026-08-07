@@ -145,7 +145,7 @@ const isCalScope = (v: unknown): v is CalScope =>
 
 export function CalendarView({
   visits, touchPoints = [], irCalls = [], items = [], month, viewerId,
-  teamMemberIds = [], memberFnIds = [],
+  teamMemberIds = [], memberFnIds = [], viewerRole = "Member",
   openableMemberIds, showFunction = false, booking = null,
   canAddItems = false, assignables = [],
 }: {
@@ -165,6 +165,8 @@ export function CalendarView({
   viewerId: string;
   /** the viewer's direct team (v33.19) — drives the "My team" scope */
   teamMemberIds?: string[];
+  /** drives WHICH scopes are offered — see `scopeOptions` */
+  viewerRole?: string;
   /** active members sharing a function with the viewer — the "My function" scope */
   memberFnIds?: string[];
   /** member ids whose accounts the viewer may open — null = everyone shown */
@@ -198,16 +200,35 @@ export function CalendarView({
       localStorage.setItem("sodio-calendar-scope", s);
     } catch { /* private mode — the choice just won't stick */ }
   };
+  // THE SCOPES THAT MEAN SOMETHING FOR *THIS* VIEWER (v33.19.2).
+  //
+  // The four options were fixed, so a Team Leader got "Mine" and "My team"
+  // that return the SAME rows (their team IS them plus their reports), and a
+  // VP/Director got both plus "My function" — three chips, one answer. Offer
+  // only the distinctions that exist at each level:
+  //   Member/Coordinator → Everyone · Mine · My function
+  //   Team Leader        → Everyone · My team · My function   (mine == team)
+  //   LCVP/Director/LCP  → Everyone · My function             (fn == theirs)
+  const scopeOptions = useMemo(() => {
+    const lead = ["LCVP", "Director", "LCP", "Admin"].includes(viewerRole);
+    const tl = viewerRole === "Team Leader";
+    const drop = new Set<CalScope>(
+      lead ? ["mine", "team"] : tl ? ["mine"] : teamMemberIds.length > 0 ? [] : ["team"]
+    );
+    return SCOPE_OPTIONS.filter((o) => !drop.has(o.key));
+  }, [viewerRole, teamMemberIds.length]);
+  // a stored scope that this viewer no longer has falls back to Everyone
+  const effectiveScope = scopeOptions.some((o) => o.key === viewScope) ? viewScope : "all";
   const scopeMeta =
-    SCOPE_OPTIONS.find((o) => o.key === viewScope) ?? SCOPE_OPTIONS[0];
+    scopeOptions.find((o) => o.key === effectiveScope) ?? SCOPE_OPTIONS[0];
 
   /** Which member ids a visit / IR call must belong to — null = no filter. */
   const ownerIds = useMemo(() => {
-    if (viewScope === "all") return null;
-    if (viewScope === "mine") return new Set([viewerId]);
-    if (viewScope === "team") return new Set([viewerId, ...teamMemberIds]);
+    if (effectiveScope === "all") return null;
+    if (effectiveScope === "mine") return new Set([viewerId]);
+    if (effectiveScope === "team") return new Set([viewerId, ...teamMemberIds]);
     return new Set([viewerId, ...memberFnIds]);
-  }, [viewScope, viewerId, teamMemberIds, memberFnIds]);
+  }, [effectiveScope, viewerId, teamMemberIds, memberFnIds]);
 
   const shownVisits = useMemo(
     () => (ownerIds ? visits.filter((v) => ownerIds.has(v.member.id)) : visits),
@@ -218,7 +239,7 @@ export function CalendarView({
   // visible and the two narrower scopes keep the ones the viewer is IN
   const shownTps = useMemo(
     () =>
-      viewScope === "mine" || viewScope === "team"
+      effectiveScope === "mine" || effectiveScope === "team"
         ? touchPoints.filter((t) => t.mine)
         : touchPoints,
     [touchPoints, viewScope]
@@ -397,15 +418,15 @@ export function CalendarView({
             aria-label="Whose items to show"
             className="flex h-9 shrink-0 items-center gap-0.5 rounded-md border p-0.5"
           >
-            {SCOPE_OPTIONS.map((o) => (
+            {scopeOptions.map((o) => (
               <Hint key={o.key} label={o.hint}>
                 <button
                   type="button"
-                  aria-pressed={viewScope === o.key}
+                  aria-pressed={effectiveScope === o.key}
                   onClick={() => pickScope(o.key)}
                   className={cn(
                     "flex h-8 items-center gap-1 rounded px-2 text-xs font-semibold transition-colors",
-                    viewScope === o.key
+                    effectiveScope === o.key
                       ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   )}

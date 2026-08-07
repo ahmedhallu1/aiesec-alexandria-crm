@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-07 · Version: v33.19.1
+Last updated: 2026-08-07 · Version: v33.20
 
 ---
 
@@ -610,6 +610,40 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-07 · v33.20** — **THE FLOOR-FEEDBACK BATCH** + the GitHub Actions
+  cutover.
+  (1) **The Actions imports are ARMED**: all 10 repo secrets set, and two more
+  blockers found while doing it — the workflow passed
+  `NEXT_PUBLIC_SUPABASE_URL` where `env.ts` reads **`SUPABASE_URL`** (every run
+  would have hit an empty database), and `@supabase/supabase-js` throws at
+  `createClient()` on **Node < 22** (no global WebSocket). The runner is pinned
+  to 22 and `scripts/_node-compat.mjs` polyfills it for local runs.
+  (2) **8 IR calls booked before the mailbox fallback got their Meet links**
+  (`scripts/backfill-ir-meets.mjs`): every future booking owned by a member
+  with no Google grant now has an event, a link, and an invite in the IR's
+  inbox.
+  (3) **CIC credit split**: both callers carry the sign-up and the CONTACT —
+  both spoke to them — while the OUTCOME (Applied to Approved) counts for the
+  SECOND caller who took it there. The function total still counts each
+  sign-up exactly once.
+  (4) **Attendance: pick any session.** A picker opens any past touch point the
+  viewer may record (recorded or still open), not just the unrecorded chase
+  list; the sheet gained **search + a status filter** (an LC session is ~70
+  rows). **Nobody marks themself** any more — owning the point is no longer an
+  exception, so a TL records their team and TM records the TL.
+  (5) **No appeal on "attended"** — nothing to contest; hidden in the UI and
+  refused server-side.
+  (6) **The team leaderboard is named properly**: it read the raw comma-list
+  from the sheet and now runs through `ownTeamName`, the resolver the
+  touch-point labels have used since v33.6.
+  (7) **Calendar scopes adapt to the role**: a TL has no "Mine" (it IS their
+  team), a VP/Director has neither "Mine" nor "My team" — three chips that
+  returned one list are gone.
+  (8) **Session feedback goes to the people who run sessions** — TM, the LCP
+  and F&L's LCVP — not to whoever booked it.
+  (9) **The feedback form opens on CONCERN**, and the anonymity line now reads
+  "No one will see your name, the mic is yours."
 
 - **2026-08-07 · v33.19.1** — **THE REVIEW PASS ON v33.19** (31-agent
   adversarial review → 18 confirmed findings → 8 distinct bugs, all fixed;

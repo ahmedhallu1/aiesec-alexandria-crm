@@ -4294,11 +4294,20 @@ export function signupDayIso(v: string | null): string | null {
 
 function addOgxRow(
   s: OgxFunnel,
-  r: { contact_status: string | null; interested: string | null; status: string | null }
+  r: { contact_status: string | null; interested: string | null; status: string | null },
+  /** CIC split (v33.19.2). A verified sign-up was called by TWO people, so
+   *  both carry the sign-up and the contact; the OUTCOME (Applied → Approved)
+   *  belongs to whoever carried it there — the second caller. `outcome:false`
+   *  is the first assignee's line, `interested` overrides with the CIC's own
+   *  answer on the second caller's line. */
+  opts?: { outcome?: boolean; interested?: string | null }
 ) {
   s.signups += 1;
   if (_ogxYes(r.contact_status)) s.contacted += 1;
-  if (_ogxYes(r.interested)) s.interested += 1;
+  const interested =
+    opts && "interested" in opts ? (opts.interested ?? null) : r.interested;
+  if (_ogxYes(interested)) s.interested += 1;
+  if (opts?.outcome === false) return;
   // the ladder: Approved ⊂ Accepted ⊂ Applied
   if (r.status === "Applied" || r.status === "Accepted" || r.status === "Approved")
     s.applied += 1;
@@ -4315,6 +4324,10 @@ interface OgxDashSignup {
   status: string | null;
   out_of_process: boolean;
   signed_up_at: string | null;
+  /** CIC — the second caller who verified + followed up (v33.19) */
+  cic_assigned_to: string | null;
+  cic_contact_status: string | null;
+  cic_interested: string | null;
 }
 
 /** The OGT / OGV dashboard lane (v28). Aggregates are FUNCTION-wide for
@@ -4335,7 +4348,7 @@ export async function ogxDashboard(
       db()
         .from("signups")
         .select(
-          "assigned_to, assigned_at, contact_status, interested, status, out_of_process, signed_up_at"
+          "assigned_to, assigned_at, contact_status, interested, status, out_of_process, signed_up_at, cic_assigned_to, cic_contact_status, cic_interested"
         )
         .eq("fn", fn)
         .order("id")
@@ -4421,18 +4434,45 @@ export async function ogxDashboard(
     const tl = tlOf(r.assigned_to);
     if (filters.team && tl?.id !== filters.team) continue;
 
-    // KPI totals — the member filter ("My numbers") scopes these ONLY
-    if (!filters.member || r.assigned_to === filters.member) addOgxRow(total, r);
+    // CIC — TWO PEOPLE CALLED THIS SIGN-UP (v33.19.2). Both carry the
+    // sign-up and the contact (both spoke to them); the OUTCOME belongs to
+    // the second caller, who took it to Applied/Accepted/Approved. The
+    // FUNCTION TOTAL must still count the outcome exactly once, so it is
+    // added on the first assignee's pass with the ladder intact.
+    const cicId =
+      r.cic_assigned_to && r.cic_assigned_to !== r.assigned_to ? r.cic_assigned_to : null;
+    const cic = cicId ? byId.get(cicId) : undefined;
+    const cicCounts = !!cic && inFn(cic);
+    /** the first assignee's line loses the outcome once a second caller has it */
+    const firstOpts = cicCounts ? { outcome: false } : undefined;
+    /** the second caller's line: their own interested answer, and the outcome */
+    const secondOpts = { interested: r.cic_interested };
 
-    // TWO BOARDS (v33.13): members and MMs are doing different jobs and were
-    // ranked against each other on one list, which flattered neither.
-    const m = holder;
-    if (m.role === "Member") addOgxRow(init(board, m.id, m.name), r);
-    // AN MM'S NUMBER IS THEIR TEAM'S (v33.14) — that is what they are held to.
-    // Their own rows land on their line, and so do their members'.
-    if (m.role === "Team Leader" || m.role === "Coordinator")
-      addOgxRow(init(mmBoard, m.id, m.name), r);
-    else if (tl) addOgxRow(init(mmBoard, tl.id, tl.name), r);
+    // KPI totals — the member filter ("My numbers") scopes these ONLY.
+    // Unfiltered, the row is counted ONCE (no double-counting the function).
+    if (!filters.member) addOgxRow(total, r);
+    else if (r.assigned_to === filters.member) addOgxRow(total, r, firstOpts);
+    else if (cicCounts && cicId === filters.member) addOgxRow(total, r, secondOpts);
+
+    /** put a row on the two personal boards, by the holder's role */
+    const credit = (
+      who: MemberLiteRow,
+      opts?: { outcome?: boolean; interested?: string | null }
+    ) => {
+      // TWO BOARDS (v33.13): members and MMs are doing different jobs and were
+      // ranked against each other on one list, which flattered neither.
+      if (who.role === "Member") addOgxRow(init(board, who.id, who.name), r, opts);
+      // AN MM'S NUMBER IS THEIR TEAM'S (v33.14) — that is what they are held
+      // to. Their own rows land on their line, and so do their members'.
+      if (who.role === "Team Leader" || who.role === "Coordinator")
+        addOgxRow(init(mmBoard, who.id, who.name), r, opts);
+      else {
+        const theirTl = tlOf(who.id);
+        if (theirTl) addOgxRow(init(mmBoard, theirTl.id, theirTl.name), r, opts);
+      }
+    };
+    credit(holder, firstOpts);
+    if (cicCounts && cic) credit(cic, secondOpts);
 
     if (tl)
       addOgxRow(

@@ -59,7 +59,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 22+ ships a global WebSocket — @supabase/supabase-js needs one and
+          # throws at createClient() on Node 20 (v33.19.2)
+          node-version: 22
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npm i -D tsx --no-audit --no-fund

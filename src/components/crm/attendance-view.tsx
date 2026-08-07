@@ -58,6 +58,15 @@ import { bookedBy } from "@/lib/touch-point-label";
  *  whole LC. The "Needs recording" lane at the top is what every reminder,
  *  bell and pending prompt deep-links to. */
 
+/** One entry of the "open any session" picker (v33.19.2). */
+export interface PickableTouchPoint {
+  id: string;
+  label: string;
+  whenLabel: string;
+  audience: string;
+  recorded: boolean;
+}
+
 export interface OwedTouchPoint {
   id: string;
   label: string;
@@ -138,6 +147,10 @@ function RecordDialog({
   const [pending, start] = useTransition();
   // bumped after a recompute to pull the fresh verdicts back in
   const [reloadKey, setReloadKey] = useState(0);
+  // SEARCH + FILTER (v33.19.2): an LC working-hours sheet is ~70 rows, and
+  // finding one person meant scrolling the whole audience.
+  const [q, setQ] = useState("");
+  const [only, setOnly] = useState<"all" | AttendanceStatus | "unset">("all");
   // onClose is re-created by the parent on every render — the ref keeps the
   // fetch effect from re-firing on it
   const closeRef = useRef(onClose);
@@ -213,6 +226,13 @@ function RecordDialog({
     });
 
   const missing = (sheet?.rows ?? []).filter((r) => !r.locked && !draft[r.memberId]?.status).length;
+  const needle = q.trim().toLowerCase();
+  const shownRows = (sheet?.rows ?? []).filter((r) => {
+    if (needle && !r.name.toLowerCase().includes(needle)) return false;
+    if (only === "all") return true;
+    const st = draft[r.memberId]?.status ?? null;
+    return only === "unset" ? !st : st === only;
+  });
   // a working-hours session can't be hand-written before it has even finished
   // (the server refuses it) — don't offer the button
   const stillOpen = !!sheet?.isWorkingHours && !sheet.windowClosed;
@@ -273,8 +293,38 @@ function RecordDialog({
               ))}
             </div>
 
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Search a name…"
+                className="h-8 w-full sm:w-52"
+                dir="auto"
+              />
+              <Select value={only} onValueChange={(v) => setOnly(v as typeof only)}>
+                <SelectTrigger className="h-8 w-40"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Everyone</SelectItem>
+                  <SelectItem value="unset">Not set yet</SelectItem>
+                  {ATTENDANCE_STATUSES.map((s) => (
+                    <SelectItem key={s} value={s}>{STATUS_LABEL[s]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {q || only !== "all" ? (
+                <span className="text-xs text-muted-foreground">
+                  {shownRows.length} of {sheet.rows.length}
+                </span>
+              ) : null}
+            </div>
+
             <div className="space-y-2">
-              {sheet.rows.map((r) => {
+              {shownRows.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  Nobody matches that.
+                </p>
+              ) : null}
+              {shownRows.map((r) => {
                 const d = draft[r.memberId] ?? { status: null, excused: false, excuse: "" };
                 const excusable = d.status === "absent" || d.status === "late";
                 return (
@@ -483,6 +533,7 @@ const ATTENDANCE_SORTERS: Record<string, (r: AttendanceHistoryRow) => string | n
 
 export function AttendanceView({
   owed,
+  pickable = [],
   history,
   total,
   page,
@@ -495,6 +546,8 @@ export function AttendanceView({
   openTouchPointId,
 }: {
   owed: OwedTouchPoint[];
+  /** every past session the viewer may open — the picker (v33.19.2) */
+  pickable?: PickableTouchPoint[];
   history: AttendanceHistoryRow[];
   total: number;
   /** 0-based */
@@ -593,7 +646,7 @@ export function AttendanceView({
       case "actions":
         return (
           <>
-            {r.mine && !r.appeal ? (
+            {r.mine && !r.appeal && r.status !== "attended" ? (
               <Button size="sm" variant="outline" onClick={() => setAppealing(r)}>
                 <Hand className="size-3.5" /> Appeal
               </Button>
@@ -639,6 +692,33 @@ export function AttendanceView({
           didn&apos;t, and why. You&apos;re seeing {scopeLabel}.
         </p>
       </div>
+
+      {/* --------- open ANY session's sheet (v33.19.2) --------- */}
+      {pickable.length > 0 ? (
+        <Card className="rise-in">
+          <CardContent className="flex flex-wrap items-center gap-2 py-3">
+            <span className="text-sm font-semibold">Open a session:</span>
+            <Select value="" onValueChange={(v) => setRecording(v)}>
+              <SelectTrigger className="h-9 w-full sm:w-[26rem]">
+                <SelectValue placeholder="Choose a touch point…" />
+              </SelectTrigger>
+              <SelectContent>
+                {pickable.map((tp) => (
+                  <SelectItem key={tp.id} value={tp.id}>
+                    <span dir="auto">
+                      {tp.recorded ? "✅ " : "🕓 "}
+                      {tp.label} · {tp.whenLabel}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className="text-xs text-muted-foreground">
+              ✅ recorded · 🕓 still open — pick one to view or edit its attendance.
+            </span>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* ---------------- needs recording ---------------- */}
       {owed.length > 0 ? (
@@ -832,7 +912,7 @@ export function AttendanceView({
                     <p className="break-words text-xs italic text-muted-foreground" dir="auto">“{r.excuse}”</p>
                   ) : null}
                   <div className="flex flex-wrap gap-1.5 pt-1">
-                    {r.mine && !r.appeal ? (
+                    {r.mine && !r.appeal && r.status !== "attended" ? (
                       <Button size="sm" variant="outline" onClick={() => setAppealing(r)}>
                         <Hand className="size-3.5" /> Appeal
                       </Button>

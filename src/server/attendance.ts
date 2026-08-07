@@ -388,6 +388,12 @@ export async function appealAttendance(
   if (text.length < 5)
     return fail("Say what actually happened — a line or two is enough.");
 
+  // NOTHING TO APPEAL WHEN YOU WERE MARKED PRESENT (v33.19.2) — an appeal is
+  // "this record is wrong about me", and "attended" is the record everyone
+  // wants. Late/absent are the ones worth contesting.
+  if (row.status === "attended")
+    return fail("You're marked attended — there's nothing to appeal 🙂");
+
   const tp = await getTouchPoint(row.touch_point_id);
   if (!tp) return fail("That touch point no longer exists.");
 

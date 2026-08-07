@@ -174,11 +174,18 @@ export default async function DashboardPage({
   const teamLead = data.teamLeadId
     ? members.find((m) => m.id === data.teamLeadId)
     : null;
+  // THE TEAM'S NAME, RESOLVED (v33.19.2). `team_name` is the whole comma-list
+  // from the membership sheet — Shahd's reads "فرقة ناجي عطالله, شماريخ",
+  // which are the function-leaders team and the LB, not her team — so the
+  // card was titled with two teams she doesn't lead. `ownTeamName` picks the
+  // registered `Team` out of the cell, else falls back to "<name>'s team",
+  // exactly as the touch-point labels do since v33.6.
+  const { ownTeamName } = await import("@/server/touch-points-read");
   const teamLabel =
     viewer.role === "Team Leader"
-      ? viewer.team_name || "My team"
+      ? await ownTeamName(viewer)
       : teamLead
-        ? teamLead.team_name || `Team ${teamLead.name}`
+        ? await ownTeamName(teamLead)
         : null;
   // leaders already see the whole function — "My numbers" is for the people
   // who actually carry accounts (members, coordinators, TLs)

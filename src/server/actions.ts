@@ -4201,12 +4201,34 @@ export async function submitLcFeedback(input: {
       return fail("That touch point was cancelled — there was no session to review.");
     if (new Date(tp.starts_at).getTime() > Date.now())
       return fail("That touch point hasn't happened yet 🙂");
-    if (!tp.owner_id) return fail("That touch point has no organiser left to send it to.");
-    if (tp.owner_id === viewer.id) return fail("That's your own touch point 🙂");
     const { touchPointLabel } = await import("@/lib/types");
     const { cairoWhen } = await import("@/lib/touch-points");
     message = `📍 About the ${touchPointLabel(tp.scope, tp.kind)} on ${cairoWhen(tp.starts_at)}\n\n${message}`;
-    if (!about.includes(tp.owner_id)) about.unshift(tp.owner_id);
+    // A SESSION IS THE LC'S, NOT THE ORGANISER'S (v33.19.2). Feedback about a
+    // touch point used to be addressed AT whoever booked it, which turned
+    // "the meeting ran long" into a note about a person — and made an honest
+    // review awkward when the organiser is your own TL. It goes to the people
+    // who run the LC's touch points instead: the TM function, the LCP and
+    // F&L's LCVP. (Feedback about a PERSON still works — pick them by name.)
+    const { data: leadership } = await db()
+      .from("members")
+      .select("id, role, functions, sub_functions")
+      .eq("is_active", true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const routed = ((leadership ?? []) as any[])
+      .filter((m) => {
+        const fns = [...(m.functions ?? []), ...(m.sub_functions ?? [])];
+        return (
+          m.role === "LCP" ||
+          fns.includes("TM") ||
+          (m.role === "LCVP" && fns.includes("F&L"))
+        );
+      })
+      .map((m) => m.id as string)
+      .filter((id) => id !== viewer.id);
+    if (routed.length === 0)
+      return fail("Nobody is set up to receive session feedback yet — tell the IM team.");
+    for (const id of routed) if (!about.includes(id)) about.push(id);
   }
 
   if (about.length === 0) return fail("Pick at least one person (not yourself 🙂).");

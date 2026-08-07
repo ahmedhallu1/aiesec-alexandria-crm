@@ -433,10 +433,16 @@ export function canRecordAttendance(v: Viewer, tp: TouchPointRef): boolean {
   return fnMatch && ["LCVP", "Director"].includes(v.role);
 }
 
-/** Nobody marks THEMSELF present on a point they only got edit rights to —
- *  the owner (and TM core) still can, so a TL can record their own team. */
+/** NOBODY MARKS THEMSELF (v33.19.2, by the LCP's request).
+ *
+ *  A Team Leader records their team but not their own row; a VP records their
+ *  function but not their own; the LC's sessions — and everyone's own row —
+ *  belong to TM (and the LCP/admin). Owning the touch point is no longer an
+ *  exception: booking a session you attend is exactly the case where marking
+ *  yourself present is worth nothing to anyone reading it. */
 export function canEditOwnAttendanceRow(v: Viewer, tp: TouchPointRef): boolean {
-  return master(v) || isTmCore(v) || tp.owner_id === v.id;
+  void tp;
+  return master(v) || isTmCore(v);
 }
 
 /* The B2B/BD "Podio pending" worklist was RETIRED in v32.3 — the filter, the

@@ -204,6 +204,7 @@ export default async function CalendarPage({
       month={month}
       viewerId={viewer.id}
       teamMemberIds={viewer.teamMemberIds}
+      viewerRole={viewer.role}
       memberFnIds={memberFnIds}
       openableMemberIds={scope.kind === "members" ? scope.ids : null}
       showFunction={scope.kind === "all" || isTmCore(viewer)}
