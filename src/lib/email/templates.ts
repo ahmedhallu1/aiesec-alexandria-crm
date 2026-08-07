@@ -349,15 +349,27 @@ export function visitAnnouncementEmail(opts: {
   visitTime: string;
   notes: string | null;
   accountUrl: string;
+  /** the visit already existed and was MOVED (v33.23) — the crew was told
+   *  about it once already, so this must not read as a fresh booking */
+  moved?: boolean;
 }) {
   return {
-    subject: `📢 New visit booked — ${opts.accountName} (${opts.product})`,
+    subject: opts.moved
+      ? `🗓️ Visit moved — ${opts.accountName} (${opts.product})`
+      : `📢 New visit booked — ${opts.accountName} (${opts.product})`,
     html: emailLayout({
-      preheader: `${opts.responsibleName} booked a visit with ${opts.accountName}`,
+      preheader: opts.moved
+        ? `${opts.responsibleName} moved the visit with ${opts.accountName}`
+        : `${opts.responsibleName} booked a visit with ${opts.accountName}`,
       body: `
-        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">A visit just got booked! 🗓️</h1>
-        <p><b>${escapeHtml(opts.responsibleName)}</b> scheduled a company visit — sharing it
-        with the whole function to keep everyone in the loop.</p>
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">${
+          opts.moved ? "A visit was moved 🗓️" : "A visit just got booked! 🗓️"
+        }</h1>
+        <p><b>${escapeHtml(opts.responsibleName)}</b> ${
+          opts.moved
+            ? "rescheduled a company visit — the new time is below."
+            : "scheduled a company visit — sharing it with the function to keep everyone in the loop."
+        }</p>
         ${detailsTable([
           ["Account", opts.accountName],
           ["Product", opts.product],
@@ -366,7 +378,7 @@ export function visitAnnouncementEmail(opts: {
           ["Notes", opts.notes],
         ])}
         <p style="color:#5c6b80;font-size:13px;">You're getting this because you're part of this
-        product's raising team. It's an FYI — no action needed.</p>
+        account's own raising function. It's an FYI — no action needed.</p>
         ${button("Open the account", opts.accountUrl)}`,
     }),
   };

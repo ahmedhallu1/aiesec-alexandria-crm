@@ -52,7 +52,8 @@ export default async function SignupsPage({
         assigned: sp.assigned,
         campaign: sp.campaign,
         cicMine: sp.cicMine === "1",
-        phone: sp.phone === "missing" || sp.phone === "has" ? sp.phone : undefined,
+        // validated in listSignupsPage, which also understands a comma list
+        phone: sp.phone,
         q: sp.q,
         sort: sp.sort,
         dir: sp.dir === "asc" ? "asc" : sp.dir === "desc" ? "desc" : undefined,

@@ -43,7 +43,21 @@ export default async function ConsiderationPage({
     listPartnerLcDetails(viewer),
     listIrCalls(viewer, tab === "calls" ? page : 0, pageSize),
     showCvs
-      ? listCvsPage(viewer, { q: sp.q }, tab === "cvs" ? page : 0, pageSize)
+      ? listCvsPage(
+          viewer,
+          {
+            q: sp.q,
+            // the CV tab's own LC filter — ?lc= is already the "jump to this
+            // LC" anchor on the registry tab, so this one is namespaced
+            lc: sp.cvlc,
+            industry: sp.industry,
+            status: sp.status,
+            uploader: sp.uploader,
+            phone: sp.cvphone,
+          },
+          tab === "cvs" ? page : 0,
+          pageSize
+        )
       : Promise.resolve({ rows: [], total: 0, page: 0 }),
     myIrBooking(viewer),
   ]);

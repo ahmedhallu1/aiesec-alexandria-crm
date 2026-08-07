@@ -184,6 +184,8 @@ function describeRow(tbl: string, row: Record<string, unknown>): string {
     ir_calls: "IR call",
     cvs: "CV",
     partner_lcs: "Partner LC",
+    partner_lc_contacts: "IR contact",
+    partner_lc_comments: "LC note",
     blacklist: "Archived name",
     mm_plans: "MM plan",
     tl_plans: "Raising plan",

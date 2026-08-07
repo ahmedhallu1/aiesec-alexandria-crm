@@ -50,8 +50,11 @@ const BACKUP_TABLES = [
   // OGX
   "signups",
   "signup_comments",
+  "signup_logs",
   // consideration
   "partner_lcs",
+  "partner_lc_contacts",
+  "partner_lc_comments",
   "ir_calls",
   "cvs",
   "ir_booking_settings",
@@ -60,6 +63,8 @@ const BACKUP_TABLES = [
   "touch_point_attendance",
   "attendance_appeals",
   "touch_point_routines",
+  // calendar
+  "calendar_items",
   // planning + feedback
   "plan_cells",
   "mm_plans",

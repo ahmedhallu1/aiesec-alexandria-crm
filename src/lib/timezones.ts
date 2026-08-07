@@ -283,6 +283,49 @@ export function zoneForCountry(country: string | null | undefined): string | nul
   return null;
 }
 
+/** ENDONYMS AND EVERYDAY NAMES (v33.23). An IR types their country the way
+ *  they say it — "Türkiye", "UK", "USA", "Holland", "Viet Nam" — and a strict
+ *  match against COUNTRIES threw all of those away, leaving the row with no
+ *  country and therefore no time zone to fall back on.
+ *
+ *  Deliberately NOT fuzzy: an exact alias, or nothing. Guessing a country is
+ *  how an LC ends up on the wrong clock. */
+const COUNTRY_ALIASES: Record<string, string> = {
+  turkiye: "Turkey", türkiye: "Turkey", turkiya: "Turkey",
+  uk: "United Kingdom", "u.k.": "United Kingdom",
+  "great britain": "United Kingdom", britain: "United Kingdom",
+  england: "United Kingdom", scotland: "United Kingdom", wales: "United Kingdom",
+  usa: "United States", "u.s.a.": "United States", us: "United States",
+  america: "United States", "united states of america": "United States",
+  holland: "Netherlands", "the netherlands": "Netherlands",
+  korea: "South Korea", "republic of korea": "South Korea",
+  "viet nam": "Vietnam", "russian federation": "Russia",
+  "côte d'ivoire": "Ivory Coast", "cote d'ivoire": "Ivory Coast",
+  "czech republic": "Czechia", czechia: "Czechia",
+  uae: "United Arab Emirates", emirates: "United Arab Emirates",
+  ksa: "Saudi Arabia", "cabo verde": "Cabo Verde", "cape verde": "Cabo Verde",
+  swaziland: "Eswatini", macedonia: "North Macedonia", burma: "Myanmar",
+  "east timor": "Timor-Leste", "ivory coast": "Ivory Coast",
+  "drc": "DR Congo", "democratic republic of congo": "DR Congo",
+  "congo-kinshasa": "DR Congo", "congo-brazzaville": "Congo",
+  egipt: "Egypt", misr: "Egypt", "مصر": "Egypt",
+};
+
+/** The country a person MEANT, from whatever they typed. Returns null when it
+ *  is not a country we know — never a guess. */
+export function resolveCountry(
+  raw: string | null | undefined,
+  known: readonly string[]
+): string | null {
+  const t = (raw ?? "").trim();
+  if (!t) return null;
+  const exact = known.find((c) => c.toLowerCase() === t.toLowerCase());
+  if (exact) return exact;
+  const alias = COUNTRY_ALIASES[t.toLowerCase()];
+  if (alias) return known.find((c) => c.toLowerCase() === alias.toLowerCase()) ?? null;
+  return null;
+}
+
 export function countryForZone(tz: string | null | undefined): string | null {
   const z = (tz ?? "").trim();
   return (z && COUNTRY_BY_ZONE[z]) || null;

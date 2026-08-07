@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-07 · Version: v33.22
+Last updated: 2026-08-07 · Version: v33.23
 
 ---
 
@@ -49,7 +49,8 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0034_bd_service_world` → `0035_ir_booker_phone` →
 `0036_virtual_touch_points_and_routines` → `0037_admin_member_role` → … →
 `0045_cic_signup_logs_ir_event_source` → `0046_lc_feedback_inbox` →
-`0047_ir_call_timezone` (**all applied**, 0046–0047 during v33.22).
+`0047_ir_call_timezone` → `0048_ir_product_and_lc_comments`
+(**all applied**, 0046–0048 during v33.22–v33.23).
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
@@ -611,6 +612,88 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-07 · v33.23** — **THE CONSIDERATION RELEASE + TWO EMAIL BUGS**
+  (migration **0048 applied**: `ir_calls.product`, `partner_lc_contacts.product`,
+  `partner_lc_comments`).
+  ① **THE DUPLICATE VISIT EMAIL, ROOT-CAUSED IN PRODUCTION.** `scheduleVisit`
+  announced on EVERY call, with no idea whether it was a new booking, a
+  correction or the same slot again. Two live cases: *I Can Read Academy* —
+  booked 18:43, corrected 18:44, two "📢 New visit booked" mails and 40 bell
+  rows for one visit (audit ids 4181/4182, distinct change sets, ONE `visits`
+  row); and *Softa software solutions* — the same slot re-submitted three
+  times in 30 seconds, three identical mails and 63 bell rows for a visit that
+  never moved. Now: a repeat of the same slot announces nothing; a correction
+  inside **15 minutes** announces nothing (the responsible's own bell and the
+  Google invite already carry the new time); a genuine move later announces
+  **"🗓️ Visit moved"** and says so. The audit's `announced` count stopped
+  claiming a fan-out that didn't run.
+  ② **Every function on its own.** The announcement widened IGV and IGT to
+  include B2B, so the B2B/BD crew was told about every IGV and IGT visit in
+  the LC. `announceFunctions` now returns the account's OWN function
+  (B2B and BD still one crew). The CALENDAR INVITE is untouched — it splits
+  into `leaderShareFunctions`, so the B2B VP still rides an IGV/IGT invite for
+  oversight. The two used to share one list, which is how narrowing one would
+  have silently broken the other.
+  ③ **AN IR CALL KNOWS ITS OWN PRODUCT** (0048). `ir_calls.fn` looked like it
+  should say — it never has, in any code path. Every "IGV or IGT?" was
+  re-derived from the HOST's *current* functions, so a dual-function member's
+  calls counted in BOTH lanes and a member changing function rewrote the
+  history of every call they ever made. `product` ('GV'|'GT') is now decided
+  when the call is booked and frozen; backfilled 16 GV / 7 GT, no nulls. A
+  **Product column** on the call log, a **GV/GT filter** on the scheduled
+  list, and the lane split (`listIrCalls`, `considerationStats`) reads the
+  call's own tag — an untagged call stays visible to everyone, because null
+  means "we don't know", never "hide it".
+  ④ **The partner-LC registry became a registry**: filter by **country**, by
+  **reached as GV / GT / Both / Never**, and by **has calls · has CVs ·
+  nothing yet**; per-LC **GV/GT badges** (derived, never stored — two LCs are
+  already both, and a stored set would drift on every merge and rename);
+  **notes on an LC or on one of its IRs** (`partner_lc_comments`, author
+  snapshot, remove your own or any as a VP); and **the IR's role is a
+  pick-list** — one `IR_ROLES` list shared with the public booking page, which
+  had been validating against its own copy while the registry took free text
+  ("LCVP oGT", "IR Manager", "uw" in one column).
+  ⑤ **CVs get column funnels** — Industry · AI status · Uploaded by · Partner
+  LC · has/no number — filtering **server-side**, so they filter the pool and
+  not the page you happen to be on. And **LC rename/delete is gone from the CV
+  tab** (creating an LC inline stays: a CV can arrive from an LC we've never
+  called).
+  ⑥ **The OGX phone filter was unreachable on desktop**: the funnel hung on
+  the Phone COLUMN, which ships hidden in every view. It now hangs on **Quick
+  actions** — the column that draws the number — and the server read became
+  comma-aware, because the funnel is multi-select and `?phone=has,missing`
+  used to be silently dropped while the funnel showed two picks active.
+  ⑦ **The grab handle was 100% dead.** The ⣿ dots carried
+  `pointer-events-none`, so a press on them was never targeted at them: the
+  event landed on the dialog underneath, whose `closest(header)` is null. Every
+  painted pixel of the grip sat in the padding ABOVE the header box, so the
+  real handle began a few pixels lower — "the grab is shifted down from the
+  holder", exactly. Hittable now, with a 40px target.
+  ⑧ **Phone fields show an example from YOUR country** (`src/lib/dial-codes.ts`,
+  all 194 countries): the booking page showed an Egyptian number to an IR
+  abroad and a French one in its error line. Every example is asserted by test
+  to pass `normalizePhone` if typed literally — an example the validator would
+  reject is worse than none.
+  ⑨ **Endonyms count.** "Türkiye", "UK", "USA", "Holland", "Viet Nam" were
+  matched strictly against COUNTRIES and thrown away, leaving the LC with no
+  country and therefore no fallback time zone. `resolveCountry` accepts an
+  exact alias — and *only* an exact alias — on all three write paths, and
+  `addPartnerLc` now applies a supplied country to an existing countryless row
+  instead of discarding it with the duplicate. **Inferring a country from the
+  LC's NAME was investigated and REFUSED**: zero rows would benefit (all 27
+  partner LCs already have a country), and the false positives are brutal —
+  "AIESEC in Georgia" is 8 hours from Tbilisi, "AIESEC in New Mexico" 2 hours
+  from Mexico City, and a wrong country is a wrong clock.
+  ⑩ **The booking page offers a second opinion on your zone**: a browser
+  reports the MACHINE's zone, so a VPN changes nothing (Google Calendar behaves
+  identically). Vercel resolves the caller's IP at the edge, and when that
+  disagrees the page offers a one-tap "Looks like you're in Amsterdam — show
+  Amsterdam time?" instead of overriding a clock we can actually trust.
+  ⑪ Feedback's **📅 Sessions** tab is **📅 Touch points**. Backups gained
+  `partner_lc_contacts`, `partner_lc_comments`, `signup_logs` and
+  `calendar_items` — the last two had been unbacked since 0044/0045.
+  Tests **144**.
 
 - **2026-08-07 · v33.22** — **TIME ZONES, ACCESS & THE FEEDBACK INBOX**
   (migrations **0046 + 0047 applied**).

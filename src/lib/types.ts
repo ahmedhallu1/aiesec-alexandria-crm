@@ -74,6 +74,48 @@ export function memberIsB2B(m: {
   );
 }
 
+/** WHAT AN IR IS INSIDE THEIR OWN LC — ONE list (v33.23).
+ *
+ *  The public booking page has validated against this list since v29, but an
+ *  IR added by hand took free text, so the registry grew "LCVP oGT", "IR
+ *  Manager", "uw" and the validated values side by side and the column could
+ *  neither be filtered nor counted. Both doors now use this. */
+export const IR_ROLES = [
+  "Member",
+  "MM (Team Leader / Coordinator)",
+  "LCVP",
+  "Director",
+  "LCP",
+  "Alumni / Other",
+] as const;
+
+/** WHICH PRODUCT AN IR CALL MARKETED (v33.23).
+ *
+ *  Consideration people work one product's demand: an IGT host is selling GT
+ *  opportunities, an IGV host GV. The tag is derived ONCE, when the call is
+ *  booked or recorded, and stored on the call — deriving it at read time meant
+ *  a member changing function silently rewrote the history of every call they
+ *  ever made.
+ *
+ *  Ambiguity is recorded AS ambiguity: someone who works both products (or
+ *  neither) returns null, so nothing is counted twice and nothing is guessed.
+ *  A null tag is "unknown", never "hidden" — every reader shows it to
+ *  everyone. */
+export type IrProduct = "GV" | "GT";
+
+export function irProductForMember(m: {
+  functions?: string[] | null;
+  sub_functions?: string[] | null;
+}): IrProduct | null {
+  const all = [...(m.functions ?? []), ...(m.sub_functions ?? [])];
+  const gt = all.includes("IGT");
+  const gv = all.includes("IGV");
+  if (gt && gv) return null; // works both — let a human say which
+  if (gt) return "GT";
+  if (gv) return "GV";
+  return null;
+}
+
 /** B2C crew (v23) — the B2C label in functions or sub-functions. */
 export function memberIsB2C(m: {
   functions?: string[] | null;
@@ -577,6 +619,9 @@ export interface Visit {
   next_step: string | null;
   followup_prompt_sent_at: string | null;
   report_sent_at: string | null;
+  /** when the visit was FIRST booked — a correction made minutes later is not
+   *  a second announcement (v33.23) */
+  created_at: string;
 }
 
 /** One signed deal — an account can close several over time (3 slots today,

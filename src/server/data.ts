@@ -33,6 +33,7 @@ import type {
   AccountPipeline,
   BlacklistEntry,
   Deal,
+  IrProduct,
   Member,
   MemberRole,
   Stage,
@@ -299,12 +300,14 @@ export interface ConsiderationStats {
   plan: { applicants: number; accepted: number; approvals: number } | null;
 }
 
-/** A consideration row (IR call / MM plan) carries no product column — the
- *  crew markets the whole ICX from one log. So a row is attributed to a lane
- *  through its OWNER's functions: an IGT member's calls feed the IGT lane, an
- *  IGV member's the IGV lane. Someone with NEITHER on their row (the pure
- *  Consideration crew) markets both products, so their rows count in BOTH
- *  lanes — as do orphaned rows whose owner left the LC. */
+/** An MM PLAN carries no product column — the crew plans the whole ICX in one
+ *  row. So a plan is attributed to a lane through its OWNER's functions: an
+ *  IGT member's plan feeds the IGT lane, an IGV member's the IGV lane. Someone
+ *  with NEITHER on their row (the pure Consideration crew) plans for both, so
+ *  their rows count in BOTH lanes — as do orphaned rows whose owner left.
+ *
+ *  IR CALLS NO LONGER USE THIS (v33.23): since 0048 a call carries its own
+ *  `product`, decided when it was booked. */
 function ownerInLane(
   m: { functions?: string[] | null; sub_functions?: string[] | null } | null | undefined,
   fn: "IGV" | "IGT"
@@ -331,10 +334,11 @@ export async function considerationStats(
       status: string;
       partner_lc_name: string;
       member_id: string | null;
+      product: string | null;
     }>(() =>
       db()
         .from("ir_calls")
-        .select("called_at, status, partner_lc_name, member_id")
+        .select("called_at, status, partner_lc_name, member_id, product")
         .order("id")
     ),
     // the CV pool is IGT-only (v27) — never even read for the IGV lane
@@ -352,8 +356,13 @@ export async function considerationStats(
   const now = new Date();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const byMember = new Map<string, any>(((memberRows.data ?? []) as any[]).map((m) => [m.id, m]));
-  const callRows = callRowsAll.filter((c) =>
-    ownerInLane(c.member_id ? byMember.get(c.member_id) : null, fn)
+  // THE CALL'S OWN TAG DECIDES ITS LANE (v33.23). It used to be re-derived
+  // from the owner's current functions, which counted a dual-function host's
+  // calls in BOTH lanes. An untagged call still counts in both — that is what
+  // "we don't know which" honestly means.
+  const laneTag = fn === "IGT" ? "GT" : "GV";
+  const callRows = callRowsAll.filter(
+    (c) => c.product === laneTag || c.product == null
   );
   const cvRows = cvRowsAll;
   const inMonth = (iso: string) => iso >= monthStart;
@@ -3768,8 +3777,9 @@ export interface SignupFilters {
   /** CIC view only — narrow the queue to the second calls handed to ME */
   cicMine?: boolean;
   /** rows with a missing/unusable phone (null, empty or "deleted…") */
-  /** "missing" = no usable number · "has" = a number exists */
-  phone?: "missing" | "has";
+  /** "missing" = no usable number · "has" = a number exists. A comma list
+   *  ("has,missing") is accepted and means "either" — see the reader. */
+  phone?: string;
   /** v28 potential pipeline: a status value, or "none" = plain sign-ups */
   potential?: string;
   q?: string;
@@ -4065,14 +4075,24 @@ export async function listSignupsPage(
     // sheets' "deleted phone number" or "-" placeholders; "has" = a usable
     // number (the importer nulls digit-free phones since v33.15 — the
     // placeholder branches cover rows imported before that)
-    if (filters.phone === "missing")
-      q = q.or("phone.is.null,phone.eq.,phone.eq.-,phone.ilike.%deleted%");
-    else if (filters.phone === "has")
-      q = q
-        .not("phone", "is", null)
-        .neq("phone", "")
-        .neq("phone", "-")
-        .not("phone", "ilike", "%deleted%");
+    // COMMA-AWARE like every other column funnel (v33.23): the funnel control
+    // is multi-select, so it can emit "has,missing" — which means "either",
+    // i.e. no filter at all. Reading it strictly (=== "has") made that case
+    // fall through as `undefined` while the funnel still showed 2 picks
+    // selected: a control that lies about what it is doing.
+    {
+      const picks = pickList(filters.phone).filter(
+        (p) => p === "has" || p === "missing"
+      );
+      if (picks.length === 1 && picks[0] === "missing")
+        q = q.or("phone.is.null,phone.eq.,phone.eq.-,phone.ilike.%deleted%");
+      else if (picks.length === 1)
+        q = q
+          .not("phone", "is", null)
+          .neq("phone", "")
+          .neq("phone", "-")
+          .not("phone", "ilike", "%deleted%");
+    }
     if (filters.q) {
       const safe = filters.q.replaceAll(",", " ").replaceAll("(", "").replaceAll(")", "");
       q = q.or(`name.ilike.%${safe}%,ep_id.ilike.%${safe}%,phone.ilike.%${safe}%`);
@@ -4636,21 +4656,41 @@ interface ManualLcContact {
   role: string | null;
   email: string | null;
   phone: string | null;
+  product: string | null;
 }
 
 export interface PartnerLcDetail extends PartnerLc {
   calls: number;
   cvs: number;
   lastCallAt: string | null;
+  /** WHICH PRODUCTS THIS LC WAS REACHED FOR (v33.23) — derived, never stored:
+   *  an LC can be both (two already are), and a stored set would drift on
+   *  every merge, rename and delete. [] = never reached. */
+  products: IrProduct[];
   contacts: {
     name: string | null;
     role: string | null;
     email: string | null;
     /** with its country code — the booking collects it (v33.6) */
     phone: string | null;
+    /** GV / GT — a hand-added IR carries their own tag; a booker inherits the
+     *  product of the call they booked */
+    product: IrProduct | null;
     /** set when a person was added BY HAND (v33.9) — only those can be removed */
     manualId?: string | null;
   }[];
+  /** free-text notes on the LC or on one of its IRs (v33.23) */
+  comments: PartnerLcComment[];
+}
+
+export interface PartnerLcComment {
+  id: string;
+  /** null = about the LC as a whole */
+  contactId: string | null;
+  body: string;
+  author: string;
+  authorId: string | null;
+  createdAt: string;
 }
 
 export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDetail[]> {
@@ -4658,7 +4698,7 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
   // Supabase caps one response at 1000 rows — page both whole-table reads on a
   // STABLE key (fetchAll re-runs the builder per page), then restore the
   // newest-first order the counts and the contacts loop rely on
-  const [lcs, calls, cvRows, manual] = await Promise.all([
+  const [lcs, calls, cvRows, manual, commentRows] = await Promise.all([
     listPartnerLcs(viewer),
     fetchAll<{
       partner_lc_id: string | null;
@@ -4668,10 +4708,13 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
       booker_email: string | null;
       booker_phone: string | null;
       status: string;
+      product: string | null;
     }>(() =>
       db()
         .from("ir_calls")
-        .select("partner_lc_id, called_at, booker_name, booker_role, booker_email, booker_phone, status")
+        .select(
+          "partner_lc_id, called_at, booker_name, booker_role, booker_email, booker_phone, status, product"
+        )
         .order("id")
     ),
     fetchAll<{ partner_lc_id: string | null }>(() =>
@@ -4682,16 +4725,39 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
       // pre-0041 grace: the table may not exist yet on a lagging database
       const { data } = await db()
         .from("partner_lc_contacts")
-        .select("id, partner_lc_id, name, role, email, phone")
+        .select("id, partner_lc_id, name, role, email, phone, product")
         .order("created_at");
       return (data ?? []) as ManualLcContact[];
     })().catch(() => [] as ManualLcContact[]),
+    // notes the crew left on an LC or on one of its IRs (v33.23)
+    (async () => {
+      const { data } = await db()
+        .from("partner_lc_comments")
+        .select("id, partner_lc_id, contact_id, body, author_id, author_name, created_at")
+        .order("created_at", { ascending: false })
+        .limit(2000);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (data ?? []) as any[];
+    })().catch(() => []),
   ]);
   const manualByLc = new Map<string, ManualLcContact[]>();
   for (const c of manual) {
     const list = manualByLc.get(c.partner_lc_id) ?? [];
     list.push(c);
     manualByLc.set(c.partner_lc_id, list);
+  }
+  const commentsByLc = new Map<string, PartnerLcComment[]>();
+  for (const c of commentRows) {
+    const list = commentsByLc.get(c.partner_lc_id) ?? [];
+    list.push({
+      id: c.id,
+      contactId: c.contact_id ?? null,
+      body: c.body,
+      author: c.author_name,
+      authorId: c.author_id ?? null,
+      createdAt: c.created_at,
+    });
+    commentsByLc.set(c.partner_lc_id, list);
   }
   calls.sort((a, b) => (a.called_at < b.called_at ? 1 : a.called_at > b.called_at ? -1 : 0));
   const cvCounts = new Map<string, number>();
@@ -4703,7 +4769,11 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
     // one entry per person (most recent first), so the crew knows who to reach
     const seen = new Set<string>();
     const contacts: PartnerLcDetail["contacts"] = (manualByLc.get(lc.id) ?? []).map(
-      (c) => ({ name: c.name, role: c.role, email: c.email, phone: c.phone, manualId: c.id })
+      (c) => ({
+        name: c.name, role: c.role, email: c.email, phone: c.phone,
+        product: (c.product as IrProduct | null) ?? null,
+        manualId: c.id,
+      })
     );
     const seenManual = new Set(
       contacts.map((c) => (c.email || c.name || "").toLowerCase()).filter(Boolean)
@@ -4718,15 +4788,28 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
         role: c.booker_role,
         email: c.booker_email,
         phone: c.booker_phone,
+        // a booker is tagged by the call they booked
+        product: (c.product as IrProduct | null) ?? null,
       });
       if (contacts.length >= 5) break;
     }
+    // every product this LC was actually reached for, calls + hand-added IRs
+    const products = [
+      ...new Set(
+        [
+          ...mine.map((c) => c.product),
+          ...(manualByLc.get(lc.id) ?? []).map((c) => c.product),
+        ].filter((p): p is IrProduct => p === "GV" || p === "GT")
+      ),
+    ].sort();
     return {
       ...lc,
       calls: mine.length,
       cvs: cvCounts.get(lc.id) ?? 0,
       lastCallAt: mine[0]?.called_at ?? null,
+      products,
       contacts,
+      comments: (commentsByLc.get(lc.id) ?? []),
     };
   });
 }
@@ -4766,6 +4849,9 @@ export interface IrCallRow {
   /** the IANA zone the IR booked in (v33.22) — null for pre-0047 bookings,
    *  where `bookerZoneFor` falls back to the LC's zone or country */
   booker_tz: string | null;
+  /** GV or GT — decided when the call was booked (v33.23). Null = the host
+   *  works both products (or neither); such a call shows on BOTH floors. */
+  product: IrProduct | null;
 }
 
 /** IR calls — one SHARED international-relations effort: every module member
@@ -4782,31 +4868,21 @@ export async function listIrCalls(
   if (!_hasConsiderationAccess(viewer))
     return { scheduled: [], rows: [], total: 0, page: 0 };
 
-  // IGV AND IGT CONSIDERATION ARE SEPARATE FLOORS (v33.15).
+  // IGV AND IGT CONSIDERATION ARE SEPARATE FLOORS (v33.15, corrected v33.23).
   //
   // They market different programmes to different LCs and were reading each
-  // other's whole call log. `ir_calls` carries no product column — a call
-  // belongs to whoever made it — so the split is by the OWNER's function: an
-  // IGV consideration member sees calls made by IGV people, IGT by IGT. The
-  // LCP/admin and anyone who oversees both still see everything, and a
-  // consideration person attached to no product keeps the full view rather
-  // than an empty one.
+  // other's whole call log. The split USED to go by the owner's CURRENT
+  // functions — which meant a member who works both products put their calls
+  // on both floors, and a member who changed function retroactively moved
+  // every call they had ever made. Since 0048 the call carries its own
+  // `product`, so the floor is a fact about the call.
+  //
+  // An UNTAGGED call (a host who works both, or neither) stays visible to
+  // everyone: null means "we don't know", never "hide it".
   const mine = considerationFunctions(viewer);
-  let ownerIds: string[] | null = null;
   const seesBoth =
     viewer.isAdmin || viewer.role === "LCP" || mine.length !== 1;
-  if (!seesBoth) {
-    const { data: peers } = await db()
-      .from("members")
-      .select("id, functions, sub_functions");
-    ownerIds = ((peers ?? []) as {
-      id: string; functions: string[] | null; sub_functions: string[] | null;
-    }[])
-      .filter((m) =>
-        [...(m.functions ?? []), ...(m.sub_functions ?? [])].includes(mine[0])
-      )
-      .map((m) => m.id);
-  }
+  const laneProduct: string | null = seesBoth ? null : mine[0] === "IGT" ? "GT" : "GV";
 
   const from = Math.max(0, page) * pageSize;
   let schedQ = db()
@@ -4825,10 +4901,10 @@ export async function listIrCalls(
     schedQ = schedQ.gte("called_at", range.fromIso).lte("called_at", range.toIso);
     logQ = logQ.gte("called_at", range.fromIso).lte("called_at", range.toIso);
   }
-  if (ownerIds) {
-    // an empty peer list would match nothing, which is the right answer
-    schedQ = schedQ.in("member_id", ownerIds);
-    logQ = logQ.in("member_id", ownerIds);
+  if (laneProduct) {
+    const own = `product.eq.${laneProduct},product.is.null`;
+    schedQ = schedQ.or(own);
+    logQ = logQ.or(own);
   }
   const [sched, log] = await Promise.all([
     schedQ.limit(500),
@@ -4881,9 +4957,21 @@ const _cvSafe = (s: string) =>
 
 /** The consideration CV pool, searchable server-side (name / skills /
  *  extracted text / industry / file name / LC / summary). Paged 50. */
+export interface CvFilters {
+  q?: string;
+  /** partner LC id */
+  lc?: string;
+  /** comma list, matching the column funnel's multi-select */
+  industry?: string;
+  status?: string;
+  uploader?: string;
+  /** "has" | "missing" — a reachable number or not */
+  phone?: string;
+}
+
 export async function listCvsPage(
   viewer: Viewer,
-  filters: { q?: string; lc?: string },
+  filters: CvFilters,
   page = 0,
   pageSize = 50
 ): Promise<{ rows: CvRow[]; total: number; page: number }> {
@@ -4892,6 +4980,29 @@ export async function listCvsPage(
   const build = () => {
     let q = db().from("cvs").select("*", { count: "exact" });
     if (filters.lc) q = q.eq("partner_lc_id", filters.lc);
+    // COLUMN FUNNELS (v33.23) — the house rule: if it is a column, you filter
+    // it from the column. All comma-aware, because the funnel is multi-select.
+    {
+      const picks = pickList(filters.industry);
+      if (picks.length === 1) q = q.eq("industry", picks[0]);
+      else if (picks.length > 1) q = q.in("industry", picks);
+    }
+    {
+      const picks = pickList(filters.status);
+      if (picks.length === 1) q = q.eq("extraction_status", picks[0]);
+      else if (picks.length > 1) q = q.in("extraction_status", picks);
+    }
+    {
+      const picks = pickList(filters.uploader);
+      if (picks.length === 1) q = q.eq("uploader_name", picks[0]);
+      else if (picks.length > 1) q = q.in("uploader_name", picks);
+    }
+    {
+      const picks = pickList(filters.phone).filter((p) => p === "has" || p === "missing");
+      if (picks.length === 1 && picks[0] === "missing")
+        q = q.or("phone.is.null,phone.eq.");
+      else if (picks.length === 1) q = q.not("phone", "is", null).neq("phone", "");
+    }
     if (filters.q) {
       // every word must match at least one field (AND across .or() calls)
       const words = _cvSafe(filters.q).split(/\s+/).filter(Boolean).slice(0, 6);

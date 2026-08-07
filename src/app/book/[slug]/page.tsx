@@ -1,5 +1,7 @@
 import { cache } from "react";
+import { headers } from "next/headers";
 import { getBookingPage } from "@/server/data";
+import { isValidZone } from "@/lib/timezones";
 import { db } from "@/lib/supabase";
 import { ThemeToggle } from "@/components/crm/theme-toggle";
 import { BookingView, BookingCredit } from "@/components/crm/booking-view";
@@ -52,6 +54,21 @@ export default async function BookPage({
     : { data: [] };
   const knownLcs = ((lcRows ?? []) as { name: string; country: string | null }[]);
 
+  // WHERE THE REQUEST APPEARS TO COME FROM (v33.23).
+  //
+  // The page's clock comes from the BROWSER — that is the device the IR's own
+  // calendar runs on, and it is what Google Calendar reads too. But a browser
+  // reports the machine's zone, so someone testing through a VPN sees no
+  // change at all, and a traveller's laptop can lag behind them.
+  //
+  // Vercel resolves the caller's IP to a zone at the edge, for free. It is a
+  // SECOND opinion, never the verdict: when it disagrees with the browser the
+  // page offers a one-tap switch and says where it thinks they are, rather
+  // than overriding a clock we can actually trust.
+  const h = await headers();
+  const ipZoneRaw = h.get("x-vercel-ip-timezone");
+  const ipZone = isValidZone(ipZoneRaw) ? ipZoneRaw : null;
+
   return (
     <main className="aurora relative flex min-h-screen items-center justify-center overflow-hidden bg-sidebar p-4">
       <ThemeToggle className="absolute right-4 top-4 z-10 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
@@ -62,6 +79,7 @@ export default async function BookPage({
           slotMinutes={data.slotMinutes}
           days={data.days}
           knownLcs={knownLcs}
+          ipZone={ipZone}
         />
       ) : (
         <div className="rise-in relative z-10 w-full max-w-md rounded-2xl bg-card p-8 text-center shadow-2xl">

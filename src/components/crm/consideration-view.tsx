@@ -5,11 +5,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   CalendarClock, Check, ChevronDown, ClipboardCheck, Copy, ExternalLink,
-  Building2, FileText, Globe2, ImagePlus, Link2, Loader2, Mail, Pencil, Phone, Plus, Send,
+  Building2, FileText, Globe2, ImagePlus, Link2, Loader2, Mail, MessageSquare,
+  Pencil, Phone, Plus, Send,
   Search, Settings2, Sparkles, Trash2, Upload, UserRound, Video, X,
 } from "lucide-react";
 import {
-  addPartnerLc, cancelIrCall, completeIrCall, confirmCvUpload, deleteCv,
+  addPartnerLc, addPartnerLcComment, cancelIrCall, completeIrCall, confirmCvUpload,
+  deleteCv, deletePartnerLcComment,
   addPartnerLcContact, createIgtExpectationDraft, deleteIrCall, deletePartnerLc,
   getCvFileUrl,
   previewIgtExpectationMail,
@@ -21,12 +23,14 @@ import type {
   PartnerLcDetail,
   CvRow, IrAvailabilityRow, IrCallRow, MyIrBooking, PartnerLc,
 } from "@/server/data";
-import { normalizePhone, fmtDateTime } from "@/lib/types";
+import { IR_ROLES, normalizePhone, fmtDateTime } from "@/lib/types";
+import { phoneExample } from "@/lib/dial-codes";
 import { whenLabelInZone } from "@/lib/timezones";
 import { cn } from "@/lib/utils";
 import { CountryInput } from "./country-input";
 import {
-  PageSizePicker, resizableCellStyle, ResizableHead, SortHeader, TableSettings, useTableColumns, useTableSort, type TableColumn,
+  ColumnFilter, PageSizePicker, resizableCellStyle, ResizableHead, SortHeader,
+  TableSettings, useTableColumns, useTableSort, type TableColumn,
 } from "./data-table-kit";
 import { FileDrop } from "./file-drop";
 import { Hint } from "./hint";
@@ -125,6 +129,31 @@ interface ViewerInfo {
  *  outlive the term that built them; this is the page you hand over.
  *
  *  Clicking an LC in the call log lands here, on that LC. */
+/** A compact "any / one value" filter, the shape the rest of the app uses on
+ *  its filter bars. Empty string = no filter. */
+function FilterPill({
+  value, onChange, placeholder, options,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  options: [string, string][];
+}) {
+  return (
+    <Select value={value || "all"} onValueChange={(v) => onChange(v === "all" ? "" : v)}>
+      <SelectTrigger className={cn("h-9 w-auto min-w-36", value && "border-primary text-primary")}>
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="all">{placeholder}</SelectItem>
+        {options.map(([v, label]) => (
+          <SelectItem key={v} value={v}>{label}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 function PartnerLcsTab({
   lcs,
   highlight,
@@ -138,19 +167,43 @@ function PartnerLcsTab({
   const [removing, setRemoving] = useState<PartnerLcDetail | null>(null);
   const [editingLc, setEditingLc] = useState<PartnerLcDetail | null>(null);
   const [addingIrTo, setAddingIrTo] = useState<PartnerLcDetail | null>(null);
+  const [notesFor, setNotesFor] = useState<PartnerLcDetail | null>(null);
   const [lcForm, setLcForm] = useState({ name: "", country: "" });
-  const [irForm, setIrForm] = useState({ name: "", role: "", email: "", phone: "" });
+  const [irForm, setIrForm] =
+    useState({ name: "", role: "", email: "", phone: "", product: "" });
+  // WHAT THE REGISTRY IS ASKED (v33.23): which country, which programme we
+  // reached them for, and whether we have actually done anything with them.
+  const [fCountry, setFCountry] = useState("");
+  const [fProduct, setFProduct] = useState<"" | "GV" | "GT" | "both" | "none">("");
+  const [fHas, setFHas] = useState<"" | "calls" | "cvs" | "nothing">("");
   const [pending, start] = useTransition();
   const router = useRouter();
   const detailed = lcs.filter((l): l is PartnerLcDetail => "calls" in l);
   const needle = q.trim().toLowerCase();
-  const shown = detailed.filter(
-    (l) =>
-      !needle ||
-      l.name.toLowerCase().includes(needle) ||
-      (l.country ?? "").toLowerCase().includes(needle) ||
-      l.contacts.some((c) => (c.name ?? "").toLowerCase().includes(needle))
+  const countryOptions = useMemo(
+    () => [...new Set(detailed.map((l) => l.country).filter(Boolean) as string[])].sort(),
+    [detailed]
   );
+  const shown = detailed.filter((l) => {
+    if (
+      needle &&
+      !l.name.toLowerCase().includes(needle) &&
+      !(l.country ?? "").toLowerCase().includes(needle) &&
+      !l.contacts.some((c) => (c.name ?? "").toLowerCase().includes(needle))
+    )
+      return false;
+    if (fCountry && (l.country ?? "") !== fCountry) return false;
+    if (fProduct) {
+      const p = l.products ?? [];
+      if (fProduct === "both" && p.length < 2) return false;
+      if (fProduct === "none" && p.length > 0) return false;
+      if ((fProduct === "GV" || fProduct === "GT") && !p.includes(fProduct)) return false;
+    }
+    if (fHas === "calls" && l.calls === 0) return false;
+    if (fHas === "cvs" && l.cvs === 0) return false;
+    if (fHas === "nothing" && (l.calls > 0 || l.cvs > 0)) return false;
+    return true;
+  });
   // the linked-to LC first, so the click lands on it
   const ordered = highlight
     ? [...shown].sort((a, b) => (a.id === highlight ? -1 : b.id === highlight ? 1 : 0))
@@ -168,6 +221,42 @@ function PartnerLcsTab({
             onChange={(e) => setQ(e.target.value)}
           />
         </div>
+        <FilterPill
+          value={fCountry}
+          onChange={setFCountry}
+          placeholder="🌍 Country"
+          options={countryOptions.map((c) => [c, c])}
+        />
+        <FilterPill
+          value={fProduct}
+          onChange={(v) => setFProduct(v as typeof fProduct)}
+          placeholder="Reached as"
+          options={[
+            ["GV", "GV"],
+            ["GT", "GT"],
+            ["both", "Both"],
+            ["none", "Never reached"],
+          ]}
+        />
+        <FilterPill
+          value={fHas}
+          onChange={(v) => setFHas(v as typeof fHas)}
+          placeholder="Anything on file"
+          options={[
+            ["calls", "📞 Has calls"],
+            ["cvs", "📄 Has CVs"],
+            ["nothing", "Nothing yet"],
+          ]}
+        />
+        {fCountry || fProduct || fHas ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => { setFCountry(""); setFProduct(""); setFHas(""); }}
+          >
+            <X className="size-4" /> Clear
+          </Button>
+        ) : null}
         <span className="text-sm text-muted-foreground">
           {ordered.length} of {detailed.length}
         </span>
@@ -241,7 +330,7 @@ function PartnerLcsTab({
         onOpenChange={(o) => {
           if (!o) {
             setAddingIrTo(null);
-            setIrForm({ name: "", role: "", email: "", phone: "" });
+            setIrForm({ name: "", role: "", email: "", phone: "", product: "" });
           }
         }}
       >
@@ -262,13 +351,37 @@ function PartnerLcsTab({
                 placeholder="Their name"
               />
             </div>
-            <div className="grid gap-1.5">
-              <Label>Role</Label>
-              <Input
-                value={irForm.role}
-                onChange={(e) => setIrForm((f) => ({ ...f, role: e.target.value }))}
-                placeholder="LCVP oGT, IR Manager…"
-              />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-1.5">
+                {/* A LIST, not free text (v33.23) — the same one the public
+                    booking page validates against, so the registry stops
+                    holding "LCVP oGT", "IR Manager" and "uw" in one column. */}
+                <Label>Role</Label>
+                <Select
+                  value={irForm.role || undefined}
+                  onValueChange={(v) => setIrForm((f) => ({ ...f, role: v }))}
+                >
+                  <SelectTrigger><SelectValue placeholder="Pick their role…" /></SelectTrigger>
+                  <SelectContent>
+                    {IR_ROLES.map((r) => (
+                      <SelectItem key={r} value={r}>{r}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-1.5">
+                <Label>We reach them for</Label>
+                <Select
+                  value={irForm.product || undefined}
+                  onValueChange={(v) => setIrForm((f) => ({ ...f, product: v }))}
+                >
+                  <SelectTrigger><SelectValue placeholder="GV or GT…" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="GV">GV</SelectItem>
+                    <SelectItem value="GT">GT</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="grid gap-1.5">
@@ -284,7 +397,10 @@ function PartnerLcsTab({
                 <Input
                   value={irForm.phone}
                   onChange={(e) => setIrForm((f) => ({ ...f, phone: e.target.value }))}
-                  placeholder="+90… with the country code"
+                  // an example from THEIR country, not a Turkish one (v33.23)
+                  placeholder={
+                    phoneExample(addingIrTo?.country) ?? "+90… with the country code"
+                  }
                 />
               </div>
             </div>
@@ -309,7 +425,7 @@ function PartnerLcsTab({
                   }
                   toast.success(`${irForm.name} added to ${target.name}`);
                   setAddingIrTo(null);
-                  setIrForm({ name: "", role: "", email: "", phone: "" });
+                  setIrForm({ name: "", role: "", email: "", phone: "", product: "" });
                   router.refresh();
                 });
               }}
@@ -358,6 +474,13 @@ function PartnerLcsTab({
         </DialogContent>
       </Dialog>
 
+      <LcNotesDialog
+        lc={notesFor}
+        onClose={() => setNotesFor(null)}
+        viewerId={viewer.id}
+        canManage={viewer.canManageLcs}
+      />
+
       {ordered.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
@@ -382,6 +505,30 @@ function PartnerLcsTab({
                   {lc.country ? (
                     <Badge variant="secondary" className="font-normal">{lc.country}</Badge>
                   ) : null}
+                  {/* WHICH PROGRAMME WE REACHED THEM FOR (v33.23) — derived
+                      from their calls and hand-added IRs, so it can say BOTH */}
+                  {(lc.products ?? []).map((p) => (
+                    <Badge
+                      key={p}
+                      className="font-semibold"
+                      style={{ backgroundColor: p === "GV" ? "#F85A40" : "#0CB9C1" }}
+                    >
+                      {p}
+                    </Badge>
+                  ))}
+                  <Hint label="Notes on this LC and its IRs">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-7 shrink-0 text-muted-foreground hover:text-primary"
+                      onClick={() => setNotesFor(lc)}
+                    >
+                      <MessageSquare className="size-3.5" />
+                      {lc.comments?.length ? (
+                        <span className="ml-0.5 text-[10px] font-bold">{lc.comments.length}</span>
+                      ) : null}
+                    </Button>
+                  </Hint>
                   {viewer.canManageLcs ? (
                     <Hint label="Edit this LC's name or country">
                       <Button
@@ -438,9 +585,18 @@ function PartnerLcsTab({
                         <p className="min-w-0 break-words text-sm font-medium" dir="auto">
                           {c.name || "—"}
                         </p>
-                        {c.role ? (
-                          <p className="text-xs text-muted-foreground" dir="auto">{c.role}</p>
-                        ) : null}
+                        <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground" dir="auto">
+                          {c.role ? <span>{c.role}</span> : null}
+                          {c.product ? (
+                            <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
+                              {c.product}
+                            </Badge>
+                          ) : null}
+                          {c.manualId &&
+                          (lc.comments ?? []).some((n) => n.contactId === c.manualId) ? (
+                            <span title="has notes">💬</span>
+                          ) : null}
+                        </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5">
                         {c.phone ? (
@@ -473,6 +629,129 @@ function PartnerLcsTab({
         </div>
       )}
     </div>
+  );
+}
+
+/** NOTES ON AN LC — and on the individual IRs inside it (v33.23).
+ *
+ *  What the crew learns between calls used to live in one call's notes field,
+ *  where the next person never looks. A note is either about the ENTITY ("their
+ *  oGV peak starts in March") or about a PERSON ("Sarah is the one who actually
+ *  answers"), so the composer asks which. */
+function LcNotesDialog({
+  lc, onClose, viewerId, canManage,
+}: {
+  lc: PartnerLcDetail | null;
+  onClose: () => void;
+  viewerId: string;
+  canManage: boolean;
+}) {
+  const [body, setBody] = useState("");
+  const [about, setAbout] = useState("lc");
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  // only HAND-ADDED IRs have a stable id to hang a note on; a booker is a
+  // de-duplicated snapshot of whoever booked, not a row
+  const people = (lc?.contacts ?? []).filter((c) => c.manualId);
+  const notes = lc?.comments ?? [];
+  const nameOf = (id: string | null) =>
+    id ? people.find((p) => p.manualId === id)?.name ?? "an IR" : null;
+
+  return (
+    <Dialog
+      open={!!lc}
+      onOpenChange={(o) => { if (!o) { onClose(); setBody(""); setAbout("lc"); } }}
+    >
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle dir="auto">Notes — {lc?.name}</DialogTitle>
+          <DialogDescription>
+            What the next person needs to know before they call. Everyone in
+            consideration reads these.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-2">
+          {people.length > 0 ? (
+            <Select value={about} onValueChange={setAbout}>
+              <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="lc">About the LC</SelectItem>
+                {people.map((p) => (
+                  <SelectItem key={p.manualId!} value={p.manualId!}>
+                    About {p.name ?? "this IR"}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
+          <Textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={3}
+            dir="auto"
+            placeholder="Their peak, who answers, what they asked for…"
+          />
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              disabled={pending || body.trim().length < 2}
+              onClick={() =>
+                start(async () => {
+                  if (!lc) return;
+                  const res = await addPartnerLcComment({
+                    partnerLcId: lc.id,
+                    contactId: about === "lc" ? null : about,
+                    body,
+                  });
+                  if (!res.ok) toast.error(res.error);
+                  else { setBody(""); toast.success("Noted 📝"); router.refresh(); }
+                })
+              }
+            >
+              <Plus className="size-3.5" /> Add the note
+            </Button>
+          </div>
+        </div>
+
+        {notes.length === 0 ? (
+          <p className="py-4 text-center text-sm text-muted-foreground">
+            Nothing written down yet.
+          </p>
+        ) : (
+          <div className="grid gap-2">
+            {notes.map((n) => (
+              <div key={n.id} className="rounded-lg border p-2.5">
+                <p className="whitespace-pre-wrap break-words text-sm" dir="auto">{n.body}</p>
+                <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs text-muted-foreground" dir="auto">
+                    {n.contactId ? `about ${nameOf(n.contactId)} · ` : ""}
+                    {n.author} · {fmtDateTime(n.createdAt)}
+                  </p>
+                  {n.authorId === viewerId || canManage ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 text-xs text-muted-foreground hover:text-destructive"
+                      disabled={pending}
+                      onClick={() =>
+                        start(async () => {
+                          const res = await deletePartnerLcComment(n.id);
+                          if (!res.ok) toast.error(res.error);
+                          else router.refresh();
+                        })
+                      }
+                    >
+                      Remove
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1034,6 +1313,14 @@ export function ConsiderationView({
   const router = useRouter();
   const searchParams = useSearchParams();
   const [navPending, startNav] = useTransition();
+  // the CV table's column funnels live in the URL, like every other table's
+  const cvFilters = {
+    lc: searchParams.get("cvlc") ?? "",
+    industry: searchParams.get("industry") ?? "",
+    status: searchParams.get("status") ?? "",
+    uploader: searchParams.get("uploader") ?? "",
+    phone: searchParams.get("cvphone") ?? "",
+  };
   // partner LCs added inline this session (before the next server refresh)
   const [addedLcs, setAddedLcs] = useState<PartnerLc[]>([]);
   const allLcs = useMemo(() => {
@@ -1133,6 +1420,7 @@ export function ConsiderationView({
             q={q}
             viewer={viewer}
             setParams={setParams}
+            cvFilters={cvFilters}
           />
         )}
       </div>
@@ -1625,6 +1913,7 @@ const CALL_STATUS_CHIP: Record<
 const CALL_COLUMNS: TableColumn[] = [
   { key: "when", label: "When" },
   { key: "lc", label: "Partner LC", required: true },
+  { key: "product", label: "Product" },
   { key: "by", label: "By" },
   { key: "status", label: "Status" },
   { key: "notes", label: "Notes" },
@@ -1658,6 +1947,7 @@ const dayName = (iso: string) =>
 const CALL_SORTERS: Record<string, (c: IrCallRow) => string | number | null> = {
   when: (c) => c.called_at,
   lc: (c) => c.partner_lc_name,
+  product: (c) => c.product,
   by: (c) => c.member_name,
   status: (c) => c.status,
   notes: (c) => c.notes,
@@ -1743,6 +2033,8 @@ function IrCallsTab({
   // it's with. Client-side only — the list is already in hand.
   const [schedWith, setSchedWith] = useState("");
   const [schedLc, setSchedLc] = useState("");
+  // v33.23 — which programme the call is for; the two floors book different LCs
+  const [schedProduct, setSchedProduct] = useState("");
   // v33.18 — "Mine" is the filter everyone reaches for first, so it's a chip,
   // not a dropdown entry. The "With" list therefore leaves the viewer OUT
   // (matched by id, never by name — two members can share a first name).
@@ -1759,6 +2051,7 @@ function IrCallsTab({
     (c) =>
       (!schedMine || c.member_id === viewer.id) &&
       (!schedWith || c.member_name === schedWith) &&
+      (!schedProduct || c.product === schedProduct) &&
       (!schedLc || c.partner_lc_name === schedLc)
   );
 
@@ -1807,6 +2100,19 @@ function IrCallsTab({
         ) : null;
       case "by":
         return <span dir="auto">{c.member_name}</span>;
+      case "product":
+        // GV / GT, decided when the call was booked (v33.23). "—" means the
+        // host works both products, so nobody guessed on their behalf.
+        return c.product ? (
+          <Badge
+            className="font-semibold"
+            style={{ backgroundColor: c.product === "GV" ? "#F85A40" : "#0CB9C1" }}
+          >
+            {c.product}
+          </Badge>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        );
       case "status":
         return (
           <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", chip.className)}>
@@ -1929,13 +2235,29 @@ function IrCallsTab({
                     ))}
                   </SelectContent>
                 </Select>
-                {schedMine || schedWith || schedLc ? (
+                <Select
+                  value={schedProduct || "__all"}
+                  onValueChange={(v) => setSchedProduct(v === "__all" ? "" : v)}
+                >
+                  <SelectTrigger size="sm" className="w-32 text-xs">
+                    <SelectValue placeholder="Product" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all">GV + GT</SelectItem>
+                    <SelectItem value="GV">GV</SelectItem>
+                    <SelectItem value="GT">GT</SelectItem>
+                  </SelectContent>
+                </Select>
+                {schedMine || schedWith || schedLc || schedProduct ? (
                   <Hint label="Clear the filters">
                     <Button
                       variant="ghost"
                       size="icon"
                       className="size-8 text-muted-foreground"
-                      onClick={() => { setSchedMine(false); setSchedWith(""); setSchedLc(""); }}
+                      onClick={() => {
+                        setSchedMine(false); setSchedWith("");
+                        setSchedLc(""); setSchedProduct("");
+                      }}
                     >
                       <X className="size-4" />
                     </Button>
@@ -2681,7 +3003,7 @@ const STATUS_CHIP: Record<
 };
 
 function CvsTab({
-  data, lcs, onLcCreated, q, viewer, setParams,
+  data, lcs, onLcCreated, q, viewer, setParams, cvFilters,
   pageSize, pageSizeOptions,
 }: {
   pageSize: number;
@@ -2692,6 +3014,8 @@ function CvsTab({
   q: string;
   viewer: ViewerInfo;
   setParams: (patch: Record<string, string | null>) => void;
+  /** the column funnels' current values, straight from the URL */
+  cvFilters: { lc: string; industry: string; status: string; uploader: string; phone: string };
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -2830,6 +3154,78 @@ function CvsTab({
 
   // ⚙ Columns + click-to-sort for the desktop table (phones keep the cards)
   const cols = useTableColumns("consideration-cvs-v2", CV_COLUMNS);
+
+  /** COLUMN FUNNELS (v33.23) — the same affordance every other table in Sodio
+   *  has: a funnel beside the column name, filtering SERVER-side so it filters
+   *  the whole pool and not just the page you happen to be on. */
+  const uploaderOptions = useMemo(
+    () => [...new Set(data.rows.map((r) => r.uploader_name).filter(Boolean))].sort(),
+    [data.rows]
+  );
+  const lcOptions = useMemo(
+    () => lcs.map((l) => ({ value: l.id, label: l.name })),
+    [lcs]
+  );
+  const cvFilter = (key: string) => {
+    const pick = (
+      label: string,
+      value: string,
+      options: { value: string; label: string }[],
+      param: string
+    ) => (
+      <ColumnFilter
+        label={label}
+        value={value}
+        options={options}
+        onChange={(v) => setParams({ [param]: v || null, page: null })}
+      />
+    );
+    switch (key) {
+      case "industry":
+        return pick(
+          "Industry", cvFilters.industry,
+          INDUSTRY_OPTIONS.map((i) => ({ value: i, label: i })), "industry"
+        );
+      case "status":
+        return pick(
+          "AI status", cvFilters.status,
+          [
+            { value: "done", label: "Done" },
+            { value: "pending", label: "Pending" },
+            { value: "failed", label: "Failed" },
+            { value: "unsupported", label: "Unsupported" },
+          ],
+          "status"
+        );
+      case "uploader":
+        return uploaderOptions.length > 1
+          ? pick(
+              "Uploaded by", cvFilters.uploader,
+              uploaderOptions.map((u) => ({ value: u, label: u })), "uploader"
+            )
+          : null;
+      case "lc":
+        return lcOptions.length > 1
+          ? pick("Partner LC", cvFilters.lc, lcOptions, "cvlc")
+          : null;
+      // the phone funnel hangs on Contact, the column that DRAWS the number —
+      // Phone itself ships hidden, exactly as on the sign-ups table
+      case "contact":
+        if (cols.visible.some((c) => c.key === "phone")) return null;
+      // falls through
+      case "phone":
+        return pick(
+          "Phone", cvFilters.phone,
+          [
+            { value: "has", label: "✅ Has a number" },
+            { value: "missing", label: "📵 No number" },
+          ],
+          "cvphone"
+        );
+      default:
+        return null;
+    }
+  };
   const { sorted: sortedCvs, sortKey, dir, toggle: toggleSort } =
     useTableSort(data.rows, CV_SORTERS);
 
@@ -2998,12 +3394,16 @@ function CvsTab({
             </div>
             <div className="space-y-1.5">
               <Label>Partner LC</Label>
+              {/* NO LC MANAGEMENT FROM HERE (v33.23, the LCP: "if I want to
+                  edit them I will go to partner LCs"). Uploading a CV is not
+                  the moment to rename or delete an entity — the ⚙ dialog is
+                  one tab away. Creating a new LC inline STAYS: a CV can
+                  legitimately arrive from an LC we have never called. */}
               <PartnerLcPicker
                 lcs={lcs}
                 value={lcId}
                 onChange={setLcId}
                 onCreated={onLcCreated}
-                manage={{ canEdit: viewer.isVp }}
               />
             </div>
           </div>
@@ -3066,16 +3466,22 @@ function CvsTab({
                       key={c.key}
                       className={c.key === "actions" ? "text-right" : undefined}
                     >
-                      {c.label}
+                      <span className="inline-flex items-center gap-1">
+                        {c.label}
+                        {cvFilter(c.key)}
+                      </span>
                     </TableHead>
                   ) : (
                     <TableHead key={c.key}>
-                      <SortHeader
-                        label={c.label}
-                        onClick={() => toggleSort(c.key, c.key === "created" ? "desc" : "asc")}
-                        active={sortKey === c.key}
-                        dir={dir}
-                      />
+                      <span className="inline-flex items-center gap-1">
+                        <SortHeader
+                          label={c.label}
+                          onClick={() => toggleSort(c.key, c.key === "created" ? "desc" : "asc")}
+                          active={sortKey === c.key}
+                          dir={dir}
+                        />
+                        {cvFilter(c.key)}
+                      </span>
                     </TableHead>
                   )
                 )}

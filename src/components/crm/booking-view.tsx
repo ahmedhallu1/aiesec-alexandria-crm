@@ -5,9 +5,10 @@ import { toast } from "sonner";
 import { CalendarCheck2, Clock, Globe2, Mail, Phone, Video, Loader2 } from "lucide-react";
 import { bookIrCall } from "@/server/actions";
 import type { BookingDay } from "@/server/data";
-import { normalizeLcName, normalizePhone } from "@/lib/types";
+import { IR_ROLES, normalizeLcName, normalizePhone } from "@/lib/types";
+import { phoneExample } from "@/lib/dial-codes";
 import {
-  COUNTRY_ZONES, countryForZone, isValidZone, zoneOffsetLabel,
+  COUNTRY_ZONES, countryForZone, isValidZone, zoneCity, zoneOffsetLabel,
 } from "@/lib/timezones";
 import { cn } from "@/lib/utils";
 import { CountryInput } from "./country-input";
@@ -73,11 +74,11 @@ function allZones(current: string): string[] {
  *  strip (length = the member's max-advance setting) → the free slots of the
  *  picked day → LC name + the IR's EMAIL (calendar invite + Meet land there)
  *  → bookIrCall. Everything time-related arrives precomputed from the server. */
-/** who the IR is inside their own LC — asked on the public page (v29) */
-const BOOKER_ROLES = ["Member", "MM (Team Leader / Coordinator)", "LCVP", "LCP"] as const;
+/** who the IR is inside their own LC — one list, shared with the registry's
+ *  Add-an-IR dialog and validated server-side (IR_ROLES, v33.23) */
 
 export function BookingView({
-  slug, memberName, slotMinutes, days, knownLcs = [],
+  slug, memberName, slotMinutes, days, knownLcs = [], ipZone = null,
 }: {
   slug: string;
   memberName: string;
@@ -85,6 +86,9 @@ export function BookingView({
   days: BookingDay[];
   /** LCs we already know — suggested so a re-typed name never duplicates */
   knownLcs?: { name: string; country: string | null }[];
+  /** the zone the CONNECTION resolves to at Vercel's edge (v33.23) — a second
+   *  opinion the page offers when it disagrees with the browser's own clock */
+  ipZone?: string | null;
 }) {
   const [pending, start] = useTransition();
   const [dayIdx, setDayIdx] = useState(0);
@@ -151,6 +155,7 @@ export function BookingView({
     if (hit?.country) { setCountryTouched(true); setCountry(hit.country); }
   };
   // the crew reaches IRs on WhatsApp, so the number must carry a country code
+  const phoneEg = phoneExample(country);
   const phoneCheck = normalizePhone(phone);
   const phoneOk = phoneCheck.ok && phoneCheck.value.startsWith("+");
 
@@ -263,6 +268,21 @@ export function BookingView({
           · Cairo is {zoneOffsetLabel(new Date(), "Africa/Cairo")}
         </span>
       </div>
+      {/* THE SECOND OPINION. A browser reports the machine's zone, so a
+          traveller (or anyone on a VPN) can be looking at the wrong clock and
+          never notice. If the connection resolves somewhere else, say so and
+          make it one tap — never silently override the device. */}
+      {ipZone && ipZone !== tz ? (
+        <p className="mt-1.5 text-center text-xs">
+          <button
+            type="button"
+            onClick={() => { setTz(ipZone); setCountryTouched(false); }}
+            className="rounded-full border border-primary/40 bg-primary/5 px-3 py-1 font-medium text-primary transition-colors hover:bg-primary/10"
+          >
+            Looks like you&apos;re in {zoneCity(ipZone)} — show {zoneCity(ipZone)} time?
+          </button>
+        </p>
+      ) : null}
 
       {viewDays.length === 0 ? (
         <p className="mt-8 pb-2 text-center text-sm text-muted-foreground">
@@ -381,7 +401,13 @@ export function BookingView({
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     onBlur={() => { if (phoneOk) setPhone(phoneCheck.value); }}
-                    placeholder="+20 10 1234 5678"
+                    // AN EXAMPLE FROM THEIR COUNTRY (v33.23). It used to show
+                    // an Egyptian number to an IR abroad and a French one in
+                    // the error line — which reads as an instruction, not an
+                    // illustration. Every example here is a real shape for
+                    // that country AND passes normalizePhone if typed
+                    // literally, so nobody is shown something we would reject.
+                    placeholder={phoneEg ?? "+20 10 1234 5678"}
                     className="h-10 pl-8"
                     maxLength={40}
                   />
@@ -389,7 +415,7 @@ export function BookingView({
                 <p className="text-xs text-muted-foreground">
                   {phone.trim() && !phoneOk ? (
                     <span className="font-medium text-destructive">
-                      Include your country code — e.g. +33 6 12 34 56 78.
+                      Include your country code{phoneEg ? ` — e.g. ${phoneEg}` : ""}.
                     </span>
                   ) : (
                     "With your country code, so we can reach you on WhatsApp."
@@ -426,7 +452,7 @@ export function BookingView({
                     <SelectValue placeholder="Pick your role" />
                   </SelectTrigger>
                   <SelectContent>
-                    {BOOKER_ROLES.map((r) => (
+                    {IR_ROLES.map((r) => (
                       <SelectItem key={r} value={r}>{r}</SelectItem>
                     ))}
                   </SelectContent>

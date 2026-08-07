@@ -205,15 +205,24 @@ function DialogHeader({ className, children, ...props }: React.ComponentProps<"d
       className={cn("relative flex flex-col gap-2 text-center sm:text-left", className)}
       {...props}
     >
-      {/* SHOW WHERE TO GRAB IT (v33.21). Dialogs have been movable since v33.8
-          and nothing said so — the header was a handle you had to already know
-          about. The dots sit in the content's own top padding, INSIDE the
-          header, so grabbing them starts the drag like anywhere else on it.
-          Desktop only: the drag itself is desktop-only. */}
+      {/* SHOW WHERE TO GRAB IT (v33.21, fixed in v33.23). Dialogs have been
+          movable since v33.8 and nothing said so — the header was a handle you
+          had to already know about.
+          THE DOTS MUST BE HITTABLE. The first version carried
+          `pointer-events-none`, which meant a press on them was never targeted
+          AT them: the event landed on the DialogContent underneath, whose
+          closest("[data-slot='dialog-header']") is null, so the drag did not
+          start. Every painted pixel of the grip sits in the content's padding
+          ABOVE the header box, so the whole visible affordance was dead and
+          the real handle began a few pixels lower — "the grab is shifted down
+          from the holder". As a DOM child of the header it now matches the
+          hit test like any other part of it.
+          `px-3` widens the target to 40px without moving the icon (a shrink-
+          to-fit absolute box re-centres on the same midline). */}
       <span
         aria-hidden
         title="Drag to move"
-        className="pointer-events-none absolute -top-3.5 left-1/2 hidden -translate-x-1/2 text-muted-foreground/40 md:block"
+        className="absolute -top-3.5 left-1/2 hidden -translate-x-1/2 select-none px-3 text-muted-foreground/40 md:block"
       >
         <GripHorizontal className="size-4" />
       </span>

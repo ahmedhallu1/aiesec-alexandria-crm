@@ -883,6 +883,17 @@ export function SignupsView({
             )
           : null;
       }
+      // THE PHONE FUNNEL HANGS ON QUICK ACTIONS TOO (v33.23). The Phone COLUMN
+      // ships hidden in every view — the number already shows in the quick
+      // actions — and a funnel only renders on a visible column, so on desktop
+      // the has/missing filter was unreachable in practice. Quick actions is
+      // the column that draws the WhatsApp/Call buttons (or prints "no phone"),
+      // which is exactly where the question is asked.
+      case "contact":
+        // never two funnels for one filter: if someone has switched the Phone
+        // column on, it carries its own
+        if (cols.visible.some((c) => c.key === "phone")) return null;
+      // falls through
       case "phone":
         return pick("Phone", filters.phone ?? "", [["has", "✅ Has phone"], ["missing", "📵 Missing phone"]],
           (v) => setParams({ phone: v || null }));

@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v33.22";
+export const PLAYBOOK_VERSION = "v33.23";
 
 interface Props {
   role: string;
@@ -69,6 +69,7 @@ const SECTIONS: Section[] = [
       <><b>Need the room? Collapse the sidebar</b> (v33): the <b>Collapse</b> row at the foot of the nav shrinks it to an icon rail and gives the table ~15rem back. Tabs keep their tooltips, and your choice sticks on that browser.</>,
       <><b>Nicknames are gone</b> (v33) — everyone is their full name everywhere. Two Farahs and two Hanas made &quot;who is this?&quot; a real question exactly where it mattered: the Responsible column, your manager, the leaderboard.</>,
       <><b>Every table is yours to shape</b> 🧩 (v31): hit <b>⚙ Columns</b> on any list — accounts, sign-ups, members, attendance, IR calls, CVs — to <b>drag columns into the order you like</b>, switch extra ones on (project, industry, opens, campaign, person status…) or hide what you don&apos;t use, and <b>Reset</b> when you want the default back. Pick how many rows per page, and click any header to sort. Your layout is remembered on your own device. No more &quot;the sheet was more flexible&quot;.</>,
+      <><b>Every phone box shows an example from YOUR country</b> (v33.23) — a Turkish number is not a hint for someone in Jakarta. Whatever it shows will be accepted if you type it exactly like that.</>,
       <><b>🙋 Mine</b> (v33.22): on <b>Raising</b> and <b>Sign-ups</b>, one tap narrows a list that holds other people&apos;s rows down to your own — your team&apos;s list, your function&apos;s list, or the unowned pool mixed in with yours. In the 📞 CIC tab it shows the second calls handed to you.</>,
       <><b>Anything that floats can be moved — grab it by the dots</b> ⣿ (v33.21): a popup covering the row you opened it about, the Blue Man sitting on your last table rows, the test-view chip. The <b>⣿ handle</b> marks where to grab (a popup&apos;s sits at the top of its title, the Blue Man&apos;s in its blue header). Desktop only — on a phone the popup is the screen.</>,
       <><b>Contacting someone always gets recorded</b>: tap WhatsApp, Call or Email on an account or a sign-up and the link opens as usual — then Sodio asks how it went, with the method already filled in. One tap to log it, or &quot;Not now&quot; if you mis-clicked.</>,
@@ -213,6 +214,9 @@ const SECTIONS: Section[] = [
     audience: "Consideration crew",
     color: "#F48924",
     points: [
+      <><b>The partner-LC registry does the remembering</b> (v33.23): every LC carries a <b>GV / GT badge</b> for what we actually reached them for (it can say both), and you can filter the registry by <b>country</b>, by <b>reached as GV / GT / Both / Never</b>, and by <b>has calls · has CVs · nothing yet</b>. Add <b>notes</b> on an LC or on one of its IRs — their peak, who actually answers, what they asked for — so the next person doesn&apos;t start from zero. Adding an IR now asks for their role from a <b>list</b> and which programme we reach them for.</>,
+      <><b>Every IR call records its product</b> (v33.23): GV or GT, decided when the call is booked and never re-derived, so your call log stays yours even if you change function. The scheduled list filters by it, and the call log has a Product column.</>,
+      <><b>The CV table filters from its columns</b> (v33.23) — Industry, AI status, Uploaded by, Partner LC, and has/no phone number — and it filters the whole pool, not just the page you&apos;re on. Renaming or deleting an LC is <b>not</b> done from the CV tab any more: that lives on <b>Partner LCs</b>.</>,
       <><b>Consideration</b> (sidebar) has two tabs. <b>IR calls</b>: record every International-Relations call — pick the partner LC (or add a new one on the spot), the date &amp; time default to now, drop the call screenshot and it lands named in the system&apos;s Drive folder. The whole crew sees the shared call log.</>,
       <><b>Your personal booking link</b> (v27, supercharged in v28): every consideration member has one. Set it up on the <b>My booking link</b> card, copy <b>sodio.vercel.app/book/your-name</b> and send it to IRs abroad. When they book, their <b>email is collected</b> and they&apos;re <b>invited to a real Google Meet</b> on your calendar — the call lands in Sodio as a <b>scheduled call</b>, with a bell + email to you.</>,
       <><b>Reschedule &amp; cancel, civilized</b> (v28): the IR&apos;s confirmation email carries a <b>manage link</b> to reschedule or cancel (a reason is required). On your side, you can <b>cancel with a reason</b> (they&apos;re emailed) or <b>request a reschedule</b> — they pick a new time from your availability.</>,

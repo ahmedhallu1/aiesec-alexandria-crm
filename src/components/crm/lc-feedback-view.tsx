@@ -284,8 +284,8 @@ export function LcFeedbackView({
                 </Select>
                 <p className="text-xs text-muted-foreground">
                   {chosenTouchPoint
-                    ? "Goes to the people who run the LC's sessions — TM, the LCP and F&L — not to whoever booked it."
-                    : "Every past session you were part of shows here — you don't have to have been marked present."}
+                    ? "Goes to the people who run the LC's touch points — TM, the LCP and F&L — not to whoever booked it."
+                    : "Every past touch point you were part of shows here — you don't have to have been marked present."}
                 </p>
               </>
             ) : (
@@ -468,7 +468,7 @@ export function LcFeedbackView({
  *  closed, archived, or answered back to whoever wrote it. */
 const KIND_TABS = [
   { key: "concern", label: "😟 Concerns" },
-  { key: "session", label: "📅 Sessions" },
+  { key: "session", label: "📅 Touch points" },
   { key: "shoutout", label: "🎉 Shout-outs" },
 ] as const;
 
@@ -524,7 +524,7 @@ function LcFeedbackInbox({
             <DialogTitle>Feedback inbox</DialogTitle>
           </DialogHeader>
 
-          {/* what KIND — a concern, a session review and a shout-out are three
+          {/* what KIND — a concern, a touch-point review and a shout-out are three
               different jobs and never belonged in one pile */}
           <div className="flex flex-wrap gap-1.5">
             {KIND_TABS.map((t) => {
@@ -578,7 +578,7 @@ function LcFeedbackInbox({
                   <div className="flex flex-wrap items-center gap-1.5">
                     <Badge variant={r.positive ? "default" : "destructive"}>
                       {r.kind === "session"
-                        ? "📅 Session"
+                        ? "📅 Touch point"
                         : r.positive
                           ? "🎉 Shout-out"
                           : "😟 Concern"}

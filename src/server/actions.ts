@@ -56,6 +56,8 @@ import {
   FEEDBACK_INBOX_EMAILS,
   guessEmailTag,
   guessLinkTag,
+  IR_ROLES,
+  irProductForMember,
   normalizeLcName,
   LC_FUNCTIONS,
   MEMBER_ROLES,
@@ -2324,22 +2326,41 @@ function productLabel(fn: string, product: string | null): string {
   return fn;
 }
 
-/** The functions a visit announcement fans out to:
- *  - IGV visit → the IGV raising crew + B2B
- *  - IGT visit → the IGT raising crew + B2B
- *  - B2B visit → the B2B crew ONLY (not the rest of ICX) */
-function announceFunctions(fn: string): ("IGV" | "IGT" | "B2B" | "B2C")[] {
+/** How long after a booking a correction still counts as part of it, rather
+ *  than as news of its own (v33.23). Fifteen minutes: long enough to cover
+ *  "wrong time, fix it" and short enough that a real move next week is
+ *  announced properly. */
+const ANNOUNCE_GRACE_MS = 15 * 60_000;
+
+/** WHOSE LEADERS RIDE THE CALENDAR INVITE — unchanged. B2B/BD raise for IGV
+ *  and IGT, so their VP stays on an IGV/IGT visit invite for oversight. */
+function leaderShareFunctions(fn: string): ("IGV" | "IGT" | "B2B" | "B2C")[] {
   if (fn === "IGV") return ["IGV", "B2B"];
   if (fn === "IGT") return ["IGT", "B2B"];
   if (fn === "B2C") return ["B2C"]; // its own island (v23)
-  return ["B2B"]; // B2B/BD account → B2B crew only (memberIsB2B matches both)
+  return ["B2B"];
+}
+
+/** WHO THE ANNOUNCEMENT GOES TO — the account's OWN function, and nothing
+ *  else (v33.23, the LCP: "every function on its own").
+ *
+ *  It used to widen IGV and IGT to include B2B, on the theory that B2B raises
+ *  for them. In practice that meant the B2B crew was told about every IGV and
+ *  IGT visit in the LC — mail they cannot act on, which is how people learn to
+ *  ignore the mail that matters. B2B and BD stay ONE crew here, exactly as
+ *  memberIsB2B treats them everywhere else. */
+function announceFunctions(fn: string): ("IGV" | "IGT" | "B2B" | "B2C")[] {
+  if (fn === "IGV") return ["IGV"];
+  if (fn === "IGT") return ["IGT"];
+  if (fn === "B2C") return ["B2C"];
+  return ["B2B"]; // B2B/BD account → the B2B/BD crew (memberIsB2B matches both)
 }
 
 /** Works out who the visit is shared with:
  *  - calendar attendees (Google invite): the responsible's TL (if a Member) and
  *    the function VP(s); TL/Coordinator → just the VP(s). Raising only.
- *  - announcement crew: the whole product-function raising team + B2B (email +
- *    in-app notification), minus the responsible & the scheduler.
+ *  - announcement crew: the account's OWN raising function (email + in-app
+ *    notification), minus the responsible & the scheduler.
  *  All best-effort — never blocks the booking. */
 async function resolveVisitRecipients(
   account: PipelineRow,
@@ -2361,24 +2382,21 @@ async function resolveVisitRecipients(
   const members = (all ?? []) as Row[];
   const byId = new Map(members.map((m) => [m.id, m]));
 
-  const fns = announceFunctions(account.function);
-  const inFunction = (m: Row) =>
-    (m.functions ?? []).some((f) => (fns as string[]).includes(f)) ||
+  // TWO AUDIENCES, TWO LISTS (v33.23). They used to share one `fns`, so
+  // narrowing the announcement would have silently dropped the B2B VP off
+  // IGV/IGT calendar invites too.
+  const shareFns = leaderShareFunctions(account.function) as string[];
+  const announceFns = announceFunctions(account.function) as string[];
+  const inFns = (fns: string[], m: Row) =>
+    (m.functions ?? []).some((f) => fns.includes(f)) ||
     // B2B may live in sub-functions; same for B2C — but ONLY when that
-    // function is actually part of this announcement
-    ((fns as string[]).includes("B2B") && memberIsB2B(m)) ||
-    ((fns as string[]).includes("B2C") && rowIsB2C(m));
+    // function is actually part of this list
+    (fns.includes("B2B") && memberIsB2B(m)) ||
+    (fns.includes("B2C") && rowIsB2C(m));
 
   // ---- calendar attendees (TL + VP as the spec describes) ----
   const attendees = new Set<string>();
-  const vps = members.filter(
-    (m) =>
-      m.role === "LCVP" &&
-      ((m.functions ?? []).some((f) => (fns as string[]).includes(f)) ||
-        // B2B/BD (and B2C) VPs may carry the label in sub-functions only
-        ((fns as string[]).includes("B2B") && memberIsB2B(m)) ||
-        ((fns as string[]).includes("B2C") && rowIsB2C(m)))
-  );
+  const vps = members.filter((m) => m.role === "LCVP" && inFns(shareFns, m));
   if (responsible.role === "Member") {
     const tl = responsible.stakeholder_id ? byId.get(responsible.stakeholder_id) : null;
     if (tl?.role === "Team Leader" && tl.email) attendees.add(tl.email);
@@ -2388,13 +2406,13 @@ async function resolveVisitRecipients(
   }
   if (responsible.email) attendees.delete(responsible.email);
 
-  // ---- announcement crew: whole raising function + B2B ----
+  // ---- announcement crew: the account's OWN raising function ----
   const announceIds: string[] = [];
   const announceEmails: string[] = [];
   for (const m of members) {
     if (m.role === "LCP") continue; // the LCP never gets operational mail
     if (m.id === responsible.id || m.id === viewerId) continue; // they get the direct notice
-    if (!inFunction(m) || !isRaisingMember(m)) continue;
+    if (!inFns(announceFns, m) || !isRaisingMember(m)) continue;
     announceIds.push(m.id);
     if (m.email) announceEmails.push(m.email);
   }
@@ -2444,6 +2462,30 @@ export async function scheduleVisit(
     .eq("account_id", accountId)
     .is("done", null)
     .maybeSingle<Visit>();
+
+  // ONE BOOKING, ONE ANNOUNCEMENT (v33.23).
+  //
+  // The fan-out used to fire on EVERY call, with no idea whether this was a
+  // new booking, a correction or the exact same slot submitted again. Both
+  // failure modes were live in production:
+  //   · "I Can Read Academy" — booked 18:43, corrected to a different time
+  //     18:44. Two "📢 New visit booked" mails and 40 bell rows for one visit.
+  //   · "Softa software solutions" — the same slot re-submitted three times
+  //     inside 30 seconds. Three identical mails, 63 bell rows, nothing moved.
+  //
+  // So: a repeat of the same slot is never news; a correction made while the
+  // first mail is still being read is not news either (the responsible's own
+  // bell and the Google invite both carry the new time); a genuine move days
+  // later IS news, and gets said in those words.
+  const sameSlot =
+    !!pending &&
+    pending.visit_date === visitDate &&
+    (pending.visit_time ?? "").slice(0, 5) === visitTime.slice(0, 5);
+  const justAnnounced =
+    !!pending &&
+    Date.now() - new Date(pending.created_at).getTime() < ANNOUNCE_GRACE_MS;
+  const announce = !pending || (!sameSlot && !justAnnounced);
+  const announceAsMove = announce && !!pending;
 
   let visitId = pending?.id ?? null;
   if (pending) {
@@ -2571,16 +2613,20 @@ export async function scheduleVisit(
     `/accounts/${slug}`
   );
 
-  // function-wide fan-out: the whole product's raising crew + B2B get an FYI
-  // email AND an in-app notification (no calendar reminder for them)
-  if (recipients.announceIds.length > 0) {
+  // function-wide fan-out: the account's OWN raising crew get an FYI email AND
+  // an in-app notification (no calendar reminder for them)
+  if (announce && recipients.announceIds.length > 0) {
     const responsibleName =
       responsible?.name || account.responsible_name;
     await notifyMembers(
       recipients.announceIds,
       "visit_announcement",
-      `📢 New ${product} visit — ${account.name}`,
-      `${responsibleName} booked a visit with ${account.name} on ${visitDate} at ${visitTime.slice(0, 5)}.`,
+      announceAsMove
+        ? `🗓️ ${product} visit moved — ${account.name}`
+        : `📢 New ${product} visit — ${account.name}`,
+      announceAsMove
+        ? `${responsibleName} moved the visit with ${account.name} to ${visitDate} at ${visitTime.slice(0, 5)}.`
+        : `${responsibleName} booked a visit with ${account.name} on ${visitDate} at ${visitTime.slice(0, 5)}.`,
       viewer.id
     );
     if (recipients.announceEmails.length > 0) {
@@ -2593,6 +2639,7 @@ export async function scheduleVisit(
         visitTime,
         notes: notes || null,
         accountUrl: `${env.appUrl}/accounts/${slug}`,
+        moved: announceAsMove,
       });
       sendEmail({ to: [env.gmailSender || viewer.email || ""].filter(Boolean), bcc: recipients.announceEmails, ...mail }).catch(
         (e) => console.error("[visits] announcement email failed:", e)
@@ -2601,7 +2648,10 @@ export async function scheduleVisit(
   }
 
   await logAudit(viewer.id, "schedule_visit", "account", accountId, {
-    visitDate, visitTime, inviteSent, calendarLinked, announced: recipients.announceIds.length,
+    visitDate, visitTime, inviteSent, calendarLinked,
+    // the real number — the log used to claim a fan-out that may not have run
+    announced: announce ? recipients.announceIds.length : 0,
+    ...(pending ? { rescheduled: true, announcedAsMove: announceAsMove } : {}),
   });
   await stampWork(viewer.id, "visit_scheduled"); // v29: counts towards working hours
   refresh(accountId);
@@ -4228,7 +4278,7 @@ export async function submitLcFeedback(input: {
       .map((m) => m.id as string)
       .filter((id) => id !== viewer.id);
     if (routed.length === 0)
-      return fail("Nobody is set up to receive session feedback yet — tell the IM team.");
+      return fail("Nobody is set up to receive touch-point feedback yet — tell the IM team.");
     for (const id of routed) if (!about.includes(id)) about.push(id);
   }
 
@@ -4249,7 +4299,7 @@ export async function submitLcFeedback(input: {
     about: targets.map((t) => t.id),
     message,
     attachments: cleanAttachments(input.attachments, viewer.id),
-    // v33.22: session feedback is its own KIND in the inbox, not a concern
+    // v33.22: touch-point feedback is its own KIND in the inbox, not a concern
     // with a session name glued to the front of it
     touch_point_id: input.touchPointId ?? null,
   });
@@ -4409,7 +4459,7 @@ export async function shareLcFeedback(
   if (targets.length === 0) return fail("Nobody active in that list.");
 
   const kind = row.touch_point_id
-    ? "session feedback"
+    ? "touch-point feedback"
     : row.positive
       ? "a shout-out"
       : "a concern";
@@ -5820,12 +5870,23 @@ export async function addPartnerLc(input: {
   if (!hasConsiderationAccess(viewer)) return considerationFail();
   const name = input.name?.trim();
   if (!name) return fail("The partner LC needs a name.");
-  const country = input.country?.trim() || null;
+  const { COUNTRIES } = await import("@/lib/countries");
+  const { resolveCountry } = await import("@/lib/timezones");
+  const country = resolveCountry(input.country, COUNTRIES);
   // NORMALIZED duplicate check (v33.17): "Lc kocaeli", "kocaeli" and
   // "AIESEC in Kocaeli" are one LC — the unique lower(name) index can't see
   // that, so match the whole (small) registry by normalized name first
   const dup = await findPartnerLcByNormalizedName(name);
-  if (dup) return { ok: true, data: dup };
+  if (dup) {
+    // ADD-ONLY (v33.23): the crew supplying a country for a row that has none
+    // used to be discarded along with the duplicate. Nothing is ever
+    // overwritten — a wrong country is a wrong time zone.
+    if (!dup.country && country) {
+      await db().from("partner_lcs").update({ country }).eq("id", dup.id).is("country", null);
+      return { ok: true, data: { ...dup, country } };
+    }
+    return { ok: true, data: dup };
+  }
   const { data: created, error } = await db()
     .from("partner_lcs")
     .insert({ name, country, created_by: viewer.id })
@@ -5898,6 +5959,8 @@ export async function recordIrCall(input: {
   b2cCampaigns?: string | null;
     cvPoolLink?: string | null;
   screenshot?: { name: string; mimeType: string; dataBase64: string } | null;
+  /** GV or GT — defaults to the caller's own product function (v33.23) */
+  product?: string | null;
 }): Promise<ActionResult<{ id: string; screenshotWarning?: string }>> {
   const viewer = await getViewer();
   if (!hasConsiderationAccess(viewer)) return considerationFail();
@@ -5948,6 +6011,11 @@ export async function recordIrCall(input: {
       screenshot_drive_id: screenshot?.id ?? null,
       screenshot_name: screenshot?.name ?? null,
       screenshot_link: screenshot?.link ?? null,
+      // GV or GT, from the caller's own product function (v33.23); a member
+      // who works both leaves it null and sets it in the in-call notes
+      product: input.product === "GV" || input.product === "GT"
+        ? input.product
+        : irProductForMember(viewer),
       member_id: viewer.id,
       member_name: viewer.name,
     })
@@ -6195,15 +6263,19 @@ export async function bookIrCall(input: {
   // store free text (CountryInput is client-side sugar, not validation)
   const countryRaw = plain(input.country, 60);
   const { COUNTRIES } = await import("@/lib/countries");
-  const country =
-    COUNTRIES.find((c) => c.toLowerCase() === countryRaw.toLowerCase()) ?? null;
+  const { resolveCountry } = await import("@/lib/timezones");
+  // ENDONYMS COUNT (v33.23): an IR who types "Türkiye" or "UK" means a country
+  // we know, and throwing it away leaves the LC with no country — and so no
+  // fallback time zone for anyone who books from a device we can't read.
+  // Still an exact match against a known list; still never a guess.
+  const country = resolveCountry(countryRaw, COUNTRIES);
   // v29: name + role are REQUIRED on the public page (validated here too —
   // a public endpoint never trusts the client)
   const bookerName = plain(input.bookerName, 100);
   if (!bookerName) return fail("Tell us your name.");
-  const BOOKER_ROLES = ["Member", "MM (Team Leader / Coordinator)", "LCVP", "LCP"];
   const bookerRole = plain(input.bookerRole, 40);
-  if (!BOOKER_ROLES.includes(bookerRole)) return fail("Pick your role in your LC.");
+  if (!(IR_ROLES as readonly string[]).includes(bookerRole))
+    return fail("Pick your role in your LC.");
   // v32.6: the phone is REQUIRED and must carry a country code — the crew
   // reaches IRs on WhatsApp, and a local-format number from another country is
   // unusable. normalizePhone accepts +<7–15 digits> for anything non-Egyptian.
@@ -6244,7 +6316,7 @@ export async function bookIrCall(input: {
   if (!settings?.active) return fail("This booking link is not active.");
   const { data: owner } = await db()
     .from("members")
-    .select("id, name, email, google_refresh_token, is_active")
+    .select("id, name, email, google_refresh_token, is_active, functions, sub_functions")
     .eq("id", settings.member_id)
     .maybeSingle<{
       id: string;
@@ -6252,6 +6324,8 @@ export async function bookIrCall(input: {
       email: string | null;
       google_refresh_token: string | null;
       is_active: boolean;
+      functions: string[] | null;
+      sub_functions: string[] | null;
     }>();
   if (!owner?.is_active) return fail("This booking link is not active.");
   const memberName = owner.name;
@@ -6337,6 +6411,9 @@ export async function bookIrCall(input: {
       booked_at: new Date().toISOString(),
       duration_minutes: settings.slot_minutes,
       booker_tz: bookerTz,
+      // which product this conversation is about, snapshotted at booking time
+      // so a later function move can't rewrite it (v33.23)
+      product: irProductForMember(owner),
       member_id: owner.id,
       member_name: memberName,
     })
@@ -7085,6 +7162,8 @@ export async function addPartnerLcContact(input: {
   role?: string | null;
   email?: string | null;
   phone?: string | null;
+  /** GV / GT — which programme this IR is our counterpart for (v33.23) */
+  product?: string | null;
 }): Promise<ActionResult> {
   const viewer = await getViewer();
   if (!hasConsiderationAccess(viewer)) return considerationFail();
@@ -7101,14 +7180,89 @@ export async function addPartnerLcContact(input: {
   const email = (input.email ?? "").trim().slice(0, 200) || null;
   if (email && !EMAIL_RE.test(email)) return fail("That email doesn't look right.");
 
+  // THE ROLE IS A PICK-LIST NOW (v33.23), the same one the public booking page
+  // validates against — two vocabularies for one field meant the registry
+  // showed "LCVP oGT", "uw" and "MM (Team Leader / Coordinator)" side by side
+  // and nothing could be filtered or counted.
+  const role = (input.role ?? "").trim();
+  if (role && !(IR_ROLES as readonly string[]).includes(role))
+    return fail("Pick their role from the list.");
+  const product = input.product === "GV" || input.product === "GT" ? input.product : null;
+
   const { error } = await db().from("partner_lc_contacts").insert({
     partner_lc_id: input.partnerLcId,
     name,
-    role: (input.role ?? "").trim().slice(0, 120) || null,
+    role: role || null,
     email,
     phone: (input.phone ?? "").trim().slice(0, 40) || null,
+    product,
     added_by: viewer.id,
   });
+  if (error) return fail(error.message);
+  revalidatePath("/consideration");
+  return { ok: true };
+}
+
+/** NOTES ON AN LC, OR ON ONE OF ITS IRs (v33.23).
+ *
+ *  Everything the crew learns between calls — "their oGV peak starts in
+ *  March", "Sarah is the one who actually answers" — had nowhere to live
+ *  except the notes field of a single call, where the next person never looks.
+ *  A null `contactId` means the note is about the LC as a whole. */
+export async function addPartnerLcComment(input: {
+  partnerLcId: string;
+  contactId?: string | null;
+  body: string;
+}): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  const body = (input.body ?? "").trim().slice(0, 4000);
+  if (body.length < 2) return fail("Write the note first 🙂");
+  if (viewer.sandbox) return fail("Partner-LC notes are disabled in the sandbox test view.");
+  // a contact must belong to THIS LC — otherwise a note about one entity's
+  // person would file itself under another
+  if (input.contactId) {
+    const { data: c } = await db()
+      .from("partner_lc_contacts")
+      .select("id")
+      .eq("id", input.contactId)
+      .eq("partner_lc_id", input.partnerLcId)
+      .maybeSingle<{ id: string }>();
+    if (!c) return fail("That IR isn't on this LC.");
+  }
+  const { error } = await db().from("partner_lc_comments").insert({
+    partner_lc_id: input.partnerLcId,
+    contact_id: input.contactId || null,
+    body,
+    author_id: viewer.id,
+    author_name: viewer.name,
+  });
+  if (error) {
+    if (error.message.includes("partner_lc_comments"))
+      return fail("LC notes need migration 0048 — run it in the Supabase SQL editor.");
+    return fail(error.message);
+  }
+  await logAudit(viewer.id, "partner_lc_comment", "partner_lc", input.partnerLcId, {
+    about_ir: !!input.contactId,
+  });
+  revalidatePath("/consideration");
+  return { ok: true };
+}
+
+/** The author takes their own note back; a VP/Director/LCP can remove any. */
+export async function deletePartnerLcComment(id: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  const { data: row } = await db()
+    .from("partner_lc_comments")
+    .select("id, author_id")
+    .eq("id", id)
+    .maybeSingle<{ id: string; author_id: string | null }>();
+  if (!row) return { ok: true };
+  if (row.author_id !== viewer.id && !isConsiderationLead(viewer))
+    return fail("Only whoever wrote it (or a VP) can remove a note.", "forbidden");
+  if (viewer.sandbox) return fail("Partner-LC notes are disabled in the sandbox test view.");
+  const { error } = await db().from("partner_lc_comments").delete().eq("id", id);
   if (error) return fail(error.message);
   revalidatePath("/consideration");
   return { ok: true };
@@ -7149,7 +7303,14 @@ export async function updatePartnerLc(
 
   const name = (patch.name ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
   if (!name) return fail("The partner LC needs a name.");
-  const country = (patch.country ?? "").trim().slice(0, 60) || null;
+  // resolved, not stored verbatim (v33.23) — a hand-typed "Türkiye" that no
+  // country table recognises silently costs this LC its fallback time zone
+  const typedCountry = (patch.country ?? "").trim().slice(0, 60);
+  const { COUNTRIES: KNOWN } = await import("@/lib/countries");
+  const { resolveCountry: resolveC } = await import("@/lib/timezones");
+  const country = typedCountry ? resolveC(typedCountry, KNOWN) : null;
+  if (typedCountry && !country)
+    return fail(`"${typedCountry}" isn't a country we know — pick one from the list.`);
 
   const { data: existing } = await db()
     .from("partner_lcs")
