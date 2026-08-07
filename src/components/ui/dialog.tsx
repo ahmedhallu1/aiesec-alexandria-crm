@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { XIcon } from "lucide-react"
+import { GripHorizontal, XIcon } from "lucide-react"
 import { Dialog as DialogPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
@@ -198,13 +198,27 @@ function DialogContent({
   )
 }
 
-function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
+function DialogHeader({ className, children, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-header"
-      className={cn("flex flex-col gap-2 text-center sm:text-left", className)}
+      className={cn("relative flex flex-col gap-2 text-center sm:text-left", className)}
       {...props}
-    />
+    >
+      {/* SHOW WHERE TO GRAB IT (v33.21). Dialogs have been movable since v33.8
+          and nothing said so — the header was a handle you had to already know
+          about. The dots sit in the content's own top padding, INSIDE the
+          header, so grabbing them starts the drag like anywhere else on it.
+          Desktop only: the drag itself is desktop-only. */}
+      <span
+        aria-hidden
+        title="Drag to move"
+        className="pointer-events-none absolute -top-3.5 left-1/2 hidden -translate-x-1/2 text-muted-foreground/40 md:block"
+      >
+        <GripHorizontal className="size-4" />
+      </span>
+      {children}
+    </div>
   )
 }
 

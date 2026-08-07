@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-07 · Version: v33.20
+Last updated: 2026-08-07 · Version: v33.21
 
 ---
 
@@ -610,6 +610,41 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-07 · v33.21** — **SIX MORE FROM THE FLOOR** (no migration).
+  (1) **A Coordinator had no Responsible column.** The test was "does my scope
+  contain anyone but me" — a Coordinator's scope IS just themselves, yet their
+  list also carries every UNOWNED market-research row (`canSeeUnassigned`
+  covers every role above Member). So the one column that answers "is this
+  mine or nobody's" went missing exactly where that question is asked. The
+  column, its filter and the "— Unassigned (n)" option now follow
+  `canSeeUnassigned`.
+  (2) **The team leaderboard ranks the team, not its leader.** Every other
+  board lists Members and Coordinators only; the TL's own row sat on the board
+  they read. `teamBoard` drops `teamLeadId` — the TL stays inside
+  `teamMemberIds`, so the team PLAN's actuals still include their accounts.
+  (3) **CIC says it's CIC.** The bulk bar in the 📞 CIC tab used to call
+  `bulkReassignSignups` behind a dialog reading "they land on the member's My
+  sign-ups list" — in that tab a hand-over is the one thing that must never
+  happen. It now hands out **second calls** (`bulkAssignCicCaller`, the same
+  per-row gate, one bell and one refresh), the picker is the CIC caller pool,
+  the button reads "Assign 2nd caller… → Hand them the call", the dialog
+  explains that the sign-up stays with its first assignee, the inline cell
+  says so too — and **"Unassign" is gone from the CIC tab**.
+  (4) **Grab handles on everything that floats**: dialogs have been movable
+  since v33.8 with nothing to say so — a ⣿ handle now sits in the header, and
+  **The Blue Man's panel became movable** the same way (grip-only drag,
+  viewport-clamped, `style.translate` written straight to the node so no
+  pointermove re-renders). Desktop only, matching the drag itself.
+  (5) **The "only the LCP" copy was wrong**: `canSeeLcConcerns` has been the
+  LCP + the IM admin + TM's LCVP/Director for releases — the feedback form,
+  the Playbook and the Blue Man all now say **the LCP and TM**.
+  (6) **IR calls verified end to end**: all 15 upcoming scheduled calls carry
+  an event and a Meet link; the 10 mailbox-hosted ones were checked against
+  the Calendar API (IR invited · Meet present · confirmed) and two bookings
+  made AFTER the fallback shipped came through it correctly. The four
+  grant-less hosts show `guests: 1` because they have no email address on the
+  membership yet — they join by the link on the IR-calls page.
 
 - **2026-08-07 · v33.20** — **THE FLOOR-FEEDBACK BATCH** + the GitHub Actions
   cutover.

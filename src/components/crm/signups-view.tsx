@@ -10,7 +10,8 @@ import {
   Search, UserMinus, UserRound, Users2, X,
 } from "lucide-react";
 import {
-  addSignupComment, assignCicCaller, bulkReassignSignups, bulkReviveSignups, claimSignup,
+  addSignupComment, assignCicCaller, bulkAssignCicCaller, bulkReassignSignups,
+  bulkReviveSignups, claimSignup,
   openSignupDetail,
   reassignSignup, reviveSignup, runSignupsImport, setSignupOop,
   setSignupPotential, updateCicContact, updateSignupContact, updateSignupVpFields,
@@ -609,10 +610,14 @@ export function SignupsView({
   // back to the pool — the archived view is read-only, no selection there
   // bulk selection: leaders/TLs everywhere except the archive — and VPs IN the
   // archive too, where the bulk action is "back to active" (v32.5)
+  // the CIC tab's bulk action is a SECOND CALL, never an ownership change
+  const cicView = activeView === "cic";
   const canBulk =
     activeView === "archived"
       ? viewer.canVp
-      : viewer.isLeader || viewer.isTl;
+      : cicView
+        ? viewer.canCic
+        : viewer.isLeader || viewer.isTl;
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignTarget, setAssignTarget] = useState("");
@@ -970,6 +975,34 @@ export function SignupsView({
       } else toast.error(res.error);
     });
 
+  /** CIC IN BULK (v33.21) — in the CIC tab the bulk bar hands out SECOND
+   *  CALLS. It deliberately does not reuse `runBulk`: that one reassigns the
+   *  row itself, which in this tab would take the sign-up (and its numbers)
+   *  off the first assignee — the exact opposite of what CIC is for. */
+  const runBulkCic = (callerId: string) =>
+    start(async () => {
+      const ids = [...selected];
+      let done = 0;
+      let failed = 0;
+      let why: string | undefined;
+      for (let i = 0; i < ids.length; i += 50) {
+        const res = await bulkAssignCicCaller(ids.slice(i, i + 50), callerId, notifyOnAssign);
+        if (!res.ok) { toast.error(res.error); return; }
+        done += res.data?.done ?? 0;
+        failed += res.data?.failed ?? 0;
+        why ||= res.data?.why;
+      }
+      const who = cicTargets.find((t) => t.id === callerId)?.label ?? "them";
+      toast.success(
+        `📞 ${done} second call${done === 1 ? "" : "s"} handed to ${who}` +
+          (failed ? ` — ${failed} skipped${why ? ` (${why})` : ""}` : "")
+      );
+      setSelected(new Set());
+      setAssignOpen(false);
+      setAssignTarget("");
+      router.refresh();
+    });
+
   const inlineCic = (
     r: SignupListRow,
     field: "contactStatus" | "interested",
@@ -1077,9 +1110,12 @@ export function SignupsView({
                 className="data-[size=sm]:h-7 w-36 gap-1 px-2 text-xs"
                 onClick={(e) => e.stopPropagation()}
               >
-                <SelectValue placeholder="— not assigned" />
+                <SelectValue placeholder="📞 pick a 2nd caller" />
               </SelectTrigger>
               <SelectContent>
+                <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                  CIC — a second call. The sign-up stays with its first assignee.
+                </div>
                 {cicTargets.map((t) => (
                   <SelectItem key={t.id} value={t.id}>{t.label}</SelectItem>
                 ))}
@@ -1575,21 +1611,27 @@ export function SignupsView({
                 ? "Clear"
                 : `All (${rows.length})`}
             </Button>
-            {targets.length > 0 ? (
+            {(cicView ? cicTargets : targets).length > 0 ? (
               <Button
                 size="sm"
                 variant="outline"
                 disabled={pending}
                 onClick={() => setAssignOpen(true)}
               >
-                <Users2 className="size-3.5" /> Assign to…
+                {cicView ? (
+                  <><PhoneCall className="size-3.5" /> Assign 2nd caller…</>
+                ) : (
+                  <><Users2 className="size-3.5" /> Assign to…</>
+                )}
               </Button>
             ) : null}
             {activeView === "archived" && viewer.canVp ? (
               <Button size="sm" disabled={pending} onClick={runRevive}>
                 ↩️ Back to active
               </Button>
-            ) : (
+            ) : cicView ? null : (
+              // NOT IN THE CIC TAB (v33.21): "Unassign" strips the FIRST
+              // assignee, who must keep the row and their numbers.
               <Button
                 size="sm"
                 variant="outline"
@@ -1617,17 +1659,37 @@ export function SignupsView({
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>
-              Assign {selected.size} sign-up{selected.size === 1 ? "" : "s"}
+              {cicView ? (
+                <>
+                  📞 CIC — second caller for {selected.size} sign-up
+                  {selected.size === 1 ? "" : "s"}
+                </>
+              ) : (
+                <>Assign {selected.size} sign-up{selected.size === 1 ? "" : "s"}</>
+              )}
             </DialogTitle>
             <DialogDescription>
-              They land on the member&apos;s &quot;My sign-ups&quot; list. Every row is
-              re-checked against your scope and synced back to the sheet.
+              {cicView ? (
+                <>
+                  This is a <b>customer interview call</b>, not a hand-over: the
+                  sign-up stays with its first assignee and keeps counting for
+                  them. The second caller checks the first call really happened
+                  and follows up — their answers are recorded separately.
+                </>
+              ) : (
+                <>
+                  They land on the member&apos;s &quot;My sign-ups&quot; list. Every row
+                  is re-checked against your scope and synced back to the sheet.
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
           <Select value={assignTarget || undefined} onValueChange={setAssignTarget}>
-            <SelectTrigger><SelectValue placeholder="Pick a member…" /></SelectTrigger>
+            <SelectTrigger>
+              <SelectValue placeholder={cicView ? "Pick the second caller…" : "Pick a member…"} />
+            </SelectTrigger>
             <SelectContent>
-              {targets.map((t) => (
+              {(cicView ? cicTargets : targets).map((t) => (
                 <SelectItem key={t.id} value={t.id}>{t.label}</SelectItem>
               ))}
             </SelectContent>
@@ -1645,10 +1707,16 @@ export function SignupsView({
             </Button>
             <Button
               disabled={!assignTarget || pending}
-              onClick={() => runBulk(assignTarget)}
+              onClick={() => (cicView ? runBulkCic(assignTarget) : runBulk(assignTarget))}
             >
-              {pending ? <Loader2 className="size-4 animate-spin" /> : <Users2 className="size-4" />}
-              Assign
+              {pending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : cicView ? (
+                <PhoneCall className="size-4" />
+              ) : (
+                <Users2 className="size-4" />
+              )}
+              {cicView ? "Hand them the call" : "Assign"}
             </Button>
           </div>
         </DialogContent>

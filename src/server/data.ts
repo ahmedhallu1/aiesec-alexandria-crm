@@ -1632,8 +1632,15 @@ export async function getDashboard(
     b.slots - a.slots || b.deals - a.deals || b.visitDone - a.visitDone || b.contacted - a.contacted;
   const memberBoard = [...byMemberRole.values()].sort(rank);
   const mmBoard = [...byMM.values()].sort(rank);
+  // THE TEAM BOARD RANKS THE TEAM, NOT ITS LEADER (v33.21). Every other
+  // leaderboard lists Members and Coordinators only — a leader is measured on
+  // what their people raise, not against them. The TL stays inside
+  // `teamMemberIds` (the team's PLAN actuals do include their own accounts);
+  // they just don't take a row on the board they're reading.
   const teamBoard = teamMemberIds
-    ? [...byPerson.values()].filter((g) => teamMemberIds.has(g.key)).sort(rank)
+    ? [...byPerson.values()]
+        .filter((g) => teamMemberIds.has(g.key) && g.key !== teamLeadId)
+        .sort(rank)
     : [];
 
   // ---- the team's plan (v22 — goals come from planning, never set in-app):

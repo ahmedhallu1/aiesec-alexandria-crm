@@ -5,7 +5,7 @@ import {
 import type { AccountFilters } from "@/server/data";
 import {
   accountScope, allowedAccountFunctions, canManageArchive,
-  canSetRequestStateOnCreate, canViewArchive, icxFunctions,
+  canSeeUnassigned, canSetRequestStateOnCreate, canViewArchive, icxFunctions,
 } from "@/lib/rbac";
 import { AccountsView } from "@/components/crm/accounts-view";
 import { memberIsB2B, memberIsB2C, type Stage } from "@/lib/types";
@@ -26,7 +26,13 @@ export default async function AccountsPage({
   const archiveAllowed = canViewArchive();
   const archived = params.archived === "1" && archiveAllowed;
   const scope = accountScope(viewer);
-  const seesOthers = !(scope.kind === "members" && scope.ids.length <= 1);
+  // WHO NEEDS THE RESPONSIBLE COLUMN (v33.21). "Does my scope contain someone
+  // other than me" was the wrong question: a Coordinator's scope IS just
+  // themselves, yet their list also carries every UNOWNED market-research row
+  // (canSeeUnassigned) — so the column that says whose account this is went
+  // missing exactly where "mine vs nobody's" is the thing to tell apart.
+  const seesOthers =
+    !(scope.kind === "members" && scope.ids.length <= 1) || canSeeUnassigned(viewer);
   // the B2B/BD leaders' Podio submission worklist
 
   const filters: AccountFilters = {
@@ -76,9 +82,8 @@ export default async function AccountsPage({
     archived ? listManualArchived() : Promise.resolve([]),
   ]);
   // Responsible options: every visible member, plus "— Unassigned" — offered
-  // to VPs, Directors and the LCP only (distributing the unowned pool is the
-  // leadership act; an MM meets those accounts inline in their own list), and
-  // only when there actually ARE unowned accounts to find.
+  // to everyone who can SEE unowned accounts (canFilterUnassigned, so every
+  // role above Member), and only when there actually ARE some to find.
   const unassignedCount = await countUnassigned(viewer, filters.fn);
   const respOptions = [
     ...(unassignedCount > 0

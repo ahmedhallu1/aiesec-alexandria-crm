@@ -4171,7 +4171,8 @@ export async function saveTlPlan(
 /** Feedback about PEOPLE in the LC (not the system) — or, since v29, about a
  *  PAST TOUCH POINT the author was part of, which reaches its organiser: positive
  *  shout-outs go straight to the person (bell + email); negative concerns land
- *  in an inbox only the LCP + admin can read. The author is always stored for
+ *  in an inbox only the LCP, the admin and TM's LCVP/Director can read
+ *  (`canSeeLcConcerns`). The author is always stored for
  *  accountability but NEVER shown when anonymous. */
 export async function submitLcFeedback(input: {
   positive: boolean;
@@ -5166,7 +5167,9 @@ async function logSignupChange(
  *  the cic_* columns. */
 export async function assignCicCaller(
   id: string,
-  callerId: string
+  callerId: string,
+  /** internal — the bulk wrapper below sends ONE bell and refreshes once */
+  opts: { quiet?: boolean } = {}
 ): Promise<ActionResult> {
   const viewer = await getViewer();
   const { seesCicQueue } = await import("./data");
@@ -5207,19 +5210,55 @@ export async function assignCicCaller(
     .eq("id", id);
   if (error) return fail(error.message);
   await logSignupChange(viewer, id, "cic_assigned", signup.cic_assigned_name ?? null, caller.name);
-  await import("./notify").then(({ notifyMembers }) =>
-    notifyMembers(
-      [caller.id],
-      "info",
-      `📞 CIC call to make — ${signup.name}`,
-      "A customer interview call: check the first contact really happened and follow up.",
-      viewer.id,
-      "/signups"
-    )
-  );
+  if (!opts.quiet)
+    await import("./notify").then(({ notifyMembers }) =>
+      notifyMembers(
+        [caller.id],
+        "info",
+        `📞 CIC call to make — ${signup.name}`,
+        "A customer interview call: check the first contact really happened and follow up.",
+        viewer.id,
+        "/signups"
+      )
+    );
   await logAudit(viewer.id, "cic_assign", "signup", id, { caller: caller.id });
-  refresh();
+  if (!opts.quiet) refresh();
   return { ok: true };
+}
+
+/** CIC in bulk (v33.21) — the queue is a LIST, and handing it out one row at a
+ *  time is why it doesn't get handed out. Same per-row gate (assignCicCaller
+ *  re-checks everything), one bell and one refresh at the end.
+ *
+ *  This is deliberately NOT `bulkReassignSignups`: a CIC hand-out must never
+ *  move the row itself — the first assignee keeps it and keeps their numbers. */
+export async function bulkAssignCicCaller(
+  ids: string[],
+  callerId: string,
+  notify = true
+): Promise<ActionResult<{ done: number; failed: number; why?: string }>> {
+  if (!Array.isArray(ids) || ids.length === 0) return fail("Select at least one sign-up.");
+  if (ids.length > 50) return fail("Max 50 sign-ups per bulk call — run it in batches.");
+  const results = await inBatches(ids, (id) => assignCicCaller(id, callerId, { quiet: true }));
+  const done = results.filter((r) => r.ok).length;
+  const failed = ids.length - done;
+  refresh();
+  if (done > 0 && notify) {
+    const viewer = await getViewer();
+    await import("./notify").then(({ notifyMembers }) =>
+      notifyMembers(
+        [callerId],
+        "info",
+        `📞 ${done} CIC call${done === 1 ? "" : "s"} to make`,
+        "Customer interview calls: check the first contact really happened and follow up.",
+        viewer.id,
+        "/signups"
+      )
+    );
+  }
+  // the first refusal is the useful one — 50 identical messages are not
+  const why = results.find((r) => !r.ok)?.error;
+  return { ok: true, data: { done, failed, why: failed ? why : undefined } };
 }
 
 /** CIC — the second caller records THEIR contacted/interested (v33.19). Writes

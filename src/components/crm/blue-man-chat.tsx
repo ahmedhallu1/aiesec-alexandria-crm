@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowUpRight, Loader2, Send, X } from "lucide-react";
+import { ArrowUpRight, GripVertical, Loader2, Send, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -324,6 +324,52 @@ export function BlueManChat({
 
   const suggestions = suggestionsFor(role, modules);
 
+  // THE PANEL MOVES (v33.21). It parks over the bottom-right corner — which is
+  // where a table's last rows and the bulk-action bar live — so reading the
+  // answer meant closing the thing that gave it. Grab it by the dots.
+  //
+  // Moved by writing `style.translate` straight to the node, like the dialogs:
+  // no state, no re-render per pointermove, nothing for the open/close
+  // transition to fight. Desktop only — on a phone the panel IS the screen.
+  const panelRef = useRef<HTMLDivElement>(null);
+  const panelAt = useRef({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const dragPanel = (e: React.PointerEvent) => {
+    const el = panelRef.current;
+    if (!el) return;
+    if (!window.matchMedia("(min-width: 768px) and (pointer: fine)").matches) return;
+    const box = el.getBoundingClientRect();
+    const base = { ...panelAt.current };
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const M = 8; // never let it leave the viewport
+    const loX = base.x - Math.max(0, box.left - M);
+    const hiX = base.x + Math.max(0, window.innerWidth - box.right - M);
+    const loY = base.y - Math.max(0, box.top - M);
+    const hiY = base.y + Math.max(0, window.innerHeight - box.bottom - M);
+    el.style.transition = "none";
+    document.body.style.userSelect = "none";
+    setDragging(true);
+    const move = (ev: PointerEvent) => {
+      panelAt.current = {
+        x: Math.min(hiX, Math.max(loX, base.x + ev.clientX - startX)),
+        y: Math.min(hiY, Math.max(loY, base.y + ev.clientY - startY)),
+      };
+      el.style.translate = `${panelAt.current.x}px ${panelAt.current.y}px`;
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      el.style.transition = "";
+      document.body.style.userSelect = "";
+      setDragging(false);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+
   return (
     <>
       {/* floating walking-man button */}
@@ -350,6 +396,7 @@ export function BlueManChat({
 
       {/* chat popup */}
       <div
+        ref={panelRef}
         className={cn(
           "fixed bottom-4 right-4 z-50 flex w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border bg-background shadow-2xl transition-all duration-200",
           open
@@ -359,6 +406,19 @@ export function BlueManChat({
       >
         {/* header */}
         <div className="flex items-center gap-2.5 border-b bg-primary px-3 py-2.5 text-primary-foreground">
+          {/* the grip is the ONLY drag origin — the same rule as the test-view
+              chip, so a press meant for the header never moves the panel */}
+          <div
+            aria-hidden
+            onPointerDown={dragPanel}
+            title="Drag to move"
+            className={cn(
+              "-ml-1 hidden size-7 shrink-0 touch-none place-items-center rounded-md text-primary-foreground/60 transition-colors hover:bg-white/15 hover:text-primary-foreground md:grid",
+              dragging ? "cursor-grabbing" : "cursor-grab"
+            )}
+          >
+            <GripVertical className="size-4" />
+          </div>
           <Image
             src="/brand/walk.png"
             alt=""

@@ -196,7 +196,7 @@ export function LcFeedbackView({
           <p className="mt-1 text-sm text-muted-foreground">
             Appreciate someone — or a touch point you were part of — or raise a
             concern. Positive notes reach the person (or the organiser)
-            directly; concerns go privately to the LCP only.
+            directly; concerns go privately to the LCP and TM.
           </p>
         </div>
         {isInboxOwner ? (
@@ -233,7 +233,7 @@ export function LcFeedbackView({
             <p className="text-xs text-muted-foreground">
               {positive
                 ? "They'll get it as a notification + email."
-                : "Goes ONLY to the LCP's private inbox — never to the person."}
+                : "Goes to a private inbox only the LCP and TM read — never to the person."}
             </p>
           </div>
 
@@ -398,7 +398,7 @@ export function LcFeedbackView({
               placeholder={
                 positive
                   ? "Tell them why they're great — they'll read this word for word…"
-                  : "Be specific and fair — only the LCP reads this…"
+                  : "Be specific and fair — only the LCP and TM read this…"
               }
             />
             <FeedbackAttachments
