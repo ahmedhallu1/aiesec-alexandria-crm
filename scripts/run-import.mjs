@@ -20,7 +20,7 @@
  * stub the tests use. Without it every run dies on module resolution.
  *
  * Required env (GitHub → Settings → Secrets and variables → Actions):
- *   NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+ *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
  *   GOOGLE_SERVICE_ACCOUNT_KEY_BASE64, DRIVE_FOLDER_ID
  *   (and for anything that emails: GMAIL_REFRESH_TOKEN, AUTH_GOOGLE_ID,
  *    AUTH_GOOGLE_SECRET, GMAIL_SENDER)
