@@ -37,7 +37,9 @@ if (!["membership", "signups"].includes(which)) {
 }
 
 const missing = [
-  "NEXT_PUBLIC_SUPABASE_URL",
+  // src/lib/env.ts reads SUPABASE_URL — the NEXT_PUBLIC_ prefix belongs to
+  // browser-exposed vars and this never was one (v33.20.1)
+  "SUPABASE_URL",
   "SUPABASE_SERVICE_ROLE_KEY",
   "GOOGLE_SERVICE_ACCOUNT_KEY_BASE64",
   "DRIVE_FOLDER_ID",
