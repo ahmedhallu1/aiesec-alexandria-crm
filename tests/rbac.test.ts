@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import type { SignupRow } from "@/lib/types";
 import {
   accountScope,
   allowedAccountFunctions,
@@ -12,6 +13,8 @@ import {
   hasPodioAccess,
   canUseAdminTools,
   canViewAccount,
+  canViewSignup,
+  canWorkSignup,
   considerationFunctions,
   hasConsiderationAccess,
   hasRaisingAccess,
@@ -341,5 +344,39 @@ describe("F&L is LCP-level (v33.16, by the LCP's request)", () => {
   it("the grant keys off the FUNCTION column only — 'Finance' in subs is not F&L", () => {
     const financeSub = member({ id: "fin1", sub_functions: ["Finance"] });
     expect(accountScope(financeSub)).toEqual({ kind: "members", ids: ["fin1"] });
+  });
+});
+
+describe("CIC second calls (v33.19)", () => {
+  const ogvMember = member({
+    id: "ogv1", role: "Member", functions: ["OGV"], sub_functions: ["OGX"],
+  });
+  const signup = (over: Partial<SignupRow> = {}): SignupRow =>
+    ({
+      id: "s1", fn: "OGV", assigned_to: "someone-else", status: null,
+      out_of_process: false, cic_assigned_to: null,
+      ...over,
+    }) as SignupRow;
+
+  it("the SECOND CALLER can open the sign-up handed to them", () => {
+    // the row stays the FIRST assignee's, so canWorkSignup is false for the
+    // second caller — without the cic clause they saw it in the queue and
+    // couldn't open it
+    const handed = signup({ cic_assigned_to: "ogv1" });
+    expect(canViewSignup(ogvMember, handed)).toBe(true);
+  });
+
+  it("but a second caller still can't WORK the first call's fields", () => {
+    const handed = signup({ cic_assigned_to: "ogv1" });
+    expect(canWorkSignup(ogvMember, handed)).toBe(false);
+  });
+
+  it("someone else's CIC row stays invisible", () => {
+    expect(canViewSignup(ogvMember, signup({ cic_assigned_to: "other" }))).toBe(false);
+  });
+
+  it("never crosses functions", () => {
+    const ogtRow = signup({ fn: "OGT", cic_assigned_to: "ogv1" });
+    expect(canViewSignup(ogvMember, ogtRow)).toBe(false);
   });
 });

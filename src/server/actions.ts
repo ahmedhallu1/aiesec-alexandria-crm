@@ -466,6 +466,8 @@ export async function updateAccount(
 
   const PODIO_FIELDS = ["requested_podio", "request_state"];
   const update: Record<string, unknown> = {};
+  /** set when this save moves the account — its resets are applied last */
+  let movedTo: AccountFunction | null = null;
   for (const [key, value] of Object.entries(parsed.data)) {
     if (value === undefined) continue;
     if (podioOnly && !PODIO_FIELDS.includes(key))
@@ -500,14 +502,22 @@ export async function updateAccount(
           `"${account.name}" is on the raising blacklist — it can't move there.`
         );
       update.function = value;
-      Object.assign(update, fnSpecificReset(value as string));
-      // IGTe → IGV lands on the teaching project by default (v33.19); every
-      // other direction leaves the new function's fields for the mover
-      if (value === "IGV" && account.function === "IGT" && account.product === "GTe")
-        update.project = "Global Classroom";
+      // the RESETS are applied after the loop — the same save carries the
+      // Details form's project/product/industry fields, and assigning them
+      // here let a later iteration overwrite the reset (v33.19 review)
+      movedTo = value as AccountFunction;
       continue;
     }
     update[key] = value === "" ? null : value;
+  }
+  // A FUNCTION MOVE OWNS ITS FIELDS (v33.19). fnSpecificReset clears what
+  // belongs to the old function, and IGTe → IGV lands on the teaching
+  // project — both must WIN over whatever the form submitted alongside the
+  // move, so they are applied last.
+  if (movedTo) {
+    Object.assign(update, fnSpecificReset(movedTo));
+    if (movedTo === "IGV" && account.function === "IGT" && account.product === "GTe")
+      update.project = "Global Classroom";
   }
   if (Object.keys(update).length === 0) return { ok: true };
 
@@ -2023,7 +2033,21 @@ export async function updateDeal(
   if (editingOpens) {
     // keep the single default allocation in lockstep with the deal
     const allocs = (deal.allocations ?? []) as { id: string }[];
-    if (allocs.length === 1) {
+    if (allocs.length === 0) {
+      // pre-0018 deals carry no allocation row, so edited opens would land in
+      // the lane totals and in NOBODY's personal numbers (every per-member
+      // read is allocation-attributed). Create the default 100% row the way
+      // recordDeal does (v33.19 review).
+      const owner = deal.member_id ?? account.responsible_id;
+      if (owner)
+        await db().from("deal_allocations").insert({
+          deal_id: dealId,
+          member_id: owner,
+          slots_igv: update.slots_igv,
+          slots_igta: update.slots_igta,
+          slots_igte: update.slots_igte,
+        });
+    } else if (allocs.length === 1) {
       await db()
         .from("deal_allocations")
         .update({
@@ -3207,7 +3231,8 @@ export async function runMembershipImport(): Promise<ActionResult<{ imported: nu
   if (!canManageMembership(viewer)) return fail("Admins only.", "forbidden");
   const { importMembership } = await import("@/lib/google/sheets");
   try {
-    const imported = await importMembership();
+    // a human pressing the button IS the force case (v33.19 review)
+    const imported = await importMembership({ force: true });
     refresh();
     return { ok: true, data: { imported } };
   } catch (e) {
@@ -5085,6 +5110,11 @@ export async function updateSignupContact(
   return { ok: true };
 }
 
+/** The sheet writes this column free-hand ("yes", "YES", "Y") and every other
+ *  reader in the module treats it as /^y/i — the CIC gate must agree, or a
+ *  row that displays and COUNTS as contacted silently skips the queue. */
+const isYes = (v: string | null | undefined) => /^y/i.test((v ?? "").trim());
+
 /** A sign-up EDIT LOG entry (v33.19) — who changed what, when. Best-effort. */
 async function logSignupChange(
   viewer: { id: string; name: string },
@@ -5121,9 +5151,14 @@ export async function assignCicCaller(
   if (!seesCicQueue(viewer)) return fail("CIC is handed out by MMs and above.", "forbidden");
   const signup = await loadSignup(id);
   if (!signup) return fail("Sign-up not found.");
-  if (!canWorkSignup(viewer, signup) && !canEditSignupVpFields(viewer, signup))
+  // HANDING OUT A VERIFICATION CALL IS NOT AN OWNERSHIP CHANGE (v33.19
+  // review). `canWorkSignup` asks "is this row yours/your team's" — which is
+  // false for most of the queue an MM is looking at, so the server refused
+  // exactly the rows the CIC tab exists to distribute. The queue's own
+  // predicate is the right gate: MM+ inside the sign-up's function.
+  if (!ogxFunctions(viewer).includes(signup.fn))
     return fail("This sign-up isn't in your function.", "forbidden");
-  if (signup.contact_status !== "Yes" || signup.status)
+  if (!isYes(signup.contact_status) || signup.status)
     return fail("Only a contacted sign-up with no status yet goes to CIC.");
   const { data: caller } = await db()
     .from("members")
@@ -5179,7 +5214,7 @@ export async function updateCicContact(
   const isSecondCaller = signup.cic_assigned_to === viewer.id;
   if (!isSecondCaller && !seesCicQueue(viewer))
     return fail("Only the assigned CIC caller (or an MM) can record this.", "forbidden");
-  if (!isSecondCaller && !canWorkSignup(viewer, signup) && !canEditSignupVpFields(viewer, signup))
+  if (!isSecondCaller && !ogxFunctions(viewer).includes(signup.fn))
     return fail("This sign-up isn't in your function.", "forbidden");
   const clean = (v: string | null | undefined) => {
     const t = (v ?? "").trim();
@@ -5390,7 +5425,8 @@ export async function runSignupsImport(): Promise<ActionResult<{ imported: numbe
     return fail("Only OGX leaders trigger a sync.", "forbidden");
   try {
     const { importSignups } = await import("@/lib/google/signups");
-    const res = await importSignups();
+    // a human pressing the button IS the force case (v33.19 review)
+  const res = await importSignups({ force: true });
     refresh();
     return { ok: true, data: res };
   } catch (e) {
@@ -6069,6 +6105,12 @@ export async function bookIrCall(input: {
           attendeeEmail: bookerEmail,
           guestsCanInvite: settings.guests_can_invite ?? true,
           description: eventDescription,
+        // a REVOKED grant throws here; without this catch the whole block
+        // aborted and the IR got no invite at all — the fallback exists for
+        // exactly this case (v33.19 review)
+        }).catch((e) => {
+          console.error("[ir-booking] owner calendar failed, trying mailbox:", e);
+          return null;
         })
       : null;
     if (own) {
@@ -6686,10 +6728,19 @@ export async function cancelBookedCall(input: {
   if (!cancelledRows?.length)
     return fail("This booking just changed — reload the page.");
 
-  if (call.calendar_event_id && owner) {
+  if (call.calendar_event_id) {
     try {
-      const { deleteIrCallEvent } = await import("@/lib/google/calendar");
-      await deleteIrCallEvent(owner.google_refresh_token, call.calendar_event_id);
+      // v33.19 review: this branch assumed the OWNER's calendar, so an event
+      // hosted on the IM mailbox (the no-grant fallback) survived the IR's
+      // cancellation — a ghost meeting on everyone's calendar. NULL keeps the
+      // old behaviour for anything booked before the fallback existed.
+      if ((call as { event_calendar?: string | null }).event_calendar === "mailbox") {
+        const { deleteIrCallEventOnMailbox } = await import("@/lib/google/calendar");
+        await deleteIrCallEventOnMailbox(call.calendar_event_id);
+      } else if (owner) {
+        const { deleteIrCallEvent } = await import("@/lib/google/calendar");
+        await deleteIrCallEvent(owner.google_refresh_token, call.calendar_event_id);
+      }
     } catch (e) {
       console.error("[ir-booking] calendar cancel failed:", e);
     }

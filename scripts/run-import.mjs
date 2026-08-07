@@ -11,7 +11,13 @@
  * at this cadence). This script calls the SAME exported functions the Vercel
  * routes call, so there is exactly one implementation of the import logic.
  *
- * Usage:  node --import tsx scripts/run-import.mjs membership|signups [--force]
+ * Usage:  npx tsx --tsconfig tsconfig.scripts.json \
+ *            scripts/run-import.mjs membership|signups [--force]
+ *
+ * The --tsconfig flag is LOAD-BEARING: src/server/** carries
+ * `import "server-only"`, which Next resolves via its bundler and plain Node
+ * cannot resolve at all. tsconfig.scripts.json aliases it to the same no-op
+ * stub the tests use. Without it every run dies on module resolution.
  *
  * Required env (GitHub → Settings → Secrets and variables → Actions):
  *   NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,

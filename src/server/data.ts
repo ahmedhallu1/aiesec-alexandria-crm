@@ -2902,6 +2902,16 @@ export async function releaseSignupsOnPromotion(
   const wasMm = oldRole === "Member" || oldRole === "Coordinator";
   const nowLead = ["Team Leader", "LCVP", "Director", "LCP", "Admin"].includes(newRole);
   if (!wasMm || !nowLead) return 0;
+  // the names go into the log BEFORE they're cleared — "who had this" is the
+  // only way to undo a wrong release by hand (v33.19 review)
+  const { data: before } = await db()
+    .from("signups")
+    .select("id, assigned_name")
+    .eq("assigned_to", memberId)
+    .is("status", null)
+    .eq("out_of_process", false);
+  const rows = (before ?? []) as { id: string; assigned_name: string | null }[];
+  if (rows.length === 0) return 0;
   const { data } = await db()
     .from("signups")
     .update({
@@ -2910,6 +2920,12 @@ export async function releaseSignupsOnPromotion(
       assigned_at: null,
       contact_status: null,
       interested: null,
+      // the CIC second call belonged to that assignment too
+      cic_assigned_to: null,
+      cic_assigned_name: null,
+      cic_assigned_at: null,
+      cic_contact_status: null,
+      cic_interested: null,
       sodio_touched: true,
       last_edited_at: new Date().toISOString(),
     })
@@ -2918,8 +2934,55 @@ export async function releaseSignupsOnPromotion(
     .eq("out_of_process", false)
     .select("id");
   const n = (data ?? []).length;
-  if (n > 0)
+  if (n > 0) {
+    // an audit trail per row: 61 sign-ups leaving someone's list with no
+    // record is exactly what made this hard to explain the first time
+    await db()
+      .from("signup_logs")
+      .insert(
+        rows.map((r) => ({
+          signup_id: r.id,
+          member_id: memberId,
+          member_name: r.assigned_name ?? "—",
+          field: "assigned",
+          old_value: r.assigned_name,
+          new_value: null,
+        }))
+      )
+      .then(({ error }) => {
+        if (error) console.error("[signups] release log failed:", error.message);
+      });
+    // the tracker sheet still shows the old assignee until it's pushed back —
+    // same shape the bulk reassign uses (comments included, or the write-back
+    // would blank the sheet's comment cells)
+    try {
+      const ids = rows.map((r) => r.id);
+      const [{ data: full }, { data: cmts }] = await Promise.all([
+        db().from("signups").select("*").in("id", ids),
+        db().from("signup_comments").select("*").in("signup_id", ids).order("created_at"),
+      ]);
+      const byId = new Map<string, unknown[]>();
+      for (const c of (cmts ?? []) as { signup_id: string }[]) {
+        const list = byId.get(c.signup_id) ?? [];
+        list.push(c);
+        byId.set(c.signup_id, list);
+      }
+      const { writeSignupsBackBatch } = await import("@/lib/google/signups");
+      await writeSignupsBackBatch(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ((full ?? []) as any[]).map((sg) => ({
+          signup: sg,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          comments: (byId.get(sg.id) ?? []) as any[],
+          assignedDisplay: null,
+        }))
+      );
+    } catch (e) {
+      // the DB is right either way — the import reconciles the sheet
+      console.error("[signups] release write-back failed:", e);
+    }
     console.log(`[signups] released ${n} member-level sign-ups on ${oldRole}→${newRole} promotion`);
+  }
   return n;
 }
 
@@ -3838,7 +3901,9 @@ export async function listSignupsPage(
       // member sees only the ones they were made the SECOND caller on.
       q = q
         .not("assigned_to", "is", null)
-        .eq("contact_status", "Yes")
+        // free sheet text: "yes" / "YES" / "Y" all count, exactly as the
+        // Contacted filter and every KPI read it (v33.19 review)
+        .ilike("contact_status", "y%")
         .is("status", null);
       if (!seesCicQueue(viewer)) q = q.eq("cic_assigned_to", viewer.id);
     }

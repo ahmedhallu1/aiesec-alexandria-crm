@@ -581,6 +581,11 @@ export function canViewSignup(v: Viewer, s: SignupRow): boolean {
   if (!ogxFunctions(v).includes(s.fn)) return false;
   if (canEditSignupVpFields(v, s)) return true;
   if (!s.assigned_to) return true;
+  // the CIC SECOND CALLER must be able to open the row they were handed
+  // (v33.19 review): the sign-up stays the first assignee's, so canWorkSignup
+  // is false for them — they could see it in the queue and not open it.
+  // View only: recording still goes through updateCicContact's own gate.
+  if (s.cic_assigned_to && s.cic_assigned_to === v.id) return true;
   return canWorkSignup(v, s);
 }
 

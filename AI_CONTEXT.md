@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-07 · Version: v33.19
+Last updated: 2026-08-07 · Version: v33.19.1
 
 ---
 
@@ -610,6 +610,55 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-07 · v33.19.1** — **THE REVIEW PASS ON v33.19** (31-agent
+  adversarial review → 18 confirmed findings → 8 distinct bugs, all fixed;
+  several in code shipped hours earlier).
+  ① **The GitHub Actions import script could never have run.** `src/server/**`
+  carries `import "server-only"`, which is not an installed package — Next
+  resolves it in its bundler and plain Node cannot resolve it at all. The
+  whole point of the hosting fix would have failed on its first click. New
+  `tsconfig.scripts.json` aliases it to the same no-op stub the tests use;
+  the workflow now runs `npx tsx --tsconfig tsconfig.scripts.json`, verified
+  by loading all three modules outside Next.
+  ② **A function move discarded its own resets.** `updateAccount` applied
+  `fnSpecificReset` + the IGTe→IGV default INSIDE the field loop, so the
+  Details form's project/product/sub_product — submitted in the same payload —
+  overwrote them: an IGT account moved to IGV kept its stale product and never
+  got Global Classroom. The function-derived fields are now applied AFTER the
+  loop, where they win.
+  ③ **CIC refused the very MMs it was built for.** `assignCicCaller` gated on
+  `canWorkSignup`, which asks "is this row yours or your team's" — false for
+  most of the queue a TL or Coordinator is looking at. Both CIC actions now
+  gate on the queue's own predicate (`seesCicQueue` + the sign-up's function).
+  ④ **The CIC second caller couldn't open the sign-up handed to them** — the
+  row stays the first assignee's, so `canViewSignup` said no. Added a
+  view-only clause (recording still goes through its own gate). Locked by 4
+  new rbac tests.
+  ⑤ **The CIC queue matched `contact_status = "Yes"` exactly** while every
+  other reader treats the column as free sheet text (`/^y/i`) — a row the
+  sheet spells "yes" displayed and COUNTED as contacted but never reached the
+  queue, and the assign action refused it with a message contradicting the
+  screen. Now `ilike "y%"` everywhere.
+  ⑥ **The promotion release left no trace**: 61 sign-ups moved with no log
+  entry and no sheet write-back, so the tracker still named the old assignee.
+  It now records one `signup_logs` row per release (capturing the name BEFORE
+  clearing it) and pushes the rows back to the sheet, comments included.
+  ⑦ **IR calls**: the IR's own cancel never deleted a MAILBOX-hosted event
+  (a ghost meeting survived on everyone's calendar), and a REVOKED owner token
+  aborted the whole block instead of falling through to the mailbox fallback —
+  the exact case the fallback exists for. Both fixed; NULL `event_calendar`
+  still means "owner", so pre-release bookings behave as before.
+  ⑧ **`updateDeal` on a pre-0018 deal** (no `deal_allocations` row) wrote opens
+  that counted for the lane and for nobody's personal numbers — every
+  per-member read is allocation-attributed. It now creates the default 100%
+  row the way `recordDeal` does.
+  ⑨ **The manual "Sync now" buttons stopped working**: after the
+  unchanged-since short-circuit they no longer forced, so the human escape
+  hatch did nothing, and the membership toast printed the internal `-1`
+  skip sentinel as a row count. Both actions force now (a person pressing the
+  button IS the force case) and the toast reads properly.
+  Tests 118.
 
 - **2026-08-07 · v33.19** — **THE HOSTING, CIC & CONSISTENCY RELEASE**
   (migration **0045 applied**: CIC columns, `signup_logs`,

@@ -1,0 +1,17 @@
+{
+  // Running app code OUTSIDE Next (scripts/, GitHub Actions).
+  //
+  // `import "server-only"` is not a real package — Next's bundler resolves it
+  // to a no-op in server builds and to a throwing module elsewhere, which is
+  // exactly the guard we want inside the app. A plain Node run has no such
+  // bundler, so the import fails outright and every script that touches
+  // src/server/** dies before it starts. Vitest solves this with the same
+  // stub (see vitest.config.ts); scripts point at it here.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"],
+      "server-only": ["./tests/stubs/server-only.ts"]
+    }
+  }
+}

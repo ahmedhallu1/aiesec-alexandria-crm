@@ -70,10 +70,10 @@ jobs:
         if: >-
           github.event_name == 'schedule' ||
           github.event.inputs.job == 'both' || github.event.inputs.job == 'signups'
-        run: node --import tsx scripts/run-import.mjs signups ${{ github.event.inputs.force == 'true' && '--force' || '' }}
+        run: npx tsx --tsconfig tsconfig.scripts.json scripts/run-import.mjs signups ${{ github.event.inputs.force == 'true' && '--force' || '' }}
 
       - name: Membership import
         if: >-
           (github.event_name == 'schedule' && github.event.schedule == '0,30 4-21 * * *') ||
           github.event.inputs.job == 'both' || github.event.inputs.job == 'membership'
-        run: node --import tsx scripts/run-import.mjs membership ${{ github.event.inputs.force == 'true' && '--force' || '' }}
+        run: npx tsx --tsconfig tsconfig.scripts.json scripts/run-import.mjs membership ${{ github.event.inputs.force == 'true' && '--force' || '' }}

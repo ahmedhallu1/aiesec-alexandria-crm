@@ -190,7 +190,13 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
     start(async () => {
       const res = await runMembershipImport();
       if (res.ok) {
-        toast.success(`Membership synced — ${res.data?.imported ?? 0} rows imported`);
+        // -1 is the "sheet unchanged, skipped" sentinel — never show it as a
+        // row count (v33.19 review); the manual button forces, so this is rare
+        toast.success(
+          (res.data?.imported ?? 0) < 0
+            ? "Membership synced — the sheet hadn't changed"
+            : `Membership synced — ${res.data?.imported ?? 0} rows imported`
+        );
         router.refresh();
       } else toast.error(res.error);
     });
