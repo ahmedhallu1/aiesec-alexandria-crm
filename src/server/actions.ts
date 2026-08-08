@@ -18,6 +18,7 @@ import {
   canCheckPodio,
   canSetRequestStateOnCreate,
   canUseAdminTools,
+  canUseMailboxTab,
   canUseIgtExpectationMail,
   canReassignAccount,
   claimTargetFunction,
@@ -55,6 +56,7 @@ import {
   FEEDBACK_CATEGORIES,
   FEEDBACK_INBOX_EMAILS,
   guessEmailTag,
+  DIRECT_VISIT_OUTCOMES,
   guessLinkTag,
   IR_ROLES,
   irProductForMember,
@@ -2656,6 +2658,336 @@ export async function scheduleVisit(
   await stampWork(viewer.id, "visit_scheduled"); // v29: counts towards working hours
   refresh(accountId);
   return { ok: true, data: { inviteSent, calendarLinked, sharedCount: recipients.attendeeEmails.length } };
+}
+
+// ================================================== the mailbox (v33.24)
+
+async function mailboxSender(): Promise<
+  | { error: ActionResult<never> }
+  | { viewer: Viewer; token: string; signature: string }
+> {
+  const viewer = await getViewer();
+  if (!canUseMailboxTab(viewer))
+    return { error: fail("The Emails tab is for MMs and above.", "forbidden") };
+  const { data: me } = await db()
+    .from("members")
+    .select("google_refresh_token, email, phone, role, functions")
+    .eq("id", viewer.id)
+    .maybeSingle<{
+      google_refresh_token: string | null;
+      email: string | null;
+      phone: string | null;
+      role: string;
+      functions: string[] | null;
+    }>();
+  if (!me?.google_refresh_token)
+    return {
+      error: fail(
+        "Sodio needs your Google permission to send as you — sign in with Google once from the login page, then come back.",
+        "forbidden"
+      ),
+    };
+  const { memberSignature, signatureTitle } = await import("@/lib/email/compose");
+  return {
+    viewer,
+    token: me.google_refresh_token,
+    signature: memberSignature({
+      name: viewer.name,
+      title: signatureTitle(me.role, me.functions ?? []),
+      email: me.email,
+      phone: me.phone,
+    }),
+  };
+}
+
+const composeSchema = z.object({
+  to: z.array(z.string().trim()).min(1, "Add at least one recipient"),
+  cc: z.array(z.string().trim()).optional(),
+  subject: z.string().trim().min(2, "Give the email a subject"),
+  /** the member's own HTML, straight from the editor */
+  body: z.string().trim().min(2, "Write something first"),
+  template: z.string().trim().nullish(),
+  /** true = leave it in their Gmail drafts instead of sending */
+  draft: z.boolean().optional(),
+});
+
+/** SEND (or draft) AN EMAIL AS THE MEMBER.
+ *
+ *  Through their OWN Gmail, so the reply comes back to them and it sits in
+ *  their Sent folder like any other letter — Sodio is the stationery, not the
+ *  sender. What it adds is the frame, the signature nobody remembers to
+ *  paste, and a record of who we have already written to. */
+export async function sendComposedEmail(
+  input: z.infer<typeof composeSchema>
+): Promise<ActionResult<{ draft: boolean; to: number }>> {
+  const parsed = composeSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0].message);
+  const d = parsed.data;
+  const sender = await mailboxSender();
+  if ("error" in sender) return sender.error;
+  const { viewer, token, signature } = sender;
+
+  const clean = (list: string[] | undefined) =>
+    [...new Set((list ?? []).map((a) => a.trim().toLowerCase()).filter(Boolean))]
+      .filter((a) => EMAIL_RE.test(a))
+      .slice(0, 40);
+  const to = clean(d.to);
+  const cc = clean(d.cc);
+  if (to.length === 0) return fail("None of those look like email addresses.");
+  if (await sandboxSuppressed("compose email"))
+    return fail("Sandbox test view is active — exit it to send real email.");
+
+  // the editor produces HTML; strip anything that could execute in a client
+  const body = d.body
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<iframe[\s\S]*?<\/iframe>/gi, "")
+    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*')/gi, "")
+    .slice(0, 60_000);
+
+  const { composedEmail } = await import("@/lib/email/compose");
+  const html = composedEmail({ bodyHtml: body, signature });
+
+  try {
+    if (d.draft) {
+      const { createMemberDraft } = await import("@/lib/google/gmail");
+      await createMemberDraft(token, { to: to.join(", "), cc, subject: d.subject, html });
+    } else {
+      const { sendMemberEmail } = await import("@/lib/google/gmail");
+      await sendMemberEmail(token, { to, cc, subject: d.subject, html });
+    }
+  } catch (e) {
+    console.error("[mailbox] send failed:", e);
+    return fail(
+      "Google refused to send it. If you changed your password recently, sign in with Google once and try again."
+    );
+  }
+
+  await db().from("sent_emails").insert({
+    member_id: viewer.id,
+    member_name: viewer.name,
+    to_addresses: to,
+    cc_addresses: cc,
+    subject: d.subject,
+    body_html: html,
+    status: d.draft ? "draft" : "sent",
+    template: d.template || null,
+  });
+  await logAudit(viewer.id, d.draft ? "email_draft" : "email_sent", "member", viewer.id, {
+    to: to.length,
+    subject: d.subject,
+  });
+  await stampWork(viewer.id, "email_sent");
+  revalidatePath("/emails");
+  return { ok: true, data: { draft: !!d.draft, to: to.length } };
+}
+
+/** THE BLUE MAN, ON A LETTER (v33.24). Write it from a brief, or rework what
+ *  is already in the editor — shorten it, warm it up, fix the English, turn
+ *  it into Arabic. It returns HTML the editor can hold. */
+export async function draftEmailWithAi(input: {
+  instruction: string;
+  current?: string | null;
+  subject?: string | null;
+}): Promise<ActionResult<{ html: string; subject?: string }>> {
+  const viewer = await getViewer();
+  if (!canUseMailboxTab(viewer)) return fail("The Emails tab is for MMs and above.", "forbidden");
+  const instruction = (input.instruction ?? "").trim().slice(0, 2000);
+  if (instruction.length < 3) return fail("Tell it what you want first.");
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) return fail("The AI helper isn't configured — tell the IM team.");
+
+  const current = (input.current ?? "").trim().slice(0, 20_000);
+  const prompt = `You are helping a member of AIESEC in Alexandria write a professional email.
+
+RULES
+- Return ONLY the email BODY as simple HTML: <p>, <b>, <i>, <ul>/<li>, <a href>. No <html>, <head>, <body>, no styles, no markdown fences.
+- Do NOT write a signature, a sign-off block, or the sender's name — the system appends the real signature.
+- Do NOT invent facts, names, numbers, dates or commitments that are not in the brief or the current draft.
+- Match the language of the instruction (English or Arabic). Keep AIESEC terms in English.
+- Warm, clear, professional. Short paragraphs. No corporate padding.
+
+${current ? `CURRENT DRAFT (rework this):\n${current}\n\n` : ""}WHAT THEY ASKED FOR:
+${instruction}`;
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+      }
+    );
+    if (!res.ok) return fail("The AI helper is busy right now — try again in a moment.");
+    const data = (await res.json()) as {
+      candidates?: { content?: { parts?: { text?: string }[] } }[];
+    };
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    if (!text.trim()) return fail("The AI helper came back empty — try rephrasing.");
+    const html = text
+      .replace(/^```(?:html)?/i, "")
+      .replace(/```$/i, "")
+      .replace(/<script[\s\S]*?<\/script>/gi, "")
+      .trim();
+    return { ok: true, data: { html } };
+  } catch (e) {
+    console.error("[mailbox] ai draft failed:", e);
+    return fail("Could not reach the AI helper.");
+  }
+}
+
+// ================================================== direct visits (v33.24)
+
+const directVisitSchema = z.object({
+  function: z.enum(["IGV", "IGT", "B2B", "BD", "B2C"]),
+  name: z.string().trim().min(2, "The company's name is required"),
+  product: z.enum(["GTa", "GTe"]).nullish(),
+  project: z.string().trim().nullish(),
+  account_type: z.string().trim().nullish(),
+  industry: z.string().trim().nullish(),
+  phone: phoneField,
+  email: emailField,
+  /** which day it happened — today by default, never the future */
+  visitDate: z.string().min(8),
+  visitTime: z.string().min(4),
+  outcome: z.enum(["turned_away", "revisit", "send_info", "presented", "deal"]),
+  comment: z.string().trim().min(2, "Say what happened in a line"),
+  /** revisit → when you're going back; send_info / turned_away → the next step */
+  nextDate: z.string().optional(),
+  nextTime: z.string().optional(),
+  nextStep: z.string().trim().optional(),
+});
+
+/** A WALK-IN, LOGGED IN ONE ACT.
+ *
+ *  The raising funnel assumes research first: find the company, contact them,
+ *  book a visit, go. Plenty of the LC's best work happens the other way round
+ *  — someone walks a street, finds a business and offers the product at the
+ *  door. Recording that used to mean creating an account, logging a contact,
+ *  booking a visit into the past and reporting it: four screens for something
+ *  that already happened, so it went unrecorded and the funnel called them
+ *  idle.
+ *
+ *  This writes the same rows the normal path writes — a real account (MR), a
+ *  real contact attempt, a real visit — so the walk-in shows up in the
+ *  pipeline, the leaderboard and the dashboard with no double entry. The
+ *  account carries `direct_visit` so the LC can see how much of the pipeline
+ *  came from the street rather than the sheet.
+ *
+ *  Nothing is announced: the visit already happened, and the crew does not
+ *  need "a visit was booked" for a meeting that is over. */
+export async function logDirectVisit(
+  input: z.infer<typeof directVisitSchema>
+): Promise<ActionResult<{ id: string; slug: string; visitDone: boolean }>> {
+  const viewer = await getViewer();
+  const parsed = directVisitSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0].message);
+  const d = parsed.data;
+
+  if (!allowedAccountFunctions(viewer).includes(d.function))
+    return fail(`You can only add ${allowedAccountFunctions(viewer).join(" / ") || "—"} accounts.`, "forbidden");
+  if (!viewer.id) return fail("Sign in first.", "forbidden");
+
+  // it ALREADY HAPPENED — a direct visit in the future is a booking, and
+  // there is a button for that
+  const { cairoToUtc } = await import("@/lib/time");
+  const when = /^\d{4}-\d{2}-\d{2}$/.test(d.visitDate) && /^\d{2}:\d{2}/.test(d.visitTime)
+    ? cairoToUtc(d.visitDate, d.visitTime)
+    : null;
+  if (!when || Number.isNaN(when.getTime())) return fail("That date and time don't look right.");
+  if (when.getTime() > Date.now() + 5 * 60_000)
+    return fail("A direct visit is one you already made — pick a time that has passed.");
+
+  const outcome = DIRECT_VISIT_OUTCOMES.find((o) => o.key === d.outcome)!;
+
+  // ---- 1. the account (this is the MR)
+  const created = await createAccount(
+    {
+      function: d.function,
+      name: d.name,
+      product: d.product ?? null,
+      project: d.project ?? null,
+      account_type: d.account_type ?? null,
+      industry: d.industry ?? null,
+      phone: d.phone ?? null,
+      email: d.email ?? null,
+      responsible_id: viewer.id,
+      comment: null,
+      contacts: [],
+    } as never,
+    { via: "manual" }
+  );
+  if (!created.ok) return created as ActionResult<never>;
+  const accountId = created.data!.id;
+  await db().from("accounts").update({ direct_visit: true }).eq("id", accountId);
+
+  // ---- 2. the contact attempt (they were reached — in person)
+  await db().from("contact_attempts").insert({
+    account_id: accountId,
+    member_id: viewer.id,
+    method: "Call",
+    status: outcome.visitDone ? "Interested" : "Responded",
+    comment: `🚶 Direct visit — ${outcome.label}. ${d.comment}`,
+    created_at: when.toISOString(),
+  });
+
+  // ---- 3. the visit itself, already reported
+  await db().from("visits").insert({
+    account_id: accountId,
+    member_id: viewer.id,
+    visit_date: d.visitDate,
+    visit_time: d.visitTime,
+    done: outcome.visitDone,
+    visit_comment: `🚶 Direct visit — ${outcome.label}. ${d.comment}`,
+    // it happened; nobody needs a follow-up prompt or a forgotten-visit nag
+    followup_prompt_sent_at: new Date().toISOString(),
+    report_sent_at: new Date().toISOString(),
+  });
+
+  // ---- 4. what happens next
+  const nextStep =
+    d.nextStep?.trim() ||
+    (d.outcome === "revisit"
+      ? "Go back for the visit"
+      : d.outcome === "send_info"
+        ? "Send them the info"
+        : d.outcome === "turned_away"
+          ? "Try again — reach the decision maker"
+          : outcome.visitDone
+            ? "Follow up on the pitch"
+            : "");
+  const patch: Record<string, unknown> = {};
+  if (nextStep) patch.next_step = nextStep;
+  if (d.nextDate) {
+    patch.next_step_date = d.nextDate;
+    if (d.nextTime) patch.next_step_time = d.nextTime;
+  }
+  if (Object.keys(patch).length > 0) {
+    await db().from("accounts").update(patch).eq("id", accountId);
+    if (d.nextDate) await syncNextStepReminder(accountId);
+  }
+
+  // "come back another time" is a real booking — the calendar and the
+  // reminders should carry it exactly like any other visit
+  if (d.outcome === "revisit" && d.nextDate) {
+    await scheduleVisit({
+      accountId,
+      visitDate: d.nextDate,
+      visitTime: d.nextTime || "11:00",
+      notes: `Return visit — first walk-in on ${d.visitDate}. ${d.comment}`,
+    });
+  }
+
+  await logAudit(viewer.id, "direct_visit", "account", accountId, {
+    outcome: d.outcome,
+    visitDone: outcome.visitDone,
+  });
+  await stampWork(viewer.id, "direct_visit");
+  refresh(accountId);
+  return {
+    ok: true,
+    data: { id: accountId, slug: created.data!.slug, visitDone: outcome.visitDone },
+  };
 }
 
 const reportSchema = z.object({
@@ -5284,12 +5616,14 @@ export async function bulkReassignSignups(
             "/signups?view=mine"
           );
           if (target.email && target.role !== "LCP") {
-            const { accountsAssignedEmail } = await import("@/lib/email/templates");
-            const mail = accountsAssignedEmail({
+            // SIGN-UPS, NOT ACCOUNTS (v33.24) — this used to borrow the
+            // raising template and tell an OGX TL she owned 20 "accounts"
+            const { signupsAssignedEmail } = await import("@/lib/email/templates");
+            const mail = signupsAssignedEmail({
               memberName: target.name,
               managerName: viewer.name,
-              accountNames: names,
-              accountsUrl: `${env.appUrl}/signups?view=mine`,
+              signupNames: names,
+              signupsUrl: `${env.appUrl}/signups?view=mine`,
             });
             after(async () => {
               try {
@@ -6247,6 +6581,8 @@ export async function bookIrCall(input: {
   /** the IANA zone the IR was LOOKING at while they picked (v33.22) — the
    *  page renders in it, and every later email speaks it back to them */
   tz?: string | null;
+  /** what they want to talk about (v33.24) — the host used to walk in blind */
+  note?: string | null;
 }): Promise<
   ActionResult<{ memberName: string; whenLabel: string; meetLink: string | null }>
 > {
@@ -6393,6 +6729,26 @@ export async function bookIrCall(input: {
     } else lc = ins.data as PartnerLc;
   }
 
+  // EVERY IR BECOMES A REAL PERSON IN THE REGISTRY (v33.24). They used to
+  // exist only as a snapshot on the call, which is why nothing could be
+  // attached to them — no note, no product tag, no correction. Best-effort:
+  // a failure here must never cost the booking.
+  await db()
+    .from("partner_lc_contacts")
+    .upsert(
+      {
+        partner_lc_id: lc.id,
+        name: bookerName,
+        role: bookerRole,
+        email: bookerEmail,
+        phone: bookerPhone,
+        product: irProductForMember(owner),
+        source: "booking",
+      },
+      { onConflict: "partner_lc_id,email", ignoreDuplicates: true }
+    )
+    .then(undefined, (e) => console.error("[ir-booking] contact upsert failed:", e));
+
   // the public manage link's key — lets the IR reschedule/cancel accountless
   const manageToken = crypto.randomBytes(16).toString("hex");
 
@@ -6411,6 +6767,7 @@ export async function bookIrCall(input: {
       booked_at: new Date().toISOString(),
       duration_minutes: settings.slot_minutes,
       booker_tz: bookerTz,
+      booker_note: plain(input.note, 1000) || null,
       // which product this conversation is about, snapshotted at booking time
       // so a later function move can't rewrite it (v33.23)
       product: irProductForMember(owner),
@@ -6432,11 +6789,14 @@ export async function bookIrCall(input: {
   // The IR is an ATTENDEE — they read this description. It must carry nothing
   // internal: no CRM link (they can't open it), no Sodio branding they have
   // no context for. Just who is meeting whom (v32.8).
+  const bookerNote = plain(input.note, 1000);
   const eventDescription = `AIESEC IR call.\nPartner LC: ${lc.name}${
     country ? ` (${country})` : ""
   }${bookerName ? `\nBooked by: ${bookerName}` : ""}${
     bookerPhone ? ` · ${bookerPhone}` : ""
-  } <${bookerEmail}>\nHost: ${owner.name}, AIESEC in Alexandria.`;
+  } <${bookerEmail}>\nHost: ${owner.name}, AIESEC in Alexandria.${
+    bookerNote ? `\n\nWhat they'd like to talk about:\n${bookerNote}` : ""
+  }`;
   let meetLink: string | null = null;
   try {
     const {
@@ -6516,6 +6876,7 @@ export async function bookIrCall(input: {
         whenLabel,
         slotMinutes: settings.slot_minutes,
         meetLink,
+        note: bookerNote || null,
         considerationUrl: `${env.appUrl}/consideration`,
       });
       await sendEmail({ to: [owner.email], subject: mail.subject, html: mail.html });

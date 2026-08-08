@@ -214,12 +214,20 @@ export function AccountDetailView({
                     <Phone className="size-4" /> Contact
                   </Button>
                 </Hint>
-                <Hint label="Book the company visit — reminders land on the responsible's calendar 24h & 1h before">
-                  <Button variant="outline" onClick={() => setVisitOpen(true)}>
-                    <CalendarPlus className="size-4" />
-                    {pendingVisit ? "Reschedule visit" : "Schedule visit"}
-                  </Button>
-                </Hint>
+                {/* BOOKING A VISIT IS A CONTACT RESULT (v33.24), not a button
+                    of its own. A visit is always the outcome of reaching
+                    someone — logging it through the contact form keeps the
+                    attempt, the result and the booking in one act instead of
+                    letting a visit appear with no contact behind it. MOVING an
+                    already-booked visit stays here: there is no new contact to
+                    log when you only change the time. */}
+                {pendingVisit ? (
+                  <Hint label="Move the booked visit — the calendar event and the invite follow">
+                    <Button variant="outline" onClick={() => setVisitOpen(true)}>
+                      <CalendarPlus className="size-4" /> Reschedule visit
+                    </Button>
+                  </Hint>
+                ) : null}
                 {account.function !== "B2C" ? (
                   <Hint label="Generate the ICX proposal email as a draft in YOUR Gmail — review & send it yourself">
                     <Button variant="outline" onClick={() => setProposalOpen(true)}>

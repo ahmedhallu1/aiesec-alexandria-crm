@@ -3621,6 +3621,45 @@ export async function listPastTouchPointsForFeedback(
     }));
 }
 
+/** The member's own outbox (v33.24) — what Sodio sent on their behalf, and
+ *  the addresses they have written to before. */
+export interface SentEmailRow {
+  id: string;
+  to: string[];
+  cc: string[];
+  subject: string;
+  status: "sent" | "draft";
+  createdAt: string;
+}
+
+export async function listMyEmails(
+  viewer: Viewer,
+  limit = 40
+): Promise<{ rows: SentEmailRow[]; recents: string[] }> {
+  if (!viewer?.id) return { rows: [], recents: [] };
+  const { data } = await db()
+    .from("sent_emails")
+    .select("id, to_addresses, cc_addresses, subject, status, created_at")
+    .eq("member_id", viewer.id)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows = ((data ?? []) as any[]).map((r) => ({
+    id: r.id,
+    to: r.to_addresses ?? [],
+    cc: r.cc_addresses ?? [],
+    subject: r.subject,
+    status: (r.status === "draft" ? "draft" : "sent") as "sent" | "draft",
+    createdAt: r.created_at,
+  }));
+  // "who did I write to already" — newest first, de-duplicated
+  const recents: string[] = [];
+  for (const r of rows)
+    for (const a of [...r.to, ...r.cc])
+      if (a && !recents.includes(a) && recents.length < 25) recents.push(a);
+  return { rows, recents };
+}
+
 export interface LcFeedbackRow {
   id: string;
   /** what KIND of feedback this is — the inbox is grouped by it (v33.22).
@@ -4657,6 +4696,7 @@ interface ManualLcContact {
   email: string | null;
   phone: string | null;
   product: string | null;
+  source: string | null;
 }
 
 export interface PartnerLcDetail extends PartnerLc {
@@ -4676,11 +4716,32 @@ export interface PartnerLcDetail extends PartnerLc {
     /** GV / GT — a hand-added IR carries their own tag; a booker inherits the
      *  product of the call they booked */
     product: IrProduct | null;
-    /** set when a person was added BY HAND (v33.9) — only those can be removed */
+    /** they came in through the booking link rather than being typed in */
+    fromBooking?: boolean;
+    /** every IR has a row since v33.24, so this is always set — the name is
+     *  kept because the UI keys notes and removal on it */
     manualId?: string | null;
   }[];
   /** free-text notes on the LC or on one of its IRs (v33.23) */
   comments: PartnerLcComment[];
+  /** calls + CVs + notes as one timeline, newest first (v33.24) */
+  history: PartnerLcEvent[];
+}
+
+/** THE WHOLE STORY WITH ONE LC (v33.24) — every call, every CV, every note,
+ *  newest first. Relationships with partner LCs outlive the term that built
+ *  them, and "have we spoken to these people before?" was an unanswerable
+ *  question spread across three tabs. */
+export interface PartnerLcEvent {
+  id: string;
+  kind: "call" | "cv" | "note";
+  at: string;
+  title: string;
+  detail: string | null;
+  /** who did it, when we know */
+  who: string | null;
+  /** GV / GT, on the events that carry a product */
+  product: IrProduct | null;
 }
 
 export interface PartnerLcComment {
@@ -4717,15 +4778,26 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
         )
         .order("id")
     ),
-    fetchAll<{ partner_lc_id: string | null }>(() =>
-      db().from("cvs").select("partner_lc_id").order("id")
+    fetchAll<{
+      partner_lc_id: string | null;
+      id: string;
+      person_name: string | null;
+      file_name: string;
+      industry: string | null;
+      uploader_name: string;
+      created_at: string;
+    }>(() =>
+      db()
+        .from("cvs")
+        .select("id, partner_lc_id, person_name, file_name, industry, uploader_name, created_at")
+        .order("id")
     ),
     // IRs added BY HAND (v33.9) — the ones who never booked a call themselves
     (async (): Promise<ManualLcContact[]> => {
       // pre-0041 grace: the table may not exist yet on a lagging database
       const { data } = await db()
         .from("partner_lc_contacts")
-        .select("id, partner_lc_id, name, role, email, phone, product")
+        .select("id, partner_lc_id, name, role, email, phone, product, source")
         .order("created_at");
       return (data ?? []) as ManualLcContact[];
     })().catch(() => [] as ManualLcContact[]),
@@ -4764,35 +4836,63 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
   for (const c of cvRows) {
     if (c.partner_lc_id) cvCounts.set(c.partner_lc_id, (cvCounts.get(c.partner_lc_id) ?? 0) + 1);
   }
+  // the timeline wants the member's own name on a CV, so `who` reads properly
   return lcs.map((lc) => {
     const mine = calls.filter((c) => c.partner_lc_id === lc.id && c.status !== "cancelled");
-    // one entry per person (most recent first), so the crew knows who to reach
-    const seen = new Set<string>();
+    // EVERY IR IS A ROW (v33.24). Bookers used to be synthesised from their
+    // calls and capped at five, so most IRs had no id — which meant nothing
+    // could be attached to them: no note, no product tag, no correction.
+    // `bookIrCall` upserts a contact row now (0049 backfilled the existing
+    // ones), so this is a plain read.
     const contacts: PartnerLcDetail["contacts"] = (manualByLc.get(lc.id) ?? []).map(
       (c) => ({
         name: c.name, role: c.role, email: c.email, phone: c.phone,
         product: (c.product as IrProduct | null) ?? null,
+        fromBooking: c.source === "booking",
         manualId: c.id,
       })
     );
-    const seenManual = new Set(
-      contacts.map((c) => (c.email || c.name || "").toLowerCase()).filter(Boolean)
-    );
-    for (const k of seenManual) seen.add(k);
-    for (const c of mine) {
-      const key = (c.booker_email || c.booker_name || "").toLowerCase();
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      contacts.push({
-        name: c.booker_name,
-        role: c.booker_role,
-        email: c.booker_email,
-        phone: c.booker_phone,
-        // a booker is tagged by the call they booked
-        product: (c.product as IrProduct | null) ?? null,
-      });
-      if (contacts.length >= 5) break;
-    }
+    // ---- the timeline: what has actually happened with this LC
+    const lcNotes = commentsByLc.get(lc.id) ?? [];
+    const history: PartnerLcEvent[] = [
+      ...calls
+        .filter((c) => c.partner_lc_id === lc.id)
+        .map((c) => ({
+          id: `call-${c.partner_lc_id}-${c.called_at}`,
+          kind: "call" as const,
+          at: c.called_at,
+          title:
+            c.status === "cancelled"
+              ? "IR call cancelled"
+              : c.status === "scheduled"
+                ? "IR call scheduled"
+                : "IR call",
+          detail: c.booker_name ? `with ${c.booker_name}` : null,
+          who: null,
+          product: (c.product as IrProduct | null) ?? null,
+        })),
+      ...cvRows
+        .filter((c) => c.partner_lc_id === lc.id)
+        .map((c) => ({
+          id: `cv-${c.id}`,
+          kind: "cv" as const,
+          at: c.created_at,
+          title: `CV — ${c.person_name || c.file_name}`,
+          detail: c.industry,
+          who: c.uploader_name,
+          product: null,
+        })),
+      ...lcNotes.map((n) => ({
+        id: `note-${n.id}`,
+        kind: "note" as const,
+        at: n.createdAt,
+        title: "Note",
+        detail: n.body,
+        who: n.author,
+        product: null,
+      })),
+    ].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+
     // every product this LC was actually reached for, calls + hand-added IRs
     const products = [
       ...new Set(
@@ -4809,7 +4909,8 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
       lastCallAt: mine[0]?.called_at ?? null,
       products,
       contacts,
-      comments: (commentsByLc.get(lc.id) ?? []),
+      comments: lcNotes,
+      history,
     };
   });
 }
@@ -5196,7 +5297,7 @@ export async function freeBookingSlots(
   s: IrBookingSettings,
   opts?: { excludeCallId?: string }
 ): Promise<BookingDay[]> {
-  const { cairoToUtc } = await import("@/lib/time");
+  const { cairoToUtc, cairoWallClockExists } = await import("@/lib/time");
   const availability = sanitizeAvailability(s.availability);
   if (availability.length === 0) return [];
   const slotMin = Math.min(120, Math.max(10, s.slot_minutes || 30));
@@ -5285,7 +5386,10 @@ export async function freeBookingSlots(
           m = Math.max(m + slotMin, resumeMin);
           continue;
         }
-        if (startMs >= notBefore) {
+        // THE HOUR THAT ISN'T THERE (v33.24). On Egypt's spring-forward night
+        // the clock jumps 00:00 → 01:00, so a slot labelled 12:30 AM would be
+        // booked — and invited — for 1:30 AM. Offer only what exists.
+        if (startMs >= notBefore && cairoWallClockExists(ymd, hhmm)) {
           const iso = start.toISOString();
           if (!seen.has(iso)) {
             seen.add(iso);

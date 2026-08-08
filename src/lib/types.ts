@@ -300,6 +300,50 @@ export const VISIT_RESULTS = [
 ] as const;
 export type VisitResult = (typeof VISIT_RESULTS)[number];
 
+/** HOW A WALK-IN ENDED (v33.24).
+ *
+ *  A direct visit is the whole funnel in one afternoon: someone finds a
+ *  business on the street and offers the product at the door. It can die at
+ *  reception, it can turn into a booked meeting, it can end in a signed deal
+ *  the same hour — and every one of those is real work that the CRM used to
+ *  make invisible, because logging it meant faking an account, a contact and a
+ *  back-dated visit across four screens.
+ *
+ *  The outcome decides what actually gets recorded. */
+export const DIRECT_VISIT_OUTCOMES = [
+  {
+    key: "turned_away",
+    label: "Turned away at the door",
+    hint: "Reception blocked it, or nobody would meet — the visit is logged as not done.",
+    visitDone: false,
+  },
+  {
+    key: "revisit",
+    label: "Come back another time",
+    hint: "They asked you to return — books the next visit there and then.",
+    visitDone: false,
+  },
+  {
+    key: "send_info",
+    label: "Send the info instead",
+    hint: "They want it by email or WhatsApp first — sets the next step to send it.",
+    visitDone: false,
+  },
+  {
+    key: "presented",
+    label: "Got to present",
+    hint: "You met someone who matters and pitched — the visit counts as done.",
+    visitDone: true,
+  },
+  {
+    key: "deal",
+    label: "Closed a deal on the spot",
+    hint: "Best case. Visit done, then record the deal from the account.",
+    visitDone: true,
+  },
+] as const;
+export type DirectVisitOutcome = (typeof DIRECT_VISIT_OUTCOMES)[number]["key"];
+
 export const OOP_REASONS = [
   "Not responding",
   "Financial issues",

@@ -4,7 +4,8 @@ import { getViewer, listViewAsTargets, needsMmPlan, needsTlPlan } from "@/server
 import { PLAN_SKIP_COOKIE } from "@/lib/plan-skip";
 import {
   hasRaisingAccess, hasTmAccess, hasOgxAccess, hasConsiderationAccess,
-  canManageMembership, canSeePlanning, canUseAdminTools, isTmCore, seesEveryLane,
+  canManageMembership, canSeePlanning, canUseAdminTools, canUseMailboxTab,
+  isTmCore, seesEveryLane,
 } from "@/lib/rbac";
 import { signOut } from "@/lib/auth";
 import { AppShell } from "@/components/crm/app-shell";
@@ -90,7 +91,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // v29: /attendance belongs to EVERY member, module or not — but it must not
   // count as "having a module" (that flag is what decides Soon vs bounce-home,
   // and a module-less viewer bouncing home would loop through "/" → /accounts)
-  const gateRoutes = ["/attendance", ...extraRoutes];
+  // v33.24 — the Emails tab is MMs and above, module or not: writing to a
+  // partner is part of every MM's job. It rides the gate like /attendance.
+  const mailbox = canUseMailboxTab(viewer);
+  const gateRoutes = ["/attendance", ...(mailbox ? ["/emails"] : []), ...extraRoutes];
 
   return (
     <AppShell
@@ -113,6 +117,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         ogtMail,
         signups: ogx,
         consideration,
+        mailbox,
       }}
       signOutAction={async () => {
         "use server";

@@ -4,6 +4,7 @@ import {
   zoneForCountry, zoneOffsetLabel,
 } from "../src/lib/timezones";
 import { COUNTRIES } from "../src/lib/countries";
+import { cairoToUtc, cairoWallClockExists } from "../src/lib/time";
 
 /** The IR side of a booking (v33.22). A wrong time zone here does not throw —
  *  it quietly tells someone abroad the wrong hour, which is how the bug that
@@ -101,5 +102,35 @@ describe("the label an IR reads", () => {
   it("prints a readable city for multi-word zones", () => {
     expect(zoneCity("America/Sao_Paulo")).toBe("Sao Paulo");
     expect(zoneCity("Africa/Cairo")).toBe("Cairo");
+  });
+});
+
+describe("Egypt's daylight saving", () => {
+  // Egypt runs DST again: forward on the last Friday of April, back on the
+  // last Thursday of October. Every stored instant is UTC, so nothing drifts —
+  // what matters is that the booking grid never OFFERS an hour that isn't
+  // there, and that an ordinary evening round-trips on both sides of the jump.
+  it("round-trips a normal evening in winter and in summer", () => {
+    for (const [date, time] of [
+      ["2026-01-15", "18:00"], ["2026-08-09", "18:00"],
+      ["2026-04-23", "18:00"], ["2026-04-25", "18:00"],
+      ["2026-10-28", "18:00"], ["2026-10-30", "18:00"],
+    ] as const)
+      expect(cairoWallClockExists(date, time)).toBe(true);
+  });
+
+  it("knows the spring-forward hour does not exist", () => {
+    // 2026-04-24: the clock jumps 00:00 → 01:00
+    expect(cairoWallClockExists("2026-04-24", "00:30")).toBe(false);
+    expect(cairoWallClockExists("2026-04-24", "00:00")).toBe(false);
+    // ...and that the hour on either side is perfectly real
+    expect(cairoWallClockExists("2026-04-23", "23:30")).toBe(true);
+    expect(cairoWallClockExists("2026-04-24", "01:30")).toBe(true);
+  });
+
+  it("keeps the offset attached to the instant, not to the date string", () => {
+    // same wall clock, different side of the transition = different offset
+    expect(cairoToUtc("2026-01-15", "18:00").toISOString()).toBe("2026-01-15T16:00:00.000Z");
+    expect(cairoToUtc("2026-08-09", "18:00").toISOString()).toBe("2026-08-09T15:00:00.000Z");
   });
 });

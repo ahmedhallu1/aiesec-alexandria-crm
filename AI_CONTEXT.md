@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-07 · Version: v33.23
+Last updated: 2026-08-09 · Version: v33.24
 
 ---
 
@@ -49,8 +49,9 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0034_bd_service_world` → `0035_ir_booker_phone` →
 `0036_virtual_touch_points_and_routines` → `0037_admin_member_role` → … →
 `0045_cic_signup_logs_ir_event_source` → `0046_lc_feedback_inbox` →
-`0047_ir_call_timezone` → `0048_ir_product_and_lc_comments`
-(**all applied**, 0046–0048 during v33.22–v33.23).
+`0047_ir_call_timezone` → `0048_ir_product_and_lc_comments` →
+`0049_direct_visits_mailbox_ir_notes` (**all applied**, 0046–0049 during
+v33.22–v33.24).
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
@@ -612,6 +613,86 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-09 · v33.24** — **DIRECT VISITS, THE MAILBOX & THE LC'S FACE**
+  (migration **0049 applied**: `accounts.direct_visit`, `ir_calls.booker_note`,
+  `partner_lc_contacts.source` + the booker backfill, `sent_emails`).
+  ① **DIRECT VISITS.** Not every partner comes from a research sheet: someone
+  walks a street, finds a business and offers the product at the door. Logging
+  that meant adding an account, logging a contact, booking a visit into the
+  past and reporting it — four screens for something that had already
+  happened, so it went unlogged and the funnel called them idle. **One form**
+  on Raising now writes all three rows (MR + contact + visit) through the real
+  funnel, so it lands in the pipeline, the leaderboard and the dashboard with
+  no double entry. The OUTCOME decides the rest: *turned away at the door* ·
+  *come back another time* (books the return visit) · *send the info instead*
+  (sets the next step) · *got to present* (visit done) · *deal on the spot*
+  (visit done, then record the deal). Nothing is announced — the visit is
+  over. A refusal at reception never archives the account: `direct_visit` is a
+  flag, not a verdict.
+  ② **THE EMAILS TAB** (`/emails`, MMs and above — `canUseMailboxTab`).
+  Members have always written to partners, EPs and other entities from Gmail,
+  from a blank page, so every letter looked different, half went out with no
+  signature, and the LC had no record of who had been written to. Now: five
+  starting points, a rich-text editor, **the Blue Man to write or rework the
+  letter** (Gemini, HTML out, never invents facts and never signs), and a
+  **real signature built from the membership row** — name, the full role
+  title, the entity, WhatsApp-linked number, the two AIESEC lines and the
+  logo. It sends through **their OWN Gmail**, so the reply comes back to them
+  and it sits in their Sent folder — Sodio is the stationery, not the sender.
+  Send now or leave a Gmail draft; recipients come from an LC-member picker,
+  any typed address, or the ones they wrote to before (`sent_emails`).
+  ③ **THE LINK PREVIEW WAS THE PWA ICON.** There was no `openGraph` image at
+  all, so WhatsApp scraped the page and grabbed `icon-192.png` — a small
+  TRANSPARENT PNG, which every chat app composites onto white and masks into a
+  rounded square: exactly the "low quality with strange white corners". A real
+  **1200×630 opaque card** with the FULL AIESEC in Alexandria logo now ships
+  on every page and on both /book pages. The tab icon stays the lighthouse on
+  purpose — a wordmark at 16px is a smudge.
+  ④ **EVERY EMAIL WEARS THE REAL LOGO.** The header drew the wordmark with a
+  `<span>` and a `float:right` label — typed, not designed, and rendered
+  differently in every client. Both layouts now carry the actual mark as an
+  image, a taller AIESEC colour band, roomier body and a warmer button.
+  ⑤ **AN OGX TEAM LEADER WAS TOLD SHE OWNED 20 "ACCOUNTS."**
+  `bulkReassignSignups` borrowed the RAISING template, so a sign-ups hand-over
+  arrived with "the Responsible of 20 accounts", the raising golden rule and
+  an "Open my accounts" button — for rows that are EPs in a tracker sheet. New
+  `signupsAssignedEmail` speaks OGX. The rest of the 36 templates were audited:
+  every other raising-worded one is only reachable from a raising path.
+  ⑥ **BOOKING A VISIT IS A CONTACT RESULT.** The standalone "Schedule visit"
+  button is gone — a visit is always the outcome of reaching someone, and the
+  contact log books it (with the same calendar invite and reminders). MOVING
+  an already-booked visit stays a button: there is no new contact to log when
+  only the time changes.
+  ⑦ **EVERY IR IS A REAL PERSON** (0049). IRs who booked through the link
+  existed only as a snapshot on the call — capped at five per LC and with no
+  id — so nothing could be attached to them. They now get a contact row like
+  any hand-added IR (29 backfilled), which is what makes **notes on a specific
+  IR** work. And the booking page finally asks **what the call is about**
+  (`booker_note`): it reaches the host's email and the calendar event, so
+  nobody walks in blind.
+  ⑧ **EVERY PARTNER LC HAS A HISTORY** — calls, CVs and notes on one timeline,
+  newest first, in the LC's own dialog. "Have we spoken to these people
+  before?" used to mean opening three tabs and comparing dates.
+  ⑨ **EGYPT'S DST IS HANDLED, AND SO IS THE HOUR THAT DOESN'T EXIST.** Stored
+  instants were always right (`cairoToUtc` is two-pass), but on the
+  spring-forward night the clock jumps 00:00 → 01:00, and the grid would have
+  OFFERED 12:30 AM — a label whose invite says 1:30 AM. `cairoWallClockExists`
+  round-trips every slot and drops the ones that aren't real. Three tests pin
+  both transitions; 147 total.
+  ⑩ **"MOST BUTTONS BECOME UNCLICKABLE" ON ONE IPHONE.** That shape — one
+  device, intermittent, EVERYTHING dead at once — is a stuck modal lock, not a
+  permission: Radix puts `pointer-events: none` on `<body>` while an overlay is
+  open and removes it on close, and an interrupted close (slow device, tab
+  backgrounded, one dialog opening as another shuts) leaves it there forever.
+  `PointerEventsGuard` releases the lock whenever the body is locked and
+  nothing is actually open. Also: `touch-action: manipulation` kills Safari's
+  300ms double-tap delay on every control. (Her Google grant was checked and
+  is live — access was never the problem.)
+  ⑪ Smaller, from the same list: the booking page's Country no longer says
+  "(optional)"; the IR-facing "no account needed" — meaningless to someone who
+  has never heard of Sodio — became "it opens straight from this email,
+  nothing to sign up for".
 
 - **2026-08-07 · v33.23** — **THE CONSIDERATION RELEASE + TWO EMAIL BUGS**
   (migration **0048 applied**: `ir_calls.product`, `partner_lc_contacts.product`,

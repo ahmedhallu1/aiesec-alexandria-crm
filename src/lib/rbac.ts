@@ -70,6 +70,16 @@ const master = (v: Viewer) =>
   v.isAdmin || v.role === "LCP" || leadsIm(v) ||
   (v.functions ?? []).includes("F&L");
 
+/** THE EMAILS TAB (v33.24) — MMs and above. Writing to a partner or another
+ *  entity on the LC's behalf is a responsibility that comes with the job;
+ *  a first-week member has no letters to send yet. */
+export function canUseMailboxTab(v: Viewer): boolean {
+  return (
+    v.isAdmin ||
+    ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(v.role)
+  );
+}
+
 /** The admin TOOLS — Health & Logs, the test view, the change journal (v33).
  *
  *  Deliberately NOT the same thing as `master`. Someone can be the system's

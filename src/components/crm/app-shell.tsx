@@ -47,7 +47,7 @@ interface ShellProps {
     /** may open Health & Logs and the test view (v33) */
     adminTools: boolean;
   };
-  nav: { raising: boolean; dashboard: boolean; tm: boolean; membership: boolean; planning: boolean; ogtMail: boolean; signups: boolean; consideration: boolean; calendar: boolean };
+  nav: { raising: boolean; dashboard: boolean; tm: boolean; membership: boolean; planning: boolean; ogtMail: boolean; signups: boolean; consideration: boolean; calendar: boolean; mailbox: boolean };
   signOutAction: () => Promise<void>;
   children: React.ReactNode;
 }
@@ -113,6 +113,8 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
     ...(nav.membership ? [{ href: "/membership", label: "Membership", icon: Users }] : []),
     // v29: attendance is everybody's — own history, plus whatever you record
     { href: "/attendance", label: "Attendance", icon: CalendarCheck2 },
+    // v33.24 — writing to partners, EPs and other LCs, with the LC's look
+    ...(nav.mailbox ? [{ href: "/emails", label: "Emails", icon: MailPlus }] : []),
     { href: "/playbook", label: "Playbook", icon: BookOpen },
     // system feedback moved to the Profile page (v21) — this is feedback about
     // PEOPLE in the LC: shout-outs & concerns

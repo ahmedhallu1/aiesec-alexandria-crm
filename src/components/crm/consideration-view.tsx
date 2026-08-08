@@ -650,8 +650,8 @@ function LcNotesDialog({
   const [about, setAbout] = useState("lc");
   const [pending, start] = useTransition();
   const router = useRouter();
-  // only HAND-ADDED IRs have a stable id to hang a note on; a booker is a
-  // de-duplicated snapshot of whoever booked, not a row
+  // every IR has a row since v33.24 — bookers included — so a note can hang
+  // on any of them
   const people = (lc?.contacts ?? []).filter((c) => c.manualId);
   const notes = lc?.comments ?? [];
   const nameOf = (id: string | null) =>
@@ -664,10 +664,10 @@ function LcNotesDialog({
     >
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle dir="auto">Notes — {lc?.name}</DialogTitle>
+          <DialogTitle dir="auto">{lc?.name} — history &amp; notes</DialogTitle>
           <DialogDescription>
-            What the next person needs to know before they call. Everyone in
-            consideration reads these.
+            Everything that has happened with this LC, and what the next person
+            needs to know before they call.
           </DialogDescription>
         </DialogHeader>
 
@@ -714,40 +714,69 @@ function LcNotesDialog({
           </div>
         </div>
 
-        {notes.length === 0 ? (
+        {/* THE WHOLE STORY (v33.24) — calls, CVs and notes on one timeline.
+            "Have we spoken to these people before?" used to mean opening three
+            tabs and reading dates. */}
+        {(lc?.history ?? []).length === 0 ? (
           <p className="py-4 text-center text-sm text-muted-foreground">
-            Nothing written down yet.
+            Nothing has happened with this LC yet.
           </p>
         ) : (
           <div className="grid gap-2">
-            {notes.map((n) => (
-              <div key={n.id} className="rounded-lg border p-2.5">
-                <p className="whitespace-pre-wrap break-words text-sm" dir="auto">{n.body}</p>
-                <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs text-muted-foreground" dir="auto">
-                    {n.contactId ? `about ${nameOf(n.contactId)} · ` : ""}
-                    {n.author} · {fmtDateTime(n.createdAt)}
-                  </p>
-                  {n.authorId === viewerId || canManage ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-6 text-xs text-muted-foreground hover:text-destructive"
-                      disabled={pending}
-                      onClick={() =>
-                        start(async () => {
-                          const res = await deletePartnerLcComment(n.id);
-                          if (!res.ok) toast.error(res.error);
-                          else router.refresh();
-                        })
-                      }
-                    >
-                      Remove
-                    </Button>
+            {(lc?.history ?? []).map((e) => {
+              const note = e.kind === "note" ? notes.find((n) => `note-${n.id}` === e.id) : null;
+              return (
+                <div
+                  key={e.id}
+                  className={cn(
+                    "rounded-lg border p-2.5",
+                    e.kind === "note" && "border-primary/30 bg-primary/5"
+                  )}
+                >
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span>{e.kind === "call" ? "📞" : e.kind === "cv" ? "📄" : "📝"}</span>
+                    <span className="text-sm font-semibold" dir="auto">{e.title}</span>
+                    {e.product ? (
+                      <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
+                        {e.product}
+                      </Badge>
+                    ) : null}
+                    {note?.contactId ? (
+                      <Badge variant="secondary" className="px-1.5 py-0 text-[10px]" dir="auto">
+                        about {nameOf(note.contactId)}
+                      </Badge>
+                    ) : null}
+                  </div>
+                  {e.detail ? (
+                    <p className="mt-1 whitespace-pre-wrap break-words text-sm" dir="auto">
+                      {e.detail}
+                    </p>
                   ) : null}
+                  <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-muted-foreground" dir="auto">
+                      {e.who ? `${e.who} · ` : ""}{fmtDateTime(e.at)}
+                    </p>
+                    {note && (note.authorId === viewerId || canManage) ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 text-xs text-muted-foreground hover:text-destructive"
+                        disabled={pending}
+                        onClick={() =>
+                          start(async () => {
+                            const res = await deletePartnerLcComment(note.id);
+                            if (!res.ok) toast.error(res.error);
+                            else router.refresh();
+                          })
+                        }
+                      >
+                        Remove
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </DialogContent>

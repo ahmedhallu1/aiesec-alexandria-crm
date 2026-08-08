@@ -108,6 +108,7 @@ export function BookingView({
   const [country, setCountry] = useState("");
   const [bookerName, setBookerName] = useState("");
   const [bookerRole, setBookerRole] = useState("");
+  const [note, setNote] = useState("");
   const [done, setDone] = useState<{
     memberName: string;
     whenLabel: string;
@@ -194,6 +195,7 @@ export function BookingView({
         country: country || null,
         bookerName: bookerName.trim(),
         bookerRole,
+        note: note.trim() || null,
         // what zone they were LOOKING at — every later email speaks it back
         tz,
       });
@@ -430,7 +432,7 @@ export function BookingView({
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="bk-country">Country (optional)</Label>
+                <Label htmlFor="bk-country">Country</Label>
                 <CountryInput
                   id="bk-country"
                   value={country}
@@ -463,6 +465,29 @@ export function BookingView({
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+            {/* WHAT THE CALL IS ABOUT (v33.24). The form asked who and when
+                and never why, so the host walked in blind and the one person
+                who knew had no way to say. Optional — a call with no agenda is
+                still a call. */}
+            <div className="space-y-1.5">
+              <Label htmlFor="bk-note">
+                Anything you&apos;d like to talk about?{" "}
+                <span className="font-normal text-muted-foreground">— optional</span>
+              </Label>
+              <textarea
+                id="bk-note"
+                dir="auto"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                rows={2}
+                maxLength={1000}
+                placeholder="Your demand, a project you're planning, what you'd like from us…"
+                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
+              />
+              <p className="text-xs text-muted-foreground">
+                It reaches {memberName} before the call, so they can come prepared.
+              </p>
             </div>
             <Button
               className="h-11 w-full text-base font-bold"

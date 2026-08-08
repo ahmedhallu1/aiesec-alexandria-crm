@@ -163,6 +163,17 @@
   input[type="time"] {
     @apply text-foreground;
   }
+  /* iOS TAP BEHAVIOUR (v33.24). Safari waits ~300ms on every tap in case a
+     double-tap-to-zoom is coming, which on a slower phone reads as "the
+     button didn't work" — so people tap again, and the second tap lands on
+     whatever moved. `manipulation` opts out of double-tap zoom on the
+     controls (never on text), and the transparent highlight stops the grey
+     flash that makes an already-slow tap look broken. */
+  button, a, [role="button"], select, summary, label {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
   input[type="date"]::-webkit-datetime-edit,
   input[type="time"]::-webkit-datetime-edit {
     color: var(--muted-foreground);

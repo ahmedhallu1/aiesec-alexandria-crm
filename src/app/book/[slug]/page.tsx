@@ -32,9 +32,26 @@ export async function generateMetadata({
 }) {
   const { slug } = await params;
   const data = await load(slug);
+  const title = data
+    ? `Book an IR call with ${data.memberName}`
+    : "Book an IR call";
+  const description = data
+    ? `Pick a time that suits you — ${data.slotMinutes} minutes with ${data.memberName}, AIESEC in Alexandria. Times are shown in your own time zone.`
+    : "AIESEC in Alexandria — international relations calls.";
+  // the LINK PREVIEW an IR sees in WhatsApp before they ever open the page
+  // (v33.24): the full logo on solid brand blue, never the transparent icon
   return {
-    title: data ? `Book an IR call with ${data.memberName}` : "Book an IR call",
+    title,
+    description,
     icons: BOOK_ICONS,
+    openGraph: {
+      type: "website",
+      title,
+      description,
+      siteName: "AIESEC in Alexandria",
+      images: [{ url: "/brand/og-card.png", width: 1200, height: 630, alt: "AIESEC in Alexandria" }],
+    },
+    twitter: { card: "summary_large_image", title, description, images: ["/brand/og-card.png"] },
   };
 }
 

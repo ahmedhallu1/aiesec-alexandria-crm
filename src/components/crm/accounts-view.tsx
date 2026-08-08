@@ -6,7 +6,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   AlertTriangle, Archive, Check, CheckCircle2, CheckSquare, CircleAlert,
-  ChevronDown, Copy, FileUp, Loader2, MessageSquarePlus, Phone, Plus, RotateCcw, Search,
+  ChevronDown, Copy, FileUp, Footprints, Loader2, MessageSquarePlus, Phone, Plus,
+  RotateCcw, Search,
   Trash2, Users2, X,
   XCircle,
 } from "lucide-react";
@@ -25,6 +26,7 @@ import { cn } from "@/lib/utils";
 import { StageBadge } from "./stage-badge";
 import { ContactDialog, type ContactTarget } from "./contact-dialog";
 import { AddAccountDialog, type MemberOption } from "./add-account-dialog";
+import { DirectVisitDialog } from "./direct-visit-dialog";
 import { AskBlueMan } from "./ask-blue-man";
 import { FileDrop } from "./file-drop";
 import {
@@ -633,6 +635,7 @@ export function AccountsView({
   // the channel the member actually tapped — it pre-selects the method
   const [contactMethod, setContactMethod] = useState<ContactMethod>("Call");
   const [addOpen, setAddOpen] = useState(false);
+  const [directOpen, setDirectOpen] = useState(false);
   // quick comment from the list (v33.17) — one dialog for the whole table
   const [quickComment, setQuickComment] = useState<{ id: string; name: string } | null>(null);
   const [addArchivedOpen, setAddArchivedOpen] = useState(false);
@@ -1106,6 +1109,18 @@ export function AccountsView({
                   <Link href="/accounts/import">
                     <FileUp className="size-4" /> Import
                   </Link>
+                </Button>
+              </Hint>
+              {/* THE OTHER WAY ROUND (v33.24): no research, no booking — you
+                  walked in and offered it. One form writes the MR, the
+                  contact and the visit. */}
+              <Hint label="You walked in and offered it on the spot — logs the research, the contact and the visit together">
+                <Button
+                  variant="outline"
+                  onClick={() => setDirectOpen(true)}
+                  disabled={viewer.allowedFns.length === 0}
+                >
+                  <Footprints className="size-4" /> Direct visit
                 </Button>
               </Hint>
               <Hint label="Add one account — checked against all ICX data and the archive">
@@ -1683,6 +1698,11 @@ export function AccountsView({
           allowedFns: viewer.allowedFns,
         }}
         members={members}
+      />
+      <DirectVisitDialog
+        open={directOpen}
+        onOpenChange={setDirectOpen}
+        allowedFns={viewer.allowedFns}
       />
       <AddArchivedDialog open={addArchivedOpen} onOpenChange={setAddArchivedOpen} />
       <ImportArchivedDialog open={importArchivedOpen} onOpenChange={setImportArchivedOpen} />

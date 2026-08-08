@@ -1,36 +1,59 @@
 import { env } from "@/lib/env";
 import { fmtClock12, ROLE_BLURBS } from "@/lib/types";
 
-/** AIESEC-branded transactional email layout.
- *  Blue #0A2540, Cyan #037EF3 — table-based so it renders everywhere. */
-export function emailLayout(opts: { preheader?: string; body: string }): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
-<body style="margin:0;padding:0;background-color:#eef3fa;font-family:'Segoe UI',Arial,Helvetica,sans-serif;">
-  ${opts.preheader ? `<div style="display:none;max-height:0;overflow:hidden;">${opts.preheader}</div>` : ""}
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#eef3fa;padding:28px 12px;">
-    <tr><td align="center">
-      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+/** THE HOUSE EMAIL (v33.24 rebuild).
+ *
+ *  Every email Sodio sends is the LC talking to its own people, so it should
+ *  look like the LC — the REAL logo, not a text imitation of it, the AIESEC
+ *  colour bar, and a body with room to breathe. The old layout drew the
+ *  wordmark with a `<span>` and a `float:right` label, which renders
+ *  differently in every client and looked typed rather than designed.
+ *
+ *  Table-based and inline-styled on purpose: Outlook, Gmail's clipper and the
+ *  iOS Mail dark-mode transform all break anything cleverer. The logo is the
+ *  white mark on the navy header, served from the public /brand folder (which
+ *  the proxy exempts), so it loads for anyone — no auth, no CID attachment.
+ */
+const LOGO_URL = `${env.appUrl}/brand/alex-white.png`;
+
+/** The banded header both layouts share. */
+function emailHeader(tag?: string): string {
+  return `
         <tr>
-          <td style="background-color:#0A2540;background-image:linear-gradient(135deg,#0A2540 0%,#0d3a6e 60%,#037EF3 140%);border-radius:16px 16px 0 0;padding:26px 32px;">
-            <span style="color:#ffffff;font-size:21px;font-weight:800;letter-spacing:0.5px;">AIESEC <span style="color:#5db4ff;">in Alexandria</span></span>
-            <span style="float:right;color:#9db8d4;font-size:12px;padding-top:8px;letter-spacing:1px;">ICX&nbsp;CRM</span>
+          <td style="background-color:#0A2540;background-image:linear-gradient(135deg,#0A2540 0%,#0d3a6e 55%,#037EF3 145%);border-radius:16px 16px 0 0;padding:28px 32px 24px;" align="center">
+            <img src="${LOGO_URL}" width="230" alt="AIESEC in Alexandria"
+                 style="display:block;width:230px;max-width:70%;height:auto;border:0;outline:none;text-decoration:none;">
+            ${tag ? `<div style="margin-top:12px;color:#9db8d4;font-size:11px;letter-spacing:2px;text-transform:uppercase;">${tag}</div>` : ""}
           </td>
         </tr>
         <tr>
-          <td style="height:4px;background-image:linear-gradient(90deg,#037EF3,#0CB9C1 45%,#F48924 75%,#F85A40);font-size:0;line-height:0;">&nbsp;</td>
-        </tr>
+          <td style="height:5px;background-image:linear-gradient(90deg,#037EF3,#0CB9C1 45%,#F48924 75%,#F85A40);font-size:0;line-height:0;">&nbsp;</td>
+        </tr>`;
+}
+
+function shell(opts: { preheader?: string; header: string; body: string; footer: string }): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background-color:#eef3fa;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;">
+  ${opts.preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${opts.preheader}</div>` : ""}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#eef3fa;padding:30px 12px;">
+    <tr><td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;border-collapse:separate;">
+        ${opts.header}
         <tr>
-          <td style="background-color:#ffffff;padding:32px;border-radius:0 0 16px 16px;color:#0A2540;font-size:15px;line-height:1.65;">
+          <td style="background-color:#ffffff;padding:34px 34px 30px;border-radius:0 0 16px 16px;color:#12263f;font-size:15px;line-height:1.7;">
             ${opts.body}
           </td>
         </tr>
         <tr>
-          <td style="padding:20px 32px;color:#5c6b80;font-size:12px;text-align:center;line-height:1.7;">
-            Sent automatically by Sodio · AIESEC in Alexandria ·
-            <a href="${env.appUrl}" style="color:#037EF3;text-decoration:none;font-weight:bold;">Open the CRM</a><br>
-            <span style="color:#93a5bc;">This system is built for you — reply with feedback anytime. 💙</span>
+          <td style="padding:18px 32px 4px;color:#5c6b80;font-size:12px;text-align:center;line-height:1.7;">
+            ${opts.footer}
           </td>
         </tr>
       </table>
@@ -38,61 +61,49 @@ export function emailLayout(opts: { preheader?: string; body: string }): string 
   </table>
 </body>
 </html>`;
+}
+
+/** The layout for everyone INSIDE the LC. */
+export function emailLayout(opts: { preheader?: string; body: string }): string {
+  return shell({
+    preheader: opts.preheader,
+    header: emailHeader("Sodio"),
+    body: opts.body,
+    footer: `Sent automatically by Sodio · AIESEC in Alexandria ·
+            <a href="${env.appUrl}" style="color:#037EF3;text-decoration:none;font-weight:bold;">Open the CRM</a><br>
+            <span style="color:#93a5bc;">This system is built for you — reply with feedback anytime. 💙</span>`,
+  });
 }
 
 /** The layout for emails that leave the LC — IRs abroad booking calls (v29).
  *  They are not Sodio users: never mention the CRM, never link into it. */
 export function externalEmailLayout(opts: { preheader?: string; body: string }): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
-<body style="margin:0;padding:0;background-color:#eef3fa;font-family:'Segoe UI',Arial,Helvetica,sans-serif;">
-  ${opts.preheader ? `<div style="display:none;max-height:0;overflow:hidden;">${opts.preheader}</div>` : ""}
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#eef3fa;padding:28px 12px;">
-    <tr><td align="center">
-      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
-        <tr>
-          <td style="background-color:#0A2540;background-image:linear-gradient(135deg,#0A2540 0%,#0d3a6e 60%,#037EF3 140%);border-radius:16px 16px 0 0;padding:26px 32px;">
-            <span style="color:#ffffff;font-size:21px;font-weight:800;letter-spacing:0.5px;">AIESEC <span style="color:#5db4ff;">in Alexandria</span></span>
-          </td>
-        </tr>
-        <tr>
-          <td style="height:4px;background-image:linear-gradient(90deg,#037EF3,#0CB9C1 45%,#F48924 75%,#F85A40);font-size:0;line-height:0;">&nbsp;</td>
-        </tr>
-        <tr>
-          <td style="background-color:#ffffff;padding:32px;border-radius:0 0 16px 16px;color:#0A2540;font-size:15px;line-height:1.65;">
-            ${opts.body}
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:20px 32px;color:#5c6b80;font-size:12px;text-align:center;line-height:1.7;">
-            Sent by Sodio · AIESEC in Alexandria
-          </td>
-        </tr>
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>`;
+  return shell({
+    preheader: opts.preheader,
+    header: emailHeader(),
+    body: opts.body,
+    footer: `AIESEC in Alexandria · Egypt<br>
+            <span style="color:#93a5bc;">The international platform for young people to explore and develop their potential.</span>`,
+  });
 }
 
 export function button(label: string, url: string): string {
-  return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:22px 0;"><tr>
-    <td style="background-color:#037EF3;background-image:linear-gradient(135deg,#037EF3,#0a66d0);border-radius:10px;">
-      <a href="${url}" style="display:inline-block;padding:13px 30px;color:#ffffff;font-weight:bold;text-decoration:none;font-size:14px;letter-spacing:0.3px;">${label} →</a>
+  return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0;"><tr>
+    <td style="background-color:#037EF3;background-image:linear-gradient(135deg,#037EF3,#0a66d0);border-radius:10px;box-shadow:0 2px 6px rgba(3,126,243,0.28);">
+      <a href="${url}" style="display:inline-block;padding:14px 32px;color:#ffffff;font-weight:bold;text-decoration:none;font-size:14px;letter-spacing:0.3px;">${label} →</a>
     </td></tr></table>`;
 }
 
 function row(label: string, value: string): string {
   return `<tr>
-    <td style="padding:8px 12px;background:#f0f4f9;font-weight:bold;white-space:nowrap;border-bottom:2px solid #ffffff;">${label}</td>
-    <td style="padding:8px 12px;background:#f7f9fc;border-bottom:2px solid #ffffff;">${escapeHtml(value)}</td>
+    <td style="padding:10px 14px;background:#eef3fa;font-weight:600;color:#0A2540;white-space:nowrap;border-bottom:2px solid #ffffff;vertical-align:top;">${label}</td>
+    <td style="padding:10px 14px;background:#f7f9fc;border-bottom:2px solid #ffffff;color:#12263f;">${escapeHtml(value)}</td>
   </tr>`;
 }
 
 export function detailsTable(rows: [string, string | null | undefined][]): string {
   const filled = rows.filter(([, v]) => v != null && v !== "");
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;border-radius:8px;overflow:hidden;margin:16px 0;">
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;border-radius:10px;overflow:hidden;margin:18px 0;border:1px solid #e3ebf5;">
     ${filled.map(([l, v]) => row(l, v as string)).join("")}
   </table>`;
 }
@@ -596,6 +607,41 @@ export function accountsAssignedEmail(opts: {
   };
 }
 
+/** SIGN-UPS ARE NOT ACCOUNTS (v33.24).
+ *
+ *  A bulk sign-up hand-over used to borrow `accountsAssignedEmail`, so an OGX
+ *  Team Leader was told she had been made "the Responsible of 20 accounts",
+ *  with the raising golden rule and a button to "Open my accounts" — for rows
+ *  that are EPs in a tracker sheet. Every module gets its own words. */
+export function signupsAssignedEmail(opts: {
+  memberName: string;
+  managerName: string;
+  signupNames: string[];
+  signupsUrl: string;
+}) {
+  const n = opts.signupNames.length;
+  const listed = opts.signupNames.slice(0, 15);
+  const more = n - listed.length;
+  return {
+    subject: `🆕 ${opts.managerName} assigned you ${n} sign-up${n === 1 ? "" : "s"}`,
+    html: emailLayout({
+      preheader: `${n} sign-up${n === 1 ? "" : "s"} are yours now — reach out while they're warm`,
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">New sign-ups for you 🆕</h1>
+        <p>Hey ${escapeHtml(opts.memberName)} — <b>${escapeHtml(opts.managerName)}</b> just handed you
+        ${n === 1 ? "a sign-up" : `${n} sign-ups`}. They're on your <b>My sign-ups</b> list now:</p>
+        <ul style="margin:12px 0;padding-left:20px;color:#334155;">
+          ${listed.map((a) => `<li style="margin:2px 0;">${escapeHtml(a)}</li>`).join("")}
+          ${more > 0 ? `<li style="margin:2px 0;color:#64748B;">…and ${more} more</li>` : ""}
+        </ul>
+        <p>Reach them, then mark <b>Contacted</b> and <b>Interested</b> and leave a
+        comment — every edit writes straight back to the tracker sheet. Approved
+        is the finish line 🏆</p>
+        ${button("Open my sign-ups", opts.signupsUrl)}`,
+    }),
+  };
+}
+
 export function broadcastEmail(opts: {
   title: string;
   body: string;
@@ -844,6 +890,8 @@ export function irCallBookedEmail(opts: {
   /** v28: the Meet room + the IR's email */
   meetLink?: string | null;
   bookerEmail?: string | null;
+  /** what the IR said they want to talk about (v33.24) */
+  note?: string | null;
 }): { subject: string; html: string } {
   return {
     subject: `📅 IR call booked — ${opts.partnerLc} · ${opts.whenLabel}`,
@@ -860,6 +908,7 @@ export function irCallBookedEmail(opts: {
           ["When", opts.whenLabel],
           ["Duration", `${opts.slotMinutes} minutes`],
           ["Google Meet", opts.meetLink],
+          ["What they want to talk about", opts.note],
         ])}
         <p>It's on your Google Calendar (if your grant is live) with the IR
         invited${opts.meetLink ? " and a Meet room attached" : ""}, and pinned
@@ -909,8 +958,8 @@ export function irBookingConfirmEmail(opts: {
           ["Google Meet", opts.meetLink],
         ])}
         ${opts.meetLink ? button("Join the Google Meet", opts.meetLink) : ""}
-        <p>Plans changed? You can move or cancel this call yourself — no
-        account needed:</p>
+        <p>Plans changed? Use the link below to pick a new time or cancel —
+        it opens straight from this email, nothing to sign up for:</p>
         ${button(opts.rescheduled ? "Manage this booking" : "Reschedule or cancel", opts.manageUrl)}
         <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">${
           opts.cairoLabel
@@ -1194,8 +1243,8 @@ export function irTimeZoneConfirmEmail(opts: {
         <p>Both lines are the same moment — and your calendar invite has always
         been correct, since Google shows it in whatever zone your calendar is
         set to.</p>
-        <p>If that time doesn't work now that you see it in your own clock, you
-        can move it yourself in a few seconds — no account needed:</p>
+        <p>If that time doesn't work now that you see it in your own clock,
+        the link below lets you pick another one in a few seconds:</p>
         ${button("Reschedule or cancel", opts.manageUrl)}
         <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">From now on our booking pages show every time in your own time zone. Sent via Sodio — AIESEC in Alexandria.</p>`,
     }),

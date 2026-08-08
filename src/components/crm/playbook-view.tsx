@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v33.23";
+export const PLAYBOOK_VERSION = "v33.24";
 
 interface Props {
   role: string;
@@ -42,6 +42,9 @@ function sectionsForRole(
   if (isOgx) mine.add("ogx");
   if (isConsideration) mine.add("consideration");
   if (isAdmin) { mine.add("im"); mine.add("data"); }
+  // the Emails tab is MMs and above (v33.24)
+  if (["Coordinator", "Team Leader", "LCVP", "Director", "LCP"].includes(role) || isAdmin)
+    mine.add("emails");
   return mine;
 }
 
@@ -94,6 +97,8 @@ const SECTIONS: Section[] = [
     audience: "Members & Coordinators",
     color: "#F85A40",
     points: [
+      <><b>🚶 Direct visits</b> (v33.24): walked into a place off the street and offered it on the spot? Hit <b>Direct visit</b> on Raising — one form records the <b>market research, the contact AND the visit</b> together, so it counts like any other work instead of going unlogged. Pick how it ended: <b>turned away at the door</b> · <b>come back another time</b> (books the return visit) · <b>send the info instead</b> · <b>got to present</b> (the visit counts as done) · <b>closed a deal on the spot</b>. Being turned away by a receptionist never archives the account — it stays in your pipeline to try again.</>,
+      <><b>Booking a visit lives in the contact log</b> (v33.24): there is no separate &quot;Schedule visit&quot; button any more. A visit is the RESULT of reaching someone, so you log the contact and pick <b>Visit Scheduled</b> — same calendar invite, same reminders. (Moving a visit you already booked still has its own button.)</>,
       <><b>Add the account first</b> — the name is checked <b>the moment you type it</b> against every function&apos;s accounts and your function&apos;s archive, so you learn it&apos;s taken BEFORE filling the rest. Bulk import exists for whole research sheets.</>,
       <><b>Log every contact attempt</b> with its result. Picking <b>&quot;Visit Scheduled&quot;</b> books the visit — calendar invite and reminders included. WhatsApp and Email attempts default to <b>&quot;Waiting for response&quot;</b> (v33.15) — you sent it, they haven&apos;t replied yet; it still counts as unanswered for the 3-contact rule.</>,
       <>Every in-process account carries a <b>next step with a date</b> or a pending visit. Three no-responses → the CRM suggests archiving. Setting that date is one tap now (v24): the date fields (account card + Log-contact dialog) have a <b>&quot;Next week&quot;</b> button — +7 days, done.</>,
@@ -205,6 +210,21 @@ const SECTIONS: Section[] = [
       <><b>📞 CIC — the second call</b> (v33.19): a sign-up whose <b>Contacted</b> is answered — <b>Yes or No</b> — that never got a status shows up in the CIC tab (a &quot;No&quot; is a call that happened and didn&apos;t land, which is exactly what a second call re-tries; a sign-up still in the unassigned pool is waiting for its FIRST call and never appears), where an MM+ hands it to a <b>second caller</b> — someone else in the function who checks the first call really happened and follows up. It is <b>not</b> a hand-over: the sign-up stays with its first assignee and keeps counting for them; the second call is recorded in its own columns. Since v33.21 you can hand out a whole batch at once — select rows → <b>Assign 2nd caller…</b>. On credit: both callers carry the sign-up and the <b>contact</b>; the <b>outcome</b> (Applied → Approved) counts for whoever took it there.</>,
       <><b>Approved is the MOS</b> 🏆 — accepted by the host entity, paid, contract signed, ready to start the travel process. Your real Approvals count shows in the members directory.</>,
       <>VPs/Directors: the <b>Expectation mail</b> tab builds the pre-approval &quot;Home Entity Expectation Setting&quot; email — review the final version, edit inline, and send it from your own Gmail (EP + IR in To, customer support in CC, your signature at the end).</>,
+    ],
+  },
+  {
+    id: "emails",
+    emoji: "📨",
+    title: "Emails — writing on behalf of the LC",
+    audience: "MMs and above",
+    color: "#0CB9C1",
+    points: [
+      <>The <b>Emails</b> tab (v33.24) is where you write to a partner, an EP or another LC — with the LC&apos;s look instead of a blank Gmail page.</>,
+      <>It sends from <b>your own Gmail</b>, so the reply comes back to you and it sits in your Sent folder. Sodio supplies the frame, not the sender.</>,
+      <>Your <b>signature is built automatically</b> from the membership sheet — name, full role title, AIESEC in Alexandria, your WhatsApp number and the logo. Nothing to paste, nothing to forget.</>,
+      <>Start from a <b>template</b> (reaching a company · following up · thank you after a meeting · writing to another LC) and rewrite it — they exist because a blank page is why letters don&apos;t get written.</>,
+      <>Stuck on the words? <b>The Blue Man writes or reworks it</b>: describe what you want, or ask it to shorten what you already typed, warm it up, or put it in Arabic. <b>Always read it before you send</b> — it drafts, you decide.</>,
+      <>Recipients: pick anyone in the LC by name, type any address, or reuse one you&apos;ve <b>written to before</b>. <b>Save as draft</b> leaves it in your Gmail if you want to sleep on it.</>,
     ],
   },
   {
