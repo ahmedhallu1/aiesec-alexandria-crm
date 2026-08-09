@@ -52,18 +52,81 @@ export function memberSignature(m: {
 </table>`;
 }
 
+/** THE LAYOUTS (v33.25).
+ *
+ *  One letter is not like another: a first approach to a company should look
+ *  like a company letter, a note to another entity should look like AIESEC
+ *  talking to AIESEC, and a quick reply should look like a person typing. So
+ *  the frame is a CHOICE, made per email and previewed before it goes.
+ */
+export type LayoutKey = "branded" | "banner" | "plain" | "letterhead";
+
+export interface LayoutOption {
+  key: LayoutKey;
+  label: string;
+  hint: string;
+}
+
+export const EMAIL_LAYOUTS: LayoutOption[] = [
+  {
+    key: "branded",
+    label: "Branded card",
+    hint: "The house look — logo, AIESEC colour band, white card. The safe default.",
+  },
+  {
+    key: "banner",
+    label: "Bold banner",
+    hint: "A navy header with the white logo across it. For announcements and invitations.",
+  },
+  {
+    key: "letterhead",
+    label: "Letterhead",
+    hint: "Formal and quiet: a rule under the logo, no card. For official letters.",
+  },
+  {
+    key: "plain",
+    label: "Plain",
+    hint: "No frame at all — just your words and your signature, like a normal email.",
+  },
+];
+
 /** The wrapper around whatever the member wrote. */
 export function composedEmail(opts: {
   bodyHtml: string;
   signature: string;
+  layout?: LayoutKey;
 }): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f4f7fb;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f7fb;padding:26px 12px;">
-    <tr><td align="center">
-      <table role="presentation" width="640" cellpadding="0" cellspacing="0"
+  const body = `${opts.bodyHtml}${opts.signature}`;
+  const inner = (() => {
+    switch (opts.layout) {
+      case "plain":
+        return `<table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;">
+        <tr><td style="padding:8px 4px;color:#12263f;font-size:15px;line-height:1.75;">${body}</td></tr>
+      </table>`;
+      case "banner":
+        return `<table role="presentation" width="640" cellpadding="0" cellspacing="0"
+             style="max-width:640px;width:100%;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #dfe8f2;">
+        <tr>
+          <td align="center" style="background-color:${NAVY};background-image:linear-gradient(135deg,${NAVY} 0%,#0d3a6e 55%,${BLUE} 145%);padding:30px 34px;">
+            <img src="${env.appUrl}/brand/alex-white.png" alt="AIESEC in Alexandria" width="240"
+                 style="display:block;width:240px;max-width:72%;height:auto;border:0;">
+          </td>
+        </tr>
+        <tr><td style="height:5px;background-image:linear-gradient(90deg,${BLUE},#0CB9C1 45%,#F48924 75%,#F85A40);font-size:0;line-height:0;">&nbsp;</td></tr>
+        <tr><td style="padding:28px 34px 32px;color:#12263f;font-size:15px;line-height:1.75;">${body}</td></tr>
+      </table>`;
+      case "letterhead":
+        return `<table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;background:#ffffff;">
+        <tr>
+          <td style="padding:30px 36px 14px;border-bottom:2px solid ${BLUE};">
+            <img src="${env.appUrl}/brand/alex-blue.png" alt="AIESEC in Alexandria" width="200"
+                 style="display:block;width:200px;max-width:58%;height:auto;border:0;">
+          </td>
+        </tr>
+        <tr><td style="padding:26px 36px 34px;color:#12263f;font-size:15px;line-height:1.8;">${body}</td></tr>
+      </table>`;
+      default:
+        return `<table role="presentation" width="640" cellpadding="0" cellspacing="0"
              style="max-width:640px;width:100%;background:#ffffff;border:1px solid #dfe8f2;border-top:5px solid ${BLUE};border-radius:14px;">
         <tr>
           <td style="padding:26px 34px 0;">
@@ -71,17 +134,35 @@ export function composedEmail(opts: {
                  style="display:block;width:180px;max-width:55%;height:auto;border:0;">
           </td>
         </tr>
-        <tr>
-          <td style="padding:22px 34px 30px;color:#12263f;font-size:15px;line-height:1.75;">
-            ${opts.bodyHtml}
-            ${opts.signature}
-          </td>
-        </tr>
-      </table>
-    </td></tr>
+        <tr><td style="padding:22px 34px 30px;color:#12263f;font-size:15px;line-height:1.75;">${body}</td></tr>
+      </table>`;
+    }
+  })();
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:${opts.layout === "plain" ? "#ffffff" : "#f4f7fb"};font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${opts.layout === "plain" ? "#ffffff" : "#f4f7fb"};padding:26px 12px;">
+    <tr><td align="center">${inner}</td></tr>
   </table>
 </body>
 </html>`;
+}
+
+/** The AIESEC marks a member can drop INTO the letter (v33.25) — served from
+ *  the public /brand folder, so they render for any recipient. */
+export const EMAIL_IMAGES: { key: string; label: string; file: string; width: number }[] = [
+  { key: "alex-blue", label: "AIESEC in Alexandria (blue)", file: "alex-blue.png", width: 220 },
+  { key: "alex-white", label: "AIESEC in Alexandria (white)", file: "alex-white.png", width: 220 },
+  { key: "aiesec-blue", label: "AIESEC wordmark", file: "aiesec-blue.png", width: 170 },
+  { key: "aiesec-human", label: "AIESEC human", file: "aiesec-human-blue.png", width: 120 },
+  { key: "gv", label: "Global Volunteer", file: "gv-logo.png", width: 150 },
+  { key: "gta", label: "Global Talent", file: "gta-logo.png", width: 150 },
+];
+
+export function emailImageUrl(file: string): string {
+  return `${env.appUrl}/brand/${file}`;
 }
 
 /** STARTING POINTS, not straitjackets — each one is loaded into the editor and

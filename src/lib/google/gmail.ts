@@ -186,7 +186,7 @@ export async function createMemberDraft(
  *  message goes straight out via users.messages.send. */
 export async function sendMemberEmail(
   refreshToken: string,
-  opts: { to: string[]; cc?: string[]; subject: string; html: string }
+  opts: { to: string[]; cc?: string[]; bcc?: string[]; subject: string; html: string }
 ): Promise<string | null> {
   if (await sandboxSuppressed(`gmail send "${opts.subject}"`)) return "sandbox";
   const oauth2 = new google.auth.OAuth2(env.googleClientId, env.googleClientSecret);
@@ -197,6 +197,9 @@ export async function sendMemberEmail(
     [
       `To: ${opts.to.join(", ")}`,
       ...(opts.cc?.length ? [`Cc: ${opts.cc.join(", ")}`] : []),
+      // BCC is a real header on the OUTGOING message — Gmail strips it from
+      // every delivered copy, which is the whole point of it (v33.25)
+      ...(opts.bcc?.length ? [`Bcc: ${opts.bcc.join(", ")}`] : []),
       `Subject: ${encodeHeader(opts.subject)}`,
       "MIME-Version: 1.0",
       'Content-Type: text/html; charset="UTF-8"',

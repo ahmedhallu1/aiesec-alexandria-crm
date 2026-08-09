@@ -5,8 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   CalendarClock, Check, ChevronDown, ClipboardCheck, Copy, ExternalLink,
-  Building2, FileText, Globe2, ImagePlus, Link2, Loader2, Mail, MessageSquare,
-  Pencil, Phone, Plus, Send,
+  Building2, FileText, Globe2, History, ImagePlus, Link2, Loader2, Mail,
+  MessageSquare, Pencil, Phone, Plus, Send,
   Search, Settings2, Sparkles, Trash2, Upload, UserRound, Video, X,
 } from "lucide-react";
 import {
@@ -129,6 +129,25 @@ interface ViewerInfo {
  *  outlive the term that built them; this is the page you hand over.
  *
  *  Clicking an LC in the call log lands here, on that LC. */
+/** THE PRODUCT TAG (v33.25) — in the LC's own brand colours, not a grey
+ *  outline. GV is the Global Volunteer red-orange and GT the Global Talent
+ *  teal, the same two the dashboard lanes and the product badges use, so a
+ *  GV call reads as GV everywhere in the system. */
+export function ProductTag({ product, className }: { product: string; className?: string }) {
+  const gv = product === "GV";
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-bold text-white",
+        className
+      )}
+      style={{ backgroundColor: gv ? "#F85A40" : "#0CB9C1" }}
+    >
+      {product}
+    </span>
+  );
+}
+
 /** A compact "any / one value" filter, the shape the rest of the app uses on
  *  its filter bars. Empty string = no filter. */
 function FilterPill({
@@ -168,6 +187,8 @@ function PartnerLcsTab({
   const [editingLc, setEditingLc] = useState<PartnerLcDetail | null>(null);
   const [addingIrTo, setAddingIrTo] = useState<PartnerLcDetail | null>(null);
   const [notesFor, setNotesFor] = useState<PartnerLcDetail | null>(null);
+  /** "lc" or a contact id — what the note composer is pointed at when it opens */
+  const [notesAbout, setNotesAbout] = useState("lc");
   const [lcForm, setLcForm] = useState({ name: "", country: "" });
   const [irForm, setIrForm] =
     useState({ name: "", role: "", email: "", phone: "", product: "" });
@@ -476,6 +497,7 @@ function PartnerLcsTab({
 
       <LcNotesDialog
         lc={notesFor}
+        initialAbout={notesAbout}
         onClose={() => setNotesFor(null)}
         viewerId={viewer.id}
         canManage={viewer.canManageLcs}
@@ -508,24 +530,21 @@ function PartnerLcsTab({
                   {/* WHICH PROGRAMME WE REACHED THEM FOR (v33.23) — derived
                       from their calls and hand-added IRs, so it can say BOTH */}
                   {(lc.products ?? []).map((p) => (
-                    <Badge
-                      key={p}
-                      className="font-semibold"
-                      style={{ backgroundColor: p === "GV" ? "#F85A40" : "#0CB9C1" }}
-                    >
-                      {p}
-                    </Badge>
+                    <ProductTag key={p} product={p} />
                   ))}
-                  <Hint label="Notes on this LC and its IRs">
+                  {/* THE LC'S WHOLE STORY (v33.24) — a labelled button, not a
+                      bare icon: nobody clicks an unexplained glyph to find out
+                      whether we have spoken to these people before. */}
+                  <Hint label="Every call, CV and note with this LC">
                     <Button
-                      size="icon"
-                      variant="ghost"
-                      className="size-7 shrink-0 text-muted-foreground hover:text-primary"
-                      onClick={() => setNotesFor(lc)}
+                      size="sm"
+                      variant="outline"
+                      className="h-7 shrink-0 px-2 text-xs"
+                      onClick={() => { setNotesAbout("lc"); setNotesFor(lc); }}
                     >
-                      <MessageSquare className="size-3.5" />
-                      {lc.comments?.length ? (
-                        <span className="ml-0.5 text-[10px] font-bold">{lc.comments.length}</span>
+                      <History className="size-3.5" /> History
+                      {lc.history?.length ? (
+                        <span className="ml-0.5 font-bold">{lc.history.length}</span>
                       ) : null}
                     </Button>
                   </Hint>
@@ -587,11 +606,7 @@ function PartnerLcsTab({
                         </p>
                         <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground" dir="auto">
                           {c.role ? <span>{c.role}</span> : null}
-                          {c.product ? (
-                            <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
-                              {c.product}
-                            </Badge>
-                          ) : null}
+                          {c.product ? <ProductTag product={c.product} /> : null}
                           {c.manualId &&
                           (lc.comments ?? []).some((n) => n.contactId === c.manualId) ? (
                             <span title="has notes">💬</span>
@@ -599,6 +614,20 @@ function PartnerLcsTab({
                         </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5">
+                        {/* NOTES ON THIS PERSON (v33.25) — buried in a dropdown
+                            inside the history dialog, nobody found it. */}
+                        {c.manualId ? (
+                          <Hint label={`Notes about ${c.name ?? "this IR"}`}>
+                            <Button
+                              size="icon"
+                              variant="outline"
+                              className="size-7"
+                              onClick={() => { setNotesAbout(c.manualId!); setNotesFor(lc); }}
+                            >
+                              <MessageSquare className="size-3.5" />
+                            </Button>
+                          </Hint>
+                        ) : null}
                         {c.phone ? (
                           <Hint label={`WhatsApp ${c.name ?? "them"} — ${c.phone}`}>
                             <Button asChild size="icon" variant="outline" className="size-7">
@@ -639,15 +668,23 @@ function PartnerLcsTab({
  *  oGV peak starts in March") or about a PERSON ("Sarah is the one who actually
  *  answers"), so the composer asks which. */
 function LcNotesDialog({
-  lc, onClose, viewerId, canManage,
+  lc, initialAbout, onClose, viewerId, canManage,
 }: {
   lc: PartnerLcDetail | null;
+  /** "lc", or the id of the IR the composer should start pointed at */
+  initialAbout: string;
   onClose: () => void;
   viewerId: string;
   canManage: boolean;
 }) {
   const [body, setBody] = useState("");
-  const [about, setAbout] = useState("lc");
+  const [about, setAbout] = useState(initialAbout);
+  // opening it from a specific IR's row aims the composer at that person
+  const [lastAbout, setLastAbout] = useState(initialAbout);
+  if (initialAbout !== lastAbout) {
+    setLastAbout(initialAbout);
+    setAbout(initialAbout);
+  }
   const [pending, start] = useTransition();
   const router = useRouter();
   // every IR has a row since v33.24 — bookers included — so a note can hang
@@ -660,7 +697,7 @@ function LcNotesDialog({
   return (
     <Dialog
       open={!!lc}
-      onOpenChange={(o) => { if (!o) { onClose(); setBody(""); setAbout("lc"); } }}
+      onOpenChange={(o) => { if (!o) { onClose(); setBody(""); } }}
     >
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
@@ -736,11 +773,7 @@ function LcNotesDialog({
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span>{e.kind === "call" ? "📞" : e.kind === "cv" ? "📄" : "📝"}</span>
                     <span className="text-sm font-semibold" dir="auto">{e.title}</span>
-                    {e.product ? (
-                      <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
-                        {e.product}
-                      </Badge>
-                    ) : null}
+                    {e.product ? <ProductTag product={e.product} /> : null}
                     {note?.contactId ? (
                       <Badge variant="secondary" className="px-1.5 py-0 text-[10px]" dir="auto">
                         about {nameOf(note.contactId)}
@@ -2133,12 +2166,7 @@ function IrCallsTab({
         // GV / GT, decided when the call was booked (v33.23). "—" means the
         // host works both products, so nobody guessed on their behalf.
         return c.product ? (
-          <Badge
-            className="font-semibold"
-            style={{ backgroundColor: c.product === "GV" ? "#F85A40" : "#0CB9C1" }}
-          >
-            {c.product}
-          </Badge>
+          <ProductTag product={c.product} />
         ) : (
           <span className="text-muted-foreground">—</span>
         );

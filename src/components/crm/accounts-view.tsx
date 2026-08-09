@@ -1703,6 +1703,7 @@ export function AccountsView({
         open={directOpen}
         onOpenChange={setDirectOpen}
         allowedFns={viewer.allowedFns}
+        canSetRequestState={viewer.canSetRequestState}
       />
       <AddArchivedDialog open={addArchivedOpen} onOpenChange={setAddArchivedOpen} />
       <ImportArchivedDialog open={importArchivedOpen} onOpenChange={setImportArchivedOpen} />

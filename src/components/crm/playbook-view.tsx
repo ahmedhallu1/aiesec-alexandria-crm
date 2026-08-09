@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v33.24";
+export const PLAYBOOK_VERSION = "v33.25";
 
 interface Props {
   role: string;
@@ -97,7 +97,7 @@ const SECTIONS: Section[] = [
     audience: "Members & Coordinators",
     color: "#F85A40",
     points: [
-      <><b>🚶 Direct visits</b> (v33.24): walked into a place off the street and offered it on the spot? Hit <b>Direct visit</b> on Raising — one form records the <b>market research, the contact AND the visit</b> together, so it counts like any other work instead of going unlogged. Pick how it ended: <b>turned away at the door</b> · <b>come back another time</b> (books the return visit) · <b>send the info instead</b> · <b>got to present</b> (the visit counts as done) · <b>closed a deal on the spot</b>. Being turned away by a receptionist never archives the account — it stays in your pipeline to try again.</>,
+      <><b>🚶 Direct visits</b> (v33.24): walked into a place off the street and offered it on the spot? Hit <b>Direct visit</b> on Raising — one form records the <b>market research, the contact AND the visit</b> together, so it counts like any other work instead of going unlogged. Pick how it ended: <b>turned away at the door</b> · <b>come back another time</b> (books the return visit) · <b>send the info instead</b> · <b>got to present</b> (the visit counts as done) · <b>closed a deal on the spot</b> (which opens the account straight onto the deal form). It creates a <b>normal account</b> — same live name check against every function and the archive, same Podio look-up, same tagged contacts. Being turned away never archives the account unless you say so.</>,
       <><b>Booking a visit lives in the contact log</b> (v33.24): there is no separate &quot;Schedule visit&quot; button any more. A visit is the RESULT of reaching someone, so you log the contact and pick <b>Visit Scheduled</b> — same calendar invite, same reminders. (Moving a visit you already booked still has its own button.)</>,
       <><b>Add the account first</b> — the name is checked <b>the moment you type it</b> against every function&apos;s accounts and your function&apos;s archive, so you learn it&apos;s taken BEFORE filling the rest. Bulk import exists for whole research sheets.</>,
       <><b>Log every contact attempt</b> with its result. Picking <b>&quot;Visit Scheduled&quot;</b> books the visit — calendar invite and reminders included. WhatsApp and Email attempts default to <b>&quot;Waiting for response&quot;</b> (v33.15) — you sent it, they haven&apos;t replied yet; it still counts as unanswered for the 3-contact rule.</>,
@@ -223,6 +223,7 @@ const SECTIONS: Section[] = [
       <>It sends from <b>your own Gmail</b>, so the reply comes back to you and it sits in your Sent folder. Sodio supplies the frame, not the sender.</>,
       <>Your <b>signature is built automatically</b> from the membership sheet — name, full role title, AIESEC in Alexandria, your WhatsApp number and the logo. Nothing to paste, nothing to forget.</>,
       <>Start from a <b>template</b> (reaching a company · following up · thank you after a meeting · writing to another LC) and rewrite it — they exist because a blank page is why letters don&apos;t get written.</>,
+      <><b>Pick how it looks</b> (v33.25): branded card, bold banner, letterhead or plain — and hit <b>Preview</b> to see exactly what lands in their inbox before you send. <b>Bcc</b>, <b>attachments</b>, numbered lists, text size, quotes and AIESEC logos are all there, and a half-written email <b>survives you leaving the tab</b>.</>,
       <>Stuck on the words? <b>The Blue Man writes or reworks it</b>: describe what you want, or ask it to shorten what you already typed, warm it up, or put it in Arabic. <b>Always read it before you send</b> — it drafts, you decide.</>,
       <>Recipients: pick anyone in the LC by name, type any address, or reuse one you&apos;ve <b>written to before</b>. <b>Save as draft</b> leaves it in your Gmail if you want to sleep on it.</>,
     ],

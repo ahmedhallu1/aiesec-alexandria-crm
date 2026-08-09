@@ -1,58 +1,117 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  Bold, Italic, Link2, List, Loader2, Mail, Search, Send, Sparkles, X,
+  Bold, Eye, Image as ImageIcon, Italic, Link2, List, ListOrdered, Loader2,
+  Mail, Paperclip, Quote, RotateCcw, Search, Send, Sparkles, Underline, X,
 } from "lucide-react";
-import { draftEmailWithAi, sendComposedEmail } from "@/server/actions";
+import {
+  draftEmailWithAi, previewComposedEmail, sendComposedEmail,
+} from "@/server/actions";
 import type { SentEmailRow } from "@/server/data";
-import type { ComposeTemplate } from "@/lib/email/compose";
+import type { ComposeTemplate, LayoutOption } from "@/lib/email/compose";
 import { fmtDateTime } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import { Hint } from "./hint";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
 const EMAIL_RE = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]{2,}$/;
+const DRAFT_KEY = "sodio-email-draft";
+const MAX_ATTACH = 3_200_000; // Vercel's action body cap, minus the frame
 
-/** THE LC'S LETTERS (v33.24).
+interface Attachment {
+  name: string;
+  mimeType: string;
+  dataBase64: string;
+  size: number;
+}
+
+/** THE LC'S LETTERS (v33.24, expanded v33.25).
  *
- *  Members have always written to partners, EPs and other entities — from
- *  Gmail, from a blank page, every time. So every letter looks different, half
- *  go out with no signature, and the LC has no idea who has already been
- *  contacted. This is the same act with the LC's clothes on: a starting point,
- *  a real signature built from the membership row, the Blue Man to help with
- *  the words, and a record of what went where.
- *
- *  It sends through the member's OWN Gmail — the reply comes back to them and
- *  it lands in their Sent folder. Sodio is the stationery, not the sender.
+ *  A half-written email must survive a trip to another tab — losing it is why
+ *  people go back to Gmail. Everything below (recipients, subject, layout and
+ *  the body itself) is mirrored into localStorage on every keystroke and
+ *  restored on mount.
  */
 export function EmailsView({
-  sent, recents, templates, people,
+  sent, recents, templates, layouts, images, people,
 }: {
   sent: SentEmailRow[];
   recents: string[];
   templates: ComposeTemplate[];
+  layouts: LayoutOption[];
+  images: { key: string; label: string; url: string; width: number }[];
   people: { name: string; email: string; role: string }[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [aiPending, startAi] = useTransition();
   const editor = useRef<HTMLDivElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   const [to, setTo] = useState<string[]>([]);
   const [cc, setCc] = useState<string[]>([]);
+  const [bcc, setBcc] = useState<string[]>([]);
   const [showCc, setShowCc] = useState(false);
+  const [showBcc, setShowBcc] = useState(false);
   const [subject, setSubject] = useState("");
   const [template, setTemplate] = useState("blank");
+  const [layout, setLayout] = useState("branded");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [pickerQ, setPickerQ] = useState("");
   const [aiOpen, setAiOpen] = useState(false);
   const [aiAsk, setAiAsk] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
+  const [imagesOpen, setImagesOpen] = useState(false);
+  const [restored, setRestored] = useState(false);
+
+  /* ---------------------------------------------- keep the half-written one */
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (raw) {
+        const d = JSON.parse(raw);
+        setTo(d.to ?? []); setCc(d.cc ?? []); setBcc(d.bcc ?? []);
+        setSubject(d.subject ?? ""); setLayout(d.layout ?? "branded");
+        setTemplate(d.template ?? "blank");
+        if (d.cc?.length) setShowCc(true);
+        if (d.bcc?.length) setShowBcc(true);
+        if (editor.current && d.body) editor.current.innerHTML = d.body;
+      }
+    } catch {
+      /* a corrupt draft is not worth an error message */
+    }
+    setRestored(true);
+  }, []);
+
+  const save = () => {
+    if (!restored) return;
+    try {
+      localStorage.setItem(
+        DRAFT_KEY,
+        JSON.stringify({
+          to, cc, bcc, subject, layout, template,
+          body: editor.current?.innerHTML ?? "",
+        })
+      );
+    } catch {
+      /* private mode — the draft just won't survive the trip */
+    }
+  };
+  useEffect(save, [to, cc, bcc, subject, layout, template, restored]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const matches = useMemo(() => {
     const q = pickerQ.trim().toLowerCase();
@@ -68,16 +127,18 @@ export function EmailsView({
     return [...inLc, ...recent];
   }, [pickerQ, people, recents]);
 
-  const addAddress = (raw: string, list: "to" | "cc") => {
-    const a = raw.trim().toLowerCase();
+  const setList = (list: "to" | "cc" | "bcc") =>
+    list === "to" ? setTo : list === "cc" ? setCc : setBcc;
+
+  const addAddress = (raw: string, list: "to" | "cc" | "bcc") => {
+    const a = raw.trim().toLowerCase().replace(/[,;]$/, "");
     if (!a) return;
     if (!EMAIL_RE.test(a)) {
       toast.error(`"${raw.trim()}" doesn't look like an email address.`);
       return;
     }
-    const set = list === "to" ? setTo : setCc;
-    set((cur) => (cur.includes(a) ? cur : [...cur, a]));
-    setPickerQ("");
+    setList(list)((cur) => (cur.includes(a) ? cur : [...cur, a]));
+    if (list === "to") setPickerQ("");
   };
 
   const applyTemplate = (key: string) => {
@@ -86,34 +147,84 @@ export function EmailsView({
     if (!t) return;
     setSubject(t.subject);
     if (editor.current) editor.current.innerHTML = t.body;
+    save();
   };
 
-  /** The editor is a contentEditable — the same shape the expectation-mail
-   *  review step uses, so the member sees exactly what will be sent. */
+  /** The editor is a contentEditable — what you type is what is sent. */
   const exec = (cmd: string, value?: string) => {
     editor.current?.focus();
     document.execCommand(cmd, false, value);
+    save();
+  };
+
+  const insertHtml = (html: string) => {
+    editor.current?.focus();
+    document.execCommand("insertHTML", false, html);
+    save();
+  };
+
+  const resetAll = () => {
+    if (!window.confirm("Clear this email and start again?")) return;
+    setTo([]); setCc([]); setBcc([]); setSubject(""); setTemplate("blank");
+    setLayout("branded"); setAttachments([]); setAiAsk(""); setPickerQ("");
+    if (editor.current) editor.current.innerHTML = "<p>Hi,</p><p></p>";
+    try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
+    toast.success("Cleared — fresh page.");
+  };
+
+  const addFiles = async (files: FileList | null) => {
+    if (!files?.length) return;
+    const next: Attachment[] = [...attachments];
+    for (const f of Array.from(files).slice(0, 8)) {
+      const buf = await f.arrayBuffer();
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      next.push({ name: f.name, mimeType: f.type || "application/octet-stream", dataBase64: b64, size: f.size });
+    }
+    const total = next.reduce((n, a) => n + a.size, 0);
+    if (total > MAX_ATTACH) {
+      toast.error("That's over ~3 MB in total — send the big ones as a link instead.");
+      return;
+    }
+    setAttachments(next);
   };
 
   const submit = (draft: boolean) =>
     start(async () => {
-      const body = editor.current?.innerHTML ?? "";
       const res = await sendComposedEmail({
-        to, cc, subject, body, template, draft,
+        to, cc, bcc, subject,
+        body: editor.current?.innerHTML ?? "",
+        template, layout: layout as "branded",
+        attachments: attachments.map(({ name, mimeType, dataBase64 }) => ({
+          name, mimeType, dataBase64,
+        })),
+        draft,
       });
       if (!res.ok) {
         toast.error(res.error);
         return;
       }
       toast.success(
-        draft
-          ? "Saved as a draft in your Gmail ✍️"
+        res.data?.draft
+          ? attachments.length > 0
+            ? "In your Gmail drafts with the files attached — send it from there ✍️"
+            : "Saved as a draft in your Gmail ✍️"
           : `Sent to ${res.data?.to} ${res.data?.to === 1 ? "person" : "people"} 📨`
       );
-      setTo([]); setCc([]); setSubject("");
+      setTo([]); setCc([]); setBcc([]); setSubject(""); setAttachments([]);
       if (editor.current) editor.current.innerHTML = "<p>Hi,</p><p></p>";
       setTemplate("blank");
+      try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
       router.refresh();
+    });
+
+  const showPreview = () =>
+    start(async () => {
+      const res = await previewComposedEmail({
+        body: editor.current?.innerHTML ?? "",
+        layout,
+      });
+      if (!res.ok) toast.error(res.error);
+      else setPreview(res.data!.html);
     });
 
   const askAi = () =>
@@ -128,23 +239,22 @@ export function EmailsView({
         return;
       }
       if (editor.current && res.data) editor.current.innerHTML = res.data.html;
+      save();
       setAiAsk("");
       setAiOpen(false);
       toast.success("Drafted — read it before you send 👀");
     });
 
-  const chip = (a: string, list: "to" | "cc") => (
+  const chip = (a: string, list: "to" | "cc" | "bcc") => (
     <span
-      key={a}
+      key={`${list}-${a}`}
       className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary"
     >
       {a}
       <button
         type="button"
         aria-label={`Remove ${a}`}
-        onClick={() =>
-          (list === "to" ? setTo : setCc)((cur) => cur.filter((x) => x !== a))
-        }
+        onClick={() => setList(list)((cur) => cur.filter((x) => x !== a))}
         className="text-primary/60 hover:text-primary"
       >
         <X className="size-3" />
@@ -152,15 +262,28 @@ export function EmailsView({
     </span>
   );
 
+  const tool = (label: string, icon: React.ReactNode, onClick: () => void) => (
+    <Hint label={label}>
+      <Button size="sm" variant="ghost" className="size-8 p-0" onClick={onClick}>
+        {icon}
+      </Button>
+    </Hint>
+  );
+
   return (
     <div className="space-y-5">
-      <div className="rise-in">
-        <h1 className="text-2xl font-bold">Emails 📨</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Write to a partner, an EP or another LC — with the LC&apos;s look and
-          your own signature. It goes out from <b>your</b> Gmail, so replies
-          come back to you.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3 rise-in">
+        <div>
+          <h1 className="text-2xl font-bold">Emails 📨</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Write to a partner, an EP or another LC — with the LC&apos;s look and
+            your own signature. It goes out from <b>your</b> Gmail, so replies
+            come back to you.
+          </p>
+        </div>
+        <Button variant="ghost" size="sm" onClick={resetAll}>
+          <RotateCcw className="size-4" /> Start again
+        </Button>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
@@ -170,15 +293,18 @@ export function EmailsView({
             <div className="grid gap-1.5">
               <div className="flex items-center justify-between">
                 <Label>To</Label>
-                {!showCc ? (
-                  <button
-                    type="button"
-                    className="text-xs text-muted-foreground hover:text-foreground"
-                    onClick={() => setShowCc(true)}
-                  >
-                    + Cc
-                  </button>
-                ) : null}
+                <div className="flex gap-2 text-xs text-muted-foreground">
+                  {!showCc ? (
+                    <button type="button" className="hover:text-foreground" onClick={() => setShowCc(true)}>
+                      + Cc
+                    </button>
+                  ) : null}
+                  {!showBcc ? (
+                    <button type="button" className="hover:text-foreground" onClick={() => setShowBcc(true)}>
+                      + Bcc
+                    </button>
+                  ) : null}
+                </div>
               </div>
               {to.length > 0 ? (
                 <div className="flex flex-wrap gap-1.5">{to.map((a) => chip(a, "to"))}</div>
@@ -190,11 +316,12 @@ export function EmailsView({
                   value={pickerQ}
                   onChange={(e) => setPickerQ(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === ",") {
+                    if (e.key === "Enter" || e.key === "," || e.key === ";") {
                       e.preventDefault();
                       addAddress(pickerQ, "to");
                     }
                   }}
+                  onBlur={() => { if (pickerQ.includes("@")) addAddress(pickerQ, "to"); }}
                   placeholder="Type a name from the LC, or any email address…"
                 />
                 {matches.length > 0 ? (
@@ -230,24 +357,34 @@ export function EmailsView({
               ) : null}
             </div>
 
-            {showCc ? (
-              <div className="grid gap-1.5">
-                <Label>Cc</Label>
-                {cc.length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5">{cc.map((a) => chip(a, "cc"))}</div>
-                ) : null}
-                <Input
-                  placeholder="Add an address and press Enter"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      addAddress((e.target as HTMLInputElement).value, "cc");
-                      (e.target as HTMLInputElement).value = "";
-                    }
-                  }}
-                />
-              </div>
-            ) : null}
+            {(["cc", "bcc"] as const).map((list) =>
+              (list === "cc" ? showCc : showBcc) ? (
+                <div key={list} className="grid gap-1.5">
+                  <Label>{list === "cc" ? "Cc" : "Bcc"}</Label>
+                  {(list === "cc" ? cc : bcc).length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {(list === "cc" ? cc : bcc).map((a) => chip(a, list))}
+                    </div>
+                  ) : null}
+                  <Input
+                    placeholder="Add an address and press Enter"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === "," || e.key === ";") {
+                        e.preventDefault();
+                        addAddress((e.target as HTMLInputElement).value, list);
+                        (e.target as HTMLInputElement).value = "";
+                      }
+                    }}
+                  />
+                  {list === "bcc" ? (
+                    <p className="text-xs text-muted-foreground">
+                      Bcc recipients can&apos;t see each other, and nobody in To
+                      or Cc sees them at all.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null
+            )}
 
             <div className="grid gap-1.5">
               <Label>Subject</Label>
@@ -257,34 +394,43 @@ export function EmailsView({
                 onChange={(e) => setSubject(e.target.value)}
                 placeholder="What it's about"
                 maxLength={200}
+                spellCheck
               />
             </div>
 
             {/* ---------------------------------------------------- editor */}
             <div className="grid gap-1.5">
-              <div className="flex flex-wrap items-center gap-1.5">
+              <div className="flex flex-wrap items-center gap-1">
                 <Label className="mr-auto">The email</Label>
-                <Button size="sm" variant="ghost" className="size-8 p-0" onClick={() => exec("bold")}>
-                  <Bold className="size-3.5" />
-                </Button>
-                <Button size="sm" variant="ghost" className="size-8 p-0" onClick={() => exec("italic")}>
-                  <Italic className="size-3.5" />
-                </Button>
-                <Button
-                  size="sm" variant="ghost" className="size-8 p-0"
-                  onClick={() => exec("insertUnorderedList")}
+                <Select
+                  value="size"
+                  onValueChange={(v) => exec("fontSize", v)}
                 >
-                  <List className="size-3.5" />
-                </Button>
-                <Button
-                  size="sm" variant="ghost" className="size-8 p-0"
-                  onClick={() => {
-                    const url = window.prompt("Link to…", "https://");
-                    if (url) exec("createLink", url);
-                  }}
-                >
-                  <Link2 className="size-3.5" />
-                </Button>
+                  <SelectTrigger className="h-8 w-24 text-xs">
+                    <SelectValue placeholder="Size" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="2">Small</SelectItem>
+                    <SelectItem value="3">Normal</SelectItem>
+                    <SelectItem value="5">Large</SelectItem>
+                    <SelectItem value="6">Heading</SelectItem>
+                  </SelectContent>
+                </Select>
+                {tool("Bold the selected text", <Bold className="size-3.5" />, () => exec("bold"))}
+                {tool("Italic", <Italic className="size-3.5" />, () => exec("italic"))}
+                {tool("Underline", <Underline className="size-3.5" />, () => exec("underline"))}
+                {tool("Bulleted list", <List className="size-3.5" />, () => exec("insertUnorderedList"))}
+                {tool("Numbered list", <ListOrdered className="size-3.5" />, () => exec("insertOrderedList"))}
+                {tool("Quote", <Quote className="size-3.5" />, () =>
+                  insertHtml(
+                    '<blockquote style="margin:12px 0;padding:8px 16px;border-left:3px solid #037EF3;background:#f2f7fd;color:#41526b;">Quoted text</blockquote>'
+                  )
+                )}
+                {tool("Link the selected text", <Link2 className="size-3.5" />, () => {
+                  const url = window.prompt("Link to…", "https://");
+                  if (url) exec("createLink", url);
+                })}
+                {tool("Insert an AIESEC logo", <ImageIcon className="size-3.5" />, () => setImagesOpen(true))}
                 <Button
                   size="sm"
                   variant={aiOpen ? "default" : "outline"}
@@ -300,6 +446,7 @@ export function EmailsView({
                   <Textarea
                     rows={2}
                     dir="auto"
+                    spellCheck
                     value={aiAsk}
                     onChange={(e) => setAiAsk(e.target.value)}
                     placeholder="Write a first approach to a language school about hosting an IGV volunteer… — or: make what I wrote shorter and warmer"
@@ -320,17 +467,64 @@ export function EmailsView({
                 ref={editor}
                 contentEditable
                 suppressContentEditableWarning
+                spellCheck
                 dir="auto"
-                className="min-h-56 rounded-lg border bg-background p-3 text-sm leading-relaxed outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 [&_a]:text-primary [&_a]:underline [&_ul]:list-disc [&_ul]:pl-5"
+                onInput={save}
+                onBlur={save}
+                className="min-h-56 rounded-lg border bg-background p-3 text-sm leading-relaxed outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 [&_a]:text-primary [&_a]:underline [&_blockquote]:my-3 [&_img]:max-w-full [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5"
                 dangerouslySetInnerHTML={{ __html: "<p>Hi,</p><p></p>" }}
               />
               <p className="text-xs text-muted-foreground">
                 Your signature — name, role, WhatsApp and the LC logo — is added
-                automatically underneath.
+                automatically underneath. Spelling is checked as you type.
               </p>
             </div>
 
-            <div className="flex flex-wrap justify-end gap-2">
+            {/* ------------------------------------------------ attachments */}
+            <div className="grid gap-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" variant="outline" onClick={() => fileInput.current?.click()}>
+                  <Paperclip className="size-3.5" /> Attach
+                </Button>
+                <input
+                  ref={fileInput}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => { void addFiles(e.target.files); e.target.value = ""; }}
+                />
+                {attachments.length > 0 ? (
+                  <span className="text-xs text-muted-foreground">
+                    Emails with files are left in your Gmail drafts — send them from there.
+                  </span>
+                ) : null}
+              </div>
+              {attachments.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {attachments.map((a) => (
+                    <span
+                      key={a.name}
+                      className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs"
+                    >
+                      📎 {a.name} · {Math.round(a.size / 1024)} KB
+                      <button
+                        type="button"
+                        aria-label={`Remove ${a.name}`}
+                        onClick={() => setAttachments((cur) => cur.filter((x) => x.name !== a.name))}
+                        className="text-muted-foreground hover:text-destructive"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Button variant="outline" disabled={pending} onClick={showPreview}>
+                <Eye className="size-4" /> Preview
+              </Button>
               <Button
                 variant="outline"
                 disabled={pending || to.length === 0 || subject.trim().length < 2}
@@ -351,6 +545,28 @@ export function EmailsView({
 
         {/* --------------------------------------------------- side column */}
         <div className="grid gap-4">
+          <Card className="rise-in rise-in-2">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">How it looks</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-1.5">
+              {layouts.map((l) => (
+                <button
+                  key={l.key}
+                  type="button"
+                  onClick={() => setLayout(l.key)}
+                  className={cn(
+                    "rounded-lg border p-2.5 text-start transition-colors",
+                    layout === l.key ? "border-primary bg-primary/5" : "hover:bg-muted"
+                  )}
+                >
+                  <p className="text-sm font-semibold">{l.label}</p>
+                  <p className="text-xs text-muted-foreground">{l.hint}</p>
+                </button>
+              ))}
+            </CardContent>
+          </Card>
+
           <Card className="rise-in rise-in-2">
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Start from</CardTitle>
@@ -409,6 +625,49 @@ export function EmailsView({
           </Card>
         </div>
       </div>
+
+      {/* ----------------------------------------------------- the preview */}
+      <Dialog open={!!preview} onOpenChange={(o) => { if (!o) setPreview(null); }}>
+        <DialogContent className="max-h-[90dvh] overflow-hidden p-0 sm:max-w-2xl">
+          <DialogHeader className="px-6 pt-6">
+            <DialogTitle>Exactly what they&apos;ll get</DialogTitle>
+          </DialogHeader>
+          <iframe
+            title="Email preview"
+            srcDoc={preview ?? ""}
+            sandbox=""
+            className="h-[70vh] w-full border-0 bg-white"
+          />
+        </DialogContent>
+      </Dialog>
+
+      {/* --------------------------------------------- the AIESEC logo drawer */}
+      <Dialog open={imagesOpen} onOpenChange={setImagesOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Drop a logo into the letter</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-2">
+            {images.map((img) => (
+              <button
+                key={img.key}
+                type="button"
+                onClick={() => {
+                  insertHtml(
+                    `<p><img src="${img.url}" alt="${img.label}" width="${img.width}" style="max-width:100%;height:auto;"></p>`
+                  );
+                  setImagesOpen(false);
+                }}
+                className="flex items-center gap-3 rounded-lg border p-2 text-start hover:bg-muted"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={img.url} alt="" className="h-8 w-auto" />
+                <span className="text-sm">{img.label}</span>
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

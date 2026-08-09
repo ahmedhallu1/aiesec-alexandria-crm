@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-09 · Version: v33.24
+Last updated: 2026-08-09 · Version: v33.25
 
 ---
 
@@ -613,6 +613,43 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-09 · v33.25** — **THE FOLLOW-UP PASS** (no migration).
+  ① **DIRECT VISITS NOW GO THROUGH THE REAL DOOR.** The first cut was a
+  shortcut form, and it showed: the IGT "Sub product" field opened the
+  **industry** list (`IGT_SUB_PRODUCTS` is Software/Marketing/… — the PRODUCT
+  is GTa/GTe, a different column), the name skipped the three live checks that
+  every other account gets, and phone/email were bare text with no tags. It
+  now calls the same `createAccount` as the Add-account form: the world-aware
+  **duplicate/archive/blacklist** check as you type (so an archived name comes
+  back properly and a name held in another product is refused), the **Podio
+  look-up** with "I already submitted it", the real **ContactsEditor** with
+  tags and phone normalization, and Product + Sub product as two separate
+  fields. The three checks were extracted into `useAccountNameCheck` so the
+  two forms can never drift again. Outcomes gained rules: **deal on the spot**
+  opens the account straight onto the deal form (`?open=deal`) where the opens
+  split lives · **turned away** offers Out of Process with a reason, OFF by
+  default · **got to present** asks for a follow-up date. "Company / place" is
+  **Account name**, because that is what it is.
+  ② **THE EMAILS TAB, PROPERLY.** BCC (a real `Bcc:` header, so Gmail strips
+  it from every delivered copy) · **four layouts** — branded card, bold banner,
+  letterhead, plain — chosen per email · **a preview** rendered by the SAME
+  function that builds the outgoing mail, so what you see cannot drift from
+  what is sent · **attachments** (an email carrying files is left in Gmail
+  drafts, which is where the member watches them land) · **numbered lists,
+  text size, underline, quote**, link/bold/italic on the selection ·
+  **AIESEC logos** droppable into the letter · **spell check** on every field ·
+  a **Start again** button · and the half-written email now **survives leaving
+  the tab** — everything is mirrored to localStorage on each keystroke, which
+  is the difference between using this and going back to Gmail.
+  ③ **NOTES ON AN IR, FINALLY FINDABLE.** The composer existed but was a
+  dropdown inside a dialog behind an unlabelled icon. Every IR row now carries
+  its own 💬 button that opens the notes pointed at that person, and the LC's
+  own button says **History** with the event count on it.
+  ④ **GV / GT WEAR THE BRAND.** The product tags were grey outlines in three
+  of the five places they appear. One `ProductTag` now paints them in the
+  official colours — GV `#F85A40`, GT `#0CB9C1` — on the LC cards, the IR
+  rows, the history timeline and the call log.
 
 - **2026-08-09 · v33.24** — **DIRECT VISITS, THE MAILBOX & THE LC'S FACE**
   (migration **0049 applied**: `accounts.direct_visit`, `ir_calls.booker_note`,

@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 import { getViewer, listAllMembers, listMyEmails } from "@/server/data";
 import { canUseMailboxTab } from "@/lib/rbac";
-import { COMPOSE_TEMPLATES } from "@/lib/email/compose";
+import {
+  COMPOSE_TEMPLATES, EMAIL_IMAGES, EMAIL_LAYOUTS, emailImageUrl,
+} from "@/lib/email/compose";
 import { EmailsView } from "@/components/crm/emails-view";
 
 export const metadata = { title: "Emails" };
@@ -22,6 +24,10 @@ export default async function EmailsPage() {
       sent={rows}
       recents={recents}
       templates={COMPOSE_TEMPLATES}
+      layouts={EMAIL_LAYOUTS}
+      images={EMAIL_IMAGES.map((i) => ({
+        key: i.key, label: i.label, width: i.width, url: emailImageUrl(i.file),
+      }))}
       people={members
         .filter((m) => m.email && m.id !== viewer.id)
         .map((m) => ({ name: m.name, email: m.email as string, role: m.role }))}

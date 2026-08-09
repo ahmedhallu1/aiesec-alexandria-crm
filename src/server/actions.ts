@@ -2703,13 +2703,56 @@ async function mailboxSender(): Promise<
 const composeSchema = z.object({
   to: z.array(z.string().trim()).min(1, "Add at least one recipient"),
   cc: z.array(z.string().trim()).optional(),
+  bcc: z.array(z.string().trim()).optional(),
   subject: z.string().trim().min(2, "Give the email a subject"),
   /** the member's own HTML, straight from the editor */
   body: z.string().trim().min(2, "Write something first"),
   template: z.string().trim().nullish(),
+  layout: z.enum(["branded", "banner", "plain", "letterhead"]).optional(),
+  attachments: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1),
+        mimeType: z.string().trim().min(3),
+        dataBase64: z.string().min(4),
+      })
+    )
+    .optional(),
   /** true = leave it in their Gmail drafts instead of sending */
   draft: z.boolean().optional(),
 });
+
+/** The editor's HTML, made safe to put in someone else's inbox. */
+function safeEmailHtml(raw: string): string {
+  return raw
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<iframe[\s\S]*?<\/iframe>/gi, "")
+    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*')/gi, "")
+    .replace(/javascript:/gi, "")
+    .slice(0, 80_000);
+}
+
+/** WHAT IT WILL ACTUALLY LOOK LIKE (v33.25) — the same function that builds
+ *  the outgoing mail, so the preview cannot drift from the thing that is
+ *  sent. Nobody should discover the layout in the recipient's inbox. */
+export async function previewComposedEmail(input: {
+  body: string;
+  layout?: string;
+}): Promise<ActionResult<{ html: string }>> {
+  const sender = await mailboxSender();
+  if ("error" in sender) return sender.error;
+  const { composedEmail } = await import("@/lib/email/compose");
+  return {
+    ok: true,
+    data: {
+      html: composedEmail({
+        bodyHtml: safeEmailHtml(input.body ?? ""),
+        signature: sender.signature,
+        layout: (input.layout as "branded") ?? "branded",
+      }),
+    },
+  };
+}
 
 /** SEND (or draft) AN EMAIL AS THE MEMBER.
  *
@@ -2733,27 +2776,37 @@ export async function sendComposedEmail(
       .slice(0, 40);
   const to = clean(d.to);
   const cc = clean(d.cc);
+  const bcc = clean(d.bcc);
   if (to.length === 0) return fail("None of those look like email addresses.");
   if (await sandboxSuppressed("compose email"))
     return fail("Sandbox test view is active — exit it to send real email.");
 
-  // the editor produces HTML; strip anything that could execute in a client
-  const body = d.body
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<iframe[\s\S]*?<\/iframe>/gi, "")
-    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*')/gi, "")
-    .slice(0, 60_000);
-
+  const body = safeEmailHtml(d.body);
   const { composedEmail } = await import("@/lib/email/compose");
-  const html = composedEmail({ bodyHtml: body, signature });
+  const html = composedEmail({ bodyHtml: body, signature, layout: d.layout });
+
+  // attachments ride the Gmail draft path, which already speaks multipart;
+  // Vercel caps an action body around 4.5 MB, so this is checked here too
+  const files = (d.attachments ?? []).slice(0, 8).map((f) => ({
+    filename: f.name.slice(0, 160),
+    mimeType: f.mimeType,
+    contentBase64: f.dataBase64,
+  }));
+  const bytes = files.reduce((n, f) => n + Math.ceil(f.contentBase64.length * 0.75), 0);
+  if (bytes > 3_200_000)
+    return fail("Those attachments are over ~3 MB together — send the big ones as a link.");
 
   try {
-    if (d.draft) {
+    if (d.draft || files.length > 0) {
+      // an email WITH files is always left as a draft: Gmail is where the
+      // member sees the attachments land, and it is one click from there
       const { createMemberDraft } = await import("@/lib/google/gmail");
-      await createMemberDraft(token, { to: to.join(", "), cc, subject: d.subject, html });
+      await createMemberDraft(token, {
+        to: to.join(", "), cc, subject: d.subject, html, attachments: files,
+      });
     } else {
       const { sendMemberEmail } = await import("@/lib/google/gmail");
-      await sendMemberEmail(token, { to, cc, subject: d.subject, html });
+      await sendMemberEmail(token, { to, cc, bcc, subject: d.subject, html });
     }
   } catch (e) {
     console.error("[mailbox] send failed:", e);
@@ -2766,7 +2819,7 @@ export async function sendComposedEmail(
     member_id: viewer.id,
     member_name: viewer.name,
     to_addresses: to,
-    cc_addresses: cc,
+    cc_addresses: [...cc, ...bcc],
     subject: d.subject,
     body_html: html,
     status: d.draft ? "draft" : "sent",
@@ -2778,7 +2831,7 @@ export async function sendComposedEmail(
   });
   await stampWork(viewer.id, "email_sent");
   revalidatePath("/emails");
-  return { ok: true, data: { draft: !!d.draft, to: to.length } };
+  return { ok: true, data: { draft: !!d.draft || files.length > 0, to: to.length } };
 }
 
 /** THE BLUE MAN, ON A LETTER (v33.24). Write it from a brief, or rework what
@@ -2840,22 +2893,36 @@ ${instruction}`;
 
 const directVisitSchema = z.object({
   function: z.enum(["IGV", "IGT", "B2B", "BD", "B2C"]),
-  name: z.string().trim().min(2, "The company's name is required"),
+  name: z.string().trim().min(2, "The account name is required"),
   product: z.enum(["GTa", "GTe"]).nullish(),
+  sub_product: z.string().trim().nullish(),
   project: z.string().trim().nullish(),
   account_type: z.string().trim().nullish(),
   industry: z.string().trim().nullish(),
-  phone: phoneField,
-  email: emailField,
+  /** the SAME tagged contacts every account gets — validated identically */
+  contacts: z
+    .array(
+      z.object({
+        tag: z.string().trim(),
+        kind: z.enum(["phone", "email", "link"]),
+        value: z.string().trim(),
+      })
+    )
+    .optional(),
+  requested_podio: z.boolean().nullish(),
+  request_state: z.enum(["Checking", "Approved"]).nullish(),
   /** which day it happened — today by default, never the future */
   visitDate: z.string().min(8),
   visitTime: z.string().min(4),
   outcome: z.enum(["turned_away", "revisit", "send_info", "presented", "deal"]),
   comment: z.string().trim().min(2, "Say what happened in a line"),
-  /** revisit → when you're going back; send_info / turned_away → the next step */
+  /** revisit → when you're going back; send_info / presented → the follow-up */
   nextDate: z.string().optional(),
   nextTime: z.string().optional(),
   nextStep: z.string().trim().optional(),
+  /** turned away AND clearly dead — archive it there and then (v33.25) */
+  outOfProcess: z.boolean().optional(),
+  oopReason: z.string().trim().optional(),
 });
 
 /** A WALK-IN, LOGGED IN ONE ACT.
@@ -2901,19 +2968,26 @@ export async function logDirectVisit(
   const outcome = DIRECT_VISIT_OUTCOMES.find((o) => o.key === d.outcome)!;
 
   // ---- 1. the account (this is the MR)
+  // THE SAME DOOR EVERY ACCOUNT COMES THROUGH (v33.25). It runs the whole of
+  // createAccount — the world-aware duplicate check, the archive block, the
+  // blacklist, the contact validation and the Podio fields — so a walk-in can
+  // no longer quietly create a second copy of an account that already exists,
+  // or resurrect a name the LC burned.
   const created = await createAccount(
     {
       function: d.function,
       name: d.name,
-      product: d.product ?? null,
-      project: d.project ?? null,
-      account_type: d.account_type ?? null,
-      industry: d.industry ?? null,
-      phone: d.phone ?? null,
-      email: d.email ?? null,
-      responsible_id: viewer.id,
+      product: d.function === "IGT" ? d.product ?? null : null,
+      sub_product: d.function === "IGT" ? d.sub_product ?? null : null,
+      project: d.function === "IGV" ? d.project ?? null : null,
+      account_type: d.function !== "IGT" ? d.account_type ?? null : null,
+      industry:
+        d.function !== "IGT" && d.function !== "B2C" ? d.industry ?? null : null,
+      contacts: d.contacts ?? [],
+      requested_podio: d.requested_podio ?? null,
+      request_state: d.request_state ?? null,
+      responsible_id: null, // themselves — createAccount defaults to the viewer
       comment: null,
-      contacts: [],
     } as never,
     { via: "manual" }
   );
@@ -2978,9 +3052,16 @@ export async function logDirectVisit(
     });
   }
 
+  // turned away AND clearly not worth another try — archive it on the spot,
+  // through the real path so the blacklist and the mirrors stay right
+  if (d.outOfProcess && d.outcome === "turned_away") {
+    await setOutOfProcess(accountId, d.oopReason?.trim() || "Not Interested");
+  }
+
   await logAudit(viewer.id, "direct_visit", "account", accountId, {
     outcome: d.outcome,
     visitDone: outcome.visitDone,
+    archived: !!d.outOfProcess,
   });
   await stampWork(viewer.id, "direct_visit");
   refresh(accountId);
