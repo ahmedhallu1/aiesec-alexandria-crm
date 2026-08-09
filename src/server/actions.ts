@@ -7429,12 +7429,27 @@ export async function rescheduleBookedCall(input: {
   const zone = await bookerZoneFor(call.booker_tz, call.partner_lc_id);
   const newWhenTheirs = zone ? whenLabelInZone(startIso, zone) : null;
 
+  // KEEP WHAT IT USED TO BE (v33.28). A reschedule overwrote `called_at` and
+  // the old instant was gone — the crew could not tell that a call had moved
+  // at all, let alone how often or who moved it.
+  const history = [
+    ...(Array.isArray(call.reschedules) ? call.reschedules : []),
+    {
+      at: new Date().toISOString(),
+      from: call.called_at,
+      to: startIso,
+      by: "ir",
+      byName: call.booker_name ?? call.partner_lc_name,
+    },
+  ].slice(-20);
+
   const { data: movedRows, error } = await db()
     .from("ir_calls")
     .update({
       called_at: startIso,
       duration_minutes: settings.slot_minutes,
       reschedule_requested_at: null,
+      reschedules: history,
     })
     .eq("id", call.id)
     .eq("status", "scheduled")

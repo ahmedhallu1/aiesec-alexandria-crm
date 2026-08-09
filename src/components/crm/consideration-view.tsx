@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import {
   CalendarClock, Check, ChevronDown, ClipboardCheck, Copy, ExternalLink,
   Building2, FileText, Globe2, History, ImagePlus, Link2, Loader2, Mail,
-  MessageSquare, Pencil, Phone, Plus, Send,
+  MessageSquare, Pencil, Phone, Plus, RotateCcw, Send,
   Search, Settings2, Sparkles, Trash2, Upload, UserRound, Video, X,
 } from "lucide-react";
 import {
@@ -26,6 +26,7 @@ import type {
 import { IR_ROLES, normalizePhone, fmtDateTime } from "@/lib/types";
 import { phoneExample } from "@/lib/dial-codes";
 import { whenLabelInZone } from "@/lib/timezones";
+import { availabilityIssues } from "@/lib/availability";
 import { cn } from "@/lib/utils";
 import { CountryInput } from "./country-input";
 import {
@@ -1564,10 +1565,16 @@ function TimeSelect({
   };
   // snap a legacy minute (e.g. 23:59) onto the 5-min grid for the picker
   const minute5 = Math.min(55, Math.round((mm || 0) / 5) * 5);
+  // THE BOXES WERE CLIPPING THEIR OWN VALUES (v33.28) — "00" rendered as "0C"
+  // and "PM" as "PN". A shadcn SelectTrigger carries px-3 either side plus a
+  // gap and a chevron, roughly 48px of chrome; inside w-16 (64px) that leaves
+  // 16px for text that needs 23. Reclaiming the padding costs no layout width.
+  // `shrink-0` matters on a phone: these children are fixed width, so any flex
+  // squeeze turns straight back into clipping.
   return (
-    <div className="flex items-center gap-1" aria-label={ariaLabel}>
+    <div className="flex shrink-0 items-center gap-1" aria-label={ariaLabel}>
       <Select value={String(hour12)} onValueChange={(v) => emit(Number(v), minute5, isPm)}>
-        <SelectTrigger className="h-9 w-16"><SelectValue /></SelectTrigger>
+        <SelectTrigger className="h-9 w-16 gap-1 px-2"><SelectValue /></SelectTrigger>
         <SelectContent>
           {Array.from({ length: 12 }, (_, i) => i + 1).map((h) => (
             <SelectItem key={h} value={String(h)}>{h}</SelectItem>
@@ -1576,7 +1583,7 @@ function TimeSelect({
       </Select>
       <span className="text-sm text-muted-foreground">:</span>
       <Select value={String(minute5)} onValueChange={(v) => emit(hour12, Number(v), isPm)}>
-        <SelectTrigger className="h-9 w-16"><SelectValue /></SelectTrigger>
+        <SelectTrigger className="h-9 w-16 gap-1 px-2"><SelectValue /></SelectTrigger>
         <SelectContent>
           {Array.from({ length: 12 }, (_, i) => i * 5).map((m) => (
             <SelectItem key={m} value={String(m)}>{String(m).padStart(2, "0")}</SelectItem>
@@ -1584,7 +1591,7 @@ function TimeSelect({
         </SelectContent>
       </Select>
       <Select value={isPm ? "PM" : "AM"} onValueChange={(v) => emit(hour12, minute5, v === "PM")}>
-        <SelectTrigger className="h-9 w-[4.25rem]"><SelectValue /></SelectTrigger>
+        <SelectTrigger className="h-9 w-[4.5rem] gap-1 px-2"><SelectValue /></SelectTrigger>
         <SelectContent>
           <SelectItem value="AM">AM</SelectItem>
           <SelectItem value="PM">PM</SelectItem>
@@ -1623,6 +1630,9 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
   const [rows, setRows] = useState<IrAvailabilityRow[]>(
     s?.availability?.length ? s.availability : [{ day: 6, from: "18:00", to: "21:00" }]
   );
+  // the SAME three rules the server enforces, evaluated as they type so the
+  // offending ROW is marked instead of one message for the whole form (v33.28)
+  const rowIssues = useMemo(() => availabilityIssues(rows), [rows]);
   const [active, setActive] = useState(s?.active ?? true);
   const [buffer, setBuffer] = useState(String(s?.buffer_minutes ?? 0));
   const [notice, setNotice] = useState(String(s?.min_notice_minutes ?? 60));
@@ -1827,8 +1837,11 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
+          {/* grid-cols-1 = repeat(1, minmax(0,1fr)): a FLEXIBLE track, so the
+              native date control's own intrinsic width can't push the card
+              off a phone screen (v33.28) */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="min-w-0 space-y-1.5">
               <Label htmlFor="bk-start">Schedule starts (optional)</Label>
               <Input
                 id="bk-start"
@@ -1855,13 +1868,18 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
             <div className="space-y-2">
               {rows.map((r, i) => {
                 const isDate = r.date != null;
+                const issue = rowIssues.get(i);
                 return (
-                  <div key={i} className="flex flex-wrap items-center gap-2">
+                  <div key={i} className="space-y-1">
+                  <div className={cn(
+                    "flex flex-wrap items-center gap-2 rounded-md",
+                    issue && "border border-destructive/50 bg-destructive/5 p-1.5"
+                  )}>
                     <Select
                       value={isDate ? "date" : "weekly"}
                       onValueChange={(v) => setRowMode(i, v as "weekly" | "date")}
                     >
-                      <SelectTrigger className="h-9 w-32">
+                      <SelectTrigger className="h-9 w-36 gap-1 px-2">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1882,7 +1900,7 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
                         value={String(r.day ?? 6)}
                         onValueChange={(v) => setRow(i, { day: Number(v) })}
                       >
-                        <SelectTrigger className="h-9 w-32">
+                        <SelectTrigger className="h-9 w-36 gap-1 px-2">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -1916,6 +1934,13 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
                       </Button>
                     </Hint>
                   </div>
+                  {/* THE ROW THAT IS WRONG SAYS SO, WHERE IT IS (v33.28) —
+                      one message for the whole form meant hunting for which
+                      of eight rows it meant. */}
+                  {issue ? (
+                    <p className="px-1.5 text-xs font-medium text-destructive">{issue}</p>
+                  ) : null}
+                  </div>
                 );
               })}
               <Button
@@ -1945,8 +1970,14 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
                 {active ? "Link is ON — bookable" : "Link is OFF — nobody can book"}
               </label>
             </div>
-            <Hint label="Saves the link — the public page updates instantly">
-              <Button onClick={save} disabled={pending || !slug.trim()}>
+            <Hint
+              label={
+                rowIssues.size > 0
+                  ? "Fix the highlighted availability rows first"
+                  : "Saves the link — the public page updates instantly"
+              }
+            >
+              <Button onClick={save} disabled={pending || !slug.trim() || rowIssues.size > 0}>
                 {pending ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
                 Save link
               </Button>
@@ -2351,6 +2382,36 @@ function IrCallsTab({
                     {" · with "}
                     <span dir="auto">{c.member_name}</span>
                   </p>
+                  {/* THIS CALL HAS MOVED (v33.28) — said in words anyone can
+                      read, because "have they messed us about?" was not an
+                      answerable question before. */}
+                  {(c.reschedules ?? []).length > 0 ? (
+                    <p className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-amber-700 dark:text-amber-400">
+                      <RotateCcw className="size-3.5 shrink-0" />
+                      <span>
+                        Moved {(c.reschedules ?? []).length}{" "}
+                        {(c.reschedules ?? []).length === 1 ? "time" : "times"} —
+                        first booked for{" "}
+                        <b>{fmtDateTime((c.reschedules ?? [])[0].from)}</b>
+                        {(c.reschedules ?? []).length > 1
+                          ? `, then ${(c.reschedules ?? [])
+                              .slice(1)
+                              .map((h) => fmtDateTime(h.from))
+                              .join(", ")}`
+                          : ""}
+                        . Last change by{" "}
+                        {(c.reschedules ?? [])[(c.reschedules ?? []).length - 1].by === "ir"
+                          ? (c.reschedules ?? [])[(c.reschedules ?? []).length - 1].byName ??
+                            "the IR"
+                          : "us"}{" "}
+                        on{" "}
+                        {fmtDateTime(
+                          (c.reschedules ?? [])[(c.reschedules ?? []).length - 1].at
+                        )}
+                        .
+                      </span>
+                    </p>
+                  ) : null}
                   {/* WHAT TIME IT IS FOR THEM (v33.22) — we work in Cairo, the
                       IR works at home. Worth seeing before you wonder why
                       nobody joined at what is 3 AM in Jakarta. */}
@@ -3574,15 +3635,20 @@ function CvsTab({
         </div>
 
         {/* phones: cards */}
-        <div className="grid gap-3 md:hidden">
+        {/* A GRID WITH NO TEMPLATE PUTS ITS CHILDREN IN AN IMPLICIT `auto`
+            TRACK (v33.28), and a grid item keeps `min-width: auto` — so the
+            track is sized by its widest child's MIN-CONTENT and the cards grew
+            to 797px inside a 343px phone. `grid-cols-1` is
+            repeat(1, minmax(0,1fr)): a flexible track, minimum 0. */}
+        <div className="grid grid-cols-1 gap-3 md:hidden">
           {sortedCvs.map((cv) => {
             const chip = STATUS_CHIP[cv.extraction_status];
             const wa = waDigits(cv.phone);
             const mine = cv.uploaded_by === viewer.id;
             const canManage = viewer.isVp || mine;
             return (
-              <Card key={cv.id} className="rise-in">
-                <CardContent className="space-y-2.5 p-4">
+              <Card key={cv.id} className="min-w-0 rise-in">
+                <CardContent className="space-y-2.5 p-4 px-4">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-semibold" dir="auto">
@@ -3593,21 +3659,23 @@ function CvsTab({
                         uploaded by {cv.uploader_name} · {fmtDateTime(cv.created_at)}
                       </p>
                     </div>
-                    <div className="flex shrink-0 flex-col items-end gap-1">
+                    {/* "Manual (format not auto-readable)" was eating 202 of
+                        293px on a phone (v33.28) */}
+                    <div className="flex max-w-[45%] shrink-0 flex-col items-end gap-1">
                       {cv.industry ? <Badge variant="secondary">{cv.industry}</Badge> : null}
-                      <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", chip.className)}>
+                      <span className={cn("rounded-full px-2 py-0.5 text-end text-[11px] font-medium", chip.className)}>
                         {chip.label}
                       </span>
                     </div>
                   </div>
 
                   {cv.summary ? (
-                    <p className="line-clamp-2 text-sm text-muted-foreground" dir="auto">
+                    <p className="line-clamp-2 break-words text-sm text-muted-foreground" dir="auto">
                       {cv.summary}
                     </p>
                   ) : null}
                   {cv.skills ? (
-                    <p className="line-clamp-2 text-xs" dir="auto">
+                    <p className="line-clamp-2 break-words text-xs" dir="auto">
                       <span className="font-medium text-muted-foreground">Skills: </span>
                       {cv.skills}
                     </p>

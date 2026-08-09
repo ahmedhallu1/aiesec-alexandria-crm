@@ -699,7 +699,11 @@ function AvatarDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="max-h-[55vh] space-y-4 overflow-y-auto p-1">
+        {/* THE SCROLLBAR SAT ON TOP OF THE TILES (v33.28) — an overlay
+            scrollbar is drawn inside the padding box, and p-1 is 4px. Two
+            things fix it: gutter space reserved on the end side, and enough
+            right padding that the thumb never lands on a tile. */}
+        <div className="max-h-[55vh] space-y-4 overflow-y-auto p-1 pe-3 [scrollbar-gutter:stable]">
           {/* Upload + Google photo */}
           <div>
             <p className="mb-2 text-xs font-semibold text-muted-foreground">Yours</p>

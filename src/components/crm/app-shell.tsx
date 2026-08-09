@@ -537,8 +537,8 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
       onClick={() => setOpen(false)}
       title="Home — your workspace"
       className={cn(
-        "flex items-center gap-2.5 py-5 transition-opacity hover:opacity-80",
-        railed ? "justify-center px-0" : "px-5"
+        "flex items-center gap-2 py-5 transition-opacity hover:opacity-80",
+        railed ? "justify-center px-0" : "px-4"
       )}
     >
       {/* TWO MARKS, ONE SLOT (v33.8). The AIESEC wordmark is a WIDE lockup —
@@ -546,13 +546,17 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
           rail gets the walking human instead, which is the same brand at a
           square aspect, and the two cross-fade so the collapse reads as one
           movement rather than a pop. */}
-      <span className="relative grid h-7 shrink-0 place-items-center">
+      {/* THE BOX MUST MATCH THE TALLEST THING IN IT (v33.28) — an h-7 span
+          holding an h-8 image bled 4px and sliced the wordmark's top edge. */}
+      <span className="relative grid h-8 shrink-0 place-items-center">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src="/brand/aiesec-white.png"
           alt="AIESEC"
           className={cn(
-            "col-start-1 row-start-1 h-7 w-auto transition-all duration-300",
+            // a 4.9:1 lockup at h-7 is 137px wide — too much for a 200px row,
+            // which is what pushed the caption into being sliced
+            "col-start-1 row-start-1 h-5 w-auto transition-all duration-300",
             railed ? "scale-90 opacity-0" : "opacity-100"
           )}
         />
@@ -568,12 +572,14 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
       </span>
       <div
         className={cn(
-          "overflow-hidden whitespace-nowrap leading-tight transition-all duration-300",
-          railed ? "ml-0 w-0 opacity-0" : "w-32 opacity-100"
+          "min-w-0 overflow-hidden whitespace-nowrap leading-tight transition-all duration-300",
+          // the text block OWNS the remaining space instead of a fixed w-32
+          // that silently sliced "AIESEC in Alexandria" mid-letter
+          railed ? "ml-0 w-0 opacity-0" : "flex-1 opacity-100"
         )}
       >
-        <p className="text-sm font-black tracking-tight text-sidebar-foreground">Sodio</p>
-        <p className="text-[10px] text-sidebar-foreground/60">AIESEC in Alexandria</p>
+        <p className="truncate text-sm font-black tracking-tight text-sidebar-foreground">Sodio</p>
+        <p className="truncate text-[10px] text-sidebar-foreground/60">AIESEC in Alexandria</p>
       </div>
     </Link>
   );
@@ -642,10 +648,11 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
             {credit}
           </SheetContent>
         </Sheet>
-        <Link href={effectiveHome} className="flex items-center gap-2" title="Home — your workspace">
+        {/* on a ≤360px phone the logo was the thing that got squeezed (v33.28) */}
+        <Link href={effectiveHome} className="flex min-w-0 items-center gap-2" title="Home — your workspace">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/aiesec-white.png" alt="AIESEC" className="h-6 w-auto" />
-          <p className="text-sm font-black tracking-tight text-sidebar-foreground">Sodio</p>
+          <img src="/brand/aiesec-white.png" alt="AIESEC" className="h-5 w-auto shrink-0" />
+          <p className="truncate text-sm font-black tracking-tight text-sidebar-foreground">Sodio</p>
         </Link>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <NotificationsBell canBroadcast={canBroadcast} />

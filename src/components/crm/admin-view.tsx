@@ -150,7 +150,7 @@ export function AdminView({
                 <CheckCircle2 className="size-4 text-muted-foreground" /> System checks
               </CardTitle>
             </CardHeader>
-            <CardContent className="grid gap-2 sm:grid-cols-2">
+            <CardContent className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {health.checks.map((c) => (
                 <div
                   key={c.label}
@@ -166,7 +166,10 @@ export function AdminView({
                   )}
                   <div className="min-w-0">
                     <p className="text-sm font-semibold">{c.label}</p>
-                    <p className="truncate text-xs text-muted-foreground">{c.detail}</p>
+                    {/* NOT `truncate` (v33.28): hiding the overflow left 439px
+                        of sentence inside a 247px box, which is the complaint —
+                        the detail is the diagnosis, so it wraps and is read. */}
+                    <p className="break-words text-xs text-muted-foreground">{c.detail}</p>
                   </div>
                 </div>
               ))}

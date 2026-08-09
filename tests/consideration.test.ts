@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { IR_ROLES, irProductForMember, normalizePhone } from "../src/lib/types";
+import {
+  IR_ROLES, irProductForMember, isKnownIrRole, normalizePhone,
+} from "../src/lib/types";
 import { DIAL_CODES, dialCode, phoneExample } from "../src/lib/dial-codes";
 import { resolveCountry } from "../src/lib/timezones";
+import { availabilityIssues, windowIssue } from "../src/lib/availability";
 import { COUNTRIES } from "../src/lib/countries";
 
 /** The consideration module's pure rules (v33.23). */
@@ -34,10 +37,19 @@ describe("which product an IR call marketed", () => {
 });
 
 describe("the IR role list is one list", () => {
-  it("still contains every value the public booking page has ever stored", () => {
-    // v29 shipped these four; existing ir_calls.booker_role rows carry them
-    for (const legacy of ["Member", "MM (Team Leader / Coordinator)", "LCVP", "LCP"])
-      expect(IR_ROLES as readonly string[]).toContain(legacy);
+  it("offers exactly the four the LC uses", () => {
+    expect([...IR_ROLES]).toEqual(["Member", "MM", "LCVP", "LCP"]);
+  });
+
+  it("still ACCEPTS every value already stored on a booking", () => {
+    // the picker narrowed in v33.26; a stored role is a snapshot of what
+    // someone chose at the time, so validation must not reject it later
+    for (const stored of [
+      "Member", "MM", "LCVP", "LCP",
+      "MM (Team Leader / Coordinator)", "Director", "Alumni / Other",
+    ])
+      expect(isKnownIrRole(stored)).toBe(true);
+    expect(isKnownIrRole("Supreme Leader")).toBe(false);
   });
 });
 
@@ -92,5 +104,46 @@ describe("the phone example shown in a form", () => {
     expect(phoneExample("Wakanda")).toBeNull();
     expect(phoneExample("")).toBeNull();
     expect(phoneExample(null)).toBeNull();
+  });
+});
+
+describe("availability windows — the rules the form and the server share", () => {
+  it("passes an ordinary evening window", () => {
+    expect(windowIssue({ day: 6, from: "18:00", to: "21:00" })).toBeNull();
+  });
+
+  it("accepts a window that ends at midnight, written either way", () => {
+    // "00:00" and the legacy "23:59" workaround both mean the END of the day
+    expect(windowIssue({ day: 6, from: "18:00", to: "00:00" })).toBeNull();
+    expect(windowIssue({ day: 6, from: "18:00", to: "23:59" })).toBeNull();
+  });
+
+  it("rejects a window that is backwards or too short to hold a call", () => {
+    expect(windowIssue({ day: 6, from: "21:00", to: "18:00" })).toBeTruthy();
+    expect(windowIssue({ day: 6, from: "18:00", to: "18:05" })).toBeTruthy();
+  });
+
+  it("asks for the missing piece of a row, naming which piece", () => {
+    expect(windowIssue({ day: 6, from: "", to: "21:00" })).toContain("start");
+    expect(windowIssue({ date: "", from: "18:00", to: "21:00" })).toContain("date");
+    expect(windowIssue({ day: null, from: "18:00", to: "21:00" })).toContain("day");
+  });
+
+  it("marks the SECOND of two overlapping windows, not the first", () => {
+    const issues = availabilityIssues([
+      { day: 6, from: "17:00", to: "20:00" },
+      { day: 6, from: "18:00", to: "21:00" },
+    ]);
+    expect(issues.has(0)).toBe(false);
+    expect(issues.get(1)).toContain("overlaps");
+  });
+
+  it("lets the same clock hours live on different days", () => {
+    const issues = availabilityIssues([
+      { day: 6, from: "18:00", to: "21:00" },
+      { day: 1, from: "18:00", to: "21:00" },
+      { date: "2026-09-01", from: "18:00", to: "21:00" },
+    ]);
+    expect(issues.size).toBe(0);
   });
 });

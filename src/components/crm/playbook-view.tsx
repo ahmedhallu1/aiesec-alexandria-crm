@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v33.27";
+export const PLAYBOOK_VERSION = "v33.28";
 
 interface Props {
   role: string;
@@ -72,6 +72,7 @@ const SECTIONS: Section[] = [
       <><b>Need the room? Collapse the sidebar</b> (v33): the <b>Collapse</b> row at the foot of the nav shrinks it to an icon rail and gives the table ~15rem back. Tabs keep their tooltips, and your choice sticks on that browser.</>,
       <><b>Nicknames are gone</b> (v33) — everyone is their full name everywhere. Two Farahs and two Hanas made &quot;who is this?&quot; a real question exactly where it mattered: the Responsible column, your manager, the leaderboard.</>,
       <><b>Every table is yours to shape</b> 🧩 (v31): hit <b>⚙ Columns</b> on any list — accounts, sign-ups, members, attendance, IR calls, CVs — to <b>drag columns into the order you like</b>, switch extra ones on (project, industry, opens, campaign, person status…) or hide what you don&apos;t use, and <b>Reset</b> when you want the default back. Pick how many rows per page, and click any header to sort. Your layout is remembered on your own device. No more &quot;the sheet was more flexible&quot;.</>,
+      <><b>Hints work on your phone now</b> (v33.28): every ⓘ-style tooltip in Sodio was hover-only, so on a touch screen they never appeared. <b>Tap</b> the thing and its hint shows.</>,
       <><b>Every phone box shows an example from YOUR country</b> (v33.23) — a Turkish number is not a hint for someone in Jakarta. Whatever it shows will be accepted if you type it exactly like that.</>,
       <><b>🙋 Mine</b> (v33.22): on <b>Raising</b> and <b>Sign-ups</b>, one tap narrows a list that holds other people&apos;s rows down to your own — your team&apos;s list, your function&apos;s list, or the unowned pool mixed in with yours. In the 📞 CIC tab it shows the second calls handed to you.</>,
       <><b>Anything that floats can be moved — grab it by the dots</b> ⣿ (v33.21): a popup covering the row you opened it about, the Blue Man sitting on your last table rows, the test-view chip. The <b>⣿ handle</b> marks where to grab (a popup&apos;s sits at the top of its title, the Blue Man&apos;s in its blue header). Desktop only — on a phone the popup is the screen.</>,

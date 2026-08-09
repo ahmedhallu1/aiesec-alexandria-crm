@@ -1,5 +1,6 @@
 export type LcFunction =
-  | "IGV" | "IGT" | "OGV" | "OGT" | "CXP" | "B2C" | "F&L" | "B2B" | "BD" | "TM";
+  | "IGV" | "IGT" | "OGV" | "OGT" | "CXP" | "B2C" | "F&L" | "B2B" | "BD" | "TM"
+  | "IM";
 /** What an ACCOUNT can be raised as. B2B raises for the whole ICX: B2B
  *  accounts live in their own product and split each deal's opens across
  *  IGV / IGTa / IGTe. B2C (v23) is its own module: partner accounts for
@@ -52,7 +53,11 @@ export const MEMBER_ROLES: MemberRole[] = [
   "LCP", "LCVP", "Team Leader", "Coordinator", "Member", "Director", "Admin",
 ];
 export const LC_FUNCTIONS: LcFunction[] = [
-  "IGT", "IGV", "OGV", "OGT", "CXP", "B2C", "F&L", "B2B", "BD", "TM",
+  // "IM" was missing (v33.28) — it is a real function with a real leader (the
+  // one who keeps this system running), and `leadsIm` in rbac.ts grants
+  // whole-LC access from it, so it has to be pickable on the membership sheet
+  // rather than typed in by hand.
+  "IGT", "IGV", "OGV", "OGT", "CXP", "B2C", "F&L", "B2B", "BD", "TM", "IM",
 ];
 export const SUB_FUNCTIONS = [
   "Raising", "Consideration", "ICX", "OGX", "CXP", "B2C", "Finance", "BD", "B2B",

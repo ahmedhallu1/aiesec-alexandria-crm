@@ -10,6 +10,9 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -147,7 +150,7 @@ export function CalendarView({
   visits, touchPoints = [], irCalls = [], items = [], month, viewerId,
   teamMemberIds = [], memberFnIds = [], viewerRole = "Member",
   openableMemberIds, showFunction = false, booking = null,
-  canAddItems = false, assignables = [],
+  canAddItems = false, assignables = [], viewerFunctions = [],
 }: {
   visits: CalendarVisit[];
   /** TM touch points the viewer belongs to (v29) */
@@ -163,6 +166,9 @@ export function CalendarView({
   assignables?: { id: string; label: string }[];
   month: string;
   viewerId: string;
+  /** the ACCOUNT functions this viewer can see — the Function filter is
+   *  offered only when that is more than one (v33.28) */
+  viewerFunctions?: string[];
   /** the viewer's direct team (v33.19) — drives the "My team" scope */
   teamMemberIds?: string[];
   /** drives WHICH scopes are offered — see `scopeOptions` */
@@ -230,23 +236,73 @@ export function CalendarView({
     return new Set([viewerId, ...memberFnIds]);
   }, [effectiveScope, viewerId, teamMemberIds, memberFnIds]);
 
+  /** WHICH KINDS ARE ON (v33.28) — a month with a working-hours routine in it
+   *  drowns the two visits you were looking for. Empty set = everything. */
+  const [kinds, setKinds] = useState<Set<string>>(new Set());
+  const toggleKind = (k: string) =>
+    setKinds((cur) => {
+      const next = new Set(cur);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  const kindOn = (k: string) => kinds.size === 0 || kinds.has(k);
+
+  /** THE FUNCTION FILTER IS ABOUT THE VIEWER, NOT THE MONTH (v33.28).
+   *
+   *  The LCP's rule: "an IGT LCVP won't have function tags — he already sees
+   *  his only." Deriving the control from the DATA would break that, because a
+   *  single cross-function INVITE on one touch point puts a second function in
+   *  the month and the control would appear for someone who owns one function.
+   *  So it is offered to people whose remit genuinely spans functions, and to
+   *  nobody else. */
+  const fnOptions = useMemo(
+    () => (viewerFunctions.length > 1 ? viewerFunctions : []),
+    [viewerFunctions]
+  );
+  const [fnFilter, setFnFilter] = useState("");
+  // a visit's function is the ACCOUNT's (B2B and BD are deliberately distinct
+  // there), so it is matched literally and never folded together
+  const visitFnOk = (fn: string | null | undefined) => !fnFilter || fn === fnFilter;
+
   const shownVisits = useMemo(
-    () => (ownerIds ? visits.filter((v) => ownerIds.has(v.member.id)) : visits),
-    [visits, ownerIds]
+    () =>
+      visits.filter(
+        (v) =>
+          kindOn("visits") &&
+          (!ownerIds || ownerIds.has(v.member.id)) &&
+          visitFnOk(v.account.function)
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [visits, ownerIds, kinds, fnFilter]
   );
   // touch points are already function-scoped server-side, and they have no
   // single "owner" to match a team against — so "My function" keeps everything
   // visible and the two narrower scopes keep the ones the viewer is IN
   const shownTps = useMemo(
     () =>
-      effectiveScope === "mine" || effectiveScope === "team"
+      (effectiveScope === "mine" || effectiveScope === "team"
         ? touchPoints.filter((t) => t.mine)
-        : touchPoints,
-    [touchPoints, viewScope]
+        : touchPoints
+      ).filter((t) => kindOn("touchPoints")),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [touchPoints, viewScope, kinds]
   );
   const shownIr = useMemo(
-    () => (ownerIds ? irCalls.filter((c) => c.memberId && ownerIds.has(c.memberId)) : irCalls),
-    [irCalls, ownerIds]
+    () =>
+      irCalls.filter(
+        (c) => kindOn("irCalls") && (!ownerIds || (c.memberId && ownerIds.has(c.memberId)))
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [irCalls, ownerIds, kinds]
+  );
+  // custom items are already owner/assignee-scoped server-side, and their
+  // stored function_key is the OWNER's arbitrary first function — read by
+  // nothing else — so they are never filtered BY function, only by kind
+  const shownItems = useMemo(
+    () => items.filter(() => kindOn("items")),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [items, kinds]
   );
 
   const removeItem = (it: CalendarCustomItem) => {
@@ -326,13 +382,13 @@ export function CalendarView({
   // custom items are invite-shaped — always the viewer's own, never filtered
   const itemsByDate = useMemo(() => {
     const map = new Map<string, CalendarCustomItem[]>();
-    for (const it of items) {
+    for (const it of shownItems) {
       const list = map.get(it.date) ?? [];
       list.push(it);
       map.set(it.date, list);
     }
     return map;
-  }, [items]);
+  }, [shownItems]);
 
   // month grid, Saturday-first
   const [y, m] = month.split("-").map(Number);
@@ -437,6 +493,54 @@ export function CalendarView({
               </Hint>
             ))}
           </div>
+          {/* WHICH KINDS (v33.28) — tick nothing to see everything, or narrow
+              to the one you came looking for. */}
+          <div
+            role="group"
+            aria-label="Which kinds to show"
+            className="flex h-9 shrink-0 items-center gap-0.5 rounded-md border p-0.5"
+          >
+            {[
+              { key: "visits", label: "Visits", dot: "#F85A40" },
+              { key: "irCalls", label: "IR calls", dot: "#0CB9C1" },
+              { key: "touchPoints", label: "Touch points", dot: "#7c3aed" },
+              { key: "items", label: "Items", dot: "#16a34a" },
+            ].map((k) => (
+              <button
+                key={k.key}
+                type="button"
+                aria-pressed={kinds.has(k.key)}
+                onClick={() => toggleKind(k.key)}
+                className={cn(
+                  "flex h-8 items-center gap-1.5 rounded px-2 text-xs font-semibold transition-colors",
+                  kinds.has(k.key)
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                )}
+              >
+                <span
+                  aria-hidden
+                  className="size-2 rounded-full"
+                  style={{ backgroundColor: k.dot }}
+                />
+                {k.label}
+              </button>
+            ))}
+          </div>
+          {/* only for people whose remit actually spans functions */}
+          {fnOptions.length > 0 ? (
+            <Select value={fnFilter || "all"} onValueChange={(v) => setFnFilter(v === "all" ? "" : v)}>
+              <SelectTrigger className="h-9 w-32 gap-1 px-2">
+                <SelectValue placeholder="Function" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All functions</SelectItem>
+                {fnOptions.map((f) => (
+                  <SelectItem key={f} value={f}>{f}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
           {canAddItems ? (
             <CalendarItemDialog assignables={assignables} viewerId={viewerId} />
           ) : null}
@@ -682,7 +786,7 @@ export function CalendarView({
         ) : null}
       </div>
 
-      {shownVisits.length + shownTps.length + shownIr.length + items.length === 0 ? (
+      {shownVisits.length + shownTps.length + shownIr.length + shownItems.length === 0 ? (
         <p className="hidden py-6 text-center text-sm text-muted-foreground sm:block">
           Nothing {scopeMeta.empty}booked in {monthLabel(month)} yet —
           visits come from account pages{booking ? ", touch points from any day you click" : ""}. 🗓️

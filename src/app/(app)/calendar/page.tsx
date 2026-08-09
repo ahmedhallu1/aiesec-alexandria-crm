@@ -208,6 +208,16 @@ export default async function CalendarPage({
       memberFnIds={memberFnIds}
       openableMemberIds={scope.kind === "members" ? scope.ids : null}
       showFunction={scope.kind === "all" || isTmCore(viewer)}
+      // the Function filter follows the VIEWER's remit, never the month's data:
+      // one cross-function invite must not hand a single-function VP a control
+      // the LCP explicitly does not want them to have (v33.28)
+      viewerFunctions={
+        scope.kind === "all"
+          ? ["IGV", "IGT", "B2B", "BD", "B2C"]
+          : scope.kind === "functions"
+            ? scope.fns
+            : []
+      }
       booking={
         scopes.length > 0
           ? {

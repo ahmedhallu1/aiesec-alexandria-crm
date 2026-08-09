@@ -5036,6 +5036,8 @@ export interface IrCallRow {
   /** GV or GT — decided when the call was booked (v33.23). Null = the host
    *  works both products (or neither); such a call shows on BOTH floors. */
   product: IrProduct | null;
+  /** every time this call has MOVED (v33.28), oldest first */
+  reschedules: { at: string; from: string; to: string; by: string; byName: string | null }[] | null;
 }
 
 /** IR calls — one SHARED international-relations effort: every module member

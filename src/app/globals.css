@@ -158,10 +158,45 @@
   .dark {
     color-scheme: dark;
   }
-  /* keep the empty-state placeholder legible and muted in both themes */
+  /* NATIVE DATE & TIME FIELDS (v33.28 — the "blank date boxes" bug).
+     `::-webkit-datetime-edit` is the WHOLE edit area, NOT a placeholder
+     pseudo — there is no placeholder pseudo for a date input. Colouring it
+     `--muted-foreground` (which the rule below this block used to do) greyed
+     out every REAL date the app displays, which is half of why these read as
+     empty boxes; the other half was that they were clipped too narrow to show
+     the value.
+     iOS Safari additionally CENTRES the value inside
+     `::-webkit-date-and-time-value` and keeps its own intrinsic sizing, so a
+     box a few pixels too narrow shows the MIDDLE of the date and clips both
+     ends. */
   input[type="date"],
-  input[type="time"] {
+  input[type="time"],
+  input[type="datetime-local"] {
     @apply text-foreground;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  input[type="date"]::-webkit-date-and-time-value,
+  input[type="time"]::-webkit-date-and-time-value,
+  input[type="datetime-local"]::-webkit-date-and-time-value {
+    text-align: start;
+  }
+  input[type="date"]::-webkit-datetime-edit,
+  input[type="time"]::-webkit-datetime-edit,
+  input[type="datetime-local"]::-webkit-datetime-edit {
+    color: inherit;
+  }
+  /* ONLY a genuinely empty field is muted — the Input component flags it,
+     because the browser cannot tell a value from a blank one here */
+  input[data-empty="true"]::-webkit-datetime-edit {
+    color: var(--muted-foreground);
+  }
+  input[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="time"]::-webkit-calendar-picker-indicator {
+    margin-inline-start: 0;
+    padding-inline: 0.125rem;
+    cursor: pointer;
+    opacity: 0.6;
   }
   /* iOS TAP BEHAVIOUR (v33.24). Safari waits ~300ms on every tap in case a
      double-tap-to-zoom is coming, which on a slower phone reads as "the
@@ -174,10 +209,6 @@
     -webkit-tap-highlight-color: transparent;
   }
 
-  input[type="date"]::-webkit-datetime-edit,
-  input[type="time"]::-webkit-datetime-edit {
-    color: var(--muted-foreground);
-  }
 }
 
 /* Smooth light/dark theme swap.

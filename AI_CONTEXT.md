@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-09 · Version: v33.27
+Last updated: 2026-08-09 · Version: v33.28
 
 ---
 
@@ -50,8 +50,8 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0036_virtual_touch_points_and_routines` → `0037_admin_member_role` → … →
 `0045_cic_signup_logs_ir_event_source` → `0046_lc_feedback_inbox` →
 `0047_ir_call_timezone` → `0048_ir_product_and_lc_comments` →
-`0049_direct_visits_mailbox_ir_notes` (**all applied**, 0046–0049 during
-v33.22–v33.24).
+`0049_direct_visits_mailbox_ir_notes` → `0050_ir_call_reschedule_history`
+(**all applied**, 0046–0050 during v33.22–v33.28).
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
@@ -613,6 +613,73 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-09 · v33.28** — **THE MOBILE & LAYOUT RELEASE** (migration **0050
+  applied**: `ir_calls.reschedules`). Root-caused by a 16-agent adversarial
+  pass; the date bug was reproduced pixel-for-pixel in a headless browser
+  before a line was changed.
+  ① **THE "BLANK DATE BOXES" WERE TWO BUGS AT ONCE, AND ONE OF THEM WAS OURS.**
+  `globals.css` styled `::-webkit-datetime-edit` as if it were a placeholder
+  pseudo — **it is the whole edit region**, so every real date and time in the
+  app rendered in `--muted-foreground` instead of the text colour. There is no
+  placeholder pseudo for a date input; the flag has to come from the component,
+  so `Input` now marks a genuinely empty field `data-empty` and only THAT is
+  muted. Second: they were too narrow to show what they held. In the
+  Add-calendar-item dialog `grid-cols-3` inside a 295px phone dialog left
+  **67px** of usable value area against the ~115px a date needs — the value was
+  clipped, not wrapped, which is what "blank" looked like. The date now takes
+  the full width on a phone; the row becomes three columns only where three
+  fit. The three filter bars (accounts · dashboard · members) were cutting the
+  last digit of the year at any width under 400px and are wider. And iOS
+  Safari CENTRES the value inside `::-webkit-date-and-time-value` and self-
+  sizes the control, so a box a few pixels short showed the MIDDLE of the date
+  — pinned to the start, appearance cleared, all 39 controls at once.
+  ② **"00" RENDERED AS "0C", "PM" AS "PN".** The shadcn SelectTrigger gives its
+  value span `line-clamp-1` (overflow hidden), so inside `w-16` — 64px, ~48px
+  of which is padding, gap and chevron — the text is cut rather than allowed to
+  push. Reclaiming the padding costs no layout width; `shrink-0` keeps a phone
+  from squeezing it back.
+  ③ **EVERY TOOLTIP IN SODIO WAS DEAD ON A PHONE.** `Hint` was hover-and-focus
+  only, and a touch device has no hover — dozens of hints, which are how the
+  system explains itself, simply never appeared. It opens on tap now (and
+  closes on the next tap, on scroll, or after four seconds) while the wrapped
+  control keeps its own click.
+  ④ **Mobile overflow, one mechanism.** A `grid` with no template puts its
+  children in an IMPLICIT `auto` track, and a grid item keeps `min-width: auto`
+  — so the track is sized by its widest child's min-content. The CV cards grew
+  to **797px inside a 343px phone**. `grid-cols-1` (a flexible track, minimum
+  0) plus `break-words` on the free text fixes it; the same shape fixed the
+  Health page, where the check detail was `truncate`d — hiding 439px of
+  sentence in a 247px box, which is exactly the thing you need to read.
+  ⑤ **The sidebar wordmark was slicing "AIESEC in Alexandria".** An `h-7` box
+  holding an `h-8` image bled 4px, and a fixed `w-32` caption cut the words
+  mid-letter. The mark is smaller, the box matches its contents, and the text
+  block owns the space it needs. The avatar picker's scrollbar sat on top of
+  the tiles — it has a gutter now.
+  ⑥ **CALENDAR FILTERS**: by kind (visits · IR calls · touch points · items)
+  and by **function** — the latter offered only to people whose remit actually
+  spans functions, exactly as asked. Deliberately derived from the VIEWER, not
+  the month's data: a single cross-function invite would otherwise hand a
+  single-function VP the control the LCP said they should not have. Custom
+  items are never filtered by function — their stored `function_key` is the
+  owner's arbitrary first function and nothing else reads it.
+  ⑦ **AVAILABILITY FAILS PER ROW, AS YOU TYPE.** `src/lib/availability.ts`
+  holds the three rules a member can actually break — backwards or
+  under-10-minute window, missing day/date, an overlap with another window on
+  the same day — so the offending row is outlined and says what is wrong with
+  it, and Save is held until it is fixed. The server keeps its own check
+  unchanged; this only moves the answer earlier. 6 new tests, 154 total.
+  ⑧ **A RESCHEDULED CALL REMEMBERS** (0050). The move was an in-place
+  overwrite: the old time was gone and the only trace was a bell and an email.
+  Each move is now appended to `ir_calls.reschedules`, and the scheduled list
+  says it in words — "Moved twice — first booked for …, then …. Last change by
+  Ensar on …".
+  ⑨ **"IM" is a real function** and was missing from `LC_FUNCTIONS`, which is
+  what made people reach for the Admin *sub-function* instead. Admin remains
+  what it always was in the pick-lists: a ROLE. (The one member carrying
+  `sub_functions: Admin` keeps it — it is his only grant to the admin tools,
+  and stripping it before the replacement ships would lock the person most
+  likely to diagnose that out of the diagnostics.)
 
 - **2026-08-09 · v33.27** — **FIVE FROM THE FLOOR** (no migration).
   ① **Send to a whole team.** Addressing the EB or your own team meant looking

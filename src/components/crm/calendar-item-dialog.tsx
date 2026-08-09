@@ -113,8 +113,14 @@ export function CalendarItemDialog({
               dir="auto"
             />
           </div>
-          <div className="grid grid-cols-3 gap-2">
-            <div className="grid gap-1.5">
+          {/* THREE NATIVE CONTROLS DO NOT FIT ONE PHONE ROW (v33.28). At 375px
+              the dialog's content box is 295px, so `grid-cols-3` gave each
+              field 67px of usable value area against the ~115px a date needs —
+              the value was clipped, not wrapped. The date takes the full width
+              on a phone and the row only becomes three columns where there is
+              room for three. */}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <div className="col-span-2 grid gap-1.5 sm:col-span-1">
               <Label>Date</Label>
               <Input type="date" value={date} min={today} onChange={(e) => setDate(e.target.value)} />
             </div>

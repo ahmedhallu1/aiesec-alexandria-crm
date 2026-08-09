@@ -288,7 +288,7 @@ export function DashboardView({
           <Input
             type="date"
             max={today}
-            className="h-7 w-[6.6rem] min-[400px]:w-[7.9rem] border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
+            className="h-7 w-[7.6rem] min-[400px]:w-[8.2rem] border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
             aria-label={isOgxLane ? "Signed up from" : "Added from"}
             value={filters.from}
             onChange={(e) => setParam("from", e.target.value)}
@@ -297,7 +297,7 @@ export function DashboardView({
           <Input
             type="date"
             max={today}
-            className="h-7 w-[6.6rem] min-[400px]:w-[7.9rem] border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
+            className="h-7 w-[7.6rem] min-[400px]:w-[8.2rem] border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
             aria-label={isOgxLane ? "Signed up to" : "Added to"}
             value={filters.to}
             onChange={(e) => setParam("to", e.target.value)}
