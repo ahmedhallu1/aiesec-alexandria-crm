@@ -6296,6 +6296,7 @@ async function uploadIrScreenshot(
       fileName,
       mimeType: shot.mimeType,
       data: bytes,
+      publicRead: true, // screenshots are for whoever opens the call (v33.29)
     });
     return { file: { id: up.id, name: fileName, link: up.webViewLink } };
   } catch (e) {
@@ -6709,6 +6710,13 @@ export async function bookIrCall(input: {
   const bookerEmail = plain(input.bookerEmail, 200).toLowerCase();
   if (!bookerEmail || !EMAIL_RE.test(bookerEmail))
     return fail("We need a valid email — the calendar invite and Meet link go there.");
+  // the DOMAIN is checked while they can still fix it (v33.29) — a mailbox
+  // can't be proven pre-send, but a dead or typo'd domain can be refused now
+  {
+    const { emailDomainIssue } = await import("@/lib/email-check");
+    const issue = await emailDomainIssue(bookerEmail);
+    if (issue) return fail(issue);
+  }
   // country only counts when it IS a country — public input never gets to
   // store free text (CountryInput is client-side sugar, not validation)
   const countryRaw = plain(input.country, 60);
@@ -6765,7 +6773,7 @@ export async function bookIrCall(input: {
   if (!settings?.active) return fail("This booking link is not active.");
   const { data: owner } = await db()
     .from("members")
-    .select("id, name, email, google_refresh_token, is_active, functions, sub_functions")
+    .select("id, name, email, fallback_email, google_refresh_token, is_active, functions, sub_functions")
     .eq("id", settings.member_id)
     .maybeSingle<{
       id: string;
@@ -6944,7 +6952,10 @@ export async function bookIrCall(input: {
       const viaMailbox = await createIrCallEventOnMailbox({
         partnerLc: lc.name, start, minutes: settings.slot_minutes,
         attendeeEmail: bookerEmail,
-        ownerEmail: owner.email,
+        // the AIESEC address, or the personal fallback until it lands — an
+        // invited attendee walks straight into the Meet; an anonymous guest
+        // knocks at a door whose host (the IM mailbox) never opens it (v33.29)
+        ownerEmail: owner.email ?? (owner as { fallback_email?: string | null }).fallback_email ?? null,
         guestsCanInvite: settings.guests_can_invite ?? true,
         description: eventDescription,
       });

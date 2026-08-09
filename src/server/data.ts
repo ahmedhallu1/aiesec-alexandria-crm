@@ -4064,8 +4064,10 @@ export async function listSignupsPage(
     const fn = filters.fn && fns.includes(filters.fn as OgxFunction) ? [filters.fn] : fns;
     q = q.in("fn", fn);
     // view scope
+    // the CIC queue keeps ARCHIVED rows in view (v33.29, by request): a call
+    // that ended in Out of Process is still a first call worth verifying
     if (view === "archived") q = q.eq("out_of_process", true);
-    else q = q.eq("out_of_process", false);
+    else if (view !== "cic") q = q.eq("out_of_process", false);
     if (view === "unassigned") q = q.is("assigned_to", null);
     else if (view === "cic") {
       // THE CIC POOL (rule tightened + widened in v33.22):

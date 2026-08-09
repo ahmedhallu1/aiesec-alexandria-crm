@@ -21,7 +21,9 @@ export function generatePassword(): string {
  *  it straight to the member. */
 export async function issueTempPassword(member: {
   id: string;
-  email: string;
+  email: string | null;
+  /** the personal Gmail that stands in until the AIESEC address lands */
+  fallback_email?: string | null;
   name: string;
 }): Promise<{ ok: boolean; error?: string }> {
   const password = generatePassword();
@@ -43,7 +45,11 @@ export async function issueTempPassword(member: {
       memberFirstName: member.name.split(" ")[0],
       password,
     });
-    await sendEmail({ to: [member.email], ...mail });
+    // the AIESEC address when it exists, the fallback Gmail until then (v33.29)
+    const dest = member.email ?? member.fallback_email;
+    if (!dest)
+      return { ok: false, error: "No email on file — ask the IM team to add one." };
+    await sendEmail({ to: [dest], ...mail });
   } catch (e) {
     console.error("[auth] password email failed:", e);
     return { ok: false, error: "Couldn't send the email — try again or contact the IM team." };

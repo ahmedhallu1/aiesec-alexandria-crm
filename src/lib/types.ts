@@ -70,6 +70,14 @@ export const ICX_FUNCTIONS = ["IGV", "IGT"] as const;
 /** B2B & BD are ONE function (same membership today, may split in future
  *  peaks) — EITHER name in functions or sub-functions grants the whole-ICX
  *  raising access. Use this everywhere instead of inline "B2B" checks. */
+/** Where email can actually REACH this member right now (v33.29). */
+export function reachableEmail(m: {
+  email?: string | null;
+  fallback_email?: string | null;
+}): string | null {
+  return m.email ?? m.fallback_email ?? null;
+}
+
 export function memberIsB2B(m: {
   functions?: string[] | null;
   sub_functions?: string[] | null;
@@ -370,6 +378,10 @@ export interface Member {
   /** null = no AIESEC email yet (v24) — the member signs in with their PHONE
    *  in both login fields until the email lands and they Google-sign-in */
   email: string | null;
+  /** a personal Gmail used ONLY until the AIESEC email lands (v33.29):
+   *  password resets and calendar invites reach them here. Never an identity —
+   *  sign-in, Gmail sending and scopes stay on the AIESEC account. */
+  fallback_email?: string | null;
   phone: string | null;
   functions: string[];
   sub_functions: string[];

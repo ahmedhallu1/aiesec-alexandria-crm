@@ -103,11 +103,14 @@ export async function uploadToDriveFolder({
   fileName,
   mimeType,
   data,
+  publicRead = false,
 }: {
   folderName: string;
   fileName: string;
   mimeType: string;
   data: Buffer;
+  /** anyone-with-the-link viewer — screenshots yes, backups NEVER */
+  publicRead?: boolean;
 }): Promise<DriveUploadResult> {
   // the mailbox first — it owns storage; the service account cannot store bytes
   const drive = driveAsMailbox() ?? clients().drive;
@@ -130,6 +133,21 @@ export async function uploadToDriveFolder({
     res = await create(await ensureDriveFolder(folderName));
   }
   const id = res.data.id;
+  // ANYONE WITH THE LINK CAN VIEW — OPT-IN ONLY (v33.29). Screenshots exist
+  // to be looked at by whoever opens the call, and they used to inherit the
+  // folder's EB-only sharing, so an MM hit "request access". BACKUPS use this
+  // same helper and must never be public, hence the flag. Best-effort: a
+  // permission failure must not fail the upload.
+  if (publicRead && id) {
+    try {
+      await drive.permissions.create({
+        fileId: id,
+        requestBody: { type: "anyone", role: "reader" },
+      });
+    } catch (e) {
+      console.error("[drive] public-read permission failed:", e);
+    }
+  }
   if (!id) throw new Error("Drive returned no file id.");
   return {
     id,

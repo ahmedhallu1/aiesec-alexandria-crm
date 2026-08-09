@@ -119,7 +119,7 @@ export async function requestPasswordReset(
     const { db } = await import("@/lib/supabase");
     const { data: member } = await db()
       .from("members")
-      .select("id, name, email, is_active")
+      .select("id, name, email, fallback_email, is_active")
       .ilike("email", clean)
       .maybeSingle<{
         id: string; name: string; email: string; is_active: boolean;
