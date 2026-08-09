@@ -17,7 +17,7 @@ import {
   previewIgtExpectationMail,
   recordIrCall, requestCvUpload, sendIgtExpectationMail,
   requestIrReschedule, rerunCvExtraction, saveIrBookingSettings,
-  updateCvFields, updatePartnerLc,
+  updateCvFields, updateIrBookerEmail, updatePartnerLc,
 } from "@/server/actions";
 import type {
   PartnerLcDetail,
@@ -2120,6 +2120,9 @@ function IrCallsTab({
   const [completing, setCompleting] = useState<IrCallRow | null>(null);
   const [cancelling, setCancelling] = useState<IrCallRow | null>(null);
   const [rescheduling, setRescheduling] = useState<IrCallRow | null>(null);
+  // EVERY CALL OPENS (v33.29 part 2): click a scheduled row or a log row for
+  // the whole story on one card — who, when (both clocks), why, links, history
+  const [detail, setDetail] = useState<IrCallRow | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
 
   // v33.17 — filters over the scheduled list: with a handful of calls booked
@@ -2362,17 +2365,29 @@ function IrCallsTab({
             {scheduledShown.map((c) => (
               <div
                 key={c.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 transition-colors hover:bg-muted/40"
               >
-                <div className="min-w-0 flex-1">
+                <div
+                  className="min-w-0 flex-1 cursor-pointer"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setDetail(c)}
+                  onKeyDown={(e) => { if (e.key === "Enter") setDetail(c); }}
+                >
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="min-w-0 break-words font-semibold" dir="auto">{c.partner_lc_name}</p>
+                    {c.product ? <ProductTag product={c.product} /> : null}
                     <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", CALL_STATUS_CHIP.scheduled.className)}>
                       {CALL_STATUS_CHIP.scheduled.label}
                     </span>
                     {c.reschedule_requested_at ? (
                       <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
                         Reschedule asked
+                      </span>
+                    ) : null}
+                    {c.email_bounced_at ? (
+                      <span className="rounded-full bg-destructive/15 px-2 py-0.5 text-[11px] font-semibold text-destructive">
+                        ⚠️ Email bounced
                       </span>
                     ) : null}
                   </div>
@@ -2425,6 +2440,7 @@ function IrCallsTab({
                       href={c.meet_link}
                       target="_blank"
                       rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
                       className="mt-0.5 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
                     >
                       <Video className="size-3.5" /> Join the Google Meet
@@ -2597,7 +2613,14 @@ function IrCallsTab({
                   </TableHeader>
                   <TableBody>
                     {sortedCalls.map((c) => (
-                      <TableRow key={c.id}>
+                      <TableRow
+                        key={c.id}
+                        className="cursor-pointer"
+                        onClick={(e) => {
+                          if ((e.target as HTMLElement).closest("a,button")) return;
+                          setDetail(c);
+                        }}
+                      >
                         {cols.visible.map((col) => (
                           <TableCell key={col.key} className={CALL_CELL_CLASS[col.key]}>
                             {callCell(c, col.key)}
@@ -2613,7 +2636,17 @@ function IrCallsTab({
                 {sortedCalls.map((c) => {
                   const chip = CALL_STATUS_CHIP[c.status] ?? CALL_STATUS_CHIP.completed;
                   return (
-                    <div key={c.id} className="rounded-lg border p-3">
+                    <div
+                      key={c.id}
+                      className="cursor-pointer rounded-lg border p-3"
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => {
+                        if ((e.target as HTMLElement).closest("a,button")) return;
+                        setDetail(c);
+                      }}
+                      onKeyDown={(e) => { if (e.key === "Enter") setDetail(c); }}
+                    >
                       <div className="flex items-start justify-between gap-2">
                         <p className="min-w-0 flex-1 break-words font-semibold" dir="auto">
                           {c.partner_lc_name}
@@ -2688,6 +2721,11 @@ function IrCallsTab({
       <CompleteCallDialog call={completing} onClose={() => setCompleting(null)} />
       <CancelCallDialog call={cancelling} onClose={() => setCancelling(null)} />
       <RequestRescheduleDialog call={rescheduling} onClose={() => setRescheduling(null)} />
+      <IrCallDetailDialog
+        call={detail}
+        onClose={() => setDetail(null)}
+        canFix={detail ? canTouch(detail) : false}
+      />
     </div>
   );
 }
@@ -2859,6 +2897,197 @@ function ManualCallForm({
 
 /** The in-call notes: fills demand + notes + screenshot and
  *  flips the scheduled call to completed. */
+/** THE WHOLE CALL ON ONE CARD (v33.29 part 2) — every row in the scheduled
+ *  list and the log opens into this: who the IR is (role, email, phone), when
+ *  in BOTH clocks, what they want to talk about, the Meet link, the host, the
+ *  move history, and — for completed calls — the demand, notes and screenshot.
+ *  A bounced email shows its warning here with the fix right next to it:
+ *  correcting the address swaps the calendar attendee (Google re-sends the
+ *  invite) and re-sends the confirmation with the manage link. */
+function IrCallDetailDialog({
+  call, onClose, canFix,
+}: {
+  call: IrCallRow | null;
+  onClose: () => void;
+  canFix: boolean;
+}) {
+  const router = useRouter();
+  const [fixOpen, setFixOpen] = useState(false);
+  const [newEmail, setNewEmail] = useState("");
+  const [pending, start] = useTransition();
+  const chip = call ? (CALL_STATUS_CHIP[call.status] ?? CALL_STATUS_CHIP.completed) : null;
+
+  const submitFix = () => {
+    if (!call) return;
+    start(async () => {
+      const res = await updateIrBookerEmail(call.id, newEmail);
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success("Email fixed — the invite and confirmation were re-sent.");
+      setFixOpen(false);
+      setNewEmail("");
+      onClose();
+      router.refresh();
+    });
+  };
+
+  const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
+    <div className="grid grid-cols-[7rem_1fr] items-start gap-2 text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <div className="min-w-0 break-words" dir="auto">{children}</div>
+    </div>
+  );
+
+  return (
+    <Dialog open={!!call} onOpenChange={(o) => { if (!o) { setFixOpen(false); setNewEmail(""); onClose(); } }}>
+      <DialogContent className="max-h-[90dvh] max-w-lg overflow-y-auto">
+        {call ? (
+          <>
+            <DialogHeader>
+              <DialogTitle className="flex flex-wrap items-center gap-2">
+                <span className="min-w-0 break-words" dir="auto">{call.partner_lc_name}</span>
+                {call.product ? <ProductTag product={call.product} /> : null}
+                {chip ? (
+                  <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", chip.className)}>
+                    {chip.label}
+                  </span>
+                ) : null}
+              </DialogTitle>
+              <DialogDescription>
+                {`${dayName(call.called_at)} · ${fmtDateTime(call.called_at)}`}
+                {call.duration_minutes ? ` · ${call.duration_minutes} min` : ""}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2.5">
+              {call.booker_tz ? (
+                <Row label="Their time">
+                  🌍 {whenLabelInZone(call.called_at, call.booker_tz)}
+                </Row>
+              ) : null}
+              <Row label="Host">{call.member_name}</Row>
+              {call.booker_name ? (
+                <Row label="The IR">
+                  {call.booker_name}
+                  {call.booker_role ? (
+                    <span className="text-muted-foreground"> · {call.booker_role}</span>
+                  ) : null}
+                </Row>
+              ) : null}
+              {call.booker_email ? (
+                <Row label="Email">
+                  <span className="break-all">{call.booker_email}</span>
+                  {call.email_bounced_at ? (
+                    <span className="ml-1.5 rounded-full bg-destructive/15 px-2 py-0.5 text-[11px] font-semibold text-destructive">
+                      ⚠️ bounced — the address doesn’t exist
+                    </span>
+                  ) : null}
+                  {canFix && call.status === "scheduled" ? (
+                    <button
+                      type="button"
+                      className="ml-1.5 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                      onClick={() => { setFixOpen((o) => !o); setNewEmail(call.booker_email ?? ""); }}
+                    >
+                      <Pencil className="size-3" /> Fix it
+                    </button>
+                  ) : null}
+                  {fixOpen && canFix && call.status === "scheduled" ? (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      <Input
+                        type="email"
+                        value={newEmail}
+                        onChange={(e) => setNewEmail(e.target.value)}
+                        placeholder="the.correct@address.com"
+                        className="h-8 w-64 max-w-full text-sm"
+                      />
+                      <Button size="sm" className="h-8" disabled={pending || !newEmail.trim()} onClick={submitFix}>
+                        {pending ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+                        Save &amp; re-invite
+                      </Button>
+                      <p className="w-full text-xs text-muted-foreground">
+                        The Meet invite moves to the new address and the IR gets a
+                        fresh confirmation with their manage link.
+                      </p>
+                    </div>
+                  ) : null}
+                </Row>
+              ) : null}
+              {call.booker_phone ? (
+                <Row label="Phone">
+                  <a
+                    href={`https://wa.me/${call.booker_phone.replace(/\D/g, "")}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+                  >
+                    <WhatsAppIcon className="size-3.5" /> {call.booker_phone}
+                  </a>
+                </Row>
+              ) : null}
+              {call.booker_note ? <Row label="They asked about">{call.booker_note}</Row> : null}
+              {call.meet_link && call.status === "scheduled" ? (
+                <Row label="Meet">
+                  <a
+                    href={call.meet_link}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+                  >
+                    <Video className="size-3.5" /> Join the Google Meet
+                  </a>
+                </Row>
+              ) : null}
+              {(call.reschedules ?? []).length > 0 ? (
+                <Row label="Moves">
+                  <div className="space-y-0.5 text-xs">
+                    {(call.reschedules ?? []).map((h, i) => (
+                      <p key={i}>
+                        {fmtDateTime(h.from)} → {fmtDateTime(h.to)}{" "}
+                        <span className="text-muted-foreground">
+                          ({h.by === "ir" ? h.byName ?? "the IR" : "us"} · {fmtDateTime(h.at)})
+                        </span>
+                      </p>
+                    ))}
+                  </div>
+                </Row>
+              ) : null}
+              {call.cancel_reason ? <Row label="Cancelled">{call.cancel_reason}</Row> : null}
+              {call.demand ? <Row label="Demand">{call.demand}</Row> : null}
+              {call.cv_pool_link ? (
+                <Row label="CV pool">
+                  <a
+                    href={call.cv_pool_link}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+                  >
+                    <Link2 className="size-3.5" /> Open their CV pool
+                  </a>
+                </Row>
+              ) : null}
+              {call.notes ? <Row label="Notes">{call.notes}</Row> : null}
+              {call.screenshot_link ? (
+                <Row label="Screenshot">
+                  <a
+                    href={call.screenshot_link}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+                  >
+                    <ImagePlus className="size-3.5" /> Open in Drive
+                  </a>
+                </Row>
+              ) : null}
+              <Row label="Logged">{fmtDateTime(call.booked_at ?? call.created_at)}</Row>
+            </div>
+          </>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function CompleteCallDialog({ call, onClose }: { call: IrCallRow | null; onClose: () => void }) {
   const router = useRouter();
   const [pending, start] = useTransition();

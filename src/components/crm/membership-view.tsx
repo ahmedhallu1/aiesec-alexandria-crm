@@ -53,6 +53,8 @@ export interface MemberRow {
   team_name: string | null;
   is_active: boolean;
   has_podio?: boolean | null;
+  /** backup Gmail (v33.29) — DB-only, never written to the sheet */
+  fallback_email?: string | null;
   left_at?: string | null;
   first_login_at: string | null;
   has_password: boolean;
@@ -575,6 +577,7 @@ function MemberDialog({
     team_name: member?.team_name ?? "",
     is_active: member?.is_active ?? true,
     has_podio: !!member?.has_podio,
+    fallback_email: member?.fallback_email ?? "",
   });
 
   const toggle = (key: "functions" | "sub_functions", value: string) =>
@@ -662,6 +665,7 @@ function MemberDialog({
         team_name: form.team_name.trim() || null,
         is_active: form.is_active,
         has_podio: form.has_podio,
+        fallback_email: form.fallback_email.trim().toLowerCase() || null,
       });
       if (res.ok) {
         toast.success(member ? "Member updated — sheet synced" : "Member added — sheet synced");
@@ -741,6 +745,20 @@ function MemberDialog({
                 <p className="text-xs text-destructive">{phoneError}</p>
               ) : null}
             </div>
+          </div>
+
+          {/* BACKUP GMAIL (v33.29) — DB-only (never on the sheet): where
+              password resets and IR-call invites reach a member whose
+              @aiesec.net hasn't landed yet. Members can also set their own
+              on the profile. Never a sign-in. */}
+          <div className="grid gap-1.5">
+            <Label>Backup Gmail (no AIESEC email yet)</Label>
+            <Input
+              value={form.fallback_email}
+              inputMode="email"
+              placeholder="them@gmail.com — for resets & calendar invites"
+              onChange={(e) => setForm((f) => ({ ...f, fallback_email: e.target.value }))}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">

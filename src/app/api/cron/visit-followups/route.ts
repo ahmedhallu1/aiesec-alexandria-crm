@@ -161,11 +161,23 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // IR EMAIL BOUNCES (v33.29 part 2) — ride the 15-minute tick: scan the IM
+  // mailbox for mailer-daemon reports and flag scheduled calls whose invite
+  // bounced. Best-effort; a Gmail hiccup never fails the visit reminders.
+  let bounces: { checked: number; flagged: number } = { checked: 0, flagged: 0 };
+  try {
+    const { checkIrEmailBounces } = await import("@/server/bounces");
+    bounces = await checkIrEmailBounces();
+  } catch (e) {
+    console.error("[cron] bounce watch failed:", e);
+  }
+
   await markCronRun("visit-followups");
   return NextResponse.json({
     checked: pending?.length ?? 0,
     sent,
     forgottenChecked: forgotten?.length ?? 0,
     nagged,
+    bounces,
   });
 }

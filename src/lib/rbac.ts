@@ -572,12 +572,14 @@ export function ogxLanes(v: Viewer): OgxFunction[] {
   return seesEveryLane(v) ? ["OGT", "OGV"] : ogxFunctions(v);
 }
 
-/** CUSTOM calendar items (v33.16) — Google-Calendar-style slots/tasks with an
- *  explicit assignee list. Team Leaders and above create them: a TL for their
- *  own team, an LCVP/Director for their function(s), LCP-level for anyone.
- *  Members create none (their calendar is what they're invited to). */
+/** CUSTOM calendar items (v33.16, widened v33.29) — Google-Calendar-style
+ *  slots/tasks with an explicit assignee list. Everyone creates them now:
+ *  a Member/Coordinator for THEMSELVES + THEIR OWN TEAM (teammates and the
+ *  TL), a TL for their team, an LCVP/Director for their function(s),
+ *  LCP-level for anyone. The server validates the assignee list either way. */
 export function canCreateCalendarItems(v: Viewer): boolean {
-  return master(v) || ["Team Leader", "LCVP", "Director"].includes(v.role);
+  void v;
+  return true;
 }
 
 /** OGX leaders (VP/Director of the sign-up's function + LCP/admin) own the

@@ -3309,15 +3309,29 @@ export async function completeOnboarding(input: {
 }
 export async function updateProfile(input: {
   phone: string;
+  /** BACKUP GMAIL (v33.29): where system email reaches a member whose
+   *  @aiesec.net hasn't landed yet — password resets, IR-call calendar
+   *  invites. NEVER an identity: no sign-in, no session, not on the sheet
+   *  (DB-only, so the membership import can't clobber it). */
+  fallbackEmail?: string | null;
 }): Promise<ActionResult> {
   const viewer = await getViewer();
-  const parsed = profileSchema.safeParse({ name: viewer.name, ...input });
+  const parsed = profileSchema.safeParse({ name: viewer.name, phone: input.phone });
   if (!parsed.success) return fail(parsed.error.issues[0].message);
+  const update: Record<string, string | null> = { phone: parsed.data.phone };
+  if (input.fallbackEmail !== undefined) {
+    const fb = (input.fallbackEmail ?? "").trim().toLowerCase();
+    if (fb && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(fb))
+      return fail("The backup email doesn't look like an email address.");
+    if (fb && viewer.email && fb === viewer.email.toLowerCase())
+      return fail("That's already your main email — the backup is for a DIFFERENT inbox you check.");
+    update.fallback_email = fb || null;
+  }
 
   await snapshotForUndo("members", viewer.id); // sandbox test view: roll back on exit
   const { error } = await db()
     .from("members")
-    .update({ phone: parsed.data.phone })
+    .update(update)
     .eq("id", viewer.id);
   if (error) return fail(error.message);
 
@@ -3440,6 +3454,15 @@ const memberSchema = z
     is_active: z.boolean(),
     /** v33.2 — holds the LC's Podio access, so they may set Request States */
     has_podio: z.boolean().optional(),
+    /** v33.29 — backup Gmail for members without @aiesec.net yet. DB-only:
+     *  deliberately NOT in SheetMemberRow, so the half-hourly import can
+     *  never clobber it (the has_podio precedent). */
+    fallback_email: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .refine((v) => v === "" || EMAIL_RE.test(v), "The backup email doesn't look valid.")
+      .nullish(),
   })
   .refine((m) => !!m.email || !!m.phone, {
     message: "A member needs an email OR a phone number (phone-only members sign in with their number).",
@@ -3486,6 +3509,11 @@ export async function upsertMember(
     team_name: m.team_name || null,
     is_active: m.is_active,
     has_podio: m.has_podio ?? false,
+    // only touch the backup email when the dialog actually sent the field —
+    // an absent property must never erase what the member set on their profile
+    ...(m.fallback_email !== undefined
+      ? { fallback_email: m.fallback_email || null }
+      : {}),
   };
 
   let id = m.id ?? null;
@@ -7265,6 +7293,120 @@ export async function cancelIrCall(id: string, reason: string): Promise<ActionRe
   await logAudit(viewer.id, "ir_call_cancel", "ir_call", id, {
     lc: call.partner_lc_name,
     reason: cleanReason,
+  });
+  refresh();
+  return { ok: true };
+}
+
+/** FIX THE IR'S EMAIL (v33.29 part 2) — when the invite bounced (or the crew
+ *  spots a typo), the owner/VP corrects the address IN PLACE: the calendar
+ *  event's attendee is swapped so Google re-sends the invite to the right
+ *  inbox, the LC's contact row follows, the confirmation email (their clock
+ *  first, manage link included) goes out again, and the bounce flag clears. */
+export async function updateIrBookerEmail(id: string, emailRaw: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  if (viewer.sandbox)
+    return fail("Fixing IR emails is disabled in the sandbox test view — the invite re-send is real.");
+  const email = (emailRaw ?? "").trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email))
+    return fail("That doesn't look like an email address.");
+  const { emailDomainIssue } = await import("@/lib/email-check");
+  const issue = await emailDomainIssue(email);
+  if (issue) return fail(issue);
+  const { data: call } = await db()
+    .from("ir_calls")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle<IrCallServerRow>();
+  if (!call) return fail("That call no longer exists.");
+  if (call.status !== "scheduled")
+    return fail("Only scheduled calls can have their email fixed.");
+  if (call.member_id !== viewer.id && !isConsiderationLead(viewer))
+    return fail("Only the call's owner or a VP/Director can fix the email.", "forbidden");
+  const oldEmail = (call.booker_email ?? "").trim().toLowerCase() || null;
+  if (oldEmail === email) return fail("That's already the email on the booking.");
+
+  await snapshotForUndo("ir_calls", id);
+  const { error } = await db()
+    .from("ir_calls")
+    .update({ booker_email: email, email_bounced_at: null })
+    .eq("id", id);
+  if (error) return fail(error.message);
+
+  // the LC's contact row follows; unique (partner_lc_id, lower(email)) means
+  // a row already holding the NEW email wins and the wrong one is removed
+  if (call.partner_lc_id && oldEmail) {
+    const { error: cErr } = await db()
+      .from("partner_lc_contacts")
+      .update({ email })
+      .eq("partner_lc_id", call.partner_lc_id)
+      .ilike("email", oldEmail);
+    if (cErr)
+      await db()
+        .from("partner_lc_contacts")
+        .delete()
+        .eq("partner_lc_id", call.partner_lc_id)
+        .ilike("email", oldEmail);
+  }
+
+  // swap the calendar attendee — Google re-sends the Meet invite
+  let inviteSwapped = false;
+  if (call.calendar_event_id) {
+    try {
+      const { swapIrCallAttendee } = await import("@/lib/google/calendar");
+      const onMailbox =
+        (call as { event_calendar?: string | null }).event_calendar === "mailbox";
+      let hostToken: string | null = null;
+      if (!onMailbox && call.member_id) {
+        const { data: owner } = await db()
+          .from("members")
+          .select("google_refresh_token")
+          .eq("id", call.member_id)
+          .maybeSingle<{ google_refresh_token: string | null }>();
+        hostToken = owner?.google_refresh_token ?? null;
+      }
+      inviteSwapped = await swapIrCallAttendee({
+        hostRefreshToken: hostToken,
+        onMailbox,
+        eventId: call.calendar_event_id,
+        oldEmail,
+        newEmail: email,
+      });
+    } catch (e) {
+      console.error("[ir-calls] attendee swap failed:", e);
+    }
+  }
+
+  // the confirmation, again — to the address that actually exists this time
+  if (call.manage_token) {
+    try {
+      const { irBookingConfirmEmail } = await import("@/lib/email/templates");
+      const { cairoWhenLabel, bookerZoneFor } = await import("./data");
+      const { whenLabelInZone } = await import("@/lib/timezones");
+      const zone = await bookerZoneFor(call.booker_tz, call.partner_lc_id);
+      const cairo = cairoWhenLabel(call.called_at);
+      const confirm = irBookingConfirmEmail({
+        bookerName: call.booker_name,
+        memberName: call.member_name,
+        partnerLc: call.partner_lc_name,
+        whenLabel: zone ? whenLabelInZone(call.called_at, zone) : cairo,
+        cairoLabel: zone ? cairo : null,
+        slotMinutes: call.duration_minutes ?? 30,
+        meetLink: call.meet_link,
+        manageUrl: `${env.appUrl}/book/manage/${call.manage_token}`,
+      });
+      await sendEmail({ to: [email], subject: confirm.subject, html: confirm.html });
+    } catch (e) {
+      console.error("[ir-calls] confirmation re-send failed:", e);
+    }
+  }
+
+  await logAudit(viewer.id, "ir_call_email_fix", "ir_call", id, {
+    lc: call.partner_lc_name,
+    from: oldEmail,
+    to: email,
+    inviteSwapped,
   });
   refresh();
   return { ok: true };

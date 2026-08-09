@@ -704,7 +704,7 @@ function TmPanel({ stats }: { stats: import("@/server/tm-stats").TmStats }) {
 function ConsiderationPanel({ stats }: { stats: import("@/server/data").ConsiderationStats }) {
   // same shape as KpiCard (v30.1): name + number only, the explainer moved into
   // the hover hint — a 2-up phone grid never clips the number
-  const kpi = (label: string, value: number, sub?: string) => {
+  const kpi = (label: string, value: number, sub?: string, suffix?: string) => {
     const card = (
       <Card className="kpi-card rise-in h-full" title={sub}>
         <CardContent className="flex h-full flex-col justify-between gap-2 px-4 py-3.5">
@@ -713,22 +713,88 @@ function ConsiderationPanel({ stats }: { stats: import("@/server/data").Consider
           </p>
           <p className="kpi-value text-3xl font-black leading-none tabular-nums xl:text-4xl">
             {value.toLocaleString("en")}
+            {suffix ? <span className="text-xl font-bold">{suffix}</span> : null}
           </p>
         </CardContent>
       </Card>
     );
     return sub ? <Hint label={sub}>{card}</Hint> : card;
   };
+  const delta = stats.irThisMonth - stats.irLastMonth;
+  const maxMonth = Math.max(1, ...stats.byMonth.map((m) => m.calls));
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        {kpi("IR calls — total", stats.irTotal, `${stats.irThisMonth} this month`)}
+        {kpi("IR calls — total", stats.irTotal, "Every recorded + booked call (cancelled excluded)")}
+        {kpi(
+          "Calls this month",
+          stats.irThisMonth,
+          `${stats.irLastMonth} last month${delta !== 0 ? ` (${delta > 0 ? "+" : ""}${delta})` : ""}`
+        )}
         {kpi("Upcoming booked calls", stats.irUpcoming)}
-        {kpi("Partner LCs reached", stats.partnerLcsContacted)}
+        {kpi("Calls completed", stats.irCompleted, "Booked or recorded calls that actually happened")}
+        {kpi("Partner LCs reached", stats.partnerLcsContacted, `${stats.newLcsThisMonth} reached for the first time this month`)}
+        {kpi("New LCs this month", stats.newLcsThisMonth, "Partner LCs whose first-ever call was this month")}
+        {stats.completionRate != null
+          ? kpi(
+              "Booked → happened",
+              stats.completionRate,
+              `${stats.irCompleted} completed vs ${stats.irCancelled} cancelled — % of settled calls that happened`,
+              "%"
+            )
+          : null}
         {stats.showCvs
           ? kpi("CVs in the pool", stats.cvTotal, `${stats.cvThisMonth} this month`)
           : null}
       </div>
+      {/* the last 6 months at a glance */}
+      <Card className="rise-in">
+        <CardContent className="pt-4">
+          <p className="text-xs font-medium text-muted-foreground">Calls per month — last 6 months</p>
+          <div className="mt-3 flex items-end gap-2">
+            {stats.byMonth.map((m) => (
+              <div key={m.month} className="flex min-w-0 flex-1 flex-col items-center gap-1">
+                <span className="text-xs font-bold tabular-nums">{m.calls}</span>
+                <div
+                  className="w-full max-w-10 rounded-t bg-primary/70 transition-all"
+                  style={{ height: `${Math.max(4, (m.calls / maxMonth) * 72)}px` }}
+                />
+                <span className="text-[10px] text-muted-foreground">{m.label}</span>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+      {/* who is making the calls */}
+      {stats.byMember.length > 0 ? (
+        <Card className="rise-in rise-in-1">
+          <CardContent className="pt-4">
+            <p className="text-xs font-medium text-muted-foreground">Calls by member</p>
+            <div className="mt-2 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-muted-foreground">
+                    <th className="py-1 pr-2 font-medium">Member</th>
+                    <th className="py-1 pr-2 text-right font-medium">This month</th>
+                    <th className="py-1 pr-2 text-right font-medium">Upcoming</th>
+                    <th className="py-1 text-right font-medium">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.byMember.map((m) => (
+                    <tr key={m.name} className="border-t">
+                      <td className="max-w-40 truncate py-1.5 pr-2" dir="auto">{m.name}</td>
+                      <td className="py-1.5 pr-2 text-right tabular-nums">{m.month}</td>
+                      <td className="py-1.5 pr-2 text-right tabular-nums">{m.upcoming}</td>
+                      <td className="py-1.5 text-right font-semibold tabular-nums">{m.total}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
       {stats.plan ? (
         <Card className="rise-in rise-in-1">
           <CardContent className="pt-4">

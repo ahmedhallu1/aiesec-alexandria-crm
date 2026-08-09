@@ -63,6 +63,7 @@ export default async function ProfilePage() {
         isAdmin: viewer.isAdmin,
         hasPassword: !!viewer.password_hash,
         teams,
+        fallbackEmail: viewer.fallback_email ?? null,
       }}
       people={people}
       tlPlan={tlPlan}

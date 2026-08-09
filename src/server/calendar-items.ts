@@ -49,12 +49,13 @@ export async function assignableForItems(
   if (!canCreateCalendarItems(viewer)) return [];
   const { data } = await db()
     .from("members")
-    .select("id, name, role, functions, sub_functions")
+    .select("id, name, role, functions, sub_functions, stakeholder_id")
     .eq("is_active", true)
     .order("name");
   const all = (data ?? []) as {
     id: string; name: string; role: string;
     functions: string[] | null; sub_functions: string[] | null;
+    stakeholder_id: string | null;
   }[];
   const lcpLevel =
     viewer.isAdmin || viewer.role === "LCP" || viewer.role === "Admin" ||
@@ -63,11 +64,21 @@ export async function assignableForItems(
     ? all
     : viewer.role === "Team Leader"
       ? all.filter((m) => m.id === viewer.id || viewer.teamMemberIds.includes(m.id))
-      : all.filter((m) =>
-          [...(m.functions ?? []), ...(m.sub_functions ?? [])].some((f) =>
-            (viewer.functions ?? []).includes(f)
+      : viewer.role === "LCVP" || viewer.role === "Director"
+        ? all.filter((m) =>
+            [...(m.functions ?? []), ...(m.sub_functions ?? [])].some((f) =>
+              (viewer.functions ?? []).includes(f)
+            )
           )
-        );
+        : // a MEMBER/COORDINATOR reaches their own TEAM (v33.29): themself,
+          // their teammates (same manager) and the TL — "a slot my team sees"
+          all.filter(
+            (m) =>
+              m.id === viewer.id ||
+              (viewer.stakeholder_id != null &&
+                (m.id === viewer.stakeholder_id ||
+                  m.stakeholder_id === viewer.stakeholder_id))
+          );
   return allowed.map((m) => ({ id: m.id, label: m.name }));
 }
 
@@ -78,6 +89,11 @@ export async function createCalendarItem(input: {
   endTime?: string | null;
   note?: string | null;
   assigneeIds: string[];
+  /** ROUTINE (v33.29): repeat this slot weekly, same day + time, for N weeks
+   *  total (1 = just this one). Each occurrence is its own row, so one can be
+   *  deleted without touching the rest — exactly how the touch-point routine
+   *  builder works. */
+  repeatWeeks?: number;
 }): Promise<Result> {
   const viewer = await getViewer();
   if (!canCreateCalendarItems(viewer))
@@ -108,22 +124,25 @@ export async function createCalendarItem(input: {
       return fail("One of the assignees is outside your team/function scope.");
   }
 
-  const { data: created, error } = await db()
+  const weeks = Math.min(12, Math.max(1, Math.round(input.repeatWeeks ?? 1)));
+  const rows = Array.from({ length: weeks }, (_, w) => ({
+    title,
+    note,
+    starts_at: new Date(startsAt.getTime() + w * 7 * 86_400_000).toISOString(),
+    ends_at: endsAt ? new Date(endsAt.getTime() + w * 7 * 86_400_000).toISOString() : null,
+    owner_id: viewer.id,
+    owner_name: viewer.name,
+    assignee_ids: assigneeIds,
+    function_key: (viewer.functions ?? [])[0] ?? null,
+  }));
+  const { data: createdRows, error } = await db()
     .from("calendar_items")
-    .insert({
-      title,
-      note,
-      starts_at: startsAt.toISOString(),
-      ends_at: endsAt ? endsAt.toISOString() : null,
-      owner_id: viewer.id,
-      owner_name: viewer.name,
-      assignee_ids: assigneeIds,
-      function_key: (viewer.functions ?? [])[0] ?? null,
-    })
-    .select("id")
-    .single<{ id: string }>();
+    .insert(rows)
+    .select("id");
   if (error) return fail(error.message);
-  if (created) await recordUndo("calendar_items", created.id, "insert");
+  const created = (createdRows ?? [])[0] as { id: string } | undefined;
+  for (const r of (createdRows ?? []) as { id: string }[])
+    await recordUndo("calendar_items", r.id, "insert");
 
   // bell the assignees (never the owner about their own item); best-effort,
   // sandbox-suppressed inside notifyMembers
@@ -133,13 +152,13 @@ export async function createCalendarItem(input: {
       others,
       "info",
       `📌 ${viewer.name} added "${title}" to your calendar`,
-      `${input.date} ${input.time}${note ? ` — ${note}` : ""}`,
+      `${input.date} ${input.time}${weeks > 1 ? ` · repeats weekly ×${weeks}` : ""}${note ? ` — ${note}` : ""}`,
       viewer.id,
       "/calendar"
     );
   }
   await logAudit(viewer.id, "calendar_item_create", "calendar_item", created?.id ?? "?", {
-    title, date: input.date, time: input.time, assignees: assigneeIds.length,
+    title, date: input.date, time: input.time, assignees: assigneeIds.length, weeks,
   });
   revalidatePath("/calendar");
   return { ok: true };

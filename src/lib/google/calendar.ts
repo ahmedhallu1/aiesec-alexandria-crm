@@ -521,6 +521,53 @@ export async function updateIrCallEventOnMailbox(
   }
 }
 
+/** SWAP THE IR'S EMAIL ON A BOOKED CALL'S EVENT (v33.29 part 2) — used when
+ *  a bounced or mistyped address is corrected. Fetch-then-patch, because
+ *  PATCHing `attendees` REPLACES the whole list; Google then re-sends the
+ *  invite to the corrected address (`sendUpdates: "all"`). Best-effort:
+ *  false = nothing was patched (caller says so instead of claiming success). */
+export async function swapIrCallAttendee(opts: {
+  /** owner-hosted events need the host's grant; null → can't patch */
+  hostRefreshToken: string | null;
+  /** true → the event lives on the IM mailbox calendar (event_calendar) */
+  onMailbox: boolean;
+  eventId: string;
+  oldEmail: string | null;
+  newEmail: string;
+}): Promise<boolean> {
+  try {
+    let cal: ReturnType<typeof mailboxCalendar>;
+    let calendarId: string;
+    if (opts.onMailbox) {
+      const id = await getVisitsCalendarId();
+      if (!id) return false;
+      cal = mailboxCalendar();
+      calendarId = id;
+    } else {
+      if (!opts.hostRefreshToken || !env.googleClientId) return false;
+      cal = calendarFor(opts.hostRefreshToken);
+      calendarId = "primary";
+    }
+    const ev = await cal.events.get({ calendarId, eventId: opts.eventId });
+    const drop = new Set(
+      [opts.oldEmail, opts.newEmail].filter(Boolean).map((e) => (e as string).toLowerCase())
+    );
+    const kept = (ev.data.attendees ?? [])
+      .filter((a) => a.email && !drop.has(a.email.toLowerCase()))
+      .map((a) => ({ email: a.email as string }));
+    await cal.events.patch({
+      calendarId,
+      eventId: opts.eventId,
+      sendUpdates: "all",
+      requestBody: { attendees: [...kept, { email: opts.newEmail }] },
+    });
+    return true;
+  } catch (e) {
+    console.error("[calendar] IR attendee swap failed:", e);
+    return false;
+  }
+}
+
 /** Delete an IR event from the MAILBOX calendar (notifies the IR). */
 export async function deleteIrCallEventOnMailbox(eventId: string): Promise<void> {
   const calendarId = await getVisitsCalendarId();

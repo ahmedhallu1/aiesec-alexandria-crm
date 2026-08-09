@@ -13,6 +13,9 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
 /** CUSTOM CALENDAR ITEM (v33.16) — a Google-Calendar-style slot or task with
@@ -40,6 +43,8 @@ export function CalendarItemDialog({
   const [date, setDate] = useState(defaultDate ?? today);
   const [time, setTime] = useState("18:00");
   const [endTime, setEndTime] = useState("");
+  // ROUTINE (v33.29): same slot, same day+time, weekly — "1" = just once
+  const [repeatWeeks, setRepeatWeeks] = useState("1");
   const [note, setNote] = useState("");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [q, setQ] = useState("");
@@ -64,6 +69,7 @@ export function CalendarItemDialog({
   const submit = () =>
     start(async () => {
       const res = await createCalendarItem({
+        repeatWeeks: Number(repeatWeeks) || 1,
         title,
         date,
         time,
@@ -132,6 +138,24 @@ export function CalendarItemDialog({
               <Label>To (optional)</Label>
               <Input type="time" step={300} value={endTime} onChange={(e) => setEndTime(e.target.value)} />
             </div>
+          </div>
+          <div className="grid gap-1.5">
+            <Label>Repeat</Label>
+            <Select value={repeatWeeks} onValueChange={setRepeatWeeks}>
+              <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1">Just this once</SelectItem>
+                {[2, 3, 4, 6, 8, 12].map((n) => (
+                  <SelectItem key={n} value={String(n)}>
+                    Weekly — {n} weeks
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              A routine books the same slot every week — each week is its own
+              item, so one can be removed without the rest.
+            </p>
           </div>
           <div className="grid gap-1.5">
             <Label>Note (optional)</Label>

@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-09 · Version: v33.28
+Last updated: 2026-08-10 · Version: v33.29
 
 ---
 
@@ -613,6 +613,60 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-10 · v33.29** — **BOUNCE-PROOFING, ROUTINES & THE OPEN CALL**
+  (part 1 shipped 2026-08-09 with migration **0051 applied**: `members.fallback_email`,
+  `ir_calls.email_bounced_at`, `signup_cic_calls`; part 2 is this entry).
+  ① **THE BOUNCE WATCHER.** Part 1 caught dead DOMAINS at booking time
+  (`emailDomainIssue` — MX via dns.google, typo table, fail-open). A real
+  domain with a wrong USER (the Visakhapatnam case: a reversed name at a
+  valid gmail.com) only reveals itself when the mail server bounces — so
+  `src/server/bounces.ts` now rides the 15-minute visit-followups cron:
+  scans the IM mailbox for mailer-daemon reports (all confirmations and
+  mailbox-hosted invites go out from it, so the bounces land there), parses
+  RFC 3464 `Final-Recipient`/`X-Failed-Recipients` from the raw message,
+  and flags any SCHEDULED call whose `booker_email` matches
+  (`email_bounced_at` + bell to the host). Seen-message ids live under
+  app_settings `bounce:seen-messages`, so each report is parsed once.
+  ② **FIX THE EMAIL IN PLACE** (`updateIrBookerEmail`): owner or VP corrects
+  the address on the call — the calendar event's ATTENDEE IS SWAPPED
+  (`swapIrCallAttendee` in calendar.ts: fetch-then-patch, because PATCHing
+  `attendees` replaces the whole list; owner-calendar and mailbox-calendar
+  paths both handled), so Google re-sends the Meet invite to the right
+  inbox; the LC's contact row follows (unique (lc, lower(email)) — an
+  existing row with the new email wins and the wrong one is deleted); the
+  confirmation email goes out again (their clock first, manage link
+  included); the bounce flag clears. Domain-checked like a fresh booking.
+  ③ **EVERY IR CALL OPENS.** Rows in the scheduled list and the call log
+  are clickable into one organized card: IR name/role/email(+bounced
+  badge + the fix right there)/WhatsApp, Cairo time AND their-zone time,
+  booker note, Meet link, host, full move history, cancel reason, demand,
+  notes, CV-pool link, screenshot. Links inside rows still work — a click
+  that started on an anchor/button never opens the dialog.
+  ④ **ROUTINES OF CUSTOM SLOTS, FOR EVERYONE.** `canCreateCalendarItems` is
+  now true for every role: a Member/Coordinator's assignee scope is THEIR
+  OWN TEAM (themself + same-manager teammates + the TL — server-validated
+  in `assignableForItems`), a TL keeps their team, LCVP/Director their
+  function, LCP-level anyone. The Add-item dialog gained **Repeat: "Weekly —
+  N weeks"** (2–12): one action inserts N rows a week apart, each its own
+  item so one occurrence can be deleted without the rest (the touch-point
+  routine pattern). Assignee bells say "repeats weekly ×N".
+  ⑤ **THE BACKUP GMAIL HAS UI** (0051 gave it the column; the profile and
+  the membership editor now set it): "Backup Gmail (until your @aiesec.net
+  arrives)" on the Profile's My-info card, and a field in the EB's member
+  dialog. DB-only — deliberately NOT in SheetMemberRow, so the half-hourly
+  import can never clobber it (the has_podio precedent); `upsertMember`
+  only touches it when the field is actually sent. Rejected when it equals
+  the member's main email. Already consumed by password resets
+  (`issueTempPassword`) and mailbox-hosted IR events (`ownerEmail`
+  fallback) since part 1 — never an identity, no sign-in.
+  ⑥ **THE CONSIDERATION LANE IS A DASHBOARD** (`considerationStats` v2):
+  calls this month vs LAST month (delta in the hint), completed,
+  upcoming, **Booked → happened** conversion (completed ÷ settled),
+  partner LCs reached + LCs reached for the FIRST time this month, CVs
+  (IGT), a 6-month per-month bar strip, and a **Calls-by-member drill**
+  (this month · upcoming · total, ranked) built from the calls' own name
+  snapshots. The lane split still follows each call's own `product` tag.
 
 - **2026-08-09 · v33.28** — **THE MOBILE & LAYOUT RELEASE** (migration **0050
   applied**: `ir_calls.reschedules`). Root-caused by a 16-agent adversarial

@@ -298,6 +298,19 @@ export interface ConsiderationStats {
   cvThisMonth: number;
   cvByIndustry: { industry: string; count: number }[];
   plan: { applicants: number; accepted: number; approvals: number } | null;
+  /** REAL NUMBERS FOR THE LANE (v33.29 part 2) — the panel was three cards
+   *  and a link; the floor asked for a dashboard. */
+  irLastMonth: number;
+  irCompleted: number;
+  irCancelled: number;
+  /** completed ÷ (completed + cancelled), % — how many booked calls survive */
+  completionRate: number | null;
+  /** partner LCs whose FIRST-EVER call happened this month — new ground */
+  newLcsThisMonth: number;
+  /** per-member drill, ranked by total calls (this month alongside) */
+  byMember: { name: string; total: number; month: number; upcoming: number }[];
+  /** the last 6 months' call volume, oldest first — the trend strip */
+  byMonth: { month: string; label: string; calls: number }[];
 }
 
 /** An MM PLAN carries no product column — the crew plans the whole ICX in one
@@ -334,11 +347,12 @@ export async function considerationStats(
       status: string;
       partner_lc_name: string;
       member_id: string | null;
+      member_name: string;
       product: string | null;
     }>(() =>
       db()
         .from("ir_calls")
-        .select("called_at, status, partner_lc_name, member_id, product")
+        .select("called_at, status, partner_lc_name, member_id, member_name, product")
         .order("id")
     ),
     // the CV pool is IGT-only (v27) — never even read for the IGV lane
@@ -389,15 +403,56 @@ export async function considerationStats(
           { applicants: 0, accepted: 0, approvals: 0 }
         )
       : null;
+  // v33.29: the deeper cuts the floor asked for
+  const live = callRows.filter((c) => c.status !== "cancelled");
+  const lastStart = new Date(`${monthStart}T00:00:00Z`);
+  lastStart.setUTCMonth(lastStart.getUTCMonth() - 1);
+  const lastMonthKey = lastStart.toISOString().slice(0, 7);
+  const completed = callRows.filter((c) => c.status === "completed").length;
+  const cancelled = callRows.filter((c) => c.status === "cancelled").length;
+  // an LC is NEW this month when its first-ever call falls in it
+  const firstCall = new Map<string, string>();
+  for (const c of live) {
+    const key = c.partner_lc_name.toLowerCase();
+    const prev = firstCall.get(key);
+    if (!prev || c.called_at < prev) firstCall.set(key, c.called_at);
+  }
+  const newLcsThisMonth = [...firstCall.values()].filter((d) => inMonth(d)).length;
+  // per-member drill from the calls' own name snapshots (renames cascade)
+  const perMember = new Map<string, { name: string; total: number; month: number; upcoming: number }>();
+  for (const c of live) {
+    const key = c.member_name || "—";
+    const row = perMember.get(key) ?? { name: key, total: 0, month: 0, upcoming: 0 };
+    row.total += 1;
+    if (inMonth(c.called_at)) row.month += 1;
+    if (c.status === "scheduled" && new Date(c.called_at) >= now) row.upcoming += 1;
+    perMember.set(key, row);
+  }
+  // 6-month trend, oldest first
+  const monthKeys: string[] = [];
+  {
+    const cur = new Date(`${monthStart}T00:00:00Z`);
+    cur.setUTCMonth(cur.getUTCMonth() - 5);
+    for (let i = 0; i < 6; i++) {
+      monthKeys.push(cur.toISOString().slice(0, 7));
+      cur.setUTCMonth(cur.getUTCMonth() + 1);
+    }
+  }
+  const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const byMonth = monthKeys.map((key) => ({
+    month: key,
+    label: `${MONTH_SHORT[Number(key.slice(5, 7)) - 1]}`,
+    calls: live.filter((c) => c.called_at.slice(0, 7) === key).length,
+  }));
   return {
     fn,
     showCvs,
-    irTotal: callRows.filter((c) => c.status !== "cancelled").length,
-    irThisMonth: callRows.filter((c) => c.status !== "cancelled" && inMonth(c.called_at)).length,
-    irUpcoming: callRows.filter(
+    irTotal: live.length,
+    irThisMonth: live.filter((c) => inMonth(c.called_at)).length,
+    irUpcoming: live.filter(
       (c) => c.status === "scheduled" && new Date(c.called_at) >= now
     ).length,
-    partnerLcsContacted: new Set(callRows.map((c) => c.partner_lc_name.toLowerCase())).size,
+    partnerLcsContacted: new Set(live.map((c) => c.partner_lc_name.toLowerCase())).size,
     cvTotal: cvRows.length,
     cvThisMonth: cvRows.filter((c) => inMonth(c.created_at)).length,
     cvByIndustry: [...industries.entries()]
@@ -405,6 +460,18 @@ export async function considerationStats(
       .sort((a, b) => b.count - a.count)
       .slice(0, 6),
     plan,
+    irLastMonth: live.filter(
+      (c) => c.called_at.slice(0, 7) === lastMonthKey
+    ).length,
+    irCompleted: completed,
+    irCancelled: cancelled,
+    completionRate:
+      completed + cancelled > 0
+        ? Math.round((completed / (completed + cancelled)) * 100)
+        : null,
+    newLcsThisMonth,
+    byMember: [...perMember.values()].sort((a, b) => b.total - a.total).slice(0, 15),
+    byMonth,
   };
 }
 
@@ -5040,6 +5107,13 @@ export interface IrCallRow {
   product: IrProduct | null;
   /** every time this call has MOVED (v33.28), oldest first */
   reschedules: { at: string; from: string; to: string; by: string; byName: string | null }[] | null;
+  /** set by the bounce watcher (v33.29): the invite to booker_email came back
+   *  undeliverable — the address doesn't exist. Cleared when it's fixed. */
+  email_bounced_at: string | null;
+  /** who the IR is (v29's mandatory pick) and what they want to talk about
+   *  (v33.24's booking question) — both shown in the detail dialog */
+  booker_role: string | null;
+  booker_note: string | null;
 }
 
 /** IR calls — one SHARED international-relations effort: every module member

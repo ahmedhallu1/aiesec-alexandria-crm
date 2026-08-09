@@ -46,6 +46,8 @@ interface ProfileInfo {
   isAdmin: boolean;
   hasPassword: boolean;
   teams: { label: string; name: string }[];
+  /** backup Gmail (v33.29) — where email reaches them until @aiesec.net lands */
+  fallbackEmail: string | null;
 }
 
 export function ProfileView({
@@ -70,6 +72,7 @@ export function ProfileView({
 }) {
   const router = useRouter();
   const [phone, setPhone] = useState(member.phone);
+  const [fallbackEmail, setFallbackEmail] = useState(member.fallbackEmail ?? "");
   const [dirty, setDirty] = useState(false);
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
@@ -87,7 +90,10 @@ export function ProfileView({
 
   const saveProfile = () =>
     start(async () => {
-      const res = await updateProfile({ phone: cleanPhone(phone) });
+      const res = await updateProfile({
+        phone: cleanPhone(phone),
+        fallbackEmail: fallbackEmail.trim() || null,
+      });
       if (res.ok) {
         toast.success("Profile saved");
         setDirty(false);
@@ -180,6 +186,23 @@ export function ProfileView({
               {phone && !phoneOk ? (
                 <p className="text-xs text-destructive">Numbers only, 7–15 digits.</p>
               ) : null}
+            </div>
+            {/* BACKUP GMAIL (v33.29) — a member whose @aiesec.net hasn't
+                landed yet still needs to RECEIVE things: password resets,
+                the calendar invites behind their IR calls. Never a login. */}
+            <div className="grid gap-1.5">
+              <Label>Backup Gmail (until your @aiesec.net arrives)</Label>
+              <Input
+                type="email"
+                inputMode="email"
+                placeholder="you@gmail.com"
+                value={fallbackEmail}
+                onChange={(e) => { setFallbackEmail(e.target.value); setDirty(true); }}
+              />
+              <p className="text-xs text-muted-foreground">
+                Password resets and your IR-call calendar invites go here when
+                you have no AIESEC email yet. It's never a sign-in.
+              </p>
             </div>
             {dirty ? (
               <Button size="sm" onClick={saveProfile} disabled={pending || !phoneOk}>
