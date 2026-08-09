@@ -80,14 +80,16 @@ export function memberIsB2B(m: {
  *  IR added by hand took free text, so the registry grew "LCVP oGT", "IR
  *  Manager", "uw" and the validated values side by side and the column could
  *  neither be filtered nor counted. Both doors now use this. */
-export const IR_ROLES = [
-  "Member",
-  "MM (Team Leader / Coordinator)",
-  "LCVP",
-  "Director",
-  "LCP",
-  "Alumni / Other",
-] as const;
+export const IR_ROLES = ["Member", "MM", "LCVP", "LCP"] as const;
+
+/** Rows written before v33.26 carry the old, longer wording. They are still
+ *  valid — the value is a snapshot of what someone chose at the time — so the
+ *  validator accepts them and only the PICKER is narrowed. */
+const LEGACY_IR_ROLES = ["MM (Team Leader / Coordinator)", "Director", "Alumni / Other"];
+
+export function isKnownIrRole(role: string): boolean {
+  return (IR_ROLES as readonly string[]).includes(role) || LEGACY_IR_ROLES.includes(role);
+}
 
 /** WHICH PRODUCT AN IR CALL MARKETED (v33.23).
  *

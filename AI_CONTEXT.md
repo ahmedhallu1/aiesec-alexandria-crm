@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-09 · Version: v33.25
+Last updated: 2026-08-09 · Version: v33.26
 
 ---
 
@@ -613,6 +613,40 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-09 · v33.26** — **THE CORRECTIONS PASS** (no migration).
+  ① **The direct-visit form put the verdict above the field it judges.** The
+  Account name is now the FIRST thing, top-left, with the three live checks
+  under it; Function moved to its right. **B2C shows its own three types** —
+  Courses · Events · Student activities — instead of the raising account-type
+  list it has never used (and no industry). The **"not on Podio" verdict now
+  carries the link** to the national form, which the Add-account dialog has
+  had all along.
+  ② **IR roles are four**: Member · MM · LCVP · LCP. `isKnownIrRole` still
+  accepts the longer wording written before today, because a stored role is a
+  snapshot of what someone picked — only the PICKER narrowed.
+  ③ **The streak card was unreadable as a ranking.** Five names wrapped onto
+  one line at the same size said nothing about who was first. It is a real
+  board now: numbered rows, the leader highlighted, the day count as the thing
+  your eye lands on, and **each person's OGX side in its own colour** (OGV
+  `#F85A40`, OGT `#0CB9C1`) — on a joint board a name alone doesn't say which
+  side they're racing. "Best: 0 days" sitting unlabelled beside other people's
+  live streaks read as broken; it says **"Your best"**, or "No streak yet —
+  today can be day 1".
+  ④ **A CIC could be handed out but never taken back.** `clearCicCaller`
+  returns the sign-up to the queue — the first assignee and their numbers are
+  untouched either way. Available inline ("— Take the call back") and to the
+  caller themselves. (Ordinary Unassign was checked and does return a sign-up
+  to the pool.)
+  ⑤ **Cc and Bcc now complete names from the membership**, like To — one
+  matcher, three fields. Copying a teammate meant remembering their address,
+  which is the thing this tab exists to stop.
+  ⑥ **The text-size box rendered empty** because it was a `Select` whose value
+  matched no item. Size is an ACTION, not a stored value, so it is a menu now
+  — with each option shown at the size it applies.
+  ⑦ **The LC log never said who the call was with.** Each entry now names the
+  IR *and* the member who took it, and carries the IR's own "what I'd like to
+  talk about" note plus the in-call notes.
 
 - **2026-08-09 · v33.25** — **THE FOLLOW-UP PASS** (no migration).
   ① **DIRECT VISITS NOW GO THROUGH THE REAL DOOR.** The first cut was a

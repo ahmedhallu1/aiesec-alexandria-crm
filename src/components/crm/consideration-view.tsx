@@ -787,7 +787,8 @@ function LcNotesDialog({
                   ) : null}
                   <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
                     <p className="text-xs text-muted-foreground" dir="auto">
-                      {e.who ? `${e.who} · ` : ""}{fmtDateTime(e.at)}
+                      {e.who ? `${e.kind === "call" ? "taken by " : ""}${e.who} · ` : ""}
+                      {fmtDateTime(e.at)}
                     </p>
                     {note && (note.authorId === viewerId || canManage) ? (
                       <Button

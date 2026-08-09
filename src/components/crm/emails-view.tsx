@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Bold, Eye, Image as ImageIcon, Italic, Link2, List, ListOrdered, Loader2,
-  Mail, Paperclip, Quote, RotateCcw, Search, Send, Sparkles, Underline, X,
+  Mail, Paperclip, Quote, RotateCcw, Search, Send, Sparkles, Type, Underline, X,
 } from "lucide-react";
 import {
   draftEmailWithAi, previewComposedEmail, sendComposedEmail,
@@ -24,8 +24,8 @@ import { Hint } from "./hint";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
 
 const EMAIL_RE = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]{2,}$/;
@@ -113,19 +113,34 @@ export function EmailsView({
   };
   useEffect(save, [to, cc, bcc, subject, layout, template, restored]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const matches = useMemo(() => {
-    const q = pickerQ.trim().toLowerCase();
-    if (!q) return [];
+  /** THE SAME PICKER ON EVERY LINE (v33.26). To had name-completion from the
+   *  membership and Cc/Bcc were bare text boxes, so copying a teammate meant
+   *  remembering their address — which is exactly what this tab exists to
+   *  stop. One matcher, three fields. */
+  const suggest = (q: string, already: string[]) => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return [];
     const inLc = people
-      .filter((p) => p.name.toLowerCase().includes(q) || p.email.toLowerCase().includes(q))
+      .filter(
+        (p) =>
+          !already.includes(p.email) &&
+          (p.name.toLowerCase().includes(needle) || p.email.toLowerCase().includes(needle))
+      )
       .slice(0, 6)
       .map((p) => ({ label: `${p.name} · ${p.role}`, email: p.email }));
     const recent = recents
-      .filter((a) => a.includes(q) && !inLc.some((m) => m.email === a))
+      .filter((a) => a.includes(needle) && !already.includes(a) && !inLc.some((m) => m.email === a))
       .slice(0, 4)
       .map((a) => ({ label: `${a} · written before`, email: a }));
     return [...inLc, ...recent];
-  }, [pickerQ, people, recents]);
+  };
+  const matches = useMemo(
+    () => suggest(pickerQ, to),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pickerQ, people, recents, to]
+  );
+  const [ccQ, setCcQ] = useState("");
+  const [bccQ, setBccQ] = useState("");
 
   const setList = (list: "to" | "cc" | "bcc") =>
     list === "to" ? setTo : list === "cc" ? setCc : setBcc;
@@ -357,25 +372,53 @@ export function EmailsView({
               ) : null}
             </div>
 
-            {(["cc", "bcc"] as const).map((list) =>
-              (list === "cc" ? showCc : showBcc) ? (
+            {(["cc", "bcc"] as const).map((list) => {
+              const shown = list === "cc" ? showCc : showBcc;
+              if (!shown) return null;
+              const values = list === "cc" ? cc : bcc;
+              const q = list === "cc" ? ccQ : bccQ;
+              const setQ = list === "cc" ? setCcQ : setBccQ;
+              const hits = suggest(q, values);
+              return (
                 <div key={list} className="grid gap-1.5">
                   <Label>{list === "cc" ? "Cc" : "Bcc"}</Label>
-                  {(list === "cc" ? cc : bcc).length > 0 ? (
+                  {values.length > 0 ? (
                     <div className="flex flex-wrap gap-1.5">
-                      {(list === "cc" ? cc : bcc).map((a) => chip(a, list))}
+                      {values.map((a) => chip(a, list))}
                     </div>
                   ) : null}
-                  <Input
-                    placeholder="Add an address and press Enter"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === "," || e.key === ";") {
-                        e.preventDefault();
-                        addAddress((e.target as HTMLInputElement).value, list);
-                        (e.target as HTMLInputElement).value = "";
-                      }
-                    }}
-                  />
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      className="pl-8"
+                      value={q}
+                      onChange={(e) => setQ(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === "," || e.key === ";") {
+                          e.preventDefault();
+                          addAddress(q, list);
+                          setQ("");
+                        }
+                      }}
+                      onBlur={() => { if (q.includes("@")) { addAddress(q, list); setQ(""); } }}
+                      placeholder="A name from the LC, or any email address…"
+                    />
+                    {hits.length > 0 ? (
+                      <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border bg-popover shadow-lg">
+                        {hits.map((m) => (
+                          <button
+                            key={m.email}
+                            type="button"
+                            onClick={() => { addAddress(m.email, list); setQ(""); }}
+                            className="block w-full px-3 py-2 text-start text-sm hover:bg-muted"
+                          >
+                            {m.label}
+                            <span className="block text-xs text-muted-foreground">{m.email}</span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                   {list === "bcc" ? (
                     <p className="text-xs text-muted-foreground">
                       Bcc recipients can&apos;t see each other, and nobody in To
@@ -383,8 +426,8 @@ export function EmailsView({
                     </p>
                   ) : null}
                 </div>
-              ) : null
-            )}
+              );
+            })}
 
             <div className="grid gap-1.5">
               <Label>Subject</Label>
@@ -402,20 +445,32 @@ export function EmailsView({
             <div className="grid gap-1.5">
               <div className="flex flex-wrap items-center gap-1">
                 <Label className="mr-auto">The email</Label>
-                <Select
-                  value="size"
-                  onValueChange={(v) => exec("fontSize", v)}
-                >
-                  <SelectTrigger className="h-8 w-24 text-xs">
-                    <SelectValue placeholder="Size" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="2">Small</SelectItem>
-                    <SelectItem value="3">Normal</SelectItem>
-                    <SelectItem value="5">Large</SelectItem>
-                    <SelectItem value="6">Heading</SelectItem>
-                  </SelectContent>
-                </Select>
+                {/* A SELECT WHOSE VALUE MATCHES NO ITEM RENDERS BLANK — which
+                    is why this looked like an empty box (v33.26). Text size is
+                    an ACTION, not a stored value, so it is a menu. */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm" variant="ghost" className="h-8 gap-1 px-2 text-xs">
+                      <Type className="size-3.5" /> Size
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    {[
+                      { v: "2", label: "Small", cls: "text-xs" },
+                      { v: "3", label: "Normal", cls: "text-sm" },
+                      { v: "5", label: "Large", cls: "text-lg" },
+                      { v: "6", label: "Heading", cls: "text-xl font-bold" },
+                    ].map((o) => (
+                      <DropdownMenuItem
+                        key={o.v}
+                        className={o.cls}
+                        onClick={() => exec("fontSize", o.v)}
+                      >
+                        {o.label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 {tool("Bold the selected text", <Bold className="size-3.5" />, () => exec("bold"))}
                 {tool("Italic", <Italic className="size-3.5" />, () => exec("italic"))}
                 {tool("Underline", <Underline className="size-3.5" />, () => exec("underline"))}

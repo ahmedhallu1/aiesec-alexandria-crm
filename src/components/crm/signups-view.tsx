@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import {
   addSignupComment, assignCicCaller, bulkAssignCicCaller, bulkReassignSignups,
-  bulkReviveSignups, claimSignup,
+  bulkReviveSignups, claimSignup, clearCicCaller,
   openSignupDetail,
   reassignSignup, reviveSignup, runSignupsImport, setSignupOop,
   setSignupPotential, updateCicContact, updateSignupContact, updateSignupVpFields,
@@ -248,12 +248,21 @@ function StreakCard({
                 : "Save today's streak — contact a sign-up!"}
             </p>
           </div>
-          <p className="ml-auto shrink-0 text-xs text-muted-foreground">
-            Best:{" "}
-            <span className="font-semibold text-foreground tabular-nums">
-              {streak.best}
-            </span>{" "}
-            {dayWord(streak.best)}
+          {/* YOUR best, not the LC's (v33.26). Sitting unlabelled next to a
+              board of other people's live streaks, "Best: 0 days" read as a
+              broken number rather than as "you haven't started". */}
+          <p className="ml-auto shrink-0 text-end text-xs text-muted-foreground">
+            {streak.best > 0 ? (
+              <>
+                Your best:{" "}
+                <span className="font-semibold text-foreground tabular-nums">
+                  {streak.best}
+                </span>{" "}
+                {dayWord(streak.best)}
+              </>
+            ) : (
+              "No streak yet — today can be day 1"
+            )}
           </p>
         </div>
         <div className="border-t pt-2">
@@ -282,17 +291,43 @@ function StreakCard({
               </div>
             ) : null}
           </div>
+          {/* A RANKING SHOULD LOOK LIKE A RANKING (v33.26). Five names on one
+              wrapped line, all the same size, told nobody who was first — so
+              this is a real board: numbered rows, the day count as the thing
+              your eye lands on, and each person's OGX side in its own colour. */}
           {streak.topStreaks.length > 0 ? (
-            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5">
+            <div className="mt-1.5 grid gap-1">
               {streak.topStreaks.map((t, i) => (
-                <p key={`${t.name}-${i}`} className="text-sm">
-                  {medals[i] ?? "•"} {t.name}
-                  <span className="text-muted-foreground">
-                    {" "}
-                    — {t.current} {dayWord(t.current)}
-                    {t.today > 0 ? ` · ${t.today} today` : ""}
+                <div
+                  key={`${t.name}-${i}`}
+                  className={cn(
+                    "flex items-center gap-2 rounded-md px-2 py-1",
+                    i === 0 && "bg-orange-400/10"
+                  )}
+                >
+                  <span className="w-6 shrink-0 text-center text-sm">
+                    {medals[i] ?? <span className="text-muted-foreground">{i + 1}</span>}
                   </span>
-                </p>
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium" dir="auto">
+                    {t.name}
+                  </span>
+                  {t.fn ? (
+                    <span
+                      className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white"
+                      style={{ backgroundColor: t.fn === "OGV" ? "#F85A40" : "#0CB9C1" }}
+                    >
+                      {t.fn}
+                    </span>
+                  ) : null}
+                  {t.today > 0 ? (
+                    <span className="shrink-0 text-[11px] text-muted-foreground">
+                      {t.today} today
+                    </span>
+                  ) : null}
+                  <span className="w-16 shrink-0 text-end text-sm font-bold tabular-nums">
+                    🔥 {t.current}
+                  </span>
+                </div>
               ))}
             </div>
           ) : (
@@ -979,6 +1014,13 @@ export function SignupsView({
   // offer the control and surface whatever comes back.
   const assignCic = (r: SignupListRow, callerId: string) =>
     start(async () => {
+      // "__none" takes the second call back — the row returns to the queue
+      if (callerId === "__none") {
+        const res = await clearCicCaller(r.id);
+        if (res.ok) { toast.success("Second call cleared"); router.refresh(); }
+        else toast.error(res.error);
+        return;
+      }
       const res = await assignCicCaller(r.id, callerId);
       if (res.ok) {
         toast.success(
@@ -1129,6 +1171,9 @@ export function SignupsView({
                 <div className="px-2 py-1.5 text-xs text-muted-foreground">
                   CIC — a second call. The sign-up stays with its first assignee.
                 </div>
+                {r.cic_assigned_to ? (
+                  <SelectItem value="__none">— Take the call back</SelectItem>
+                ) : null}
                 {cicTargets.map((t) => (
                   <SelectItem key={t.id} value={t.id}>{t.label}</SelectItem>
                 ))}

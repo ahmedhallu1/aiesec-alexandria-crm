@@ -58,7 +58,7 @@ import {
   guessEmailTag,
   DIRECT_VISIT_OUTCOMES,
   guessLinkTag,
-  IR_ROLES,
+  isKnownIrRole,
   irProductForMember,
   normalizeLcName,
   LC_FUNCTIONS,
@@ -5817,6 +5817,39 @@ async function logSignupChange(
 /** CIC — assign the SECOND caller (v33.19). MMs+ only. The first assignee and
  *  their contacted/interested/KPIs are untouched: the second call lives in
  *  the cic_* columns. */
+/** TAKE THE SECOND CALL BACK (v33.26). Handing out a CIC was one-way: a
+ *  caller who left the function, or a row handed to the wrong person, could
+ *  never be cleared. Clearing it returns the sign-up to the CIC queue — the
+ *  first assignee and their numbers are untouched either way. */
+export async function clearCicCaller(id: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const { seesCicQueue } = await import("./data");
+  const signup = await loadSignup(id);
+  if (!signup) return fail("Sign-up not found.");
+  const isCaller = signup.cic_assigned_to === viewer.id;
+  if (!isCaller && !seesCicQueue(viewer))
+    return fail("CIC is handed out by MMs and above.", "forbidden");
+  if (!isCaller && !ogxFunctions(viewer).includes(signup.fn))
+    return fail("This sign-up isn't in your function.", "forbidden");
+  if (!signup.cic_assigned_to) return { ok: true };
+  await snapshotForUndo("signups", id);
+  const { error } = await db()
+    .from("signups")
+    .update({
+      cic_assigned_to: null,
+      cic_assigned_name: null,
+      cic_assigned_at: null,
+      cic_contact_status: null,
+      cic_interested: null,
+    })
+    .eq("id", id);
+  if (error) return fail(error.message);
+  await logSignupChange(viewer, id, "cic_assigned", signup.cic_assigned_name ?? null, null);
+  await logAudit(viewer.id, "cic_clear", "signup", id, {});
+  refresh();
+  return { ok: true };
+}
+
 export async function assignCicCaller(
   id: string,
   callerId: string,
@@ -6691,8 +6724,7 @@ export async function bookIrCall(input: {
   const bookerName = plain(input.bookerName, 100);
   if (!bookerName) return fail("Tell us your name.");
   const bookerRole = plain(input.bookerRole, 40);
-  if (!(IR_ROLES as readonly string[]).includes(bookerRole))
-    return fail("Pick your role in your LC.");
+  if (!isKnownIrRole(bookerRole)) return fail("Pick your role in your LC.");
   // v32.6: the phone is REQUIRED and must carry a country code — the crew
   // reaches IRs on WhatsApp, and a local-format number from another country is
   // unusable. normalizePhone accepts +<7–15 digits> for anything non-Egyptian.
@@ -7627,8 +7659,7 @@ export async function addPartnerLcContact(input: {
   // showed "LCVP oGT", "uw" and "MM (Team Leader / Coordinator)" side by side
   // and nothing could be filtered or counted.
   const role = (input.role ?? "").trim();
-  if (role && !(IR_ROLES as readonly string[]).includes(role))
-    return fail("Pick their role from the list.");
+  if (role && !isKnownIrRole(role)) return fail("Pick their role from the list.");
   const product = input.product === "GV" || input.product === "GT" ? input.product : null;
 
   const { error } = await db().from("partner_lc_contacts").insert({

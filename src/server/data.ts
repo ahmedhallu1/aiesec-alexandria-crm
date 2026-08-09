@@ -4770,11 +4770,14 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
       booker_phone: string | null;
       status: string;
       product: string | null;
+      member_name: string;
+      notes: string | null;
+      booker_note: string | null;
     }>(() =>
       db()
         .from("ir_calls")
         .select(
-          "partner_lc_id, called_at, booker_name, booker_role, booker_email, booker_phone, status, product"
+          "partner_lc_id, called_at, booker_name, booker_role, booker_email, booker_phone, status, product, member_name, notes, booker_note"
         )
         .order("id")
     ),
@@ -4861,14 +4864,24 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
           id: `call-${c.partner_lc_id}-${c.called_at}`,
           kind: "call" as const,
           at: c.called_at,
+          // WHO IT WAS WITH, ON BOTH SIDES (v33.26). The log used to name the
+          // IR and never the member who took the call, which is the first
+          // thing anyone asks before picking the relationship back up.
           title:
-            c.status === "cancelled"
+            (c.status === "cancelled"
               ? "IR call cancelled"
               : c.status === "scheduled"
                 ? "IR call scheduled"
-                : "IR call",
-          detail: c.booker_name ? `with ${c.booker_name}` : null,
-          who: null,
+                : "IR call") + (c.booker_name ? ` with ${c.booker_name}` : ""),
+          detail:
+            [
+              c.booker_note ? `They asked about: ${c.booker_note}` : null,
+              c.notes,
+            ]
+              .filter(Boolean)
+              .join("\n") || null,
+          // the Sodio member on our side of the call
+          who: c.member_name || null,
           product: (c.product as IrProduct | null) ?? null,
         })),
       ...cvRows
@@ -5652,8 +5665,10 @@ export interface StreakStats {
   scope: "OGX" | "OGT" | "OGV";
   /** the sides this viewer may filter to (>1 → show the chips) */
   scopes: ("OGX" | "OGT" | "OGV")[];
-  /** top current streaks on the board, with today's contact count each */
-  topStreaks: { name: string; current: number; today: number }[];
+  /** top current streaks on the board, with today's contact count each. The
+   *  FUNCTION rides along (v33.26): on the joint OGX board a name alone says
+   *  nothing about which side they're racing on. */
+  topStreaks: { name: string; current: number; today: number; fn: string | null }[];
 }
 
 /** The OGX contact streak (v32.4).
@@ -5755,10 +5770,13 @@ export async function streakStats(
     .filter(inScope)
     .map((m) => {
       const e = byMember.get(m.id);
+      const all = [...(m.functions ?? []), ...(m.sub_functions ?? [])];
       return {
         name: (m.name) as string,
         current: e ? currentStreak(e.days, today) : 0,
         today: e?.today ?? 0,
+        // which side they raise for — OGT and OGV wear different colours
+        fn: (all.find((f) => f === "OGT" || f === "OGV") ?? null) as string | null,
       };
     })
     .filter((e) => e.current > 0)

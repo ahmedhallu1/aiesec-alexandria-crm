@@ -6,8 +6,9 @@ import { toast } from "sonner";
 import { Footprints, Loader2 } from "lucide-react";
 import { logDirectVisit } from "@/server/actions";
 import {
-  ACCOUNT_TYPES, DIRECT_VISIT_OUTCOMES, IGT_SUB_PRODUCTS, IGV_PROJECTS,
-  INDUSTRIES, OOP_REASONS, type AccountContact, type AccountFunction,
+  ACCOUNT_TYPES, B2C_TYPES, DIRECT_VISIT_OUTCOMES, IGT_SUB_PRODUCTS,
+  IGV_PROJECTS, INDUSTRIES, OOP_REASONS, PODIO_FORM_URL,
+  type AccountContact, type AccountFunction,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ContactsEditor, contactsValid } from "./contacts-editor";
@@ -126,6 +127,7 @@ export function DirectVisitDialog({
     contactsValid(contacts) &&
     (fn !== "IGV" || !!project) &&
     (fn !== "IGT" || !!product) &&
+    (fn !== "B2C" || !!accountType) &&
     (!needsDate || !!nextDate);
 
   return (
@@ -143,7 +145,22 @@ export function DirectVisitDialog({
         </DialogHeader>
 
         <div className="grid gap-3">
+          {/* THE NAME IS THE FIRST THING (v33.26). It is what the three live
+              checks below are ABOUT, so it belongs top-left, above them —
+              reading a verdict before you have read the field it judges is
+              backwards. */}
           <div className="grid gap-3 sm:grid-cols-2">
+            <div className={cn("grid gap-1.5", allowedFns.length > 1 ? "" : "sm:col-span-2")}>
+              <Label>Account name *</Label>
+              <Input
+                dir="auto"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Exactly as the LC would write it"
+                maxLength={120}
+                autoFocus
+              />
+            </div>
             {allowedFns.length > 1 ? (
               <div className="grid gap-1.5">
                 <Label>Function *</Label>
@@ -157,16 +174,6 @@ export function DirectVisitDialog({
                 </Select>
               </div>
             ) : null}
-            <div className={cn("grid gap-1.5", allowedFns.length > 1 ? "" : "sm:col-span-2")}>
-              <Label>Account name *</Label>
-              <Input
-                dir="auto"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Exactly as the LC would write it"
-                maxLength={120}
-              />
-            </div>
           </div>
 
           {/* the same three live checks the Add-account form runs */}
@@ -190,7 +197,19 @@ export function DirectVisitDialog({
             </p>
           ) : !blocked && podio && podio !== "checking" && podio.status === "free" ? (
             <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-2.5 text-xs text-emerald-700 dark:text-emerald-400">
-              🔎 Not on Podio — submit it there.
+              🔎 Not on Podio —{" "}
+              {PODIO_FORM_URL ? (
+                <a
+                  href={PODIO_FORM_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-semibold underline"
+                >
+                  submit it on the national form ↗
+                </a>
+              ) : (
+                "submit it there."
+              )}
               <label className="mt-1.5 flex cursor-pointer items-center gap-2">
                 <Switch checked={requestedPodio} onCheckedChange={setRequestedPodio} />
                 <span>I already submitted it</span>
@@ -247,11 +266,16 @@ export function DirectVisitDialog({
           {fn !== "IGT" ? (
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="grid gap-1.5">
-                <Label>Type</Label>
+                {/* B2C CARRIES ITS OWN THREE TYPES (v23, missed in v33.24) —
+                    Courses / Events / Student activities, not the raising
+                    account types. It has no industry either. */}
+                <Label>Type{fn === "B2C" ? " *" : ""}</Label>
                 <Select value={accountType || undefined} onValueChange={setAccountType}>
-                  <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue placeholder={fn === "B2C" ? "What is it?" : "Optional"} />
+                  </SelectTrigger>
                   <SelectContent>
-                    {ACCOUNT_TYPES.map((t) => (
+                    {(fn === "B2C" ? B2C_TYPES : ACCOUNT_TYPES).map((t) => (
                       <SelectItem key={t} value={t}>{t}</SelectItem>
                     ))}
                   </SelectContent>
