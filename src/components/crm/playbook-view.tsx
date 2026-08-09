@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v33.26";
+export const PLAYBOOK_VERSION = "v33.27";
 
 interface Props {
   role: string;
@@ -225,7 +225,8 @@ const SECTIONS: Section[] = [
       <>Start from a <b>template</b> (reaching a company · following up · thank you after a meeting · writing to another LC) and rewrite it — they exist because a blank page is why letters don&apos;t get written.</>,
       <><b>Pick how it looks</b> (v33.25): branded card, bold banner, letterhead or plain — and hit <b>Preview</b> to see exactly what lands in their inbox before you send. <b>Bcc</b>, <b>attachments</b>, numbered lists, text size, quotes and AIESEC logos are all there, and a half-written email <b>survives you leaving the tab</b>.</>,
       <>Stuck on the words? <b>The Blue Man writes or reworks it</b>: describe what you want, or ask it to shorten what you already typed, warm it up, or put it in Arabic. <b>Always read it before you send</b> — it drafts, you decide.</>,
-      <>Recipients: pick anyone in the LC by name, type any address, or reuse one you&apos;ve <b>written to before</b>. <b>Save as draft</b> leaves it in your Gmail if you want to sleep on it.</>,
+      <><b>Send to a whole team</b> (v33.27): one tap adds <b>your team</b>, <b>the EB</b>, <b>the LB</b>, <b>all MMs</b>, a whole <b>function</b> or any standing team — built from the membership, so nobody gets left off. You can still remove anyone before sending.</>,
+      <>Recipients: pick anyone in the LC by name (in <b>To, Cc and Bcc</b>), type any address, or reuse one you&apos;ve <b>written to before</b>. <b>Save as draft</b> leaves it in your Gmail if you want to sleep on it.</>,
     ],
   },
   {

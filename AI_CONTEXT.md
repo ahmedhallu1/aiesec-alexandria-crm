@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-09 · Version: v33.26
+Last updated: 2026-08-09 · Version: v33.27
 
 ---
 
@@ -613,6 +613,31 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-09 · v33.27** — **FIVE FROM THE FLOOR** (no migration).
+  ① **Send to a whole team.** Addressing the EB or your own team meant looking
+  up six addresses one at a time, which is how someone gets left off. The
+  Emails tab now offers **My team · Everyone · the EB · the LB · all MMs ·
+  every function · every standing team**, derived from the membership itself
+  so they cannot go stale — each one expands into real addresses you can still
+  edit or remove.
+  ② **The signature wears the Blue Man.** Every layout already carries the
+  AIESEC in Alexandria logo at the top; repeating it twenty lines lower made
+  one letter look like two stapled together. The walking human belongs to the
+  person, which is what a signature is.
+  ③ **The OGX side tag only shows on the JOINT board.** On an OGV-only or
+  OGT-only streak board every row carried the same chip — noise answering a
+  question nobody is asking there.
+  ④ **THE DRAG HANDLE WAS THE WHOLE HEADER.** The grab cursor ran the full
+  width of the dialog, right up against the ✕, and a press meant for the title
+  moved the window. Only the ⣿ dots are the handle now (`data-drag-handle`),
+  with the grab cursor and a hover state on them alone.
+  ⑤ **Attendance had sorting but no filters.** The house rule everywhere else
+  is "if it is a column, you filter it from the column": **Type**, **Status**
+  and — new — **Member** now carry funnels, all comma-aware because the
+  control is multi-select, and the member filter resolves names to ids BEFORE
+  the page is cut, so it filters the whole history rather than the page you
+  happen to be looking at.
 
 - **2026-08-09 · v33.26** — **THE CORRECTIONS PASS** (no migration).
   ① **The direct-visit form put the verdict above the field it judges.** The

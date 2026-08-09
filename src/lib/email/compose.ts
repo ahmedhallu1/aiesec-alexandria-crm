@@ -44,9 +44,14 @@ export function memberSignature(m: {
         The international platform for young people to explore and develop their potential.
       </div>
     </td>
-    <td style="vertical-align:top;">
-      <img src="${env.appUrl}/brand/alex-blue.png" alt="AIESEC in Alexandria" width="150"
-           style="display:block;width:150px;max-width:150px;height:auto;border:0;">
+    <td style="vertical-align:top;padding-left:4px;">
+      <!-- THE BLUE MAN, NOT THE LC MARK (v33.27). Every layout already carries
+           the AIESEC in Alexandria logo at the top; repeating it 20 lines
+           lower made the letter look like two letters stapled together. The
+           walking human is the LC's own face and belongs to the person, which
+           is what a signature is. -->
+      <img src="${env.appUrl}/brand/aiesec-human-blue.png" alt="AIESEC" width="66"
+           style="display:block;width:66px;max-width:66px;height:auto;border:0;">
     </td>
   </tr>
 </table>`;

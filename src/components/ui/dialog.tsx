@@ -164,9 +164,11 @@ function DialogContent({
           if (el?.closest("[data-radix-popper-content-wrapper]")) e.preventDefault();
         }}
         onPointerDownCapture={(e) => {
-          // only the HEADER is a handle — dragging from the body would fight
-          // with selecting text in it
-          if ((e.target as HTMLElement).closest("[data-slot='dialog-header']"))
+          // ONLY THE GRIP IS A HANDLE (v33.27). The whole header used to be
+          // one, so the grab cursor ran the full width of the dialog — right
+          // up against the ✕ — and a press meant for the title moved the
+          // window. The dots are the handle and nothing else is.
+          if ((e.target as HTMLElement).closest("[data-drag-handle]"))
             onPointerDown(e)
         }}
         className={cn(
@@ -178,7 +180,6 @@ function DialogContent({
           // anything built later is safe without thinking about it. Callers
           // can still override: their classes come after these.
           "max-h-[90dvh] overflow-y-auto overscroll-contain",
-          "[&_[data-slot='dialog-header']]:md:cursor-grab [&_[data-slot='dialog-header']]:md:active:cursor-grabbing",
           className
         )}
         {...props}
@@ -221,8 +222,9 @@ function DialogHeader({ className, children, ...props }: React.ComponentProps<"d
           to-fit absolute box re-centres on the same midline). */}
       <span
         aria-hidden
+        data-drag-handle
         title="Drag to move"
-        className="absolute -top-3.5 left-1/2 hidden -translate-x-1/2 select-none px-3 text-muted-foreground/40 md:block"
+        className="absolute -top-4 left-1/2 hidden -translate-x-1/2 select-none rounded-md px-3 py-1 text-muted-foreground/40 transition-colors hover:bg-muted hover:text-muted-foreground md:block md:cursor-grab md:active:cursor-grabbing"
       >
         <GripHorizontal className="size-4" />
       </span>

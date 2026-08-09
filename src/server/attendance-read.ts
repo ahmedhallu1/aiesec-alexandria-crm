@@ -80,10 +80,19 @@ export interface AttendanceFilters {
   /** YYYY-MM-DD, inclusive, on the touch point's START */
   from?: string;
   to?: string;
+  /** comma lists — the column funnels are multi-select (v33.27) */
   kind?: string;
   status?: string;
+  /** by member NAME, which is what the funnel offers */
+  member?: string;
   page?: number;
 }
+
+/** "a,b" → ["a","b"], and "" → []. The funnels emit comma lists, so reading
+ *  them with `===` would silently drop a two-pick filter while the control
+ *  showed it as active. */
+const picks = (v: string | undefined): string[] =>
+  (v ?? "").split(",").map((x) => x.trim()).filter(Boolean);
 
 export interface AttendanceTotals {
   total: number;
@@ -286,7 +295,11 @@ export async function listAttendanceHistory(
     // `lt` the NEXT Cairo midnight, so a DST hour is never dropped or doubled
     tpq = tpq.lt("starts_at", cairoToUtc(next.toISOString().slice(0, 10), "00:00").toISOString());
   }
-  if (filters.kind) tpq = tpq.eq("kind", filters.kind);
+  {
+    const k = picks(filters.kind);
+    if (k.length === 1) tpq = tpq.eq("kind", k[0]);
+    else if (k.length > 1) tpq = tpq.in("kind", k);
+  }
   const { data: tpData, error: tpError } = await tpq.limit(HISTORY_TOUCH_POINT_CAP);
   if (tpError) {
     console.error("[attendance] history touch points failed:", tpError.message);
@@ -299,13 +312,15 @@ export async function listAttendanceHistory(
   // 2. the attendance rows on them, inside the viewer's read scope
   const scope = await attendanceMemberScope(viewer);
   if (scope && scope.length === 0) return empty;
-  const rows = await inChunks<AttendanceRow>(
+  let rows = await inChunks<AttendanceRow>(
     touchPoints.map((t) => t.id),
     80,
     async (chunk) => {
       let q = db().from("touch_point_attendance").select("*").in("touch_point_id", chunk);
       if (scope) q = q.in("member_id", scope);
-      if (filters.status) q = q.eq("status", filters.status);
+      const st = picks(filters.status);
+      if (st.length === 1) q = q.eq("status", st[0]);
+      else if (st.length > 1) q = q.in("status", st);
       const { data, error } = await q;
       if (error) {
         console.error("[attendance] history rows failed:", error.message);
@@ -317,6 +332,22 @@ export async function listAttendanceHistory(
   if (rows.length === 0) return { ...empty, totals: totalsOf([]) };
 
   // newest touch point first, then a stable name order inside it
+  // BY MEMBER (v33.27). The funnel offers names, so the names are resolved to
+  // ids once, before the page is cut — filtering the visible page would have
+  // silently hidden matches on every other page.
+  const wantedNames = picks(filters.member);
+  let filtered = rows;
+  if (wantedNames.length > 0) {
+    const allIds = [...new Set(rows.map((r) => r.member_id))];
+    const nameById = await memberNames(allIds);
+    const lower = wantedNames.map((n) => n.toLowerCase());
+    filtered = rows.filter((r) =>
+      lower.includes((nameById.get(r.member_id) ?? "").toLowerCase())
+    );
+    if (filtered.length === 0) return { ...empty, totals: totalsOf([]) };
+  }
+  rows = filtered;
+
   rows.sort((a, b) => {
     const ta = byTp.get(a.touch_point_id)?.starts_at ?? "";
     const tb = byTp.get(b.touch_point_id)?.starts_at ?? "";

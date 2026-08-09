@@ -44,6 +44,8 @@ export default async function AttendancePage({
     status: (ATTENDANCE_STATUSES as readonly string[]).includes(params.status ?? "")
       ? params.status!
       : "",
+    // v33.27 — the one question a 70-person LC session actually raises
+    member: (params.member ?? "").slice(0, 120),
   };
   const page = Math.max(1, Number(params.page) || 1);
   const pageSize = pageSizeOf(params.size);

@@ -3632,6 +3632,76 @@ export interface SentEmailRow {
   createdAt: string;
 }
 
+/** THE GROUPS AN EMAIL CAN BE ADDRESSED TO (v33.27).
+ *
+ *  "Write to the EB" or "write to my team" meant looking up six addresses one
+ *  at a time — which is how a person gets left off. The groups come from the
+ *  membership itself, so they can never go stale: the EB, the LB, every
+ *  function, every standing team, and everyone. */
+export interface EmailGroup {
+  key: string;
+  label: string;
+  emails: string[];
+}
+
+export async function listEmailGroups(viewer: Viewer): Promise<EmailGroup[]> {
+  const [members, teams] = await Promise.all([listAllMembers(), listTeamsRegistry()]);
+  const active = members.filter((m) => m.is_active && m.email && m.id !== viewer.id);
+  const mail = (list: typeof active) =>
+    [...new Set(list.map((m) => m.email as string))].sort();
+
+  const groups: EmailGroup[] = [];
+  const push = (key: string, label: string, list: typeof active) => {
+    const emails = mail(list);
+    if (emails.length > 0) groups.push({ key, label, emails });
+  };
+
+  push("all", "Everyone in the LC", active);
+  push(
+    "eb",
+    "The EB (LCP + LCVPs)",
+    active.filter((m) => m.role === "LCP" || m.role === "LCVP")
+  );
+  push(
+    "lb",
+    "The LB (EB + Directors + MMs)",
+    active.filter((m) =>
+      ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(m.role)
+    )
+  );
+  push(
+    "mms",
+    "All MMs (TLs & Coordinators)",
+    active.filter((m) => ["Team Leader", "Coordinator"].includes(m.role))
+  );
+
+  // every function that actually has people
+  const fns = [
+    ...new Set(active.flatMap((m) => [...(m.functions ?? []), ...(m.sub_functions ?? [])])),
+  ].sort();
+  for (const fn of fns)
+    push(
+      `fn:${fn}`,
+      `${fn} — the whole function`,
+      active.filter((m) => [...(m.functions ?? []), ...(m.sub_functions ?? [])].includes(fn))
+    );
+
+  // the standing teams, by the name on their membership row
+  for (const t of teams.filter((t) => t.type === "Team")) {
+    push(
+      `team:${t.name}`,
+      `Team — ${t.name}`,
+      active.filter((m) => (m.team_name ?? "") === t.name)
+    );
+  }
+
+  // and the viewer's own team, however it is named
+  const mine = active.filter((m) => viewer.teamMemberIds.includes(m.id));
+  if (mine.length > 0) groups.unshift({ key: "myteam", label: "My team", emails: mail(mine) });
+
+  return groups;
+}
+
 export async function listMyEmails(
   viewer: Viewer,
   limit = 40
@@ -5775,8 +5845,13 @@ export async function streakStats(
         name: (m.name) as string,
         current: e ? currentStreak(e.days, today) : 0,
         today: e?.today ?? 0,
-        // which side they raise for — OGT and OGV wear different colours
-        fn: (all.find((f) => f === "OGT" || f === "OGV") ?? null) as string | null,
+        // ONLY ON THE JOINT BOARD (v33.27). On an OGV-only or OGT-only board
+        // every row carries the same tag, which is noise: it answers a
+        // question nobody is asking there.
+        fn:
+          scope === "OGX"
+            ? ((all.find((f) => f === "OGT" || f === "OGV") ?? null) as string | null)
+            : null,
       };
     })
     .filter((e) => e.current > 0)

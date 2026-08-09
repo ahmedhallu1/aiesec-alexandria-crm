@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   CalendarCheck2,
@@ -25,7 +25,9 @@ import type {
   AttendanceTotals,
   OpenAppeal,
 } from "@/server/attendance-read";
-import { ATTENDANCE_STATUSES, type AttendanceStatus } from "@/lib/types";
+import {
+  ATTENDANCE_STATUSES, TOUCH_POINT_KINDS, type AttendanceStatus,
+} from "@/lib/types";
 import {
   PageSizePicker, resizableCellStyle, ResizableHead,
 } from "./data-table-kit";
@@ -47,7 +49,8 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  SortHeader, TableSettings, useTableColumns, useTableSort, type TableColumn,
+  ColumnFilter, SortHeader, TableSettings, useTableColumns, useTableSort,
+  type TableColumn,
 } from "./data-table-kit";
 import { Hint } from "./hint";
 import { bookedBy } from "@/lib/touch-point-label";
@@ -556,7 +559,7 @@ export function AttendanceView({
   pageSizeOptions: number[];
   totals: AttendanceTotals;
   appeals: OpenAppeal[];
-  filters: { from: string; to: string; kind: string; status: string };
+  filters: { from: string; to: string; kind: string; status: string; member?: string };
   scopeLabel: string;
   openTouchPointId: string | null;
 }) {
@@ -596,6 +599,56 @@ export function AttendanceView({
 
   // ⚙ Columns + click-to-sort over the page in hand
   const cols = useTableColumns("attendance-history", ATTENDANCE_COLUMNS);
+
+  /** COLUMN FUNNELS ON ATTENDANCE (v33.27) — the house rule everywhere else:
+   *  if it is a column, you filter it from the column. Type and Status were
+   *  only reachable from the bar above (which the table's own readers never
+   *  look at), and Member could not be filtered at all — on a 70-person LC
+   *  session that is the one question worth asking. */
+  const memberOptions = useMemo(
+    () =>
+      [...new Set(history.map((r) => r.memberName).filter(Boolean))].sort() as string[],
+    [history]
+  );
+  const attendanceFilter = (key: string) => {
+    const pick = (
+      label: string,
+      value: string,
+      options: { value: string; label: string }[],
+      param: string
+    ) => (
+      <ColumnFilter
+        label={label}
+        value={value}
+        options={options}
+        onChange={(v) => setParam(param, v)}
+      />
+    );
+    switch (key) {
+      case "kind":
+        return pick(
+          "Type", filters.kind,
+          TOUCH_POINT_KINDS.map((k) => ({
+            value: k,
+            label: k === "working_hours" ? "Working hours" : k === "outing" ? "Outing" : "Meeting",
+          })), "kind"
+        );
+      case "status":
+        return pick(
+          "Status", filters.status,
+          ATTENDANCE_STATUSES.map((k) => ({ value: k, label: k })), "status"
+        );
+      case "member":
+        return memberOptions.length > 1
+          ? pick(
+              "Member", filters.member ?? "",
+              memberOptions.map((m) => ({ value: m, label: m })), "member"
+            )
+          : null;
+      default:
+        return null;
+    }
+  };
   const { sorted: sortedHistory, sortKey, dir, toggle: toggleSort } =
     useTableSort(history, ATTENDANCE_SORTERS);
 
@@ -948,12 +1001,15 @@ export function AttendanceView({
                       </ResizableHead>
                     ) : (
                       <ResizableHead key={c.key} colKey={c.key} cols={cols}>
-                        <SortHeader
-                          label={c.label}
-                          onClick={() => toggleSort(c.key, c.key === "when" ? "desc" : "asc")}
-                          active={sortKey === c.key}
-                          dir={dir}
-                        />
+                        <span className="inline-flex items-center gap-1">
+                          <SortHeader
+                            label={c.label}
+                            onClick={() => toggleSort(c.key, c.key === "when" ? "desc" : "asc")}
+                            active={sortKey === c.key}
+                            dir={dir}
+                          />
+                          {attendanceFilter(c.key)}
+                        </span>
                       </ResizableHead>
                     )
                   )}

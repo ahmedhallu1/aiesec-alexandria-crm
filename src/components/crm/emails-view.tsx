@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Bold, Eye, Image as ImageIcon, Italic, Link2, List, ListOrdered, Loader2,
-  Mail, Paperclip, Quote, RotateCcw, Search, Send, Sparkles, Type, Underline, X,
+  Mail, Paperclip, Quote, RotateCcw, Search, Send, Sparkles, Type, Underline,
+  Users2, X,
 } from "lucide-react";
 import {
   draftEmailWithAi, previewComposedEmail, sendComposedEmail,
@@ -47,7 +48,7 @@ interface Attachment {
  *  restored on mount.
  */
 export function EmailsView({
-  sent, recents, templates, layouts, images, people,
+  sent, recents, templates, layouts, images, people, groups,
 }: {
   sent: SentEmailRow[];
   recents: string[];
@@ -55,6 +56,8 @@ export function EmailsView({
   layouts: LayoutOption[];
   images: { key: string; label: string; url: string; width: number }[];
   people: { name: string; email: string; role: string }[];
+  /** whole teams an email can be addressed to (v33.27) */
+  groups: { key: string; label: string; emails: string[] }[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -353,6 +356,49 @@ export function EmailsView({
                       </button>
                     ))}
                   </div>
+                ) : null}
+              </div>
+              {/* WHOLE TEAMS, NOT SIX LOOKUPS (v33.27). Addressing the EB or
+                  your own team by hand is how someone gets left off. The
+                  groups come from the membership, so they can't go stale —
+                  and they expand into real addresses you can still edit. */}
+              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                <span className="text-xs text-muted-foreground">Send to a team:</span>
+                {groups.slice(0, 6).map((g) => (
+                  <button
+                    key={g.key}
+                    type="button"
+                    onClick={() => {
+                      setTo((cur) => [...new Set([...cur, ...g.emails])]);
+                      toast.success(`${g.label} — ${g.emails.length} added`);
+                    }}
+                    className="rounded-full border px-2 py-0.5 text-xs hover:bg-muted"
+                  >
+                    <Users2 className="mr-0.5 inline size-3" />
+                    {g.label} ({g.emails.length})
+                  </button>
+                ))}
+                {groups.length > 6 ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button type="button" className="rounded-full border px-2 py-0.5 text-xs hover:bg-muted">
+                        More teams…
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
+                      {groups.slice(6).map((g) => (
+                        <DropdownMenuItem
+                          key={g.key}
+                          onClick={() => {
+                            setTo((cur) => [...new Set([...cur, ...g.emails])]);
+                            toast.success(`${g.label} — ${g.emails.length} added`);
+                          }}
+                        >
+                          {g.label} ({g.emails.length})
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 ) : null}
               </div>
               {recents.length > 0 && to.length === 0 ? (
