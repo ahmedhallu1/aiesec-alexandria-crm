@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-10 · Version: v33.29
+Last updated: 2026-08-10 · Version: v33.30
 
 ---
 
@@ -613,6 +613,45 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-10 · v33.30** — **THE ADMIN CAN SEE WHO FILED ANONYMOUSLY** (no
+  migration; two prod audit rows backfilled).
+  ① **WHY.** An anonymous 🎉 shout-out went to nine people at 3 AM and the LC
+  wanted to reward whoever wrote it — but the audit row reads *by system*,
+  because `submitLcFeedback` logs `input.anonymous ? null : viewer.id` on
+  purpose. The identity has always existed (`lc_feedback.author_id` is stored
+  on every row — it is what lets "tell them it's handled" reach an anonymous
+  author); nothing was ever collected that isn't collected now. This release
+  only changes **who is SHOWN it**.
+  ② **THE GATE IS `viewer.isAdmin` — ADMIN_EMAILS ALONE**, deliberately NOT
+  `canUseAdminTools` (which would add every Role/sub-function **Admin**
+  holder) and NOT `canSeeLcConcerns` (the LCP, all of TM, F&L's LCVP). Today
+  that is one address. Verified against prod: Ahmed sees both anonymous
+  authors; **Arwa (LCP), Yassin (F&L LCVP) and Omar El-Deeb (Admin sub-fn)
+  see none**, in the inbox and on the log. If ADMIN_EMAILS ever grows, this
+  grows with it — that env var is now a privacy control, not just a
+  break-glass login.
+  ③ **WHERE.** The **LC-feedback inbox** (`listLcFeedback` returns the name
+  plus `authorAdminOnly`, rendered as "🎭 Anonymous — Name (admin eyes
+  only)"), and the **/admin log** (`listRecentAudit(limit, {asAdmin})`). The
+  audit table itself still stores **no actor** for an anonymous row — the
+  details gained a `feedback_id` pointer and the name is resolved at READ
+  time, so the log stays honest about what was recorded and the unmasking is
+  one gated lookup. `/admin` reads `getRealViewer()`, so a **test view can
+  never be used to unmask anyone**.
+  ④ **SCOPE: all anonymous feedback, concerns included** (the LCP's call).
+  ⚠️ Worth knowing: a concern filed **about the admin** is unmaskable **by**
+  that admin. If that ever matters, the fix is to null the author when the
+  viewer is among `about` — deliberately not built yet.
+  ⑤ **MEMBER-FACING COPY.** By request nothing announces this. One line was
+  still changed, because it would otherwise have become a false statement at
+  the moment of consent: the concern toggle said *"No one will see your name,
+  the mic is yours"* → now *"Your name won't be shown with it — the mic is
+  yours."* True, same reassurance, discloses nothing. The positive variant
+  ("They'll know someone appreciated them — just not who") was already true
+  and is untouched, as are the Playbook and Blue Man, whose wording is
+  addressed to the inbox READERS (TM / LCP / F&L), for whom it still holds.
+  PLAYBOOK_VERSION deliberately NOT bumped — there is no member-facing change.
 
 - **2026-08-10 · v33.29** — **BOUNCE-PROOFING, ROUTINES & THE OPEN CALL**
   (part 1 shipped 2026-08-09 with migration **0051 applied**: `members.fallback_email`,

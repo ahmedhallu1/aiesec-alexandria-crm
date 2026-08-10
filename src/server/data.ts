@@ -2644,6 +2644,9 @@ export interface AuditEntry {
   action: string;
   entity: string;
   actor: string | null;
+  /** the actor was resolved from an ANONYMOUS lc_feedback row and is shown
+   *  to ADMIN_EMAILS alone (v33.30) — the UI labels it so it isn't repeated */
+  actorAdminOnly?: boolean;
   details: string | null;
   createdAt: string;
   /** the action's change set — null on entries written before v32 */
@@ -3815,7 +3818,14 @@ export interface LcFeedbackRow {
   kind: "concern" | "shoutout" | "session";
   positive: boolean;
   anonymous: boolean;
-  author: string | null; // hidden (null) when anonymous
+  /** null when anonymous — EXCEPT for the break-glass admin (ADMIN_EMAILS),
+   *  who sees the name so a shout-out can be rewarded and a concern followed
+   *  up (v33.30). Everyone else who reads this inbox — the LCP, TM, F&L's
+   *  LCVP — still gets null. */
+  author: string | null;
+  /** true when `author` is only populated because the viewer is that admin:
+   *  the UI marks it so nobody repeats it into a room that shouldn't have it */
+  authorAdminOnly: boolean;
   /** the author is still an active member, so "tell them it's handled" works */
   canTellAuthor: boolean;
   authorTold: boolean;
@@ -3868,7 +3878,13 @@ export async function listLcFeedback(viewer: Viewer): Promise<LcFeedbackRow[]> {
           : "concern") as LcFeedbackRow["kind"],
       positive: r.positive,
       anonymous: r.anonymous,
-      author: r.anonymous ? null : nameOf(r.author_id),
+      // ANONYMOUS IS ANONYMOUS TO THE ROOM, NOT TO THE ADMIN (v33.30). The
+      // author id has always been stored (it is what lets "tell them it's
+      // handled" reach someone who filed anonymously); this only decides who
+      // is shown it, and that is ADMIN_EMAILS alone — not the LCP, not TM.
+      author:
+        r.anonymous && !viewer.isAdmin ? null : nameOf(r.author_id),
+      authorAdminOnly: !!r.anonymous && !!viewer.isAdmin,
       canTellAuthor: !!r.author_id && !!byId.get(r.author_id)?.is_active,
       authorTold: !!r.author_told_at,
       aboutNames: (r.about ?? []).map((id: string) => nameOf(id)),
@@ -3890,7 +3906,13 @@ export async function listLcFeedback(viewer: Viewer): Promise<LcFeedbackRow[]> {
 }
 
 /** Recent audit-log rows (admin page). Actor joined for a readable name. */
-export async function listRecentAudit(limit = 60): Promise<AuditEntry[]> {
+export async function listRecentAudit(
+  limit = 60,
+  /** ADMIN_EMAILS only (v33.30): resolve the author behind an anonymous
+   *  lc_feedback row, so a shout-out can be rewarded and a concern followed
+   *  up. Everyone else with the logs page keeps seeing "system". */
+  opts: { asAdmin?: boolean } = {}
+): Promise<AuditEntry[]> {
   const { data } = await db()
     .from("audit_log")
     .select(
@@ -3918,11 +3940,36 @@ export async function listRecentAudit(limit = 60): Promise<AuditEntry[]> {
   const sizes = await changeSetSizes(
     [...new Set(rows.map((r) => r.change_set).filter(Boolean))] as string[]
   );
+  // WHO FILED THE ANONYMOUS ONE — for the break-glass admin alone. The audit
+  // row carries no actor by design; this reads the feedback it points at.
+  const anonAuthors = new Map<string, string>();
+  if (opts.asAdmin) {
+    const ids = rows
+      .filter((r) => r.action === "lc_feedback" && !r.actor && r.details?.feedback_id)
+      .map((r) => r.details.feedback_id as string);
+    if (ids.length > 0) {
+      const { data: fb } = await db()
+        .from("lc_feedback")
+        .select("id, author:members!author_id(name)")
+        .in("id", [...new Set(ids)]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const row of ((fb ?? []) as any[])) {
+        const a = Array.isArray(row.author) ? row.author[0] : row.author;
+        if (a?.name) anonAuthors.set(row.id, a.name);
+      }
+    }
+  }
+  const anonAuthorFor = (r: { action: string; actor: unknown; details: { feedback_id?: string } | null }) =>
+    r.action === "lc_feedback" && !r.actor && r.details?.feedback_id
+      ? anonAuthors.get(r.details.feedback_id) ?? null
+      : null;
+
   return rows.map((r) => ({
     id: r.id,
     action: r.action,
     entity: r.entity,
-    actor: r.actor ? r.actor.name : null,
+    actor: r.actor ? r.actor.name : anonAuthorFor(r),
+    actorAdminOnly: !r.actor && !!anonAuthorFor(r),
     details: r.details ? JSON.stringify(r.details) : null,
     createdAt: r.created_at,
     changeSet: r.change_set ?? null,

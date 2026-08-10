@@ -320,7 +320,13 @@ export function AdminView({
                 </span>
                 <span className="text-muted-foreground">{a.entity}</span>
                 <span className="text-xs text-muted-foreground">
-                  by {a.actor ?? "system"}
+                  {a.actorAdminOnly ? (
+                    <span className="font-medium text-amber-600 dark:text-amber-400">
+                      by {a.actor} 🎭 (anonymous — admin eyes only)
+                    </span>
+                  ) : (
+                    <>by {a.actor ?? "system"}</>
+                  )}
                 </span>
                 {a.inTestSession ? (
                   <Badge variant="outline" className="h-5 px-1.5 text-[10px]">

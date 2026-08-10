@@ -18,7 +18,9 @@ export default async function AdminPage() {
 
   const [health, audit, { count: testCount }, lcRow] = await Promise.all([
     getSystemHealth().catch(() => null),
-    listRecentAudit(80).catch(() => []),
+    // the anonymous-author resolution is ADMIN_EMAILS only, and it reads the
+    // REAL viewer — a test view can never be used to unmask someone (v33.30)
+    listRecentAudit(80, { asAdmin: viewer.isAdmin }).catch(() => []),
     db().from("accounts").select("id", { count: "exact", head: true }).eq("is_test", true),
     // the OPEN LC-wide testing session, if one is running (v32)
     Promise.resolve(

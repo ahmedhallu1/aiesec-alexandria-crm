@@ -4746,17 +4746,21 @@ export async function submitLcFeedback(input: {
     .eq("is_active", true);
   if (!targets || targets.length === 0) return fail("Those members don't exist.");
 
-  const { error } = await db().from("lc_feedback").insert({
-    author_id: viewer.id,
-    anonymous: !!input.anonymous,
-    positive: input.positive,
-    about: targets.map((t) => t.id),
-    message,
-    attachments: cleanAttachments(input.attachments, viewer.id),
-    // v33.22: touch-point feedback is its own KIND in the inbox, not a concern
-    // with a session name glued to the front of it
-    touch_point_id: input.touchPointId ?? null,
-  });
+  const { data: filed, error } = await db()
+    .from("lc_feedback")
+    .insert({
+      author_id: viewer.id,
+      anonymous: !!input.anonymous,
+      positive: input.positive,
+      about: targets.map((t) => t.id),
+      message,
+      attachments: cleanAttachments(input.attachments, viewer.id),
+      // v33.22: touch-point feedback is its own KIND in the inbox, not a concern
+      // with a session name glued to the front of it
+      touch_point_id: input.touchPointId ?? null,
+    })
+    .select("id")
+    .maybeSingle<{ id: string }>();
   if (error) {
     if (error.message.includes("lc_feedback"))
       return fail("LC feedback needs migration 0017 — run it in the Supabase SQL editor.");
@@ -4836,11 +4840,15 @@ export async function submitLcFeedback(input: {
   // the audit log and the inbox, so an author here would deanonymize a concern.
   // (The lc_feedback row keeps author_id at the DB layer for true abuse
   // accountability, but that is never surfaced in any UI.)
+  // the ACTOR stays null on an anonymous row — the audit table itself never
+  // names them. `feedback_id` only points at the feedback; resolving it to a
+  // person happens at read time and only for ADMIN_EMAILS (v33.30).
   await logAudit(input.anonymous ? null : viewer.id, "lc_feedback", "member", targets[0].id, {
     positive: input.positive,
     people: targets.length,
     anonymous: !!input.anonymous,
     about_touch_point: !!input.touchPointId,
+    ...(input.anonymous && filed?.id ? { feedback_id: filed.id } : {}),
   });
   return { ok: true };
 }

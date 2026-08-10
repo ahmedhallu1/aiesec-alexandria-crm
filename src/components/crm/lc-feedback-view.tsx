@@ -418,7 +418,7 @@ export function LcFeedbackView({
               <p className="text-xs text-muted-foreground">
                 {positive
                   ? "They'll know someone appreciated them — just not who."
-                  : "No one will see your name, the mic is yours."}
+                  : "Your name won't be shown with it — the mic is yours."}
               </p>
             </div>
             <Switch checked={anonymous} onCheckedChange={setAnonymous} />
@@ -615,7 +615,18 @@ function LcFeedbackInbox({
                     </p>
                   ) : null}
                   <p className="mt-2 text-xs text-muted-foreground">
-                    {r.author ?? "Anonymous 🎭"} · {fmtDateTime(r.created_at)}
+                    {/* an anonymous author is shown to the break-glass admin
+                        ALONE (v33.30) — labelled, because whoever reads it
+                        needs to know it must not leave this screen */}
+                    {r.authorAdminOnly ? (
+                      <span className="font-medium text-amber-600 dark:text-amber-400">
+                        🎭 Anonymous — {r.author} (admin eyes only)
+                      </span>
+                    ) : (
+                      r.author ?? "Anonymous 🎭"
+                    )}
+                    {" · "}
+                    {fmtDateTime(r.created_at)}
                     {r.authorTold ? " · ✅ author told" : ""}
                   </p>
 
