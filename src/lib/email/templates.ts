@@ -1211,6 +1211,48 @@ export function lcFeedbackHandledEmail(opts: {
  *  six out. So: confirm, in their words, in their zone, with the option to
  *  move it if that turns out not to work. Never an apology for a broken
  *  booking; there isn't one. */
+/** BOOKED, THE TIME PASSED, STILL NOT REPORTED (v33.32).
+ *
+ *  A scheduled call whose slot is behind us is nobody's "upcoming" and
+ *  nobody's "done" — it just sits there, and until v33.32 nothing counted it
+ *  or chased it. This is the chase: one email per HOST listing every call of
+ *  theirs that is waiting, so the answer is one visit to the tab rather than
+ *  one per call. */
+export function irCallsOverdueEmail(opts: {
+  memberFirstName: string;
+  /** already formatted, Cairo — oldest first */
+  calls: { partnerLc: string; whenLabel: string; bookerName: string | null }[];
+  considerationUrl: string;
+}): { subject: string; html: string } {
+  const n = opts.calls.length;
+  return {
+    subject: `⏰ ${n} IR call${n === 1 ? "" : "s"} waiting for your report`,
+    html: emailLayout({
+      preheader: `${n} booked call${n === 1 ? "" : "s"} of yours ${n === 1 ? "has" : "have"} passed with nothing recorded.`,
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Two minutes, ${escapeHtml(opts.memberFirstName)} ⏰</h1>
+        <p>${n === 1 ? "One of your booked IR calls has" : `${n} of your booked IR calls have`}
+        come and gone with nothing recorded. Until ${n === 1 ? "it is" : "they are"}
+        closed off ${n === 1 ? "it counts" : "they count"} as neither done nor
+        upcoming — so ${n === 1 ? "it is" : "they are"} missing from your
+        numbers and from the LC's.</p>
+        ${gridTable(
+          ["Partner LC", "When it was", "Who booked it"],
+          opts.calls.map((c) => [c.partnerLc, c.whenLabel, c.bookerName ?? "—"])
+        )}
+        <p><b>Open the call on Consideration and pick one:</b></p>
+        <ul style="margin:0 0 16px;padding-left:20px;color:#0A2540;">
+          <li><b>It happened</b> → fill the in-call notes (their demand, their
+              B2C campaign dates, a screenshot). That completes it.</li>
+          <li><b>It didn't</b> → cancel it with a reason, so the slot opens up
+              again and the IR knows where they stand.</li>
+        </ul>
+        ${button("Open my IR calls", opts.considerationUrl)}
+        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">If one of these only just finished, ignore that line — this is a nudge, not a telling-off.</p>`,
+    }),
+  };
+}
+
 /** THE IR'S EMAIL CAME BACK UNDELIVERABLE (v33.32).
  *
  *  The bounce watcher flags the call; this is what reaches the HOST, because a
