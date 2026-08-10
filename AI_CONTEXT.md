@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-10 · Version: v33.32
+Last updated: 2026-08-11 · Version: v33.32.2
 
 ---
 
@@ -623,6 +623,46 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-11 · v33.32.2** — **THE PEAK, THE THREAD & THE REFERRALS TAB**
+  (no migration).
+  ① **THE CONSIDERATION LANE STOPS AT THE PEAK BOUNDARY.** The trend strip was
+  a rolling six months, so on the winter peak (Aug–Jan) it reached back into
+  July and June and put the previous term's calls next to this month's. A
+  number you shouldn't compare against, drawn as if you should. The strip now
+  runs from the peak's FIRST month to the current one — one bar in the peak's
+  first month, honestly — and the "vs last month" line says
+  *"The first month of Winter 26.2 — nothing before it to compare with"*
+  instead of comparing against a zero it invented (`irLastMonth` is `null`,
+  not 0, when last month is pre-peak: the difference between "none" and
+  "none that counts here").
+  ② **COMMENTS FROM THE SIGN-UPS LIST.** The raising table has carried its
+  thread and a ➕ since v33.17; OGX had to open a sign-up to read or leave one,
+  which is exactly why so much calling context lived in WhatsApp instead. The
+  list gains the same **Comment** column — newest first, full text on hover, a
+  💬➕ for anyone who may work the row or is its VP — over one extra query per
+  page. It lands in the same two-class log and the same sheet cells; only the
+  distance changed.
+  ③ **REFERRALS HAVE THEIR OWN TAB** (🤝 Referrals, beside Unassigned · My
+  sign-ups · CIC · All · Archived). A handful of organic referrals among
+  thousands of tracker rows is a needle in a haystack, and the people who log
+  them want to watch exactly those. Scoped like "mine": a member's own, a TL's
+  team, the whole function for a leader (or for a role their VP has opened the
+  floor to).
+  ④ **THE REFERRAL FORM ASKS WHAT THE PERSON ALREADY KNOWS.** University is
+  gone — it was never the thing anyone reached for. In its place: **date of
+  birth** (optional, validated as a real date — the column is free text and a
+  half-typed year must not be stored as fact), **country** (resolved against
+  the real country list, like a booking, never free text), and the first three
+  funnel steps — **Contacted · Interested · Status** — because whoever logs a
+  referral has usually already spoken to them, and making them re-open the row
+  to say so is how a funnel stays empty. Contacted=Yes stamps `contacted_at`;
+  Parents Approval still needs a VP.
+  ⑤ **The 16 overdue IR calls were chased** (v33.32.1, shipped separately):
+  one message per HOST rather than per call — 7 belled, 3 emailed. Four hosts
+  holding 8 of the calls have neither an AIESEC address nor a backup Gmail, so
+  they got the bell only; `scripts/nag-overdue-ir-calls.mjs --dry` re-runs the
+  list without sending.
 
 - **2026-08-10 · v33.32** — **THE LEADER'S OWN DEFAULTS, REFERRALS & THE
   BOUNCE LOOP** (migration **0054 applied**: `function_settings`).

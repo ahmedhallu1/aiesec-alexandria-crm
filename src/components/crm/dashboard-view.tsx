@@ -788,7 +788,8 @@ function ConsiderationPanel({ stats }: { stats: import("@/server/data").Consider
     );
     return sub ? <Hint label={sub}>{card}</Hint> : card;
   };
-  const delta = stats.irThisMonth - stats.irLastMonth;
+  const delta =
+    stats.irLastMonth == null ? null : stats.irThisMonth - stats.irLastMonth;
   const maxMonth = Math.max(1, ...stats.byMonth.map((m) => m.calls));
   return (
     <div className="space-y-4">
@@ -803,7 +804,11 @@ function ConsiderationPanel({ stats }: { stats: import("@/server/data").Consider
         {kpi(
           "Calls this month",
           stats.irThisMonth,
-          `${stats.irLastMonth} last month${delta !== 0 ? ` (${delta > 0 ? "+" : ""}${delta})` : ""}`
+          // there is no "last month" in the first month of a peak — the
+          // previous month belongs to the last term (v33.32.2)
+          stats.irLastMonth == null || delta == null
+            ? `The first month of ${stats.peakLabel} — nothing before it to compare with`
+            : `${stats.irLastMonth} last month${delta !== 0 ? ` (${delta > 0 ? "+" : ""}${delta})` : ""}`
         )}
         {kpi("Upcoming booked calls", stats.irUpcoming, "Booked, still ahead of us")}
         {kpi("Calls completed", stats.irCompleted, "Booked or recorded calls that actually happened")}
@@ -831,7 +836,9 @@ function ConsiderationPanel({ stats }: { stats: import("@/server/data").Consider
       {/* the last 6 months at a glance */}
       <Card className="rise-in">
         <CardContent className="pt-4">
-          <p className="text-xs font-medium text-muted-foreground">Calls per month — last 6 months</p>
+          <p className="text-xs font-medium text-muted-foreground">
+            Calls per month — {stats.peakLabel} so far
+          </p>
           <div className="mt-3 flex items-end gap-2">
             {stats.byMonth.map((m) => (
               <div key={m.month} className="flex min-w-0 flex-1 flex-col items-center gap-1">

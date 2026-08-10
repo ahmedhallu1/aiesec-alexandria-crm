@@ -352,7 +352,12 @@ export interface ConsiderationStats {
   plan: { applicants: number; accepted: number; approvals: number } | null;
   /** REAL NUMBERS FOR THE LANE (v33.29 part 2) — the panel was three cards
    *  and a link; the floor asked for a dashboard. */
-  irLastMonth: number;
+  /** null = last month is BEFORE this peak started, so there is nothing to
+   *  compare against — the consideration floor does not carry work across a
+   *  peak boundary (v33.32.2) */
+  irLastMonth: number | null;
+  /** the peak this snapshot lives in ("Winter 26.2"), for the trend strip */
+  peakLabel: string;
   irCompleted: number;
   irCancelled: number;
   /** completed ÷ (completed + cancelled), % — how many booked calls survive */
@@ -559,13 +564,26 @@ export async function considerationStats(
     else if (isOverdue(c)) row.overdue += 1;
     perMember.set(key, row);
   }
-  // 6-month trend, oldest first
+  // THE TREND STRIP IS THE PEAK, NOT THE LAST SIX MONTHS (v33.32.2).
+  //
+  // A rolling six-month window reached back BEFORE the peak began — the
+  // winter peak starts in August, so July and June sat on the strip carrying
+  // the previous term's calls. That is not this floor's work and reading it
+  // beside this month's invites a comparison nobody should make. The strip
+  // now runs from the peak's first month to the current one; a peak that has
+  // only just started shows one bar, honestly.
+  const { peakForPlanning } = await import("@/lib/plan");
+  const peak = peakForPlanning(now);
+  const peakFirstKey = (peak.months[0] ?? monthStart).slice(0, 7);
   const monthKeys: string[] = [];
   {
-    const cur = new Date(`${monthStart}T00:00:00Z`);
-    cur.setUTCMonth(cur.getUTCMonth() - 5);
-    for (let i = 0; i < 6; i++) {
-      monthKeys.push(cur.toISOString().slice(0, 7));
+    const cur = new Date(`${peakFirstKey}-01T00:00:00Z`);
+    const thisKey = monthStart.slice(0, 7);
+    // guard against a clock/peak mismatch: never build an unbounded list
+    for (let i = 0; i < 12; i++) {
+      const key = cur.toISOString().slice(0, 7);
+      monthKeys.push(key);
+      if (key >= thisKey) break;
       cur.setUTCMonth(cur.getUTCMonth() + 1);
     }
   }
@@ -589,9 +607,12 @@ export async function considerationStats(
       .sort((a, b) => b.count - a.count)
       .slice(0, 6),
     plan,
-    irLastMonth: live.filter(
-      (c) => c.called_at.slice(0, 7) === lastMonthKey
-    ).length,
+    // a month before the peak is not a comparison — it is another term
+    irLastMonth:
+      lastMonthKey < peakFirstKey
+        ? null
+        : live.filter((c) => c.called_at.slice(0, 7) === lastMonthKey).length,
+    peakLabel: peak.label,
     irCompleted: completed,
     irCancelled: cancelled,
     completionRate:
@@ -4365,6 +4386,10 @@ export function signupViewsFor(v: Viewer): string[] {
     // (the ones handed to them as the second caller). Off when the function's
     // leader has no second-call step (v33.32).
     ...(cicOn ? ["cic"] : []),
+    // 🤝 REFERRALS (v33.32.2) — their own tab. They behave like any sign-up,
+    // but they are a handful among thousands of tracker rows and the people
+    // who log them want to watch exactly those.
+    "referral",
     ...(leader || openFloor ? ["all"] : []),
     "archived",
   ];
@@ -4382,6 +4407,9 @@ export type SignupListRow = SignupRow & {
   can_vp?: boolean;
   /** the sign-up's CIC call history (v33.29) — side-tagged, newest first */
   cic_calls?: SignupCicCall[];
+  /** the whole comment thread (v33.32.2), oldest first — so the list can show
+   *  it and take a new one without opening the sign-up */
+  comments_all?: SignupComment[];
 };
 
 export interface SignupCicCall {
@@ -4445,6 +4473,20 @@ export async function listSignupsPage(
     if (view === "archived") q = q.eq("out_of_process", true);
     else if (view !== "cic") q = q.eq("out_of_process", false);
     if (view === "unassigned") q = q.is("assigned_to", null);
+    else if (view === "referral") {
+      // organic referrals only — scoped like "mine" for everyone who isn't a
+      // leader, so a member watches the ones they logged or were handed
+      q = q.eq("source", "referral");
+      const leader = viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
+      if (!leader) {
+        const seesFloor = (viewer.openViewFns ?? []).some((f) => scopeFns.includes(f as OgxFunction));
+        if (!seesFloor)
+          q =
+            viewer.role === "Team Leader"
+              ? q.in("assigned_to", [viewer.id, ...viewer.teamMemberIds])
+              : q.eq("assigned_to", viewer.id);
+      }
+    }
     else if (view === "cic") {
       // THE CIC POOL (rule tightened + widened in v33.22):
       //   · held by a REAL Sodio member (assigned_to, not a raw sheet name) —
@@ -4639,6 +4681,24 @@ export async function listSignupsPage(
       byId.set(c.signup_id, list);
     }
     rows = rows.map((r) => ({ ...r, cic_calls: byId.get(r.id) ?? [] }));
+  }
+  // COMMENTS ON THE LIST (v33.32.2) — the raising table has carried its
+  // thread and a ➕ since v33.17; OGX had to open a sign-up to read or leave
+  // one, which is why so much of the calling context lived in WhatsApp
+  // instead. One query for the page, oldest first (the column reverses it).
+  if (rows.length > 0) {
+    const { data: comments } = await db()
+      .from("signup_comments")
+      .select("id, signup_id, author_name, author_class, body, created_at")
+      .in("signup_id", rows.map((r) => r.id))
+      .order("created_at");
+    const byId = new Map<string, SignupComment[]>();
+    for (const c of (comments ?? []) as SignupComment[]) {
+      const list = byId.get(c.signup_id) ?? [];
+      list.push(c);
+      byId.set(c.signup_id, list);
+    }
+    rows = rows.map((r) => ({ ...r, comments_all: byId.get(r.id) ?? [] }));
   }
   return {
     rows,
