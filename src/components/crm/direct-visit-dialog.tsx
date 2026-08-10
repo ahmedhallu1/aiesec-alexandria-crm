@@ -184,6 +184,10 @@ export function DirectVisitDialog({
               {nameCheck?.message ??
                 "That name already exists — open the account instead of adding it twice."}
             </p>
+          ) : nameCheck?.status === "free" && nameCheck.note ? (
+            <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-400">
+              {nameCheck.note}
+            </p>
           ) : nameCheck?.status === "free" && name.trim().length >= 2 ? (
             <p className="text-xs text-emerald-600 dark:text-emerald-400">
               ✅ The name is free.

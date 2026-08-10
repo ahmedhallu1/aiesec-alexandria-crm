@@ -295,8 +295,9 @@ export async function createAccount(
   if (data.function === "B2C" && !(B2C_TYPES as readonly string[]).includes(data.account_type ?? ""))
     return fail("Choose the B2C type (Courses / Events / Student activities).");
 
-  // HARD RULE: an ACTIVE name is unique across EVERY function; the archive
-  // block is world-aware (v23.2) — B2C is only blocked by its own archive
+  // HARD RULE (v33.29): a name is unique WITHIN its world — ICX (IGV/IGT/B2B)
+  // · BD · B2C — active or archived; another world's namesake never blocks
+  // (the add dialog shows the info note instead)
   const { duplicate, blacklisted } = await checkAccountName(data.name, data.function);
   if (blacklisted)
     return fail(
@@ -4036,7 +4037,8 @@ export async function checkAccountNameLive(
   const clean = name?.trim() ?? "";
   if (clean.length < 2) return { ok: true, data: { status: "free" } };
   const { checkAccountName } = await import("./data");
-  const { duplicate, blacklisted, crossWorldArchived } = await checkAccountName(clean, fn);
+  const { duplicate, blacklisted, crossWorldArchived, crossWorldActive } =
+    await checkAccountName(clean, fn);
   if (blacklisted)
     return {
       ok: true,
@@ -4098,7 +4100,17 @@ export async function checkAccountNameLive(
         },
       },
     };
-  // archived in the OTHER world — allowed, but worth knowing (v23.2)
+  // ACTIVE in another world — allowed since v33.29, but say who has it: the
+  // same company can be an IGV partner, a BD sponsor and a B2C venue at once
+  if (crossWorldActive)
+    return {
+      ok: true,
+      data: {
+        status: "free",
+        note: `FYI: "${clean}" is already ACTIVE on ${crossWorldActive.function} (responsible: ${crossWorldActive.responsible_name || "Unassigned"}) — different business, so you can add it here too. Worth a word with them before you both knock on the same door.`,
+      },
+    };
+  // archived in ANOTHER world — allowed, but worth knowing (v23.2)
   if (crossWorldArchived)
     return {
       ok: true,

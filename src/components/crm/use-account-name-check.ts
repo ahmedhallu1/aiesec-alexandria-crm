@@ -8,6 +8,9 @@ export interface NameCheck {
   status: "checking" | "free" | "duplicate" | "archived" | "blacklist" | "other_world";
   message?: string;
   info?: Record<string, string | null>;
+  /** rides on "free": a non-blocking heads-up — archived in another world
+   *  (v23.2) or ACTIVE in another world (v33.29, with who holds it) */
+  note?: string;
 }
 
 /** THE THREE LIVE CHECKS ON AN ACCOUNT NAME (v32 / v32.2), in ONE place.

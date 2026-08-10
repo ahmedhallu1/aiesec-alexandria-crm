@@ -1059,26 +1059,32 @@ export type CommentWithMember = AccountComment & {
 };
 
 export interface NameCheckResult {
-  /** BLOCKS: an active account anywhere, or an archived one in the SAME world */
+  /** BLOCKS: an active OR archived account in the SAME world (v33.29 — an
+   *  active name in ANOTHER world no longer blocks, it informs) */
   duplicate: PipelineRow | null;
-  /** BLOCKS: manual/imported archive names (the ICX-raising world's list) */
+  /** BLOCKS: manual/imported archive names (the ICX world's list) */
   blacklisted: BlacklistEntry | null;
-  /** INFO ONLY (v23.2): archived in the OTHER world — B2C has no relation
-   *  with the raising archive and vice versa, so this never blocks */
+  /** INFO ONLY (v23.2): archived in another world — each world keeps its own
+   *  archive, so this never blocks */
   crossWorldArchived: PipelineRow | null;
+  /** INFO ONLY (v33.29): the name is ACTIVE in another world — "already
+   *  active in IGV, responsible: X" — the add proceeds anyway */
+  crossWorldActive: PipelineRow | null;
 }
 
-/** Duplicate + archive check for the Add Account flow — WORLD-AWARE (v23.2):
- *  ACTIVE names are unique across every function, but each WORLD keeps its own
- *  archive — the two sell different things, so a name one burned says nothing
- *  about the other:
+/** Duplicate + archive check for the Add Account flow — WORLD-AWARE, three
+ *  ways since v33.29 (was two: v23.2 split B2C off, v32.5 moved BD across):
  *
- *    OPENS   IGV · IGT · B2B  — raising opens for the ICX programmes
- *    SERVICE BD  · B2C        — money partnerships and courses/events
+ *    ICX  IGV · IGT · B2B  — raising opens for the ICX programmes
+ *    BD                    — money partnerships
+ *    B2C                   — courses / events / student activities
  *
- *  (v32.5 moved BD out of the opens world: BD sells a service like B2C does,
- *  and an IGV team burning a company for opens must not stop BD selling them
- *  a partnership.) A cross-world archived match is a non-blocking heads-up. */
+ *  A name is unique WITHIN its world (active or archived — the archive is the
+ *  blacklist), and each world keeps its own archive. Across worlds NOTHING
+ *  blocks any more: an ACTIVE namesake elsewhere is an info note ("already
+ *  active in IGV, responsible: X") and an ARCHIVED one a heads-up — the same
+ *  company can be an IGV partner, a BD sponsor and a B2C venue at once.
+ *  Mirrors the accounts_normalized_name_world_key index (0052). */
 export async function checkAccountName(
   name: string,
   fn?: AccountFunction,
@@ -1086,9 +1092,10 @@ export async function checkAccountName(
 ): Promise<NameCheckResult> {
   const normalized = normalizeName(name);
   if (!normalized)
-    return { duplicate: null, blacklisted: null, crossWorldArchived: null };
-  const serviceWorld = (f?: string | null) => f === "B2C" || f === "BD";
-  const world: "OPENS" | "SERVICE" = serviceWorld(fn) ? "SERVICE" : "OPENS";
+    return { duplicate: null, blacklisted: null, crossWorldArchived: null, crossWorldActive: null };
+  const worldOf = (f?: string | null): "ICX" | "BD" | "B2C" =>
+    f === "B2C" ? "B2C" : f === "BD" ? "BD" : "ICX";
+  const world = worldOf(fn);
   // TWO NAMES ONE DASH APART ARE THE SAME ACCOUNT (v33.7). "i fikra software
   // company" and "i-fikra software company" normalise differently but slug
   // IDENTICALLY, so both live at one URL — which is how the LC ended up with
@@ -1113,19 +1120,19 @@ export async function checkAccountName(
   const all = ((rows ?? []) as PipelineRow[]).filter(
     (r) => accountSlug(r.name) === accountSlug(name) && r.id !== opts?.excludeId
   );
-  const sameWorld = (r: PipelineRow) =>
-    serviceWorld(r.function) === (world === "SERVICE");
-  const active = all.find((r) => !r.out_of_process) ?? null;
+  const sameWorld = (r: PipelineRow) => worldOf(r.function) === world;
+  const activeSame = all.find((r) => !r.out_of_process && sameWorld(r)) ?? null;
+  const activeOther = all.find((r) => !r.out_of_process && !sameWorld(r)) ?? null;
   const archivedSame = all.find((r) => r.out_of_process && sameWorld(r)) ?? null;
   const archivedOther = all.find((r) => r.out_of_process && !sameWorld(r)) ?? null;
-  // the manual blacklist is the OPENS world's list — it never blocks the
-  // service side (BD/B2C)
-  const blacklisted = world === "OPENS" ? (blacklistHit ?? null) : null;
-  const duplicate = active ?? archivedSame;
+  // the manual blacklist is the ICX world's list — BD and B2C never see it
+  const blacklisted = world === "ICX" ? (blacklistHit ?? null) : null;
+  const duplicate = activeSame ?? archivedSame;
   return {
     duplicate,
     blacklisted,
     crossWorldArchived: !duplicate && !blacklisted ? archivedOther : null,
+    crossWorldActive: !duplicate && !blacklisted ? activeOther : null,
   };
 }
 

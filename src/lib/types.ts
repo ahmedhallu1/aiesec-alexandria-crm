@@ -844,7 +844,9 @@ export function normalizePhone(raw: string): PhoneCheck {
   };
 }
 
-/** URL slug for an account. ACTIVE names are unique across every function;
+/** URL slug for an account. Names are unique per WORLD (ICX · BD · B2C), so
+ *  a slug can hold namesakes across worlds — lookup prefers the active row
+ *  the viewer can work;
  *  an archived name may be reused by the other world (v23.2) — slug lookups
  *  prefer the active row, archived rows are linked by UUID. */
 export function accountSlug(name: string): string {

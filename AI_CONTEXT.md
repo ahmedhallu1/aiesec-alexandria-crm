@@ -660,6 +660,16 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
   the member's main email. Already consumed by password resets
   (`issueTempPassword`) and mailbox-hosted IR events (`ownerEmail`
   fallback) since part 1 — never an identity, no sign-in.
+  ⑥½ **THREE NAME WORLDS** (migration **0052 applied**): the two-world split
+  (0020/0034) became three — **ICX (IGV·IGT·B2B) · BD · B2C** — each with its
+  OWN archive, a name unique only WITHIN its world (the DB index is a 3-way
+  CASE expression; only ever a relaxation, zero prod collisions). And the
+  cross-world ACTIVE block is GONE: `checkAccountName` returns the new
+  `crossWorldActive` info instead — the add form and the direct-visit form
+  show "already ACTIVE on IGV (responsible: X) — different business, add it
+  here too" and proceed. The blacklist stays the ICX world's list. Slug
+  namesakes across worlds resolve to the active row the viewer can work
+  (the existing collision logic already preferred exactly that).
   ⑥ **THE CONSIDERATION LANE IS A DASHBOARD** (`considerationStats` v2):
   calls this month vs LAST month (delta in the hint), completed,
   upcoming, **Booked → happened** conversion (completed ÷ settled),
