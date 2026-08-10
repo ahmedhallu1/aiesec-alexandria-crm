@@ -5,6 +5,14 @@ import {
   type TouchPointScope,
 } from "./types";
 import { expandTouchPointFns } from "./touch-points";
+import { functionDefaults, type FunctionSettings } from "./function-settings";
+
+/** A function's defaults as this request resolved them — falling back to the
+ *  built-in behaviour, so a viewer assembled before v33.32 (or in a test)
+ *  behaves exactly as it used to. */
+export function fnSetting(v: Viewer, fn: string): FunctionSettings {
+  return v.fnSettings?.[fn] ?? functionDefaults(fn);
+}
 
 /** The RBAC engine. Every read is filtered through `accountScope` and every
  *  mutation is checked with a `can*` predicate — server-side, before any query.
@@ -34,6 +42,17 @@ export interface Viewer extends Member {
   /** test data (is_test accounts) is VISIBLE to this viewer — true during any
    *  test view and when the admin flips "Show test data" on /admin */
   testMode?: boolean;
+  /** FUNCTIONS THIS VIEWER MAY READ IN FULL (v33.32, migration 0054).
+   *
+   *  A function's LCVP/Director can open their floor to a role — "my Members
+   *  may see every account in IGV" — from the Function defaults card. It is a
+   *  READ widening only: `canEditAccount` is untouched, so ownership, the
+   *  inline editors and every mutation stay exactly as scoped as before.
+   *  Resolved once per request in getViewer; empty for everyone by default. */
+  openViewFns?: string[];
+  /** every function's resolved defaults (v33.32) — read once per request so
+   *  the sync predicates below can consult them without touching the DB */
+  fnSettings?: Record<string, FunctionSettings>;
 }
 
 export type AccountScope =
@@ -203,7 +222,21 @@ export function canViewAccount(v: Viewer, a: AccountLike): boolean {
   // an MM working the Podio queue may OPEN a row from it — read plus the one
   // field the queue exists for, never edit or ownership (v33.13)
   if (canCheckPodio(v, a)) return true;
+  // the function's leader opened their floor to this viewer's role (v33.32) —
+  // READ ONLY: canEditAccount below is the only thing that grants a change
+  if ((v.openViewFns ?? []).includes(a.function)) return true;
   return canEditAccount(v, a);
+}
+
+/** The functions a viewer may READ beyond their own scope (v33.32) — used by
+ *  the list query, which has to widen the same way the per-row check does. */
+export function openViewFunctions(v: Viewer): AccountFunction[] {
+  const scope = accountScope(v);
+  // leaders already read whole functions; this only ever widens a member's
+  if (scope.kind !== "members") return [];
+  return (v.openViewFns ?? []).filter((f): f is AccountFunction =>
+    ["IGV", "IGT", "B2B", "BD", "B2C"].includes(f)
+  );
 }
 
 /** An account NOBODY owns, in a function this viewer may work (v32.4).

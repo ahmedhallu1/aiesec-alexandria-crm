@@ -152,7 +152,14 @@ export function DashboardView({
   const anyFilter = Object.values(filters).some(Boolean);
   // OGX pseudo-lanes (v28): same filter bar, sign-up funnel instead of accounts
   const isOgxLane = activeFn === "OGT" || activeFn === "OGV";
-  const noun = isOgxLane ? "sign-ups" : "accounts";
+  // Consideration lanes (v33.32): same bar again, IR calls instead of accounts
+  const isConsLane = activeFn.startsWith("CONS");
+  const noun = isConsLane ? "IR calls" : isOgxLane ? "sign-ups" : "accounts";
+  /** which DATE the range filters on — each lane has its own */
+  const dateLabel = isConsLane ? "Called" : isOgxLane ? "Signed up" : "Added";
+  // a call can legitimately be in the FUTURE, so the consideration lane is the
+  // one place the date inputs must not be clamped to today
+  const dateMax = isConsLane ? undefined : today;
 
   return (
     <div className={cn("mx-auto max-w-6xl space-y-5", navPending && "nav-pending")}>
@@ -202,11 +209,12 @@ export function DashboardView({
 
       {activeFn === "TM" && tm ? (
         <TmPanel stats={tm} />
-      ) : activeFn.startsWith("CONS") && consideration ? (
-        <ConsiderationPanel stats={consideration} />
       ) : (
         <>
-      {/* Filter bar */}
+      {/* Filter bar — THE CONSIDERATION LANES GET IT TOO (v33.32). They were
+          the one place that returned a whole-history snapshot and ignored
+          Added→ / team / member, so a leader could not ask "what did we do
+          this sprint" of the IR floor at all. */}
       <div className="flex flex-wrap items-center gap-2 rise-in rise-in-1">
         <Hint label={`Show only this calendar month's ${noun}`}>
           <Button
@@ -285,22 +293,22 @@ export function DashboardView({
         {/* one h-9 group so the whole bar sits on a single baseline */}
         <div className="flex h-9 items-center gap-1.5 rounded-md border border-input bg-transparent px-2.5 dark:bg-input/30">
           <span className="hidden text-xs font-medium text-muted-foreground min-[400px]:inline">
-            {isOgxLane ? "Signed up" : "Added"}
+            {dateLabel}
           </span>
           <Input
             type="date"
-            max={today}
+            max={dateMax}
             className="h-7 w-[7.6rem] min-[400px]:w-[8.2rem] border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
-            aria-label={isOgxLane ? "Signed up from" : "Added from"}
+            aria-label={`${dateLabel} from`}
             value={filters.from}
             onChange={(e) => setParam("from", e.target.value)}
           />
           <span className="text-xs text-muted-foreground">→</span>
           <Input
             type="date"
-            max={today}
+            max={dateMax}
             className="h-7 w-[7.6rem] min-[400px]:w-[8.2rem] border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
-            aria-label={isOgxLane ? "Signed up to" : "Added to"}
+            aria-label={`${dateLabel} to`}
             value={filters.to}
             onChange={(e) => setParam("to", e.target.value)}
           />
@@ -316,7 +324,9 @@ export function DashboardView({
         ) : null}
       </div>
 
-      {isOgxLane && ogx ? (
+      {isConsLane ? (
+        consideration ? <ConsiderationPanel stats={consideration} /> : null
+      ) : isOgxLane && ogx ? (
         <OgxPanel data={ogx} streak={streak ?? null} />
       ) : (
         <>
@@ -782,6 +792,12 @@ function ConsiderationPanel({ stats }: { stats: import("@/server/data").Consider
   const maxMonth = Math.max(1, ...stats.byMonth.map((m) => m.calls));
   return (
     <div className="space-y-4">
+      {stats.filtered ? (
+        <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
+          Filtered — every number below counts only the calls the filter bar
+          left in. Clear it to see the whole floor.
+        </p>
+      ) : null}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {kpi("IR calls — total", stats.irTotal, "Every recorded + booked call (cancelled excluded)")}
         {kpi(
@@ -789,8 +805,15 @@ function ConsiderationPanel({ stats }: { stats: import("@/server/data").Consider
           stats.irThisMonth,
           `${stats.irLastMonth} last month${delta !== 0 ? ` (${delta > 0 ? "+" : ""}${delta})` : ""}`
         )}
-        {kpi("Upcoming booked calls", stats.irUpcoming)}
+        {kpi("Upcoming booked calls", stats.irUpcoming, "Booked, still ahead of us")}
         {kpi("Calls completed", stats.irCompleted, "Booked or recorded calls that actually happened")}
+        {stats.irOverdue > 0
+          ? kpi(
+              "Waiting to be reported",
+              stats.irOverdue,
+              "Booked, the time has passed, and nobody has said what happened — open the call and record it, or cancel it"
+            )
+          : null}
         {kpi("Partner LCs reached", stats.partnerLcsContacted, `${stats.newLcsThisMonth} reached for the first time this month`)}
         {kpi("New LCs this month", stats.newLcsThisMonth, "Partner LCs whose first-ever call was this month")}
         {stats.completionRate != null
@@ -828,22 +851,59 @@ function ConsiderationPanel({ stats }: { stats: import("@/server/data").Consider
         <Card className="rise-in rise-in-1">
           <CardContent className="pt-4">
             <p className="text-xs font-medium text-muted-foreground">Calls by member</p>
+            {/* THE COLUMNS ADD UP NOW (v33.32). It used to read
+                "This month · Upcoming · Total" — three numbers that look like
+                a sum and aren't: an upcoming call is already inside both the
+                month and the total, so 4 this month + 1 upcoming showed a
+                total of 4 and read as broken. Done + Upcoming + Waiting IS
+                the total; "this month" is a slice, and says so. */}
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              Done + Upcoming + Waiting = Total. &quot;This month&quot; is a slice
+              of the same calls, not another bucket. Cancelled calls are in none
+              of them.
+            </p>
             <div className="mt-2 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-xs text-muted-foreground">
                     <th className="py-1 pr-2 font-medium">Member</th>
-                    <th className="py-1 pr-2 text-right font-medium">This month</th>
-                    <th className="py-1 pr-2 text-right font-medium">Upcoming</th>
-                    <th className="py-1 text-right font-medium">Total</th>
+                    <th className="py-1 pr-2 text-right font-medium" title="Calls that happened">
+                      Done
+                    </th>
+                    <th className="py-1 pr-2 text-right font-medium" title="Booked, still ahead">
+                      Upcoming
+                    </th>
+                    <th
+                      className="py-1 pr-2 text-right font-medium"
+                      title="The slot has passed and nobody reported what happened"
+                    >
+                      Waiting
+                    </th>
+                    <th className="py-1 pr-2 text-right font-medium" title="Of the calls in this snapshot, how many fall in this month">
+                      This month
+                    </th>
+                    <th className="py-1 text-right font-medium" title="Every call they hold — done, upcoming and waiting together">
+                      Total
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {stats.byMember.map((m) => (
                     <tr key={m.name} className="border-t">
                       <td className="max-w-40 truncate py-1.5 pr-2" dir="auto">{m.name}</td>
-                      <td className="py-1.5 pr-2 text-right tabular-nums">{m.month}</td>
+                      <td className="py-1.5 pr-2 text-right tabular-nums">{m.done}</td>
                       <td className="py-1.5 pr-2 text-right tabular-nums">{m.upcoming}</td>
+                      <td
+                        className={cn(
+                          "py-1.5 pr-2 text-right tabular-nums",
+                          m.overdue > 0 ? "font-semibold text-amber-600 dark:text-amber-400" : ""
+                        )}
+                      >
+                        {m.overdue}
+                      </td>
+                      <td className="py-1.5 pr-2 text-right tabular-nums text-muted-foreground">
+                        {m.month}
+                      </td>
                       <td className="py-1.5 text-right font-semibold tabular-nums">{m.total}</td>
                     </tr>
                   ))}
@@ -916,7 +976,13 @@ const OGX_METRICS: { key: keyof OgxFunnel; label: string; short: string }[] = [
 function OgxPanel({ data, streak }: { data: OgxDashboardData; streak: StreakStats | null }) {
   const t = data.total;
   const kpis = [
-    { label: "Sign-ups", value: t.signups, hint: "everyone who signed up" },
+    {
+      label: "Sign-ups",
+      value: t.signups,
+      hint: data.referrals
+        ? `everyone who signed up — ${data.referrals} of them organic referrals`
+        : "everyone who signed up",
+    },
     { label: "Contacted", value: t.contacted, hint: "sign-ups marked Contacted" },
     { label: "Interested", value: t.interested, hint: "said Yes to interest" },
     { label: "Applied", value: t.applied, hint: "applied — or further down the funnel" },

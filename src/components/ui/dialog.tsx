@@ -219,12 +219,18 @@ function DialogHeader({ className, children, ...props }: React.ComponentProps<"d
           from the holder". As a DOM child of the header it now matches the
           hit test like any other part of it.
           `px-3` widens the target to 40px without moving the icon (a shrink-
-          to-fit absolute box re-centres on the same midline). */}
+          to-fit absolute box re-centres on the same midline).
+          AND IT SITS ABOVE THE TITLE, NOT ON IT (v33.32). At -top-4 with
+          py-1 the 24px-tall box ran from 8px to 32px inside the content's
+          24px top padding — its lower third overlapping the first line of
+          the title, which is what "the grab is on the text itself" means.
+          py-0.5 makes the box 20px and -top-[22px] puts it at 2px→22px:
+          entirely inside the padding, 2px clear of the title. */}
       <span
         aria-hidden
         data-drag-handle
         title="Drag to move"
-        className="absolute -top-4 left-1/2 hidden -translate-x-1/2 select-none rounded-md px-3 py-1 text-muted-foreground/40 transition-colors hover:bg-muted hover:text-muted-foreground md:block md:cursor-grab md:active:cursor-grabbing"
+        className="absolute -top-[22px] left-1/2 hidden -translate-x-1/2 select-none rounded-md px-3 py-0.5 text-muted-foreground/40 transition-colors hover:bg-muted hover:text-muted-foreground md:block md:cursor-grab md:active:cursor-grabbing"
       >
         <GripHorizontal className="size-4" />
       </span>

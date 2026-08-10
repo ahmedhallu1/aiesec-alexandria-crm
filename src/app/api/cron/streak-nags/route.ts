@@ -44,10 +44,14 @@ export async function GET(req: NextRequest) {
     console.error("[streak-nags] members query failed:", membersRes.error.message);
     return NextResponse.json({ ok: false, error: membersRes.error.message }, { status: 500 });
   }
-  // v32.4: the streak covers ALL of OGX, not OGV alone
+  // v32.4: the streak covers ALL of OGX, not OGV alone.
+  // v33.32: and only where that function's leader keeps the nag on — a
+  // person in BOTH sides still gets it if EITHER side wants it sent.
+  const { allFunctionSettings } = await import("@/server/function-settings");
+  const fnSettings = await allFunctionSettings();
   const isOgxMm = (m: MmRow) =>
     [...(m.functions ?? []), ...(m.sub_functions ?? [])].some(
-      (f) => f === "OGT" || f === "OGV"
+      (f) => (f === "OGT" || f === "OGV") && fnSettings[f]?.streakNags !== false
     );
   const mms = ((membersRes.data ?? []) as MmRow[]).filter(isOgxMm);
   if (mms.length === 0) {

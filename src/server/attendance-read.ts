@@ -510,6 +510,9 @@ export interface WorkVerdict {
   status: AttendanceStatus;
   actions: number;
   spanMinutes: number;
+  /** the member's functions — so a function that opted out of working-hours
+   *  judgement (v33.32) can be dropped before anything is written */
+  functions?: string[];
 }
 
 /** Judges every person in the audience from their stamped work activity.
@@ -563,6 +566,7 @@ export async function workingHoursVerdicts(tp: TouchPointRow): Promise<WorkVerdi
       status: (attended ? "attended" : "absent") as AttendanceStatus,
       actions: times.length,
       spanMinutes,
+      functions: m.functions,
     };
   });
 }
@@ -605,10 +609,19 @@ export async function runWorkingHoursAttendance(touchPointId: string): Promise<C
       error: `The session is still open — it can be computed ${WORK_SESSION_HOURS} hours after it starts.`,
     };
 
-  const [verdicts, existing] = await Promise.all([
+  const [verdictsAll, existing, fnSettings] = await Promise.all([
     workingHoursVerdicts(tp),
     listAttendanceFor(touchPointId),
+    import("./function-settings").then((m) => m.allFunctionSettings()),
   ]);
+  // A FUNCTION CAN OPT OUT OF BEING JUDGED ON WORKING HOURS (v33.32) — the
+  // same rule TM/F&L/CXP have always had, now the leader's own call. Their
+  // people simply aren't pre-filled; a human can still record them by hand.
+  const verdicts = verdictsAll.filter((v) => {
+    const fns = v.functions ?? [];
+    if (fns.length === 0) return true;
+    return fns.some((f) => fnSettings[f]?.workingHoursJudged !== false);
+  });
   if (verdicts.length === 0)
     return { ...zero, error: "Nobody is in this touch point's audience yet." };
 

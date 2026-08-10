@@ -32,6 +32,9 @@ export interface AudienceMember {
   email: string | null;
   role: string;
   team_name: string | null;
+  /** functions + sub-functions (v33.32) — the working-hours engine asks each
+   *  function whether it wants its people judged at all */
+  functions: string[];
 }
 
 const fnsOf = (m: { functions?: string[] | null; sub_functions?: string[] | null }) => [
@@ -153,6 +156,7 @@ export async function touchPointAudience(tp: TouchPointRow): Promise<AudienceMem
     email: m.email,
     role: m.role,
     team_name: m.team_name,
+    functions: fnsOf(m),
   }));
 }
 

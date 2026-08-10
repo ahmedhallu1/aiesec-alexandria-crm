@@ -139,8 +139,22 @@ export async function loadAttendanceSheet(
   // engine when the window has closed and no pre-fill exists yet. Guards:
   // never after a human confirmed (attendance_recorded_at — rows they left
   // auto would otherwise be rewritable), never in a sandbox, never twice.
+  // v33.32 — and only if the point's own function still wants the pre-fill.
+  // A leader who turned it off means "we record these by hand".
+  const autoAllowed = await (async () => {
+    if (!isWorkingHours) return false;
+    try {
+      const { allFunctionSettings } = await import("./function-settings");
+      const all = await allFunctionSettings();
+      const key = tp.function_key ?? "";
+      return !key || all[key]?.workingHoursAuto !== false;
+    } catch {
+      return true;
+    }
+  })();
   if (
     isWorkingHours &&
+    autoAllowed &&
     tp.status === "scheduled" &&
     !tp.attendance_recorded_at &&
     workWindowClosed(tp.starts_at) &&

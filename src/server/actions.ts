@@ -51,7 +51,6 @@ import {
 import {
   accountSlug,
   B2C_TYPES,
-  podioDefaultDays,
   cleanPhone,
   EMAIL_RE,
   FEEDBACK_CATEGORIES,
@@ -370,6 +369,13 @@ export async function createAccount(
   if (contactError) return fail(contactError);
   const legacy = legacyContactColumns(contacts);
 
+  // THE FUNCTION'S OWN DEFAULTS (v33.32, migration 0054) — the leader of this
+  // function decides whether new accounts start on the Podio update cycle and
+  // how often. Unset = the rule that shipped before: ON for IGV/B2C/BD.
+  const fnSettings = await (
+    await import("./function-settings")
+  ).functionSettingsFor(data.function);
+
   const { data: created, error } = await db()
     .from("accounts")
     .insert({
@@ -386,10 +392,10 @@ export async function createAccount(
       request_state: canSetRequestStateOnCreate(viewer) ? data.request_state ?? null : null,
       responsible_id: responsibleId,
       created_by: viewer.id,
-      // continuous Podio updates (v24): ON by default for IGV / B2C / BD,
-      // OFF for IGT / B2B — always editable on the account page
-      podio_update_enabled: ["IGV", "B2C", "BD"].includes(data.function),
-      podio_update_every_days: podioDefaultDays(data.function),
+      // continuous Podio updates (v24): the function's own default since
+      // v33.32 — always editable per account afterwards
+      podio_update_enabled: fnSettings.podioUpdateDefault,
+      podio_update_every_days: fnSettings.podioUpdateDays,
       podio_updated_at: new Date().toISOString(),
     })
     .select("id")
@@ -3343,6 +3349,61 @@ export async function updateProfile(input: {
   return { ok: true };
 }
 
+/** THE FUNCTION'S DEFAULTS (v33.32, migration 0054).
+ *
+ *  A function's LCVP/Director sets how their floor behaves — what a new
+ *  account starts with, who may read the whole function, whether the OGX pool
+ *  is self-service, whether TM chases their sessions. LCP/admin may set any
+ *  function's; everyone else, none.
+ *
+ *  Stored as one JSONB blob, merged over the current row so a form that only
+ *  sends what it renders can never blank a switch it doesn't show. */
+export async function saveFunctionSettings(
+  fn: string,
+  patch: Record<string, unknown>
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const { manageableFunctions, FUNCTION_SETTINGS_TAG } = await import("./function-settings");
+  if (!manageableFunctions(viewer).includes(fn as never))
+    return fail("Only that function's VP or Director can change its defaults.", "forbidden");
+  const { resolveFunctionSettings } = await import("@/lib/function-settings");
+
+  const { data: existing } = await db()
+    .from("function_settings")
+    .select("settings")
+    .eq("function_key", fn)
+    .maybeSingle<{ settings: unknown }>();
+  const merged = resolveFunctionSettings(fn, {
+    ...(typeof existing?.settings === "object" && existing?.settings ? existing.settings : {}),
+    ...patch,
+  });
+
+  // deliberately NOT journalled for undo: `snapshotForUndo` keys on an `id`
+  // column and this table is keyed by function_key. The audit row below
+  // carries the full resolved blob, which is what a rollback would read.
+  const { error } = await db().from("function_settings").upsert(
+    {
+      function_key: fn,
+      settings: merged,
+      updated_at: new Date().toISOString(),
+      updated_by: viewer.id,
+      updated_by_name: viewer.name,
+    },
+    { onConflict: "function_key" }
+  );
+  if (error) return fail(error.message);
+
+  // The settings map is cached for a minute on every request that builds a
+  // Viewer. `updateTag` (not revalidateTag) is the read-your-own-writes one in
+  // Next 16 — a leader flipping a switch must not be served the stale value
+  // they just changed while it revalidates in the background.
+  const { updateTag } = await import("next/cache");
+  updateTag(FUNCTION_SETTINGS_TAG);
+  await logAudit(viewer.id, "function_settings_save", "function", fn, { settings: merged });
+  refresh();
+  return { ok: true };
+}
+
 export async function changePassword(input: {
   current: string;
   next: string;
@@ -5530,6 +5591,20 @@ export async function claimSignup(id: string): Promise<ActionResult> {
   if (!signup || !ogxFunctions(viewer).includes(signup.fn))
     return fail("This sign-up is outside your function.", "forbidden");
   if (signup.out_of_process) return fail("This sign-up is archived (Out of Process).");
+  // THE POOL CAN BE CLOSED (v33.32): some leaders distribute the pool
+  // themselves rather than letting members take from it. MMs and above still
+  // assign — this only governs self-service.
+  {
+    const { functionSettingsFor } = await import("./function-settings");
+    const s = await functionSettingsFor(signup.fn);
+    const isMm =
+      viewer.isAdmin ||
+      ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(viewer.role);
+    if (!s.poolClaimOpen && !isMm)
+      return fail(
+        "Your function hands out sign-ups rather than letting members claim them — ask your TL or VP for your next one."
+      );
+  }
   if (signup.assigned_to)
     return fail("Someone already took this one — refresh the list.");
   // the sheet may carry a name Sodio couldn't match to a member — that's
@@ -5840,6 +5915,154 @@ export async function updateSignupContact(
 const contactAnswered = (v: string | null | undefined) => (v ?? "").trim() !== "";
 
 /** A sign-up EDIT LOG entry (v33.19) — who changed what, when. Best-effort. */
+/** ORGANIC REFERRALS (v33.32).
+ *
+ *  Not everyone we can approve came through a tracker. Someone's cousin, a
+ *  friend from a session, an EP another member sent our way — until now those
+ *  people had nowhere to live, so they were worked over WhatsApp and never
+ *  appeared in a funnel, a leaderboard or a plan. A referral is simply a
+ *  sign-up we created ourselves: same table, same columns, same statuses, same
+ *  dashboard.
+ *
+ *  It carries `source = 'referral'`, which is what keeps the tracker sync away
+ *  from it: the importer only ever touches rows whose source is one of the
+ *  four sheet tabs, and BOTH write-back paths look the source up in
+ *  SIGNUP_TABS and return early when it isn't there. It is also born
+ *  `sodio_touched`, so nothing tries to reconcile it with a sheet row that
+ *  doesn't exist.
+ *
+ *  ASSIGNED FROM BIRTH: an unassigned sign-up is invisible to the OGX
+ *  dashboard by design (the pool is a to-do list, not progress), and a
+ *  referral with nobody on it would be a name in a void. */
+export async function addSignupReferral(input: {
+  fn: string;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  university?: string | null;
+  /** OGT only — GTa / GTe */
+  subProduct?: string | null;
+  /** who sent them our way (a member's name, an EP, "walk-in") */
+  referredBy?: string | null;
+  /** optional first comment */
+  note?: string | null;
+  /** MMs and above may hand it straight to someone else */
+  assignTo?: string | null;
+}): Promise<ActionResult<{ id: string }>> {
+  const viewer = await getViewer();
+  const fn = String(input.fn ?? "").toUpperCase();
+  if (fn !== "OGT" && fn !== "OGV") return fail("Pick OGT or OGV.");
+  if (!ogxFunctions(viewer).includes(fn))
+    return fail("That's outside your function.", "forbidden");
+
+  const isMm =
+    viewer.isAdmin ||
+    ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(viewer.role);
+  {
+    const { functionSettingsFor } = await import("./function-settings");
+    const s = await functionSettingsFor(fn);
+    if (s.referralsBy === "mms" && !isMm)
+      return fail(
+        `In ${fn}, referrals are added by TLs and above — send yours to your TL and they'll log it.`
+      );
+  }
+
+  const name = (input.name ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+  if (name.length < 2) return fail("Type the person's name.");
+  const clean = (v: string | null | undefined, max: number) =>
+    (v ?? "").replace(/\s+/g, " ").trim().slice(0, max) || null;
+  const email = clean(input.email, 200)?.toLowerCase() ?? null;
+  if (email && !EMAIL_RE.test(email)) return fail("That email doesn't look right.");
+  let phone = clean(input.phone, 40);
+  if (phone) {
+    const check = normalizePhone(phone);
+    if (!check.ok)
+      return fail(check.error ?? "That phone number doesn't look right.");
+    phone = check.value;
+  }
+  if (!phone && !email)
+    return fail("A referral needs a phone or an email — otherwise nobody can reach them.");
+
+  // who carries it: yourself by default; an MM may hand it to anyone who
+  // works this function (the same rule the reassign picker uses)
+  let owner = { id: viewer.id, name: viewer.name };
+  if (input.assignTo && input.assignTo !== viewer.id) {
+    if (!isMm) return fail("Only TLs and above assign a referral to someone else.", "forbidden");
+    const { data: target } = await db()
+      .from("members")
+      .select("id, name, functions, sub_functions")
+      .eq("id", input.assignTo)
+      .eq("is_active", true)
+      .maybeSingle<{ id: string; name: string; functions: string[] | null; sub_functions: string[] | null }>();
+    if (!target) return fail("Pick an active member.");
+    if (![...(target.functions ?? []), ...(target.sub_functions ?? [])].includes(fn))
+      return fail(`${target.name} doesn't work ${fn}.`);
+    owner = { id: target.id, name: target.name };
+  }
+
+  const now = new Date();
+  const epId = `REF-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
+  const { data: created, error } = await db()
+    .from("signups")
+    .insert({
+      fn,
+      batch: "new",
+      source: "referral",
+      ep_id: epId,
+      name,
+      phone,
+      email,
+      university: clean(input.university, 120),
+      sub_product: fn === "OGT" ? clean(input.subProduct, 20) : null,
+      program: fn === "OGV" ? "Global Volunteer" : clean(input.subProduct, 20),
+      referral: clean(input.referredBy, 120),
+      campaign: "Referral",
+      signed_up_at: now.toISOString().slice(0, 10),
+      assigned_to: owner.id,
+      assigned_name: owner.name,
+      assigned_at: now.toISOString(),
+      sodio_touched: true,
+      out_of_process: false,
+    })
+    .select("id")
+    .single();
+  if (error) {
+    if (error.code === "23505") return fail("That referral already exists — try again.");
+    return fail(error.message);
+  }
+
+  if (input.note) {
+    const body = clean(input.note, 2000);
+    if (body)
+      await db().from("signup_comments").insert({
+        signup_id: created.id,
+        author_id: viewer.id,
+        author_name: viewer.name,
+        author_class: isMm ? "vp" : "member",
+        body,
+      }).then(({ error: e }) => {
+        if (e) console.error("[signups] referral comment failed:", e.message);
+      });
+  }
+
+  await logSignupChange(viewer, created.id, "referral_added", null, name);
+  if (owner.id !== viewer.id) {
+    await logSignupChange(viewer, created.id, "assigned", null, owner.name);
+    const { notifyMembers } = await import("./notify");
+    await notifyMembers(
+      [owner.id],
+      "info",
+      `🤝 A referral is yours — ${name}`,
+      `${viewer.name} logged an organic referral in ${fn} and put it on you. Call them and move them through the funnel like any sign-up.`,
+      null,
+      "/signups?view=mine"
+    );
+  }
+  await logAudit(viewer.id, "signup_referral_add", "signup", created.id, { fn, name });
+  refresh();
+  return { ok: true, data: { id: created.id } };
+}
+
 async function logSignupChange(
   viewer: { id: string; name: string },
   signupId: string,
@@ -5926,6 +6149,14 @@ export async function assignCicCaller(
   // predicate is the right gate: MM+ inside the sign-up's function.
   if (!ogxFunctions(viewer).includes(signup.fn))
     return fail("This sign-up isn't in your function.", "forbidden");
+  // the function's leader can switch the second call off entirely (v33.32)
+  {
+    const { functionSettingsFor } = await import("./function-settings");
+    if (!(await functionSettingsFor(signup.fn)).cicEnabled)
+      return fail(
+        `${signup.fn} doesn't run second calls — your VP can turn CIC back on from their profile.`
+      );
+  }
   // the same three conditions the queue itself is built from — held by a real
   // member, first call answered, no status yet
   if (!signup.assigned_to)
@@ -7304,6 +7535,27 @@ export async function bookIrCall(input: {
     await sendEmail({ to: [bookerEmail], subject: confirm.subject, html: confirm.html });
   } catch (e) {
     console.error("[ir-booking] booker confirmation email failed:", e);
+    // A SEND THAT FAILS ON THE SPOT IS A BOUNCE WE ALREADY KNOW ABOUT
+    // (v33.32). Gmail rejects some addresses synchronously — waiting for the
+    // 15-minute bounce watcher to notice something we were just told is a
+    // gap with no upside. Flag it now and put it in the host's hands.
+    try {
+      await db()
+        .from("ir_calls")
+        .update({ email_bounced_at: new Date().toISOString() })
+        .eq("id", created.id);
+      const { notifyMembers } = await import("./notify");
+      await notifyMembers(
+        [owner.id],
+        "info",
+        `⚠️ ${bookerName}'s email was rejected — ${lc.name}`,
+        `We couldn't deliver anything to ${bookerEmail}. WhatsApp them (${bookerPhone}) for the right address, then open the call on Consideration → Fix the email.`,
+        null,
+        "/consideration"
+      );
+    } catch (inner) {
+      console.error("[ir-booking] bounce flag failed:", inner);
+    }
   }
 
   await logAudit(null, "ir_call_booked", "ir_call", created.id, {
@@ -7601,24 +7853,40 @@ export async function updateIrBookerEmail(id: string, emailRaw: string): Promise
         .ilike("email", oldEmail);
   }
 
-  // swap the calendar attendee — Google re-sends the Meet invite
+  // ---- THE INVITE FOLLOWS THE CORRECTION (v33.32)
+  //
+  // "Removed from the first mail, added to the next": the wrong address is
+  // dropped from the event (Google mails it a cancellation) and the right one
+  // is invited (Google mails it the invite). That is what the attendee swap
+  // does — but it can only patch an event that EXISTS on a calendar we can
+  // reach, and the two cases where it can't are exactly the ones this feature
+  // is for: a booking whose event was never created (dead grant at booking
+  // time) and an owner-hosted event whose owner has since revoked Google.
+  // So when the swap can't happen, the event is REBUILT on the IM mailbox —
+  // old one deleted (which notifies the wrong address), new one created with
+  // the right address and the host invited.
+  const onMailbox =
+    (call as { event_calendar?: string | null }).event_calendar === "mailbox";
+  const { data: owner } = call.member_id
+    ? await db()
+        .from("members")
+        .select("id, name, email, fallback_email, google_refresh_token")
+        .eq("id", call.member_id)
+        .maybeSingle<{
+          id: string;
+          name: string;
+          email: string | null;
+          fallback_email: string | null;
+          google_refresh_token: string | null;
+        }>()
+    : { data: null };
   let inviteSwapped = false;
+  let meetLink = call.meet_link;
   if (call.calendar_event_id) {
     try {
       const { swapIrCallAttendee } = await import("@/lib/google/calendar");
-      const onMailbox =
-        (call as { event_calendar?: string | null }).event_calendar === "mailbox";
-      let hostToken: string | null = null;
-      if (!onMailbox && call.member_id) {
-        const { data: owner } = await db()
-          .from("members")
-          .select("google_refresh_token")
-          .eq("id", call.member_id)
-          .maybeSingle<{ google_refresh_token: string | null }>();
-        hostToken = owner?.google_refresh_token ?? null;
-      }
       inviteSwapped = await swapIrCallAttendee({
-        hostRefreshToken: hostToken,
+        hostRefreshToken: onMailbox ? null : owner?.google_refresh_token ?? null,
         onMailbox,
         eventId: call.calendar_event_id,
         oldEmail,
@@ -7626,6 +7894,71 @@ export async function updateIrBookerEmail(id: string, emailRaw: string): Promise
       });
     } catch (e) {
       console.error("[ir-calls] attendee swap failed:", e);
+    }
+  }
+  if (!inviteSwapped && !(await sandboxSuppressed("IR-call invite rebuild"))) {
+    try {
+      const {
+        createIrCallEvent, createIrCallEventOnMailbox,
+        deleteIrCallEvent, deleteIrCallEventOnMailbox,
+      } = await import("@/lib/google/calendar");
+      // drop the old event first — the wrong inbox gets the cancellation, and
+      // nobody is left with two entries for one call
+      if (call.calendar_event_id) {
+        try {
+          if (onMailbox) await deleteIrCallEventOnMailbox(call.calendar_event_id);
+          else
+            await deleteIrCallEvent(
+              owner?.google_refresh_token ?? null,
+              call.calendar_event_id
+            );
+        } catch (e) {
+          console.error("[ir-calls] old event delete failed:", e);
+        }
+      }
+      const start = new Date(call.called_at);
+      const minutes = call.duration_minutes ?? 30;
+      const description = `AIESEC IR call.\nPartner LC: ${call.partner_lc_name}${
+        call.booker_name ? `\nBooked by: ${call.booker_name}` : ""
+      } <${email}>\nHost: ${call.member_name}, AIESEC in Alexandria.${
+        call.booker_note ? `\n\nWhat they'd like to talk about:\n${call.booker_note}` : ""
+      }`;
+      const made = owner?.google_refresh_token
+        ? await createIrCallEvent(owner.google_refresh_token, {
+            partnerLc: call.partner_lc_name,
+            start,
+            minutes,
+            attendeeEmail: email,
+            description,
+          }).catch((e) => {
+            console.error("[ir-calls] owner re-invite failed, trying mailbox:", e);
+            return null;
+          })
+        : null;
+      const rebuilt =
+        made ??
+        (await createIrCallEventOnMailbox({
+          partnerLc: call.partner_lc_name,
+          start,
+          minutes,
+          attendeeEmail: email,
+          ownerEmail: owner?.email ?? owner?.fallback_email ?? null,
+          description,
+        }));
+      if (rebuilt) {
+        meetLink = rebuilt.meetLink;
+        inviteSwapped = true;
+        await db()
+          .from("ir_calls")
+          .update({
+            calendar_event_id: rebuilt.id,
+            meet_link: rebuilt.meetLink,
+            event_calendar: made ? "owner" : "mailbox",
+          })
+          .eq("id", id);
+      }
+    } catch (e) {
+      console.error("[ir-calls] invite rebuild failed:", e);
     }
   }
 
@@ -7644,12 +7977,23 @@ export async function updateIrBookerEmail(id: string, emailRaw: string): Promise
         whenLabel: zone ? whenLabelInZone(call.called_at, zone) : cairo,
         cairoLabel: zone ? cairo : null,
         slotMinutes: call.duration_minutes ?? 30,
-        meetLink: call.meet_link,
+        // the link from the REBUILT event when there is one, so the mail never
+        // hands them a Meet room that no longer exists
+        meetLink,
         manageUrl: `${env.appUrl}/book/manage/${call.manage_token}`,
       });
       await sendEmail({ to: [email], subject: confirm.subject, html: confirm.html });
     } catch (e) {
       console.error("[ir-calls] confirmation re-send failed:", e);
+      // the whole point of the fix is that the IR hears about it — a failure
+      // here means the new address is bad too, so keep the call flagged
+      await db()
+        .from("ir_calls")
+        .update({ email_bounced_at: new Date().toISOString() })
+        .eq("id", id);
+      return fail(
+        "Saved the address, but the confirmation wouldn't send to it either — check it with the IR again."
+      );
     }
   }
 

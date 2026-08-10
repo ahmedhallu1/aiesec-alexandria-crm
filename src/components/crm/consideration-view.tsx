@@ -110,6 +110,30 @@ interface CallsData extends PageData<IrCallRow> {
   scheduled: IrCallRow[];
 }
 
+/** THE CALL LOG'S FILTERS (v33.32) — the log is server-paged, so these live in
+ *  the URL and are applied in the query: they filter the whole history, not
+ *  the fifty rows in hand. Namespaced params (`call*`) because the CV tab and
+ *  the LC registry share this page's query string. */
+export interface CallFilterState {
+  q?: string;
+  product?: string;
+  status?: string;
+  member?: string;
+  lc?: string;
+  from?: string;
+  to?: string;
+}
+
+const CALL_PARAM: Record<string, string> = {
+  q: "callq",
+  product: "callproduct",
+  status: "callstatus",
+  member: "callmember",
+  lc: "calllc",
+  from: "callfrom",
+  to: "callto",
+};
+
 interface ViewerInfo {
   id: string;
   isVp: boolean;
@@ -1360,6 +1384,7 @@ export function ConsiderationView({
   pageSize,
   pageSizeOptions,
   tab, lcs, calls, cvs, q, viewer, booking, origin, highlightLc,
+  callFilters, callOptions,
 }: {
   tab: "calls" | "cvs" | "expectation" | "lcs";
   /** ?lc=<id> — the LC the log linked to, scrolled to and outlined */
@@ -1367,6 +1392,9 @@ export function ConsiderationView({
   lcs: (PartnerLc | PartnerLcDetail)[];
   calls: CallsData;
   cvs: PageData<CvRow>;
+  /** the call log's server-side filters + the values the whole set holds */
+  callFilters: CallFilterState;
+  callOptions: { members: string[]; lcs: string[] };
   q: string;
   pageSize: number;
   pageSizeOptions: number[];
@@ -1473,6 +1501,18 @@ export function ConsiderationView({
             viewer={viewer}
             booking={booking}
             origin={origin}
+            filters={callFilters}
+            filterOptions={callOptions}
+            onFilter={(patch) =>
+              // any filter change resets to page 1 — page 4 of the old result
+              // set is meaningless against the new one
+              setParams({
+                ...Object.fromEntries(
+                  Object.entries(patch).map(([k, v]) => [CALL_PARAM[k] ?? k, v || null])
+                ),
+                page: null,
+              })
+            }
           />
         ) : (
           <CvsTab
@@ -2102,7 +2142,7 @@ const CV_SORTERS: Record<string, (c: CvRow) => string | number | null> = {
 
 function IrCallsTab({
   data, lcs, onLcCreated, goPage, viewer, booking, origin,
-  pageSize, pageSizeOptions, onPageSize, onOpenLc,
+  pageSize, pageSizeOptions, onPageSize, onOpenLc, filters, filterOptions, onFilter,
 }: {
   pageSize: number;
   pageSizeOptions: number[];
@@ -2116,6 +2156,9 @@ function IrCallsTab({
   viewer: ViewerInfo;
   booking: MyIrBooking | null;
   origin: string;
+  filters: CallFilterState;
+  filterOptions: { members: string[]; lcs: string[] };
+  onFilter: (patch: CallFilterState) => void;
 }) {
   const [completing, setCompleting] = useState<IrCallRow | null>(null);
   const [cancelling, setCancelling] = useState<IrCallRow | null>(null);
@@ -2136,6 +2179,17 @@ function IrCallsTab({
   // not a dropdown entry. The "With" list therefore leaves the viewer OUT
   // (matched by id, never by name — two members can share a first name).
   const [schedMine, setSchedMine] = useState(false);
+  // v33.32 — "show me only the ones that need something from me"
+  const [schedNeedy, setSchedNeedy] = useState(false);
+  /** the slot has passed and the call is still just "scheduled" */
+  const pastDue = useCallback(
+    (c: IrCallRow) => c.status === "scheduled" && new Date(c.called_at) < new Date(),
+    []
+  );
+  const needsAttention = useMemo(
+    () => data.scheduled.filter((c) => pastDue(c) || c.email_bounced_at),
+    [data.scheduled, pastDue]
+  );
   const schedWithOptions = [
     ...new Set(
       data.scheduled.filter((c) => c.member_id !== viewer.id).map((c) => c.member_name)
@@ -2146,6 +2200,7 @@ function IrCallsTab({
   );
   const scheduledShown = data.scheduled.filter(
     (c) =>
+      (!schedNeedy || pastDue(c) || !!c.email_bounced_at) &&
       (!schedMine || c.member_id === viewer.id) &&
       (!schedWith || c.member_name === schedWith) &&
       (!schedProduct || c.product === schedProduct) &&
@@ -2162,6 +2217,55 @@ function IrCallsTab({
   const cols = useTableColumns("consideration-calls", CALL_COLUMNS);
   const { sorted: sortedCalls, sortKey, dir, toggle: toggleSort } =
     useTableSort(data.rows, CALL_SORTERS);
+
+  // THE LOG'S COLUMN FUNNELS (v33.32). Same house rule as everywhere else —
+  // if it is a column, you filter it from the column — and server-side,
+  // because the log is paged: a client-side filter would narrow the page and
+  // present it as the whole history.
+  const callFunnels: Record<string, { label: string; key: keyof CallFilterState; options: { value: string; label: string }[] }> = {
+    product: {
+      label: "Product",
+      key: "product",
+      options: [
+        { value: "GV", label: "GV" },
+        { value: "GT", label: "GT" },
+        { value: "none", label: "— untagged" },
+      ],
+    },
+    status: {
+      label: "Status",
+      key: "status",
+      options: [
+        { value: "completed", label: "Completed" },
+        { value: "cancelled", label: "Cancelled" },
+      ],
+    },
+    by: {
+      label: "By",
+      key: "member",
+      options: filterOptions.members.map((m) => ({ value: m, label: m })),
+    },
+    lc: {
+      label: "Partner LC",
+      key: "lc",
+      options: filterOptions.lcs.map((l) => ({ value: l, label: l })),
+    },
+  };
+  const callFunnel = (colKey: string) => {
+    const f = callFunnels[colKey];
+    if (!f || f.options.length === 0) return null;
+    return (
+      <ColumnFilter
+        label={f.label}
+        value={filters[f.key] ?? ""}
+        options={f.options}
+        onChange={(v) => onFilter({ [f.key]: v })}
+        allLabel={`All ${f.label.toLowerCase()}`}
+      />
+    );
+  };
+  const [searchDraft, setSearchDraft] = useState(filters.q ?? "");
+  const anyCallFilter = Object.values(filters).some(Boolean);
 
   /** One call-log cell, by column key. */
   const callCell = (c: IrCallRow, key: string): React.ReactNode => {
@@ -2282,6 +2386,31 @@ function IrCallsTab({
             </p>
           </CardHeader>
           <CardContent className="space-y-2">
+            {/* CALLS THAT NEED A HUMAN (v33.32) — a booked call whose time has
+                passed and that nobody reported on, or one whose IR email
+                bounced. Both used to sit in this list looking identical to a
+                call that is simply next week, which is how eleven scheduled
+                calls read as eleven upcoming ones. */}
+            {needsAttention.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setSchedNeedy((v) => !v)}
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-left text-sm transition-colors hover:bg-amber-500/15",
+                  schedNeedy && "ring-2 ring-amber-500/40"
+                )}
+              >
+                <CalendarClock className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <span className="min-w-0 flex-1">
+                  <b>{needsAttention.length}</b>{" "}
+                  {needsAttention.length === 1 ? "call needs" : "calls need"} you —
+                  the time has passed with no report, or the IR&apos;s email bounced.
+                </span>
+                <span className="shrink-0 text-xs font-semibold text-amber-700 dark:text-amber-400">
+                  {schedNeedy ? "Show all" : "Show them"}
+                </span>
+              </button>
+            ) : null}
             {data.scheduled.length > 3 ? (
               <div className="flex flex-wrap items-center gap-2 pb-1">
                 <Hint label="Only the calls you take">
@@ -2388,6 +2517,11 @@ function IrCallsTab({
                     {c.email_bounced_at ? (
                       <span className="rounded-full bg-destructive/15 px-2 py-0.5 text-[11px] font-semibold text-destructive">
                         ⚠️ Email bounced
+                      </span>
+                    ) : null}
+                    {pastDue(c) ? (
+                      <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-600 dark:text-amber-400">
+                        ⏰ Time passed — report it
                       </span>
                     ) : null}
                   </div>
@@ -2579,10 +2713,78 @@ function IrCallsTab({
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
+          {/* SEARCH + THE DATE WINDOW (v33.32) — the two things that aren't
+              columns. Everything that IS a column is filtered from its own
+              header funnel (and, on phones, from the row beneath). */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-44 flex-1">
+              <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="h-9 pl-8"
+                placeholder="Search LC, IR, host or notes…"
+                value={searchDraft}
+                onChange={(e) => setSearchDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") onFilter({ q: searchDraft.trim() });
+                  if (e.key === "Escape") { setSearchDraft(""); onFilter({ q: "" }); }
+                }}
+                onBlur={() => {
+                  if ((searchDraft.trim() || "") !== (filters.q ?? ""))
+                    onFilter({ q: searchDraft.trim() });
+                }}
+              />
+            </div>
+            <div className="flex h-9 items-center gap-1.5 rounded-md border border-input bg-transparent px-2.5 dark:bg-input/30">
+              <span className="hidden text-xs font-medium text-muted-foreground min-[400px]:inline">
+                Called
+              </span>
+              <Input
+                type="date"
+                aria-label="Called from"
+                className="h-7 w-[7.6rem] min-[400px]:w-[8.2rem] border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
+                value={filters.from ?? ""}
+                onChange={(e) => onFilter({ from: e.target.value })}
+              />
+              <span className="text-xs text-muted-foreground">→</span>
+              <Input
+                type="date"
+                aria-label="Called to"
+                className="h-7 w-[7.6rem] min-[400px]:w-[8.2rem] border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
+                value={filters.to ?? ""}
+                onChange={(e) => onFilter({ to: e.target.value })}
+              />
+            </div>
+            {/* phones have no table header to hang the funnels off */}
+            <div className="flex items-center gap-2 md:hidden">
+              {(["product", "status", "by", "lc"] as const).map((k) => {
+                const f = callFunnels[k];
+                if (!f || f.options.length === 0) return null;
+                return (
+                  <span key={k} className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                    {f.label}
+                    {callFunnel(k)}
+                  </span>
+                );
+              })}
+            </div>
+            {anyCallFilter ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setSearchDraft("");
+                  onFilter({ q: "", product: "", status: "", member: "", lc: "", from: "", to: "" });
+                }}
+              >
+                <X className="size-4" /> Clear filters
+              </Button>
+            ) : null}
+          </div>
           {data.rows.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              No completed IR calls yet — book one via your link or record one
-              manually above. 🌍
+              {anyCallFilter
+                ? "No calls match these filters — widen them or clear them."
+                : "No completed IR calls yet — book one via your link or record one manually above. 🌍"}
             </p>
           ) : (
             <>
@@ -2601,12 +2803,15 @@ function IrCallsTab({
                           cols={cols}
                           className={c.key === "screenshot" ? "text-right" : undefined}
                         >
-                          <SortHeader
-                            label={c.label}
-                            onClick={() => toggleSort(c.key, c.key === "when" ? "desc" : "asc")}
-                            active={sortKey === c.key}
-                            dir={dir}
-                          />
+                          <span className="inline-flex items-center gap-1">
+                            <SortHeader
+                              label={c.label}
+                              onClick={() => toggleSort(c.key, c.key === "when" ? "desc" : "asc")}
+                              active={sortKey === c.key}
+                              dir={dir}
+                            />
+                            {callFunnel(c.key)}
+                          </span>
                         </ResizableHead>
                       ))}
                     </TableRow>

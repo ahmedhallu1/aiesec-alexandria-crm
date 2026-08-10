@@ -30,6 +30,20 @@ export default async function ProfilePage() {
     };
   }
 
+  // FUNCTION DEFAULTS (v33.32) — a leader's own functions, with what each one
+  // currently resolves to. Empty for everyone who leads nothing, so the card
+  // simply doesn't render.
+  const { allFunctionSettings, manageableFunctions } = await import(
+    "@/server/function-settings"
+  );
+  const myFns = manageableFunctions(viewer);
+  const fnSettings =
+    myFns.length > 0
+      ? await allFunctionSettings().then((all) =>
+          myFns.map((fn) => ({ fn, ...all[fn] }))
+        )
+      : [];
+
   const [stakeholderRow, teams, people, tlPlan, mmPlan] = await Promise.all([
     viewer.stakeholder_id
       ? db()
@@ -69,6 +83,7 @@ export default async function ProfilePage() {
       tlPlan={tlPlan}
       mmPlan={mmPlan}
       viewAs={viewAs}
+      fnSettings={fnSettings}
     />
   );
 }

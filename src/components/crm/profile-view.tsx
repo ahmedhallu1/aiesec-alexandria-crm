@@ -4,8 +4,15 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import Link from "next/link";
-import { Check, ChevronDown, Dices, Eye, FlipHorizontal2, KeyRound, Loader2, Lock, Mail, MessageSquareHeart, Phone, Sparkles, Target, Upload, Users, UsersRound } from "lucide-react";
-import { changePassword, startViewAs, stopViewAs, updateAvatar, updateProfile } from "@/server/actions";
+import { Check, ChevronDown, Dices, Eye, FlipHorizontal2, KeyRound, Loader2, Lock, Mail, MessageSquareHeart, Phone, SlidersHorizontal, Sparkles, Target, Upload, Users, UsersRound } from "lucide-react";
+import {
+  changePassword, saveFunctionSettings, startViewAs, stopViewAs, updateAvatar,
+  updateProfile,
+} from "@/server/actions";
+import {
+  settingGroupsFor, type FunctionSettings,
+} from "@/lib/function-settings";
+import { Switch } from "@/components/ui/switch";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -50,14 +57,24 @@ interface ProfileInfo {
   fallbackEmail: string | null;
 }
 
+/** One function's resolved defaults, as the profile card receives them. */
+export type FunctionSettingsCard = FunctionSettings & {
+  fn: string;
+  updatedAt: string | null;
+  updatedBy: string | null;
+};
+
 export function ProfileView({
   member,
   people,
   tlPlan,
   mmPlan,
   viewAs,
+  fnSettings = [],
 }: {
   member: ProfileInfo;
+  /** the functions this viewer LEADS (v33.32) — empty for everyone else */
+  fnSettings?: FunctionSettingsCard[];
   /** the viewer's people (TL → team · VP/Director → function · LCP → EB) */
   people: { title: string; people: PersonCard[] } | null;
   /** raising MMs (v22): their opens plan for the peak + monthly actuals */
@@ -191,7 +208,7 @@ export function ProfileView({
                 landed yet still needs to RECEIVE things: password resets,
                 the calendar invites behind their IR calls. Never a login. */}
             <div className="grid gap-1.5">
-              <Label>Backup Gmail (until your @aiesec.net arrives)</Label>
+              <Label>Personal Gmail — backup only (until your AIESEC Mail arrives)</Label>
               <Input
                 type="email"
                 inputMode="email"
@@ -200,8 +217,9 @@ export function ProfileView({
                 onChange={(e) => { setFallbackEmail(e.target.value); setDirty(true); }}
               />
               <p className="text-xs text-muted-foreground">
-                Password resets and your IR-call calendar invites go here when
-                you have no AIESEC email yet. It's never a sign-in.
+                Your own <b>Gmail</b>, not an AIESEC address. Password resets and
+                your IR-call calendar invites go here while you have no AIESEC
+                Mail yet. It&apos;s never a sign-in.
               </p>
             </div>
             {dirty ? (
@@ -221,7 +239,7 @@ export function ProfileView({
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
             <ReadRow label="Full name" value={member.name} />
-            <ReadRow label="Email" value={member.email} />
+            <ReadRow label="AIESEC Mail" value={member.email} />
             <ReadRow label="Role" value={member.role} />
             <ReadRow label="Function" value={member.functions.join(", ") || "—"} />
             <ReadRow label="Sub function" value={member.subFunctions.join(", ") || "—"} />
@@ -315,6 +333,27 @@ export function ProfileView({
                 <span className="font-semibold">{t.name}</span>
                 <span className="text-xs text-muted-foreground">· {t.label}</span>
               </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {fnSettings.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <SlidersHorizontal className="size-4 text-muted-foreground" />
+              Function defaults
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              How your function behaves by default. Nothing here changes what
+              already exists — these are the rules new work starts from, and
+              they apply to everyone in the function.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {fnSettings.map((s) => (
+              <FunctionDefaultsBlock key={s.fn} settings={s} />
             ))}
           </CardContent>
         </Card>
@@ -461,6 +500,247 @@ export function ProfileView({
       </Card>
 
       {viewAs ? <ViewAsCard viewAs={viewAs} /> : null}
+    </div>
+  );
+}
+
+/** ONE FUNCTION'S DEFAULTS (v33.32).
+ *
+ *  Every switch here replaces a constant that used to live in the code, and
+ *  each one is wired to something real — a dead toggle would be worse than no
+ *  toggle. The card only renders the groups that apply to the function, so a
+ *  TM leader never sees a Podio cadence and a B2C leader never sees the OGX
+ *  pool. Saving sends only the keys this block rendered; the server merges
+ *  them over what is stored, so nothing off-screen can be blanked. */
+function FunctionDefaultsBlock({ settings }: { settings: FunctionSettingsCard }) {
+  const router = useRouter();
+  const [form, setForm] = useState<FunctionSettings>(settings);
+  const [dirty, setDirty] = useState(false);
+  const [pending, start] = useTransition();
+  const groups = settingGroupsFor(settings.fn);
+
+  const set = <K extends keyof FunctionSettings>(k: K, v: FunctionSettings[K]) => {
+    setForm((f) => ({ ...f, [k]: v }));
+    setDirty(true);
+  };
+
+  const save = () =>
+    start(async () => {
+      // only the keys this block actually renders — the server merges the rest
+      const patch: Record<string, unknown> = {};
+      if (groups.accounts) {
+        patch.podioUpdateDefault = form.podioUpdateDefault;
+        patch.podioUpdateDays = form.podioUpdateDays;
+      }
+      if (groups.visibility) {
+        patch.seeAllMembers = form.seeAllMembers;
+        patch.seeAllCoordinators = form.seeAllCoordinators;
+        patch.seeAllTeamLeaders = form.seeAllTeamLeaders;
+      }
+      if (groups.ogx) {
+        patch.poolClaimOpen = form.poolClaimOpen;
+        patch.cicEnabled = form.cicEnabled;
+        patch.referralsBy = form.referralsBy;
+        patch.streakNags = form.streakNags;
+      }
+      if (groups.tm) {
+        patch.attendanceReminders = form.attendanceReminders;
+        patch.workingHoursAuto = form.workingHoursAuto;
+        patch.workingHoursJudged = form.workingHoursJudged;
+      }
+      const res = await saveFunctionSettings(settings.fn, patch);
+      if (res.ok) {
+        toast.success(`${settings.fn} defaults saved`);
+        setDirty(false);
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
+  const row = (
+    label: string,
+    hint: string,
+    key: keyof FunctionSettings,
+    value: boolean
+  ) => (
+    <label className="flex items-start justify-between gap-3 rounded-lg border p-3">
+      <span className="min-w-0">
+        <span className="block text-sm font-medium">{label}</span>
+        <span className="block text-xs text-muted-foreground">{hint}</span>
+      </span>
+      <Switch
+        checked={value}
+        onCheckedChange={(v) => set(key, v as never)}
+        className="mt-0.5 shrink-0"
+      />
+    </label>
+  );
+
+  return (
+    <div className="rounded-xl border bg-muted/20 p-3">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <Badge
+          className={cn(
+            "border-transparent font-semibold",
+            FUNCTION_COLORS[settings.fn]?.bg ?? "bg-primary/15",
+            FUNCTION_COLORS[settings.fn]?.text ?? "text-primary"
+          )}
+        >
+          {settings.fn}
+        </Badge>
+        {settings.updatedBy ? (
+          <span className="text-xs text-muted-foreground">
+            last changed by {settings.updatedBy}
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">
+            never changed — on the defaults
+          </span>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        {groups.accounts ? (
+          <>
+            <p className="pt-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+              New accounts
+            </p>
+            {row(
+              "Start on the Podio continuous update",
+              "Every new account in this function joins the update cycle, with reminders when it falls due. Accounts that already exist keep their own setting.",
+              "podioUpdateDefault",
+              form.podioUpdateDefault
+            )}
+            <label className="flex items-center justify-between gap-3 rounded-lg border p-3">
+              <span className="min-w-0">
+                <span className="block text-sm font-medium">Update every…</span>
+                <span className="block text-xs text-muted-foreground">
+                  Days between Podio updates for a new account (1–90). Each
+                  account can still be changed on its own page.
+                </span>
+              </span>
+              <span className="flex shrink-0 items-center gap-1.5">
+                <Input
+                  type="number"
+                  min={1}
+                  max={90}
+                  className="h-9 w-20"
+                  value={form.podioUpdateDays}
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    set("podioUpdateDays", Number.isFinite(n) ? n : 14);
+                  }}
+                />
+                <span className="text-xs text-muted-foreground">days</span>
+              </span>
+            </label>
+          </>
+        ) : null}
+
+        {groups.visibility ? (
+          <>
+            <p className="pt-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+              Who sees the whole function
+            </p>
+            <p className="px-1 text-xs text-muted-foreground">
+              Read-only: whoever you switch on can OPEN everything in{" "}
+              {settings.fn}, but still edits and works only what is theirs.
+              Ownership, the leaderboards and every number stay as they are.
+            </p>
+            {row(
+              "Members",
+              "A Member sees the function's whole list, not just their own.",
+              "seeAllMembers",
+              form.seeAllMembers
+            )}
+            {row("Coordinators", "Same, for Coordinators.", "seeAllCoordinators", form.seeAllCoordinators)}
+            {row(
+              "Team Leaders",
+              "A Team Leader sees beyond their own team.",
+              "seeAllTeamLeaders",
+              form.seeAllTeamLeaders
+            )}
+          </>
+        ) : null}
+
+        {groups.ogx ? (
+          <>
+            <p className="pt-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+              OGX
+            </p>
+            {row(
+              "Members may claim from the pool",
+              "Off = only TLs and above hand sign-ups out, and members work what they're given.",
+              "poolClaimOpen",
+              form.poolClaimOpen
+            )}
+            {row(
+              "Second calls (CIC)",
+              "The 📞 CIC queue where a second caller verifies a first call. Off hides the tab and refuses new hand-outs.",
+              "cicEnabled",
+              form.cicEnabled
+            )}
+            {row(
+              "Streak reminder emails",
+              "The evening nag to anyone whose contact streak is about to break.",
+              "streakNags",
+              form.streakNags
+            )}
+            <label className="flex items-center justify-between gap-3 rounded-lg border p-3">
+              <span className="min-w-0">
+                <span className="block text-sm font-medium">Who may add a referral</span>
+                <span className="block text-xs text-muted-foreground">
+                  Organic referrals — someone we can approve who never came
+                  through the tracker.
+                </span>
+              </span>
+              <Select
+                value={form.referralsBy}
+                onValueChange={(v) => set("referralsBy", v as "everyone" | "mms")}
+              >
+                <SelectTrigger className="h-9 w-36 shrink-0">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="everyone">Everyone</SelectItem>
+                  <SelectItem value="mms">MMs and above</SelectItem>
+                </SelectContent>
+              </Select>
+            </label>
+          </>
+        ) : null}
+
+        {groups.tm ? (
+          <>
+            <p className="pt-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+              Attendance & working hours
+            </p>
+            {row(
+              "Chase unrecorded touch points",
+              "The daily reminder to whoever owes an attendance record, and the in-app prompt once the emails run out.",
+              "attendanceReminders",
+              form.attendanceReminders
+            )}
+            {row(
+              "Pre-fill working hours automatically",
+              "Turn everyone's logged work into attended/absent when the session closes. A human still confirms it.",
+              "workingHoursAuto",
+              form.workingHoursAuto
+            )}
+            {row(
+              "Judge this function on working hours",
+              "Off = nobody in this function is auto-marked present or absent for a working-hours session.",
+              "workingHoursJudged",
+              form.workingHoursJudged
+            )}
+          </>
+        ) : null}
+      </div>
+
+      {dirty ? (
+        <Button size="sm" className="mt-3" onClick={save} disabled={pending}>
+          {pending ? "Saving…" : `Save ${settings.fn} defaults`}
+        </Button>
+      ) : null}
     </div>
   );
 }

@@ -1211,6 +1211,57 @@ export function lcFeedbackHandledEmail(opts: {
  *  six out. So: confirm, in their words, in their zone, with the option to
  *  move it if that turns out not to work. Never an apology for a broken
  *  booking; there isn't one. */
+/** THE IR'S EMAIL CAME BACK UNDELIVERABLE (v33.32).
+ *
+ *  The bounce watcher flags the call; this is what reaches the HOST, because a
+ *  bell alone was being missed for days while the IR sat with no invite, no
+ *  Meet link and no idea. It carries the one thing that actually unblocks it:
+ *  a WhatsApp link straight to the IR, since their number is the one channel
+ *  we know still works. */
+export function irEmailBouncedEmail(opts: {
+  memberFirstName: string;
+  bookerName: string | null;
+  partnerLc: string;
+  badEmail: string;
+  /** already formatted, Cairo */
+  whenLabel: string;
+  /** wa.me link, when the IR left a number */
+  whatsappUrl: string | null;
+  bookerPhone: string | null;
+  considerationUrl: string;
+}): { subject: string; html: string } {
+  return {
+    subject: `⚠️ Fix ${opts.bookerName ?? "the IR"}'s email — the invite bounced (${opts.partnerLc})`,
+    html: emailLayout({
+      preheader: `${opts.badEmail} doesn't exist — the IR has no invite for ${opts.whenLabel}.`,
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">An IR's email bounced, ${escapeHtml(opts.memberFirstName)} ⚠️</h1>
+        <p>The confirmation and the calendar invite for your call could not be
+        delivered — the mail server says that address doesn't exist. As things
+        stand, <b>the IR has no invite and no Meet link</b>, and unless someone
+        reaches them another way, they will not show up.</p>
+        ${detailsTable([
+          ["Partner LC", opts.partnerLc],
+          ["IR", opts.bookerName],
+          ["The address that bounced", opts.badEmail],
+          ["When the call is", opts.whenLabel],
+          ["Their WhatsApp", opts.bookerPhone],
+        ])}
+        <p><b>What to do — it takes two minutes:</b></p>
+        <ol style="margin:0 0 16px;padding-left:20px;color:#0A2540;">
+          <li>Message them on WhatsApp and ask for the correct email.</li>
+          <li>Open the call in Sodio → <b>Fix the email</b>.</li>
+          <li>That's it: the wrong address is dropped from the invite, the
+              right one is invited in its place, and a fresh confirmation with
+              the Meet link goes out to them automatically.</li>
+        </ol>
+        ${opts.whatsappUrl ? button("Message the IR on WhatsApp", opts.whatsappUrl) : ""}
+        ${button("Open the call in Sodio", opts.considerationUrl)}
+        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">If they don't answer, cancel the call so the slot opens up again.</p>`,
+    }),
+  };
+}
+
 export function irTimeZoneConfirmEmail(opts: {
   bookerName: string | null;
   memberName: string;
