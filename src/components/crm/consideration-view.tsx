@@ -137,6 +137,9 @@ const CALL_PARAM: Record<string, string> = {
 interface ViewerInfo {
   id: string;
   isVp: boolean;
+  /** the viewer's own team (v33.33) — a Team Leader answers for their calls
+   *  too, so the "needs you" banner counts them */
+  teamIds: string[];
   showCvs: boolean;
   showExpectation: boolean;
   /** MMs and above may remove a partner LC from the registry */
@@ -2186,9 +2189,23 @@ function IrCallsTab({
     (c: IrCallRow) => c.status === "scheduled" && new Date(c.called_at) < new Date(),
     []
   );
+  /** WHOSE PROBLEM IS IT? (v33.33)
+   *
+   *  The banner said "11 calls need you" to everybody, including the members
+   *  who had none — so the one number meant to prompt action became wallpaper.
+   *  It follows the hierarchy now: a member answers for their own calls, a
+   *  Team Leader for their team's, a VP/Director/LCP for the whole floor they
+   *  can already see. */
+  const mine = useCallback(
+    (c: IrCallRow) =>
+      viewer.isVp ||
+      c.member_id === viewer.id ||
+      (!!c.member_id && viewer.teamIds.includes(c.member_id)),
+    [viewer.id, viewer.isVp, viewer.teamIds]
+  );
   const needsAttention = useMemo(
-    () => data.scheduled.filter((c) => pastDue(c) || c.email_bounced_at),
-    [data.scheduled, pastDue]
+    () => data.scheduled.filter((c) => mine(c) && (pastDue(c) || c.email_bounced_at)),
+    [data.scheduled, pastDue, mine]
   );
   const schedWithOptions = [
     ...new Set(
@@ -2200,7 +2217,7 @@ function IrCallsTab({
   );
   const scheduledShown = data.scheduled.filter(
     (c) =>
-      (!schedNeedy || pastDue(c) || !!c.email_bounced_at) &&
+      (!schedNeedy || (mine(c) && (pastDue(c) || !!c.email_bounced_at))) &&
       (!schedMine || c.member_id === viewer.id) &&
       (!schedWith || c.member_name === schedWith) &&
       (!schedProduct || c.product === schedProduct) &&
@@ -2403,8 +2420,9 @@ function IrCallsTab({
                 <CalendarClock className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
                 <span className="min-w-0 flex-1">
                   <b>{needsAttention.length}</b>{" "}
-                  {needsAttention.length === 1 ? "call needs" : "calls need"} you —
-                  the time has passed with no report, or the IR&apos;s email bounced.
+                  {needsAttention.length === 1 ? "call needs" : "calls need"}{" "}
+                  {viewer.isVp ? "a report on your floor" : "you"} — the time has
+                  passed with no report, or the IR&apos;s email bounced.
                 </span>
                 <span className="shrink-0 text-xs font-semibold text-amber-700 dark:text-amber-400">
                   {schedNeedy ? "Show all" : "Show them"}

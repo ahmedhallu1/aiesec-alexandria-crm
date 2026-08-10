@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-11 · Version: v33.32.2
+Last updated: 2026-08-11 · Version: v33.33
 
 ---
 
@@ -52,8 +52,9 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0047_ir_call_timezone` → `0048_ir_product_and_lc_comments` →
 `0049_direct_visits_mailbox_ir_notes` → `0050_ir_call_reschedule_history` →
 `0051_fallback_email_bounces_b2c_cic` → `0052_three_name_worlds` →
-`0053_calendar_item_visibility` → `0054_function_settings`
-(**all applied**, 0046–0054 during v33.22–v33.32).
+`0053_calendar_item_visibility` → `0054_function_settings` →
+`0055_touch_point_rating`
+(**all applied**, 0046–0055 during v33.22–v33.33).
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
@@ -623,6 +624,53 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-11 · v33.33** — **FIVE FROM THE FLOOR** (migration **0055
+  applied**: `lc_feedback.rating`).
+  ① **"11 CALLS NEED YOU" WAS TELLING EVERYBODY.** The banner counted the
+  whole floor, so six members with nothing waiting read the same alarming
+  number as the two people who owed a report — which is exactly how a number
+  meant to prompt action becomes wallpaper. It follows the hierarchy now: a
+  member answers for their own calls, a Team Leader for their team's, a
+  VP/Director/LCP for the floor they already see. Nobody with a clean slate
+  sees a banner at all, and the "Show them" filter narrows to the same set.
+  ② **THE BACKUP-GMAIL FIELD WAS BEING FILLED WITH THEIR AIESEC ADDRESS.** Not
+  a bug in our code — a bare `type="email"` input is an open invitation to the
+  browser, and the one address Chrome has saved for this site is the one they
+  sign in with. So the field meant for a DIFFERENT inbox quietly became the
+  same inbox. It now carries its own name, `autoComplete="off"` and the
+  password-manager opt-outs, and says so on the spot if the two match (the
+  server already refused it; the person just never saw why until they saved).
+  ③ **THE BOOKING PAGE STOPS ASKING ABOUT TIME ZONES.** The device's zone has
+  always been detected and the page drawn in it — but v33.23 added a "Looks
+  like you're in Amsterdam — show Amsterdam time?" prompt on top, which made
+  every visitor stop and think about something Google Calendar never asks
+  them. The detection stays, the picker stays for the rare person who wants
+  another zone, the prompt is gone. The edge-resolved zone is still attached
+  to the page as `data-ip-zone`, so "the detection is wrong" remains
+  answerable without a banner.
+  ④ **ONE EMAIL, EVERYONE ON BCC.** A shout-out to nine people was nine
+  separate sends — nine chances to fail, nine rows in the mailbox, nine times
+  the quota for one message — and so was a shared piece of feedback and a
+  concern notification. All three now send ONCE with the recipients on BCC
+  (they also stop seeing each other's addresses). The shout-out's greeting
+  drops the first name only when there IS a group, so a single recipient still
+  gets their own name and nothing pretends to be personal that isn't.
+  `sendEmail` grew the one piece that makes BCC-only safe: an empty `To:`
+  header is rejected by some servers and renders blank in the rest, so it
+  falls back to the LC's own mailbox — the standard "undisclosed recipients".
+  ⑤ **A TOUCH POINT IS RATED, NOT PRAISED OR REPORTED** (0055). Session
+  feedback travelled the same two-way road as feedback about a person — 🎉
+  shout-out or 😟 concern — and neither fits a meeting: "good, but it ran
+  long" is not a complaint about anybody and not applause for anyone. Picking
+  **A touch point** now shows **1–5 stars** instead of the toggle (with a word
+  under each: Poor → Excellent), the note becomes optional because the stars
+  ARE the review, and it always travels the quiet inbox path whatever the
+  score — a 5-star meeting no longer emails the TM function "💙 someone
+  appreciated you". `positive` stays NOT NULL for every existing reader,
+  derived from the stars (4+); a person is never scored, and the server
+  refuses a rating without a touch point and a touch point without a rating.
+  The inbox shows ★★★★☆ beside the row and the notification says the score.
 
 - **2026-08-11 · v33.32.2** — **THE PEAK, THE THREAD & THE REFERRALS TAB**
   (no migration).

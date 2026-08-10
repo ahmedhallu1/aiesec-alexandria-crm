@@ -27,9 +27,16 @@ export async function sendEmail(opts: {
   oauth2.setCredentials({ refresh_token: env.gmailRefreshToken });
   const gmail = google.gmail({ version: "v1", auth: oauth2 });
 
+  // A BCC-ONLY SEND STILL NEEDS A `To:` (v33.33). One message to nine people
+  // on BCC is the right shape — nine separate sends is not — but an empty To
+  // header is rejected by some servers and renders as a blank recipient in
+  // the rest. Addressing it to ourselves is the standard way to say
+  // "undisclosed recipients" and keeps the copy in the LC's own mailbox.
+  const toLine = opts.to.length > 0 ? opts.to.join(", ") : env.gmailSender;
+
   const addrHeaders = [
     `From: ${encodeHeader(env.gmailSenderName)} <${env.gmailSender}>`,
-    `To: ${opts.to.join(", ")}`,
+    `To: ${toLine}`,
     ...(opts.cc?.length ? [`Cc: ${opts.cc.join(", ")}`] : []),
     ...(opts.bcc?.length ? [`Bcc: ${opts.bcc.join(", ")}`] : []),
     `Subject: ${encodeHeader(opts.subject)}`,

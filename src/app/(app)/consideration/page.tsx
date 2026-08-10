@@ -93,6 +93,8 @@ export default async function ConsiderationPage({
       viewer={{
         id: viewer.id,
         isVp: viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role),
+        // a Team Leader answers for their team's calls too (v33.33)
+        teamIds: viewer.role === "Team Leader" ? viewer.teamMemberIds : [],
         showCvs,
         showExpectation,
         // removing a partner LC is an MM-and-up act: it is the shared

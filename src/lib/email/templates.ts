@@ -662,7 +662,10 @@ export function broadcastEmail(opts: {
 
 /** v21 — LC people feedback: a positive shout-out delivered to the member. */
 export function lcShoutoutEmail(opts: {
-  firstName: string;
+  /** null when the same shout-out goes to SEVERAL people on BCC (v33.33) —
+   *  one email instead of nine, so the greeting stops pretending to be
+   *  personal rather than addressing nine people by one person's name */
+  firstName: string | null;
   from: string;
   message: string;
 }): { subject: string; html: string } {
@@ -671,7 +674,7 @@ export function lcShoutoutEmail(opts: {
     html: emailLayout({
       preheader: "Someone in the LC has something nice to say about you.",
       body: `
-        <h2 style="margin:0 0 10px;">You got a shout-out, ${escapeHtml(opts.firstName)}! 🎉</h2>
+        <h2 style="margin:0 0 10px;">You got a shout-out${opts.firstName ? `, ${escapeHtml(opts.firstName)}` : ""}! 🎉</h2>
         <p style="margin:0 0 6px;color:#5c6b80;">From <b>${escapeHtml(opts.from)}</b>:</p>
         <p style="border-left:4px solid #0CB9C1;background:#f0fdfd;border-radius:0 8px 8px 0;padding:14px 16px;font-size:16px;font-style:italic;">
           “${escapeHtml(opts.message)}”
@@ -1137,8 +1140,24 @@ export function streakNagEmail(opts: { firstName: string; streak: number }) {
 /** A concern was filed about someone (v32.8). Goes to the LCP and the TM
  *  leadership only — deliberately says NOTHING about who or what, so the
  *  private channel stays private even in an inbox preview. */
-export function lcConcernEmail(opts: { count: number }) {
+export function lcConcernEmail(opts: { count: number; rating?: number | null }) {
   const who = opts.count === 1 ? "a member" : `${opts.count} members`;
+  // a RATED touch point is a review, not a concern — same private inbox, very
+  // different thing to walk in expecting (v33.33)
+  if (opts.rating)
+    return {
+      subject: `⭐ A touch point was rated ${opts.rating}/5`,
+      html: emailLayout({ body: `
+        <h2 style="margin:0 0 12px;font-size:20px;">A touch point was reviewed</h2>
+        <p>Someone rated one of the LC's sessions <b>${opts.rating} out of 5</b>${
+          opts.rating >= 4 ? "" : " — worth a read"
+        }. The review is in the inbox; nothing about it is repeated here on purpose.</p>
+        ${button("Open the inbox", `${env.appUrl}/lc-feedback`)}
+        <p style="color:#64748b;font-size:13px;margin-top:16px;">
+          Only TM, the LCP and F&amp;L's LCVP can read this inbox.
+        </p>
+      ` }),
+    };
   return {
     subject: "🔒 A new concern was filed",
     html: emailLayout({ body: `

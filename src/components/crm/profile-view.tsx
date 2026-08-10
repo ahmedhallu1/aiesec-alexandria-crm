@@ -98,6 +98,11 @@ export function ProfileView({
   const [pending, start] = useTransition();
 
   const phoneOk = PHONE_RE.test(cleanPhone(phone));
+  // the one thing the backup must never be: the address it is a backup FOR
+  const sameAsAiesec =
+    !!fallbackEmail.trim() &&
+    !!member.email &&
+    fallbackEmail.trim().toLowerCase() === member.email.toLowerCase();
 
   const fixInfoMailto = `mailto:${ADMIN_EMAIL}?subject=${encodeURIComponent(
     "Sodio — my info needs a correction"
@@ -209,13 +214,28 @@ export function ProfileView({
                 the calendar invites behind their IR calls. Never a login. */}
             <div className="grid gap-1.5">
               <Label>Personal Gmail — backup only (until your AIESEC Mail arrives)</Label>
+              {/* THE BROWSER WAS FILLING THIS WITH THEIR AIESEC ADDRESS
+                  (v33.33). A bare type="email" field is an open invitation to
+                  autofill, and the one address Chrome has saved for this site
+                  is the one they sign in with — so the "backup" inbox quietly
+                  became the same inbox. A name of its own and autofill off. */}
               <Input
                 type="email"
+                name="backup-personal-gmail"
+                autoComplete="off"
+                data-1p-ignore
+                data-lpignore="true"
                 inputMode="email"
                 placeholder="you@gmail.com"
                 value={fallbackEmail}
                 onChange={(e) => { setFallbackEmail(e.target.value); setDirty(true); }}
               />
+              {sameAsAiesec ? (
+                <p className="text-xs text-destructive">
+                  That&apos;s your AIESEC Mail. The backup has to be a
+                  DIFFERENT inbox — a personal Gmail you check.
+                </p>
+              ) : null}
               <p className="text-xs text-muted-foreground">
                 Your own <b>Gmail</b>, not an AIESEC address. Password resets and
                 your IR-call calendar invites go here while you have no AIESEC
@@ -223,7 +243,7 @@ export function ProfileView({
               </p>
             </div>
             {dirty ? (
-              <Button size="sm" onClick={saveProfile} disabled={pending || !phoneOk}>
+              <Button size="sm" onClick={saveProfile} disabled={pending || !phoneOk || sameAsAiesec}>
                 {pending ? "Saving…" : "Save changes"}
               </Button>
             ) : null}

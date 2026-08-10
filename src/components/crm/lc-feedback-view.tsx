@@ -59,6 +59,16 @@ const MANAGER_LABEL: Record<string, string> = {
 
 /* ------------------------------------------------------------------ view */
 
+/** What each star MEANS — a number with no words is read differently by
+ *  everyone, and a 3 that one person calls "fine" another calls "bad". */
+const STAR_WORDS: Record<number, string> = {
+  1: "Poor",
+  2: "Could be better",
+  3: "Fine",
+  4: "Good",
+  5: "Excellent",
+};
+
 export function LcFeedbackView({
   members,
   touchPoints,
@@ -78,6 +88,9 @@ export function LcFeedbackView({
   const [positive, setPositive] = useState(false);
   const [target, setTarget] = useState<"people" | "touchpoint">("people");
   const [touchPointId, setTouchPointId] = useState("");
+  /** 1–5 stars — a touch point is RATED, never praised or reported (v33.33) */
+  const [rating, setRating] = useState(0);
+  const [hoverStar, setHoverStar] = useState(0);
   const [selected, setSelected] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [message, setMessage] = useState("");
@@ -173,15 +186,23 @@ export function LcFeedbackView({
         message,
         anonymous,
         touchPointId: aboutTouchPoint ? touchPointId : undefined,
+        rating: aboutTouchPoint ? rating : null,
         attachments,
       });
       if (res.ok) {
-        toast.success(positive ? "Shout-out sent 🎉" : "Concern filed privately 🤫");
+        toast.success(
+          aboutTouchPoint
+            ? `Rated ${rating}/5 — thanks ⭐`
+            : positive
+              ? "Shout-out sent 🎉"
+              : "Concern filed privately 🤫"
+        );
         setSelected([]);
         setTouchPointId("");
         setMessage("");
         setAnonymous(false);
         setPositive(true);
+        setRating(0);
         setQuery("");
       } else {
         toast.error(res.error);
@@ -197,9 +218,9 @@ export function LcFeedbackView({
         <div>
           <h1 className="text-2xl font-bold">Feedback 💙</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Appreciate someone — or a touch point you were part of — or raise a
-            concern. Positive notes reach the person (or the organiser)
-            directly; concerns go privately to the LCP and TM.
+            Appreciate someone, raise a concern, or <b>rate a touch point</b>
+            you were part of. A shout-out reaches the person directly;
+            concerns and session ratings go privately to the LCP and TM.
           </p>
         </div>
         {isInboxOwner ? (
@@ -212,7 +233,10 @@ export function LcFeedbackView({
       <Card className="rise-in rise-in-1">
         <CardContent className="grid gap-4 pt-5">
           {/* ------------------------------------------ positive/negative */}
-          <div className="grid gap-2">
+          {/* A TOUCH POINT IS RATED, NOT PRAISED OR REPORTED (v33.33). Neither
+              "shout-out" nor "concern" fits a session: "good but too long" is
+              not a complaint about a person and not applause for one. */}
+          <div className={cn("grid gap-2", aboutTouchPoint && "hidden")}>
             <div className="inline-flex w-fit items-center gap-1 rounded-full border bg-muted p-1">
               {([
                 { val: true, label: "🎉 Shout-out" },
@@ -287,6 +311,41 @@ export function LcFeedbackView({
                     ? "Goes to the people who run the LC's touch points — TM and the LCP — not to whoever booked it."
                     : "Every past touch point you were part of shows here — you don't have to have been marked present."}
                 </p>
+                {/* THE STARS ARE THE REVIEW (v33.33) — a note on top is
+                    welcome, not owed. */}
+                {chosenTouchPoint ? (
+                  <div className="grid gap-1.5 rounded-lg border bg-muted/30 p-3">
+                    <Label>How was it?</Label>
+                    <div
+                      className="flex items-center gap-1"
+                      onMouseLeave={() => setHoverStar(0)}
+                    >
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <button
+                          key={n}
+                          type="button"
+                          aria-label={`${n} star${n === 1 ? "" : "s"}`}
+                          onMouseEnter={() => setHoverStar(n)}
+                          onClick={() => setRating(n === rating ? 0 : n)}
+                          className="rounded p-0.5 text-2xl leading-none transition-transform hover:scale-110"
+                        >
+                          <span
+                            className={cn(
+                              (hoverStar || rating) >= n
+                                ? "text-amber-400"
+                                : "text-muted-foreground/30"
+                            )}
+                          >
+                            ★
+                          </span>
+                        </button>
+                      ))}
+                      <span className="ml-2 text-sm text-muted-foreground">
+                        {STAR_WORDS[hoverStar || rating] ?? "Pick a rating"}
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
               </>
             ) : (
               <>
@@ -386,9 +445,7 @@ export function LcFeedbackView({
           <div className="grid gap-2">
             <Label>
               {aboutTouchPoint
-                ? positive
-                  ? "What made it great? 💙"
-                  : "What went wrong there?"
+                ? "Anything to add? (optional)"
                 : positive
                   ? "What did they do? 💙"
                   : "What's the concern?"}
@@ -399,9 +456,11 @@ export function LcFeedbackView({
               rows={4}
               dir="auto"
               placeholder={
-                positive
-                  ? "Tell them why they're great — they'll read this word for word…"
-                  : "Be specific and fair — only the LCP and TM read this…"
+                aboutTouchPoint
+                  ? "What worked, what didn't, what you'd change…"
+                  : positive
+                    ? "Tell them why they're great — they'll read this word for word…"
+                    : "Be specific and fair — only the LCP and TM read this…"
               }
             />
             <FeedbackAttachments
@@ -416,9 +475,11 @@ export function LcFeedbackView({
             <div>
               <p className="text-sm font-medium">Send anonymously 🎭</p>
               <p className="text-xs text-muted-foreground">
-                {positive
-                  ? "They'll know someone appreciated them — just not who."
-                  : "Your name won't be shown with it — the mic is yours."}
+                {aboutTouchPoint
+                  ? "The rating counts either way — your name won't be shown with it."
+                  : positive
+                    ? "They'll know someone appreciated them — just not who."
+                    : "Your name won't be shown with it — the mic is yours."}
               </p>
             </div>
             <Switch checked={anonymous} onCheckedChange={setAnonymous} />
@@ -429,15 +490,18 @@ export function LcFeedbackView({
               onClick={submit}
               disabled={
                 pending ||
-                (aboutTouchPoint ? !touchPointId : selected.length === 0) ||
-                message.trim().length < 3
+                (aboutTouchPoint
+                  ? !touchPointId || rating === 0
+                  : selected.length === 0 || message.trim().length < 3)
               }
             >
               {pending
                 ? "Sending…"
-                : positive
-                  ? "Send the shout-out 🎉"
-                  : "File the concern 🤫"}
+                : aboutTouchPoint
+                  ? `Send the rating ${rating ? "★".repeat(rating) : "⭐"}`
+                  : positive
+                    ? "Send the shout-out 🎉"
+                    : "File the concern 🤫"}
             </Button>
           </div>
         </CardContent>
@@ -583,6 +647,19 @@ function LcFeedbackInbox({
                           ? "🎉 Shout-out"
                           : "😟 Concern"}
                     </Badge>
+                    {/* THE SCORE, READABLE AT A GLANCE (v33.33) — the point of
+                        a rating is that you can scan a column of them */}
+                    {r.rating ? (
+                      <span
+                        className="text-sm font-semibold text-amber-500"
+                        title={`${r.rating} out of 5`}
+                      >
+                        {"★".repeat(r.rating)}
+                        <span className="text-muted-foreground/40">
+                          {"★".repeat(5 - r.rating)}
+                        </span>
+                      </span>
+                    ) : null}
                     {r.sessionLabel ? (
                       <Badge variant="outline" className="rounded-full">{r.sessionLabel}</Badge>
                     ) : (

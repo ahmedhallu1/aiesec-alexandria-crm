@@ -8,7 +8,7 @@ import type { BookingDay } from "@/server/data";
 import { IR_ROLES, normalizeLcName, normalizePhone } from "@/lib/types";
 import { phoneExample } from "@/lib/dial-codes";
 import {
-  COUNTRY_ZONES, countryForZone, isValidZone, zoneCity, zoneOffsetLabel,
+  COUNTRY_ZONES, countryForZone, isValidZone, zoneOffsetLabel,
 } from "@/lib/timezones";
 import { cn } from "@/lib/utils";
 import { CountryInput } from "./country-input";
@@ -275,21 +275,13 @@ export function BookingView({
           · Cairo is {zoneOffsetLabel(new Date(), "Africa/Cairo")}
         </span>
       </div>
-      {/* THE SECOND OPINION. A browser reports the machine's zone, so a
-          traveller (or anyone on a VPN) can be looking at the wrong clock and
-          never notice. If the connection resolves somewhere else, say so and
-          make it one tap — never silently override the device. */}
-      {ipZone && ipZone !== tz ? (
-        <p className="mt-1.5 text-center text-xs">
-          <button
-            type="button"
-            onClick={() => { setTz(ipZone); setCountryTouched(false); }}
-            className="rounded-full border border-primary/40 bg-primary/5 px-3 py-1 font-medium text-primary transition-colors hover:bg-primary/10"
-          >
-            Looks like you&apos;re in {zoneCity(ipZone)} — show {zoneCity(ipZone)} time?
-          </button>
-        </p>
-      ) : null}
+      {/* NO "DID YOU MEAN?" PROMPT (v33.33). Google Calendar doesn't ask an
+          IR to confirm their time zone and neither do we: the device's zone
+          IS the answer, the page is already drawn in it, and the picker above
+          is there for the rare person who wants another. The edge-resolved
+          zone is still attached to the page as a diagnostic (data-ip-zone),
+          so "the detection is wrong" stays answerable without a banner that
+          makes every visitor stop and think about time zones. */}
 
       {viewDays.length === 0 ? (
         <p className="mt-8 pb-2 text-center text-sm text-muted-foreground">

@@ -3976,6 +3976,8 @@ export interface LcFeedbackRow {
    *  read as their positive/negative kind. */
   kind: "concern" | "shoutout" | "session";
   positive: boolean;
+  /** 1–5 stars on a touch-point review (v33.33); null on everything else */
+  rating: number | null;
   anonymous: boolean;
   /** null when anonymous — EXCEPT for the break-glass admin (ADMIN_EMAILS),
    *  who sees the name so a shout-out can be rewarded and a concern followed
@@ -4011,7 +4013,7 @@ export async function listLcFeedback(viewer: Viewer): Promise<LcFeedbackRow[]> {
     db()
       .from("lc_feedback")
       .select(
-        "id, positive, anonymous, author_id, about, message, status, created_at, " +
+        "id, positive, rating, anonymous, author_id, about, message, status, created_at, " +
           "attachments, touch_point_id, resolution, resolved_by, resolved_at, " +
           "shared_with, author_told_at, touch_point:touch_points(kind, scope, starts_at)"
       )
@@ -4036,6 +4038,7 @@ export async function listLcFeedback(viewer: Viewer): Promise<LcFeedbackRow[]> {
           ? "shoutout"
           : "concern") as LcFeedbackRow["kind"],
       positive: r.positive,
+      rating: typeof r.rating === "number" ? r.rating : null,
       anonymous: r.anonymous,
       // ANONYMOUS IS ANONYMOUS TO THE ROOM, NOT TO THE ADMIN (v33.30). The
       // author id has always been stored (it is what lets "tell them it's
