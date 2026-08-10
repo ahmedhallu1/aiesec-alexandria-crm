@@ -150,7 +150,7 @@ export function CalendarView({
   visits, touchPoints = [], irCalls = [], items = [], month, viewerId,
   teamMemberIds = [], memberFnIds = [], viewerRole = "Member",
   openableMemberIds, showFunction = false, booking = null,
-  canAddItems = false, assignables = [], viewerFunctions = [],
+  canAddItems = false, assignables = [], itemScopes = ["self"], viewerFunctions = [],
 }: {
   visits: CalendarVisit[];
   /** TM touch points the viewer belongs to (v29) */
@@ -164,6 +164,8 @@ export function CalendarView({
   /** TL and above add custom items (v33.16) */
   canAddItems?: boolean;
   assignables?: { id: string; label: string }[];
+  /** the audiences this viewer may share a custom item with (v33.31) */
+  itemScopes?: string[];
   month: string;
   viewerId: string;
   /** the ACCOUNT functions this viewer can see — the Function filter is
@@ -542,7 +544,7 @@ export function CalendarView({
             </Select>
           ) : null}
           {canAddItems ? (
-            <CalendarItemDialog assignables={assignables} viewerId={viewerId} />
+            <CalendarItemDialog assignables={assignables} viewerId={viewerId} scopes={itemScopes} />
           ) : null}
           {booking ? <TouchPointDialog {...booking} /> : null}
           {/* the ROUTINE behind the one-offs: book the whole peak at once */}
@@ -1017,6 +1019,7 @@ export function CalendarView({
           key={itemDate ?? "no-day"}
           assignables={assignables}
           viewerId={viewerId}
+          scopes={itemScopes}
           defaultDate={itemDate ?? undefined}
           open={itemOpen}
           onOpenChange={setItemOpen}

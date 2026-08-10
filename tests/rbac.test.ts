@@ -11,6 +11,7 @@ import {
   canSeeLcConcerns,
   canSeeUnassigned,
   hasPodioAccess,
+  calendarItemScopes,
   canUseAdminTools,
   canViewAccount,
   canViewSignup,
@@ -298,17 +299,19 @@ describe("admin is a capability, not a rank", () => {
 });
 
 describe("the private concerns inbox", () => {
-  // v33.22: TM owns people, so the whole TM FUNCTION handles concerns —
-  // plus the LCP, F&L's LCVP, and whoever leads IM.
-  it("is open to TM, the LCP and F&L's LCVP", () => {
+  // v33.22: TM owns people, so the whole TM FUNCTION handles concerns — plus
+  // the LCP and whoever leads IM. v33.31 REMOVED F&L's LCVP by the LCP's
+  // request: every extra reader is one more person an anonymous author
+  // didn't expect to be read by.
+  it("is open to TM and the LCP", () => {
     expect(canSeeLcConcerns(lcp)).toBe(true);
     expect(canSeeLcConcerns(tmVp)).toBe(true);
-    expect(canSeeLcConcerns(flVp)).toBe(true);
     expect(
       canSeeLcConcerns(member({ id: "tm-mem", role: "Member", functions: ["TM"] }))
     ).toBe(true);
   });
-  it("is closed to every other leader and member", () => {
+  it("is closed to every other leader and member — F&L's LCVP included (v33.31)", () => {
+    expect(canSeeLcConcerns(flVp)).toBe(false);
     expect(canSeeLcConcerns(igtVp)).toBe(false);
     expect(canSeeLcConcerns(b2cDirector)).toBe(false);
     expect(canSeeLcConcerns(igvRaiser)).toBe(false);
@@ -317,6 +320,39 @@ describe("the private concerns inbox", () => {
     expect(
       canSeeLcConcerns(member({ id: "fl-mem", role: "Member", functions: ["F&L"] }))
     ).toBe(false);
+  });
+});
+
+describe("custom calendar item scopes (v33.31)", () => {
+  // the matrix the LCP specified — who a slot can be shared with
+  it("a Member, Coordinator or TL reaches themselves, their team and their function", () => {
+    for (const role of ["Member", "Coordinator", "Team Leader"] as const) {
+      expect(
+        calendarItemScopes(member({ id: `c-${role}`, role, functions: ["IGV"] }))
+      ).toEqual(["self", "team", "function"]);
+    }
+  });
+  it("an LCVP or Director gets no 'team' — their team IS the function", () => {
+    expect(calendarItemScopes(igtVp)).toEqual(["self", "function"]);
+    expect(calendarItemScopes(b2cDirector)).toEqual(["self", "function"]);
+  });
+  it("the LCP gets the EB and the LC, and has no function to share with", () => {
+    expect(calendarItemScopes(lcp)).toEqual(["self", "eb", "lc"]);
+  });
+  it("TM reaches the whole LC — its remit is the LC's people", () => {
+    const tmMember = member({ id: "tm-m", role: "Member", functions: ["TM"] });
+    expect(calendarItemScopes(tmMember)).toContain("lc");
+    expect(calendarItemScopes(tmMember)).toContain("function");
+  });
+  it("someone with no function is never offered one", () => {
+    expect(
+      calendarItemScopes(member({ id: "nofn", role: "Member", functions: [] }))
+    ).toEqual(["self", "team"]);
+  });
+  it("an ordinary member can never share with the EB or the whole LC", () => {
+    const scopes = calendarItemScopes(igvRaiser);
+    expect(scopes).not.toContain("eb");
+    expect(scopes).not.toContain("lc");
   });
 });
 

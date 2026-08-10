@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-10 · Version: v33.30
+Last updated: 2026-08-10 · Version: v33.31
 
 ---
 
@@ -613,6 +613,42 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-10 · v33.31** — **WHO SEES A CUSTOM SLOT** (migration **0053
+  applied**: `calendar_items.visibility`).
+  ① **"VISIBLE TO" ON EVERY CUSTOM CALENDAR ITEM.** 0044 gave items an
+  invite-shaped audience — owner + an EXPLICIT assignee list, nobody else —
+  which covers "put this on three people's calendars" but not "block this
+  hour so my team can see I'm busy". `visibility` now widens the audience on
+  top of that rule, and the options follow the person
+  (`calendarItemScopes` in rbac):
+  **Member / Coordinator / TL → self · team · function** ·
+  **LCVP / Director → self · function** (their team IS the function) ·
+  **LCP-level → self · EB · LC** (+ function if they hold one) ·
+  **TM (any role) → + the whole LC**. Built from the person's actual position
+  rather than a role table, so a TM Team Leader or the IM Director gets the
+  UNION instead of whichever row matched first. Default is **'self'**, which
+  is exactly the 0044 behaviour — all 12 live rows kept it, nobody's calendar
+  changed under them. The owner and any assignee always see the item
+  whatever the scope says.
+  ② **The audience test is one predicate, in JS.** A month holds tens of
+  items, so `listCalendarItems` reads the window and filters in code rather
+  than building a five-clause PostgREST `.or()` — the kind of stringly OR
+  that silently widens the day someone appends a term. `team` = shares a
+  manager with the owner, or manages them / is managed by them; `function`
+  matches `function_key`, **frozen at creation** so a member changing
+  function can't rewrite the audience of every past item (the v33.23
+  `ir_calls.fn` lesson); `eb` = LCP + LCVPs (Directors are not EB, as
+  documented); `lc` = everyone. Verified end to end against prod with five
+  throwaway rows and six viewers — owner, teammate, manager, same-function
+  LCVP, another function's LCVP, the LCP — all six audiences exact, rows
+  removed after.
+  ③ **F&L's LCVP IS OFF THE FEEDBACK INBOX** (the LCP's call).
+  `canSeeLcConcerns` is now the IM director + the LCP + the whole TM
+  function; F&L's LCVP had been there for the legality side. This also
+  narrows who is NOTIFIED of a new concern, since v33.22 tied the two
+  together. Copy followed in three places: the Playbook, the Blue Man, and
+  the feedback form's own touch-point line.
 
 - **2026-08-10 · v33.30** — **THE ADMIN CAN SEE WHO FILED ANONYMOUSLY** (no
   migration; two prod audit rows backfilled).

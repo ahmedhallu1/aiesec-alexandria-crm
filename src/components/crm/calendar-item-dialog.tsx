@@ -22,13 +22,16 @@ import { Textarea } from "@/components/ui/textarea";
  *  an explicit assignee list. TLs pick from their team, VPs/Directors from
  *  their function, LCP-level from the whole LC (the server re-checks). */
 export function CalendarItemDialog({
-  assignables, viewerId, defaultDate, open, onOpenChange,
+  assignables, viewerId, defaultDate, open, onOpenChange, scopes = ["self"],
 }: {
   assignables: { id: string; label: string }[];
   viewerId: string;
   defaultDate?: string;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** which audiences THIS viewer may pick (v33.31) — from calendarItemScopes;
+   *  the server re-checks, so a hand-edited value changes nothing */
+  scopes?: string[];
 }) {
   const router = useRouter();
   const controlled = open !== undefined;
@@ -45,6 +48,8 @@ export function CalendarItemDialog({
   const [endTime, setEndTime] = useState("");
   // ROUTINE (v33.29): same slot, same day+time, weekly — "1" = just once
   const [repeatWeeks, setRepeatWeeks] = useState("1");
+  // WHO SEES IT (v33.31) — private by default; sharing is a decision
+  const [visibility, setVisibility] = useState("self");
   const [note, setNote] = useState("");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [q, setQ] = useState("");
@@ -70,6 +75,7 @@ export function CalendarItemDialog({
     start(async () => {
       const res = await createCalendarItem({
         repeatWeeks: Number(repeatWeeks) || 1,
+        visibility: visibility as "self" | "team" | "function" | "eb" | "lc",
         title,
         date,
         time,
@@ -157,6 +163,39 @@ export function CalendarItemDialog({
               item, so one can be removed without the rest.
             </p>
           </div>
+          {/* WHO SEES IT (v33.31). Only the audiences this person may pick are
+              offered — a Member gets their team and function, an LCVP their
+              function, the LCP the EB and the LC, TM the whole LC. */}
+          {scopes.length > 1 ? (
+            <div className="grid gap-1.5">
+              <Label>Visible to</Label>
+              <Select value={visibility} onValueChange={setVisibility}>
+                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {scopes.includes("self") ? (
+                    <SelectItem value="self">Just me</SelectItem>
+                  ) : null}
+                  {scopes.includes("team") ? (
+                    <SelectItem value="team">My team</SelectItem>
+                  ) : null}
+                  {scopes.includes("function") ? (
+                    <SelectItem value="function">My function</SelectItem>
+                  ) : null}
+                  {scopes.includes("eb") ? (
+                    <SelectItem value="eb">The EB</SelectItem>
+                  ) : null}
+                  {scopes.includes("lc") ? (
+                    <SelectItem value="lc">The whole LC</SelectItem>
+                  ) : null}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {visibility === "self"
+                  ? "Only you — and anyone you put on it below."
+                  : "They'll see it on their calendar. Anyone you put on it below sees it either way."}
+              </p>
+            </div>
+          ) : null}
           <div className="grid gap-1.5">
             <Label>Note (optional)</Label>
             <Textarea

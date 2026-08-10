@@ -3,6 +3,7 @@ import { getViewer, listAllMembers, listFunctionVisits, listIrCalls } from "@/se
 import {
   accountScope,
   bookableTouchPointScopes,
+  calendarItemScopes,
   canCreateCalendarItems,
   canEditTouchPoint,
   hasConsiderationAccess,
@@ -200,6 +201,7 @@ export default async function CalendarPage({
       irCalls={irCalls}
       items={items}
       canAddItems={canAddItems}
+      itemScopes={calendarItemScopes(viewer)}
       assignables={assignables}
       month={month}
       viewerId={viewer.id}

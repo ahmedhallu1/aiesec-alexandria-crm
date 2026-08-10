@@ -284,7 +284,7 @@ export function LcFeedbackView({
                 </Select>
                 <p className="text-xs text-muted-foreground">
                   {chosenTouchPoint
-                    ? "Goes to the people who run the LC's touch points — TM, the LCP and F&L — not to whoever booked it."
+                    ? "Goes to the people who run the LC's touch points — TM and the LCP — not to whoever booked it."
                     : "Every past touch point you were part of shows here — you don't have to have been marked present."}
                 </p>
               </>

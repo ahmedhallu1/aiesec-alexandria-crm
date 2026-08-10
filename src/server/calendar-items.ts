@@ -15,8 +15,12 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
-import { canCreateCalendarItems, type Viewer } from "@/lib/rbac";
+import {
+  calendarItemScopes, canCreateCalendarItems,
+  type CalendarItemScope, type Viewer,
+} from "@/lib/rbac";
 import { cairoToUtc } from "@/lib/time";
+import { expandTouchPointFns } from "@/lib/touch-points";
 import { getViewer, logAudit } from "./data";
 import { recordUndo } from "./sandbox";
 import { notifyMembers } from "./notify";
@@ -31,6 +35,8 @@ export interface CalendarItemRow {
   owner_name: string;
   assignee_ids: string[];
   function_key: string | null;
+  /** who ELSE sees it, on top of the owner + assignees (v33.31) */
+  visibility: CalendarItemScope;
   /** resolved by listCalendarItems for display */
   assignee_names?: string[];
 }
@@ -94,6 +100,8 @@ export async function createCalendarItem(input: {
    *  deleted without touching the rest — exactly how the touch-point routine
    *  builder works. */
   repeatWeeks?: number;
+  /** WHO SEES IT (v33.31) — 'self' keeps the original owner+assignees rule */
+  visibility?: CalendarItemScope;
 }): Promise<Result> {
   const viewer = await getViewer();
   if (!canCreateCalendarItems(viewer))
@@ -124,6 +132,12 @@ export async function createCalendarItem(input: {
       return fail("One of the assignees is outside your team/function scope.");
   }
 
+  // the scope must be one this person is actually allowed to pick
+  const allowedScopes = calendarItemScopes(viewer);
+  const visibility: CalendarItemScope = input.visibility ?? "self";
+  if (!allowedScopes.includes(visibility))
+    return fail("You can't share an item with that group.");
+
   const weeks = Math.min(12, Math.max(1, Math.round(input.repeatWeeks ?? 1)));
   const rows = Array.from({ length: weeks }, (_, w) => ({
     title,
@@ -133,7 +147,12 @@ export async function createCalendarItem(input: {
     owner_id: viewer.id,
     owner_name: viewer.name,
     assignee_ids: assigneeIds,
-    function_key: (viewer.functions ?? [])[0] ?? null,
+    visibility,
+    // FROZEN AT CREATION (v33.31): deriving the audience from the owner's
+    // CURRENT functions would rewrite the visibility of every past item the
+    // day they change function — the ir_calls.fn lesson from v33.23.
+    function_key:
+      (viewer.functions ?? [])[0] ?? (viewer.sub_functions ?? [])[0] ?? null,
   }));
   const { data: createdRows, error } = await db()
     .from("calendar_items")
@@ -202,19 +221,71 @@ export async function listCalendarItems(
   fromIso: string,
   toIso: string
 ): Promise<CalendarItemRow[]> {
+  // The window is a calendar MONTH — tens of rows — so the audience test runs
+  // in JS rather than as a PostgREST .or() chain. A stringly-built OR across
+  // five scopes is exactly the kind of thing that silently widens when
+  // someone appends a clause; this way the rule is one readable predicate.
   const { data, error } = await db()
     .from("calendar_items")
-    .select("id, title, note, starts_at, ends_at, owner_id, owner_name, assignee_ids, function_key")
+    .select(
+      "id, title, note, starts_at, ends_at, owner_id, owner_name, assignee_ids, function_key, visibility"
+    )
     .gte("starts_at", fromIso)
     .lte("starts_at", toIso)
-    .or(`owner_id.eq.${viewer.id},assignee_ids.cs.{${viewer.id}}`)
     .order("starts_at");
   if (error) {
     // pre-0044 DB: the table isn't there yet — the calendar renders without it
     console.error("[calendar-items] list failed:", error.message);
     return [];
   }
-  const rows = (data ?? []) as CalendarItemRow[];
+  const all = (data ?? []) as CalendarItemRow[];
+
+  // the owners' team + function facts, one query, for the scope tests below
+  const ownerIds = [...new Set(all.map((r) => r.owner_id))];
+  const owners = new Map<string, { stakeholder_id: string | null }>();
+  if (ownerIds.length > 0) {
+    const { data: os } = await db()
+      .from("members")
+      .select("id, stakeholder_id")
+      .in("id", ownerIds);
+    for (const o of ((os ?? []) as { id: string; stakeholder_id: string | null }[]))
+      owners.set(o.id, { stakeholder_id: o.stakeholder_id });
+  }
+  const myFns = expandTouchPointFns([
+    ...(viewer.functions ?? []),
+    ...(viewer.sub_functions ?? []),
+  ]);
+  const onTheEb = viewer.role === "LCP" || viewer.role === "LCVP";
+
+  const canSee = (r: CalendarItemRow): boolean => {
+    // the owner and anyone it was handed to, always — the 0044 rule
+    if (r.owner_id === viewer.id) return true;
+    if ((r.assignee_ids ?? []).includes(viewer.id)) return true;
+    switch (r.visibility) {
+      case "lc":
+        return true;
+      case "eb":
+        return onTheEb;
+      case "function": {
+        if (!r.function_key) return false;
+        return [...expandTouchPointFns([r.function_key])].some((f) => myFns.has(f));
+      }
+      case "team": {
+        // teammates share a manager, or one manages the other
+        const owner = owners.get(r.owner_id);
+        if (!owner) return false;
+        return (
+          (owner.stakeholder_id != null &&
+            owner.stakeholder_id === viewer.stakeholder_id) ||
+          owner.stakeholder_id === viewer.id ||
+          viewer.stakeholder_id === r.owner_id
+        );
+      }
+      default:
+        return false; // 'self'
+    }
+  };
+  const rows = all.filter(canSee);
   const ids = [...new Set(rows.flatMap((r) => r.assignee_ids ?? []))];
   if (ids.length > 0) {
     const { data: people } = await db().from("members").select("id, name").in("id", ids);

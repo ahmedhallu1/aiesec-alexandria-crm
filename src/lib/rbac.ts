@@ -577,6 +577,32 @@ export function ogxLanes(v: Viewer): OgxFunction[] {
  *  a Member/Coordinator for THEMSELVES + THEIR OWN TEAM (teammates and the
  *  TL), a TL for their team, an LCVP/Director for their function(s),
  *  LCP-level for anyone. The server validates the assignee list either way. */
+/** WHO CAN SEE A CUSTOM CALENDAR ITEM (v33.31). The owner and any explicit
+ *  assignees always see it; this is the group ADDED on top:
+ *
+ *    Member / Coordinator / TL   self · team · function
+ *    LCVP / Director             self · function        (their team IS the function)
+ *    LCP-level                   self · EB · LC         (+ function, if they hold one)
+ *    TM (any role)               self · function · LC   (TM's remit is the whole LC)
+ *
+ *  Built from the person's actual position rather than a role table, so
+ *  someone who is both (a TM Team Leader, the IM Director) gets the union
+ *  instead of whichever row was checked first. */
+export type CalendarItemScope = "self" | "team" | "function" | "eb" | "lc";
+
+export function calendarItemScopes(v: Viewer): CalendarItemScope[] {
+  const out: CalendarItemScope[] = ["self"];
+  const fns = [...(v.functions ?? []), ...(v.sub_functions ?? [])];
+  // a team is something only the roles BELOW the EB sit inside
+  if (["Member", "Coordinator", "Team Leader"].includes(v.role)) out.push("team");
+  // no function, nothing to share with a function
+  if (fns.length > 0) out.push("function");
+  if (master(v)) out.push("eb", "lc");
+  // TM answers for the whole LC's people, so an LC-wide slot is theirs to book
+  else if (fns.includes("TM")) out.push("lc");
+  return out;
+}
+
 export function canCreateCalendarItems(v: Viewer): boolean {
   void v;
   return true;
@@ -706,8 +732,10 @@ export function canSeeLcConcerns(v: Viewer): boolean {
   // TM owns people (v33.22 — the whole function, not only its leadership:
   // handling a concern is TM's daily work, not an executive act)
   if (fns.includes("TM")) return true;
-  // F&L's LCVP, who carries the LC's legality side
-  return v.role === "LCVP" && fns.includes("F&L");
+  // F&L's LCVP was here for the legality side and was REMOVED in v33.31 by
+  // the LCP: a concern about a person is TM's and the LCP's to handle, and
+  // every extra reader is one more person an anonymous author didn't expect.
+  return false;
 }
 
 /** Feedback inbox: ONLY the IM director (admin) and the IM coach. */
