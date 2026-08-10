@@ -23,7 +23,9 @@ import {
   icxFunctions,
   isB2B,
   isB2C,
+  fnSetting as _fnSetting,
   master as _master,
+  openViewFunctions as _openViewFunctions,
   reassignTargetScope,
   type Viewer,
   type AccountScope,
@@ -211,6 +213,45 @@ export const getViewer = cache(async (): Promise<Viewer> => {
   };
 });
 
+/** WHICH FLOORS THIS PERSON MAY READ IN FULL (v33.32).
+ *
+ *  A function's leader can open their function to a role from the Function
+ *  defaults card. Resolved here, once, so `accountScope` and every `can*`
+ *  predicate stay synchronous and pure — they read the answer off the Viewer
+ *  instead of hitting the database mid-check.
+ *
+ *  Leaders are skipped: they already read their whole function. */
+async function viewerFunctionSettings(m: {
+  role: string;
+  functions: string[] | null;
+  sub_functions: string[] | null;
+}): Promise<{
+  openViewFns: string[];
+  fnSettings: Record<string, import("@/lib/function-settings").FunctionSettings>;
+}> {
+  const none = { openViewFns: [], fnSettings: {} };
+  try {
+    const [{ allFunctionSettings }, { opensViewTo, SETTABLE_FUNCTIONS }] = await Promise.all([
+      import("./function-settings"),
+      import("@/lib/function-settings"),
+    ]);
+    const all = await allFunctionSettings();
+    const mine = new Set([...(m.functions ?? []), ...(m.sub_functions ?? [])]);
+    // B2B and BD are one crew with two labels, as everywhere else
+    if (mine.has("B2B") || mine.has("BD")) { mine.add("B2B"); mine.add("BD"); }
+    const openViewFns = ["Member", "Coordinator", "Team Leader"].includes(m.role)
+      ? SETTABLE_FUNCTIONS.filter(
+          (fn) => mine.has(fn) && all[fn] && opensViewTo(all[fn], m.role)
+        )
+      : [];
+    return { openViewFns, fnSettings: all };
+  } catch {
+    // the settings table is an ADDITION — if it can't be read, everyone keeps
+    // exactly the behaviour they had before 0054
+    return none;
+  }
+}
+
 async function getViewerById(id: string): Promise<Viewer | null> {
   const { data: member } = await db()
     .from("members")
@@ -218,17 +259,22 @@ async function getViewerById(id: string): Promise<Viewer | null> {
     .eq("id", id)
     .maybeSingle<Member>();
   if (!member || !member.is_active) return null;
-  const { data: team } = await db()
-    .from("members")
-    .select("id")
-    .eq("stakeholder_id", member.id)
-    .eq("is_active", true);
+  const [{ data: team }, fnConf] = await Promise.all([
+    db()
+      .from("members")
+      .select("id")
+      .eq("stakeholder_id", member.id)
+      .eq("is_active", true),
+    viewerFunctionSettings(member),
+  ]);
   return {
     ...member,
     functions: member.functions ?? [],
     sub_functions: member.sub_functions ?? [],
     isAdmin: env.adminEmails.includes((member.email ?? "").toLowerCase()),
     teamMemberIds: (team ?? []).map((t) => t.id),
+    openViewFns: fnConf.openViewFns,
+    fnSettings: fnConf.fnSettings,
   };
 }
 
@@ -248,17 +294,22 @@ export async function getViewerByEmail(email: string): Promise<Viewer | null> {
     member = data;
   }
   if (!member || !member.is_active) return null;
-  const { data: team } = await db()
-    .from("members")
-    .select("id")
-    .eq("stakeholder_id", member.id)
-    .eq("is_active", true);
+  const [{ data: team }, fnConf] = await Promise.all([
+    db()
+      .from("members")
+      .select("id")
+      .eq("stakeholder_id", member.id)
+      .eq("is_active", true),
+    viewerFunctionSettings(member),
+  ]);
   return {
     ...member,
     functions: member.functions ?? [],
     sub_functions: member.sub_functions ?? [],
     isAdmin: env.adminEmails.includes((member.email ?? "").toLowerCase()),
     teamMemberIds: (team ?? []).map((t) => t.id),
+    openViewFns: fnConf.openViewFns,
+    fnSettings: fnConf.fnSettings,
   };
 }
 
@@ -308,10 +359,38 @@ export interface ConsiderationStats {
   completionRate: number | null;
   /** partner LCs whose FIRST-EVER call happened this month — new ground */
   newLcsThisMonth: number;
-  /** per-member drill, ranked by total calls (this month alongside) */
-  byMember: { name: string; total: number; month: number; upcoming: number }[];
+  /** BOOKED, THE TIME PASSED, STILL NOT REPORTED (v33.32). A scheduled call
+   *  whose slot is behind us is not "upcoming" and not "completed" — it is
+   *  someone's unfinished business, and until now it was invisible. */
+  irOverdue: number;
+  /** per-member drill, ranked by total calls. The columns are DISJOINT by
+   *  design (done + upcoming + overdue = total) — the old table showed
+   *  month/upcoming/total, which read as arithmetic that didn't add up. */
+  byMember: {
+    name: string;
+    total: number;
+    month: number;
+    done: number;
+    upcoming: number;
+    overdue: number;
+  }[];
   /** the last 6 months' call volume, oldest first — the trend strip */
   byMonth: { month: string; label: string; calls: number }[];
+  /** what the filter bar actually narrowed this snapshot to (v33.32) — the
+   *  panel says so out loud, so nobody reads a filtered number as the lane's */
+  filtered: boolean;
+}
+
+/** The dashboard filter bar, applied to a consideration lane (v33.32). Every
+ *  other lane honoured Added→ / team / member and this one silently ignored
+ *  all three. `from`/`to` are Cairo DAYS matched against the call's own time. */
+export interface ConsiderationFilters {
+  from?: string;
+  to?: string;
+  /** a member id — their own calls (and, for CVs, their own uploads) */
+  member?: string;
+  /** a Team Leader's id — their team's calls */
+  team?: string;
 }
 
 /** An MM PLAN carries no product column — the crew plans the whole ICX in one
@@ -337,7 +416,8 @@ function ownerInLane(
  *  function's VPs/Directors, the consideration crew and the LCP. */
 export async function considerationStats(
   viewer: Viewer,
-  fn: "IGV" | "IGT"
+  fn: "IGV" | "IGT",
+  filters: ConsiderationFilters = {}
 ): Promise<ConsiderationStats | null> {
   if (!considerationFunctions(viewer).includes(fn)) return null;
   const showCvs = fn === "IGT" && _canSeeCvPool(viewer);
@@ -358,15 +438,17 @@ export async function considerationStats(
     ),
     // the CV pool is IGT-only (v27) — never even read for the IGV lane
     showCvs
-      ? fetchAll<{ created_at: string; industry: string | null }>(() =>
-          db().from("cvs").select("created_at, industry").order("id")
+      ? fetchAll<{ created_at: string; industry: string | null; uploaded_by: string | null }>(
+          () => db().from("cvs").select("created_at, industry, uploaded_by").order("id")
         )
-      : Promise.resolve([] as { created_at: string; industry: string | null }[]),
+      : Promise.resolve(
+          [] as { created_at: string; industry: string | null; uploaded_by: string | null }[]
+        ),
     db()
       .from("mm_plans")
       .select("applicants, accepted, approvals, month, member:members!mm_plans_member_id_fkey(functions, sub_functions)")
       .eq("month", monthStart),
-    db().from("members").select("id, functions, sub_functions"),
+    db().from("members").select("id, role, stakeholder_id, functions, sub_functions"),
   ]);
   const now = new Date();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -376,10 +458,42 @@ export async function considerationStats(
   // calls in BOTH lanes. An untagged call still counts in both — that is what
   // "we don't know which" honestly means.
   const laneTag = fn === "IGT" ? "GT" : "GV";
+
+  // THE FILTER BAR REACHES THIS LANE NOW (v33.32). A Cairo DAY window, since
+  // that is what the two date inputs mean everywhere else in the app; the
+  // member and team picks are matched on the call's OWNER.
+  const { cairoToUtc } = await import("@/lib/time");
+  const fromIso = filters.from ? cairoToUtc(filters.from, "00:00").toISOString() : null;
+  const toIso = filters.to
+    ? new Date(cairoToUtc(filters.to, "00:00").getTime() + 24 * 60 * 60_000).toISOString()
+    : null;
+  /** a member's Team Leader: themself, or their manager if that manager is one
+   *  (the EB is never a team — the same rule as every other drill) */
+  const tlIdOf = (memberId: string | null): string | null => {
+    if (!memberId) return null;
+    const m = byMember.get(memberId);
+    if (!m) return null;
+    if (m.role === "Team Leader") return m.id as string;
+    const mgr = m.stakeholder_id ? byMember.get(m.stakeholder_id) : undefined;
+    return mgr?.role === "Team Leader" ? (mgr.id as string) : null;
+  };
+  const inWindow = (iso: string | null) =>
+    !!iso && (!fromIso || iso >= fromIso) && (!toIso || iso < toIso);
+  const filtered = !!(filters.from || filters.to || filters.member || filters.team);
+
   const callRows = callRowsAll.filter(
-    (c) => c.product === laneTag || c.product == null
+    (c) =>
+      (c.product === laneTag || c.product == null) &&
+      (!fromIso && !toIso ? true : inWindow(c.called_at)) &&
+      (!filters.member || c.member_id === filters.member) &&
+      (!filters.team || tlIdOf(c.member_id) === filters.team)
   );
-  const cvRows = cvRowsAll;
+  const cvRows = cvRowsAll.filter(
+    (c) =>
+      (!fromIso && !toIso ? true : inWindow(c.created_at)) &&
+      (!filters.member || c.uploaded_by === filters.member) &&
+      (!filters.team || tlIdOf(c.uploaded_by) === filters.team)
+  );
   const inMonth = (iso: string) => iso >= monthStart;
   const industries = new Map<string, number>();
   for (const c of cvRows) {
@@ -419,14 +533,30 @@ export async function considerationStats(
     if (!prev || c.called_at < prev) firstCall.set(key, c.called_at);
   }
   const newLcsThisMonth = [...firstCall.values()].filter((d) => inMonth(d)).length;
-  // per-member drill from the calls' own name snapshots (renames cascade)
-  const perMember = new Map<string, { name: string; total: number; month: number; upcoming: number }>();
+  /** a booked call whose slot has passed and that nobody has reported on */
+  const isOverdue = (c: { status: string; called_at: string }) =>
+    c.status === "scheduled" && new Date(c.called_at) < now;
+  const isUpcoming = (c: { status: string; called_at: string }) =>
+    c.status === "scheduled" && new Date(c.called_at) >= now;
+  // per-member drill from the calls' own name snapshots (renames cascade).
+  // THE COLUMNS ARE DISJOINT (v33.32): every live call is exactly one of
+  // done / upcoming / overdue, so those three add up to the total and the
+  // table can be read as arithmetic. "This month" sits apart — it is a slice
+  // of the same calls, not a fourth bucket, and the header says so.
+  const perMember = new Map<
+    string,
+    { name: string; total: number; month: number; done: number; upcoming: number; overdue: number }
+  >();
   for (const c of live) {
     const key = c.member_name || "—";
-    const row = perMember.get(key) ?? { name: key, total: 0, month: 0, upcoming: 0 };
+    const row =
+      perMember.get(key) ??
+      { name: key, total: 0, month: 0, done: 0, upcoming: 0, overdue: 0 };
     row.total += 1;
     if (inMonth(c.called_at)) row.month += 1;
-    if (c.status === "scheduled" && new Date(c.called_at) >= now) row.upcoming += 1;
+    if (c.status === "completed") row.done += 1;
+    else if (isUpcoming(c)) row.upcoming += 1;
+    else if (isOverdue(c)) row.overdue += 1;
     perMember.set(key, row);
   }
   // 6-month trend, oldest first
@@ -450,9 +580,7 @@ export async function considerationStats(
     showCvs,
     irTotal: live.length,
     irThisMonth: live.filter((c) => inMonth(c.called_at)).length,
-    irUpcoming: live.filter(
-      (c) => c.status === "scheduled" && new Date(c.called_at) >= now
-    ).length,
+    irUpcoming: live.filter(isUpcoming).length,
     partnerLcsContacted: new Set(live.map((c) => c.partner_lc_name.toLowerCase())).size,
     cvTotal: cvRows.length,
     cvThisMonth: cvRows.filter((c) => inMonth(c.created_at)).length,
@@ -471,8 +599,10 @@ export async function considerationStats(
         ? Math.round((completed / (completed + cancelled)) * 100)
         : null,
     newLcsThisMonth,
+    irOverdue: live.filter(isOverdue).length,
     byMember: [...perMember.values()].sort((a, b) => b.total - a.total).slice(0, 15),
     byMonth,
+    filtered,
   };
 }
 
@@ -484,17 +614,24 @@ export function applyScope<T extends { eq: any; in: any; or?: any }>(
   scope: AccountScope,
   /** functions whose UNASSIGNED accounts this viewer may also see (v32.4) —
    *  nobody owns them, so anyone who may work that function can take one */
-  claimableFns: AccountFunction[] = []
+  claimableFns: AccountFunction[] = [],
+  /** functions this viewer may READ IN FULL because their leader opened them
+   *  to this role (v33.32) — read-only: editing is still per-row scoped */
+  openFns: AccountFunction[] = []
 ): T {
   if (scope.kind === "functions") return query.in("function", scope.fns);
   if (scope.kind === "members") {
     const ids = scope.ids.map((i) => `"${i}"`).join(",");
-    if (claimableFns.length > 0 && query.or) {
+    const clauses = [`responsible_id.in.(${ids})`];
+    if (claimableFns.length > 0) {
       const fns = claimableFns.map((f) => `"${f}"`).join(",");
-      return query.or(
-        `responsible_id.in.(${ids}),and(responsible_id.is.null,function.in.(${fns}))`
-      );
+      clauses.push(`and(responsible_id.is.null,function.in.(${fns}))`);
     }
+    if (openFns.length > 0) {
+      const fns = openFns.map((f) => `"${f}"`).join(",");
+      clauses.push(`function.in.(${fns})`);
+    }
+    if (clauses.length > 1 && query.or) return query.or(clauses.join(","));
     return query.in("responsible_id", scope.ids);
   }
   return query;
@@ -715,7 +852,8 @@ async function buildAccountsQuery(
       worklistScope,
       worklistScope.kind === "members" && canSeeUnassigned(viewer)
         ? _allowedAccountFunctions(viewer)
-        : []
+        : [],
+      _openViewFunctions(viewer)
     );
   // test accounts live in a parallel universe: visible ONLY in test mode
   // (admin's "Show test data" toggle or any test view)
@@ -4207,6 +4345,11 @@ export function signupViewsFor(v: Viewer): string[] {
   if (_ogxFunctions(v).length === 0 && b2cCicAccess(v)) return ["cic"];
   const leader =
     v.isAdmin || ["LCP", "LCVP", "Director"].includes(v.role);
+  // v33.32 — the function's own defaults: is the CIC second call in use here,
+  // and has this floor been opened to the viewer's role?
+  const ogxFns = _ogxFunctions(v);
+  const cicOn = ogxFns.length === 0 || ogxFns.some((f) => _fnSetting(v, f).cicEnabled);
+  const openFloor = ogxFns.some((f) => (v.openViewFns ?? []).includes(f));
   // THE POOL IS NOT A MEMBER'S VIEW (v33.10). Sign-ups are handed out by the
   // Team Leader — a member browsing the unclaimed pool picks the easy ones and
   // the distribution stops being anyone's decision. MMs and above still see
@@ -4219,9 +4362,10 @@ export function signupViewsFor(v: Viewer): string[] {
     "mine",
     // CIC — Customer Interview Calls (v33.19): a SECOND caller verifies the
     // first contact and follows up. MMs+ see the queue; members see "My CIC"
-    // (the ones handed to them as the second caller).
-    "cic",
-    ...(leader ? ["all"] : []),
+    // (the ones handed to them as the second caller). Off when the function's
+    // leader has no second-call step (v33.32).
+    ...(cicOn ? ["cic"] : []),
+    ...(leader || openFloor ? ["all"] : []),
     "archived",
   ];
 }
@@ -4733,6 +4877,9 @@ export interface OgxDashboardFilters {
 export interface OgxDashboardData {
   fn: OgxFunction;
   total: OgxFunnel;
+  /** how many of the sign-ups in this snapshot are ORGANIC REFERRALS (v33.32)
+   *  — they count in every number above; this says how much of it they are */
+  referrals: number;
   /** MEMBERS — ranked by Approvals, every funnel number per person */
   board: OgxBoardRow[];
   /** MMs (Team Leaders + Coordinators) — their own assigned sign-ups. A
@@ -4801,6 +4948,8 @@ function addOgxRow(
 }
 
 interface OgxDashSignup {
+  /** which tracker tab it came from — 'referral' means we created it (v33.32) */
+  source?: string | null;
   assigned_to: string | null;
   /** when it became someone's work — what the peak window is measured on */
   assigned_at: string | null;
@@ -4833,7 +4982,7 @@ export async function ogxDashboard(
       db()
         .from("signups")
         .select(
-          "assigned_to, assigned_at, contact_status, interested, status, out_of_process, signed_up_at, cic_assigned_to, cic_contact_status, cic_interested"
+          "assigned_to, assigned_at, contact_status, interested, status, out_of_process, signed_up_at, cic_assigned_to, cic_contact_status, cic_interested, source"
         )
         .eq("fn", fn)
         .order("id")
@@ -4866,6 +5015,7 @@ export async function ogxDashboard(
   };
 
   const total = emptyOgxFunnel();
+  let referrals = 0;
   const board = new Map<string, OgxBoardRow>();
   const mmBoard = new Map<string, OgxBoardRow>();
   const byTeam = new Map<string, OgxBoardRow>();
@@ -4938,6 +5088,14 @@ export async function ogxDashboard(
     if (!filters.member) addOgxRow(total, r);
     else if (r.assigned_to === filters.member) addOgxRow(total, r, firstOpts);
     else if (cicCounts && cicId === filters.member) addOgxRow(total, r, secondOpts);
+    // organic referrals ride inside every number above — this is how many
+    if (
+      r.source === "referral" &&
+      (!filters.member ||
+        r.assigned_to === filters.member ||
+        (cicCounts && cicId === filters.member))
+    )
+      referrals += 1;
 
     /** put a row on the two personal boards, by the holder's role */
     const credit = (
@@ -5012,6 +5170,7 @@ export async function ogxDashboard(
   return {
     fn,
     total,
+    referrals,
     board: [...board.values()].sort(rank),
     mmBoard: [...mmBoard.values()].sort(rank),
     byTeam: [...byTeam.values()].sort(rank),
@@ -5342,6 +5501,57 @@ export interface IrCallRow {
   booker_note: string | null;
 }
 
+/** THE PAST CALLS' FILTERS (v33.32) — the log is server-paged, so filtering
+ *  it client-side would have narrowed the PAGE and called it the pool. Every
+ *  one of these is applied in the query. */
+export interface IrCallFilters {
+  /** free text over the LC, the IR, the host and the notes */
+  q?: string;
+  /** "GV" / "GT" / "none" (untagged) — comma-joined for multi-select */
+  product?: string;
+  /** "completed" / "cancelled" */
+  status?: string;
+  /** host name snapshots (renames cascade, so these stay current) */
+  member?: string;
+  /** partner LC names */
+  lc?: string;
+  /** Cairo days, matched against the call's own time */
+  from?: string;
+  to?: string;
+}
+
+/** What the log's column funnels offer — the values the WHOLE set holds, not
+ *  the page in hand (the same rule as the sign-ups and CV funnels). */
+export async function irCallFilterOptions(
+  viewer: Viewer
+): Promise<{ members: string[]; lcs: string[] }> {
+  if (!_hasConsiderationAccess(viewer)) return { members: [], lcs: [] };
+  const { unstable_cache } = await import("next/cache");
+  const read = unstable_cache(
+    async () => {
+      const rows = await fetchAll<{ member_name: string | null; partner_lc_name: string | null }>(
+        () =>
+          db()
+            .from("ir_calls")
+            .select("member_name, partner_lc_name")
+            .neq("status", "scheduled")
+            .order("id")
+      );
+      const members = new Set<string>();
+      const lcs = new Set<string>();
+      for (const r of rows) {
+        if (r.member_name?.trim()) members.add(r.member_name.trim());
+        if (r.partner_lc_name?.trim()) lcs.add(r.partner_lc_name.trim());
+      }
+      const sorted = (s: Set<string>) => [...s].sort((a, b) => a.localeCompare(b)).slice(0, 300);
+      return { members: sorted(members), lcs: sorted(lcs) };
+    },
+    ["ir-call-filter-options"],
+    { revalidate: 300 }
+  );
+  return read();
+}
+
 /** IR calls — one SHARED international-relations effort: every module member
  *  sees ALL calls. v27: SCHEDULED (booked) calls ride on top soonest-first;
  *  the completed/cancelled log stays paged 50, newest first. */
@@ -5351,7 +5561,10 @@ export async function listIrCalls(
   pageSize = 50,
   /** a DATE WINDOW instead of page 0 — the calendar needs the month it shows,
    *  not the 50 newest calls in the LC's whole history (v29) */
-  range?: { fromIso: string; toIso: string }
+  range?: { fromIso: string; toIso: string },
+  /** the log's own filters (v33.32) — never applied to the scheduled list,
+   *  which is small, in hand, and has its own chips */
+  filters: IrCallFilters = {}
 ): Promise<{ scheduled: IrCallRow[]; rows: IrCallRow[]; total: number; page: number }> {
   if (!_hasConsiderationAccess(viewer))
     return { scheduled: [], rows: [], total: 0, page: 0 };
@@ -5393,6 +5606,64 @@ export async function listIrCalls(
     const own = `product.eq.${laneProduct},product.is.null`;
     schedQ = schedQ.or(own);
     logQ = logQ.or(own);
+  }
+
+  // ---- the log's own filters (v33.32). They narrow the QUERY, so they
+  // filter the whole history and not the fifty rows on screen.
+  if (!range) {
+    const picks = (v?: string) =>
+      (v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    const products = picks(filters.product);
+    if (products.length > 0) {
+      const known = products.filter((p) => p === "GV" || p === "GT");
+      const wantsNone = products.includes("none");
+      if (wantsNone && known.length === 0) logQ = logQ.is("product", null);
+      else if (wantsNone)
+        logQ = logQ.or(
+          `product.is.null,product.in.(${known.map((p) => `"${p}"`).join(",")})`
+        );
+      else if (known.length > 0) logQ = logQ.in("product", known);
+    }
+    const statuses = picks(filters.status).filter(
+      (s) => s === "completed" || s === "cancelled"
+    );
+    if (statuses.length > 0) logQ = logQ.in("status", statuses);
+    const members = picks(filters.member);
+    if (members.length > 0) logQ = logQ.in("member_name", members);
+    const lcs = picks(filters.lc);
+    if (lcs.length > 0) logQ = logQ.in("partner_lc_name", lcs);
+    if (filters.from || filters.to) {
+      const { cairoToUtc } = await import("@/lib/time");
+      if (filters.from)
+        logQ = logQ.gte("called_at", cairoToUtc(filters.from, "00:00").toISOString());
+      if (filters.to)
+        logQ = logQ.lt(
+          "called_at",
+          new Date(cairoToUtc(filters.to, "00:00").getTime() + 24 * 60 * 60_000).toISOString()
+        );
+    }
+    const q = (filters.q ?? "").trim().slice(0, 80);
+    if (q) {
+      // PostgREST's `or` is a comma-separated grammar and ilike takes LIKE
+      // metacharacters — an unescaped comma, paren, % or _ would silently
+      // rewrite the filter into something else
+      const safe = q
+        .replaceAll("\\", "")
+        .replaceAll("%", "\\%")
+        .replaceAll("_", "\\_")
+        .replaceAll(",", " ")
+        .replaceAll("(", " ")
+        .replaceAll(")", " ");
+      logQ = logQ.or(
+        [
+          `partner_lc_name.ilike.%${safe}%`,
+          `member_name.ilike.%${safe}%`,
+          `booker_name.ilike.%${safe}%`,
+          `notes.ilike.%${safe}%`,
+          `demand.ilike.%${safe}%`,
+        ].join(",")
+      );
+    }
   }
   const [sched, log] = await Promise.all([
     schedQ.limit(500),

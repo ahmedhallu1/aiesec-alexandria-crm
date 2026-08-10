@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-10 · Version: v33.31
+Last updated: 2026-08-10 · Version: v33.32
 
 ---
 
@@ -50,8 +50,10 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0036_virtual_touch_points_and_routines` → `0037_admin_member_role` → … →
 `0045_cic_signup_logs_ir_event_source` → `0046_lc_feedback_inbox` →
 `0047_ir_call_timezone` → `0048_ir_product_and_lc_comments` →
-`0049_direct_visits_mailbox_ir_notes` → `0050_ir_call_reschedule_history`
-(**all applied**, 0046–0050 during v33.22–v33.28).
+`0049_direct_visits_mailbox_ir_notes` → `0050_ir_call_reschedule_history` →
+`0051_fallback_email_bounces_b2c_cic` → `0052_three_name_worlds` →
+`0053_calendar_item_visibility` → `0054_function_settings`
+(**all applied**, 0046–0054 during v33.22–v33.32).
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
@@ -552,6 +554,14 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | Tests | `tests/*.test.ts` (Vitest — `npm test`) |
 | Feedback categories | `FEEDBACK_CATEGORIES` in `types.ts` |
 | LC people feedback | `submitLcFeedback` in `actions.ts` · `lc-feedback-view.tsx` · inbox via `listLcFeedback` |
+| Function defaults (shape + what unset means) | `src/lib/function-settings.ts` (pure) · reader `src/server/function-settings.ts` · `saveFunctionSettings` in `actions.ts` · card in `profile-view.tsx` |
+| Who may read a whole function (per-role) | `openViewFns`/`fnSettings` on the Viewer (`viewerFunctionSettings` in data.ts) · `canViewAccount`/`openViewFunctions` in rbac · the `openFns` OR in `applyScope` |
+| OGX referrals | `addSignupReferral` in `actions.ts` · `ReferralDialog` in `signups-view.tsx` (source='referral' — never synced to a tracker tab) |
+| IR email checks (pre-booking) | `src/lib/email-check.ts` |
+| IR bounce watcher + host alert | `src/server/bounces.ts` · `irEmailBouncedEmail` in `email/templates.ts` |
+| Fixing an IR's email (invite swap/rebuild) | `updateIrBookerEmail` in `actions.ts` · `swapIrCallAttendee` in `google/calendar.ts` |
+| Consideration lane filters | `ConsiderationFilters` in `considerationStats` (data.ts) · the shared filter bar in `dashboard-view.tsx` |
+| IR call-log filters | `IrCallFilters`/`irCallFilterOptions`/`listIrCalls` in data.ts · `IrCallsTab` in `consideration-view.tsx` |
 
 ---
 
@@ -613,6 +623,110 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-10 · v33.32** — **THE LEADER'S OWN DEFAULTS, REFERRALS & THE
+  BOUNCE LOOP** (migration **0054 applied**: `function_settings`).
+  ① **FUNCTION DEFAULTS** — a card on the profile of anyone who LEADS a
+  function (LCVP/Director; LCP/admin get all eight). Every switch on it
+  replaces a constant that used to live in the code, and every one is wired to
+  something real — a dead toggle would be worse than no toggle:
+  **new accounts** (join the Podio update cycle? every how many days — it was
+  hard-coded ON for IGV/B2C/BD at 14 days for everyone) · **who sees the whole
+  function** (a per-role switch for Members, Coordinators, Team Leaders) ·
+  **OGX** (self-service claiming, second calls, who may log a referral, the
+  streak nag) · **TM** (chase unrecorded touch points, pre-fill working hours,
+  and whether the function is judged on working hours at all).
+  The store is ONE JSONB blob per function, because a settings table that
+  needs a migration per toggle is a table nobody adds toggles to; the SHAPE and
+  the DEFAULTS live in `src/lib/function-settings.ts`, and an absent row means
+  exactly the behaviour that shipped before 0054 — locked by tests, so an LC
+  that never opens the card cannot notice it exists.
+  ② **"WHO SEES WHAT" IS A READ, AND ONLY A READ.** The widening had to reach
+  the RBAC engine, which is synchronous and pure — so the settings are
+  resolved ONCE per request in `getViewer` and ride on the Viewer
+  (`openViewFns`, `fnSettings`) rather than being fetched mid-check.
+  `canEditAccount` is untouched: the new clause lives in `canViewAccount` and
+  in one extra OR on the list query, so an opened Member can OPEN every
+  account in their function and still edit nothing but their own. It never
+  leaves the function it was set on, and `accountScope` — which every mutation
+  and every leaderboard reads — returns exactly what it did before. Seven rbac
+  tests pin those properties.
+  ③ **ORGANIC REFERRALS** (no migration — a referral is a sign-up). Someone we
+  can approve who never came through the tracker had nowhere to live, so they
+  were worked over WhatsApp and never appeared in a funnel, a leaderboard or a
+  plan. **Add referral** on /signups writes a real `signups` row with
+  `source='referral'` + `sodio_touched`, assigned from birth (an unassigned
+  sign-up is invisible to the OGX dashboard by design). The tracker sync
+  cannot touch it: the importer only reads rows whose source is one of the
+  four sheet tabs, and BOTH write-back paths look the source up in
+  `SIGNUP_TABS` and return early. The list shows 🤝 Referral instead of an EP
+  id, and the dashboard says how many of the sign-ups are referrals.
+  ④ **THE IR EMAIL LOOP, END TO END.** Refuse what can be PROVEN wrong at
+  booking: a dead/mistyped domain (curated table; a one-edit near-miss only
+  sharpens the message when the domain also has no MX, because "mail.com" is
+  one edit from gmail.com and real), a burner domain, a stray/leading/trailing
+  dot, and a local part that breaks **Gmail's own published rules** —
+  `a.b@gmail.com` cannot exist, so refusing it is a fact. DNS still fails
+  OPEN. What can't be proven (the Visakhapatnam case: a reversed name at a
+  valid gmail.com) is caught after the fact, and that loop was leaky:
+  the watcher marked every LISTED message seen — including ones whose fetch had
+  just failed, so one transient Gmail error buried that bounce forever (now
+  only PARSED ids are recorded, over a 7-day/60-message window instead of
+  2 days/25). A bounce now EMAILS the host as well as belling them, carrying a
+  **wa.me link to the IR** — their number is the one channel we know works.
+  On the fix: the wrong address is dropped from the event and the right one
+  invited in its place (Google mails both), and when the swap is impossible —
+  no event was ever created because the host had no Google grant, or that
+  grant has since been revoked — the event is **rebuilt on the IM mailbox**
+  instead of silently doing nothing. A confirmation that fails to send to the
+  NEW address re-flags the call rather than reporting success, and a booking
+  whose first confirmation is rejected on the spot is flagged immediately
+  instead of waiting 15 minutes for the watcher.
+  ⑤ **THE CONSIDERATION LANE HAS FILTERS** (it was the only lane that ignored
+  Added→ / team / member entirely, so "what did the IR floor do this sprint"
+  was not an answerable question). Same bar as every other lane, matched
+  against the call's OWN time and its owner; the date inputs are the one place
+  NOT clamped to today, because a call can legitimately be in the future. The
+  member list is the people who actually make the calls — the product's crew
+  whose sub-function says Consideration — not every raiser in the function.
+  ⑥ **"THIS MONTH 4, UPCOMING 1, TOTAL 4."** The Calls-by-member table showed
+  three numbers that look like a sum and aren't: an upcoming call is already
+  inside both the month and the total. The columns are DISJOINT now — **Done +
+  Upcoming + Waiting = Total** — with "this month" kept apart as the slice it
+  is, and the card says so in words. Which surfaced the real gap: a booked
+  call whose time has passed while it is still `scheduled` is neither
+  upcoming nor done, and nothing anywhere counted or chased it (Dai's 11 GV
+  calls were 11 REAL bookings from 11 different LCs — no duplicate, no
+  reschedule artefact — but two of them had already happened with nobody
+  reporting on them). New: an **⏰ Time passed — report it** chip, a banner
+  counting them (bounced emails included) with one tap to show only those,
+  and a **Waiting to be reported** KPI on the lane.
+  ⑦ **THE PAST IR CALLS FILTER** — funnels on Product · Status · By ·
+  Partner LC, plus search and a Called-from→to window, all applied in the
+  QUERY: the log is server-paged, so a client-side filter would have narrowed
+  the page and presented it as the whole history. Options come from a cached
+  distinct read over the whole log, not from the rows on screen.
+  ⑧ **THE GRAB HANDLE WAS ON THE TITLE.** At `-top-4` with `py-1` the 24px
+  grip ran from 8px to 32px inside the dialog's 24px top padding — its lower
+  third overlapping the first line of the title, which is exactly "the grab is
+  on the text itself". It now sits entirely in the padding, 2px clear.
+  ⑨ **TWO EMAILS, TWO JOBS.** Both fields in the member dialog said "Email",
+  so the AIESEC address and the personal one were filled interchangeably. They
+  are now **AIESEC Mail** (the identity: sign-in + what the Membership sheet
+  carries) and **Personal Gmail — backup only** (resets and IR-call invites
+  until the AIESEC one lands; never a sign-in, never written to the sheet),
+  each saying so under the field. Same wording on the profile.
+  ⑩ **ACCOUNT CREATION RE-CHECKED ACROSS FUNCTIONS** (the ask was whether
+  adding a B2C or an IGV account harms anything): the only change to
+  `createAccount` is that the two Podio columns now come from the function's
+  settings, whose defaults reproduce the old rule exactly. Verified against
+  prod: **zero** B2C accounts carry a stray industry/product/project, zero
+  lack their Type, every function is on a single cadence (14), and the
+  460 IGV / 1245 IGT rows without a project/product are the v22 sheet import,
+  not something creation produces. The name worlds match the DB index
+  (ICX · BD · B2C) so an IGV namesake never blocks a B2C account, and
+  `rowInLane` keeps B2C out of All-ICX and each product lane exact.
+  Tests **184**.
 
 - **2026-08-10 · v33.31** — **WHO SEES A CUSTOM SLOT** (migration **0053
   applied**: `calendar_items.visibility`).

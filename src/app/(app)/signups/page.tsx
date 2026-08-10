@@ -80,6 +80,18 @@ export default async function SignupsPage({
   // keeps its exact old meaning (the bulk/reassign pickers), `cicTargets`
   // feeds the second-caller picker.
   const canCic = !b2cOnly && seesCicQueue(viewer);
+  // ORGANIC REFERRALS (v33.32) — the function's own rule: the whole crew, or
+  // MMs and above. Asked of the side they're actually looking at.
+  const { functionSettingsFor } = await import("@/server/function-settings");
+  const canRefer =
+    !b2cOnly &&
+    (await (async () => {
+      const isMm =
+        viewer.isAdmin ||
+        ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(viewer.role);
+      const s = await functionSettingsFor(activeFn);
+      return s.referralsBy === "everyone" || isMm;
+    })());
   const canB2cCic = seesB2cCicQueue(viewer);
   const needsTargets = !b2cOnly && (isLeader || viewer.role === "Team Leader");
   // two DIFFERENT questions: who may own a sign-up (reassign scope) vs who may
@@ -128,6 +140,7 @@ export default async function SignupsPage({
         isTl: viewer.role === "Team Leader",
         canCic,
         canB2cCic,
+        canRefer,
         b2cOnly,
         canVp:
           viewer.isAdmin ||

@@ -115,7 +115,16 @@ export default async function DashboardPage({
     getDashboard(viewer, filters, SPECIAL_LANES.has(activeFn) ? baseLane : activeFn),
     listTeamFilterOptions(viewer, { fn: filters.fn ?? undefined }),
     listVisibleMembers(viewer),
-    consLane ? considerationStats(viewer, consLane) : Promise.resolve(null),
+    // the filter bar reaches the IR floor too (v33.32) — same params, matched
+    // against the CALL's own time and its owner
+    consLane
+      ? considerationStats(viewer, consLane, {
+          from: params.from || undefined,
+          to: params.to || undefined,
+          member: params.member || undefined,
+          team: params.team || undefined,
+        })
+      : Promise.resolve(null),
     isOgxLane
       ? ogxDashboard(viewer, activeFn as OgxFunction, {
           from: params.from || undefined,
@@ -147,12 +156,18 @@ export default async function DashboardPage({
   const memberOptions = members
     .filter((m) => !OVERSEER_ROLES.has(m.role))
     .filter((m) =>
-      laneFn === "B2C"
-        ? memberIsB2C(m) // the B2C lane lists ONLY the B2C crew (v23)
-        : laneFn
-          ? memberWorksFunction(m, laneFn)
-          : // All-ICX: the raising products (B2C and OGX are their own lanes)
-            ["IGV", "IGT", "B2B", "BD"].some((f) => memberWorksFunction(m, f))
+      // a CONSIDERATION lane lists the people who make its calls (v33.32) —
+      // the product's crew whose sub-function says Consideration, not every
+      // raiser in the function
+      consLane
+        ? memberWorksFunction(m, consLane) &&
+          [...(m.functions ?? []), ...(m.sub_functions ?? [])].includes("Consideration")
+        : laneFn === "B2C"
+          ? memberIsB2C(m) // the B2C lane lists ONLY the B2C crew (v23)
+          : laneFn
+            ? memberWorksFunction(m, laneFn)
+            : // All-ICX: the raising products (B2C and OGX are their own lanes)
+              ["IGV", "IGT", "B2B", "BD"].some((f) => memberWorksFunction(m, f))
     )
     .map((m) => ({ id: m.id, label: m.name }));
 

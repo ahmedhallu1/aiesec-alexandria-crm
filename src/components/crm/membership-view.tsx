@@ -295,7 +295,7 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
               <TableHeader>
                 <TableRow>
                   <SortHead field="member">Member</SortHead>
-                  <SortHead field="email">Email</SortHead>
+                  <SortHead field="email">AIESEC Mail</SortHead>
                   <SortHead field="role">Role</SortHead>
                   <SortHead field="function">Function</SortHead>
                   <SortHead field="sub">Sub function</SortHead>
@@ -705,14 +705,22 @@ function MemberDialog({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
-              <Label>Email {member && member.email ? "" : "(optional)"}</Label>
+              {/* TWO EMAILS, TWO JOBS (v33.32) — both fields used to say
+                  "Email", so the AIESEC one and the personal one were filled
+                  interchangeably. This is THE identity: it signs them in and
+                  it is what the Membership sheet carries. */}
+              <Label>AIESEC Mail {member && member.email ? "" : "(optional)"}</Label>
               <Input
                 value={form.email}
                 disabled={!!member?.email}
                 inputMode="email"
-                placeholder="none yet? they sign in with their phone"
+                placeholder="them@aiesec.net — none yet? they sign in with their phone"
                 onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
               />
+              <p className="text-xs text-muted-foreground">
+                Their <b>@aiesec.net</b> address — this is their sign-in and
+                what the Membership sheet holds.
+              </p>
               {form.email && !emailOk ? (
                 <p className="text-xs text-destructive">Valid email required.</p>
               ) : null}
@@ -752,13 +760,18 @@ function MemberDialog({
               @aiesec.net hasn't landed yet. Members can also set their own
               on the profile. Never a sign-in. */}
           <div className="grid gap-1.5">
-            <Label>Backup Gmail (no AIESEC email yet)</Label>
+            <Label>Personal Gmail — backup only (no AIESEC Mail yet)</Label>
             <Input
               value={form.fallback_email}
               inputMode="email"
               placeholder="them@gmail.com — for resets & calendar invites"
               onChange={(e) => setForm((f) => ({ ...f, fallback_email: e.target.value }))}
             />
+            <p className="text-xs text-muted-foreground">
+              Their own <b>Gmail</b>, not an AIESEC address: password resets and
+              IR-call calendar invites reach them here until the AIESEC Mail
+              above arrives. Never a sign-in, and never written to the sheet.
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

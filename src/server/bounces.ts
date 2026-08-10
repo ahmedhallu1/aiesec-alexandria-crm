@@ -31,8 +31,11 @@ export async function checkIrEmailBounces(): Promise<{ checked: number; flagged:
   try {
     const res = await gmail.users.messages.list({
       userId: "me",
-      q: "from:(mailer-daemon OR postmaster) newer_than:2d",
-      maxResults: 25,
+      // A WIDER NET (v33.32). Two days and 25 messages was a guess, and a
+      // busy week of newsletters could push a bounce out of both — a missed
+      // bounce means an IR sits with no invite until the call doesn't happen.
+      q: "from:(mailer-daemon OR postmaster) newer_than:7d",
+      maxResults: 60,
     });
     ids = (res.data.messages ?? []).map((m) => m.id ?? "").filter(Boolean);
   } catch (e) {
@@ -58,6 +61,10 @@ export async function checkIrEmailBounces(): Promise<{ checked: number; flagged:
   if (fresh.length === 0) return { checked: 0, flagged: 0 };
 
   const bounced = new Set<string>();
+  /** ONLY WHAT WE ACTUALLY READ IS "SEEN" (v33.32). Every listed id used to be
+   *  marked seen, including ones whose fetch had just failed — one transient
+   *  Gmail error and that bounce was never parsed again, silently, forever. */
+  const parsed: string[] = [];
   for (const id of fresh) {
     try {
       const msg = await gmail.users.messages.get({ userId: "me", id, format: "raw" });
@@ -71,22 +78,29 @@ export async function checkIrEmailBounces(): Promise<{ checked: number; flagged:
           const addr = part.trim().toLowerCase();
           if (addr.includes("@")) bounced.add(addr);
         }
+      parsed.push(id);
     } catch (e) {
       console.error("[bounces] gmail get failed:", e);
     }
   }
 
-  // remember what was parsed (newest first, capped) — the 2-day query window
-  // means anything older than the cap has aged out of the query anyway
-  await db()
-    .from("app_settings")
-    .upsert({ key: SEEN_KEY, value: JSON.stringify([...ids, ...seen].slice(0, 100)) });
+  // remember what was parsed (newest first, deduped, capped) — anything older
+  // than the query window has aged out of the search anyway
+  if (parsed.length > 0)
+    await db()
+      .from("app_settings")
+      .upsert({
+        key: SEEN_KEY,
+        value: JSON.stringify([...new Set([...parsed, ...seen])].slice(0, 300)),
+      });
 
   if (bounced.size === 0) return { checked: fresh.length, flagged: 0 };
 
   const { data: calls } = await db()
     .from("ir_calls")
-    .select("id, booker_email, booker_name, partner_lc_name, member_id")
+    .select(
+      "id, booker_email, booker_name, booker_phone, partner_lc_name, member_id, called_at"
+    )
     .eq("status", "scheduled")
     .is("email_bounced_at", null)
     .not("booker_email", "is", null);
@@ -105,22 +119,76 @@ export async function checkIrEmailBounces(): Promise<{ checked: number; flagged:
       continue;
     }
     flagged++;
-    if (c.member_id) {
-      try {
-        const { notifyMembers } = await import("./notify");
-        await notifyMembers(
-          [c.member_id as string],
-          "info",
-          `⚠️ ${c.booker_name ?? "The IR"}'s email bounced — ${c.partner_lc_name}`,
-          `The invite to ${c.booker_email} couldn't be delivered (the address doesn't exist). Open the call on Consideration and fix the email so the Meet invite reaches them.`,
-          null,
-          "/consideration"
-        );
-      } catch (e) {
-        console.error("[bounces] notify failed:", e);
-      }
-    }
+    if (c.member_id) await alertHost(c as BouncedCall);
   }
   if (flagged > 0) console.log(`[bounces] flagged ${flagged} bounced IR email(s)`);
   return { checked: fresh.length, flagged };
+}
+
+interface BouncedCall {
+  id: string;
+  booker_email: string | null;
+  booker_name: string | null;
+  booker_phone: string | null;
+  partner_lc_name: string;
+  member_id: string | null;
+  called_at: string;
+}
+
+/** TELL THE HOST, LOUDLY (v33.32). A bell was the only signal, and bells get
+ *  scrolled past: the call still had no invite three days later. Now it is a
+ *  bell AND an email carrying the IR's WhatsApp link — the one channel we know
+ *  still reaches them — because fixing this needs a human to go and ask. */
+async function alertHost(c: BouncedCall): Promise<void> {
+  if (!c.member_id) return;
+  const bad = c.booker_email ?? "their address";
+  try {
+    const { notifyMembers } = await import("./notify");
+    await notifyMembers(
+      [c.member_id],
+      "info",
+      `⚠️ ${c.booker_name ?? "The IR"}'s email bounced — ${c.partner_lc_name}`,
+      `The invite to ${bad} couldn't be delivered (the address doesn't exist). WhatsApp them for the right one, then open the call on Consideration → Fix the email — the invite is re-sent automatically.`,
+      null,
+      "/consideration"
+    );
+  } catch (e) {
+    console.error("[bounces] notify failed:", e);
+  }
+  try {
+    const [{ data: host }, { cairoWhenLabel }, { irEmailBouncedEmail }, { sendEmail }] =
+      await Promise.all([
+        db()
+          .from("members")
+          .select("name, email, fallback_email")
+          .eq("id", c.member_id)
+          .maybeSingle<{ name: string; email: string | null; fallback_email: string | null }>(),
+        import("./data"),
+        import("@/lib/email/templates"),
+        import("@/lib/google/gmail"),
+      ]);
+    // the AIESEC address, else the backup Gmail (v33.29) — a host with no
+    // mailbox yet is exactly the kind who most needs telling
+    const to = host?.email ?? host?.fallback_email ?? null;
+    if (!host || !to) return;
+    const { env } = await import("@/lib/env");
+    const digits = (c.booker_phone ?? "").replace(/[^\d]/g, "");
+    const mail = irEmailBouncedEmail({
+      memberFirstName: host.name.split(" ")[0],
+      bookerName: c.booker_name,
+      partnerLc: c.partner_lc_name,
+      badEmail: bad,
+      whenLabel: cairoWhenLabel(c.called_at),
+      bookerPhone: c.booker_phone,
+      whatsappUrl: digits
+        ? `https://wa.me/${digits}?text=${encodeURIComponent(
+            `Hi${c.booker_name ? ` ${c.booker_name}` : ""}! This is ${host.name} from AIESEC in Alexandria. The invite for our call bounced back from ${bad} — could you send me your correct email so I can re-send it?`
+          )}`
+        : null,
+      considerationUrl: `${env.appUrl}/consideration`,
+    });
+    await sendEmail({ to: [to], subject: mail.subject, html: mail.html });
+  } catch (e) {
+    console.error("[bounces] host email failed:", e);
+  }
 }

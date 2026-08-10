@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import {
-  getViewer, listCvsPage, listIrCalls, listPartnerLcDetails, myIrBooking,
+  getViewer, irCallFilterOptions, listCvsPage, listIrCalls, listPartnerLcDetails,
+  myIrBooking,
 } from "@/server/data";
 import { canSeeCvPool, canUseIgtExpectationMail, hasConsiderationAccess } from "@/lib/rbac";
 import { env } from "@/lib/env";
@@ -39,9 +40,21 @@ export default async function ConsiderationPage({
   // rows per page is the member's own choice (v31) — whitelisted here
   const pageSize = pageSizeOf(sp.size);
 
-  const [lcs, calls, cvs, booking] = await Promise.all([
+  // the call log's filters (v33.32) — server-side, so they filter the whole
+  // history rather than the page in hand
+  const callFilters = {
+    q: sp.callq,
+    product: sp.callproduct,
+    status: sp.callstatus,
+    member: sp.callmember,
+    lc: sp.calllc,
+    from: sp.callfrom,
+    to: sp.callto,
+  };
+
+  const [lcs, calls, cvs, booking, callOptions] = await Promise.all([
     listPartnerLcDetails(viewer),
-    listIrCalls(viewer, tab === "calls" ? page : 0, pageSize),
+    listIrCalls(viewer, tab === "calls" ? page : 0, pageSize, undefined, callFilters),
     showCvs
       ? listCvsPage(
           viewer,
@@ -60,6 +73,7 @@ export default async function ConsiderationPage({
         )
       : Promise.resolve({ rows: [], total: 0, page: 0 }),
     myIrBooking(viewer),
+    irCallFilterOptions(viewer),
   ]);
 
   return (
@@ -68,6 +82,8 @@ export default async function ConsiderationPage({
       lcs={lcs}
       calls={calls}
       cvs={cvs}
+      callFilters={callFilters}
+      callOptions={callOptions}
       q={sp.q ?? ""}
       highlightLc={sp.lc ?? null}
       pageSize={pageSize}

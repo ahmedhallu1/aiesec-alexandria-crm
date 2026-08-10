@@ -75,6 +75,9 @@ const BACKUP_TABLES = [
   "notifications",
   "audit_log",
   "app_settings",
+  // per-function defaults (v33.32) — losing these silently reverts every
+  // function to the built-in behaviour, which is worse than losing them loudly
+  "function_settings",
 ] as const;
 
 const PAGE = 1000;

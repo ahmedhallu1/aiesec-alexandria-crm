@@ -145,10 +145,17 @@ export async function GET(req: NextRequest) {
   const nagged: string[] = [];
   const prompted: string[] = [];
   const errors: string[] = [];
+  // v33.32 — each function's own defaults decide whether the pre-fill runs
+  // and whether the reminder ladder chases its points at all
+  const { allFunctionSettings } = await import("@/server/function-settings");
+  const fnSettings = await allFunctionSettings();
+  const settingOf = (key: string | null | undefined) =>
+    (key && fnSettings[key]) || null;
 
   for (const tp of touchPoints) {
     const label = touchPointLabel(tp.scope, tp.kind);
     const whenLabel = cairoWhen(tp.starts_at);
+    const fnSetting = settingOf(tp.function_key);
     try {
       // ---- working hours: PRE-FILL them, then nag like anything else ----
       // the engine writes attended/absent from everyone's stamped work, but a
@@ -156,12 +163,18 @@ export async function GET(req: NextRequest) {
       // unchanged, and only a confirmation in the sheet stops it
       if (tp.kind === "working_hours") {
         if (!workWindowClosed(tp.starts_at)) continue; // still running — nothing to review yet
-        const res = await runWorkingHoursAttendance(tp.id);
-        if (res.ok) computed.push(`${label} ${whenLabel}: ${res.attended} in · ${res.absent} out`);
-        else errors.push(`${label} ${whenLabel}: ${res.error}`);
+        if (fnSetting && fnSetting.workingHoursAuto === false) {
+          // the function records these by hand — no pre-fill, but the nag below
+          // still runs so the sheet doesn't sit unrecorded forever
+        } else {
+          const res = await runWorkingHoursAttendance(tp.id);
+          if (res.ok) computed.push(`${label} ${whenLabel}: ${res.attended} in · ${res.absent} out`);
+          else errors.push(`${label} ${whenLabel}: ${res.error}`);
+        }
       }
 
       // ---- everything unconfirmed: one nudge per Cairo day ----
+      if (fnSetting && fnSetting.attendanceReminders === false) continue;
       if (tp.attendance_reminded_on === today) continue;
       const owners = responsibleFor(tp, members);
       if (owners.length === 0) {

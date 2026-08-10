@@ -22,6 +22,7 @@ import {
   isClaimableAccount,
   ogxLanes,
   ogxFunctions,
+  openViewFunctions,
   raisingFunctions,
   scopeFunctions,
   seesEveryLane,
@@ -438,5 +439,50 @@ describe("CIC second calls (v33.19)", () => {
   it("never crosses functions", () => {
     const ogtRow = signup({ fn: "OGT", cic_assigned_to: "ogv1" });
     expect(canViewSignup(ogvMember, ogtRow)).toBe(false);
+  });
+});
+
+/** THE FUNCTION-DEFAULTS WIDENING (v33.32, migration 0054).
+ *
+ *  A function's LCVP/Director can let a role READ their whole floor. It is the
+ *  first thing in the engine that opens a scope from outside the role table,
+ *  so these tests pin the two properties that make it safe: it grants READ and
+ *  never WRITE, and it never leaves the function it was set on. */
+describe("a leader opening their function to a role", () => {
+  const openedMember = member({
+    id: "igv9",
+    functions: ["IGV"],
+    sub_functions: ["Raising"],
+    openViewFns: ["IGV"],
+  });
+
+  it("lets them OPEN a teammate's account in that function", () => {
+    expect(canViewAccount(openedMember, account({ function: "IGV", responsible_id: "other" }))).toBe(true);
+  });
+
+  it("does NOT let them edit it — read is all that was granted", () => {
+    expect(canEditAccount(openedMember, account({ function: "IGV", responsible_id: "other" }))).toBe(false);
+  });
+
+  it("does not leak into another function", () => {
+    expect(canViewAccount(openedMember, account({ function: "IGT", responsible_id: "other" }))).toBe(false);
+    expect(canViewAccount(openedMember, account({ function: "B2C", responsible_id: "other" }))).toBe(false);
+  });
+
+  it("leaves the account SCOPE — and so every list query — untouched", () => {
+    expect(accountScope(openedMember)).toEqual({ kind: "members", ids: ["igv9"] });
+  });
+
+  it("hands the list query the opened function to widen the read with", () => {
+    expect(openViewFunctions(openedMember)).toEqual(["IGV"]);
+  });
+
+  it("gives a leader nothing extra — their scope already covers the function", () => {
+    expect(openViewFunctions(member({ ...igvVp, openViewFns: ["IGV"] } as Partial<Viewer>))).toEqual([]);
+  });
+
+  it("changes nothing at all for anyone whose leader hasn't opened it", () => {
+    expect(canViewAccount(igvRaiser, account({ function: "IGV", responsible_id: "other" }))).toBe(false);
+    expect(openViewFunctions(igvRaiser)).toEqual([]);
   });
 });

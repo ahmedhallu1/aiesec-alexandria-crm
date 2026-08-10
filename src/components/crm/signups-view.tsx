@@ -7,10 +7,10 @@ import { toast } from "sonner";
 import {
   Archive, Check, ChevronDown, History, LayoutDashboard, Loader2, Mail, Phone,
   PhoneCall, RefreshCw, RotateCcw,
-  Search, UserMinus, UserRound, Users2, X,
+  Search, UserMinus, UserPlus, UserRound, Users2, X,
 } from "lucide-react";
 import {
-  addSignupComment, assignB2cCic, assignCicCaller, bulkAssignB2cCic,
+  addSignupComment, addSignupReferral, assignB2cCic, assignCicCaller, bulkAssignB2cCic,
   bulkAssignCicCaller, bulkReassignSignups, clearB2cCic, updateB2cCic,
   bulkReviveSignups, claimSignup, clearCicCaller,
   openSignupDetail,
@@ -208,6 +208,186 @@ function MmPlanCard({ plan }: { plan: OgxPlanCard }) {
   );
 }
 
+/** ADD AN ORGANIC REFERRAL (v33.32).
+ *
+ *  A person we can approve who never came through the tracker. Everything
+ *  after this dialog is the ordinary sign-up journey — contacted, interested,
+ *  Applied → Accepted → Approved — so the form asks only what the tracker
+ *  would have carried and nothing more. */
+function ReferralDialog({
+  open, onOpenChange, fns, activeFn, targets, viewerId, canAssign,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  fns: OgxFunction[];
+  activeFn: OgxFunction;
+  targets: { id: string; label: string }[];
+  viewerId: string;
+  canAssign: boolean;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [form, setForm] = useState({
+    fn: activeFn as string,
+    name: "",
+    phone: "",
+    email: "",
+    university: "",
+    subProduct: "",
+    referredBy: "",
+    note: "",
+    assignTo: "",
+  });
+  const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const ready = form.name.trim().length >= 2 && (!!form.phone.trim() || !!form.email.trim());
+
+  const submit = () =>
+    start(async () => {
+      const res = await addSignupReferral({
+        fn: form.fn,
+        name: form.name,
+        phone: form.phone || null,
+        email: form.email || null,
+        university: form.university || null,
+        subProduct: form.subProduct || null,
+        referredBy: form.referredBy || null,
+        note: form.note || null,
+        assignTo: form.assignTo || null,
+      });
+      if (res.ok) {
+        toast.success("Referral added — it's in the funnel now 🤝");
+        onOpenChange(false);
+        setForm((f) => ({
+          ...f, name: "", phone: "", email: "", university: "",
+          referredBy: "", note: "", assignTo: "",
+        }));
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>🤝 Add a referral</DialogTitle>
+          <DialogDescription>
+            Someone who came to us directly instead of through the sign-up
+            form. They join the same funnel as everyone else — contact them,
+            mark them interested, and take them to Approved. Their numbers
+            count on the {form.fn} dashboard exactly like a tracker sign-up.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          {fns.length > 1 ? (
+            <div className="grid gap-1.5">
+              <Label>Function</Label>
+              <Select value={form.fn} onValueChange={(v) => set("fn", v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {fns.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
+          <div className="grid gap-1.5">
+            <Label>Their name *</Label>
+            <Input value={form.name} onChange={(e) => set("name", e.target.value)} />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-1.5">
+              <Label>Phone</Label>
+              <Input
+                inputMode="tel"
+                placeholder="+20 10 1234 5678"
+                value={form.phone}
+                onChange={(e) => set("phone", e.target.value)}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Email</Label>
+              <Input
+                inputMode="email"
+                value={form.email}
+                onChange={(e) => set("email", e.target.value)}
+              />
+            </div>
+          </div>
+          <p className="-mt-1 text-xs text-muted-foreground">
+            One of the two is enough — but without either, nobody can reach them.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-1.5">
+              <Label>University</Label>
+              <Input
+                value={form.university}
+                onChange={(e) => set("university", e.target.value)}
+              />
+            </div>
+            {form.fn === "OGT" ? (
+              <div className="grid gap-1.5">
+                <Label>Sub product</Label>
+                <Select
+                  value={form.subProduct || undefined}
+                  onValueChange={(v) => set("subProduct", v)}
+                >
+                  <SelectTrigger><SelectValue placeholder="GTa / GTe" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="GTa">GTa</SelectItem>
+                    <SelectItem value="GTe">GTe</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+          </div>
+          <div className="grid gap-1.5">
+            <Label>Referred by</Label>
+            <Input
+              placeholder="Who sent them our way?"
+              value={form.referredBy}
+              onChange={(e) => set("referredBy", e.target.value)}
+            />
+          </div>
+          {canAssign && targets.length > 0 ? (
+            <div className="grid gap-1.5">
+              <Label>Who works it</Label>
+              <Select
+                value={form.assignTo || "__me"}
+                onValueChange={(v) => set("assignTo", v === "__me" ? "" : v)}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__me">Me</SelectItem>
+                  {targets
+                    .filter((t) => t.id !== viewerId)
+                    .map((t) => (
+                      <SelectItem key={t.id} value={t.id}>{t.label}</SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
+          <div className="grid gap-1.5">
+            <Label>First note</Label>
+            <Textarea
+              rows={2}
+              placeholder="How they came to us, what they're after…"
+              value={form.note}
+              onChange={(e) => set("note", e.target.value)}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={submit} disabled={!ready || pending}>
+            {pending ? <Loader2 className="size-4 animate-spin" /> : <UserPlus className="size-4" />}
+            Add referral
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /** v27 — the OGV contact-streak game: ≥1 sign-up contact action per Cairo day
  *  keeps the flame alive. Dimmed flame until today's save lands. */
 function StreakCard({
@@ -354,6 +534,9 @@ interface ViewerInfo {
   /** a pure-B2C viewer: only the CIC view exists for them */
   b2cOnly: boolean;
   canVp: boolean;
+  /** may log an organic referral (v33.32) — the function's own rule: the
+   *  whole crew, or MMs and above */
+  canRefer: boolean;
 }
 
 // ------------------------------------------------- universal table columns
@@ -670,6 +853,7 @@ export function SignupsView({
         ? viewer.canCic || viewer.canB2cCic
         : viewer.isLeader || viewer.isTl;
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [referralOpen, setReferralOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignTarget, setAssignTarget] = useState("");
   const [unassignOpen, setUnassignOpen] = useState(false);
@@ -1198,7 +1382,18 @@ export function SignupsView({
         return (
           <>
             <span className="font-medium" dir="auto">{r.name}</span>
-            <p className="text-xs text-muted-foreground">EP {r.ep_id}</p>
+            {/* an organic referral has no tracker row behind it (v33.32) —
+                say so, or "EP REF-1A2B" reads like a broken import */}
+            {r.source === "referral" ? (
+              <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                <Badge variant="outline" className="border-primary/50 px-1.5 py-0 text-[10px] text-primary">
+                  🤝 Referral
+                </Badge>
+                {r.referral ? <span dir="auto">by {r.referral}</span> : null}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">EP {r.ep_id}</p>
+            )}
           </>
         );
       case "program":
@@ -1425,6 +1620,15 @@ export function SignupsView({
               </Link>
             </Button>
           </Hint>
+          {/* ORGANIC REFERRALS (v33.32) — someone we can approve who never
+              came through the tracker. Same funnel, same dashboard. */}
+          {viewer.canRefer && !viewer.b2cOnly ? (
+            <Hint label="Log someone who came to us directly — a friend, a walk-in, an EP another member sent">
+              <Button onClick={() => setReferralOpen(true)}>
+                <UserPlus className="size-4" /> Add referral
+              </Button>
+            </Hint>
+          ) : null}
           {/* the OGX tracker sync belongs to OGX leaders — the server refuses
               it for anyone else, so showing the button to B2C was a dead end */}
           {viewer.isLeader && !viewer.b2cOnly ? (
@@ -1974,6 +2178,16 @@ export function SignupsView({
           </div>
         </DialogContent>
       </Dialog>
+
+      <ReferralDialog
+        open={referralOpen}
+        onOpenChange={setReferralOpen}
+        fns={fns}
+        activeFn={activeFn}
+        targets={targets}
+        viewerId={viewer.id}
+        canAssign={viewer.isLeader || viewer.isTl}
+      />
 
       {/* bulk unassign confirm */}
       <Dialog open={unassignOpen} onOpenChange={setUnassignOpen}>
