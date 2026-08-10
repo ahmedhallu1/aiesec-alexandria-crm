@@ -58,6 +58,8 @@ interface Props {
   showMyNumbers: boolean;
   /** the B2C lane (v23): deals-centric — no opens/slots anywhere */
   isB2cLane: boolean;
+  /** the B2C lane's CIC numbers (v33.29) — null off the lane */
+  b2cCic?: import("@/server/data").B2cCicStats | null;
   /** VP plan snapshot for product lanes (IGV/IGTa/IGTe/IGT) — null elsewhere.
    *  v22: this IS the lane goal (from the planning sheet — nothing set in-app) */
   lanePlan: LanePlan | null;
@@ -101,7 +103,7 @@ export function DashboardView({
   total, byFunction, byTeam, memberBoard, mmBoard, teamBoard,
   views, activeFn, laneLabel, scopeLabel,
   showTeamDrill, teamOptions, memberOptions, filters, viewerId, showMyNumbers,
-  isB2cLane, lanePlan, teamPlan, teamLabel,
+  isB2cLane, b2cCic, lanePlan, teamPlan, teamLabel,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -321,6 +323,7 @@ export function DashboardView({
       {/* Goals = the plans (v22): the lane goal comes from the VPs' planning
           sheet, the team goal from the TL's filed plan — nothing is set here. */}
       {lanePlan ? <PlanCard plan={lanePlan} /> : null}
+      {isB2cLane && b2cCic ? <B2cCicCard stats={b2cCic} /> : null}
       {teamPlan ? (
         <TeamPlanCard plan={teamPlan} teamLabel={teamLabel} isOwnPlan={teamPlan.teamLeaderId === viewerId} />
       ) : null}
@@ -698,6 +701,61 @@ function TmPanel({ stats }: { stats: import("@/server/tm-stats").TmStats }) {
         </Card>
       </div>
     </div>
+  );
+}
+
+/** THE B2C CIC CARD (v33.29) — the selling side's read on the sign-up pool:
+ *  calls handed out, made, interested, this month, per member. Lives on the
+ *  B2C lane only. */
+function B2cCicCard({ stats }: { stats: import("@/server/data").B2cCicStats }) {
+  const chip = (label: string, value: number) => (
+    <span className="rounded-full border bg-muted px-2.5 py-1 text-xs font-medium">
+      {label} <b className="tabular-nums">{value}</b>
+    </span>
+  );
+  return (
+    <Card className="rise-in">
+      <CardContent className="pt-4">
+        <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          📞 B2C CIC — selling calls into the OGX sign-up pool
+        </p>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {chip("Handed out", stats.assigned)}
+          {chip("Called", stats.called)}
+          {chip("Interested", stats.interestedYes)}
+          {chip("Open now", stats.openNow)}
+          {chip("This month", stats.thisMonth)}
+        </div>
+        {stats.byMember.length > 0 ? (
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-muted-foreground">
+                  <th className="py-1 pr-2 font-medium">Caller</th>
+                  <th className="py-1 pr-2 text-right font-medium">Handed</th>
+                  <th className="py-1 pr-2 text-right font-medium">Called</th>
+                  <th className="py-1 text-right font-medium">Interested</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.byMember.map((m) => (
+                  <tr key={m.name} className="border-t">
+                    <td className="max-w-40 truncate py-1.5 pr-2" dir="auto">{m.name}</td>
+                    <td className="py-1.5 pr-2 text-right tabular-nums">{m.assigned}</td>
+                    <td className="py-1.5 pr-2 text-right tabular-nums">{m.called}</td>
+                    <td className="py-1.5 text-right font-semibold tabular-nums">{m.interested}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Nothing handed out yet — the B2C CIC queue lives on the Sign-ups tab.
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

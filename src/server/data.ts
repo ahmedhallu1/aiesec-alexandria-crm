@@ -23,6 +23,7 @@ import {
   icxFunctions,
   isB2B,
   isB2C,
+  master as _master,
   reassignTargetScope,
   type Viewer,
   type AccountScope,
@@ -4063,7 +4064,20 @@ export async function listSignupLogs(
 ): Promise<import("@/lib/types").SignupLog[]> {
   const { data: row } = await db()
     .from("signups").select("*").eq("id", signupId).maybeSingle<SignupRow>();
-  if (!row || !_canViewSignup(viewer, row)) return [];
+  if (!row) return [];
+  if (!_canViewSignup(viewer, row) && !seesB2cCicQueue(viewer)) {
+    // a B2C caller reads the history of the sign-up handed to them
+    if (!b2cCicAccess(viewer)) return [];
+    const { data: myCall } = await db()
+      .from("signup_cic_calls")
+      .select("id")
+      .eq("signup_id", signupId)
+      .eq("side", "B2C")
+      .eq("caller_id", viewer.id)
+      .limit(1)
+      .maybeSingle<{ id: string }>();
+    if (!myCall) return [];
+  }
   const { data } = await db()
     .from("signup_logs")
     .select("id, signup_id, member_name, field, old_value, new_value, at")
@@ -4080,7 +4094,68 @@ export function seesCicQueue(v: Viewer): boolean {
   );
 }
 
+/** B2C's OWN CIC (v33.29): the B2C crew calls the same sign-up pool — people
+ *  the OGX first call already reached — to SELL courses/events, never to move
+ *  the OGX funnel. MMs and leaders hand the calls out; a plain B2C member
+ *  only sees the ones handed to them. */
+export function seesB2cCicQueue(v: Viewer): boolean {
+  return (
+    isB2C(v) &&
+    (v.isAdmin ||
+      ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(v.role))
+  );
+}
+
+/** any B2C member — enough to see and record their OWN handed-out calls */
+export function b2cCicAccess(v: Viewer): boolean {
+  return isB2C(v);
+}
+
+/** THE B2C CIC DASHBOARD (v33.29): what the selling side is doing with the
+ *  sign-up pool — handed out, called, interested, this month, per member. */
+export interface B2cCicStats {
+  assigned: number;
+  called: number;
+  interestedYes: number;
+  thisMonth: number;
+  openNow: number;
+  byMember: { name: string; assigned: number; called: number; interested: number }[];
+}
+
+export async function b2cCicStats(viewer: Viewer): Promise<B2cCicStats | null> {
+  if (!b2cCicAccess(viewer) && !_master(viewer)) return null;
+  const { data } = await db()
+    .from("signup_cic_calls")
+    .select("caller_name, contact_status, interested, assigned_at")
+    .eq("side", "B2C")
+    .limit(5000);
+  const rows = (data ?? []) as {
+    caller_name: string; contact_status: string | null;
+    interested: string | null; assigned_at: string;
+  }[];
+  const monthStart = monthOf().start;
+  const byMember = new Map<string, { name: string; assigned: number; called: number; interested: number }>();
+  for (const r of rows) {
+    const m = byMember.get(r.caller_name) ?? { name: r.caller_name, assigned: 0, called: 0, interested: 0 };
+    m.assigned += 1;
+    if (r.contact_status) m.called += 1;
+    if (/^y/i.test(r.interested ?? "")) m.interested += 1;
+    byMember.set(r.caller_name, m);
+  }
+  return {
+    assigned: rows.length,
+    called: rows.filter((r) => r.contact_status).length,
+    interestedYes: rows.filter((r) => /^y/i.test(r.interested ?? "")).length,
+    thisMonth: rows.filter((r) => r.assigned_at >= monthStart).length,
+    openNow: rows.filter((r) => !r.contact_status).length,
+    byMember: [...byMember.values()].sort((a, b) => b.assigned - a.assigned).slice(0, 12),
+  };
+}
+
 export function signupViewsFor(v: Viewer): string[] {
+  // a pure-B2C viewer (no OGX access) enters /signups for ONE thing: the CIC
+  // queue they sell into. No pool, no mine, no archive.
+  if (_ogxFunctions(v).length === 0 && b2cCicAccess(v)) return ["cic"];
   const leader =
     v.isAdmin || ["LCP", "LCVP", "Director"].includes(v.role);
   // THE POOL IS NOT A MEMBER'S VIEW (v33.10). Sign-ups are handed out by the
@@ -4112,7 +4187,23 @@ export type SignupListRow = SignupRow & {
   can_work?: boolean;
   can_set_status?: boolean;
   can_vp?: boolean;
+  /** the sign-up's CIC call history (v33.29) — side-tagged, newest first */
+  cic_calls?: SignupCicCall[];
 };
+
+export interface SignupCicCall {
+  id: string;
+  signup_id: string;
+  side: "OGX" | "B2C";
+  caller_id: string | null;
+  caller_name: string;
+  assigned_by_name: string | null;
+  assigned_at: string;
+  contact_status: string | null;
+  interested: string | null;
+  note: string | null;
+  created_at: string;
+}
 
 export async function listSignupsPage(
   viewer: Viewer,
@@ -4121,7 +4212,11 @@ export async function listSignupsPage(
   pageSize = 100
 ): Promise<{ rows: SignupListRow[]; total: number; page: number; view: string }> {
   const fns = _ogxFunctions(viewer);
-  if (fns.length === 0) return { rows: [], total: 0, page: 0, view: "unassigned" };
+  // B2C RIDES IN ON THE CIC VIEW ONLY (v33.29): both OGX sides' queues, since
+  // they sell to whoever answered — the fn chips still narrow to one side
+  const b2cOnly = fns.length === 0 && b2cCicAccess(viewer);
+  if (fns.length === 0 && !b2cOnly)
+    return { rows: [], total: 0, page: 0, view: "unassigned" };
   const allowedViews = signupViewsFor(viewer);
   // DEFAULT TO YOUR OWN WORK (v33.15). The pool was the landing view, so
   // every MM and member opened on a list of hundreds of names that were not
@@ -4132,10 +4227,24 @@ export async function listSignupsPage(
       ? "mine"
       : (allowedViews[0] ?? "mine");
 
+  const scopeFns: OgxFunction[] = b2cOnly ? ["OGT", "OGV"] : fns;
+  // a B2C member's "mine" = sign-ups whose OPEN B2C call is theirs; resolved
+  // to ids before the query (the queue itself is small enough for .in())
+  let myB2cSignupIds: string[] = [];
+  if (b2cOnly && (!seesB2cCicQueue(viewer) || filters.cicMine)) {
+    const { data: mine } = await db()
+      .from("signup_cic_calls")
+      .select("signup_id")
+      .eq("side", "B2C")
+      .eq("caller_id", viewer.id)
+      .limit(1000);
+    myB2cSignupIds = [...new Set((mine ?? []).map((r) => r.signup_id as string))];
+  }
   const build = () => {
     let q = db().from("signups").select("*", { count: "exact" });
     // function scope
-    const fn = filters.fn && fns.includes(filters.fn as OgxFunction) ? [filters.fn] : fns;
+    const fn =
+      filters.fn && scopeFns.includes(filters.fn as OgxFunction) ? [filters.fn] : scopeFns;
     q = q.in("fn", fn);
     // view scope
     // the CIC queue keeps ARCHIVED rows in view (v33.29, by request): a call
@@ -4159,8 +4268,12 @@ export async function listSignupsPage(
         .neq("contact_status", "")
         .is("status", null);
       // a member below MM only ever sees their own second calls; an MM can
-      // ask for the same view with the 🙋 Mine chip
-      if (!seesCicQueue(viewer) || filters.cicMine)
+      // ask for the same view with the 🙋 Mine chip. For B2C both cases mean
+      // "sign-ups whose open B2C call is mine" — resolved to ids up front.
+      if (b2cOnly) {
+        if (!seesB2cCicQueue(viewer) || filters.cicMine)
+          q = q.in("id", myB2cSignupIds.length > 0 ? myB2cSignupIds : ["00000000-0000-0000-0000-000000000000"]);
+      } else if (!seesCicQueue(viewer) || filters.cicMine)
         q = q.eq("cic_assigned_to", viewer.id);
     }
     else if (view === "mine") {
@@ -4318,8 +4431,24 @@ export async function listSignupsPage(
     const res2 = await build().range(lastPage * pageSize, lastPage * pageSize + pageSize - 1);
     return { rows: withCaps((res2.data ?? []) as SignupRow[]), total, page: lastPage, view };
   }
+  let rows = withCaps((data ?? []) as SignupRow[]);
+  // the CIC view shows WHO IS CALLING on each side — one query for the page
+  if (view === "cic" && rows.length > 0) {
+    const { data: calls } = await db()
+      .from("signup_cic_calls")
+      .select("id, signup_id, side, caller_id, caller_name, assigned_by_name, assigned_at, contact_status, interested, note, created_at")
+      .in("signup_id", rows.map((r) => r.id))
+      .order("created_at", { ascending: false });
+    const byId = new Map<string, SignupCicCall[]>();
+    for (const c of (calls ?? []) as SignupCicCall[]) {
+      const list = byId.get(c.signup_id) ?? [];
+      list.push(c);
+      byId.set(c.signup_id, list);
+    }
+    rows = rows.map((r) => ({ ...r, cic_calls: byId.get(r.id) ?? [] }));
+  }
   return {
-    rows: withCaps((data ?? []) as SignupRow[]),
+    rows,
     total,
     page: Math.floor(from / pageSize),
     view,
@@ -4341,7 +4470,21 @@ export async function getSignupDetail(
   id: string
 ): Promise<SignupDetail | null> {
   const { data } = await db().from("signups").select("*").eq("id", id).maybeSingle<SignupRow>();
-  if (!data || !_canViewSignup(viewer, data)) return null;
+  if (!data) return null;
+  if (!_canViewSignup(viewer, data)) {
+    // a B2C caller opens the sign-up HANDED TO THEM — view only, like the
+    // OGX second-caller clause (v33.19 ⑧); recording goes through its own gate
+    if (!b2cCicAccess(viewer)) return null;
+    const { data: myCall } = await db()
+      .from("signup_cic_calls")
+      .select("id")
+      .eq("signup_id", id)
+      .eq("side", "B2C")
+      .eq("caller_id", viewer.id)
+      .limit(1)
+      .maybeSingle<{ id: string }>();
+    if (!myCall && !seesB2cCicQueue(viewer)) return null;
+  }
   const [{ data: comments }, assigned] = await Promise.all([
     db()
       .from("signup_comments")
@@ -4407,6 +4550,33 @@ export async function signupReassignTargets(
  *  that a DIFFERENT person calls, so the pool is the whole function's crew
  *  (never the LCP). `assignCicCaller` re-checks the function and refuses the
  *  first assignee, so widening the picker grants nothing the server allows. */
+/** WHO A B2C CALL CAN GO TO (v33.29) — the confirmed matrix: a TL hands to
+ *  themself or their own team, a Coordinator to themself, LCVP/Director (and
+ *  LCP-level) to any active B2C member. */
+export async function b2cCicCallerTargets(
+  viewer: Viewer
+): Promise<{ id: string; label: string }[]> {
+  if (!seesB2cCicQueue(viewer)) return [];
+  const { data } = await db()
+    .from("members")
+    .select("id, name, role, functions, sub_functions")
+    .eq("is_active", true)
+    .order("name");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const b2c = ((data ?? []) as any[]).filter(
+    (m) =>
+      m.role !== "LCP" &&
+      [...(m.functions ?? []), ...(m.sub_functions ?? [])].includes("B2C")
+  );
+  const lead = _master(viewer) || ["LCVP", "Director"].includes(viewer.role);
+  const allowed = lead
+    ? b2c
+    : viewer.role === "Team Leader"
+      ? b2c.filter((m) => m.id === viewer.id || viewer.teamMemberIds.includes(m.id))
+      : b2c.filter((m) => m.id === viewer.id);
+  return allowed.map((m) => ({ id: m.id, label: m.name }));
+}
+
 export async function cicCallerTargets(
   viewer: Viewer,
   fn: OgxFunction

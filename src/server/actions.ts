@@ -25,6 +25,7 @@ import {
   isClaimableAccount,
   canManageArchive,
   commentLabel,
+  master,
   reassignTargetScope,
 } from "@/lib/rbac";
 import {
@@ -5884,6 +5885,15 @@ export async function clearCicCaller(id: string): Promise<ActionResult> {
     })
     .eq("id", id);
   if (error) return fail(error.message);
+  // the open (outcome-less) OGX history row goes with it; rows that already
+  // hold a recorded call stay — they happened
+  await db()
+    .from("signup_cic_calls")
+    .delete()
+    .eq("signup_id", id)
+    .eq("side", "OGX")
+    .eq("caller_id", signup.cic_assigned_to)
+    .is("contact_status", null);
   await logSignupChange(viewer, id, "cic_assigned", signup.cic_assigned_name ?? null, null);
   await logAudit(viewer.id, "cic_clear", "signup", id, {});
   refresh();
@@ -5938,6 +5948,13 @@ export async function assignCicCaller(
     })
     .eq("id", id);
   if (error) return fail(error.message);
+  // the CALL HISTORY row (v33.29, signup_cic_calls): every hand-out is its
+  // own row, side-tagged, so many CIC calls can live on one sign-up — an
+  // open OGX one and an open B2C one at once, plus everything before them
+  await db().from("signup_cic_calls").insert({
+    signup_id: id, side: "OGX", caller_id: caller.id, caller_name: caller.name,
+    assigned_by: viewer.id, assigned_by_name: viewer.name,
+  });
   await logSignupChange(viewer, id, "cic_assigned", signup.cic_assigned_name ?? null, caller.name);
   if (!opts.quiet)
     await import("./notify").then(({ notifyMembers }) =>
@@ -6026,9 +6043,223 @@ export async function updateCicContact(
   await snapshotForUndo("signups", id);
   const { error } = await db().from("signups").update(update).eq("id", id);
   if (error) return fail(error.message);
+  // mirror onto the caller's history row (v33.29) — the latest OGX one
+  if (signup.cic_assigned_to) {
+    const { data: openRow } = await db()
+      .from("signup_cic_calls")
+      .select("id")
+      .eq("signup_id", id)
+      .eq("side", "OGX")
+      .eq("caller_id", signup.cic_assigned_to)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<{ id: string }>();
+    if (openRow) {
+      const rowUpdate: Record<string, unknown> = {};
+      if (update.cic_contact_status !== undefined) rowUpdate.contact_status = update.cic_contact_status;
+      if (update.cic_interested !== undefined) rowUpdate.interested = update.cic_interested;
+      await db().from("signup_cic_calls").update(rowUpdate).eq("id", openRow.id);
+    }
+  }
   stampSignupActivity(viewer);
   await stampWork(viewer.id, "signup_contact");
   await logAudit(viewer.id, "cic_contact", "signup", id, input);
+  refresh();
+  return { ok: true };
+}
+
+// ------------------------------------------------------------- B2C CIC (v33.29)
+
+/** B2C CALLS THE SIGN-UP POOL TOO. The OGX crew's CIC verifies the first
+ *  call; B2C's CIC SELLS — courses, events, student activities — to people
+ *  who already picked up the phone once. Both live in `signup_cic_calls`,
+ *  side-tagged, so one sign-up can carry an open OGX call AND an open B2C
+ *  call at once, and the log says which side made which. The OGX funnel is
+ *  never touched by a B2C row.
+ *
+ *  Assignment matrix (the LCP's spec): a B2C TL hands calls to themself or
+ *  their own team; a B2C Coordinator takes them themself; the B2C
+ *  LCVP/Director (and LCP-level) hand to any B2C member. */
+export async function assignB2cCic(
+  signupId: string,
+  callerId: string,
+  opts: { quiet?: boolean } = {}
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const { seesB2cCicQueue } = await import("./data");
+  if (!seesB2cCicQueue(viewer))
+    return fail("B2C CIC is handed out by B2C MMs and above.", "forbidden");
+  const signup = await loadSignup(signupId);
+  if (!signup) return fail("Sign-up not found.");
+  if (!signup.assigned_to)
+    return fail("This sign-up is still in the unassigned pool — it hasn't had its first call.");
+  if (!contactAnswered(signup.contact_status))
+    return fail("B2C calls people the first call already reached — Contacted must be answered (Yes or No).");
+  const { data: caller } = await db()
+    .from("members")
+    .select("id, name, functions, sub_functions, stakeholder_id")
+    .eq("id", callerId)
+    .eq("is_active", true)
+    .maybeSingle<{
+      id: string; name: string;
+      functions: string[] | null; sub_functions: string[] | null;
+      stakeholder_id: string | null;
+    }>();
+  if (!caller) return fail("Pick an active member.");
+  const callerIsB2c = [...(caller.functions ?? []), ...(caller.sub_functions ?? [])].includes("B2C");
+  if (!callerIsB2c) return fail("The B2C caller must work B2C.");
+  const lcpLevel = master(viewer) || ["LCVP", "Director"].includes(viewer.role);
+  if (!lcpLevel) {
+    // TL → self + own team · Coordinator → self
+    const mine =
+      caller.id === viewer.id ||
+      (viewer.role === "Team Leader" && viewer.teamMemberIds.includes(caller.id));
+    if (!mine)
+      return fail(
+        viewer.role === "Team Leader"
+          ? "A B2C TL hands calls to themself or their own team."
+          : "As a B2C Coordinator you take the call yourself — leaders hand out further."
+      );
+  }
+  // ONE open B2C call per sign-up: replace the open row's caller, else insert
+  const { data: openRow } = await db()
+    .from("signup_cic_calls")
+    .select("id, caller_name")
+    .eq("signup_id", signupId)
+    .eq("side", "B2C")
+    .is("contact_status", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ id: string; caller_name: string }>();
+  if (openRow) {
+    const { error } = await db()
+      .from("signup_cic_calls")
+      .update({
+        caller_id: caller.id, caller_name: caller.name,
+        assigned_by: viewer.id, assigned_by_name: viewer.name,
+        assigned_at: new Date().toISOString(),
+      })
+      .eq("id", openRow.id);
+    if (error) return fail(error.message);
+    await logSignupChange(viewer, signupId, "cic_b2c_assigned", openRow.caller_name, caller.name);
+  } else {
+    const { error } = await db().from("signup_cic_calls").insert({
+      signup_id: signupId, side: "B2C", caller_id: caller.id, caller_name: caller.name,
+      assigned_by: viewer.id, assigned_by_name: viewer.name,
+    });
+    if (error) return fail(error.message);
+    await logSignupChange(viewer, signupId, "cic_b2c_assigned", null, caller.name);
+  }
+  if (!opts.quiet)
+    await import("./notify").then(({ notifyMembers }) =>
+      notifyMembers(
+        [caller.id],
+        "info",
+        `📞 B2C call to make — ${signup.name}`,
+        "They already answered the OGX first call — pitch them what B2C has for them.",
+        viewer.id,
+        "/signups?view=cic"
+      )
+    );
+  await logAudit(viewer.id, "cic_b2c_assign", "signup", signupId, { caller: caller.id });
+  if (!opts.quiet) refresh();
+  return { ok: true };
+}
+
+/** B2C CIC in bulk — same per-row gate, one bell, one refresh. */
+export async function bulkAssignB2cCic(
+  ids: string[],
+  callerId: string
+): Promise<ActionResult<{ done: number; failed: number; why?: string }>> {
+  if (!Array.isArray(ids) || ids.length === 0) return fail("Select at least one sign-up.");
+  if (ids.length > 50) return fail("Max 50 sign-ups per bulk call — run it in batches.");
+  const results = await inBatches(ids, (id) => assignB2cCic(id, callerId, { quiet: true }));
+  const done = results.filter((r) => r.ok).length;
+  const failed = ids.length - done;
+  refresh();
+  if (done > 0) {
+    const viewer = await getViewer();
+    await import("./notify").then(({ notifyMembers }) =>
+      notifyMembers(
+        [callerId],
+        "info",
+        `📞 ${done} B2C call${done === 1 ? "" : "s"} to make`,
+        "People the OGX first call already reached — pitch them what B2C has.",
+        viewer.id,
+        "/signups?view=cic"
+      )
+    );
+  }
+  const why = results.find((r) => !r.ok)?.error;
+  return { ok: true, data: { done, failed, why: failed ? why : undefined } };
+}
+
+/** The B2C caller records THEIR call — never the OGX funnel. */
+export async function updateB2cCic(
+  callRowId: string,
+  input: { contactStatus?: string | null; interested?: string | null; note?: string | null }
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const { data: row } = await db()
+    .from("signup_cic_calls")
+    .select("id, signup_id, side, caller_id, caller_name, contact_status, interested, note")
+    .eq("id", callRowId)
+    .maybeSingle<{
+      id: string; signup_id: string; side: string; caller_id: string | null;
+      caller_name: string; contact_status: string | null; interested: string | null; note: string | null;
+    }>();
+  if (!row || row.side !== "B2C") return fail("That B2C call no longer exists.");
+  const { seesB2cCicQueue } = await import("./data");
+  if (row.caller_id !== viewer.id && !seesB2cCicQueue(viewer))
+    return fail("Only the assigned B2C caller (or a B2C MM) can record this.", "forbidden");
+  const clean = (v: string | null | undefined) => {
+    const t = (v ?? "").trim();
+    if (!t) return null;
+    return /^y/i.test(t) ? "Yes" : /^n/i.test(t) ? "No" : t;
+  };
+  const update: Record<string, unknown> = {};
+  if (input.contactStatus !== undefined) {
+    const next = clean(input.contactStatus);
+    await logSignupChange(viewer, row.signup_id, "cic_b2c_contacted", row.contact_status, next);
+    update.contact_status = next;
+  }
+  if (input.interested !== undefined) {
+    const next = clean(input.interested);
+    await logSignupChange(viewer, row.signup_id, "cic_b2c_interested", row.interested, next);
+    update.interested = next;
+  }
+  if (input.note !== undefined) update.note = (input.note ?? "").trim().slice(0, 500) || null;
+  if (Object.keys(update).length === 0) return { ok: true };
+  const { error } = await db().from("signup_cic_calls").update(update).eq("id", callRowId);
+  if (error) return fail(error.message);
+  stampSignupActivity(viewer);
+  await stampWork(viewer.id, "signup_contact");
+  await logAudit(viewer.id, "cic_b2c_record", "signup", row.signup_id, input);
+  refresh();
+  return { ok: true };
+}
+
+/** Take a B2C call back — the sign-up returns to the B2C queue. */
+export async function clearB2cCic(callRowId: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const { data: row } = await db()
+    .from("signup_cic_calls")
+    .select("id, signup_id, side, caller_id, caller_name, contact_status")
+    .eq("id", callRowId)
+    .maybeSingle<{
+      id: string; signup_id: string; side: string; caller_id: string | null;
+      caller_name: string; contact_status: string | null;
+    }>();
+  if (!row || row.side !== "B2C") return { ok: true };
+  const { seesB2cCicQueue } = await import("./data");
+  if (row.caller_id !== viewer.id && !seesB2cCicQueue(viewer))
+    return fail("Only the caller (or a B2C MM) can take the call back.", "forbidden");
+  if (row.contact_status)
+    return fail("This call was already recorded — it's history now, not an open hand-out.");
+  const { error } = await db().from("signup_cic_calls").delete().eq("id", callRowId);
+  if (error) return fail(error.message);
+  await logSignupChange(viewer, row.signup_id, "cic_b2c_assigned", row.caller_name, null);
+  await logAudit(viewer.id, "cic_b2c_clear", "signup", row.signup_id, {});
   refresh();
   return { ok: true };
 }

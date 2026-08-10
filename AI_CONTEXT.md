@@ -660,6 +660,28 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
   the member's main email. Already consumed by password resets
   (`issueTempPassword`) and mailbox-hosted IR events (`ownerEmail`
   fallback) since part 1 — never an identity, no sign-in.
+  ⑦ **B2C CIC — THE SELLING CALL** (`signup_cic_calls`, created in 0051 with
+  the legacy `cic_*` columns migrated in as side='OGX' rows). B2C calls the
+  SAME sign-up pool — people whose first OGX call was answered (Yes or No) —
+  to sell courses/events, never to move the OGX funnel. The B2C crew enters
+  /signups (layout gate + nav via `isB2C`) and lands on the 📞 CIC view
+  ONLY, across BOTH OGX sides (fn chips still narrow). Assignment matrix
+  (`assignB2cCic` + `b2cCicCallerTargets`): TL → self + own team ·
+  Coordinator → self · LCVP/Director/LCP-level → any B2C member; caller must
+  work B2C. ONE OPEN B2C call per sign-up (assignment replaces the open
+  row's caller; recording closes it; `clearB2cCic` deletes an unrecorded
+  one) — so a sign-up can carry an open OGX second call AND an open B2C call
+  at once, plus full history. The OGX actions now MAINTAIN rows too
+  (assign inserts side='OGX', clear deletes the open one, `updateCicContact`
+  mirrors onto the latest row) while the legacy columns keep every existing
+  OGX reader working. Every hand-out/answer lands in signup_logs
+  side-tagged (`cic_b2c_*` vs `cic_*`). UI: three CIC-view columns — B2C
+  caller (inline assign) · B2C called · B2C interested — the bulk bar hands
+  out B2C calls for B2C MMs, and a B2C caller opens the sign-up detail +
+  history read-only (`getSignupDetail`/`listSignupLogs` gained the
+  caller clause). The **B2C dashboard lane** gained the B2C CIC card:
+  handed out · called · interested · open · this month · per caller
+  (`b2cCicStats`). `master` is now exported from rbac.
   ⑥½ **THREE NAME WORLDS** (migration **0052 applied**): the two-world split
   (0020/0034) became three — **ICX (IGV·IGT·B2B) · BD · B2C** — each with its
   OWN archive, a name unique only WITHIN its world (the DB index is a 3-way

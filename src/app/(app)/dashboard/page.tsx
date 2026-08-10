@@ -1,5 +1,5 @@
 import {
-  considerationStats, getViewer, getDashboard, listVisibleMembers,
+  b2cCicStats, considerationStats, getViewer, getDashboard, listVisibleMembers,
   listTeamFilterOptions, memberWorksFunction, ogxDashboard, streakStats } from "@/server/data";
 import type { AccountFilters } from "@/server/data";
 import {
@@ -111,7 +111,7 @@ export default async function DashboardPage({
   const consLane: "IGV" | "IGT" | null =
     activeFn === "CONS_IGV" ? "IGV" : activeFn === "CONS_IGT" ? "IGT" : null;
 
-  const [data, teamFilterOptions, members, consideration, ogx, streak, tm] = await Promise.all([
+  const [data, teamFilterOptions, members, consideration, ogx, streak, tm, b2cCic] = await Promise.all([
     getDashboard(viewer, filters, SPECIAL_LANES.has(activeFn) ? baseLane : activeFn),
     listTeamFilterOptions(viewer, { fn: filters.fn ?? undefined }),
     listVisibleMembers(viewer),
@@ -129,6 +129,9 @@ export default async function DashboardPage({
     // (it returns null for anyone it doesn't consider an OGV streak player).
     isOgxLane ? streakStats(viewer, activeFn) : Promise.resolve(null),
     activeFn === "TM" ? tmStats(viewer) : Promise.resolve(null),
+    // the B2C lane's CIC card (v33.29): what the selling side is doing with
+    // the sign-up pool
+    activeFn === "B2C" ? b2cCicStats(viewer) : Promise.resolve(null),
   ]);
 
   // Member filter = the people whose accounts are actually IN this lane, and
@@ -229,6 +232,7 @@ export default async function DashboardPage({
       viewerId={viewer.id}
       showMyNumbers={showMyNumbers}
       isB2cLane={activeFn === "B2C"}
+      b2cCic={b2cCic}
       filters={{
         team: params.team ?? "",
         member: params.member ?? "",

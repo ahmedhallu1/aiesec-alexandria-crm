@@ -66,7 +66,7 @@ const leadsIm = (v: Viewer) =>
  *  deliberately do NOT follow: the admin tools (canUseAdminTools) and F&L
  *  people stay un-assignable as account responsibles (ACCOUNT_WORLD_FNS) —
  *  they see everything, they own nothing. */
-const master = (v: Viewer) =>
+export const master = (v: Viewer) =>
   v.isAdmin || v.role === "LCP" || leadsIm(v) ||
   (v.functions ?? []).includes("F&L");
 

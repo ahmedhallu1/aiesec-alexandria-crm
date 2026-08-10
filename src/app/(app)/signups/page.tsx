@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import {
-  cicCallerTargets, getViewer, listSignupLogs, listSignupsPage, ogxPlanCard, seesCicQueue,
+  b2cCicAccess, b2cCicCallerTargets,
+  cicCallerTargets, getViewer, listSignupLogs, listSignupsPage, ogxPlanCard, seesB2cCicQueue, seesCicQueue,
   signupFilterOptions, signupReassignTargets,
   signupViewsFor,
   streakStats,
@@ -23,8 +24,10 @@ export default async function SignupsPage({
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const viewer = await getViewer();
-  if (!hasOgxAccess(viewer)) redirect("/");
-  const fns = ogxFunctions(viewer);
+  // B2C (v33.29) enters for its CIC queue — everything else stays OGX-gated
+  const b2cOnly = !hasOgxAccess(viewer) && b2cCicAccess(viewer);
+  if (!hasOgxAccess(viewer) && !b2cOnly) redirect("/");
+  const fns: OgxFunction[] = b2cOnly ? ["OGT", "OGV"] : ogxFunctions(viewer);
   const sp = await searchParams;
 
   const activeFn: OgxFunction = fns.includes((sp.fn ?? "") as OgxFunction)
@@ -70,14 +73,16 @@ export default async function SignupsPage({
   // are NOT part of the reassign flow. One fetch, two audiences: `targets`
   // keeps its exact old meaning (the bulk/reassign pickers), `cicTargets`
   // feeds the second-caller picker.
-  const canCic = seesCicQueue(viewer);
-  const needsTargets = isLeader || viewer.role === "Team Leader";
+  const canCic = !b2cOnly && seesCicQueue(viewer);
+  const canB2cCic = seesB2cCicQueue(viewer);
+  const needsTargets = !b2cOnly && (isLeader || viewer.role === "Team Leader");
   // two DIFFERENT questions: who may own a sign-up (reassign scope) vs who may
   // make the verification call (the whole function — a Coordinator must be
   // able to hand it to someone other than themselves)
-  const [targets, cicTargets] = await Promise.all([
+  const [targets, cicTargets, b2cTargets] = await Promise.all([
     needsTargets ? signupReassignTargets(viewer, activeFn) : Promise.resolve([]),
     canCic ? cicCallerTargets(viewer, activeFn) : Promise.resolve([]),
+    canB2cCic ? b2cCicCallerTargets(viewer) : Promise.resolve([]),
   ]);
 
   /** One sign-up's edit history for the detail dialog — an inline Server
@@ -105,6 +110,7 @@ export default async function SignupsPage({
       activeFn={activeFn}
       targets={targets}
       cicTargets={cicTargets}
+      b2cTargets={b2cTargets}
       loadLogs={loadSignupLogs}
       planCard={planCard}
       streak={streak}
@@ -114,6 +120,8 @@ export default async function SignupsPage({
         isLeader,
         isTl: viewer.role === "Team Leader",
         canCic,
+        canB2cCic,
+        b2cOnly,
         canVp:
           viewer.isAdmin ||
           viewer.role === "LCP" ||

@@ -5,7 +5,7 @@ import { PLAN_SKIP_COOKIE } from "@/lib/plan-skip";
 import {
   hasRaisingAccess, hasTmAccess, hasOgxAccess, hasConsiderationAccess,
   canManageMembership, canSeePlanning, canUseAdminTools, canUseMailboxTab,
-  isTmCore, seesEveryLane,
+  isB2C, isTmCore, seesEveryLane,
 } from "@/lib/rbac";
 import { signOut } from "@/lib/auth";
 import { AppShell } from "@/components/crm/app-shell";
@@ -52,6 +52,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const tm = hasTmAccess(viewer);
   // the OGX workspace (v25): OGT/OGV crews live in /signups
   const ogx = hasOgxAccess(viewer);
+  // B2C CIC (v33.29): the B2C crew enters /signups for the CIC queue they
+  // sell into — both OGX sides, read through their own gate server-side
+  const b2cCic = isB2C(viewer);
   // the Consideration module (v26): IR calls + the CV pool
   const consideration = hasConsiderationAccess(viewer);
   const membership = canManageMembership(viewer);
@@ -83,7 +86,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     ...(tm ? ["/members"] : []),
     ...(membership ? ["/membership"] : []),
     ...(planning ? ["/planning"] : []),
-    ...(ogx ? ["/signups"] : []),
+    ...(ogx || b2cCic ? ["/signups"] : []),
     ...(consideration ? ["/consideration"] : []),
     ...(dashboard ? ["/dashboard"] : []),
     ...(ogtMail ? ["/ogt-mail"] : []),
@@ -115,7 +118,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         membership,
         planning,
         ogtMail,
-        signups: ogx,
+        signups: ogx || b2cCic,
         consideration,
         mailbox,
       }}

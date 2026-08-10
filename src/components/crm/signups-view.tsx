@@ -10,7 +10,8 @@ import {
   Search, UserMinus, UserRound, Users2, X,
 } from "lucide-react";
 import {
-  addSignupComment, assignCicCaller, bulkAssignCicCaller, bulkReassignSignups,
+  addSignupComment, assignB2cCic, assignCicCaller, bulkAssignB2cCic,
+  bulkAssignCicCaller, bulkReassignSignups, clearB2cCic, updateB2cCic,
   bulkReviveSignups, claimSignup, clearCicCaller,
   openSignupDetail,
   reassignSignup, reviveSignup, runSignupsImport, setSignupOop,
@@ -348,6 +349,10 @@ interface ViewerInfo {
   isTl: boolean;
   /** MMs and above — may hand a sign-up to a SECOND caller (seesCicQueue) */
   canCic: boolean;
+  /** B2C MMs+ — may hand out B2C calls per the matrix (v33.29) */
+  canB2cCic: boolean;
+  /** a pure-B2C viewer: only the CIC view exists for them */
+  b2cOnly: boolean;
   canVp: boolean;
 }
 
@@ -424,6 +429,11 @@ function signupColumns(fn: OgxFunction, view: string): TableColumn[] {
     { key: "cic_assigned", label: "2nd caller", defaultHidden: !cic },
     { key: "cic_contacted", label: "CIC contacted", defaultHidden: !cic },
     { key: "cic_interested", label: "CIC interested", defaultHidden: !cic },
+    // B2C CIC (v33.29) — the SELLING call, side-tagged so the log always says
+    // which side rang. Off everywhere but the CIC view.
+    { key: "cic_b2c", label: "B2C caller", defaultHidden: !cic },
+    { key: "cic_b2c_contacted", label: "B2C called", defaultHidden: !cic },
+    { key: "cic_b2c_interested", label: "B2C interested", defaultHidden: !cic },
     { key: "person_status", label: "Person status", defaultHidden: !pool },
     { key: "campaign", label: "Campaign", defaultHidden: !pool },
     { key: "status", label: "Status", defaultHidden: pool },
@@ -601,7 +611,7 @@ function SignupContactPrompt({
 
 export function SignupsView({
   rows, total, page, pageSize, pageSizeOptions, activeView, views, fns, activeFn,
-  targets, cicTargets, loadLogs, planCard, streak, viewer, filters, filterOptions,
+  targets, cicTargets, b2cTargets, loadLogs, planCard, streak, viewer, filters, filterOptions,
 }: {
   rows: SignupListRow[];
   /** every value each filterable column holds across the WHOLE set — a filter
@@ -619,6 +629,8 @@ export function SignupsView({
   targets: { id: string; label: string }[];
   /** who a CIC second call can be handed to — empty for anyone below an MM */
   cicTargets: { id: string; label: string }[];
+  /** who a B2C call can be handed to (the v33.29 matrix) */
+  b2cTargets: { id: string; label: string }[];
   /** server function (declared in the page) — one sign-up's edit history */
   loadLogs: (signupId: string) => Promise<SignupLog[]>;
   planCard: OgxPlanCard | null;
@@ -653,7 +665,7 @@ export function SignupsView({
     activeView === "archived"
       ? viewer.canVp
       : cicView
-        ? viewer.canCic
+        ? viewer.canCic || viewer.canB2cCic
         : viewer.isLeader || viewer.isTl;
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [assignOpen, setAssignOpen] = useState(false);
@@ -1030,6 +1042,67 @@ export function SignupsView({
       } else toast.error(res.error);
     });
 
+  /** B2C CIC (v33.29): the open call is the latest B2C row with no outcome —
+   *  assignment replaces its caller, recording closes it, clearing deletes it. */
+  const openB2c = (r: SignupListRow) =>
+    (r.cic_calls ?? []).find((c) => c.side === "B2C" && !c.contact_status) ?? null;
+  const latestB2c = (r: SignupListRow) =>
+    (r.cic_calls ?? []).find((c) => c.side === "B2C") ?? null;
+
+  const assignB2c = (r: SignupListRow, callerId: string) =>
+    start(async () => {
+      if (callerId === "__none") {
+        const open = openB2c(r);
+        if (!open) return;
+        const res = await clearB2cCic(open.id);
+        if (res.ok) { toast.success("B2C call taken back"); router.refresh(); }
+        else toast.error(res.error);
+        return;
+      }
+      const res = await assignB2cCic(r.id, callerId);
+      if (res.ok) {
+        toast.success(
+          `📞 B2C call handed to ${b2cTargets.find((t) => t.id === callerId)?.label ?? "them"}`
+        );
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
+  const inlineB2c = (r: SignupListRow, field: "contactStatus" | "interested", v: string) =>
+    start(async () => {
+      const open = openB2c(r);
+      if (!open) return;
+      const res = await updateB2cCic(
+        open.id,
+        field === "contactStatus" ? { contactStatus: v } : { interested: v }
+      );
+      if (res.ok) router.refresh();
+      else toast.error(res.error);
+    });
+
+  const runBulkB2c = (callerId: string) =>
+    start(async () => {
+      const ids = [...selected];
+      let done = 0, failed = 0;
+      let why: string | undefined;
+      for (let i = 0; i < ids.length; i += 50) {
+        const res = await bulkAssignB2cCic(ids.slice(i, i + 50), callerId);
+        if (!res.ok) { toast.error(res.error); return; }
+        done += res.data?.done ?? 0;
+        failed += res.data?.failed ?? 0;
+        why ||= res.data?.why;
+      }
+      const who = b2cTargets.find((t) => t.id === callerId)?.label ?? "them";
+      toast.success(
+        `📞 ${done} B2C call${done === 1 ? "" : "s"} handed to ${who}` +
+          (failed ? ` — ${failed} skipped${why ? ` (${why})` : ""}` : "")
+      );
+      setSelected(new Set());
+      setAssignOpen(false);
+      setAssignTarget("");
+      router.refresh();
+    });
+
   /** CIC IN BULK (v33.21) — in the CIC tab the bulk bar hands out SECOND
    *  CALLS. It deliberately does not reuse `runBulk`: that one reassigns the
    *  row itself, which in this tab would take the sign-up (and its numbers)
@@ -1197,6 +1270,60 @@ export function SignupsView({
           ? inlineYnSelect(r, "interested", r.cic_interested, (v) =>
               inlineCic(r, "interested", v))
           : yn(r.cic_interested);
+      case "cic_b2c": {
+        // the SELLING side's caller — assigned from the cell by B2C MMs+
+        const open = openB2c(r);
+        const last = latestB2c(r);
+        return viewer.canB2cCic && b2cTargets.length > 0 ? (
+          <div onClick={(e) => e.stopPropagation()}>
+            <Select
+              value={open?.caller_id ?? undefined}
+              onValueChange={(v) => assignB2c(r, v)}
+            >
+              <SelectTrigger
+                size="sm"
+                className="data-[size=sm]:h-7 w-36 gap-1 px-2 text-xs"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <SelectValue placeholder="🛍️ pick a B2C caller" />
+              </SelectTrigger>
+              <SelectContent>
+                <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                  B2C sells them a course/event — the OGX funnel is untouched.
+                </div>
+                {open ? (
+                  <SelectItem value="__none">— Take the call back</SelectItem>
+                ) : null}
+                {b2cTargets.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>{t.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : open || last ? (
+          <span className="flex items-center gap-1 text-muted-foreground" dir="auto">
+            <PhoneCall className="size-3.5 shrink-0" /> {(open ?? last)!.caller_name}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        );
+      }
+      case "cic_b2c_contacted": {
+        const open = openB2c(r);
+        const canRec = open && (open.caller_id === viewer.id || viewer.canB2cCic);
+        return canRec
+          ? inlineYnSelect(r, "contactStatus", open.contact_status, (v) =>
+              inlineB2c(r, "contactStatus", v))
+          : yn(latestB2c(r)?.contact_status ?? null);
+      }
+      case "cic_b2c_interested": {
+        const open = openB2c(r);
+        const canRec = open && (open.caller_id === viewer.id || viewer.canB2cCic);
+        return canRec
+          ? inlineYnSelect(r, "interested", open.interested, (v) =>
+              inlineB2c(r, "interested", v))
+          : yn(latestB2c(r)?.interested ?? null);
+      }
       case "status": {
         if (r.out_of_process)
           return <span className="text-destructive">🗄️ {r.oop_reason ?? "OOP"}</span>;
@@ -1378,7 +1505,7 @@ export function SignupsView({
         {/* 🙋 MINE (v33.22) — one tap to your own rows inside a list that
             holds the team's or the function's. In the CIC tab it means the
             second calls handed to YOU, which is a different column. */}
-        {viewer.isLeader || viewer.isTl || viewer.canCic ? (
+        {viewer.isLeader || viewer.isTl || viewer.canCic || viewer.canB2cCic ? (
           <button
             type="button"
             onClick={() =>
@@ -1690,7 +1817,7 @@ export function SignupsView({
                 ? "Clear"
                 : `All (${rows.length})`}
             </Button>
-            {(cicView ? cicTargets : targets).length > 0 ? (
+            {(cicView ? (viewer.canCic ? cicTargets : b2cTargets) : targets).length > 0 ? (
               <Button
                 size="sm"
                 variant="outline"
@@ -1698,7 +1825,11 @@ export function SignupsView({
                 onClick={() => setAssignOpen(true)}
               >
                 {cicView ? (
-                  <><PhoneCall className="size-3.5" /> Assign 2nd caller…</>
+                  viewer.canCic ? (
+                    <><PhoneCall className="size-3.5" /> Assign 2nd caller…</>
+                  ) : (
+                    <><PhoneCall className="size-3.5" /> Assign B2C caller…</>
+                  )
                 ) : (
                   <><Users2 className="size-3.5" /> Assign to…</>
                 )}
@@ -1738,7 +1869,12 @@ export function SignupsView({
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>
-              {cicView ? (
+              {cicView && !viewer.canCic ? (
+                <>
+                  🛍️ B2C caller for {selected.size} sign-up
+                  {selected.size === 1 ? "" : "s"}
+                </>
+              ) : cicView ? (
                 <>
                   📞 CIC — second caller for {selected.size} sign-up
                   {selected.size === 1 ? "" : "s"}
@@ -1748,7 +1884,14 @@ export function SignupsView({
               )}
             </DialogTitle>
             <DialogDescription>
-              {cicView ? (
+              {cicView && !viewer.canCic ? (
+                <>
+                  A <b>B2C selling call</b>: pitch them a course, an event, a
+                  student activity. The sign-up stays with its OGX assignee and
+                  the OGX funnel is never touched — the B2C answers live on
+                  their own row, side-tagged in the log.
+                </>
+              ) : cicView ? (
                 <>
                   This is a <b>customer interview call</b>, not a hand-over: the
                   sign-up stays with its first assignee and keeps counting for
@@ -1768,7 +1911,7 @@ export function SignupsView({
               <SelectValue placeholder={cicView ? "Pick the second caller…" : "Pick a member…"} />
             </SelectTrigger>
             <SelectContent>
-              {(cicView ? cicTargets : targets).map((t) => (
+              {(cicView ? (viewer.canCic ? cicTargets : b2cTargets) : targets).map((t) => (
                 <SelectItem key={t.id} value={t.id}>{t.label}</SelectItem>
               ))}
             </SelectContent>
@@ -1786,7 +1929,13 @@ export function SignupsView({
             </Button>
             <Button
               disabled={!assignTarget || pending}
-              onClick={() => (cicView ? runBulkCic(assignTarget) : runBulk(assignTarget))}
+              onClick={() =>
+                cicView
+                  ? viewer.canCic
+                    ? runBulkCic(assignTarget)
+                    : runBulkB2c(assignTarget)
+                  : runBulk(assignTarget)
+              }
             >
               {pending ? (
                 <Loader2 className="size-4 animate-spin" />
