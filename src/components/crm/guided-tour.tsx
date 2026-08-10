@@ -38,6 +38,9 @@ export interface TourStep {
   closeBy?: string;
   /** where to put the bubble relative to the target */
   place?: "auto" | "bottom" | "top";
+  /** the target only exists on desktop (e.g. a table that becomes cards on a
+   *  phone) — skipped INSTANTLY on small screens instead of stalling 4s */
+  desktopOnly?: boolean;
 }
 
 const PAD = 8;
@@ -51,11 +54,15 @@ function waitFor(id: string, ms = 4000): Promise<HTMLElement | null> {
 
 /** Same, for any CSS selector (openBy/closeBy drive controls we don't own). */
 function waitForSelector(selector: string, ms = 4000): Promise<HTMLElement | null> {
+  // the FIRST VISIBLE match, not the first match (v33.29): a responsive page
+  // often holds a hidden desktop element and a visible mobile twin under the
+  // same anchor — matching only the first meant the tour stalled on phones
   const find = () => {
-    const el = document.querySelector<HTMLElement>(selector);
-    if (!el) return null;
-    const r = el.getBoundingClientRect();
-    return r.width > 0 && r.height > 0 ? el : null;
+    for (const el of document.querySelectorAll<HTMLElement>(selector)) {
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) return el;
+    }
+    return null;
   };
   const now = find();
   if (now) return Promise.resolve(now);
@@ -117,6 +124,15 @@ export function GuidedTour({
     async (index: number) => {
       const step = steps[index];
       if (!step) { onClose(); return; }
+      // a desktop-only target (a table that becomes cards on a phone) is
+      // skipped INSTANTLY on small screens — no 4-second stall per step
+      if (step.desktopOnly && window.innerWidth < 768) {
+        if (index + 1 < steps.length) {
+          setI(index + 1);
+          void goRef.current?.(index + 1);
+        } else onClose();
+        return;
+      }
       stepRef.current = index;
       setBusy(true);
       setBox(null);
@@ -170,7 +186,16 @@ export function GuidedTour({
   const closeCurrent = useCallback(async () => {
     const step = steps[stepRef.current];
     if (step?.closeBy) {
-      document.querySelector<HTMLElement>(step.closeBy)?.click();
+      // the LAST visible match = the topmost portal (Radix appends overlays
+      // to body in order) — the first match could be the mobile drawer's own
+      // close button, which would shut the nav instead of the dialog
+      const matches = [...document.querySelectorAll<HTMLElement>(step.closeBy)].filter(
+        (el) => {
+          const r = el.getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        }
+      );
+      matches[matches.length - 1]?.click();
       await new Promise((r) => setTimeout(r, 250));
     }
   }, [steps]);

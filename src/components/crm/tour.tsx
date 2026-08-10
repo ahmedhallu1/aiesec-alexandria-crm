@@ -25,12 +25,19 @@ export interface TourModules {
  * Keep every `body` to one or two plain sentences. If a step needs a
  * paragraph, it belongs in the Playbook, not here.
  */
-function buildSteps(role: string, m: TourModules): TourStep[] {
+function buildSteps(role: string, m: TourModules, fns: string[]): TourStep[] {
   const steps: TourStep[] = [];
   const isLeader = role === "LCVP" || role === "Director" || role === "LCP";
   // who TAKES attendance rather than receiving it: MMs and up, and all of TM
   const records =
     isLeader || role === "Team Leader" || role === "Coordinator" || m.tm;
+  // the WORLD decides the wording (v33.29): B2C deals are contract-first (no
+  // opens, no proposals), BD's MOS is money — telling a B2C member about
+  // opens splits was the old blurb's bug
+  const isB2c = fns.includes("B2C");
+  const isBd = !isB2c && fns.includes("BD") && !fns.some((f) => f === "IGV" || f === "IGT");
+  // the Emails tab is MMs and above (canUseMailboxTab)
+  const mailbox = isLeader || role === "Team Leader" || role === "Coordinator";
 
   if (m.raising) {
     steps.push(
@@ -71,7 +78,18 @@ function buildSteps(role: string, m: TourModules): TourStep[] {
         route: "/accounts",
         target: "accounts:table",
         title: "Open one to work it",
-        body: "Click any row. Inside you log contacts, book visits, record deals and send the proposal email.",
+        desktopOnly: true,
+        body: isB2c
+          ? "Click any row. Inside you log contacts, book visits from the contact log, and record deals — B2C deals are contract-first, no opens."
+          : isBd
+            ? "Click any row. Inside you log contacts, book visits from the contact log, and record deals — a BD deal records MONEY (EGP), your MOS."
+            : "Click any row. Inside you log contacts, book visits from the contact log ('Visit Scheduled' is a contact result), record deals and send the proposal email.",
+      },
+      {
+        route: "/accounts",
+        target: "accounts:direct",
+        title: "Walked in off the street?",
+        body: "Direct visit logs a walk-in in one form — the research, the contact and the visit together — so it counts instead of going unlogged.",
       }
     );
     if (!isLeader) {
@@ -104,6 +122,7 @@ function buildSteps(role: string, m: TourModules): TourStep[] {
         route: "/signups",
         target: "signups:table",
         title: "Work the pool",
+        desktopOnly: true,
         body: "WhatsApp and call buttons sit right in the row, and what you log writes back to the sheet.",
       },
       {
@@ -132,6 +151,28 @@ function buildSteps(role: string, m: TourModules): TourStep[] {
       target: "nav:/members",
       title: "This is Talent Management",
       body: "The whole LC's directory — everyone's team, manager and numbers, with contact shortcuts.",
+    });
+  }
+
+  // B2C sells into the OGX sign-up pool (v33.29) — their own door into /signups
+  if (isB2c && !m.ogx) {
+    steps.push({
+      route: "/signups",
+      openBy: '[data-tour="nav:open"]',
+      target: "nav:/signups",
+      title: "B2C calls the sign-up pool",
+      body: "The CIC view holds people who already answered an OGX call — your leaders hand them to you, and you pitch courses and events. The OGX funnel is never touched.",
+    });
+  }
+
+  // the Emails tab (v33.24) — MMs and above write to partners from Sodio
+  if (mailbox) {
+    steps.push({
+      route: "/emails",
+      openBy: '[data-tour="nav:open"]',
+      target: "nav:/emails",
+      title: "The Emails tab",
+      body: "Professional letters from YOUR own Gmail — layouts, your real signature, the Blue Man to draft, and every send remembered.",
     });
   }
 
@@ -186,16 +227,18 @@ function buildSteps(role: string, m: TourModules): TourStep[] {
 
 /** One-time guided walkthrough, keyed per member in this browser. */
 export function Tour({
-  email, role, modules,
+  email, role, modules, functions, subFunctions,
 }: {
   email: string;
   role: string;
-  /** accepted for compatibility with the layout's call site */
   functions?: string[];
   subFunctions?: string[];
   modules: TourModules;
 }) {
-  const storageKey = `crm-tour-v3:${email.toLowerCase()}`;
+  // v4 (v33.29): the walkthrough was rebuilt — world-aware wording, the
+  // direct-visit and Emails steps, mobile no longer stalls on table targets —
+  // so everyone sees it once more
+  const storageKey = `crm-tour-v4:${email.toLowerCase()}`;
   const neverSeen = useSyncExternalStore(
     () => () => {},
     () => {
@@ -214,7 +257,10 @@ export function Tour({
     return () => window.removeEventListener("sodio:replay-tour", onReplay);
   }, []);
 
-  const steps = buildSteps(role, modules);
+  const steps = buildSteps(role, modules, [
+    ...(functions ?? []),
+    ...(subFunctions ?? []),
+  ]);
   const open = ((neverSeen && !dismissed) || replay) && steps.length > 0;
 
   const done = () => {

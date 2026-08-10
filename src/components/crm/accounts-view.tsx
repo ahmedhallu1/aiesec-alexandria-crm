@@ -1117,6 +1117,7 @@ export function AccountsView({
               <Hint label="You walked in and offered it on the spot — logs the research, the contact and the visit together">
                 <Button
                   variant="outline"
+                  data-tour="accounts:direct"
                   onClick={() => setDirectOpen(true)}
                   disabled={viewer.allowedFns.length === 0}
                 >

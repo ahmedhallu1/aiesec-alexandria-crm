@@ -660,6 +660,19 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
   the member's main email. Already consumed by password resets
   (`issueTempPassword`) and mailbox-hosted IR events (`ownerEmail`
   fallback) since part 1 — never an identity, no sign-in.
+  ⑧ **THE ONBOARDING, REBUILT.** Three engine bugs and stale wording:
+  `waitForSelector` matched the FIRST element and checked ITS box — on a
+  phone the hidden desktop table is the first match, so the tour stalled 4s
+  per table step (now: first VISIBLE match across all); `closeBy` clicked
+  the first `[data-slot="dialog-close"]` in the DOM — with the mobile
+  drawer open that's the DRAWER's ✕ (now: the last visible match = the
+  topmost portal); and table steps are `desktopOnly` (skipped instantly on
+  <768px instead of stalling). Content: the account-work step speaks the
+  viewer's WORLD (B2C = contract-first deals, no proposals; BD = money
+  MOS), "book visits" says it happens FROM THE CONTACT LOG, new steps for
+  **Direct visit** (anchor `accounts:direct`), **the Emails tab** (MMs+),
+  and **B2C's door into /signups** (the CIC selling queue). Storage key
+  bumped `crm-tour-v4:` so everyone walks it once more.
   ⑦ **B2C CIC — THE SELLING CALL** (`signup_cic_calls`, created in 0051 with
   the legacy `cic_*` columns migrated in as side='OGX' rows). B2C calls the
   SAME sign-up pool — people whose first OGX call was answered (Yes or No) —
