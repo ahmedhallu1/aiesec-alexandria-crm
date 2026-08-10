@@ -610,7 +610,7 @@ function SignupContactPrompt({
 }
 
 export function SignupsView({
-  rows, total, page, pageSize, pageSizeOptions, activeView, views, fns, activeFn,
+  rows, total, page, pageSize, pageSizeOptions, activeView, views, fns, activeFn, fnAll = false,
   targets, cicTargets, b2cTargets, loadLogs, planCard, streak, viewer, filters, filterOptions,
 }: {
   rows: SignupListRow[];
@@ -626,6 +626,8 @@ export function SignupsView({
   views: string[];
   fns: OgxFunction[];
   activeFn: OgxFunction;
+  /** B2C only: no side is picked, so the queue spans BOTH (v33.29) */
+  fnAll?: boolean;
   targets: { id: string; label: string }[];
   /** who a CIC second call can be handed to — empty for anyone below an MM */
   cicTargets: { id: string; label: string }[];
@@ -1404,19 +1406,28 @@ export function SignupsView({
         <div>
           <h1 className="text-2xl font-bold">Sign-ups</h1>
           <p className="text-sm text-muted-foreground">
-            Two-way synced with the {activeFn} tracker sheet — contact one from
-            the unassigned pool, it&apos;s yours, move them down the funnel.
+            {viewer.b2cOnly
+              ? "The OGX sign-up pool — people who already answered a first call. Yours are the B2C selling calls; the OGX funnel stays with its own crew."
+              : `Two-way synced with the ${activeFn} tracker sheet — contact one from the unassigned pool, it's yours, move them down the funnel.`}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Hint label={`The ${activeFn} funnel dashboard — KPIs, conversions, leaderboard`}>
+          <Hint
+            label={
+              viewer.b2cOnly
+                ? "The B2C dashboard — your lane, including the B2C CIC card"
+                : `The ${activeFn} funnel dashboard — KPIs, conversions, leaderboard`
+            }
+          >
             <Button variant="outline" asChild>
-              <Link href={`/dashboard?fn=${activeFn}`}>
+              <Link href={`/dashboard?fn=${viewer.b2cOnly ? "B2C" : activeFn}`}>
                 <LayoutDashboard className="size-4" /> Dashboard
               </Link>
             </Button>
           </Hint>
-          {viewer.isLeader ? (
+          {/* the OGX tracker sync belongs to OGX leaders — the server refuses
+              it for anyone else, so showing the button to B2C was a dead end */}
+          {viewer.isLeader && !viewer.b2cOnly ? (
             <Button variant="outline" onClick={syncNow} disabled={pending}>
               <RefreshCw className={pending ? "size-4 animate-spin" : "size-4"} /> Sync now
             </Button>
@@ -1442,6 +1453,20 @@ export function SignupsView({
       <div className="flex flex-wrap items-center gap-2" data-tour="signups:views">
         {fns.length > 1 ? (
           <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+            {/* B2C sells into BOTH sides, so "Both" is their default and the
+                side chips only narrow it */}
+            {viewer.b2cOnly ? (
+              <button
+                type="button"
+                onClick={() => setParams({ fn: null, program: null })}
+                className={cn(
+                  "rounded-md px-3 py-1 text-sm font-semibold transition-colors",
+                  fnAll ? "bg-background shadow" : "text-muted-foreground"
+                )}
+              >
+                Both
+              </button>
+            ) : null}
             {fns.map((f) => (
               <button
                 key={f}
@@ -1449,7 +1474,7 @@ export function SignupsView({
                 onClick={() => setParams({ fn: f, program: null })}
                 className={cn(
                   "rounded-md px-3 py-1 text-sm font-semibold transition-colors",
-                  activeFn === f ? "bg-background shadow" : "text-muted-foreground"
+                  activeFn === f && !fnAll ? "bg-background shadow" : "text-muted-foreground"
                 )}
               >
                 {f}

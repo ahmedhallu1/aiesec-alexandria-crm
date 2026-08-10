@@ -30,9 +30,15 @@ export default async function SignupsPage({
   const fns: OgxFunction[] = b2cOnly ? ["OGT", "OGV"] : ogxFunctions(viewer);
   const sp = await searchParams;
 
-  const activeFn: OgxFunction = fns.includes((sp.fn ?? "") as OgxFunction)
+  // DID THEY PICK A SIDE, or are we defaulting? It matters for B2C: their
+  // queue spans BOTH OGX sides, so defaulting to fns[0] would have hidden
+  // every OGV sign-up (436 of the 668 live candidates) behind a chip nobody
+  // knew to press. An OGX viewer keeps the old behaviour — they own one side.
+  const explicitFn: OgxFunction | null = fns.includes((sp.fn ?? "") as OgxFunction)
     ? (sp.fn as OgxFunction)
-    : fns[0];
+    : null;
+  const activeFn: OgxFunction = explicitFn ?? fns[0];
+  const fnAll = b2cOnly && !explicitFn;
 
   const page = Math.max(0, (parseInt(sp.page ?? "1", 10) || 1) - 1);
   // rows per page — anything off the list falls back to the default (a
@@ -43,7 +49,7 @@ export default async function SignupsPage({
       viewer,
       {
         view: sp.view,
-        fn: activeFn,
+        fn: fnAll ? undefined : activeFn,
         batch: sp.batch,
         program: sp.program,
         status: sp.status,
@@ -108,6 +114,7 @@ export default async function SignupsPage({
       filterOptions={await signupFilterOptions(viewer, activeFn)}
       fns={fns}
       activeFn={activeFn}
+      fnAll={fnAll}
       targets={targets}
       cicTargets={cicTargets}
       b2cTargets={b2cTargets}

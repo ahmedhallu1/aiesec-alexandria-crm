@@ -3991,7 +3991,9 @@ export async function signupFilterOptions(
   viewer: Viewer,
   fn: OgxFunction
 ): Promise<Record<string, string[]>> {
-  if (!_ogxLanes(viewer).includes(fn)) return {};
+  // the B2C crew reads the same pool through their CIC queue (v33.29) — their
+  // column funnels would otherwise be present but empty
+  if (!_ogxLanes(viewer).includes(fn) && !b2cCicAccess(viewer)) return {};
   const COLUMNS = ["campaign", "person_status", "assigned_name", "country", "program"];
   const { unstable_cache } = await import("next/cache");
   const read = unstable_cache(

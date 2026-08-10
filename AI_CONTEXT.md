@@ -678,7 +678,13 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
   SAME sign-up pool — people whose first OGX call was answered (Yes or No) —
   to sell courses/events, never to move the OGX funnel. The B2C crew enters
   /signups (layout gate + nav via `isB2C`) and lands on the 📞 CIC view
-  ONLY, across BOTH OGX sides (fn chips still narrow). Assignment matrix
+  ONLY, across BOTH OGX sides — a **"Both" chip** is their default and the
+  OGT/OGV chips only narrow (the first cut passed `fn: activeFn`, which
+  defaults to `fns[0]`, so B2C silently saw OGT's 232 candidates and never
+  OGV's 436; the page now sends no fn unless a side was actually picked).
+  Their column funnels come from `signupFilterOptions`, which gained the
+  same B2C clause, and the OGX-tracker "Sync now" button is hidden from
+  them (the server always refused it — it was a dead button). Assignment matrix
   (`assignB2cCic` + `b2cCicCallerTargets`): TL → self + own team ·
   Coordinator → self · LCVP/Director/LCP-level → any B2C member; caller must
   work B2C. ONE OPEN B2C call per sign-up (assignment replaces the open
