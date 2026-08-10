@@ -763,6 +763,10 @@ function MemberDialog({
             <Label>Personal Gmail — backup only (no AIESEC Mail yet)</Label>
             <Input
               value={form.fallback_email}
+              name="backup-personal-gmail"
+              autoComplete="off"
+              data-1p-ignore
+              data-lpignore="true"
               inputMode="email"
               placeholder="them@gmail.com — for resets & calendar invites"
               onChange={(e) => setForm((f) => ({ ...f, fallback_email: e.target.value }))}

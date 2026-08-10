@@ -4744,6 +4744,10 @@ export async function submitLcFeedback(input: {
   about: string[];
   message: string;
   anonymous?: boolean;
+  /** TOUCH POINTS ARE RATED, NOT PRAISED OR REPORTED (v33.33): 1–5 stars.
+   *  Required with a touchPointId, refused without one — a person is never
+   *  given a score. */
+  rating?: number | null;
   attachments?: { path: string; name: string }[];
   /** feedback about a past TOUCH POINT the viewer can see (v29): it resolves to
    *  the session's OWNER as the target and names the session in the message,
@@ -4752,7 +4756,19 @@ export async function submitLcFeedback(input: {
 }): Promise<ActionResult> {
   const viewer = await getViewer();
   let message = input.message?.trim();
-  if (!message || message.length < 3) return fail("Write the feedback first 🙂");
+  const rating =
+    Number.isInteger(input.rating) && (input.rating as number) >= 1 && (input.rating as number) <= 5
+      ? (input.rating as number)
+      : null;
+  if (input.touchPointId) {
+    // the stars ARE the review — a comment on top of them is welcome, not owed
+    if (!rating) return fail("Give the touch point a rating first ⭐");
+    if (!message) message = "";
+    else if (message.length < 3) return fail("Either write a real note or leave it empty 🙂");
+  } else {
+    if (rating) return fail("Ratings are for touch points — a person is never scored.");
+    if (!message || message.length < 3) return fail("Write the feedback first 🙂");
+  }
   const about = [...new Set(input.about ?? [])].filter((id) => id && id !== viewer.id);
 
   if (input.touchPointId) {
@@ -4769,7 +4785,9 @@ export async function submitLcFeedback(input: {
       return fail("That touch point hasn't happened yet 🙂");
     const { touchPointLabel } = await import("@/lib/types");
     const { cairoWhen } = await import("@/lib/touch-points");
-    message = `📍 About the ${touchPointLabel(tp.scope, tp.kind)} on ${cairoWhen(tp.starts_at)}\n\n${message}`;
+    message =
+      `📍 ${"⭐".repeat(rating ?? 0)} (${rating}/5) — the ${touchPointLabel(tp.scope, tp.kind)} on ${cairoWhen(tp.starts_at)}` +
+      (message ? `\n\n${message}` : "\n\n(no note left)");
     // A SESSION IS THE LC'S, NOT THE ORGANISER'S (v33.19.2). Feedback about a
     // touch point used to be addressed AT whoever booked it, which turned
     // "the meeting ran long" into a note about a person — and made an honest
@@ -4812,7 +4830,10 @@ export async function submitLcFeedback(input: {
     .insert({
       author_id: viewer.id,
       anonymous: !!input.anonymous,
-      positive: input.positive,
+      // `positive` stays NOT NULL for every existing reader; for a rated
+      // touch point it is derived (4+ stars) rather than chosen
+      positive: rating ? rating >= 4 : input.positive,
+      rating,
       about: targets.map((t) => t.id),
       message,
       attachments: cleanAttachments(input.attachments, viewer.id),
@@ -4828,7 +4849,12 @@ export async function submitLcFeedback(input: {
     return fail(error.message);
   }
 
-  if (input.positive) {
+  // A TOUCH-POINT REVIEW IS NEVER A SHOUT-OUT (v33.33): it goes to the people
+  // who run the LC's sessions, quietly, whatever the stars say. Praising the
+  // TM function by email because someone rated a meeting 5 was never the
+  // point — the rating is data about the session, not applause for a person.
+  const isReview = !!input.touchPointId;
+  if (input.positive && !isReview) {
     // shout-out → tell the person right away (bell + branded email)
     const from = input.anonymous ? "Someone in the LC 🎭" : viewer.name;
     const { notifyMembers } = await import("./notify");
@@ -4839,14 +4865,22 @@ export async function submitLcFeedback(input: {
       message.slice(0, 300),
       input.anonymous ? null : viewer.id
     );
+    // ONE EMAIL, EVERYONE ON BCC (v33.33). A shout-out to nine people used to
+    // be nine separate sends: nine chances to fail, nine rows in the mailbox,
+    // and nine times the quota for one message. The greeting is written for
+    // the group when there IS a group, so nothing pretends to be personal
+    // that isn't; a single recipient still gets their own name.
     const { lcShoutoutEmail } = await import("@/lib/email/templates");
-    for (const t of targets) {
-      const mail = lcShoutoutEmail({
-        firstName: (t.name).split(" ")[0],
-        from,
-        message,
-      });
+    const withMail = targets.filter((t) => t.email);
+    if (withMail.length === 1) {
+      const t = withMail[0];
+      const mail = lcShoutoutEmail({ firstName: t.name.split(" ")[0], from, message });
       sendEmail({ to: [t.email], ...mail }).catch((e) =>
+        console.error("[lc-feedback] shout-out email failed:", e)
+      );
+    } else if (withMail.length > 1) {
+      const mail = lcShoutoutEmail({ firstName: null, from, message });
+      sendEmail({ to: [], bcc: withMail.map((t) => t.email), ...mail }).catch((e) =>
         console.error("[lc-feedback] shout-out email failed:", e)
       );
     }
@@ -4856,7 +4890,7 @@ export async function submitLcFeedback(input: {
   // the inbox (`canSeeLcConcerns`): TM, the LCP, F&L's LCVP and the IM
   // director. Telling someone about a concern they cannot then read was the
   // old bug in miniature.
-  if (!input.positive) {
+  if (!input.positive || isReview) {
     const { data: owners } = await db()
       .from("members")
       .select("id, name, email, role, functions, sub_functions")
@@ -4876,23 +4910,25 @@ export async function submitLcFeedback(input: {
       await notifyMembers(
         inboxOwners.map((m) => m.id),
         "lc_feedback",
-        "A new concern was filed",
-        `About ${targets.length} ${targets.length === 1 ? "person" : "people"} — open the inbox to read it.`,
+        isReview ? "⭐ A touch point was rated" : "A new concern was filed",
+        isReview
+          ? `${rating}/5 — open the inbox to read the review.`
+          : `About ${targets.length} ${targets.length === 1 ? "person" : "people"} — open the inbox to read it.`,
         null,
         "/lc-feedback"
       );
       if (!(await sandboxSuppressed("lc concern email"))) {
         const { lcConcernEmail } = await import("@/lib/email/templates");
-        const mail = lcConcernEmail({ count: targets.length });
-        await Promise.all(
-          inboxOwners
-            .filter((m) => m.email)
-            .map((m) =>
-              sendEmail({ to: [m.email], ...mail }).catch((e) =>
-                console.error("[lc-feedback] concern mail failed:", e)
-              )
-            )
-        );
+        const mail = lcConcernEmail({ count: targets.length, rating });
+        // one email, the inbox owners on BCC — they are being told the same
+        // thing, and they don't need to see each other's addresses either
+        const inboxes = inboxOwners.map((m) => m.email).filter(Boolean) as string[];
+        if (inboxes.length > 0)
+          await sendEmail({
+            to: inboxes.length === 1 ? [inboxes[0]] : [],
+            bcc: inboxes.length === 1 ? undefined : inboxes,
+            ...mail,
+          }).catch((e) => console.error("[lc-feedback] concern mail failed:", e));
       }
     }
   }
@@ -5007,15 +5043,15 @@ export async function shareLcFeedback(
       message: row.message,
       note: trimmed || null,
     });
-    await Promise.all(
-      targets
-        .filter((t) => t.email)
-        .map((t) =>
-          sendEmail({ to: [t.email!], ...mail }).catch((e) =>
-            console.error("[lc-feedback] share mail failed:", e)
-          )
-        )
-    );
+    // ONE email for the whole group, BCC (v33.33) — the text is identical
+    // for every recipient, so N sends were N chances to fail for no gain
+    const inboxes = targets.map((t) => t.email).filter(Boolean) as string[];
+    if (inboxes.length > 0)
+      await sendEmail({
+        to: inboxes.length === 1 ? [inboxes[0]] : [],
+        bcc: inboxes.length === 1 ? undefined : inboxes,
+        ...mail,
+      }).catch((e) => console.error("[lc-feedback] share mail failed:", e));
   }
   await snapshotForUndo("lc_feedback", id);
   const merged = [...new Set([...(row.shared_with ?? []), ...targets.map((t) => t.id)])];
