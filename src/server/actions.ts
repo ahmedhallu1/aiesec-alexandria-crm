@@ -5502,7 +5502,10 @@ import {
   canWorkSignup,
   ogxFunctions,
 } from "@/lib/rbac";
-import { SIGNUP_STATUSES, type SignupComment, type SignupRow } from "@/lib/types";
+import {
+  SIGNUP_STATUSES, type OgxFunction as OgxFunctionT, type SignupComment,
+  type SignupRow,
+} from "@/lib/types";
 
 async function loadSignup(id: string): Promise<SignupRow | null> {
   const { data } = await db().from("signups").select("*").eq("id", id).maybeSingle<SignupRow>();
@@ -5939,11 +5942,20 @@ export async function addSignupReferral(input: {
   name: string;
   phone?: string | null;
   email?: string | null;
-  university?: string | null;
+  /** YYYY-MM-DD — optional, same free-text column the tracker uses */
+  dob?: string | null;
+  /** where they want to go (v33.32.2) — validated against the country list */
+  country?: string | null;
   /** OGT only — GTa / GTe */
   subProduct?: string | null;
   /** who sent them our way (a member's name, an EP, "walk-in") */
   referredBy?: string | null;
+  /** THE FUNNEL, FROM THE START (v33.32.2). A referral is usually logged by
+   *  the person who already spoke to them, so the form takes the first three
+   *  steps instead of making them re-open the row to say what they know. */
+  contacted?: string | null;
+  interested?: string | null;
+  status?: string | null;
   /** optional first comment */
   note?: string | null;
   /** MMs and above may hand it straight to someone else */
@@ -6000,6 +6012,32 @@ export async function addSignupReferral(input: {
     owner = { id: target.id, name: target.name };
   }
 
+  // a date only counts when it IS one — the column is free text, the field
+  // is a date picker, and a half-typed year must not be stored as fact
+  const dobRaw = clean(input.dob, 10);
+  const dob = dobRaw && /^\d{4}-\d{2}-\d{2}$/.test(dobRaw) ? dobRaw : null;
+  if (dobRaw && !dob) return fail("That date of birth isn't a real date.");
+  // the country is validated against the real list, exactly like a booking
+  const countryRaw = clean(input.country, 60);
+  let country: string | null = null;
+  if (countryRaw) {
+    const { COUNTRIES } = await import("@/lib/countries");
+    const { resolveCountry } = await import("@/lib/timezones");
+    country = resolveCountry(countryRaw, COUNTRIES);
+    if (!country) return fail(`"${countryRaw}" isn't a country we know — pick one from the list.`);
+  }
+  const yesNo = (v: string | null | undefined) =>
+    v === "Yes" || v === "No" ? v : null;
+  const contacted = yesNo(input.contacted);
+  const interested = yesNo(input.interested);
+  const status =
+    input.status && (SIGNUP_STATUSES as readonly string[]).includes(input.status)
+      ? input.status
+      : null;
+  // Parents Approval is a VP call everywhere else — it stays one here
+  if (status === "Parents Approval" && !canEditSignupVpFields(viewer, { fn: fn as OgxFunctionT }))
+    return fail("Only a VP/Director sets Parents Approval.", "forbidden");
+
   const now = new Date();
   const epId = `REF-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
   const { data: created, error } = await db()
@@ -6012,7 +6050,12 @@ export async function addSignupReferral(input: {
       name,
       phone,
       email,
-      university: clean(input.university, 120),
+      dob,
+      country,
+      contact_status: contacted,
+      contacted_at: contacted ? now.toISOString() : null,
+      interested,
+      status,
       sub_product: fn === "OGT" ? clean(input.subProduct, 20) : null,
       program: fn === "OGV" ? "Global Volunteer" : clean(input.subProduct, 20),
       referral: clean(input.referredBy, 120),

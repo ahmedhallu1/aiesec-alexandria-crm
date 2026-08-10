@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import {
   Archive, Check, ChevronDown, History, LayoutDashboard, Loader2, Mail, Phone,
   PhoneCall, RefreshCw, RotateCcw,
+  MessageSquarePlus,
   Search, UserMinus, UserPlus, UserRound, Users2, X,
 } from "lucide-react";
 import {
@@ -66,6 +67,9 @@ const VIEW_LABELS: Record<string, string> = {
   team: "My team",
   // CIC — Customer Interview Call (v33.19)
   cic: "📞 CIC",
+  // organic referrals — their own tab, because they are worked differently
+  // from a tracker sign-up and get lost among thousands of them (v33.32.2)
+  referral: "🤝 Referrals",
   all: "All",
   archived: "🗄️ Archived",
 };
@@ -81,6 +85,8 @@ const VIEW_HINTS: Record<string, string> = {
   unassigned: "Nobody holds these yet — hand them out.",
   mine: "What you answer for.",
   cic: CIC_BLURB,
+  referral:
+    "People who came to us directly, not through the tracker — added here, worked like any sign-up.",
   all: "Every sign-up in the function.",
   archived: "Out of Process — browsable, revivable by a VP.",
 };
@@ -208,6 +214,63 @@ function MmPlanCard({ plan }: { plan: OgxPlanCard }) {
   );
 }
 
+/** A COMMENT WITHOUT OPENING THE SIGN-UP (v33.32.2) — the raising list's
+ *  quick-comment, for OGX. It lands in the same two-class log as any other
+ *  (member comments to the sheet's Comment cell, a VP's to the VP Comment
+ *  cell), so nothing about where comments live changes — only how far you
+ *  have to travel to leave one. */
+function SignupCommentDialog({
+  target, onOpenChange,
+}: {
+  target: { id: string; name: string } | null;
+  onOpenChange: (o: boolean) => void;
+}) {
+  const router = useRouter();
+  const [body, setBody] = useState("");
+  const [pending, start] = useTransition();
+  const targetId = target?.id;
+  useEffect(() => setBody(""), [targetId]);
+
+  const submit = () =>
+    start(async () => {
+      if (!target) return;
+      const res = await addSignupComment(target.id, body);
+      if (res.ok) {
+        toast.success("Comment added 💬");
+        setBody("");
+        onOpenChange(false);
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
+  return (
+    <Dialog open={!!target} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle dir="auto">💬 Comment on {target?.name}</DialogTitle>
+          <DialogDescription>
+            Lands in the sign-up&apos;s comment log — stamped with your name and
+            the time, and written back to the tracker sheet like any other.
+          </DialogDescription>
+        </DialogHeader>
+        <Textarea
+          dir="auto"
+          rows={3}
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          placeholder="What they said / what to know…"
+        />
+        <DialogFooter>
+          <Button onClick={submit} disabled={pending || body.trim().length === 0}>
+            {pending ? <Loader2 className="size-4 animate-spin" /> : <MessageSquarePlus className="size-4" />}
+            Add comment
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /** ADD AN ORGANIC REFERRAL (v33.32).
  *
  *  A person we can approve who never came through the tracker. Everything
@@ -232,9 +295,13 @@ function ReferralDialog({
     name: "",
     phone: "",
     email: "",
-    university: "",
+    dob: "",
+    country: "",
     subProduct: "",
     referredBy: "",
+    contacted: "",
+    interested: "",
+    status: "",
     note: "",
     assignTo: "",
   });
@@ -248,9 +315,13 @@ function ReferralDialog({
         name: form.name,
         phone: form.phone || null,
         email: form.email || null,
-        university: form.university || null,
+        dob: form.dob || null,
+        country: form.country || null,
         subProduct: form.subProduct || null,
         referredBy: form.referredBy || null,
+        contacted: form.contacted || null,
+        interested: form.interested || null,
+        status: form.status || null,
         note: form.note || null,
         assignTo: form.assignTo || null,
       });
@@ -258,8 +329,9 @@ function ReferralDialog({
         toast.success("Referral added — it's in the funnel now 🤝");
         onOpenChange(false);
         setForm((f) => ({
-          ...f, name: "", phone: "", email: "", university: "",
-          referredBy: "", note: "", assignTo: "",
+          ...f, name: "", phone: "", email: "", dob: "", country: "",
+          referredBy: "", contacted: "", interested: "", status: "",
+          note: "", assignTo: "",
         }));
         router.refresh();
       } else toast.error(res.error);
@@ -317,10 +389,12 @@ function ReferralDialog({
           </p>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="grid gap-1.5">
-              <Label>University</Label>
+              <Label>Date of birth</Label>
               <Input
-                value={form.university}
-                onChange={(e) => set("university", e.target.value)}
+                type="date"
+                max={new Date().toISOString().slice(0, 10)}
+                value={form.dob}
+                onChange={(e) => set("dob", e.target.value)}
               />
             </div>
             {form.fn === "OGT" ? (
@@ -340,12 +414,68 @@ function ReferralDialog({
             ) : null}
           </div>
           <div className="grid gap-1.5">
+            <Label>Country</Label>
+            <CountryInput
+              value={form.country}
+              onChange={(v) => set("country", v)}
+              placeholder="Where do they want to go?"
+            />
+          </div>
+          <div className="grid gap-1.5">
             <Label>Referred by</Label>
             <Input
               placeholder="Who sent them our way?"
               value={form.referredBy}
               onChange={(e) => set("referredBy", e.target.value)}
             />
+          </div>
+          {/* THE FUNNEL, FROM THE START (v33.32.2) — whoever logs a referral
+              has usually already spoken to them, so the first three steps are
+              here rather than one re-open away. All optional. */}
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-1.5">
+              <Label>Contacted</Label>
+              <Select
+                value={form.contacted || "__none"}
+                onValueChange={(v) => set("contacted", v === "__none" ? "" : v)}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">Not yet</SelectItem>
+                  <SelectItem value="Yes">Yes</SelectItem>
+                  <SelectItem value="No">No</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Interested</Label>
+              <Select
+                value={form.interested || "__none"}
+                onValueChange={(v) => set("interested", v === "__none" ? "" : v)}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">—</SelectItem>
+                  <SelectItem value="Yes">Yes</SelectItem>
+                  <SelectItem value="No">No</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Status</Label>
+              <Select
+                value={form.status || "__none"}
+                onValueChange={(v) => set("status", v === "__none" ? "" : v)}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">None yet</SelectItem>
+                  {SIGNUP_STATUSES.map((st) => (
+                    <SelectItem key={st} value={st}>{st}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           {canAssign && targets.length > 0 ? (
             <div className="grid gap-1.5">
@@ -561,6 +691,7 @@ const SIGNUP_CELL_CLASS: Record<string, string> = {
   country: "text-sm text-muted-foreground",
   person_status: "max-w-40 truncate text-sm text-muted-foreground",
   campaign: "max-w-44 truncate text-sm text-muted-foreground",
+  comment: "max-w-[26rem] align-top text-sm",
   email: "max-w-48 truncate text-sm text-muted-foreground",
   phone: "whitespace-nowrap text-sm text-muted-foreground",
   ep_id: "text-sm text-muted-foreground",
@@ -621,6 +752,9 @@ function signupColumns(fn: OgxFunction, view: string): TableColumn[] {
     { key: "campaign", label: "Campaign", defaultHidden: !pool },
     { key: "status", label: "Status", defaultHidden: pool },
     { key: "country", label: "Country", defaultHidden: pool },
+    // THE THREAD, ON THE LIST (v33.32.2) — same as the raising table: read
+    // what was said and leave a line without opening the sign-up
+    { key: "comment", label: "Comment" },
     { key: "actions", label: "Actions" },
     { key: "email", label: "Email", defaultHidden: true },
     { key: "phone", label: "Phone", defaultHidden: true },
@@ -854,6 +988,9 @@ export function SignupsView({
         : viewer.isLeader || viewer.isTl;
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [referralOpen, setReferralOpen] = useState(false);
+  // leave a comment straight from the list (v33.32.2)
+  const [quickComment, setQuickComment] =
+    useState<{ id: string; name: string } | null>(null);
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignTarget, setAssignTarget] = useState("");
   const [unassignOpen, setUnassignOpen] = useState(false);
@@ -1585,6 +1722,53 @@ export function SignupsView({
         return <span dir="auto">{r.background ?? "—"}</span>;
       case "sub_product":
         return r.sub_product ?? "—";
+      case "comment": {
+        // THE WHOLE THREAD, newest first, full text on hover — and a ➕ for
+        // anyone who may work the sign-up or is its VP (v33.32.2). The same
+        // shape the raising list has carried since v33.17.
+        const all = r.comments_all ?? [];
+        const addBtn =
+          r.can_work || r.can_vp ? (
+            <Hint label="Add a comment — right from the list">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-6 shrink-0 text-muted-foreground hover:text-primary"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setQuickComment({ id: r.id, name: r.name });
+                }}
+              >
+                <MessageSquarePlus className="size-3.5" />
+              </Button>
+            </Hint>
+          ) : null;
+        if (all.length === 0)
+          return <span className="inline-flex items-center gap-1">—{addBtn}</span>;
+        const newestFirst = [...all].reverse();
+        const full = newestFirst
+          .map((c) => `${c.author_name}${c.author_class === "vp" ? " (VP)" : ""}: ${c.body}`)
+          .join("\n\n");
+        return (
+          <span className="flex items-start gap-1">
+            <span dir="auto" title={full} className="block min-w-0 flex-1 space-y-0.5">
+              {newestFirst.slice(0, 2).map((c) => (
+                <span key={c.id} className="block truncate text-xs leading-tight">
+                  {c.author_class === "vp" ? "🎖 " : ""}
+                  {c.body}
+                </span>
+              ))}
+              {newestFirst.length > 2 ? (
+                <span className="block text-[10px] text-muted-foreground">
+                  +{newestFirst.length - 2} more
+                </span>
+              ) : null}
+            </span>
+            {addBtn}
+          </span>
+        );
+      }
       case "actions":
         // v33.14 — the Contact BUTTON is gone. Tapping the row opens the
         // sign-up, and the call/WhatsApp/email links already sit in the
@@ -2178,6 +2362,11 @@ export function SignupsView({
           </div>
         </DialogContent>
       </Dialog>
+
+      <SignupCommentDialog
+        target={quickComment}
+        onOpenChange={(o) => !o && setQuickComment(null)}
+      />
 
       <ReferralDialog
         open={referralOpen}
