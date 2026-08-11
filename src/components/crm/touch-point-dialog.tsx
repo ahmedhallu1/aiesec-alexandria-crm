@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { CalendarPlus, Loader2, Video } from "lucide-react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { CalendarPlus, ChevronDown, Loader2, Users, Video } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { createTouchPoint } from "@/server/touch-points";
+import { createTouchPoint, previewTouchPointAudience } from "@/server/touch-points";
 import {
   TOUCH_POINT_SCOPE_RULE,
   touchPointOptions,
@@ -90,10 +90,77 @@ export function TouchPointDialog({
   // and working, an outing is by definition somewhere — neither has a Meet
   // link, and offering one would just produce empty rooms.
   const [virtual, setVirtual] = useState(false);
+  // WHO IS ACTUALLY COMING (v33.34). The scope decides who WOULD be invited;
+  // this is where the booker looks at that list and unticks the three people
+  // who aren't in the function yet, or the two who already said they can't.
+  // Only the ticked people are invited and only they appear on the
+  // attendance sheet. Loaded from the server so the preview and the booking
+  // can never disagree about who "my function" means.
+  const [crew, setCrew] = useState<
+    { id: string; name: string; role: string; team: string | null }[]
+  >([]);
+  /** the audience key whose people are currently in `crew` — "loading" is
+   *  DERIVED from it rather than set at the top of the effect, which would be
+   *  a synchronous setState inside an effect (a cascading render) */
+  const [loadedKey, setLoadedKey] = useState("");
+  const [excluded, setExcluded] = useState<string[]>([]);
+  const [crewOpen, setCrewOpen] = useState(false);
+  const [crewQ, setCrewQ] = useState("");
   const todayIso = cairoTodayIso();
   // a start earlier than right now (Cairo) = logging, not booking. The server
   // decides for real; this only shapes what the dialog promises.
   const logging = !!date && (date < todayIso || (date === todayIso && isPastCairoTime(time)));
+
+  /** the audience key: everything the derived list depends on */
+  const audienceKey = picked
+    ? JSON.stringify([
+        picked.scope, picked.kind, fn, team,
+        picked.scope === "team" ? invTeams : [],
+        picked.scope === "function" ? invFns : [],
+      ])
+    : "";
+  const crewLoading = open && !!picked && loadedKey !== audienceKey;
+  useEffect(() => {
+    if (!open || !picked) return;
+    let alive = true;
+    previewTouchPointAudience({
+      scope: picked.scope,
+      kind: picked.kind,
+      functionKey: picked.scope === "lc" ? null : fn,
+      teamName: picked.scope === "team" ? team : null,
+      invitedTeams: picked.scope === "team" ? invTeams : [],
+      invitedFunctions: picked.scope === "function" ? invFns : [],
+    })
+      .then((res) => {
+        if (!alive) return;
+        // a refusal here is the same refusal booking would give — show an
+        // empty list and let the Book button surface the real message
+        setCrew(res.ok && res.data ? res.data.people : []);
+        // changing the scope redraws the whole list: an exclusion from the
+        // OLD one means nothing against the new
+        setExcluded([]);
+      })
+      .catch(() => alive && setCrew([]))
+      // marked loaded either way — a failed preview must not spin forever
+      .finally(() => alive && setLoadedKey(audienceKey));
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, audienceKey]);
+
+  const invited = useMemo(
+    () => crew.filter((m) => !excluded.includes(m.id)),
+    [crew, excluded]
+  );
+  const crewShown = useMemo(() => {
+    const q = crewQ.trim().toLowerCase();
+    if (!q) return crew;
+    return crew.filter(
+      (m) =>
+        m.name.toLowerCase().includes(q) ||
+        (m.team ?? "").toLowerCase().includes(q) ||
+        m.role.toLowerCase().includes(q)
+    );
+  }, [crew, crewQ]);
 
   if (options.length === 0) return null;
 
@@ -120,6 +187,9 @@ export function TouchPointDialog({
         note: note || null,
         invitedTeams: picked.scope === "team" ? invTeams : [],
         invitedFunctions: picked.scope === "function" ? invFns : [],
+        // omitted when nothing was unticked, so the audience stays DERIVED
+        // and keeps picking up people who join the function later
+        memberIds: excluded.length > 0 ? invited.map((m) => m.id) : undefined,
         notify,
       });
       if (res.ok) {
@@ -134,6 +204,8 @@ export function TouchPointDialog({
         setNote("");
         setInvTeams([]);
         setInvFns([]);
+        setExcluded([]);
+        setCrewQ("");
         setNotify(true);
         router.refresh();
       } else toast.error(res.error);
@@ -300,6 +372,121 @@ export function TouchPointDialog({
                     </button>
                   ))}
                 </div>
+              </div>
+            ) : null}
+
+            {/* WHO IS COMING (v33.34) — the derived list, ticked, with the
+                right to untick. Collapsed by default because the common case
+                is "everyone"; the count and the word "customise" are the
+                affordance. */}
+            {picked ? (
+              <div className="grid gap-1.5 rounded-lg border border-border p-3">
+                <button
+                  type="button"
+                  onClick={() => setCrewOpen((v) => !v)}
+                  className="flex items-center justify-between gap-2 text-left"
+                >
+                  <span className="min-w-0">
+                    <span className="flex items-center gap-1.5 text-sm font-medium">
+                      <Users className="size-4" />
+                      Who&apos;s invited
+                      <span className="rounded-full bg-primary/10 px-1.5 text-xs font-bold text-primary">
+                        {crewLoading ? "…" : invited.length}
+                      </span>
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      {crewLoading
+                        ? "Working out who this reaches…"
+                        : excluded.length > 0
+                          ? `${excluded.length} left out — only the ticked people are invited and only they appear on the attendance sheet.`
+                          : "Everyone this reaches. Tap to untick anyone who shouldn't be counted."}
+                    </span>
+                  </span>
+                  <ChevronDown
+                    className={cn(
+                      "size-4 shrink-0 text-muted-foreground transition-transform",
+                      crewOpen && "rotate-180"
+                    )}
+                  />
+                </button>
+
+                {crewOpen ? (
+                  <div className="grid gap-2 border-t pt-2">
+                    {crew.length > 8 ? (
+                      <Input
+                        value={crewQ}
+                        onChange={(e) => setCrewQ(e.target.value)}
+                        placeholder="Search a name, team or role…"
+                        className="h-8 text-sm"
+                      />
+                    ) : null}
+                    <div className="flex items-center gap-2 text-xs">
+                      <button
+                        type="button"
+                        className="font-medium text-primary hover:underline"
+                        onClick={() => setExcluded([])}
+                      >
+                        Select all
+                      </button>
+                      <span className="text-muted-foreground">·</span>
+                      <button
+                        type="button"
+                        className="font-medium text-primary hover:underline"
+                        onClick={() =>
+                          setExcluded(
+                            // unticking everyone would be a touch point with
+                            // nobody in it — keep the first person ticked
+                            crew.slice(1).map((m) => m.id)
+                          )
+                        }
+                      >
+                        Select none
+                      </button>
+                      {crewQ ? (
+                        <>
+                          <span className="text-muted-foreground">·</span>
+                          <span className="text-muted-foreground">
+                            {crewShown.length} of {crew.length} shown
+                          </span>
+                        </>
+                      ) : null}
+                    </div>
+                    <div className="max-h-56 space-y-0.5 overflow-y-auto">
+                      {crewShown.length === 0 ? (
+                        <p className="py-2 text-xs text-muted-foreground">
+                          {crewLoading ? "Loading…" : "Nobody matches that."}
+                        </p>
+                      ) : (
+                        crewShown.map((m) => {
+                          const on = !excluded.includes(m.id);
+                          return (
+                            <label
+                              key={m.id}
+                              className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-muted"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={on}
+                                onChange={() =>
+                                  setExcluded((prev) =>
+                                    on ? [...prev, m.id] : prev.filter((x) => x !== m.id)
+                                  )
+                                }
+                                className="size-4 shrink-0 accent-[var(--primary)]"
+                              />
+                              <span className="min-w-0 flex-1 truncate text-sm" dir="auto">
+                                {m.name}
+                              </span>
+                              <span className="shrink-0 text-[11px] text-muted-foreground">
+                                {m.role}
+                              </span>
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : null}
 

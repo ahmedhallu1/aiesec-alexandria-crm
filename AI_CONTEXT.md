@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-11 · Version: v33.33
+Last updated: 2026-08-11 · Version: v33.34
 
 ---
 
@@ -53,8 +53,8 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0049_direct_visits_mailbox_ir_notes` → `0050_ir_call_reschedule_history` →
 `0051_fallback_email_bounces_b2c_cic` → `0052_three_name_worlds` →
 `0053_calendar_item_visibility` → `0054_function_settings` →
-`0055_touch_point_rating`
-(**all applied**, 0046–0055 during v33.22–v33.33).
+`0055_touch_point_rating` → `0056_touch_point_members`
+(**all applied**, 0046–0056 during v33.22–v33.34).
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
@@ -624,6 +624,44 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-11 · v33.34** — **PICK WHO IS ACTUALLY COMING** (migration **0056
+  applied**: `touch_points.members`).
+  ① **THE AUDIENCE WAS TAKE-IT-OR-LEAVE-IT.** A touch point's people have
+  always been DERIVED — pick a scope and everyone matching it is invited,
+  announced to, and marked present or absent. Right most of the time, wrong
+  the rest: a function meeting the newest three members aren't in yet, working
+  hours for half the team, an outing two people already said they can't make.
+  There was no way to say so, so they were marked **absent from something
+  nobody expected them at**. Booking now shows **Who's invited** — the derived
+  list, ticked — and unticking anyone removes them from the invite AND from
+  the attendance sheet.
+  ② **IT CAN ONLY EVER NARROW.** `members` is an opt-out list, not a
+  replacement rule, and the server validates every tick against the DERIVED
+  audience — a Team Leader cannot reach a name outside the team they proved
+  they own. Keeping everyone stores **nothing**, so the audience stays live
+  and still picks up people who join the function before the session; that is
+  both the default and the pre-0056 behaviour, and every existing row is
+  unaffected. Unticking everybody is refused ("a touch point with nobody in it
+  isn't one").
+  ③ **ONE IMPLEMENTATION, TWO CALLERS.** The dialog can't be allowed to offer
+  a list the create path would refuse, so the whole authority resolution
+  (function ownership, team binding, invited teams/functions, the
+  no-working-hours functions) came out of `createTouchPoint` into
+  `resolveTouchPointTargets`, and both the new `previewTouchPointAudience`
+  and the create path run it. The preview re-checks `canBookTouchPoint` too —
+  it returns a roster, and a roster is not something to hand out on the
+  strength of a scope string.
+  ④ **THE OWNER RULE YIELDS TO THE LIST.** "The owner always belongs to their
+  own touch point" is right when the audience is derived and wrong when the
+  booker has just unticked themselves — a TL booking working hours for their
+  team isn't necessarily in it. The explicit list sits ABOVE that rule in
+  `memberInTouchPointAudience`, and `touchPointAudience` stops appending the
+  owner when one exists. Visibility is a separate question
+  (`viewerSeesTouchPoint`), so they still see the session on their calendar.
+  ⑤ Routines still book derived points — the generator sends no list, which
+  is the sane default for a whole peak booked up front. 10 new tests pin the
+  audience rules (194 total).
 
 - **2026-08-11 · v33.33** — **FIVE FROM THE FLOOR** (migration **0055
   applied**: `lc_feedback.rating`).

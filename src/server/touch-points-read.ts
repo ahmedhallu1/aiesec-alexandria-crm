@@ -24,6 +24,12 @@ export interface TouchPointRow {
   owner_id: string | null;
   owner_name: string;
   attendance_recorded_at: string | null;
+  /** THE EXPLICIT GUEST LIST (v33.34, migration 0056). NULL = derive the
+   *  audience from scope/function/team, exactly as before — so it keeps
+   *  growing as people join. Non-null = the booker unticked somebody, and
+   *  this IS the audience: the invite and the attendance sheet both. Always
+   *  a subset of the derived list; the server refuses anything else. */
+  members?: string[] | null;
 }
 
 export interface AudienceMember {
@@ -100,6 +106,13 @@ export function memberInTouchPointAudience(
   // the ADMIN is the system's caretaker, not an attendee (v33.19, by the
   // LCP's request): never in any audience, never on an attendance sheet
   if (m.role === "Admin") return false;
+  // AN EXPLICIT GUEST LIST WINS (v33.34). The booker looked at the derived
+  // audience and chose — including, possibly, to leave themselves out, which
+  // is why this sits ABOVE the owner rule. Visibility is a separate question
+  // (`viewerSeesTouchPoint`), so the owner still sees their own session on
+  // the calendar whether or not they are attending it.
+  if (Array.isArray(tp.members) && tp.members.length > 0)
+    return tp.members.includes(m.id);
   // the owner always belongs to their own touch point
   if (tp.owner_id && m.id === tp.owner_id) return true;
   const teams = new Set([...(tp.invited_teams ?? []), ...(tp.team_name ? [tp.team_name] : [])]);
@@ -145,9 +158,13 @@ export async function touchPointAudience(tp: TouchPointRow): Promise<AudienceMem
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const all = (data ?? []) as any[];
   const keep = all.filter((m) => memberInTouchPointAudience(m, tp));
-  // the owner always belongs to their own touch point
+  // the owner always belongs to their own touch point — UNLESS an explicit
+  // guest list says otherwise (v33.34): someone who books a session for their
+  // team and isn't in it themselves has said so deliberately, and appending
+  // them back would put a row on the attendance sheet nobody asked for.
+  const explicit = Array.isArray(tp.members) && tp.members.length > 0;
   const withOwner =
-    tp.owner_id && !keep.some((m) => m.id === tp.owner_id)
+    !explicit && tp.owner_id && !keep.some((m) => m.id === tp.owner_id)
       ? [...keep, ...all.filter((m) => m.id === tp.owner_id && m.role !== "Admin")]
       : keep;
   return withOwner.map((m) => ({
@@ -158,6 +175,16 @@ export async function touchPointAudience(tp: TouchPointRow): Promise<AudienceMem
     team_name: m.team_name,
     functions: fnsOf(m),
   }));
+}
+
+/** THE DERIVED audience — who the scope/function/team WOULD invite, ignoring
+ *  any explicit guest list. This is what the booking dialog offers to tick,
+ *  and what `createTouchPoint` validates the ticks against: a booker may
+ *  narrow their audience, never widen it (v33.34). */
+export async function derivedTouchPointAudience(
+  tp: TouchPointRow
+): Promise<AudienceMember[]> {
+  return touchPointAudience({ ...tp, members: null });
 }
 
 /** Is this viewer part of the audience (so: does it belong on their calendar)?
