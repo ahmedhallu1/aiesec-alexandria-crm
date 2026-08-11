@@ -4218,6 +4218,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
     "tone": "tip"
    },
    {
+    "t": "callout",
+    "tone": "tip",
+    "md": "**Filter from the columns** (v33.36.2): every column here has its own funnel — Role (with a one-tap *MMs* option), Function, Sub function/side, Team, Manager, MOS, has-or-no email/phone, and has-or-no research/deals. They're multi-select, so \"the TLs and Coordinators of IGV and IGT\" is four taps. Search, the date window and ⚙ Columns stay in the bar above."
+   },
+   {
     "t": "faq",
     "faqItems": [
      {

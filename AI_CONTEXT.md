@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-11 · Version: v33.36.1
+Last updated: 2026-08-11 · Version: v33.36.2
 
 ---
 
@@ -626,6 +626,38 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-11 · v33.36.2** — **THE UNREPORTED-VISITS BANNER NEVER APPEARED**
+  (no migration).
+  ① **`done` IS NULLABLE, AND THE BANNER ASKED FOR `false`.** v33.35 shipped
+  "N visits need a report" on Raising and it matched **zero rows**, because a
+  pending visit is `done IS NULL` — nothing in the system ever writes `false`
+  (reporting a visit sets it TRUE; the index `visits_pending_idx … where done
+  is null` says so). Every other reader — the +2h prompt, the week-later nag,
+  the account page — uses `is null`; only the new banner didn't. Worse, the
+  SQL I checked prod with made the same assumption, so "0 unreported visits"
+  read as good news when **13 were sitting there** (Aug 6–10, IGV/IGT/BD,
+  eight different owners). One character of a filter, invisible for a
+  release. Fixed, and the banner now shows the real thing.
+  ② **AND THE +2H PROMPT WAS SKIPPING HALF THE LC.** Chasing the same 13
+  explained why almost none carried `followup_prompt_sent_at`: both passes of
+  the visit-followups cron start with `if (… || !visit.member?.email)
+  continue` — a member with no @aiesec.net got **no email, no bell, and no
+  stamp**, which also means the one-week nag (it requires the stamp) could
+  never fire for them. Many members are still waiting for their AIESEC
+  address. Now: the backup Gmail is used when there's no AIESEC one, the
+  in-app BELL goes out either way (it needs no inbox), the stamp lands so the
+  ladder proceeds, and both bells deep-link to the account.
+  ③ **THE TM DIRECTORY FILTERS FROM ITS COLUMNS.** Function/Role/Side were
+  three dropdowns in a bar while every other table in Sodio funnels from the
+  column itself. Now every column does, and multi-select: **Role** (with a
+  one-tap "MMs"), **Function**, **Sub function/side**, **Team**, **Manager**,
+  **MOS class** (opens / money / deals / approvals / none), **has-or-no
+  email**, **has-or-no phone**, **has-or-no market research**, **has-or-no
+  deals**. Options are built from the people on screen, so a funnel can never
+  offer a value nobody has; phones get the same funnels in a row above the
+  cards; search, the date window (which recounts KPIs server-side) and ⚙
+  Columns stay in the bar, plus a Clear.
 
 - **2026-08-11 · v33.36.1** — **THE SAME ADDRESS IS A RETRY** (no migration).
   ① The Bhavika case: her Gmail bounced for reasons on HER side, got fixed

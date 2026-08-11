@@ -670,7 +670,13 @@ export async function unreportedVisits(viewer: Viewer): Promise<UnreportedVisit[
         "account:accounts!visits_account_id_fkey(name, function, out_of_process, is_test), " +
         "member:members!visits_member_id_fkey(name)"
     )
-    .eq("done", false)
+    // A PENDING VISIT IS `done IS NULL`, NOT `done = false` (v33.36.2).
+    // The column is nullable and nothing ever writes false — reporting a
+    // visit sets it TRUE. The first cut of this banner filtered on `false`,
+    // so it matched zero rows and silently never appeared, while thirteen
+    // real visits sat unreported. Every other reader in the system (the
+    // +2h prompt, the week-later nag, the account page) uses `is null`.
+    .is("done", null)
     .gte("visit_date", since)
     .order("visit_date", { ascending: false })
     .limit(200);
@@ -3878,7 +3884,6 @@ export interface AttendedTouchPointOption {
 export async function listAttendedTouchPoints(
   viewer: Viewer
 ): Promise<AttendedTouchPointOption[]> {
-  const { touchPointLabel } = await import("@/lib/types");
   const { cairoWhen } = await import("@/lib/touch-points");
   const { data: att, error } = await db()
     .from("touch_point_attendance")
@@ -3917,7 +3922,6 @@ export async function listAttendedTouchPoints(
 export async function listPastTouchPointsForFeedback(
   viewer: Viewer
 ): Promise<AttendedTouchPointOption[]> {
-  const { touchPointLabel } = await import("@/lib/types");
   const { cairoWhen } = await import("@/lib/touch-points");
   const { viewerSeesTouchPoint } = await import("./touch-points-read");
   const { data, error } = await db()
@@ -4094,7 +4098,6 @@ export interface LcFeedbackRow {
  *  even here. */
 export async function listLcFeedback(viewer: Viewer): Promise<LcFeedbackRow[]> {
   if (!_canSeeLcConcerns(viewer)) return [];
-  const { touchPointLabel } = await import("@/lib/types");
   const { cairoWhen } = await import("@/lib/touch-points");
   const [{ data }, { data: membersData }] = await Promise.all([
     db()
