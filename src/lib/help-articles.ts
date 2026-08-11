@@ -720,6 +720,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
     "tone": "info"
    },
    {
+    "t": "callout",
+    "tone": "tip",
+    "md": "**\"Already exists — nobody owns it\"?** Take it right there (v33.37): the verdict carries a **Take it — it's mine now** button that claims the account on the spot, Members included. No need to open a page first."
+   },
+   {
     "t": "faq",
     "faqItems": [
      {
@@ -975,6 +980,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
       "Visit done — and the account opens **straight onto the deal form** so you record it while it's warm. 🏆"
      ]
     ]
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**v33.37, three upgrades**: ① An **archived** name no longer blocks the log — you were at their door, so the account comes back to you; if they *turned you away*, it stays archived and your attempt is written on it. ② **Come back another time** needs no date: leave it open, or set a date (and optionally a time) and the return visit is booked with a calendar event like any other. ③ **Turned away at the door counts NO visit** — reception blocked it, so nothing lands in visit KPIs; the attempt lives on as the contact."
    },
    {
     "t": "faq",
@@ -2037,6 +2047,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
     "tone": "info"
    },
    {
+    "t": "callout",
+    "tone": "info",
+    "md": "**What saves it, exactly** (v33.37): a sign-up marked **Contacted** that day — that's the one action that counts (comments and claims don't). The board shows only ALIVE streaks; a row with **⏳ not saved today** is on its grace day and dies at midnight unless its owner contacts someone."
+   },
+   {
     "t": "faq",
     "faqItems": [
      {
@@ -2103,6 +2118,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
    {
     "t": "p",
     "md": "**Finding your way around:** the **🙋 Mine** chip jumps to your own rows from any view; column funnels filter Batch, Program, Contacted, Interested and Potential from the headers; and the **phone filter** on Quick actions goes both ways — only sign-ups *with* a phone, or only the **📵 missing-phone** ones (tracker placeholders like \"-\" count as missing)."
+   },
+   {
+    "t": "callout",
+    "tone": "tip",
+    "md": "**Reading the list at a glance** (v33.37): rows wear their contact state — a green edge = contacted & answered Yes, amber = contacted & answered No, plain = nobody has called yet. The **Contacted** filter has all three: Yes, No, and **Not contacted yet**."
    },
    {
     "t": "faq",
@@ -2616,6 +2636,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
    {
     "t": "p",
     "md": "The IR's side asks for their **name and role** (Member / MM / LCVP / LCP), their **LC** (with suggestions from the registry so duplicates don't multiply), a **required email**, a **phone with country code**, and **what they'd like to talk about** — that note reaches your email and the calendar event, so you never walk in blind."
+   },
+   {
+    "t": "callout",
+    "tone": "tip",
+    "md": "**Daily cap & longer buffers** (v33.37): the settings card can limit your link to **N calls per day** (a full day simply stops being offered) and the buffer between calls now goes up to **2 hours** (1h / 1½h / 2h)."
    },
    {
     "t": "faq",
@@ -3213,6 +3238,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
     "tone": "tip"
    },
    {
+    "t": "callout",
+    "tone": "tip",
+    "md": "**Report from anywhere** (v33.37): the floating 🛠️ button at the **bottom-left of every page** opens this same form in a dialog — and it attaches the page you were on, so the IM team can find the problem fast."
+   },
+   {
     "t": "faq",
     "faqItems": [
      {
@@ -3291,6 +3321,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
     "t": "callout",
     "md": "**Attachments**: an email carrying files is left in your **Gmail drafts** instead of sending straight away — open Gmail, check the files landed, and hit send from there. And your half-written email **survives leaving the tab**: everything is saved as you type, so a wrong click costs you nothing. `Start again` wipes it when you actually want a clean slate.",
     "tone": "info"
+   },
+   {
+    "t": "callout",
+    "tone": "tip",
+    "md": "**Two doors moved in here** (v33.37): the **Expectation mail** button (top-right, for its usual OGT/OGV leaders — the sidebar tab is gone) and a **Signing the contract** template for OGX MMs+ — subject, the signing steps and the EP's to-do list prefilled, `customer.support@aiesec.net.eg` added to CC automatically. Attach the contract + acceptance note (attachments take several files) and send."
    },
    {
     "t": "faq",

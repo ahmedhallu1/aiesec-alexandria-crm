@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   checkAccountNameLive, checkPodioNameLive, createAccount, removeArchivedEntry,
-  reviveAndAssign,
+  reviveAndAssign, claimAccountForSelf,
 } from "@/server/actions";
 import type { PodioCheck } from "@/lib/podio";
 import {
@@ -324,7 +324,28 @@ export function AddAccountDialog({
                   {nameCheck.message}
                 </p>
                 <div className="mt-1.5 flex flex-wrap items-center gap-3">
-                  {nameCheck.info.open ? (
+                  {/* claim it RIGHT HERE (v33.37) — a Member can't open an
+                      unassigned account, so a link was a locked door */}
+                  {nameCheck.info.claim ? (
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-primary underline-offset-2 hover:underline"
+                      onClick={() => {
+                        const id = nameCheck.info.claim!;
+                        startTransition(async () => {
+                          const res = await claimAccountForSelf(id);
+                          if (!res.ok) {
+                            toast.error(res.error);
+                            return;
+                          }
+                          toast.success("It's yours — go work it 🙌");
+                          router.push(`/accounts/${res.data?.slug ?? id}`);
+                        });
+                      }}
+                    >
+                      Take it — it&apos;s mine now
+                    </button>
+                  ) : nameCheck.info.open ? (
                     <a
                       href={nameCheck.info.open}
                       className="text-xs font-semibold text-primary underline-offset-2 hover:underline"
@@ -385,7 +406,7 @@ export function AddAccountDialog({
                 </div>
                 <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs text-foreground">
                   {Object.entries(nameCheck.info)
-                    .filter(([k, v]) => v && !["open", "revive", "unblock"].includes(k))
+                    .filter(([k, v]) => v && !["open", "revive", "unblock", "claim"].includes(k))
                     .map(([k, v]) => (
                       <div key={k} className="contents">
                         <dt className="font-medium capitalize text-muted-foreground">

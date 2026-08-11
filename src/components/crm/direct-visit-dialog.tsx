@@ -69,9 +69,16 @@ export function DirectVisitDialog({
 
   const { nameCheck, blocked, podio, retryPodio } = useAccountNameCheck(name, fn);
   const picked = DIRECT_VISIT_OUTCOMES.find((o) => o.key === outcome)!;
-  const needsDate = outcome === "revisit";
-  // a pitch that landed needs a date to come back to, or it goes cold
-  const wantsDate = outcome === "send_info" || outcome === "presented";
+  // AN ARCHIVED NAME NO LONGER BLOCKS A DIRECT VISIT (v33.37): the walk-in
+  // already happened. Logging it brings the account back — unless they turned
+  // you away, in which case it stays archived and the attempt is logged on it.
+  const archivedHit = nameCheck?.status === "archived";
+  const hardBlocked = blocked && !archivedHit;
+  // "come back another time" can be general ("they said pass by again") or a
+  // real booking — date AND time are optional; a date makes it a calendar
+  // visit (11:00 unless a time is picked) (v33.37)
+  const wantsDate =
+    outcome === "revisit" || outcome === "send_info" || outcome === "presented";
 
   const reset = () => {
     setName(""); setProduct(""); setSubProduct(""); setProject("");
@@ -121,14 +128,15 @@ export function DirectVisitDialog({
 
   const canSubmit =
     !pending &&
-    !blocked &&
+    !hardBlocked &&
     name.trim().length >= 2 &&
     comment.trim().length >= 2 &&
     contactsValid(contacts) &&
-    (fn !== "IGV" || !!project) &&
-    (fn !== "IGT" || !!product) &&
-    (fn !== "B2C" || !!accountType) &&
-    (!needsDate || !!nextDate);
+    // a revived archived account keeps its own fields — nothing to require
+    (archivedHit ||
+      ((fn !== "IGV" || !!project) &&
+        (fn !== "IGT" || !!product) &&
+        (fn !== "B2C" || !!accountType)));
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) reset(); onOpenChange(o); }}>
@@ -179,7 +187,14 @@ export function DirectVisitDialog({
           {/* the same three live checks the Add-account form runs */}
           {nameCheck?.status === "checking" ? (
             <p className="text-xs text-muted-foreground">Checking the name…</p>
-          ) : blocked ? (
+          ) : archivedHit ? (
+            <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-400">
+              🗄️ This name is in the archive — and you were AT their door, so
+              that&apos;s fine: logging the visit <b>brings the account back to
+              you</b>. If the outcome is &quot;turned away&quot;, it stays
+              archived and your attempt is logged on it instead.
+            </p>
+          ) : hardBlocked ? (
             <p className="rounded-lg border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive">
               {nameCheck?.message ??
                 "That name already exists — open the account instead of adding it twice."}
@@ -349,10 +364,12 @@ export function DirectVisitDialog({
             <p className="text-xs text-muted-foreground">{picked.hint}</p>
           </div>
 
-          {needsDate || wantsDate ? (
+          {wantsDate ? (
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="grid gap-1.5">
-                <Label>{needsDate ? "Going back on *" : "Follow up on"}</Label>
+                <Label>
+                  {outcome === "revisit" ? "Going back on (optional)" : "Follow up on"}
+                </Label>
                 <Input
                   type="date"
                   value={nextDate}

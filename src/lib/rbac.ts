@@ -251,7 +251,13 @@ export function isClaimableAccount(v: Viewer, a: AccountLike): boolean {
   // is nobody's. Whoever researched it may take it even if it sits under a
   // function they don't work, and taking it MOVES it to theirs (see
   // `claimAccount`).
-  return canSeeUnassigned(v);
+  //
+  // v33.37 — AND MEMBERS TOO. Hiding the unowned POOL from Members is about
+  // distribution (canSeeUnassigned still excludes them); claiming ONE account
+  // they personally researched takes nothing from anyone. Before this, the
+  // add-form told a Member "open it and hit Take it" about an account they
+  // could neither open nor take.
+  return master(v) || allowedAccountFunctions(v).length > 0;
 }
 
 /** Who sees the UNOWNED pool at all (v33.2).

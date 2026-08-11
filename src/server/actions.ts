@@ -576,6 +576,25 @@ export async function updateAccount(
   return { ok: true };
 }
 
+/** TAKE AN UNOWNED ACCOUNT FOR YOURSELF, from wherever you found it (v33.37).
+ *  A thin wrapper over the reassign path (target = self), so a Member who
+ *  researched a name and hit the "already exists, nobody owns it" verdict can
+ *  claim it from THAT dialog instead of being sent to a page they may not
+ *  even be able to open. All the reassign rules re-run inside. */
+export async function claimAccountForSelf(
+  accountId: string
+): Promise<ActionResult<{ slug: string }>> {
+  const viewer = await getViewer();
+  const res = await reassignAccount(accountId, viewer.id);
+  if (!res.ok) return res;
+  const { data: row } = await db()
+    .from("accounts")
+    .select("name")
+    .eq("id", accountId)
+    .maybeSingle<{ name: string }>();
+  return { ok: true, data: { slug: row ? accountSlug(row.name) : accountId } };
+}
+
 export async function reassignAccount(
   accountId: string,
   newResponsibleId: string,
@@ -2976,6 +2995,73 @@ export async function logDirectVisit(
 
   const outcome = DIRECT_VISIT_OUTCOMES.find((o) => o.key === d.outcome)!;
 
+  // ---- 0. AN ARCHIVED NAME MET AT THE DOOR (v33.37).
+  //
+  // The walk-in already happened — refusing the log because the name sits in
+  // the archive just loses the information. Two honest paths:
+  //   · they LET YOU IN (any outcome but turned_away) → the account comes
+  //     BACK, to the visitor, evidence being the visit itself — a Member may
+  //     do this even though ordinary revive is TL+;
+  //   · they TURNED YOU AWAY → the archive was right. It stays archived, and
+  //     the attempt is logged on it as a comment so the next researcher knows
+  //     the door was tried (and when).
+  // The manual blacklist stays a hard block — there is no account to revive.
+  {
+    const { checkAccountName } = await import("./data");
+    const { duplicate } = await checkAccountName(d.name, d.function);
+    if (duplicate?.out_of_process) {
+      if (d.outcome === "turned_away") {
+        await db().from("account_comments").insert({
+          account_id: duplicate.id,
+          member_id: viewer.id,
+          author_label: commentLabel(viewer),
+          body: `🚶 Direct visit on ${d.visitDate} — turned away at the door. Still archived (${duplicate.oop_reason ?? "no reason recorded"}). ${d.comment}`,
+        });
+        await logAudit(viewer.id, "direct_visit_archived_log", "account", duplicate.id, {
+          outcome: d.outcome,
+        });
+        refresh();
+        return {
+          ok: true,
+          data: {
+            id: duplicate.id,
+            slug: accountSlug(duplicate.name),
+            visitDone: false,
+          },
+        };
+      }
+      // they let you in — bring it back and make it yours
+      const revive = await db()
+        .from("accounts")
+        .update({
+          out_of_process: false,
+          oop_reason: null,
+          oop_at: null,
+          responsible_id: viewer.id,
+          direct_visit: true,
+        })
+        .eq("id", duplicate.id)
+        .select("id")
+        .maybeSingle();
+      if (revive.error) return fail(revive.error.message);
+      await db().from("account_comments").insert({
+        account_id: duplicate.id,
+        member_id: viewer.id,
+        author_label: commentLabel(viewer),
+        body: `🚶 Back from the archive: a direct visit on ${d.visitDate} reopened this account (was archived: ${duplicate.oop_reason ?? "no reason recorded"}).`,
+      });
+      await logAudit(viewer.id, "direct_visit_revive", "account", duplicate.id, {
+        outcome: d.outcome,
+      });
+      const done = await finishDirectVisit(viewer, duplicate.id, d, outcome, when);
+      if (!done.ok) return done as ActionResult<never>;
+      return {
+        ok: true,
+        data: { id: duplicate.id, slug: accountSlug(duplicate.name), visitDone: outcome.visitDone },
+      };
+    }
+  }
+
   // ---- 1. the account (this is the MR)
   // THE SAME DOOR EVERY ACCOUNT COMES THROUGH (v33.25). It runs the whole of
   // createAccount — the world-aware duplicate check, the archive block, the
@@ -3004,7 +3090,24 @@ export async function logDirectVisit(
   const accountId = created.data!.id;
   await db().from("accounts").update({ direct_visit: true }).eq("id", accountId);
 
-  // ---- 2. the contact attempt (they were reached — in person)
+  const done = await finishDirectVisit(viewer, accountId, d, outcome, when);
+  if (!done.ok) return done as ActionResult<never>;
+  return {
+    ok: true,
+    data: { id: accountId, slug: created.data!.slug, visitDone: outcome.visitDone },
+  };
+}
+
+/** Everything a direct visit writes AFTER the account exists — shared by the
+ *  fresh-account path and the revived-from-archive path (v33.37). */
+async function finishDirectVisit(
+  viewer: Viewer,
+  accountId: string,
+  d: z.infer<typeof directVisitSchema>,
+  outcome: (typeof DIRECT_VISIT_OUTCOMES)[number],
+  when: Date
+): Promise<ActionResult> {
+  // ---- the contact attempt (they were reached — in person)
   await db().from("contact_attempts").insert({
     account_id: accountId,
     member_id: viewer.id,
@@ -3014,20 +3117,25 @@ export async function logDirectVisit(
     created_at: when.toISOString(),
   });
 
-  // ---- 3. the visit itself, already reported
-  await db().from("visits").insert({
-    account_id: accountId,
-    member_id: viewer.id,
-    visit_date: d.visitDate,
-    visit_time: d.visitTime,
-    done: outcome.visitDone,
-    visit_comment: `🚶 Direct visit — ${outcome.label}. ${d.comment}`,
-    // it happened; nobody needs a follow-up prompt or a forgotten-visit nag
-    followup_prompt_sent_at: new Date().toISOString(),
-    report_sent_at: new Date().toISOString(),
-  });
+  // ---- the visit itself, already reported.
+  // TURNED AWAY AT THE DOOR IS NOT A VISIT (v33.37): reception blocked it, so
+  // no visit happened and none is counted in anyone's KPIs — the walk-in
+  // lives on as the contact attempt and the comment, which is what it was.
+  if (d.outcome !== "turned_away") {
+    await db().from("visits").insert({
+      account_id: accountId,
+      member_id: viewer.id,
+      visit_date: d.visitDate,
+      visit_time: d.visitTime,
+      done: outcome.visitDone,
+      visit_comment: `🚶 Direct visit — ${outcome.label}. ${d.comment}`,
+      // it happened; nobody needs a follow-up prompt or a forgotten-visit nag
+      followup_prompt_sent_at: new Date().toISOString(),
+      report_sent_at: new Date().toISOString(),
+    });
+  }
 
-  // ---- 4. what happens next
+  // ---- what happens next
   const nextStep =
     d.nextStep?.trim() ||
     (d.outcome === "revisit"
@@ -3050,8 +3158,9 @@ export async function logDirectVisit(
     if (d.nextDate) await syncNextStepReminder(accountId);
   }
 
-  // "come back another time" is a real booking — the calendar and the
-  // reminders should carry it exactly like any other visit
+  // "come back another time" WITH a date is a real booking — calendar event
+  // and reminders like any other visit. Date only → 11:00 (the next-step
+  // convention). No date at all → just the next step, to pin down later.
   if (d.outcome === "revisit" && d.nextDate) {
     await scheduleVisit({
       accountId,
@@ -3074,10 +3183,7 @@ export async function logDirectVisit(
   });
   await stampWork(viewer.id, "direct_visit");
   refresh(accountId);
-  return {
-    ok: true,
-    data: { id: accountId, slug: created.data!.slug, visitDone: outcome.visitDone },
-  };
+  return { ok: true };
 }
 
 const reportSchema = z.object({
@@ -4144,14 +4250,18 @@ export async function checkAccountNameLive(
       },
     };
   }
-  if (duplicate)
+  if (duplicate) {
+    // AN UNOWNED DUPLICATE CAN BE TAKEN RIGHT HERE (v33.37). The old message
+    // said "open it and hit Take it" — but a Member couldn't OPEN an
+    // unassigned account at all, so the advice pointed at a locked door.
+    const takeable = !duplicate.responsible_id && isClaimableAccount(viewer, duplicate);
     return {
       ok: true,
       data: {
         status: "duplicate",
         message: duplicate.responsible_id
           ? `"${clean}" already exists on ${duplicate.function} accounts.`
-          : `"${clean}" is already in the CRM under ${duplicate.function}, but NOBODY owns it — open it and hit "Take it" to claim the research for yourself.`,
+          : `"${clean}" is already in the CRM under ${duplicate.function}, and NOBODY owns it — take it right here and the research is yours.`,
         info: {
           function: duplicate.function,
           responsible:
@@ -4160,9 +4270,11 @@ export async function checkAccountNameLive(
           project: duplicate.project ?? duplicate.sub_product,
           created_at: duplicate.created_at?.slice(0, 10) ?? null,
           open: duplicate.responsible_id ? null : `/accounts/${accountSlug(duplicate.name)}`,
+          claim: takeable ? duplicate.id : null,
         },
       },
     };
+  }
   // ACTIVE in another world — allowed since v33.29, but say who has it: the
   // same company can be an IGV partner, a BD sponsor and a B2C venue at once
   if (crossWorldActive)
@@ -7094,6 +7206,8 @@ export async function saveIrBookingSettings(input: {
   startDate?: string | null;
   endDate?: string | null;
   guestsCanInvite?: boolean;
+  /** v33.37 — cap the calls one Cairo day may hold; null = unlimited */
+  maxPerDay?: number | null;
 }): Promise<ActionResult<{ slug: string }>> {
   const viewer = await getViewer();
   if (!hasConsiderationAccess(viewer)) return considerationFail();
@@ -7110,8 +7224,12 @@ export async function saveIrBookingSettings(input: {
     return fail("Pick a slot length from the list (15 / 30 / 45 / 60 / 90 / 120 minutes).");
 
   const bufferMinutes = Number(input.bufferMinutes ?? 0);
-  if (!Number.isInteger(bufferMinutes) || bufferMinutes < 0 || bufferMinutes > 60)
-    return fail("The buffer between calls must be between 0 and 60 minutes.");
+  if (!Number.isInteger(bufferMinutes) || bufferMinutes < 0 || bufferMinutes > 120)
+    return fail("The buffer between calls must be between 0 minutes and 2 hours.");
+  const maxPerDay =
+    input.maxPerDay == null || input.maxPerDay === 0 ? null : Number(input.maxPerDay);
+  if (maxPerDay !== null && (!Number.isInteger(maxPerDay) || maxPerDay < 1 || maxPerDay > 10))
+    return fail("The daily cap must be between 1 and 10 calls (or no limit).");
   const minNoticeMinutes = Number(input.minNoticeMinutes ?? 60);
   if (!Number.isInteger(minNoticeMinutes) || minNoticeMinutes < 0 || minNoticeMinutes > 10_080)
     return fail("The minimum notice must be between 0 minutes and 7 days.");
@@ -7221,6 +7339,7 @@ export async function saveIrBookingSettings(input: {
     start_date: startD.value,
     end_date: endD.value,
     guests_can_invite: input.guestsCanInvite ?? true,
+    max_per_day: maxPerDay,
   });
   if (error) {
     if (error.code === "23505")
@@ -7356,7 +7475,7 @@ export async function bookIrCall(input: {
   const { data: settings } = await db()
     .from("ir_booking_settings")
     .select(
-      "member_id, slug, slot_minutes, availability, active, buffer_minutes, min_notice_minutes, max_advance_days, start_date, end_date, guests_can_invite"
+      "member_id, slug, slot_minutes, availability, active, buffer_minutes, min_notice_minutes, max_advance_days, start_date, end_date, guests_can_invite, max_per_day"
     )
     .ilike("slug", slug)
     .maybeSingle<IrBookingSettings>();
@@ -8207,7 +8326,7 @@ async function loadManagedCall(token: string): Promise<
       db()
         .from("ir_booking_settings")
         .select(
-          "member_id, slug, slot_minutes, availability, active, buffer_minutes, min_notice_minutes, max_advance_days, start_date, end_date, guests_can_invite"
+          "member_id, slug, slot_minutes, availability, active, buffer_minutes, min_notice_minutes, max_advance_days, start_date, end_date, guests_can_invite, max_per_day"
         )
         .eq("member_id", call.member_id)
         .maybeSingle<IrBookingSettings>(),

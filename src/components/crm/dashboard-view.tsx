@@ -1139,11 +1139,16 @@ function DashboardStreakCard({ streak }: { streak: StreakStats }) {
             </p>
             <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5">
               {streak.topStreaks.map((t, i) => (
-                <p key={`${t.name}-${i}`} className="text-sm">
+                <p
+                  key={`${t.name}-${i}`}
+                  className={cn("text-sm", !t.savedToday && "opacity-60")}
+                  title={t.savedToday ? undefined : "Alive, but not saved today — dies at midnight"}
+                >
                   {MEDALS[i] ?? "•"} {t.name}
                   <span className="text-muted-foreground">
                     {" "}
                     — {t.current} {dayWord(t.current)}
+                    {t.savedToday ? "" : " ⏳"}
                   </span>
                 </p>
               ))}

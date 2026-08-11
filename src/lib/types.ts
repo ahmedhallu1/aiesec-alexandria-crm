@@ -329,13 +329,13 @@ export const DIRECT_VISIT_OUTCOMES = [
   {
     key: "turned_away",
     label: "Turned away at the door",
-    hint: "Reception blocked it, or nobody would meet — the visit is logged as not done.",
+    hint: "Reception blocked it, or nobody would meet — no visit is counted (it never happened); the attempt is kept as a contact.",
     visitDone: false,
   },
   {
     key: "revisit",
     label: "Come back another time",
-    hint: "They asked you to return — books the next visit there and then.",
+    hint: "They asked you to return — add a date (and time) to book the return visit now, or leave it open and pin it down later.",
     visitDone: false,
   },
   {

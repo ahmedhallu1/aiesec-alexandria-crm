@@ -108,7 +108,8 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
     // actually work in (Sign-ups / Consideration), never above it
     ...(nav.dashboard && !nav.raising ? [dashboardItem] : []),
     ...(nav.planning ? [{ href: "/planning", label: "Planning", icon: Target }] : []),
-    ...(nav.ogtMail ? [{ href: "/ogt-mail", label: "Expectation mail", icon: MailPlus }] : []),
+    // v33.37 — the Expectation mail lives as a BUTTON inside the Emails tab
+    // now (one tab fewer); the /ogt-mail route itself stays for the button.
     ...(nav.tm ? [{ href: "/members", label: "Talent Management", icon: UsersRound }] : []),
     ...(nav.membership ? [{ href: "/membership", label: "Membership", icon: Users }] : []),
     // v29: attendance is everybody's — own history, plus whatever you record

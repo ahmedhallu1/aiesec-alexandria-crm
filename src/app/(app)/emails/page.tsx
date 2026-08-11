@@ -22,11 +22,29 @@ export default async function EmailsPage() {
     listEmailGroups(viewer),
   ]);
 
+  // v33.37 — audience-gated templates: the contract mail belongs to the OGX
+  // crews (the mailbox gate already guarantees MM-and-above)
+  const isOgx =
+    viewer.isAdmin ||
+    viewer.role === "LCP" ||
+    [...viewer.functions, ...viewer.sub_functions].some((f) => f === "OGT" || f === "OGV");
+  const templates = COMPOSE_TEMPLATES.filter(
+    (t) => !t.audience || (t.audience === "ogx" && isOgx)
+  );
+  // the Expectation mail is a BUTTON here now, not its own tab (v33.37) —
+  // same gate the /ogt-mail page enforces
+  const showExpectation =
+    viewer.isAdmin ||
+    viewer.role === "LCP" ||
+    ((viewer.role === "LCVP" || viewer.role === "Director") &&
+      [...viewer.functions, ...viewer.sub_functions].some((f) => f === "OGT" || f === "OGV"));
+
   return (
     <EmailsView
       sent={rows}
       recents={recents}
-      templates={COMPOSE_TEMPLATES}
+      templates={templates}
+      showExpectation={showExpectation}
       layouts={EMAIL_LAYOUTS}
       groups={groups}
       images={EMAIL_IMAGES.map((i) => ({
