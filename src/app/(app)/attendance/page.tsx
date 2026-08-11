@@ -5,7 +5,7 @@ import {
   TOUCH_POINT_KINDS,
   touchPointLabel,
 } from "@/lib/types";
-import { audienceLabel, cairoWhen } from "@/lib/touch-points";
+import { audienceLabel, cairoWhen, touchPointName } from "@/lib/touch-points";
 import {
   ATTENDANCE_PAGE_SIZE,
   PAGE_SIZE_OPTIONS,
@@ -62,7 +62,7 @@ export default async function AttendancePage({
   // already recorded meant hunting through the history table.
   const pickableTouchPoints = pickable.map((tp) => ({
     id: tp.id,
-    label: touchPointLabel(tp.scope, tp.kind),
+    label: touchPointName(tp),
     whenLabel: cairoWhen(tp.starts_at),
     audience: audienceLabel(tp),
     recorded: !!tp.attendance_recorded_at,
@@ -70,7 +70,7 @@ export default async function AttendancePage({
 
   const owed = owedRows.map((tp) => ({
     id: tp.id,
-    label: touchPointLabel(tp.scope, tp.kind),
+    label: touchPointName(tp),
     kind: tp.kind as string,
     whenLabel: cairoWhen(tp.starts_at),
     audience: audienceLabel(tp),

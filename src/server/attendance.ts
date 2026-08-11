@@ -13,7 +13,7 @@ import {
   touchPointLabel,
   type AttendanceStatus,
 } from "@/lib/types";
-import { audienceLabel, cairoWhen } from "@/lib/touch-points";
+import { audienceLabel, cairoWhen, touchPointName } from "@/lib/touch-points";
 import { getViewer, logAudit } from "./data";
 import { recordUndo, sandboxSuppressed, snapshotForUndo } from "./sandbox";
 import { notifyTouchPointAudience } from "./tm-notify";
@@ -176,7 +176,7 @@ export async function loadAttendanceSheet(
     ok: true,
     data: {
       id: tp.id,
-      label: touchPointLabel(tp.scope, tp.kind),
+      label: touchPointName(tp),
       kind: tp.kind,
       whenLabel: cairoWhen(tp.starts_at),
       audience: audienceLabel(tp),
@@ -436,7 +436,7 @@ export async function appealAttendance(
 
   // the engine's rows have no recorder — the touch point's owner answers them
   const targetId = row.recorded_by ?? tp.owner_id;
-  const label = touchPointLabel(tp.scope, tp.kind);
+  const label = touchPointName(tp);
   const whenLabel = cairoWhen(tp.starts_at);
   if (targetId) {
     // sandbox: the tester gets the bell, the real recorder is left alone
@@ -518,7 +518,7 @@ export async function resolveAppeal(appealId: string): Promise<Result> {
     [appeal.member_id],
     "info",
     "✅ Your attendance appeal was reviewed",
-    `${touchPointLabel(tp.scope, tp.kind)} · ${cairoWhen(tp.starts_at)} — check the record on /attendance.`,
+    `${touchPointName(tp)} · ${cairoWhen(tp.starts_at)} — check the record on /attendance.`,
     viewer.id,
     `/attendance?tp=${tp.id}`
   );

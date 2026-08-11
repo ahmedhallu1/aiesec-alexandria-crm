@@ -8,7 +8,7 @@ import type { BookingDay } from "@/server/data";
 import { IR_ROLES, normalizeLcName, normalizePhone } from "@/lib/types";
 import { phoneExample } from "@/lib/dial-codes";
 import {
-  COUNTRY_ZONES, countryForZone, isValidZone, zoneOffsetLabel,
+  COUNTRY_ZONES, countryForZone, isValidZone, zoneCity, zoneOffsetLabel,
 } from "@/lib/timezones";
 import { cn } from "@/lib/utils";
 import { CountryInput } from "./country-input";
@@ -115,10 +115,29 @@ export function BookingView({
     meetLink: string | null;
   } | null>(null);
 
+  /** the device said one thing and the connection another — remembered so the
+   *  page can offer the way back in one tap instead of a question */
+  const [deviceZone, setDeviceZone] = useState<string | null>(null);
   useEffect(() => {
     const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    if (detected && isValidZone(detected)) setTz(detected);
-  }, []);
+    const device = detected && isValidZone(detected) ? detected : null;
+    setDeviceZone(device);
+    // WHERE THE VISITOR ACTUALLY IS (v33.35).
+    //
+    // A browser reports the MACHINE's zone: a laptop set to Cairo says Cairo
+    // from anywhere on earth, VPN or no VPN, which is why turning on a
+    // Singapore exit changed nothing here. v33.23 handled that with a "did
+    // you mean Singapore?" prompt and v33.33 removed the prompt — leaving
+    // nothing at all.
+    //
+    // So the CONNECTION now wins when the two disagree, because it is the one
+    // signal that moves when the person does. The device zone isn't thrown
+    // away: it becomes the one-tap way back, for the corporate-VPN case where
+    // the machine was right all along. Nothing is ever asked; the page just
+    // says which clock it is on.
+    if (ipZone && isValidZone(ipZone)) setTz(ipZone);
+    else if (device) setTz(device);
+  }, [ipZone]);
   // THE ZONE ALREADY SAYS WHICH COUNTRY THEY ARE IN — offer it instead of
   // asking twice. It only ever fills a field the IR hasn't touched: a typed
   // country wins, and so does a known LC's own country.
@@ -275,13 +294,22 @@ export function BookingView({
           · Cairo is {zoneOffsetLabel(new Date(), "Africa/Cairo")}
         </span>
       </div>
-      {/* NO "DID YOU MEAN?" PROMPT (v33.33). Google Calendar doesn't ask an
-          IR to confirm their time zone and neither do we: the device's zone
-          IS the answer, the page is already drawn in it, and the picker above
-          is there for the rare person who wants another. The edge-resolved
-          zone is still attached to the page as a diagnostic (data-ip-zone),
-          so "the detection is wrong" stays answerable without a banner that
-          makes every visitor stop and think about time zones. */}
+      {/* STILL NO QUESTION (v33.33) — but when the connection and the device
+          disagree we now follow the connection (v33.35) and say so, with the
+          way back one tap away. A statement, not a prompt. */}
+      {deviceZone && deviceZone !== tz ? (
+        <p className="mt-1.5 text-center text-xs text-muted-foreground">
+          Showing <b className="text-card-foreground">{zoneCity(tz)}</b> time —
+          your device says {zoneCity(deviceZone)}.{" "}
+          <button
+            type="button"
+            onClick={() => { setTz(deviceZone); setCountryTouched(false); }}
+            className="font-medium text-primary hover:underline"
+          >
+            Use {zoneCity(deviceZone)} instead
+          </button>
+        </p>
+      ) : null}
 
       {viewDays.length === 0 ? (
         <p className="mt-8 pb-2 text-center text-sm text-muted-foreground">

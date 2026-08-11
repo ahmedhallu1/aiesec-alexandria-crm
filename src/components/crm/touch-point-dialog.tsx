@@ -8,10 +8,13 @@ import { createTouchPoint, previewTouchPointAudience } from "@/server/touch-poin
 import {
   TOUCH_POINT_SCOPE_RULE,
   touchPointOptions,
-  type TouchPointOption,
 } from "@/lib/touch-points";
-import { NO_WORKING_HOURS_FUNCTIONS, type TouchPointScope } from "@/lib/types";
+import {
+  NO_WORKING_HOURS_FUNCTIONS, touchPointLabel,
+  type TouchPointKind, type TouchPointScope,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { AudiencePicker } from "./audience-picker";
 import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -44,6 +47,14 @@ const isPastCairoTime = (t: string) => !!t && t < cairoNowHm();
  *  or another function. Everyone invited gets an email + a bell — unless the
  *  booker switches that off, or the start time is already past (v31: that's a
  *  touch point being LOGGED after the fact, and it never notifies anyone). */
+/** WHERE THE AUDIENCE STARTS FROM — the pool the guest list is picked out of
+ *  (v33.35). Not what the touch point is CALLED. */
+const SCOPE_LABEL: Record<TouchPointScope, string> = {
+  team: "My team",
+  function: "My function",
+  lc: "The whole LC",
+};
+
 export function TouchPointDialog({
   scopes, functions, teams, myTeam, siblingTeams, otherFunctions,
   defaultDate, open: openProp, onOpenChange,
@@ -77,7 +88,13 @@ export function TouchPointDialog({
   };
   const [pending, start] = useTransition();
   const options = touchPointOptions(scopes);
-  const [picked, setPicked] = useState<TouchPointOption | null>(options[0] ?? null);
+  // v33.35 — the KIND and the starting SCOPE are two questions, not one fused
+  // label ("Function meeting"). Both default to this role's first option.
+  const scopeChoices = [...new Set(options.map((o) => o.scope))];
+  const kindChoices = [...new Set(options.map((o) => o.kind))];
+  const [scope, setScope] = useState<TouchPointScope>(options[0]?.scope ?? "team");
+  const [kind, setKind] = useState<TouchPointKind>(options[0]?.kind ?? "meeting");
+  const pickedLabel = touchPointLabel(scope, kind);
   const [fn, setFn] = useState(functions[0] ?? "");
   const [team, setTeam] = useState(myTeam ?? teams[0] ?? "");
   const [date, setDate] = useState(defaultDate ?? "");
@@ -105,31 +122,28 @@ export function TouchPointDialog({
   const [loadedKey, setLoadedKey] = useState("");
   const [excluded, setExcluded] = useState<string[]>([]);
   const [crewOpen, setCrewOpen] = useState(false);
-  const [crewQ, setCrewQ] = useState("");
   const todayIso = cairoTodayIso();
   // a start earlier than right now (Cairo) = logging, not booking. The server
   // decides for real; this only shapes what the dialog promises.
   const logging = !!date && (date < todayIso || (date === todayIso && isPastCairoTime(time)));
 
   /** the audience key: everything the derived list depends on */
-  const audienceKey = picked
-    ? JSON.stringify([
-        picked.scope, picked.kind, fn, team,
-        picked.scope === "team" ? invTeams : [],
-        picked.scope === "function" ? invFns : [],
-      ])
-    : "";
-  const crewLoading = open && !!picked && loadedKey !== audienceKey;
+  const audienceKey = JSON.stringify([
+    scope, kind, fn, team,
+    scope === "team" ? invTeams : [],
+    scope === "function" ? invFns : [],
+  ]);
+  const crewLoading = open && loadedKey !== audienceKey;
   useEffect(() => {
-    if (!open || !picked) return;
+    if (!open) return;
     let alive = true;
     previewTouchPointAudience({
-      scope: picked.scope,
-      kind: picked.kind,
-      functionKey: picked.scope === "lc" ? null : fn,
-      teamName: picked.scope === "team" ? team : null,
-      invitedTeams: picked.scope === "team" ? invTeams : [],
-      invitedFunctions: picked.scope === "function" ? invFns : [],
+      scope,
+      kind,
+      functionKey: scope === "lc" ? null : fn,
+      teamName: scope === "team" ? team : null,
+      invitedTeams: scope === "team" ? invTeams : [],
+      invitedFunctions: scope === "function" ? invFns : [],
     })
       .then((res) => {
         if (!alive) return;
@@ -151,16 +165,6 @@ export function TouchPointDialog({
     () => crew.filter((m) => !excluded.includes(m.id)),
     [crew, excluded]
   );
-  const crewShown = useMemo(() => {
-    const q = crewQ.trim().toLowerCase();
-    if (!q) return crew;
-    return crew.filter(
-      (m) =>
-        m.name.toLowerCase().includes(q) ||
-        (m.team ?? "").toLowerCase().includes(q) ||
-        m.role.toLowerCase().includes(q)
-    );
-  }, [crew, crewQ]);
 
   if (options.length === 0) return null;
 
@@ -169,7 +173,7 @@ export function TouchPointDialog({
 
   const submit = () =>
     start(async () => {
-      if (!picked) return;
+      if (options.length === 0) return;
       if (!date || !time) {
         toast.error("Pick the date and start time.");
         return;
@@ -177,16 +181,16 @@ export function TouchPointDialog({
       // the CAIRO wall-clock goes to the server as typed — building a Date
       // here would read the BOOKER's timezone and shift the whole LC
       const res = await createTouchPoint({
-        scope: picked.scope,
-        kind: picked.kind,
-        virtual: picked.kind === "meeting" ? virtual : false,
-        functionKey: picked.scope === "lc" ? null : fn,
-        teamName: picked.scope === "team" ? team : null,
+        scope,
+        kind,
+        virtual: kind === "meeting" ? virtual : false,
+        functionKey: scope === "lc" ? null : fn,
+        teamName: scope === "team" ? team : null,
         date,
         time,
         note: note || null,
-        invitedTeams: picked.scope === "team" ? invTeams : [],
-        invitedFunctions: picked.scope === "function" ? invFns : [],
+        invitedTeams: scope === "team" ? invTeams : [],
+        invitedFunctions: scope === "function" ? invFns : [],
         // omitted when nothing was unticked, so the audience stays DERIVED
         // and keeps picking up people who join the function later
         memberIds: excluded.length > 0 ? invited.map((m) => m.id) : undefined,
@@ -197,23 +201,22 @@ export function TouchPointDialog({
         // means nobody was) — report what actually happened, not what we hoped
         toast.success(
           res.data?.announced
-            ? `${picked.label} booked — everyone invited just heard about it 📣`
-            : `${picked.label} saved quietly — nobody was notified. Attendance is yours to record.`
+            ? `${pickedLabel} booked — everyone invited just heard about it 📣`
+            : `${pickedLabel} saved quietly — nobody was notified. Attendance is yours to record.`
         );
         setOpen(false);
         setNote("");
         setInvTeams([]);
         setInvFns([]);
         setExcluded([]);
-        setCrewQ("");
         setNotify(true);
         router.refresh();
       } else toast.error(res.error);
     });
 
   const noWorkingHours =
-    picked?.kind === "working_hours" &&
-    picked.scope !== "lc" &&
+    kind === "working_hours" &&
+    scope !== "lc" &&
     NO_WORKING_HOURS_FUNCTIONS.includes(fn);
 
   return (
@@ -235,36 +238,66 @@ export function TouchPointDialog({
           </DialogHeader>
 
           <div className="grid gap-3">
+            {/* WHAT IT IS — just the kind (v33.35). It used to read "Team
+                meeting / Function meeting / LC meeting", which stopped being
+                true the moment the audience became a list you pick: a
+                "function meeting" is routinely six people out of thirty. The
+                kind is the name; WHO is coming is the next question. */}
             <div className="grid gap-1.5">
-              <Label>Type</Label>
+              <Label>What is it?</Label>
               <div className="flex flex-wrap gap-1.5">
-                {options.map((o) => (
+                {kindChoices.map((k) => (
                   <button
-                    key={`${o.scope}-${o.kind}`}
+                    key={k}
                     type="button"
-                    onClick={() => setPicked(o)}
+                    onClick={() => setKind(k)}
                     className={cn(
                       "rounded-full border px-3 py-1 text-xs font-semibold transition-colors",
-                      picked?.scope === o.scope && picked?.kind === o.kind
+                      kind === k
                         ? "border-primary bg-primary text-primary-foreground"
                         : "border-border bg-muted text-muted-foreground hover:border-primary/50"
                     )}
                   >
-                    {o.label}
+                    {touchPointLabel("team", k)}
                   </button>
                 ))}
               </div>
-              {/* the picker only ever offers this viewer's OWN scope (v29.3:
-                  Team Leader → team · VP/Director → function · TM → LC), so
-                  say which one it is instead of leaving them guessing */}
-              {picked ? (
-                <p className="text-[11px] text-muted-foreground">
-                  {TOUCH_POINT_SCOPE_RULE[picked.scope]}
-                </p>
-              ) : null}
             </div>
 
-            {picked && picked.scope !== "lc" && functions.length > 1 ? (
+            {/* WHO IT STARTS FROM — the scopes this role may book. It is the
+                starting pool, not the final list: the guest list below is
+                where it gets narrowed. */}
+            {scopeChoices.length > 1 ? (
+              <div className="grid gap-1.5">
+                <Label>Start from</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {scopeChoices.map((sc) => (
+                    <button
+                      key={sc}
+                      type="button"
+                      onClick={() => setScope(sc)}
+                      className={cn(
+                        "rounded-full border px-3 py-1 text-xs font-semibold transition-colors",
+                        scope === sc
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border bg-muted text-muted-foreground hover:border-primary/50"
+                      )}
+                    >
+                      {SCOPE_LABEL[sc]}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  {TOUCH_POINT_SCOPE_RULE[scope]} You pick exactly who comes below.
+                </p>
+              </div>
+            ) : (
+              <p className="-mt-1 text-[11px] text-muted-foreground">
+                {TOUCH_POINT_SCOPE_RULE[scope]} You pick exactly who comes below.
+              </p>
+            )}
+
+            {scope !== "lc" && functions.length > 1 ? (
               <div className="grid gap-1.5">
                 <Label>Function</Label>
                 <Select value={fn} onValueChange={setFn}>
@@ -278,7 +311,7 @@ export function TouchPointDialog({
               </div>
             ) : null}
 
-            {picked?.scope === "team" && teams.length > 0 ? (
+            {scope === "team" && teams.length > 0 ? (
               <div className="grid gap-1.5">
                 <Label>Team</Label>
                 <Select value={team} onValueChange={setTeam}>
@@ -329,7 +362,7 @@ export function TouchPointDialog({
               />
             </div>
 
-            {picked?.scope === "team" && siblingTeams.length > 0 ? (
+            {scope === "team" && siblingTeams.length > 0 ? (
               <div className="grid gap-1.5">
                 <Label>Invite other teams (optional)</Label>
                 <div className="flex flex-wrap gap-1.5">
@@ -352,7 +385,7 @@ export function TouchPointDialog({
               </div>
             ) : null}
 
-            {picked?.scope === "function" && otherFunctions.length > 0 ? (
+            {scope === "function" && otherFunctions.length > 0 ? (
               <div className="grid gap-1.5">
                 <Label>Invite another function (optional)</Label>
                 <div className="flex flex-wrap gap-1.5">
@@ -379,7 +412,7 @@ export function TouchPointDialog({
                 right to untick. Collapsed by default because the common case
                 is "everyone"; the count and the word "customise" are the
                 affordance. */}
-            {picked ? (
+            {options.length > 0 ? (
               <div className="grid gap-1.5 rounded-lg border border-border p-3">
                 <button
                   type="button"
@@ -411,86 +444,19 @@ export function TouchPointDialog({
                 </button>
 
                 {crewOpen ? (
-                  <div className="grid gap-2 border-t pt-2">
-                    {crew.length > 8 ? (
-                      <Input
-                        value={crewQ}
-                        onChange={(e) => setCrewQ(e.target.value)}
-                        placeholder="Search a name, team or role…"
-                        className="h-8 text-sm"
-                      />
-                    ) : null}
-                    <div className="flex items-center gap-2 text-xs">
-                      <button
-                        type="button"
-                        className="font-medium text-primary hover:underline"
-                        onClick={() => setExcluded([])}
-                      >
-                        Select all
-                      </button>
-                      <span className="text-muted-foreground">·</span>
-                      <button
-                        type="button"
-                        className="font-medium text-primary hover:underline"
-                        onClick={() =>
-                          setExcluded(
-                            // unticking everyone would be a touch point with
-                            // nobody in it — keep the first person ticked
-                            crew.slice(1).map((m) => m.id)
-                          )
-                        }
-                      >
-                        Select none
-                      </button>
-                      {crewQ ? (
-                        <>
-                          <span className="text-muted-foreground">·</span>
-                          <span className="text-muted-foreground">
-                            {crewShown.length} of {crew.length} shown
-                          </span>
-                        </>
-                      ) : null}
-                    </div>
-                    <div className="max-h-56 space-y-0.5 overflow-y-auto">
-                      {crewShown.length === 0 ? (
-                        <p className="py-2 text-xs text-muted-foreground">
-                          {crewLoading ? "Loading…" : "Nobody matches that."}
-                        </p>
-                      ) : (
-                        crewShown.map((m) => {
-                          const on = !excluded.includes(m.id);
-                          return (
-                            <label
-                              key={m.id}
-                              className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-muted"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={on}
-                                onChange={() =>
-                                  setExcluded((prev) =>
-                                    on ? [...prev, m.id] : prev.filter((x) => x !== m.id)
-                                  )
-                                }
-                                className="size-4 shrink-0 accent-[var(--primary)]"
-                              />
-                              <span className="min-w-0 flex-1 truncate text-sm" dir="auto">
-                                {m.name}
-                              </span>
-                              <span className="shrink-0 text-[11px] text-muted-foreground">
-                                {m.role}
-                              </span>
-                            </label>
-                          );
-                        })
-                      )}
-                    </div>
+                  <div className="border-t pt-2">
+                    <AudiencePicker
+                      people={crew}
+                      excluded={excluded}
+                      onChange={setExcluded}
+                      loading={crewLoading}
+                    />
                   </div>
                 ) : null}
               </div>
             ) : null}
 
-            {picked?.kind === "meeting" && !logging ? (
+            {kind === "meeting" && !logging ? (
               <div className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
                 <div className="min-w-0">
                   <p className="flex items-center gap-1.5 text-sm font-medium">
@@ -534,7 +500,7 @@ export function TouchPointDialog({
           </div>
 
           <DialogFooter>
-            <Button onClick={submit} disabled={pending || !picked || !date || noWorkingHours}>
+            <Button onClick={submit} disabled={pending || !date || noWorkingHours}>
               {pending ? <Loader2 className="size-4 animate-spin" /> : <CalendarPlus className="size-4" />}
               {logging ? "Log it" : "Book it"}
             </Button>

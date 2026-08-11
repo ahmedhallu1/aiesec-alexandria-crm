@@ -1,10 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarClock, Loader2, Save, Trash2 } from "lucide-react";
+import { CalendarClock, Loader2, Save, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
-import { cancelTouchPoint, updateTouchPoint } from "@/server/touch-points";
+import {
+  cancelTouchPoint, touchPointGuestList, updateTouchPoint, updateTouchPointMembers,
+} from "@/server/touch-points";
+import { AudiencePicker, type AudiencePerson } from "./audience-picker";
 import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -42,6 +45,40 @@ export function TouchPointManageDialog({
   const [note, setNote] = useState(tp.note ?? "");
   const [cancelling, setCancelling] = useState(false);
   const [reason, setReason] = useState("");
+  // EDITABLE AFTER BOOKING (v33.35) — people join, people drop out, and a
+  // guest list that can only be set once stops matching reality by the second
+  // day. Loaded on demand: the calendar page would otherwise carry an
+  // audience for every touch point in the month.
+  const [crew, setCrew] = useState<AudiencePerson[]>([]);
+  const [excluded, setExcluded] = useState<string[]>([]);
+  const [crewLocked, setCrewLocked] = useState(false);
+  const [crewOpen, setCrewOpen] = useState(false);
+  const [crewLoaded, setCrewLoaded] = useState(false);
+  useEffect(() => {
+    if (!crewOpen || crewLoaded) return;
+    let alive = true;
+    touchPointGuestList(tp.id)
+      .then((res) => {
+        if (!alive || !res.ok || !res.data) return;
+        setCrew(res.data.people);
+        setExcluded(res.data.excluded);
+        setCrewLocked(res.data.locked);
+      })
+      .finally(() => alive && setCrewLoaded(true));
+    return () => { alive = false; };
+  }, [crewOpen, crewLoaded, tp.id]);
+
+  const saveCrew = () =>
+    start(async () => {
+      const res = await updateTouchPointMembers(
+        tp.id,
+        excluded.length === 0 ? null : crew.filter((m) => !excluded.includes(m.id)).map((m) => m.id)
+      );
+      if (res.ok) {
+        toast.success("Guest list updated — the attendance sheet follows it.");
+        router.refresh();
+      } else toast.error(res.error);
+    });
 
   const moved = date !== tp.date || time !== tp.timeValue;
 
@@ -128,6 +165,65 @@ export function TouchPointManageDialog({
                 placeholder="Agenda, place, anything they should know…"
                 maxLength={500}
               />
+            </div>
+
+            {/* WHO IS COMING — editable, because a list set once stops
+                matching reality by the second day (v33.35). Quiet: changing
+                it doesn't re-announce; the attendance sheet just follows. */}
+            <div className="grid gap-1.5 rounded-lg border border-border p-3">
+              <button
+                type="button"
+                onClick={() => setCrewOpen((v) => !v)}
+                className="flex items-center justify-between gap-2 text-left"
+              >
+                <span className="min-w-0">
+                  <span className="flex items-center gap-1.5 text-sm font-medium">
+                    <Users className="size-4" /> Who&apos;s invited
+                    {crewLoaded ? (
+                      <span className="rounded-full bg-primary/10 px-1.5 text-xs font-bold text-primary">
+                        {crew.length - excluded.length}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    {crewLocked
+                      ? "Attendance is already recorded — the list is history now."
+                      : "Add or remove people. Only the ticked ones are on the attendance sheet."}
+                  </span>
+                </span>
+                <span className="shrink-0 text-xs font-medium text-primary">
+                  {crewOpen ? "Hide" : "Edit"}
+                </span>
+              </button>
+              {crewOpen ? (
+                <div className="border-t pt-2">
+                  {crewLocked ? (
+                    <p className="py-2 text-xs text-muted-foreground">
+                      This one&apos;s register was signed off — changing who was
+                      invited now would rewrite it.
+                    </p>
+                  ) : (
+                    <>
+                      <AudiencePicker
+                        people={crew}
+                        excluded={excluded}
+                        onChange={setExcluded}
+                        loading={!crewLoaded}
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="mt-2"
+                        onClick={saveCrew}
+                        disabled={pending || !crewLoaded}
+                      >
+                        {pending ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                        Save the guest list
+                      </Button>
+                    </>
+                  )}
+                </div>
+              ) : null}
             </div>
           </div>
         )}

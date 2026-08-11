@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v33.34";
+export const PLAYBOOK_VERSION = "v33.35";
 
 interface Props {
   role: string;
@@ -98,6 +98,8 @@ const SECTIONS: Section[] = [
     audience: "Members & Coordinators",
     color: "#F85A40",
     points: [
+      <><b>A visit you never reported shows up on Raising</b> (v33.35): the day passes, nobody says what happened, and a banner at the top of your list says so — <i>your</i> visits if you&apos;re a member, your team&apos;s if you&apos;re a TL, your function&apos;s if you lead it. Open the account and report it from the pending visit, or mark the account Out of Process if it went nowhere. Nothing waiting = no banner.</>,
+
       <><b>🚶 Direct visits</b> (v33.24): walked into a place off the street and offered it on the spot? Hit <b>Direct visit</b> on Raising — one form records the <b>market research, the contact AND the visit</b> together, so it counts like any other work instead of going unlogged. Pick how it ended: <b>turned away at the door</b> · <b>come back another time</b> (books the return visit) · <b>send the info instead</b> · <b>got to present</b> (the visit counts as done) · <b>closed a deal on the spot</b> (which opens the account straight onto the deal form). It creates a <b>normal account</b> — same live name check against every function and the archive, same Podio look-up, same tagged contacts. Being turned away never archives the account unless you say so.</>,
       <><b>Booking a visit lives in the contact log</b> (v33.24): there is no separate &quot;Schedule visit&quot; button any more. A visit is the RESULT of reaching someone, so you log the contact and pick <b>Visit Scheduled</b> — same calendar invite, same reminders. (Moving a visit you already booked still has its own button.)</>,
       <><b>Add the account first</b> — the name is checked <b>the moment you type it</b>, so you learn it&apos;s taken BEFORE filling the rest. Names live in <b>three worlds</b> (v33.29): ICX (IGV·IGT·B2B) · BD · B2C — unique within your world, active or archived, and each world keeps its own archive. A namesake in ANOTHER world never blocks: the form shows an info note (&quot;already active on IGV, responsible: X&quot;) and lets you add — the same company can be an IGV partner, a BD sponsor and a B2C venue at once; just have a word before you both knock on the same door. Bulk import exists for whole research sheets.</>,
@@ -268,7 +270,11 @@ const SECTIONS: Section[] = [
     audience: "Everyone",
     color: "#8E44AD",
     points: [
+      <><b>It&apos;s a Meeting, not a &quot;Function meeting&quot;</b> (v33.35): the type is just <b>Meeting · Working hours · Outing</b>. Where the audience STARTS from (my team / my function / the whole LC) is the next question, and who actually comes is the one after that — because a &quot;function meeting&quot; that six people attend was never a function meeting.</>,
+      <><b>Choose people by the group, not one by one</b> (v33.35): inside <b>Who&apos;s invited</b> there are one-tap chips for the groups the list actually contains — <b>Leaders &amp; MMs</b>, <b>Members only</b>, and each <b>team</b> in it. Tap one and that is your audience; adjust individuals from there. The chips are built from the people in front of you, so they can never select someone outside your reach.</>,
+      <><b>And it stays editable</b> (v33.35): open a booked touch point → <b>Who&apos;s invited → Edit</b> to add or remove people afterwards. Changing it doesn&apos;t re-announce anything; the attendance sheet just follows. Once attendance has been recorded the list locks — that register was signed off.</>,
       <><b>Pick who is actually coming</b> (v33.34): booking shows a <b>Who&apos;s invited</b> list — everyone the scope reaches, already ticked. Untick the three who aren&apos;t in the function yet, or the two who told you they can&apos;t make it, and only the ticked people are invited AND only they appear on the attendance sheet. Leave it alone and nothing changes: the audience stays live, so anyone who joins the function before the session is in it. You can only ever narrow your own audience — the list is built from the scope you were allowed to book.</>,
+      <><b>You&apos;ll be asked, once</b> (v33.35): the evening of a touch point, everyone who was there gets one email — TM and the booker on CC — asking for the rating. It is one tap and the email says so; we are not going to send it twice.</>,
       <><b>Rate a touch point out of 5</b> (v33.33): a session isn&apos;t a shout-out or a concern — &quot;good, but it ran long&quot; is neither a complaint about a person nor applause for one. On <b>Feedback</b>, pick <b>A touch point</b>, give it <b>1–5 stars</b> and add a note if you want to (the stars are the review; the note is a bonus). It goes privately to the people who run the LC&apos;s sessions — TM and the LCP — never to whoever booked it, and never as a shout-out to anyone.</>,
 
       <><b>Touch points</b> are the LC&apos;s moments: <b>meetings, working hours and outings</b>. Who books what: a <b>Team Leader</b> books their team&apos;s (and may invite sibling teams of the same function), a <b>VP/Director</b> the function&apos;s (and may invite another function), <b>TM</b> the LC-wide ones — the LCP books anything. You set a date and a START time (no end time) plus an optional note; everyone invited gets an email + a bell, with the TM VP always CC&apos;d. </>,

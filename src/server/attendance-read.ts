@@ -10,7 +10,7 @@ import {
   type TouchPointKind,
   type TouchPointScope,
 } from "@/lib/types";
-import { audienceLabel } from "@/lib/touch-points";
+import { audienceLabel, touchPointName } from "@/lib/touch-points";
 import { cairoToUtc } from "@/lib/time";
 import {
   getTouchPoint,
@@ -378,7 +378,7 @@ export async function listAttendanceHistory(
       mine: r.member_id === viewer.id,
       canRecord: canRecordAttendance(viewer, tp),
       touchPointId: tp.id,
-      label: touchPointLabel(tp.scope, tp.kind),
+      label: touchPointName(tp),
       kind: tp.kind,
       scope: tp.scope,
       startsAt: tp.starts_at,
@@ -495,7 +495,7 @@ export async function listOpenAppeals(viewer: Viewer): Promise<OpenAppeal[]> {
         createdAt: a.created_at,
         memberName: names.get(a.member_id) ?? "—",
         status: row.status,
-        label: touchPointLabel(tp.scope, tp.kind),
+        label: touchPointName(tp),
         startsAt: tp.starts_at,
         touchPointId: tp.id,
       };

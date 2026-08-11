@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Playbook**
 > (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
 
-Last updated: 2026-08-11 · Version: v33.34
+Last updated: 2026-08-11 · Version: v33.35
 
 ---
 
@@ -34,7 +34,7 @@ the blueprint for future OGX/other-function modules.
 | Stack | Next.js 16 (App Router, Turbopack) · React 19 · Tailwind v4 · shadcn/ui · Supabase (Postgres, project `iesrpuuoduxtihuaqfic`) |
 | Auth | Auth.js v5: **FIRST sign-in is Google-only** (grants `calendar` + `gmail.compose`) → onboarding sets a password → afterwards **email OR phone + password**, or Google, all work. **Members with NO email yet (v24) sign in with their phone in BOTH fields** until a password is set; adding their email closes that door (Google once, then password). Deactivated members land on **/inactive**. **Forgot password emails a fresh password** (`issueTempPassword` in `server/password.ts`); the old password still works until the member changes it (no lockouts) |
 | Google | Service account (Sheets sync, folder creation) · **the IM mailbox token carries mail + calendar + drive + sheets** — every Drive FILE is written as the mailbox, because a service account has no storage quota · Calendar events on each member's own calendar |
-| Cron | Supabase `pg_cron` + `pg_net` → `/api/cron/*`, **9 jobs** (visit-followups 15 min · signups-import 15 min · membership-import 30 min · sheets-export hourly :05 · **backup daily 02:00 UTC** · podio-updates daily 05:00 · period-reports daily 07:00 · streak-nags daily 16:00 · attendance-reminders daily 20:59) |
+| Cron | Supabase `pg_cron` + `pg_net` → `/api/cron/*`, **10 jobs** (visit-followups 15 min · signups-import 15 min · membership-import 30 min · sheets-export hourly :05 · **backup daily 02:00 UTC** · podio-updates daily 05:00 · period-reports daily 07:00 · streak-nags daily 16:00 · touch-point-feedback daily 19:00 · attendance-reminders daily 20:59) |
 | Admin | `ADMIN_EMAILS` env (= IM director, treated as LCP) |
 
 **Migrations** live in `supabase/migrations/` and are run **manually** in the
@@ -53,8 +53,9 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0049_direct_visits_mailbox_ir_notes` → `0050_ir_call_reschedule_history` →
 `0051_fallback_email_bounces_b2c_cic` → `0052_three_name_worlds` →
 `0053_calendar_item_visibility` → `0054_function_settings` →
-`0055_touch_point_rating` → `0056_touch_point_members`
-(**all applied**, 0046–0056 during v33.22–v33.34).
+`0055_touch_point_rating` → `0056_touch_point_members` →
+`0057_touch_point_feedback_nudge`
+(**all applied**, 0046–0057 during v33.22–v33.35).
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
@@ -624,6 +625,55 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-11 · v33.35** — **THE NAME, THE ASK, AND THE VISITS NOBODY
+  REPORTED** (migration **0057 applied**: `touch_points.feedback_asked_at`).
+  ① **"MEETING", NOT "FUNCTION MEETING".** The type was the scope fused to the
+  kind, which stopped being true the moment v33.34 made the audience a list
+  you pick: a "function meeting" is routinely six people out of thirty. The
+  kind is now the name (**Meeting · Working hours · Outing**); where the
+  audience STARTS is a separate question, and who actually comes is the one
+  after it. Lists show `touchPointName` — "Meeting · IGV", plus "(6 invited)"
+  when a guest list was picked — so two touch points still tell apart.
+  ② **PICK BY THE GROUP, NOT ONE BY ONE.** Ticking thirty boxes to invite "the
+  leaders" is a chore, so **Who's invited** carries one-tap chips for the
+  groups the list actually contains: Leaders & MMs, Members only, and one per
+  team present. Every chip is derived from the people in front of you, so it
+  can never select someone outside the audience you were allowed to book.
+  ③ **AND IT'S EDITABLE.** "Set at booking, never again" was the wrong
+  default — people join, people drop out. The manage dialog loads the guest
+  list on demand (`touchPointGuestList`) and saves it through
+  `updateTouchPointMembers`, same subset-of-derived rule as booking. It stays
+  QUIET (tidying a list the morning of a meeting must not mail twenty people)
+  and LOCKS once attendance is recorded: that register was signed off.
+  ④ **THE RATING GETS ASKED FOR** (0057 + the **touch-point-feedback** cron,
+  19:00 UTC = 22:00 Cairo, scheduled in pg_cron and in supabase/cron.sql).
+  v33.33 made session feedback a four-second tap that nobody was ever asked
+  for, so almost nobody gave it — the feature existed and the data didn't.
+  Every touch point that HAPPENED that day now gets one email in the evening:
+  audience on BCC, **TM and the booker on CC**, funny, and honest about the
+  size of the ask ("It is one tap. Five stars, pick one, done."). Once per
+  touch point — `feedback_asked_at` — because an inbox that asks twice for a
+  four-second job is an inbox people filter. A send that fails is left
+  unstamped and retried tomorrow.
+  ⑤ **UNREPORTED VISITS, WHERE THE WORK IS.** The +2h prompt and the one-week
+  nag have chased these by email since v11, which works until someone stops
+  reading email; in the app they were invisible, and an account sat at "Visit
+  Scheduled" forever while the funnel counted a visit nobody can prove
+  happened. Raising now carries the IR floor's banner: "N visits need a
+  report", expandable to the account, the date, how many days ago and whose it
+  is. Scoped identically — yours, your team's, your function's, the LC's — so
+  a clean slate shows nothing.
+  ⑥ **THE VPN QUESTION, ANSWERED IN CODE.** "I turned on a Singapore VPN and
+  it still said Cairo" is the browser working as designed: `Intl` reports the
+  MACHINE's zone, which a VPN never changes (Google Calendar behaves the same).
+  v33.23 handled it with a "did you mean Singapore?" prompt; v33.33 removed
+  the prompt at the LCP's request and left nothing. So the **connection now
+  wins** when the two disagree — it is the one signal that moves when the
+  person does — and the device zone becomes a one-tap way back
+  ("Showing Singapore time — your device says Cairo. Use Cairo instead"), for
+  the corporate-VPN case where the machine was right all along. Still no
+  question asked. 3 new tests (197 total).
 
 - **2026-08-11 · v33.34** — **PICK WHO IS ACTUALLY COMING** (migration **0056
   applied**: `touch_points.members`).

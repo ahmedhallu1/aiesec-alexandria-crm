@@ -81,6 +81,16 @@ select cron.schedule(
   $$ select net.http_get(url := '<APP_URL>/api/cron/attendance-reminders?key=<CRON_SECRET>') $$
 );
 
+-- v33.35: ASK FOR THE RATING — daily at 19:00 UTC = 22:00 Cairo. Every touch
+-- point that HAPPENED today gets one email to everyone who was in its
+-- audience (BCC), with TM and the booker on CC, asking for the 1–5 star
+-- rating. Once per touch point — `feedback_asked_at` is the stamp.
+select cron.schedule(
+  'touch-point-feedback',
+  '0 19 * * *',
+  $$ select net.http_get(url := '<APP_URL>/api/cron/touch-point-feedback?key=<CRON_SECRET>') $$
+);
+
 -- THE NIGHTLY BACKUP (v33). Supabase's free tier has no automated backups at
 -- all, so this job is the only thing between a lost database and losing the
 -- LC's year. Dumps every table, gzipped, into the private `backups` bucket
