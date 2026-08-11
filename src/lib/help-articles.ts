@@ -2537,6 +2537,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
     "tone": "info"
    },
    {
+    "t": "callout",
+    "tone": "tip",
+    "md": "**The problem was on THEIR side?** If the address was right all along (their mailbox was broken and then fixed), open **Fix the email**, keep the address exactly as it is, and hit the button — the bounce flag clears, the calendar invite is re-issued and a fresh confirmation goes out. Re-sending to the same address is a supported retry, not an error."
+   },
+   {
     "t": "faq",
     "faqItems": [
      {

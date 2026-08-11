@@ -3148,7 +3148,11 @@ function IrCallDetailDialog({
         toast.error(res.error);
         return;
       }
-      toast.success("Email fixed — the invite and confirmation were re-sent.");
+      toast.success(
+        newEmail.trim().toLowerCase() === (call.booker_email ?? "").toLowerCase()
+          ? "Re-sent — a fresh invite and confirmation are on their way."
+          : "Email fixed — the invite and confirmation were re-sent."
+      );
       setFixOpen(false);
       setNewEmail("");
       onClose();
@@ -3203,7 +3207,7 @@ function IrCallDetailDialog({
                   <span className="break-all">{call.booker_email}</span>
                   {call.email_bounced_at ? (
                     <span className="ml-1.5 rounded-full bg-destructive/15 px-2 py-0.5 text-[11px] font-semibold text-destructive">
-                      ⚠️ bounced — the address doesn’t exist
+                      ⚠️ bounced — the last email came back
                     </span>
                   ) : null}
                   {canFix && call.status === "scheduled" ? (
@@ -3230,7 +3234,9 @@ function IrCallDetailDialog({
                       </Button>
                       <p className="w-full text-xs text-muted-foreground">
                         The Meet invite moves to the new address and the IR gets a
-                        fresh confirmation with their manage link.
+                        fresh confirmation with their manage link. Was the address
+                        right all along (their inbox was the problem)? Keep it as
+                        is and hit the button — everything is simply re-sent.
                       </p>
                     </div>
                   ) : null}

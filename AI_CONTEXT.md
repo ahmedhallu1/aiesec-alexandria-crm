@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-11 · Version: v33.36
+Last updated: 2026-08-11 · Version: v33.36.1
 
 ---
 
@@ -626,6 +626,36 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-11 · v33.36.1** — **THE SAME ADDRESS IS A RETRY** (no migration).
+  ① The Bhavika case: her Gmail bounced for reasons on HER side, got fixed
+  there, and the address was right all along — but `updateIrBookerEmail`
+  refused the identical email ("that's already the email on the booking"),
+  leaving no way to try again. Re-submitting the SAME address is now a
+  RETRY: the bounce flag clears, the calendar invite is re-issued and a
+  fresh confirmation goes out. The calendar half needed its own trick: a
+  PATCH that ends with the identical attendee list is a no-op to Google, so
+  `swapIrCallAttendee` now removes the attendee QUIETLY (sendUpdates none)
+  and re-adds them LOUDLY — the only email the IR receives is a fresh
+  invitation. The fix-email UI says so ("was the address right all along?
+  keep it and hit the button"), the bounce chip stops claiming "the address
+  doesn't exist" (it says the last email came back), and the audit logs
+  `ir_call_email_retry` vs `ir_call_email_fix`. Bhavika's own call was
+  retried in prod (invite re-issued, confirmation re-sent, flag cleared)
+  before her 2:30 PM call.
+  ② **THE BLUE MAN'S KNOWLEDGE WAS AUDITED** (prompted by him teaching the
+  "Podio pending worklist" — removed in v32.3 — as current). Seven stale
+  claims fixed in `assistant.ts`: the worklist is gone (the 🔎 Needs-Podio
+  flag is the queue); B2B and BD are separate dashboard lanes (v32.6);
+  dashboard lanes are named per SIDE (v32); the calendar bullet described
+  the v12 visits-only calendar (it is the ONE calendar with kind/scope/
+  function filters); partner-LC renaming is MMs+ (v29), delete stays VP+;
+  the working-hours rule includes the 5-action burst (v33.18); B2C's
+  cadence default is 14 (function setting since v33.32) not 10; and the
+  booking page's zone follows the CONNECTION since v33.35. The same-address
+  retry was added to his knowledge and to the help center's bounced-email
+  article. Example copies of the bounce-alert and the post-fix confirmation
+  were sent to the IM mailbox for review.
 
 - **2026-08-11 · v33.36** — **THE PLAYBOOK BECAME A HELP CENTER** (no
   migration).
