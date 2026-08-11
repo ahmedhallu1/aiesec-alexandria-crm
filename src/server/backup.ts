@@ -55,6 +55,7 @@ const BACKUP_TABLES = [
   "partner_lcs",
   "partner_lc_contacts",
   "partner_lc_comments",
+  "lc_partnerships",
   "ir_calls",
   "cvs",
   "ir_booking_settings",
