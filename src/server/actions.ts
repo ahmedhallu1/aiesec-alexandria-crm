@@ -7908,7 +7908,13 @@ export async function updateIrBookerEmail(id: string, emailRaw: string): Promise
   if (call.member_id !== viewer.id && !isConsiderationLead(viewer))
     return fail("Only the call's owner or a VP/Director can fix the email.", "forbidden");
   const oldEmail = (call.booker_email ?? "").trim().toLowerCase() || null;
-  if (oldEmail === email) return fail("That's already the email on the booking.");
+  // THE SAME ADDRESS IS A RETRY, NOT A MISTAKE (v33.36.1 — the Bhavika case:
+  // her mailbox bounced for reasons on HER side, got fixed there, and the
+  // address was right all along. Refusing it left no way to try again.)
+  // Re-submitting the identical email clears the bounce flag, re-issues the
+  // calendar invite (quiet-remove + loud re-add, so Google actually sends a
+  // fresh one) and re-sends the confirmation.
+  const retry = oldEmail === email;
 
   await snapshotForUndo("ir_calls", id);
   const { error } = await db()
@@ -7918,8 +7924,9 @@ export async function updateIrBookerEmail(id: string, emailRaw: string): Promise
   if (error) return fail(error.message);
 
   // the LC's contact row follows; unique (partner_lc_id, lower(email)) means
-  // a row already holding the NEW email wins and the wrong one is removed
-  if (call.partner_lc_id && oldEmail) {
+  // a row already holding the NEW email wins and the wrong one is removed.
+  // A retry changes nothing here — the row is already right.
+  if (call.partner_lc_id && oldEmail && !retry) {
     const { error: cErr } = await db()
       .from("partner_lc_contacts")
       .update({ email })
@@ -8077,7 +8084,7 @@ export async function updateIrBookerEmail(id: string, emailRaw: string): Promise
     }
   }
 
-  await logAudit(viewer.id, "ir_call_email_fix", "ir_call", id, {
+  await logAudit(viewer.id, retry ? "ir_call_email_retry" : "ir_call_email_fix", "ir_call", id, {
     lc: call.partner_lc_name,
     from: oldEmail,
     to: email,

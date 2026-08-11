@@ -555,6 +555,22 @@ export async function swapIrCallAttendee(opts: {
     const kept = (ev.data.attendees ?? [])
       .filter((a) => a.email && !drop.has(a.email.toLowerCase()))
       .map((a) => ({ email: a.email as string }));
+    // RE-SENDING TO THE SAME ADDRESS (v33.36.1 — the Bhavika case: the
+    // mailbox was broken on THEIR side, then fixed, and the address itself
+    // was always right). A patch that ends with the identical attendee list
+    // is a no-op to Google — nothing gets re-sent. So: remove the attendee
+    // QUIETLY first, then add them back LOUDLY — the only email they receive
+    // is a fresh invitation.
+    const sameAddress =
+      !!opts.oldEmail && opts.oldEmail.toLowerCase() === opts.newEmail.toLowerCase();
+    if (sameAddress) {
+      await cal.events.patch({
+        calendarId,
+        eventId: opts.eventId,
+        sendUpdates: "none",
+        requestBody: { attendees: kept },
+      });
+    }
     await cal.events.patch({
       calendarId,
       eventId: opts.eventId,
