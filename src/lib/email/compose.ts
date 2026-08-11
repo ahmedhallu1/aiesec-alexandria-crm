@@ -179,6 +179,11 @@ export interface ComposeTemplate {
   hint: string;
   subject: string;
   body: string;
+  /** addresses to put on CC automatically when this template is picked
+   *  (v33.37 — the contract mail carries customer support, always) */
+  cc?: string[];
+  /** which crews see this template — absent = everyone with the Emails tab */
+  audience?: "ogx";
 }
 
 export const COMPOSE_TEMPLATES: ComposeTemplate[] = [
@@ -243,6 +248,27 @@ have opportunities ready and would love to hear about your demand.</p>
 that suits you from my booking link and it will land in both our calendars.</p>
 <p>Looking forward to working together,</p>`,
   },
+  {
+    key: "contract_signing",
+    label: "Signing the contract",
+    hint: "To an approved EP — the contract + acceptance note, with the signing steps. Customer support rides the CC automatically.",
+    subject: "Signing the contract",
+    audience: "ogx",
+    cc: ["customer.support@aiesec.net.eg"],
+    body: `<p>Dear {{name}},</p>
+<p>Congratulations again on your approval! 🎉 I attached the <b>contract</b> and the <b>acceptance note</b> for your review and signature.</p>
+<p>Kindly reply to this email with the signed copies of both documents attached at your earliest convenience, following these steps:</p>
+<ol>
+<li><b>Print</b> the contract and the acceptance note.</li>
+<li><b>Sign the contract</b> in the places marked for the EP's (exchange participant's) signature.</li>
+<li>Place your <b>ID</b> on every page from page 15 to the end of the contract — positioned so it doesn't cover any information — then photograph them.</li>
+<li><b>Sign the acceptance note</b> beside your digital signature on its 2nd page.</li>
+<li>Place your ID on the two pages of the acceptance note the same way (covering nothing), then photograph them.</li>
+<li><b>Reply all</b> with all the pictures (PDF preferred).</li>
+</ol>
+<p>Please also attach your <b>student ID</b> to proceed with the process.</p>
+<p>If anything in the steps is unclear, just reply here — happy to walk you through it.</p>`
+  }
 ];
 
 /** The role line under the name. Uses the person's real function + role

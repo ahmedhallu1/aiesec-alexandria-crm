@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-11 · Version: v33.36.2
+Last updated: 2026-08-11 · Version: v33.37
 
 ---
 
@@ -54,8 +54,8 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0051_fallback_email_bounces_b2c_cic` → `0052_three_name_worlds` →
 `0053_calendar_item_visibility` → `0054_function_settings` →
 `0055_touch_point_rating` → `0056_touch_point_members` →
-`0057_touch_point_feedback_nudge`
-(**all applied**, 0046–0057 during v33.22–v33.35).
+`0057_touch_point_feedback_nudge` → `0058_ir_max_per_day`
+(**all applied**, 0046–0058 during v33.22–v33.37).
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
@@ -626,6 +626,55 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-11 · v33.37** — **FOURTEEN FROM THE FLOOR** (migration **0058
+  applied**: `ir_booking_settings.max_per_day`). Shipped the batch that had
+  been sitting uncommitted in the worktree, finished and verified.
+  ① **STREAKS TELL THE TRUTH.** Only a sign-up marked **Contacted** that day
+  saves a streak (the card and the nag no longer promise that comments and
+  claims count — they never moved `contacted_at`); sheet-cased "yes" counts
+  (`ilike y%`, the reader every other feature uses); and the board carries a
+  **⏳ not saved today** label on grace-day rows (dimmed, ranked below the
+  saved ones) — an alive-until-midnight streak no longer masquerades as a
+  saved one. Dead streaks were never on the board; ambiguity was.
+  ② **THREE CONTACT STATES ON SIGN-UPS.** The Contacted filter offers
+  Yes · No · **Not contacted yet** (null/empty — the pile nobody has touched);
+  rows wear the state as a coloured left edge (green = Yes, amber = No,
+  plain = untouched).
+  ③ **"TAKE IT — IT'S MINE NOW."** The add-form's unowned-duplicate verdict
+  claims the account on the spot. `isClaimableAccount` now covers Members
+  (claiming one account they researched takes nothing from anyone — the POOL
+  stays Coordinator+), which also lets them OPEN an unassigned account; the
+  old flow sent a Member to a page that answered "no access".
+  ④ **DIRECT VISITS, THREE FIXES.** An **archived** name met at the door no
+  longer blocks the log: any let-them-in outcome REVIVES the account to the
+  visitor (a Member too — the visit is the evidence), while *turned away*
+  keeps it archived and writes the attempt on it as a comment.
+  **Come back another time** takes an optional date AND time — dated =
+  a real `scheduleVisit` booking with the calendar event; undated = a next
+  step to pin down later. **Turned away at the door writes NO `visits` row**
+  — reception blocked it, so nothing lands in visit KPIs; the contact attempt
+  and comment remain.
+  ⑤ **THE DIALOG-CLOSES-WITH-THE-DROPDOWN BUG.** With a Select open, Radix
+  disables pointer events on everything else, so a click on the dialog's own
+  body targets `<html>` — outside BOTH dismissable layers — and closed the
+  dialog along with the list. While any popper is open, that click now has
+  exactly one job (the dialog's onPointerDownOutside preventDefaults).
+  ⑥ **IR BOOKING: A DAILY CAP + LONGER BUFFERS** (0058): `max_per_day` 1–6
+  (or no limit) — a Cairo day already holding that many scheduled calls stops
+  being offered on the public page (counted from the same busy list as the
+  overlap check); buffers now go to 60/90/120 minutes.
+  ⑦ **THE EMAILS TAB ABSORBED TWO DOORS**: the **Expectation mail** sidebar
+  tab is gone — it's a button on the Emails tab (same /ogt-mail gate; the
+  route survives for old links) — and a **"Signing the contract"** template
+  (OGX MMs+, from the LC's own doc) prefills the subject, the six signing
+  steps and the student-ID ask, auto-CCs customer.support@aiesec.net.eg
+  (templates can now carry a `cc`), with multi-file attachments as ever.
+  ⑧ **REPORT IT FROM WHERE IT BROKE**: a floating 🛠️ button (bottom-left,
+  every page — The Blue Man owns the right) opens the system-feedback form in
+  a dialog and attaches the page the reporter was on. Multi-CV upload rides
+  along in consideration (pick a folder's worth; each becomes its own row).
+  Help center (7 articles) + the Blue Man updated with all of it.
 
 - **2026-08-11 · v33.36.2** — **THE UNREPORTED-VISITS BANNER NEVER APPEARED**
   (no migration).

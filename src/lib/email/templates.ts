@@ -1129,8 +1129,8 @@ export function streakNagEmail(opts: { firstName: string; streak: number }) {
       body: `
         <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">${tier.headline}</h1>
         <p>Hey ${escapeHtml(opts.firstName)} — ${tier.body}</p>
-        <p>Saving it takes <b>one contact action</b> before midnight: claim a sign-up
-        from the pool, update a Contacted / Interested, or drop a comment. That's
+        <p>Saving it takes <b>one real contact</b> before midnight: reach a
+        sign-up and mark it <b>Contacted</b>. That's
         it — the flame lives another day.</p>
         ${button("Save my streak", `${env.appUrl}/signups`)}`,
     }),

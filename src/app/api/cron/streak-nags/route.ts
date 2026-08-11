@@ -73,7 +73,8 @@ export async function GET(req: NextRequest) {
         .from("signups")
         .select("assigned_to, contacted_at")
         .in("assigned_to", mms.map((m) => m.id))
-        .eq("contact_status", "Yes")
+        // "yes"/"YES" count too — the same y% rule as the card (v33.37)
+        .ilike("contact_status", "y%")
         .not("contacted_at", "is", null)
         .gte("contacted_at", `${cutoff}T00:00:00`)
         .order("id")
@@ -107,7 +108,7 @@ export async function GET(req: NextRequest) {
         [m.id],
         "info",
         `🔥 Your ${streak}-day streak ends at midnight!`,
-        "One sign-up contact saves it — claim one, update Contacted/Interested, or drop a comment.",
+        "One real contact saves it — reach a sign-up and mark it Contacted before midnight.",
         null,
         "/signups"
       );

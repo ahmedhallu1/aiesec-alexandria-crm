@@ -4667,10 +4667,17 @@ export async function listSignupsPage(
         q = q.or(picks.map((v) => `interested.ilike.${ynPat(v)}`).join(","));
     }
     {
+      // "none" = NOBODY HAS CALLED YET (v33.37) — null or an empty cell, the
+      // rows still waiting for their first touch. Yes/No both mean a call
+      // happened; this is the third state the funnel was missing.
       const picks = pickList(filters.contacted);
-      if (picks.length === 1) q = q.ilike("contact_status", ynPat(picks[0]));
-      else if (picks.length > 1)
-        q = q.or(picks.map((v) => `contact_status.ilike.${ynPat(v)}`).join(","));
+      const wantsNone = picks.includes("none");
+      const yesNo = picks.filter((v) => v !== "none");
+      const clauses = yesNo.map((v) => `contact_status.ilike.${ynPat(v)}`);
+      if (wantsNone) clauses.push("contact_status.is.null", "contact_status.eq.");
+      if (clauses.length === 1 && !wantsNone)
+        q = q.ilike("contact_status", ynPat(yesNo[0]));
+      else if (clauses.length > 0) q = q.or(clauses.join(","));
     }
     if (filters.country) q = q.ilike("country", `%${filters.country}%`);
     {
@@ -6010,12 +6017,14 @@ export interface IrBookingSettings {
   start_date: string | null;
   end_date: string | null;
   guests_can_invite: boolean;
+  /** v33.37 — max scheduled calls per Cairo day; null = unlimited */
+  max_per_day: number | null;
 }
 
 /** every column freeBookingSlots/getBookingPage need — one place to keep the
  *  selects in sync with the interface */
 const BOOKING_SETTINGS_COLS =
-  "member_id, slug, slot_minutes, availability, active, buffer_minutes, min_notice_minutes, max_advance_days, start_date, end_date, guests_can_invite";
+  "member_id, slug, slot_minutes, availability, active, buffer_minutes, min_notice_minutes, max_advance_days, start_date, end_date, guests_can_invite, max_per_day";
 
 export interface MyIrBooking {
   settings: IrBookingSettings | null;
@@ -6113,7 +6122,9 @@ export async function freeBookingSlots(
   if (availability.length === 0) return [];
   const slotMin = Math.min(120, Math.max(10, s.slot_minutes || 30));
   const slotMs = slotMin * 60_000;
-  const bufferMs = Math.min(60, Math.max(0, s.buffer_minutes ?? 0)) * 60_000;
+  // buffers up to 2 HOURS (v33.37) — an hour of prep between calls is a
+  // legitimate way to work, not something to clamp away
+  const bufferMs = Math.min(120, Math.max(0, s.buffer_minutes ?? 0)) * 60_000;
   const horizon = Math.min(90, Math.max(1, s.max_advance_days ?? 14));
   const now = Date.now();
   // minimum notice replaces the old hardcoded 10-min lead (10-min floor kept
@@ -6140,6 +6151,21 @@ export async function freeBookingSlots(
     }))
     .filter((b) => !Number.isNaN(b.start));
 
+  // THE DAILY CAP (v33.37): a Cairo day already holding max_per_day scheduled
+  // calls simply stops being offered. Counted from the same busy list the
+  // overlap check uses, so the two can never disagree.
+  const maxPerDay =
+    Number.isInteger(s.max_per_day) && (s.max_per_day as number) >= 1
+      ? (s.max_per_day as number)
+      : null;
+  const bookedPerDay = new Map<string, number>();
+  if (maxPerDay) {
+    for (const b of busy) {
+      const day = _cairoYmd(new Date(b.start));
+      bookedPerDay.set(day, (bookedPerDay.get(day) ?? 0) + 1);
+    }
+  }
+
   const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
   // a window ENDING at 00:00 ("12 AM") runs to midnight — and 23:59, every
   // member's workaround while 00:00 was refused, means the same thing (v33.16:
@@ -6164,6 +6190,8 @@ export async function freeBookingSlots(
       w.date ? w.date === ymd : w.day === dow
     );
     if (windows.length === 0) continue;
+    // the day is FULL — the cap says no more calls here
+    if (maxPerDay && (bookedPerDay.get(ymd) ?? 0) >= maxPerDay) continue;
     const seen = new Set<string>();
     const slots: BookingSlot[] = [];
     for (const w of windows) {
@@ -6466,7 +6494,14 @@ export interface StreakStats {
   /** top current streaks on the board, with today's contact count each. The
    *  FUNCTION rides along (v33.26): on the joint OGX board a name alone says
    *  nothing about which side they're racing on. */
-  topStreaks: { name: string; current: number; today: number; fn: string | null }[];
+  topStreaks: {
+    name: string;
+    current: number;
+    today: number;
+    /** contacted today — false = alive only on the grace day (dies at midnight) */
+    savedToday: boolean;
+    fn: string | null;
+  }[];
 }
 
 /** The OGX contact streak (v32.4).
@@ -6514,7 +6549,9 @@ export async function streakStats(
           .from("signups")
           .select("assigned_to, contacted_at, fn")
           .in("fn", wanted)
-          .eq("contact_status", "Yes")
+          // the sheet writes "yes"/"YES" as freely as "Yes" — the streak must
+          // read contacted the way the whole system does (v33.37)
+          .ilike("contact_status", "y%")
           .not("contacted_at", "is", null)
           .not("assigned_to", "is", null)
           .gte("contacted_at", `${cutoff}T00:00:00`)
@@ -6573,6 +6610,10 @@ export async function streakStats(
         name: (m.name) as string,
         current: e ? currentStreak(e.days, today) : 0,
         today: e?.today ?? 0,
+        // SAVED TILL TODAY vs ALIVE ON THE GRACE DAY (v33.37): both are
+        // "active", but the board must say which is which — a 🔥 5 whose
+        // owner hasn't contacted today reads as a lie by midnight
+        savedToday: e?.days.has(today) ?? false,
         // ONLY ON THE JOINT BOARD (v33.27). On an OGV-only or OGT-only board
         // every row carries the same tag, which is noise: it answers a
         // question nobody is asking there.
@@ -6583,7 +6624,14 @@ export async function streakStats(
       };
     })
     .filter((e) => e.current > 0)
-    .sort((a, b) => b.current - a.current || b.today - a.today || a.name.localeCompare(b.name))
+    // who saved TODAY ranks first — the grace-day rows trail, visibly at risk
+    .sort(
+      (a, b) =>
+        Number(b.savedToday) - Number(a.savedToday) ||
+        b.current - a.current ||
+        b.today - a.today ||
+        a.name.localeCompare(b.name)
+    )
     .slice(0, 5);
 
   return {

@@ -16,7 +16,19 @@ import {
 import { FEEDBACK_CATEGORIES } from "@/lib/types";
 import { FeedbackAttachments, type FeedbackAttachment } from "./feedback-attachments";
 
-export function FeedbackForm({ showInboxLink }: { showInboxLink: boolean }) {
+export function FeedbackForm({
+  showInboxLink,
+  frameless = false,
+  page = "/feedback",
+  onSent,
+}: {
+  showInboxLink: boolean;
+  /** no Card wrapper — for living inside a dialog (the floating button) */
+  frameless?: boolean;
+  /** where the reporter WAS — the floating button passes the real page */
+  page?: string;
+  onSent?: () => void;
+}) {
   const [type, setType] = useState<"Bug" | "Enhancement" | "Other">("Enhancement");
   const [category, setCategory] = useState<string>("");
   const [message, setMessage] = useState("");
@@ -37,7 +49,7 @@ export function FeedbackForm({ showInboxLink }: { showInboxLink: boolean }) {
         type,
         category: category || undefined,
         message,
-        page: "/feedback",
+        page,
         anonymous,
         attachments,
       });
@@ -49,14 +61,15 @@ export function FeedbackForm({ showInboxLink }: { showInboxLink: boolean }) {
         );
         setMessage("");
         setAnonymous(false);
+        setAttachments([]);
+        onSent?.();
       } else {
         toast.error(res.error);
       }
     });
 
-  return (
-    <Card>
-      <CardContent className="grid gap-4 pt-5">
+  const body = (
+    <>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="grid gap-2">
             <Label>Type</Label>
@@ -119,7 +132,12 @@ export function FeedbackForm({ showInboxLink }: { showInboxLink: boolean }) {
             </Link>
           ) : null}
         </div>
-      </CardContent>
+    </>
+  );
+  if (frameless) return <div className="grid gap-4">{body}</div>;
+  return (
+    <Card>
+      <CardContent className="grid gap-4 pt-5">{body}</CardContent>
     </Card>
   );
 }

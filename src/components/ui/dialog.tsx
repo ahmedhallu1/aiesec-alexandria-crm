@@ -158,6 +158,18 @@ function DialogContent({
             )
           )
             e.preventDefault();
+          // AND NEITHER IS THE CLICK THAT CLOSES ONE (v33.37). With a Select
+          // OPEN, Radix disables pointer events on everything else — so a
+          // click on the dialog's own body reaches no dialog element, and
+          // BOTH dismissable layers (the select's and ours) read it as
+          // "outside": the list closes and takes the whole dialog with it.
+          // While any list is open, that click has exactly one job.
+          if (
+            document.querySelector(
+              "[data-radix-popper-content-wrapper], [data-radix-select-content][data-state='open'], [data-radix-menu-content][data-state='open']"
+            )
+          )
+            e.preventDefault();
         }}
         onFocusOutside={(e) => {
           const el = e.target as HTMLElement | null;

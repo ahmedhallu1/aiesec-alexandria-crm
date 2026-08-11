@@ -630,12 +630,24 @@ function StreakCard({
                       {t.fn}
                     </span>
                   ) : null}
-                  {t.today > 0 ? (
+                  {t.savedToday ? (
                     <span className="shrink-0 text-[11px] text-muted-foreground">
                       {t.today} today
                     </span>
-                  ) : null}
-                  <span className="w-16 shrink-0 text-end text-sm font-bold tabular-nums">
+                  ) : (
+                    // ALIVE BUT UNSAVED (v33.37): the grace day. Saying it
+                    // out loud is what keeps the board honest — this row
+                    // dies at midnight unless they contact someone.
+                    <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                      not saved today ⏳
+                    </span>
+                  )}
+                  <span
+                    className={cn(
+                      "w-16 shrink-0 text-end text-sm font-bold tabular-nums",
+                      !t.savedToday && "opacity-50"
+                    )}
+                  >
                     🔥 {t.current}
                   </span>
                 </div>
@@ -1159,6 +1171,16 @@ export function SignupsView({
     });
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
+  /** THE ROW WEARS ITS CONTACT STATE (v33.37) — a coloured left edge, so
+   *  "which of these have we actually reached" is answerable at a glance:
+   *  emerald = contacted & answered Yes · amber = contacted, answer No ·
+   *  plain = nobody has called yet. */
+  const contactTint = (v: string | null | undefined) =>
+    v && /^y/i.test(v)
+      ? "border-l-4 border-l-emerald-500/70"
+      : v && v.trim()
+        ? "border-l-4 border-l-amber-500/60"
+        : "border-l-4 border-l-transparent";
   const yn = (v: string | null) =>
     v ? (
       /^y/i.test(v) ? (
@@ -1204,8 +1226,14 @@ export function SignupsView({
               (v) => setParams({ program: v || null }))
           : null;
       case "contacted":
-        return pick("Contacted", filters.contacted ?? "", [["Yes", "Contacted ✓"], ["No", "Not contacted"]],
-          (v) => setParams({ contacted: v || null }));
+        // THREE STATES, not two (v33.37): Yes and No both mean somebody
+        // CALLED; the third is the pile nobody has touched yet.
+        return pick(
+          "Contacted",
+          filters.contacted ?? "",
+          [["Yes", "Contacted — Yes"], ["No", "Contacted — No"], ["none", "Not contacted yet"]],
+          (v) => setParams({ contacted: v || null })
+        );
       case "interested":
         return pick("Interested", filters.interested ?? "", [["Yes", "Interested ✓"], ["No", "Not interested"]],
           (v) => setParams({ interested: v || null }));
@@ -1971,8 +1999,9 @@ export function SignupsView({
           <SelectTrigger className="h-9 w-36"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Contacted: any</SelectItem>
-            <SelectItem value="Yes">Contacted ✓</SelectItem>
-            <SelectItem value="No">Not contacted</SelectItem>
+            <SelectItem value="Yes">Contacted — Yes</SelectItem>
+            <SelectItem value="No">Contacted — No</SelectItem>
+            <SelectItem value="none">Not contacted yet</SelectItem>
           </SelectContent>
         </Select>
         <Select
@@ -2041,7 +2070,7 @@ export function SignupsView({
               key={r.id}
               role="button"
               tabIndex={0}
-              className="cursor-pointer active:bg-muted/40"
+              className={cn("cursor-pointer active:bg-muted/40", contactTint(r.contact_status))}
               onClick={() => openDetail(r.id)}
             >
               <CardContent className="space-y-1.5 p-3.5">
@@ -2153,7 +2182,11 @@ export function SignupsView({
                 </TableRow>
               ) : (
                 rows.map((r) => (
-                  <TableRow key={r.id} className="cursor-pointer" onClick={() => openDetail(r.id)}>
+                  <TableRow
+                    key={r.id}
+                    className={cn("cursor-pointer", contactTint(r.contact_status))}
+                    onClick={() => openDetail(r.id)}
+                  >
                     {canBulk ? (
                       <TableCell className="w-8" onClick={(e) => e.stopPropagation()}>
                         <SelectDot checked={selected.has(r.id)} onToggle={() => toggle(r.id)} />

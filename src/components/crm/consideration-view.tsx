@@ -1590,7 +1590,7 @@ function DemandPicker({
 /** Option lists for the scheduling controls (v28 — Google-Calendar parity).
  *  A stored custom value not in the list is appended so it never disappears. */
 const SLOT_CHOICES = [15, 30, 45, 60, 90, 120];
-const BUFFER_CHOICES = [0, 5, 10, 15, 30];
+const BUFFER_CHOICES = [0, 5, 10, 15, 30, 60, 90, 120];
 
 /** 12-hour time picker in REAL 5-minute steps (v33.17). The native
  *  `<input type="time" step>` was a lie: Chrome's dropdown ignores `step`
@@ -1678,6 +1678,8 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
   const rowIssues = useMemo(() => availabilityIssues(rows), [rows]);
   const [active, setActive] = useState(s?.active ?? true);
   const [buffer, setBuffer] = useState(String(s?.buffer_minutes ?? 0));
+  // v33.37 — how many calls one day may hold; "0" renders as No limit
+  const [maxPerDay, setMaxPerDay] = useState(String(s?.max_per_day ?? 0));
   const [notice, setNotice] = useState(String(s?.min_notice_minutes ?? 60));
   const [advance, setAdvance] = useState(String(s?.max_advance_days ?? 14));
   const [startDate, setStartDate] = useState(s?.start_date ?? "");
@@ -1726,6 +1728,7 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
         startDate: startDate || null,
         endDate: endDate || null,
         guestsCanInvite: guestsInvite,
+        maxPerDay: Number(maxPerDay) || null,
       });
       if (res.ok) {
         toast.success(active ? "Booking link saved — it's live ✨" : "Booking link saved (switched off).");
@@ -1842,7 +1845,15 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
                 <SelectContent>
                   {withCurrent(BUFFER_CHOICES, Number(buffer)).map((m) => (
                     <SelectItem key={m} value={String(m)}>
-                      {m === 0 ? "No buffer" : `${m} minutes`}
+                      {m === 0
+                        ? "No buffer"
+                        : m === 60
+                          ? "1 hour"
+                          : m === 90
+                            ? "1½ hours"
+                            : m === 120
+                              ? "2 hours"
+                              : `${m} minutes`}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1862,6 +1873,25 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Calls per day</Label>
+              <Select value={maxPerDay} onValueChange={setMaxPerDay}>
+                <SelectTrigger className="h-9 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="0">No limit</SelectItem>
+                  {[1, 2, 3, 4, 5, 6].map((n) => (
+                    <SelectItem key={n} value={String(n)}>
+                      {n} call{n === 1 ? "" : "s"} max
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                A full day stops being offered on your link.
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label>Book up to</Label>
@@ -3604,92 +3634,109 @@ function CvsTab({
     setLastQ(q);
     setSearch(q);
   }
-  const [file, setFile] = useState<File | null>(null);
+  // SEVERAL CVs AT ONCE (v33.37): a call often ends with a folder of five —
+  // pick them all, each becomes its own pool row, uploaded one after another
+  const [files, setFiles] = useState<File[]>([]);
   const [lcId, setLcId] = useState("");
   const [phase, setPhase] = useState<"idle" | "uploading" | "analyzing">("idle");
+  const [progress, setProgress] = useState("");
   const [editing, setEditing] = useState<CvRow | null>(null);
   const [deleting, setDeleting] = useState<CvRow | null>(null);
   const [rerunning, setRerunning] = useState<string | null>(null);
 
-  const pickFile = (f: File) => {
-    if (f.size > CV_MAX) {
-      toast.error(`"${f.name}" is over 25 MB — compress it and try again.`);
-      setFile(null);
-      return;
+  const pickFiles = (list: File[]) => {
+    const ok: File[] = [];
+    for (const f of list) {
+      if (f.size > CV_MAX) toast.error(`"${f.name}" is over 25 MB — skipped.`);
+      else ok.push(f);
     }
-    setFile(f);
+    setFiles(ok);
+  };
+
+  /** one file through the signed-URL flow — returns a short status word */
+  const uploadOne = async (file: File): Promise<string> => {
+    // hash the bytes FIRST — an exact duplicate is refused before a byte
+    // is stored or a Gemini call is made (v33.2)
+    let sha256: string | undefined;
+    try {
+      const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+      sha256 = Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+    } catch {
+      // no crypto.subtle (very old browser / insecure origin) — upload
+      // still works, it just can't be de-duplicated
+    }
+    const meta = {
+      name: file.name,
+      type: file.type || "application/octet-stream",
+      size: file.size,
+      sha256,
+    };
+    const req = await requestCvUpload(meta);
+    if (!req.ok || !req.data) throw new Error(req.ok ? "Could not prepare the upload." : req.error);
+    let putOk = false;
+    try {
+      const put = await fetch(req.data.signedUrl, {
+        method: "PUT",
+        headers: { "content-type": meta.type },
+        body: file,
+      });
+      putOk = put.ok;
+    } catch {
+      putOk = false;
+    }
+    if (!putOk) throw new Error("The file upload failed — check your connection.");
+    setPhase("analyzing");
+    const confirm = await confirmCvUpload({
+      path: req.data.path,
+      ...meta,
+      partnerLcId: lcId || null,
+    });
+    if (!confirm.ok) throw new Error(confirm.error);
+    return confirm.data?.status ?? "done";
   };
 
   const upload = () =>
     start(async () => {
-      if (!file) {
-        toast.error("Pick the CV file first.");
+      if (files.length === 0) {
+        toast.error("Pick the CV file(s) first.");
         return;
       }
       if (!lcId) {
-        toast.error("Pick the partner LC this CV came from.");
+        toast.error("Pick the partner LC these CVs came from.");
         return;
       }
       setPhase("uploading");
+      let done = 0;
+      const troubles: string[] = [];
       try {
-        // hash the bytes FIRST — an exact duplicate is refused before a byte
-        // is stored or a Gemini call is made (v33.2)
-        let sha256: string | undefined;
-        try {
-          const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
-          sha256 = Array.from(new Uint8Array(digest))
-            .map((b) => b.toString(16).padStart(2, "0"))
-            .join("");
-        } catch {
-          // no crypto.subtle (very old browser / insecure origin) — upload
-          // still works, it just can't be de-duplicated
+        for (let i = 0; i < files.length; i++) {
+          const f = files[i];
+          setProgress(files.length > 1 ? `${i + 1} of ${files.length} — ${f.name}` : "");
+          setPhase("uploading");
+          try {
+            const status = await uploadOne(f);
+            done++;
+            if (status === "unsupported")
+              troubles.push(`"${f.name}" can't be auto-read — fill its fields manually`);
+            else if (status !== "done") troubles.push(`"${f.name}": extraction didn't stick — try Re-run`);
+          } catch (e) {
+            troubles.push(`"${f.name}": ${e instanceof Error ? e.message : "failed"}`);
+          }
         }
-        const meta = {
-          name: file.name,
-          type: file.type || "application/octet-stream",
-          size: file.size,
-          sha256,
-        };
-        const req = await requestCvUpload(meta);
-        if (!req.ok || !req.data) {
-          toast.error(req.ok ? "Could not prepare the upload." : req.error);
-          return;
+        if (done > 0)
+          toast.success(
+            done === 1 ? "CV uploaded — the AI read it ✨" : `${done} CVs uploaded ✨`
+          );
+        for (const t of troubles) toast(t);
+        if (done > 0) {
+          setFiles([]);
+          router.refresh();
         }
-        let putOk = false;
-        try {
-          const put = await fetch(req.data.signedUrl, {
-            method: "PUT",
-            headers: { "content-type": meta.type },
-            body: file,
-          });
-          putOk = put.ok;
-        } catch {
-          putOk = false;
-        }
-        if (!putOk) {
-          toast.error("The file upload failed — check your connection and try again.");
-          return;
-        }
-        setPhase("analyzing");
-        const confirm = await confirmCvUpload({
-          path: req.data.path,
-          ...meta,
-          partnerLcId: lcId || null,
-        });
-        if (!confirm.ok) {
-          toast.error(confirm.error);
-          return;
-        }
-        const status = confirm.data?.status;
-        if (status === "done") toast.success("CV uploaded — the AI read it ✨");
-        else if (status === "unsupported")
-          toast(`CV uploaded. ${confirm.data?.note ?? "This format can't be auto-read — fill the fields manually."}`);
-        else
-          toast(`CV uploaded, but the AI extraction didn't stick: ${confirm.data?.note ?? "try Re-run."}`);
-        setFile(null);
-        router.refresh();
       } finally {
         setPhase("idle");
+        setProgress("");
       }
     });
 
@@ -3960,12 +4007,13 @@ function CvsTab({
         <CardContent className="space-y-3">
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-1.5">
-              <Label>CV file</Label>
+              <Label>CV file(s)</Label>
               <FileDrop
-                onFile={pickFile}
-                label="Drop the CV here — or click to browse"
-                hint="any format · up to 25 MB"
-                fileName={file?.name ?? null}
+                multiple
+                onFiles={pickFiles}
+                label="Drop one or several CVs — or click to browse"
+                hint="any format · up to 25 MB each"
+                fileName={files.length > 0 ? files.map((f) => f.name).join(" · ") : null}
                 disabled={phase !== "idle"}
               />
             </div>
@@ -3986,15 +4034,16 @@ function CvsTab({
           </div>
           <div className="flex justify-end">
             <Hint label="Uploads to the private CV pool, then the AI extracts the fields">
-              <Button onClick={upload} disabled={pending || !file || !lcId}>
+              <Button onClick={upload} disabled={pending || files.length === 0 || !lcId}>
                 {phase === "idle" ? (
                   <>
-                    <Upload className="size-4" /> Upload CV
+                    <Upload className="size-4" />
+                    {files.length > 1 ? `Upload ${files.length} CVs` : "Upload CV"}
                   </>
                 ) : (
                   <>
                     <Loader2 className="size-4 animate-spin" />
-                    {phase === "uploading" ? "Uploading…" : "AI is reading it…"}
+                    {progress || (phase === "uploading" ? "Uploading…" : "AI is reading it…")}
                   </>
                 )}
               </Button>

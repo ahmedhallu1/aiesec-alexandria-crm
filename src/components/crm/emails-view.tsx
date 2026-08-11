@@ -1,13 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Bold, Eye, Image as ImageIcon, Italic, Link2, List, ListOrdered, Loader2,
   Mail, Paperclip, Quote, RotateCcw, Search, Send, Sparkles, Type, Underline,
-  Users2, X,
-} from "lucide-react";
+  Users2, X, MailPlus } from "lucide-react";
 import {
   draftEmailWithAi, previewComposedEmail, sendComposedEmail,
 } from "@/server/actions";
@@ -49,10 +49,14 @@ interface Attachment {
  */
 export function EmailsView({
   sent, recents, templates, layouts, images, people, groups,
+  showExpectation = false,
 }: {
   sent: SentEmailRow[];
   recents: string[];
   templates: ComposeTemplate[];
+  /** the Expectation-mail button (v33.37) — the old sidebar tab, now a door
+   *  inside this one; gated exactly like /ogt-mail itself */
+  showExpectation?: boolean;
   layouts: LayoutOption[];
   images: { key: string; label: string; url: string; width: number }[];
   people: { name: string; email: string; role: string }[];
@@ -165,6 +169,12 @@ export function EmailsView({
     if (!t) return;
     setSubject(t.subject);
     if (editor.current) editor.current.innerHTML = t.body;
+    // a template can CARRY its CC (v33.37 — the contract mail always copies
+    // customer support): merged in, never replacing what's already there
+    if (t.cc && t.cc.length > 0) {
+      setCc((prev) => [...new Set([...prev, ...t.cc!])]);
+      setShowCc(true);
+    }
     save();
   };
 
@@ -299,9 +309,18 @@ export function EmailsView({
             come back to you.
           </p>
         </div>
-        <Button variant="ghost" size="sm" onClick={resetAll}>
-          <RotateCcw className="size-4" /> Start again
-        </Button>
+        <div className="flex items-center gap-2">
+          {showExpectation ? (
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/ogt-mail">
+                <MailPlus className="size-4" /> Expectation mail
+              </Link>
+            </Button>
+          ) : null}
+          <Button variant="ghost" size="sm" onClick={resetAll}>
+            <RotateCcw className="size-4" /> Start again
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
