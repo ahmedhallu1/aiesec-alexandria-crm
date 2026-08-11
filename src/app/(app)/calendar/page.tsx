@@ -17,7 +17,7 @@ import {
 } from "@/server/touch-points-read";
 import { assignableForItems, listCalendarItems } from "@/server/calendar-items";
 import { LC_FUNCTIONS, NO_WORKING_HOURS_FUNCTIONS, touchPointLabel } from "@/lib/types";
-import { audienceLabel, expandTouchPointFns } from "@/lib/touch-points";
+import { audienceLabel, expandTouchPointFns, touchPointName } from "@/lib/touch-points";
 import { cairoToUtc } from "@/lib/time";
 import { CalendarView } from "@/components/crm/calendar-view";
 
@@ -107,7 +107,7 @@ export default async function CalendarPage({
       const { date, time, time24 } = cairoParts(t.starts_at);
       return {
         id: t.id,
-        label: touchPointLabel(t.scope, t.kind),
+        label: touchPointName(t),
         date,
         time,
         timeValue: time24,

@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   memberInTouchPointAudience, teamsOf, type TouchPointRow,
 } from "../src/server/touch-points-read";
+import { touchPointLabel } from "../src/lib/types";
+import { touchPointName } from "../src/lib/touch-points";
 
 /** WHO IS ON THE ATTENDANCE SHEET (v33.34).
  *
@@ -99,5 +101,25 @@ describe("teamsOf — one cell, many teams", () => {
   it("splits the membership sheet's comma list", () => {
     expect(teamsOf("Suits, شماريخ")).toEqual(["Suits", "شماريخ"]);
     expect(teamsOf(null)).toEqual([]);
+  });
+});
+
+/** THE NAME (v33.35) — the kind IS the name; the audience is a qualifier. */
+describe("what a touch point is called", () => {
+  it("names the KIND, not the scope it was derived from", () => {
+    expect(touchPointLabel("function", "meeting")).toBe("Meeting");
+    expect(touchPointLabel("team", "meeting")).toBe("Meeting");
+    expect(touchPointLabel("lc", "working_hours")).toBe("Working hours");
+    expect(touchPointLabel("team", "outing")).toBe("Outing");
+  });
+
+  it("qualifies it with WHO, for lists where two need telling apart", () => {
+    expect(touchPointName(tp())).toBe("Meeting · IGV");
+    expect(touchPointName(tp({ scope: "lc", function_key: null }))).toContain("Meeting");
+  });
+
+  it("says out loud when the audience is a picked few", () => {
+    const name = touchPointName(tp({ members: ["a", "b", "c"] }));
+    expect(name).toContain("3 invited");
   });
 });

@@ -430,11 +430,23 @@ export const ATTENDANCE_STATUSES = ["attended", "absent", "late"] as const;
 export type AttendanceStatus = (typeof ATTENDANCE_STATUSES)[number];
 
 /** "Team working hours" · "Function meeting" · "LC outing" */
-export function touchPointLabel(scope: TouchPointScope, kind: TouchPointKind): string {
-  const s = scope === "lc" ? "LC" : scope === "function" ? "Function" : "Team";
-  const k =
-    kind === "working_hours" ? "working hours" : kind === "meeting" ? "meeting" : "outing";
-  return `${s} ${k}`;
+/** WHAT IT IS, NOT WHO IT WAS DERIVED FROM (v33.35).
+ *
+ *  This used to read "Function meeting" / "Team working hours" — the SCOPE
+ *  glued to the kind. Since v33.34 the audience is picked person by person,
+ *  so a "Function meeting" is routinely six people out of thirty and the name
+ *  says something untrue. The kind is the name; who is coming is a separate
+ *  fact with its own label (`audienceLabel`), shown beside it where two
+ *  touch points need telling apart (`touchPointName`).
+ *
+ *  `scope` stays in the signature: it still decides authority, and callers
+ *  pass it. It just no longer decides what the thing is CALLED. */
+export function touchPointLabel(_scope: TouchPointScope, kind: TouchPointKind): string {
+  return kind === "working_hours"
+    ? "Working hours"
+    : kind === "meeting"
+      ? "Meeting"
+      : "Outing";
 }
 
 /** Support functions with no raising floor — never booked for, never invited. */

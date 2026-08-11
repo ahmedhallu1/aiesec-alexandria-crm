@@ -8,10 +8,8 @@ import {
   canEditTouchPoint,
   type Viewer,
 } from "@/lib/rbac";
-import {
-  NO_WORKING_HOURS_FUNCTIONS, TOUCH_POINT_KINDS, TOUCH_POINT_SCOPES, WORK_SESSION_HOURS, touchPointLabel, type TouchPointKind, type TouchPointScope,
-} from "@/lib/types";
-import { audienceLabel, cairoWhen, expandTouchPointFns } from "@/lib/touch-points";
+import { NO_WORKING_HOURS_FUNCTIONS, TOUCH_POINT_KINDS, TOUCH_POINT_SCOPES, WORK_SESSION_HOURS, type TouchPointKind, type TouchPointScope } from "@/lib/types";
+import { audienceLabel, cairoWhen, expandTouchPointFns, touchPointName } from "@/lib/touch-points";
 import { cairoToUtc } from "@/lib/time";
 import { getViewer, logAudit } from "./data";
 import { recordUndo, sandboxSuppressed, snapshotForUndo } from "./sandbox";
@@ -87,7 +85,7 @@ async function announce(
   mode: "created" | "moved" | "cancelled",
   extra?: { previousWhen?: string; reason?: string }
 ): Promise<void> {
-  const label = touchPointLabel(tp.scope, tp.kind);
+  const label = touchPointName(tp);
   const audience = await touchPointAudience(tp);
   const who = audienceLabel(tp);
   const when = cairoWhen(tp.starts_at);
@@ -481,6 +479,83 @@ export async function createTouchPoint(
   });
   refresh();
   return { ok: true, data: { id: created.id, announced } };
+}
+
+/** The guest list AS IT STANDS — the derived pool plus who is currently on
+ *  it, so the manage dialog can edit it without the calendar page carrying an
+ *  audience for every touch point in the month (v33.35). */
+export async function touchPointGuestList(id: string): Promise<
+  Result<{
+    people: { id: string; name: string; role: string; team: string | null }[];
+    excluded: string[];
+    locked: boolean;
+  }>
+> {
+  const viewer = await getViewer();
+  const tp = await getTouchPoint(id);
+  if (!tp) return fail("That touch point no longer exists.");
+  if (!canEditTouchPoint(viewer, tp))
+    return fail("Only its owner, the function's VP/Director or TM can change it.", "forbidden");
+  const derived = await derivedTouchPointAudience({ ...tp, members: null });
+  const picked = Array.isArray(tp.members) && tp.members.length > 0 ? tp.members : null;
+  return {
+    ok: true,
+    data: {
+      people: derived.map((m) => ({
+        id: m.id, name: m.name, role: m.role, team: m.team_name,
+      })),
+      excluded: picked ? derived.filter((m) => !picked.includes(m.id)).map((m) => m.id) : [],
+      // once attendance is signed off, the register is history
+      locked: !!tp.attendance_recorded_at,
+    },
+  };
+}
+
+/** WHO IS COMING, AFTER THE FACT (v33.35).
+ *
+ *  "Set at booking and never again" was the wrong default: people join, people
+ *  drop out, and the whole point of an explicit list is that it matches
+ *  reality. Same authority rule as booking — a subset of the DERIVED audience,
+ *  never a name from outside it — and `null` puts the point back on the
+ *  derived audience, which is the honest way to say "everyone again".
+ *
+ *  Deliberately quiet: this does NOT re-announce. Someone tidying a guest list
+ *  the morning of a meeting should not mail twenty people about it; the
+ *  attendance sheet is what changes, and whoever was added sees it on their
+ *  calendar. Removing yourself from a session you booked is allowed. */
+export async function updateTouchPointMembers(
+  id: string,
+  memberIds: string[] | null
+): Promise<Result> {
+  const viewer = await getViewer();
+  const tp = await getTouchPoint(id);
+  if (!tp) return fail("That touch point no longer exists.");
+  if (!canEditTouchPoint(viewer, tp))
+    return fail("Only its owner, the function's VP/Director or TM can change it.", "forbidden");
+  if (tp.status !== "scheduled") return fail("This touch point is cancelled.");
+  if (tp.attendance_recorded_at)
+    return fail(
+      "Attendance is already recorded for this one — changing who was invited now would rewrite a register somebody signed off."
+    );
+
+  let next: string[] | null = null;
+  if (Array.isArray(memberIds)) {
+    const derived = await derivedTouchPointAudience({ ...tp, members: null });
+    const allowed = new Set(derived.map((m) => m.id));
+    const picked = [...new Set(memberIds)].filter((m) => allowed.has(m));
+    if (picked.length === 0)
+      return fail("Pick at least one person — a touch point with nobody in it isn't one.");
+    next = picked.length === allowed.size ? null : picked;
+  }
+
+  await snapshotForUndo("touch_points", id);
+  const { error } = await db().from("touch_points").update({ members: next }).eq("id", id);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "touch_point_members", "touch_point", id, {
+    count: next?.length ?? null,
+  });
+  refresh();
+  return { ok: true };
 }
 
 export async function updateTouchPoint(

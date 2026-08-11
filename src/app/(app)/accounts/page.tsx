@@ -1,6 +1,6 @@
 import {
   countUnassigned, getViewer, listAccountsPage, listManualArchived, listVisibleMembers,
-  listReassignTargetsForViewer, listTeamFilterOptions,
+  listReassignTargetsForViewer, listTeamFilterOptions, unreportedVisits,
 } from "@/server/data";
 import type { AccountFilters } from "@/server/data";
 import {
@@ -85,6 +85,9 @@ export default async function AccountsPage({
   // to everyone who can SEE unowned accounts (canFilterUnassigned, so every
   // role above Member), and only when there actually ARE some to find.
   const unassignedCount = await countUnassigned(viewer, filters.fn);
+  // VISITS THAT HAPPENED AND WERE NEVER REPORTED (v33.35) — the same warning
+  // the IR floor got, scoped the same way: yours, your team's, your function's
+  const overdueVisits = archived ? [] : await unreportedVisits(viewer);
   const respOptions = [
     ...(unassignedCount > 0
       ? [{ id: "none", label: `— Unassigned (${unassignedCount})` }]
@@ -97,6 +100,7 @@ export default async function AccountsPage({
 
   return (
     <AccountsView
+      overdueVisits={overdueVisits}
       rows={rows}
       total={total}
       page={page}

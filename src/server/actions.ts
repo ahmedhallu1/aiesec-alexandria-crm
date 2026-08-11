@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { touchPointName } from "@/lib/touch-points";
 import crypto from "node:crypto";
 import { after } from "next/server";
 import { z } from "zod";
@@ -4786,7 +4787,7 @@ export async function submitLcFeedback(input: {
     const { touchPointLabel } = await import("@/lib/types");
     const { cairoWhen } = await import("@/lib/touch-points");
     message =
-      `📍 ${"⭐".repeat(rating ?? 0)} (${rating}/5) — the ${touchPointLabel(tp.scope, tp.kind)} on ${cairoWhen(tp.starts_at)}` +
+      `📍 ${"⭐".repeat(rating ?? 0)} (${rating}/5) — ${touchPointName(tp)} on ${cairoWhen(tp.starts_at)}` +
       (message ? `\n\n${message}` : "\n\n(no note left)");
     // A SESSION IS THE LC'S, NOT THE ORGANISER'S (v33.19.2). Feedback about a
     // touch point used to be addressed AT whoever booked it, which turned

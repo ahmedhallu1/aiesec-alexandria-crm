@@ -5,13 +5,13 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
-  AlertTriangle, Archive, Check, CheckCircle2, CheckSquare, CircleAlert,
+  AlertTriangle, Archive, CalendarClock, Check, CheckCircle2, CheckSquare, CircleAlert,
   ChevronDown, Copy, FileUp, Footprints, Loader2, MessageSquarePlus, Phone, Plus,
   RotateCcw, Search,
   Trash2, Users2, X,
   XCircle,
 } from "lucide-react";
-import type { PipelineRow } from "@/server/data";
+import type { PipelineRow, UnreportedVisit } from "@/server/data";
 import {
   addArchivedAccount, addComment, bulkArchiveAccounts, bulkDeleteArchived,
   bulkReassignAccounts,
@@ -608,9 +608,12 @@ function QuickActionsLogged({
 
 export function AccountsView({
   rows, total, page, pageSize, pageSizeOptions, manualArchived, members,
-  reassignTargets, respOptions, teamOptions, viewer, filters,
+  reassignTargets, respOptions, teamOptions, viewer, filters, overdueVisits = [],
 }: {
   rows: PipelineRow[];
+  /** visits that happened and were never reported, scoped to this viewer
+   *  (v33.35) — the raising twin of the IR-calls banner */
+  overdueVisits?: UnreportedVisit[];
   /** total matches across ALL pages (the list is paginated since v22) */
   total: number;
   /** 0-based current page + the server's page size */
@@ -735,6 +738,8 @@ export function AccountsView({
   // Desktop shows the checkboxes ALWAYS (direct select); mobile enters
   // selection via the Select button.
   const [selectMode, setSelectMode] = useState(false);
+  // the unreported-visits banner starts collapsed — the count is the message
+  const [visitsOpen, setVisitsOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkArchiveOpen, setBulkArchiveOpen] = useState(false);
   const [bulkReassignOpen, setBulkReassignOpen] = useState(false);
@@ -1137,6 +1142,61 @@ export function AccountsView({
           ) : null}
         </div>
       </div>
+
+      {/* VISITS THAT HAPPENED AND NOBODY REPORTED (v33.35) — the raising twin
+          of the IR-calls banner. Scoped to what YOU answer for, so a member
+          with a clean slate never sees it: a warning everyone sees is
+          wallpaper. The +2h email and the one-week nag still run; this is the
+          same fact where the work actually happens. */}
+      {!archived && overdueVisits.length > 0 ? (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 rise-in">
+          <button
+            type="button"
+            onClick={() => setVisitsOpen((v) => !v)}
+            className="flex w-full items-center gap-2 text-left text-sm"
+          >
+            <CalendarClock className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <span className="min-w-0 flex-1">
+              <b>{overdueVisits.length}</b>{" "}
+              {overdueVisits.length === 1 ? "visit needs" : "visits need"} a
+              report — the day has passed and nobody said what happened.
+            </span>
+            <span className="shrink-0 text-xs font-semibold text-amber-700 dark:text-amber-400">
+              {visitsOpen ? "Hide" : "Show them"}
+            </span>
+          </button>
+          {visitsOpen ? (
+            <div className="mt-2 space-y-1 border-t border-amber-500/30 pt-2">
+              {overdueVisits.slice(0, 12).map((v) => (
+                <Link
+                  key={v.id}
+                  href={`/accounts/${v.accountSlug}`}
+                  className="flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md px-1.5 py-1 text-sm hover:bg-amber-500/10"
+                >
+                  <span className="font-medium" dir="auto">{v.accountName}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {v.whenLabel} · {v.daysAgo === 0 ? "today" : `${v.daysAgo}d ago`}
+                  </span>
+                  {v.memberName ? (
+                    <span className="text-xs text-muted-foreground" dir="auto">
+                      · {v.memberName}
+                    </span>
+                  ) : null}
+                </Link>
+              ))}
+              {overdueVisits.length > 12 ? (
+                <p className="px-1.5 text-xs text-muted-foreground">
+                  +{overdueVisits.length - 12} more
+                </p>
+              ) : null}
+              <p className="px-1.5 pt-1 text-xs text-muted-foreground">
+                Open the account and report it from the pending visit — or mark
+                the account Out of Process if it went nowhere.
+              </p>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-2 rise-in rise-in-1">

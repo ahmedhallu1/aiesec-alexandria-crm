@@ -1,4 +1,5 @@
 import "server-only";
+import { touchPointName } from "@/lib/touch-points";
 import { cache } from "react";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
@@ -42,7 +43,9 @@ import type {
   Stage,
 } from "@/lib/types";
 import {
-  parsePhoneSessionKey, normalizeName, accountSlug, slugLikePattern } from "@/lib/types";
+  parsePhoneSessionKey, normalizeName, accountSlug, fmtClock12,
+  slugLikePattern } from "@/lib/types";
+import { cairoToUtc } from "@/lib/time";
 import { monthOf, sprintOf } from "@/lib/plan";
 
 export interface PipelineRow extends AccountPipeline {
@@ -625,6 +628,90 @@ export async function considerationStats(
     byMonth,
     filtered,
   };
+}
+
+/** VISITS THAT HAPPENED AND WERE NEVER REPORTED (v33.35).
+ *
+ *  The +2h prompt and the one-week nag have chased these by EMAIL since v11,
+ *  which works right up until someone stops reading email. In the app they
+ *  were invisible: an account sat at "Visit Scheduled" forever and the funnel
+ *  counted a visit that, as far as anyone can prove, never happened.
+ *
+ *  Same shape as the IR-calls banner (v33.32) and the same hierarchy: a member
+ *  answers for their own, a Team Leader for their team's, a VP/Director for
+ *  their function's, the LCP for the LC. Nobody with a clean slate sees
+ *  anything at all — a warning everyone sees is wallpaper.
+ */
+export interface UnreportedVisit {
+  id: string;
+  accountId: string;
+  accountName: string;
+  accountSlug: string;
+  fn: string;
+  /** Cairo, already formatted */
+  whenLabel: string;
+  /** how long ago it was, in days */
+  daysAgo: number;
+  memberId: string | null;
+  memberName: string;
+}
+
+export async function unreportedVisits(viewer: Viewer): Promise<UnreportedVisit[]> {
+  if (!hasRaisingAccess(viewer)) return [];
+  const scope = accountScope(viewer);
+  // only the last two months: a visit nobody reported in April is not a
+  // to-do any more, it is history, and a banner that never empties is noise
+  const since = new Date(Date.now() - 60 * 86_400_000).toISOString().slice(0, 10);
+  const nowIso = new Date().toISOString();
+  let q = db()
+    .from("visits")
+    .select(
+      "id, account_id, member_id, visit_date, visit_time, " +
+        "account:accounts!visits_account_id_fkey(name, function, out_of_process, is_test), " +
+        "member:members!visits_member_id_fkey(name)"
+    )
+    .eq("done", false)
+    .gte("visit_date", since)
+    .order("visit_date", { ascending: false })
+    .limit(200);
+  // the hierarchy, applied to the VISIT's owner (who owes the report)
+  if (scope.kind === "members") q = q.in("member_id", scope.ids);
+  const { data, error } = await q;
+  if (error) {
+    console.error("[visits] unreported query failed:", error.message);
+    return [];
+  }
+  const out: UnreportedVisit[] = [];
+  const now = new Date(nowIso).getTime();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const v of (data ?? []) as any[]) {
+    const acc = Array.isArray(v.account) ? v.account[0] : v.account;
+    if (!acc || acc.out_of_process) continue;
+    if (acc.is_test && !viewer.testMode) continue;
+    // a leader's scope is functional — match the ACCOUNT's function
+    if (scope.kind === "functions" && !scope.fns.includes(acc.function)) continue;
+    const when = cairoToUtcVisit(v.visit_date, v.visit_time);
+    if (when.getTime() >= now) continue; // still ahead of us
+    const member = Array.isArray(v.member) ? v.member[0] : v.member;
+    out.push({
+      id: v.id,
+      accountId: v.account_id,
+      accountName: acc.name,
+      accountSlug: accountSlug(acc.name),
+      fn: acc.function,
+      whenLabel: `${v.visit_date}${v.visit_time ? ` · ${fmtClock12(v.visit_time)}` : ""}`,
+      daysAgo: Math.max(0, Math.floor((now - when.getTime()) / 86_400_000)),
+      memberId: v.member_id,
+      memberName: member?.name ?? "Unassigned",
+    });
+  }
+  return out;
+}
+
+/** A visit's Cairo wall-clock as an instant. Date-only visits are judged from
+ *  the END of their day — "Tuesday" isn't late until Tuesday is over. */
+function cairoToUtcVisit(date: string, time: string | null): Date {
+  return time ? cairoToUtc(date, time.slice(0, 5)) : cairoToUtc(date, "23:59");
 }
 
 // ------------------------------------------------------------------ scope helpers
@@ -3806,7 +3893,7 @@ export async function listAttendedTouchPoints(
   if (ids.length === 0) return [];
   const { data } = await db()
     .from("touch_points")
-    .select("id, scope, kind, starts_at, owner_id, owner_name")
+    .select("id, scope, kind, starts_at, owner_id, owner_name, function_key, team_name, invited_teams, invited_functions, members")
     .in("id", ids)
     .order("starts_at", { ascending: false })
     .limit(30);
@@ -3816,7 +3903,7 @@ export async function listAttendedTouchPoints(
     .filter((tp) => tp.owner_id && tp.owner_id !== viewer.id)
     .map((tp) => ({
       id: tp.id,
-      label: `${touchPointLabel(tp.scope, tp.kind)} · ${cairoWhen(tp.starts_at)}`,
+      label: `${touchPointName(tp)} · ${cairoWhen(tp.starts_at)}`,
       ownerName: tp.owner_name,
     }));
 }
@@ -3853,7 +3940,7 @@ export async function listPastTouchPointsForFeedback(
     .slice(0, 60)
     .map((tp) => ({
       id: tp.id,
-      label: `${touchPointLabel(tp.scope, tp.kind)} · ${cairoWhen(tp.starts_at)}`,
+      label: `${touchPointName(tp)} · ${cairoWhen(tp.starts_at)}`,
       ownerName: tp.owner_name,
     }));
 }
@@ -4051,7 +4138,7 @@ export async function listLcFeedback(viewer: Viewer): Promise<LcFeedbackRow[]> {
       authorTold: !!r.author_told_at,
       aboutNames: (r.about ?? []).map((id: string) => nameOf(id)),
       sessionLabel: tp
-        ? `${touchPointLabel(tp.scope, tp.kind)} · ${cairoWhen(tp.starts_at)}`
+        ? `${touchPointName(tp)} · ${cairoWhen(tp.starts_at)}`
         : null,
       message: r.message,
       attachments: Array.isArray(r.attachments) ? r.attachments : [],

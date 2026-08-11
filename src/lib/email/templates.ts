@@ -1230,6 +1230,42 @@ export function lcFeedbackHandledEmail(opts: {
  *  six out. So: confirm, in their words, in their zone, with the option to
  *  move it if that turns out not to work. Never an apology for a broken
  *  booking; there isn't one. */
+/** "RATE IT" — the end-of-day nudge (v33.35).
+ *
+ *  v33.33 made session feedback a 1–5 star tap. Nobody was ever asked for it,
+ *  so almost nobody gave it. This asks — once, the evening of the session,
+ *  everyone who was there, with TM and the booker on CC — and it is written
+ *  to be believed: the ask really is four seconds, and saying so plainly is
+ *  the only thing that gets a busy member to open the tab. */
+export function touchPointFeedbackNudgeEmail(opts: {
+  /** "Meeting · IGV" */
+  label: string;
+  whenLabel: string;
+  ownerName: string;
+  feedbackUrl: string;
+}): { subject: string; html: string } {
+  return {
+    subject: `⭐ ${opts.label} — how was it? (four seconds, we counted)`,
+    html: emailLayout({
+      preheader: "Five stars to tap. That's the whole email.",
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">How was it? ⭐</h1>
+        <p>You were at <b>${escapeHtml(opts.label)}</b> — ${escapeHtml(opts.whenLabel)},
+        run by ${escapeHtml(opts.ownerName)}. Tell us how it went.</p>
+        <p style="border-left:4px solid #037EF3;background:#f5faff;border-radius:0 8px 8px 0;padding:14px 16px;">
+          <b>It is one tap.</b> Five stars, pick one, done. No form, no essay,
+          no &quot;describe your experience in 200 words&quot;. There is a box
+          for a note if you have something to say — and it is genuinely
+          optional, we are not going to sulk.
+        </p>
+        <p style="font-size:26px;line-height:1;margin:0 0 12px;">⭐⭐⭐⭐⭐</p>
+        ${button("Rate it (seriously, four seconds)", opts.feedbackUrl)}
+        <p style="color:#5c6b80;font-size:13px;">Open Feedback → pick <b>A touch point</b> → tap the stars. It goes to TM and the LCP, never to the person who ran it as a complaint about them — a session is a session.</p>
+        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">Already rated it? You are a legend and this email is not for you. 💙</p>`,
+    }),
+  };
+}
+
 /** BOOKED, THE TIME PASSED, STILL NOT REPORTED (v33.32).
  *
  *  A scheduled call whose slot is behind us is nobody's "upcoming" and

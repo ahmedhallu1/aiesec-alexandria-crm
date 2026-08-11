@@ -6,7 +6,7 @@ import { env } from "@/lib/env";
 import { sendEmail } from "@/lib/google/gmail";
 import { attendanceDueEmail } from "@/lib/email/attendance-templates";
 import { touchPointLabel } from "@/lib/types";
-import { audienceLabel, cairoWhen } from "@/lib/touch-points";
+import { audienceLabel, cairoWhen, touchPointName } from "@/lib/touch-points";
 import type { TouchPointRow } from "@/server/touch-points-read";
 import {
   runWorkingHoursAttendance,
@@ -153,7 +153,7 @@ export async function GET(req: NextRequest) {
     (key && fnSettings[key]) || null;
 
   for (const tp of touchPoints) {
-    const label = touchPointLabel(tp.scope, tp.kind);
+    const label = touchPointName(tp);
     const whenLabel = cairoWhen(tp.starts_at);
     const fnSetting = settingOf(tp.function_key);
     try {

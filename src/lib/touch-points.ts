@@ -59,6 +59,26 @@ export const TOUCH_POINT_SCOPE_RULE: Record<TouchPointScope, string> = {
   lc: "The whole LC. TM's call.",
 };
 
+/** THE FULL NAME of one touch point — "Meeting · IGV" — for any list where
+ *  two of them need telling apart (v33.35). The kind alone is the NAME; the
+ *  audience is the qualifier, and it comes from the same place the emails
+ *  get it, so a row and its invite always agree. */
+export function touchPointName(tp: {
+  scope: TouchPointScope;
+  kind: TouchPointKind;
+  function_key: string | null;
+  team_name: string | null;
+  invited_teams?: string[] | null;
+  invited_functions?: string[] | null;
+  members?: string[] | null;
+}): string {
+  const base = touchPointLabel(tp.scope, tp.kind);
+  const who = audienceLabel(tp);
+  // an explicit guest list makes "IGV" a half-truth — say it's a picked few
+  const picked = Array.isArray(tp.members) && tp.members.length > 0;
+  return `${base} · ${who}${picked ? ` (${tp.members!.length} invited)` : ""}`;
+}
+
 /** The audience line shown in the UI/emails ("IGV · Falcons" / "the whole LC"). */
 export function audienceLabel(tp: {
   scope: TouchPointScope;
