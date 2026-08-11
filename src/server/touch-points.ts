@@ -24,6 +24,7 @@ import {
   ownTeamName,
   teamsOf,
   tmLeadEmails,
+  derivedTouchPointAudience,
   touchPointAudience,
   type TouchPointRow,
 } from "./touch-points-read";
@@ -159,6 +160,12 @@ export interface CreateTouchPointInput {
   /** VIRTUAL (v32.9): creates a Google Calendar event with a Meet room and
    *  the whole audience invited, so their Yes/No RSVP becomes attendance */
   virtual?: boolean;
+  /** WHO IS ACTUALLY COMING (v33.34). Omit (or send the whole derived list)
+   *  and the audience stays DERIVED — it grows as people join the function.
+   *  Send a narrower list and that becomes the audience: the invite and the
+   *  attendance sheet both. The server refuses any id outside the derived
+   *  audience, so this can only ever narrow. */
+  memberIds?: string[] | null;
   /** set when a TIMELINE generated this point */
   routineId?: string | null;
   /** Tell everyone invited (email + bell). DEFAULT TRUE — only an explicit
@@ -181,39 +188,44 @@ function scopeRefusal(viewer: Viewer): string {
   return "You book your own TEAM's touch points — function and LC ones aren't yours to book.";
 }
 
-export async function createTouchPoint(
-  input: CreateTouchPointInput
-): Promise<Result<{ id: string; announced: boolean }>> {
-  const viewer = await getViewer();
-  const scope = input.scope;
-  const kind = input.kind;
-  if (!TOUCH_POINT_SCOPES.includes(scope) || !TOUCH_POINT_KINDS.includes(kind))
-    return fail("Pick a valid touch-point type.");
-  // THE booking gate: exactly one scope per role (LCP/admin excepted). A VP
-  // asking for "team", or TM asking for "function"/"team", stops right here —
-  // the picker hides them, and the server means it.
-  if (!canBookTouchPoint(viewer, scope))
-    return fail(scopeRefusal(viewer), "forbidden");
-
-  const startsAt = cairoStart(input.date, input.time);
-  if (!startsAt) return fail("Pick the date and start time.");
-  // v31: a start in the PAST is legal — it means "I'm logging a touch point
-  // that already happened" (attendance is still taken on it, which is the
-  // whole point). What it must NEVER do is invite people to it, so the
-  // announcement is off for past points no matter what the booker ticked.
-  const announced = input.notify !== false && !isPastStart(startsAt);
-
+/** WHO A TOUCH POINT IS FOR — resolved and AUTHORITY-CHECKED (v33.34).
+ *
+ *  Extracted from `createTouchPoint` so the booking dialog can ask "who would
+ *  this invite?" before anything is booked, and get back exactly the list the
+ *  create path would build. One implementation, so the preview can never
+ *  offer someone the create would refuse (or hide someone it would include).
+ *
+ *  Everything here is a REFUSAL boundary, not a convenience: a team name is
+ *  free text in the DB, so an unchecked one would let a Team Leader book for,
+ *  announce to and mark ABSENT a team they have no authority over.
+ */
+async function resolveTouchPointTargets(
+  viewer: Viewer,
+  input: Pick<
+    CreateTouchPointInput,
+    "scope" | "kind" | "functionKey" | "teamName" | "invitedTeams" | "invitedFunctions"
+  >
+): Promise<
+  | { error: Result<never> }
+  | {
+      functionKey: string | null;
+      teamName: string | null;
+      invitedTeams: string[];
+      invitedFunctions: string[];
+    }
+> {
+  const { scope, kind } = input;
   const ownFns = [...viewer.functions, ...viewer.sub_functions];
   const functionKey =
     scope === "lc" ? null : clean(input.functionKey, 20) || ownFns[0] || null;
-  if (scope !== "lc" && !functionKey) return fail("Pick the function.");
+  if (scope !== "lc" && !functionKey) return { error: fail("Pick the function.") };
   if (
     scope !== "lc" &&
     functionKey &&
     !ownFns.includes(functionKey) &&
     !(viewer.isAdmin || viewer.role === "LCP")
   )
-    return fail("You can only book for your own function.", "forbidden");
+    return { error: fail("You can only book for your own function.", "forbidden") };
 
   // TEAM BINDING — a team name is free text in the DB and the audience is
   // resolved from it, so an unchecked name would let a Team Leader book for,
@@ -244,16 +256,111 @@ export async function createTouchPoint(
         // to them, so a name they typed can never widen the audience.
         mine;
     if (!teamName)
-      return fail(
+      return { error: fail(
         picksAnyTeam
           ? "Pick one of your function's teams."
           : "You can only book for your own team.",
         "forbidden"
-      );
+      ) };
     invitedTeams = [...new Set((input.invitedTeams ?? []).map((t) => clean(t, 60)))]
       .filter((t) => t && t !== teamName && known.has(t))
       .slice(0, 10);
   }
+  // TM / F&L / CXP have no working floor — no working hours for or with them
+  if (kind === "working_hours" && functionKey && NO_WORKING_HOURS_FUNCTIONS.includes(functionKey))
+    return { error: fail(`${functionKey} doesn't run working hours.`) };
+  // "B2B" and "BD" are the same crew — inviting the other name would be a
+  // no-op duplicate of the point's own function
+  const fnSelf = expandTouchPointFns(functionKey ? [functionKey] : []);
+  const invitedFunctions =
+    scope === "function"
+      ? [
+          ...new Set(
+            (input.invitedFunctions ?? [])
+              .map((f) => clean(f, 20))
+              .filter((f) => f && !fnSelf.has(f) && !NO_WORKING_HOURS_FUNCTIONS.includes(f))
+          ),
+        ].slice(0, 10)
+      : [];
+  return { functionKey, teamName, invitedTeams, invitedFunctions };
+}
+
+/** WHO WOULD THIS INVITE? (v33.34) — the dialog asks before booking, so the
+ *  booker can untick the three people who aren't in the function yet, or the
+ *  two who already said they can't make it, instead of marking them absent
+ *  from something nobody expected them at.
+ *
+ *  Runs the same authority checks as the create path (via
+ *  `resolveTouchPointTargets`), so this can never be used to read a roster
+ *  the caller couldn't book for. */
+export async function previewTouchPointAudience(input: {
+  scope: TouchPointScope;
+  kind: TouchPointKind;
+  functionKey?: string | null;
+  teamName?: string | null;
+  invitedTeams?: string[];
+  invitedFunctions?: string[];
+}): Promise<
+  Result<{ people: { id: string; name: string; role: string; team: string | null }[] }>
+> {
+  const viewer = await getViewer();
+  if (!TOUCH_POINT_SCOPES.includes(input.scope) || !TOUCH_POINT_KINDS.includes(input.kind))
+    return fail("Pick a valid touch-point type.");
+  if (!canBookTouchPoint(viewer, input.scope))
+    return fail(scopeRefusal(viewer), "forbidden");
+  const targets = await resolveTouchPointTargets(viewer, input);
+  if ("error" in targets) return targets.error;
+  const people = await derivedTouchPointAudience({
+    scope: input.scope,
+    kind: input.kind,
+    function_key: targets.functionKey,
+    team_name: targets.teamName,
+    invited_teams: targets.invitedTeams,
+    invited_functions: targets.invitedFunctions,
+    owner_id: viewer.id,
+    owner_name: viewer.name,
+    starts_at: new Date().toISOString(),
+    id: "", note: null, status: "scheduled", cancel_reason: null,
+    attendance_recorded_at: null, members: null,
+  });
+  return {
+    ok: true,
+    data: {
+      people: people.map((m) => ({
+        id: m.id,
+        name: m.name,
+        role: m.role,
+        team: m.team_name,
+      })),
+    },
+  };
+}
+
+export async function createTouchPoint(
+  input: CreateTouchPointInput
+): Promise<Result<{ id: string; announced: boolean }>> {
+  const viewer = await getViewer();
+  const scope = input.scope;
+  const kind = input.kind;
+  if (!TOUCH_POINT_SCOPES.includes(scope) || !TOUCH_POINT_KINDS.includes(kind))
+    return fail("Pick a valid touch-point type.");
+  // THE booking gate: exactly one scope per role (LCP/admin excepted). A VP
+  // asking for "team", or TM asking for "function"/"team", stops right here —
+  // the picker hides them, and the server means it.
+  if (!canBookTouchPoint(viewer, scope))
+    return fail(scopeRefusal(viewer), "forbidden");
+
+  const startsAt = cairoStart(input.date, input.time);
+  if (!startsAt) return fail("Pick the date and start time.");
+  // v31: a start in the PAST is legal — it means "I'm logging a touch point
+  // that already happened" (attendance is still taken on it, which is the
+  // whole point). What it must NEVER do is invite people to it, so the
+  // announcement is off for past points no matter what the booker ticked.
+  const announced = input.notify !== false && !isPastStart(startsAt);
+
+  const targets = await resolveTouchPointTargets(viewer, input);
+  if ("error" in targets) return targets.error;
+  const { functionKey, teamName, invitedTeams, invitedFunctions } = targets;
 
   // NO WORKING HOURS ON TOP OF THE LC'S (v33.6). An LC working-hours session
   // already has everyone in it; a team session at the same moment doesn't add
@@ -284,22 +391,34 @@ export async function createTouchPoint(
       );
   }
 
-  // TM / F&L / CXP have no working floor — no working hours for or with them
-  if (kind === "working_hours" && functionKey && NO_WORKING_HOURS_FUNCTIONS.includes(functionKey))
-    return fail(`${functionKey} doesn't run working hours.`);
-  // "B2B" and "BD" are the same crew — inviting the other name would be a
-  // no-op duplicate of the point's own function
-  const fnSelf = expandTouchPointFns(functionKey ? [functionKey] : []);
-  const invitedFunctions =
-    scope === "function"
-      ? [
-          ...new Set(
-            (input.invitedFunctions ?? [])
-              .map((f) => clean(f, 20))
-              .filter((f) => f && !fnSelf.has(f) && !NO_WORKING_HOURS_FUNCTIONS.includes(f))
-          ),
-        ].slice(0, 10)
-      : [];
+  // ---- WHO IS COMING (v33.34)
+  //
+  // The audience is derived from everything decided above; the booker may
+  // have unticked some of it. Validate against the DERIVED list — a booker
+  // narrows their own audience, never reaches outside it — and store nothing
+  // when they kept everyone, so the point keeps picking up people who join
+  // the function later (which is the right default and the old behaviour).
+  let memberIds: string[] | null = null;
+  if (Array.isArray(input.memberIds)) {
+    const derived = await derivedTouchPointAudience({
+      scope, kind,
+      function_key: functionKey,
+      team_name: teamName,
+      invited_teams: invitedTeams,
+      invited_functions: invitedFunctions,
+      owner_id: viewer.id,
+      owner_name: viewer.name,
+      starts_at: startsAt.toISOString(),
+      id: "", note: null, status: "scheduled", cancel_reason: null,
+      attendance_recorded_at: null, members: null,
+    });
+    const allowed = new Set(derived.map((m) => m.id));
+    const picked = [...new Set(input.memberIds)].filter((id) => allowed.has(id));
+    if (picked.length === 0)
+      return fail("Pick at least one person — a touch point with nobody in it isn't one.");
+    // everyone kept = leave it derived, so the audience stays alive
+    memberIds = picked.length === allowed.size ? null : picked;
+  }
 
   const { data: created, error } = await db()
     .from("touch_points")
@@ -308,6 +427,7 @@ export async function createTouchPoint(
       kind,
       function_key: functionKey,
       team_name: teamName,
+      members: memberIds,
       starts_at: startsAt.toISOString(),
       note: clean(input.note, 500) || null,
       invited_teams: invitedTeams,

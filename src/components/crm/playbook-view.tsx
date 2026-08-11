@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /** ⚠️ Bump with EVERY release (same commit as the feature) — the playbook is
  *  handed to the next generations and must always describe the live system. */
-export const PLAYBOOK_VERSION = "v33.33";
+export const PLAYBOOK_VERSION = "v33.34";
 
 interface Props {
   role: string;
@@ -268,6 +268,7 @@ const SECTIONS: Section[] = [
     audience: "Everyone",
     color: "#8E44AD",
     points: [
+      <><b>Pick who is actually coming</b> (v33.34): booking shows a <b>Who&apos;s invited</b> list — everyone the scope reaches, already ticked. Untick the three who aren&apos;t in the function yet, or the two who told you they can&apos;t make it, and only the ticked people are invited AND only they appear on the attendance sheet. Leave it alone and nothing changes: the audience stays live, so anyone who joins the function before the session is in it. You can only ever narrow your own audience — the list is built from the scope you were allowed to book.</>,
       <><b>Rate a touch point out of 5</b> (v33.33): a session isn&apos;t a shout-out or a concern — &quot;good, but it ran long&quot; is neither a complaint about a person nor applause for one. On <b>Feedback</b>, pick <b>A touch point</b>, give it <b>1–5 stars</b> and add a note if you want to (the stars are the review; the note is a bonus). It goes privately to the people who run the LC&apos;s sessions — TM and the LCP — never to whoever booked it, and never as a shout-out to anyone.</>,
 
       <><b>Touch points</b> are the LC&apos;s moments: <b>meetings, working hours and outings</b>. Who books what: a <b>Team Leader</b> books their team&apos;s (and may invite sibling teams of the same function), a <b>VP/Director</b> the function&apos;s (and may invite another function), <b>TM</b> the LC-wide ones — the LCP books anything. You set a date and a START time (no end time) plus an optional note; everyone invited gets an email + a bell, with the TM VP always CC&apos;d. </>,
