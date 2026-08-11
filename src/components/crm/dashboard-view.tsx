@@ -820,6 +820,16 @@ function ConsiderationPanel({ stats }: { stats: import("@/server/data").Consider
             )
           : null}
         {kpi("Partner LCs reached", stats.partnerLcsContacted, `${stats.newLcsThisMonth} reached for the first time this month`)}
+        {kpi(
+          "🤝 Partnerships",
+          stats.partnerships.total,
+          `New LCs partnered with (WhatsApp group open) — ${stats.partnerships.thisMonth} made this month${stats.partnerships.pending > 0 ? ` · ${stats.partnerships.pending} target${stats.partnerships.pending === 1 ? "" : "s"} still pending` : ""}`
+        )}
+        {kpi(
+          "Partnerships this month",
+          stats.partnerships.thisMonth,
+          "Partnerships whose date falls in this month"
+        )}
         {kpi("New LCs this month", stats.newLcsThisMonth, "Partner LCs whose first-ever call was this month")}
         {stats.completionRate != null
           ? kpi(
@@ -916,6 +926,30 @@ function ConsiderationPanel({ stats }: { stats: import("@/server/data").Consider
                   ))}
                 </tbody>
               </table>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+      {/* 🤝 who is making the partnerships (v33.38) — the member's KPI */}
+      {stats.partnerships.byMember.length > 0 ? (
+        <Card className="rise-in rise-in-1">
+          <CardContent className="pt-4">
+            <p className="text-xs font-medium text-muted-foreground">
+              🤝 Partnerships by member
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {stats.partnerships.byMember.map((m) => (
+                <span
+                  key={m.name}
+                  className="rounded-full border bg-muted px-2.5 py-1 text-xs font-medium"
+                  title={`${m.month} this month`}
+                >
+                  {m.name} <b>{m.total}</b>
+                  {m.month > 0 ? (
+                    <span className="text-muted-foreground"> · {m.month} this month</span>
+                  ) : null}
+                </span>
+              ))}
             </div>
           </CardContent>
         </Card>

@@ -1,9 +1,12 @@
 import { redirect } from "next/navigation";
 import {
-  getViewer, irCallFilterOptions, listCvsPage, listIrCalls, listPartnerLcDetails,
+  getViewer, irCallFilterOptions, listConsiderationCrew, listCvsPage, listIrCalls,
+  listPartnerLcDetails,
   myIrBooking,
 } from "@/server/data";
-import { canSeeCvPool, canUseIgtExpectationMail, hasConsiderationAccess } from "@/lib/rbac";
+import {
+  canSeeCvPool, canUseIgtExpectationMail, hasConsiderationAccess, icxFunctions,
+} from "@/lib/rbac";
 import { env } from "@/lib/env";
 import { ConsiderationView } from "@/components/crm/consideration-view";
 import { PAGE_SIZES, pageSizeOf } from "@/lib/page-size";
@@ -52,7 +55,15 @@ export default async function ConsiderationPage({
     to: sp.callto,
   };
 
-  const [lcs, calls, cvs, booking, callOptions] = await Promise.all([
+  // 🤝 partnership targets (v33.38): who the viewer may hand one to —
+  // lead → the whole crew · TL → self + own team · Coordinator → self
+  const canAssignPartnerships =
+    viewer.isAdmin ||
+    ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(viewer.role);
+  const isLead =
+    viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
+
+  const [lcs, calls, cvs, booking, callOptions, crewAll] = await Promise.all([
     listPartnerLcDetails(viewer),
     listIrCalls(viewer, tab === "calls" ? page : 0, pageSize, undefined, callFilters),
     showCvs
@@ -74,7 +85,17 @@ export default async function ConsiderationPage({
       : Promise.resolve({ rows: [], total: 0, page: 0 }),
     myIrBooking(viewer),
     irCallFilterOptions(viewer),
+    canAssignPartnerships ? listConsiderationCrew(viewer) : Promise.resolve([]),
   ]);
+  const partnershipTargets = isLead
+    ? crewAll
+    : viewer.role === "Team Leader"
+      ? crewAll.filter((m) => m.id === viewer.id || m.managerId === viewer.id)
+      : crewAll.filter((m) => m.id === viewer.id);
+  // the record form's product defaults to the member's own side
+  const icx = icxFunctions(viewer);
+  const defaultProduct: "GV" | "GT" | null =
+    icx.length === 1 ? (icx[0] === "IGV" ? "GV" : "GT") : null;
 
   return (
     <ConsiderationView
@@ -90,6 +111,9 @@ export default async function ConsiderationPage({
       pageSizeOptions={PAGE_SIZES}
       booking={booking}
       origin={env.appUrl}
+      partnershipTargets={partnershipTargets.map((m) => ({
+        id: m.id, name: m.name, role: m.role,
+      }))}
       viewer={{
         id: viewer.id,
         isVp: viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role),
@@ -102,6 +126,8 @@ export default async function ConsiderationPage({
         canManageLcs:
           viewer.isAdmin ||
           ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(viewer.role),
+        canAssignPartnerships,
+        defaultProduct,
       }}
     />
   );

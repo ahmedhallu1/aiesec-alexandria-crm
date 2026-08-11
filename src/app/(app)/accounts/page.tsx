@@ -60,6 +60,14 @@ export default async function AccountsPage({
     from: params.from || undefined,
     to: params.to || undefined,
     subProduct: params.sub && (!params.fn || params.fn === "IGT") ? params.sub : undefined,
+    // v33.38 — the funnels the columns were missing
+    industry: params.industry || undefined,
+    accountType: params.type || undefined,
+    proposal: keepCsv(params.proposal, ["sent", "not_sent"]),
+    deals: keepCsv(params.deals, ["has", "none"]),
+    podio: keepCsv(params.podio, [
+      "requested", "not_requested", "Checking", "Approved", "Rejected",
+    ]),
     sort: params.sort || undefined,
     dir: params.dir === "asc" ? "asc" : params.dir === "desc" ? "desc" : undefined,
     // the Responsible filter — "none" = unassigned (imported market research)
@@ -182,6 +190,11 @@ export default async function AccountsPage({
         resp: params.resp ?? "",
         team: params.team ?? "",
         sub: params.sub ?? "",
+        industry: params.industry ?? "",
+        type: params.type ?? "",
+        proposal: params.proposal ?? "",
+        deals: params.deals ?? "",
+        podio: params.podio ?? "",
         sort: params.sort ?? "",
         dir: params.dir ?? "",
         flag: params.flag ?? "",

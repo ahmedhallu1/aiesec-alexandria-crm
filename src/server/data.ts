@@ -387,6 +387,16 @@ export interface ConsiderationStats {
   /** what the filter bar actually narrowed this snapshot to (v33.32) — the
    *  panel says so out loud, so nobody reads a filtered number as the lane's */
   filtered: boolean;
+  /** 🤝 NEW PARTNERSHIPS (v33.38) — approached a new LC and opened the group.
+   *  Counted per the partnership's OWN product tag, so an LC that is a GT
+   *  partnership counts here only on the GT lane. */
+  partnerships: {
+    total: number;
+    thisMonth: number;
+    /** targets assigned and still waiting to be made */
+    pending: number;
+    byMember: { name: string; total: number; month: number }[];
+  };
 }
 
 /** The dashboard filter bar, applied to a consideration lane (v33.32). Every
@@ -430,7 +440,7 @@ export async function considerationStats(
   if (!considerationFunctions(viewer).includes(fn)) return null;
   const showCvs = fn === "IGT" && _canSeeCvPool(viewer);
   const monthStart = monthOf().start;
-  const [callRowsAll, cvRowsAll, plans, memberRows] = await Promise.all([
+  const [callRowsAll, cvRowsAll, plans, memberRows, partnershipRowsAll] = await Promise.all([
     fetchAll<{
       called_at: string;
       status: string;
@@ -457,6 +467,18 @@ export async function considerationStats(
       .select("applicants, accepted, approvals, month, member:members!mm_plans_member_id_fkey(functions, sub_functions)")
       .eq("month", monthStart),
     db().from("members").select("id, role, stakeholder_id, functions, sub_functions"),
+    // 🤝 partnerships (v33.38) — small table; pre-0059 grace: fail to empty
+    (async () => {
+      const { data } = await db()
+        .from("lc_partnerships")
+        .select(
+          "product, status, partnership_date, made_by, assigned_to, " +
+            "maker:members!lc_partnerships_made_by_fkey(name)"
+        )
+        .limit(5000);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (data ?? []) as any[];
+    })().catch(() => []),
   ]);
   const now = new Date();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -590,6 +612,31 @@ export async function considerationStats(
       cur.setUTCMonth(cur.getUTCMonth() + 1);
     }
   }
+  // 🤝 PARTNERSHIPS IN THE LANE (v33.38). The row's own product decides the
+  // lane (the 0048 lesson — never re-derive from the owner's functions). The
+  // filter bar reaches them like everything else: member/team on the MAKER
+  // (pending targets follow the assignee), dates on the partnership's own day.
+  const monthDay = monthStart.slice(0, 10);
+  const inDayWindow = (day: string | null) =>
+    !!day && (!filters.from || day >= filters.from) && (!filters.to || day <= filters.to);
+  const partnershipRows = partnershipRowsAll.filter((r) => {
+    if (r.product !== laneTag) return false;
+    const owner = r.status === "done" ? r.made_by : r.assigned_to;
+    if (filters.member && owner !== filters.member) return false;
+    if (filters.team && tlIdOf(owner) !== filters.team) return false;
+    if ((filters.from || filters.to) && r.status === "done")
+      return inDayWindow(r.partnership_date);
+    return true;
+  });
+  const madeRows = partnershipRows.filter((r) => r.status === "done");
+  const perPartnerMember = new Map<string, { name: string; total: number; month: number }>();
+  for (const r of madeRows) {
+    const key = r.maker?.name || "—";
+    const row = perPartnerMember.get(key) ?? { name: key, total: 0, month: 0 };
+    row.total += 1;
+    if ((r.partnership_date ?? "") >= monthDay) row.month += 1;
+    perPartnerMember.set(key, row);
+  }
   const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const byMonth = monthKeys.map((key) => ({
     month: key,
@@ -627,6 +674,14 @@ export async function considerationStats(
     byMember: [...perMember.values()].sort((a, b) => b.total - a.total).slice(0, 15),
     byMonth,
     filtered,
+    partnerships: {
+      total: madeRows.length,
+      thisMonth: madeRows.filter((r) => (r.partnership_date ?? "") >= monthDay).length,
+      pending: partnershipRows.filter((r) => r.status === "pending").length,
+      byMember: [...perPartnerMember.values()]
+        .sort((a, b) => b.total - a.total || b.month - a.month)
+        .slice(0, 15),
+    },
   };
 }
 
@@ -774,6 +829,15 @@ export interface AccountFilters {
   responsibleId?: string;
   /** filter by the account's LAST contact result (No Response, Interested…) */
   lastStatus?: string;
+  /** v33.38 — the columns that had no funnel */
+  industry?: string;
+  accountType?: string;
+  /** "sent" | "not_sent" (csv — both picked = no filter) */
+  proposal?: string;
+  /** "has" | "none" — accounts with at least one recorded deal */
+  deals?: string;
+  /** Podio: requested | not_requested | Checking | Approved | Rejected (OR'd) */
+  podio?: string;
   /** a Team Leader's id — their own accounts + their members' accounts */
   teamId?: string;
   /** v33: the 3-contact-limit flag is retired — "no next step" and "needs
@@ -999,6 +1063,35 @@ async function buildAccountsQuery(
   }
   eqOrIn("stage", filters.stage);
   eqOrIn("last_contact_status", filters.lastStatus);
+  eqOrIn("industry", filters.industry);
+  eqOrIn("account_type", filters.accountType);
+  // two-state funnels: picking BOTH options is picking neither
+  {
+    const p = pickList(filters.proposal);
+    if (p.includes("sent") && !p.includes("not_sent"))
+      query = query.eq("proposal_sent", true);
+    else if (p.includes("not_sent") && !p.includes("sent"))
+      query = query.eq("proposal_sent", false);
+  }
+  {
+    const d = pickList(filters.deals);
+    if (d.includes("has") && !d.includes("none")) query = query.gte("deals_count", 1);
+    else if (d.includes("none") && !d.includes("has")) query = query.eq("deals_count", 0);
+  }
+  // the Podio funnel mixes two columns (requested? + the request state), so
+  // several picks OR together by hand — `.in` can't span columns
+  {
+    const pods = pickList(filters.podio);
+    const clauses: string[] = [];
+    for (const v of pods) {
+      if (v === "requested") clauses.push("requested_podio.eq.true");
+      else if (v === "not_requested") clauses.push("requested_podio.eq.false");
+      else if (["Checking", "Approved", "Rejected"].includes(v))
+        clauses.push(`request_state.eq.${v}`);
+    }
+    if (clauses.length === 1) query = query.or(clauses[0]);
+    else if (clauses.length > 1) query = query.or(clauses.join(","));
+  }
 
   // Responsible carries a pseudo-value: "none" = unassigned. Mixed with real
   // people it has to become an OR, because NULL is not `in` anything.
@@ -5383,6 +5476,22 @@ interface ManualLcContact {
   source: string | null;
 }
 
+/** 🤝 A PARTNERSHIP with an LC (v33.38, 0059) — per PRODUCT, so the same LC
+ *  can be a brand-new GT partnership while being an old GV one. 'pending' is a
+ *  TARGET an MM/VP assigned ("go make this partnership"); 'done' means the
+ *  WhatsApp group exists. */
+export interface LcPartnershipInfo {
+  id: string;
+  product: IrProduct;
+  status: "pending" | "done";
+  assignedToId: string | null;
+  assignedToName: string | null;
+  madeByName: string | null;
+  /** YYYY-MM-DD */
+  partnershipDate: string | null;
+  irName: string | null;
+}
+
 export interface PartnerLcDetail extends PartnerLc {
   calls: number;
   cvs: number;
@@ -5406,6 +5515,8 @@ export interface PartnerLcDetail extends PartnerLc {
      *  kept because the UI keys notes and removal on it */
     manualId?: string | null;
   }[];
+  /** 🤝 made partnerships + assigned targets, one per product (v33.38) */
+  partnerships: LcPartnershipInfo[];
   /** free-text notes on the LC or on one of its IRs (v33.23) */
   comments: PartnerLcComment[];
   /** calls + CVs + notes as one timeline, newest first (v33.24) */
@@ -5443,7 +5554,7 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
   // Supabase caps one response at 1000 rows — page both whole-table reads on a
   // STABLE key (fetchAll re-runs the builder per page), then restore the
   // newest-first order the counts and the contacts loop rely on
-  const [lcs, calls, cvRows, manual, commentRows] = await Promise.all([
+  const [lcs, calls, cvRows, manual, commentRows, partnershipRows] = await Promise.all([
     listPartnerLcs(viewer),
     fetchAll<{
       partner_lc_id: string | null;
@@ -5498,7 +5609,35 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return (data ?? []) as any[];
     })().catch(() => []),
+    // 🤝 partnerships + targets (v33.38) — pre-0059 grace: fail to empty
+    (async () => {
+      const { data } = await db()
+        .from("lc_partnerships")
+        .select(
+          "id, partner_lc_id, product, status, assigned_to, partnership_date, ir_name, " +
+            "assigned:members!lc_partnerships_assigned_to_fkey(name), " +
+            "maker:members!lc_partnerships_made_by_fkey(name)"
+        )
+        .limit(5000);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (data ?? []) as any[];
+    })().catch(() => []),
   ]);
+  const partnershipsByLc = new Map<string, LcPartnershipInfo[]>();
+  for (const r of partnershipRows) {
+    const list = partnershipsByLc.get(r.partner_lc_id) ?? [];
+    list.push({
+      id: r.id,
+      product: r.product as IrProduct,
+      status: r.status === "done" ? "done" : "pending",
+      assignedToId: r.assigned_to ?? null,
+      assignedToName: r.assigned?.name ?? null,
+      madeByName: r.maker?.name ?? null,
+      partnershipDate: r.partnership_date ?? null,
+      irName: r.ir_name ?? null,
+    });
+    partnershipsByLc.set(r.partner_lc_id, list);
+  }
   const manualByLc = new Map<string, ManualLcContact[]>();
   for (const c of manual) {
     const list = manualByLc.get(c.partner_lc_id) ?? [];
@@ -5606,10 +5745,41 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
       lastCallAt: mine[0]?.called_at ?? null,
       products,
       contacts,
+      partnerships: (partnershipsByLc.get(lc.id) ?? []).sort((a, b) =>
+        a.product.localeCompare(b.product)
+      ),
       comments: lcNotes,
       history,
     };
   });
+}
+
+/** THE CONSIDERATION CREW (v33.38) — active members whose functions or
+ *  sub-functions say Consideration, minus the leadership (a partnership TARGET
+ *  is handed to a member or an MM, never up the ladder). The assign picker's
+ *  pool; the action re-validates against the same list. */
+export async function listConsiderationCrew(
+  viewer: Viewer
+): Promise<{ id: string; name: string; role: string; managerId: string | null }[]> {
+  if (!_hasConsiderationAccess(viewer)) return [];
+  const { data } = await db()
+    .from("members")
+    .select("id, name, role, stakeholder_id, functions, sub_functions")
+    .eq("is_active", true);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[])
+    .filter(
+      (m) =>
+        [...(m.functions ?? []), ...(m.sub_functions ?? [])].includes("Consideration") &&
+        ["Member", "Coordinator", "Team Leader"].includes(m.role)
+    )
+    .map((m) => ({
+      id: m.id as string,
+      name: m.name as string,
+      role: m.role as string,
+      managerId: (m.stakeholder_id as string | null) ?? null,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export interface IrCallRow {
@@ -6624,11 +6794,14 @@ export async function streakStats(
       };
     })
     .filter((e) => e.current > 0)
-    // who saved TODAY ranks first — the grace-day rows trail, visibly at risk
+    // THE STREAK IS THE RANK (v33.38, the Amr case): an alive streak holds
+    // its place until midnight actually kills it — the ⏳ label carries the
+    // at-risk signal, demoting the row would double-punish a streak that has
+    // not been lost. savedToday only breaks ties.
     .sort(
       (a, b) =>
-        Number(b.savedToday) - Number(a.savedToday) ||
         b.current - a.current ||
+        Number(b.savedToday) - Number(a.savedToday) ||
         b.today - a.today ||
         a.name.localeCompare(b.name)
     )

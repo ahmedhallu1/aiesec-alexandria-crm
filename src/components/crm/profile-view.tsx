@@ -551,6 +551,7 @@ function FunctionDefaultsBlock({ settings }: { settings: FunctionSettingsCard })
       if (groups.accounts) {
         patch.podioUpdateDefault = form.podioUpdateDefault;
         patch.podioUpdateDays = form.podioUpdateDays;
+        patch.visitAnnounceLeaders = form.visitAnnounceLeaders;
       }
       if (groups.visibility) {
         patch.seeAllMembers = form.seeAllMembers;
@@ -629,6 +630,12 @@ function FunctionDefaultsBlock({ settings }: { settings: FunctionSettingsCard })
               "Every new account in this function joins the update cycle, with reminders when it falls due. Accounts that already exist keep their own setting.",
               "podioUpdateDefault",
               form.podioUpdateDefault
+            )}
+            {row(
+              "Visit announcements reach me too",
+              "Every booked visit already lands on your calendar as an invite. ON also sends you the function-wide announcement email (off by default — it was a second email about the same visit).",
+              "visitAnnounceLeaders",
+              form.visitAnnounceLeaders
             )}
             <label className="flex items-center justify-between gap-3 rounded-lg border p-3">
               <span className="min-w-0">

@@ -110,7 +110,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "p",
-    "md": "**Tables are yours too.** Every big table (Raising, Sign-ups, members directory, attendance, the IR-call log…) carries a **⚙ Columns** control: drag columns to reorder, show or hide them, and **Reset** to defaults — dozens of optional columns ship hidden so your table starts clean. Click any header to **sort** (leaderboards even glide into their new order); the little **funnel** button on a column header filters by that column, Google-Sheets style; and the rows-per-page picker (30/50/100/200) lives by the pager."
+    "md": "**Tables are yours too.** Every big table (Raising, Sign-ups, members directory, attendance, the IR-call log…) carries a **⚙ Columns** control: drag columns to reorder, show or hide them, and **Reset** to defaults — dozens of optional columns ship hidden so your table starts clean. Click any header to **sort** (leaderboards even glide into their new order); the little **funnel** button on a column header filters by that column, Google-Sheets style; and the rows-per-page picker (30/50/100/200) lives by the pager. On the Raising table that now covers **every** column — Industry, Type, Proposal (sent / not sent), Deals (has / none) and Podio (requested / not / Checking / Approved / Rejected) each carry their funnel; show the column from ⚙ and filter from its header."
    },
    {
     "t": "callout",
@@ -668,7 +668,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "b2c type",
    "ازاي اضيف اكونت",
    "اكونت جديد",
-   "بوديو"
+   "بوديو",
+   "rename",
+   "edit name",
+   "تعديل الاسم"
   ],
   "summary": "The add form checks the name against duplicates, the archive and Podio while you type — here's what each verdict means and what each function must fill.",
   "blocks": [
@@ -738,6 +741,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
      {
       "q": "I submitted on Podio before adding the account here.",
       "a": "Type the name, and inside the 🔎 not-on-Podio result flip **`I already submitted it`**."
+     },
+     {
+      "q": "I misspelled the account's name — am I stuck with it?",
+      "a": "No — anyone who can edit the account can rename it: the ✏️ beside the title on the account page. The new name goes through the same duplicate/archive/blacklist checks as adding, and the account's link changes with the name (old links keep working, and the rename is logged as a comment)."
      }
     ]
    }
@@ -790,7 +797,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "p",
-    "md": "**Who else hears about it?** Two different things happen. First, the **calendar invite**: a Member's visit invites their Team Leader + the function VP(s) as attendees; a Team Leader's or Coordinator's invites the VP(s). Second, the **announcement**: the whole raising crew of the account's own function gets an email + bell as an FYI — no calendar event for them. You can see everyone's visits on the [Calendar](/calendar)."
+    "md": "**Who else hears about it?** Two different things happen. First, the **calendar invite**: a Member's visit invites their Team Leader + the function VP(s) as attendees; a Team Leader's or Coordinator's invites the VP(s). Second, the **announcement**: the raising crew of the account's own function gets an email + bell as an FYI — no calendar event for them. Since v33.38 the announcement **skips the LCVP/Directors by default** — they already ride the calendar invite, and a second email about the same visit was noise; a function's leader can switch it back on from Function defaults on their profile. You can see everyone's visits on the [Calendar](/calendar)."
    },
    {
     "t": "steps",
@@ -824,6 +831,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
      {
       "q": "I booked the same slot twice by accident — did everyone get two emails?",
       "a": "No. Re-submitting the same slot announces nothing, and a correction within 15 minutes stays quiet too."
+     },
+     {
+      "q": "Why didn't my VP get the visit announcement email?",
+      "a": "By design since v33.38 — leaders already receive the calendar invite for every visit, so the function-wide announcement email skips LCVPs and Directors by default. A leader who wants both can flip \"Visit announcements reach me too\" on their Function defaults card."
      }
     ]
    }
@@ -2249,7 +2260,8 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "سي في",
    "شركاء",
    "رفع سي في",
-   "blue man"
+   "blue man",
+   "partnership"
   ],
   "summary": "The registry remembers every partner LC — country, GV/GT badges, its IR people, notes and a full history timeline — and the IGT-only CV pool reads uploaded CVs with AI.",
   "blocks": [
@@ -2259,7 +2271,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "p",
-    "md": "Registry filters: by **country**, by **reached as** GV / GT / Both / Never, and by **has calls · has CVs · nothing yet**. Anyone on the crew adds an LC; renaming is open to MMs and above (it cascades everywhere); **deleting** stays VP+ and is refused while calls or CVs still point at it. Names are normalized on the way in — \"AIESEC in İstanbul\", \"LC Istanbul\" and \"istanbul\" can't become three rows."
+    "md": "Registry filters: by **country**, by **reached as** GV / GT / Both / Never, and by **has calls · has CVs · 🤝 partnered · nothing yet**. Anyone on the crew adds an LC; renaming is open to MMs and above (it cascades everywhere); **deleting** stays VP+ and is refused while calls or CVs still point at it. Names are normalized on the way in — \"AIESEC in İstanbul\", \"LC Istanbul\" and \"istanbul\" can't become three rows."
    },
    {
     "t": "p",
@@ -2292,6 +2304,77 @@ export const HELP_ARTICLES: HelpArticle[] = [
      {
       "q": "Can I create an LC from the CV tab?",
       "a": "Yes — a CV can arrive from an LC we've never called, so inline LC creation stays there. Renaming and deleting live in the registry only."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "lc-partnerships",
+  "title": "Partnerships with partner LCs",
+  "emoji": "🤝",
+  "category": "consideration",
+  "audience": "Consideration crew",
+  "audienceKeys": [
+   "consideration"
+  ],
+  "keywords": [
+   "partnership",
+   "partner LC",
+   "new partnership",
+   "whatsapp group",
+   "target",
+   "assign",
+   "MOS",
+   "KPI",
+   "شراكة",
+   "بارتنرشيب",
+   "جروب واتساب",
+   "تارجت"
+  ],
+  "summary": "Approaching a new LC and opening the WhatsApp group IS the win — record it per programme (GV/GT), hand LCs out as targets, and watch the count on the consideration dashboard.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "A **partnership** is the consideration floor's other MOS: you approach an LC we've never worked with, you open the WhatsApp group with them — done, that's a partnership made. It's recorded **per programme**, so the same LC can be a brand-new **GT** partnership while being an old **GV** one; the two never contradict. Everything lives on the **Partner LCs tab** of [Consideration](/consideration)."
+   },
+   {
+    "t": "steps",
+    "title": "Record a partnership",
+    "items": [
+     "Open [Consideration](/consideration) → **Partner LCs** → **🤝 Record a partnership** (or the **Partnership** button on the LC's own card).",
+     "Pick the LC — or add a brand-new one right there with its name and country.",
+     "Pick the programme (**GV or GT** — it defaults to your own side) and the **partnership date** (defaults to today).",
+     "Name the **IR** who anchors it, with their **WhatsApp or email — at least one is a must**: a partnership we can't reach isn't one.",
+     "Save. The LC's card wears a green **🤝 partnership** chip, the IR lands in the LC's contact list, and the dashboard counts it."
+    ]
+   },
+   {
+    "t": "p",
+    "md": "**🎯 Targets**: an MM or VP can hand an LC to someone as a partnership target — \"go make this one\". A Team Leader hands targets to their own team, a Coordinator takes one themselves, VPs/Directors and the LCP reach the whole crew. The member **and their Team Leader** get the bell, the LC's card shows 🎯 with the assignee's name, and a **Your partnership targets** banner sits at the top of the tab for whoever holds one. Recording the partnership completes the target — and **it counts for the member it was assigned to**, even when a leader files it on their behalf."
+   },
+   {
+    "t": "p",
+    "md": "**On the dashboard**: the consideration lanes carry **🤝 Partnerships** (total, this month, pending targets) and a **Partnerships by member** strip — the member's own KPI. A partnership counts in the lane of its own programme tag, and the filter bar (dates, team, member) reaches it like everything else."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "The LC isn't in the registry yet — do I add it first?",
+      "a": "No need — the record form has \"➕ A brand-new LC\": name + country, and the LC and the partnership are created together."
+     },
+     {
+      "q": "Can a target be taken back?",
+      "a": "Yes — the assignee (\"Hand it back\" on the banner), whoever assigned it, or any VP can clear a pending target. A made partnership never clears."
+     },
+     {
+      "q": "We're already a GV partnership — can I record GT too?",
+      "a": "Yes, that's the point: partnerships are per programme. The form simply blocks the programme that's already made."
+     },
+     {
+      "q": "Who gets the credit when my TL records my target for me?",
+      "a": "You do — completing a pending target always credits the member it was assigned to, and you're notified that it landed."
      }
     ]
    }
@@ -2387,7 +2470,9 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "اي ار",
    "كونسيديريشن",
    "مكالمات",
-   "شركاء"
+   "شركاء",
+   "partnership",
+   "شراكة"
   ],
   "summary": "Consideration is where IR calls with partner LCs and the CV pool live — one tab for calls, one for CVs (IGT only), and a dashboard lane per product.",
   "blocks": [
@@ -2401,7 +2486,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "p",
-    "md": "The [dashboard](/dashboard) consideration lane is a real dashboard: calls this month vs last month, completed, upcoming, a **Booked → happened** conversion, partner LCs reached (and reached for the *first time* this month), CVs on the IGT side, a per-month bar strip that starts at the **peak's first month** (no comparing against last term), and a **Calls-by-member** drill where **Done + Upcoming + Waiting = Total**. It takes the same filter bar as every other lane — dates, team, member — and the date inputs are deliberately *not* clamped to today, because a call can be in the future."
+    "md": "The [dashboard](/dashboard) consideration lane is a real dashboard: calls this month vs last month, completed, upcoming, a **Booked → happened** conversion, partner LCs reached (and reached for the *first time* this month), CVs on the IGT side, a per-month bar strip that starts at the **peak's first month** (no comparing against last term), a **Calls-by-member** drill where **Done + Upcoming + Waiting = Total**, and — since v33.38 — **🤝 Partnerships**: made in total, made this month, pending targets, and who made them. It takes the same filter bar as every other lane — dates, team, member — and the date inputs are deliberately *not* clamped to today, because a call can be in the future."
    },
    {
     "t": "table",
@@ -3240,7 +3325,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    {
     "t": "callout",
     "tone": "tip",
-    "md": "**Report from anywhere** (v33.37): the floating 🛠️ button at the **bottom-left of every page** opens this same form in a dialog — and it attaches the page you were on, so the IM team can find the problem fast."
+    "md": "**Report from anywhere** (v33.37, re-homed in v33.38): the 🛠️ button sits **beside the refresh button** (top-right) on desktop and **beside the notification bell** in the top bar on your phone — it opens this same form in a dialog and attaches the page you were on, so the IM team can find the problem fast."
    },
    {
     "t": "faq",
@@ -3810,7 +3895,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
      [
       "New accounts & Podio",
       "IGV · IGT · B2B · BD · B2C",
-      "Do NEW accounts join the Podio continuous-update cycle, and every how many days (1–90). Old defaults: IGV/B2C/BD on, IGT/B2B off, 14 days"
+      "Do NEW accounts join the Podio continuous-update cycle, and every how many days (1–90). Old defaults: IGV/B2C/BD on, IGT/B2B off, 14 days · Do visit announcements ALSO reach the LCVP/Directors (off by default since v33.38 — they always ride the calendar invite)"
      ],
      [
       "Who sees the whole function",

@@ -5,33 +5,36 @@ import { usePathname } from "next/navigation";
 import { MessageSquareWarning } from "lucide-react";
 import { FeedbackForm } from "./feedback-form";
 import { Hint } from "./hint";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 
-/** REPORT IT FROM WHERE IT BROKE (v33.37).
+/** REPORT IT FROM WHERE IT BROKE (v33.37, re-homed v33.38).
  *
- *  The system-feedback form lived on its own page, which is exactly where you
- *  are NOT when something goes wrong. This is the Google-style always-there
- *  button: a small floating tab (bottom-left — The Blue Man owns the right),
- *  one tap, the same form in a dialog, and the report carries the page the
- *  reporter was actually on.
+ *  The always-there feedback button — one tap, the system-feedback form in a
+ *  dialog, with the page the reporter was on attached. It lives IN the chrome
+ *  (next to Refresh on desktop, next to the bell on mobile) rather than
+ *  floating over content: a floating tab bottom-left sat on top of tables and
+ *  fought the Blue Man for corner space.
  */
-export function FloatingFeedback() {
+export function FeedbackButton({ className }: { className?: string }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
   return (
     <>
       <Hint label="Something broken or missing? Report it right here — it reaches the IM team">
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={() => setOpen(true)}
           aria-label="Send feedback about Sodio"
-          className="fixed bottom-4 left-4 z-40 flex size-11 items-center justify-center rounded-full border bg-background/95 text-muted-foreground shadow-lg backdrop-blur transition-all hover:scale-105 hover:text-primary hover:shadow-xl active:scale-95"
+          className={cn("text-muted-foreground hover:text-primary", className)}
         >
           <MessageSquareWarning className="size-5" />
-        </button>
+        </Button>
       </Hint>
 
       <Dialog open={open} onOpenChange={setOpen}>
