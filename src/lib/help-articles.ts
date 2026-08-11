@@ -1,0 +1,4806 @@
+import type { HelpArticle } from "./help-content";
+
+/** THE KNOWLEDGE BASE (v33.36) — every help article, as plain data.
+ *
+ *  Generated from the system's own documentation (AI_CONTEXT.md) and
+ *  fact-checked against it; edit freely — it is source, not build output.
+ *  ⚠️ Update with every release (same commit), like the Playbook before it.
+ */
+export const HELP_ARTICLES: HelpArticle[] = [
+ {
+  "id": "forgot-password",
+  "title": "Forgot your password?",
+  "emoji": "📬",
+  "category": "getting-started",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "forgot password",
+   "reset password",
+   "new password",
+   "locked out",
+   "can't remember",
+   "email me a password",
+   "نسيت الباسورد",
+   "كلمة السر",
+   "استرجاع"
+  ],
+  "summary": "Tap Forgot password and Sodio emails you a fresh one — your old password keeps working until you actually change it, so nobody gets locked out.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "No drama here. Sodio doesn't do reset links or lockouts — it just **emails you a brand-new password** you can sign in with immediately. And because someone might hit the button by accident (or someone else might, on your behalf), **your old password keeps working too** until you change it. Nothing is invalidated by the request itself."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "On the login page, tap **Forgot password** (or on [your Profile](/profile), tap **📬 Email me a new password**).",
+     "Check your inbox — the email carries the fresh password.",
+     "Sign in with it (or with your old one, if it suddenly comes back to you).",
+     "Optionally change it to something memorable from [Profile](/profile) → **Change password**."
+    ],
+    "title": "Get a fresh password"
+   },
+   {
+    "t": "callout",
+    "md": "The email goes to your AIESEC address — or to your **Personal Gmail backup** if your @aiesec.net hasn't landed yet and you've saved a backup on your [Profile](/profile). If neither exists, message the IM team.",
+    "tone": "tip"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "I requested a new password but my old one still works — is that a bug?",
+      "a": "It's the feature. Both work until you change your password yourself. That way a stray request can never lock you out."
+     },
+     {
+      "q": "The email never arrived.",
+      "a": "Check spam, then confirm which address is on your membership (see your [Profile](/profile)). If you're a phone-only member with no backup Gmail saved, there's nowhere to send it — add a backup Gmail on your Profile or contact the IM team."
+     },
+     {
+      "q": "Can I just always sign in with Google instead?",
+      "a": "Yes — Google sign-in works forever, password or no password."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "make-sodio-yours",
+  "title": "Making Sodio yours",
+  "emoji": "🎨",
+  "category": "getting-started",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "dark mode",
+   "theme",
+   "arrange tabs",
+   "sidebar",
+   "reorder",
+   "columns",
+   "table settings",
+   "mobile",
+   "pwa",
+   "install app",
+   "home screen",
+   "الوضع الليلي",
+   "الموبايل",
+   "تثبيت التطبيق"
+  ],
+  "summary": "Dark mode, a reorderable sidebar, table columns you control, three mobile views and a home-screen install — Sodio bends to how you work.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Sodio ships with sensible defaults, but almost everything about how it *looks* is yours to change — and every choice is remembered per browser, so set it once and forget it."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "**Dark mode** — the appearance toggle sits in the sidebar footer (desktop) or the top bar (mobile). Default follows your system; the switch does a smooth circular reveal because we're fancy like that.",
+     "**Arrange tabs** — at the bottom of the sidebar nav, tap **↕ Arrange tabs**: drag rows by the grip handle or use the ↑/↓ buttons, and **Reset** brings the default order back. Your order is saved just for you.",
+     "**Collapse the sidebar** — the **Collapse** row at the foot of the nav shrinks it to an icon rail when you want the screen for the table.",
+     "**Install Sodio on your phone** — it's a PWA: open sodio.vercel.app in your browser and use *Add to Home Screen* (Safari share menu, or Chrome's install prompt). It opens like a real app, lighthouse icon and all."
+    ],
+    "title": "The quick wins"
+   },
+   {
+    "t": "p",
+    "md": "**Tables are yours too.** Every big table (Raising, Sign-ups, members directory, attendance, the IR-call log…) carries a **⚙ Columns** control: drag columns to reorder, show or hide them, and **Reset** to defaults — dozens of optional columns ship hidden so your table starts clean. Click any header to **sort** (leaderboards even glide into their new order); the little **funnel** button on a column header filters by that column, Google-Sheets style; and the rows-per-page picker (30/50/100/200) lives by the pager."
+   },
+   {
+    "t": "callout",
+    "md": "On a phone, tables become **cards** — and the Raising list has a Cards / Compact / Table switcher if you prefer density over comfort. Hints (the little tooltips on buttons) open on **tap** on touch screens.",
+    "tone": "tip"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Will my column setup survive a new release?",
+      "a": "Yes — layouts self-heal: new columns appear at their intended spot, your order and hidden set stay put."
+     },
+     {
+      "q": "My table looks weird / missing columns — how do I start over?",
+      "a": "Open **⚙ Columns** on that table and hit **Reset**."
+     },
+     {
+      "q": "Does the PWA work offline?",
+      "a": "It installs and launches like an app, but Sodio is a live CRM — you need a connection for the data."
+     },
+     {
+      "q": "Are these settings synced between my laptop and phone?",
+      "a": "No — they're stored per browser. Two devices, two setups (which is usually what you want anyway)."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "notifications-bell",
+  "title": "Notifications & the bell",
+  "emoji": "🔔",
+  "category": "getting-started",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "notifications",
+   "bell",
+   "unread",
+   "broadcast",
+   "announcement",
+   "alerts",
+   "in-app",
+   "الاشعارات",
+   "الجرس",
+   "التنبيهات"
+  ],
+  "summary": "The bell collects everything Sodio wants you to know — visits, follow-ups, Podio reminders, broadcasts — and most of them open the exact thing they're about.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "The 🔔 bell lives in the sidebar footer on desktop and in the top bar on your phone, with an unread badge. It's Sodio's in-app inbox: quieter than email, but it carries the same news — and the useful part is that **notifications are actionable**: a visit announcement, a follow-up nudge or a Podio reminder opens the exact account it's about with one tap. No hunting."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "You'll get one when…",
+     "Example"
+    ],
+    "rows": [
+     [
+      "A visit is booked in your function",
+      "\"📢 New visit booked\" — an FYI to the whole product crew"
+     ],
+     [
+      "A visit of yours needs its report",
+      "The +2h follow-up nudge, tap to open the account"
+     ],
+     [
+      "A Podio update is due",
+      "B2C/enabled accounts on their update cycle"
+     ],
+     [
+      "Someone appreciated you",
+      "A 🎉 shout-out from LC feedback"
+     ],
+     [
+      "Leadership has news",
+      "A broadcast to everyone, a function, a role, or hand-picked people"
+     ],
+     [
+      "You joined Sodio / got a reset",
+      "Welcome & password emails get a bell twin"
+     ]
+    ]
+   },
+   {
+    "t": "p",
+    "md": "**Broadcasts** are the megaphone: EB members and the admin can send one from the bell panel — to the whole LC, a function, a role, or a hand-picked list, optionally with an email copy on BCC. Everyone else just receives them (lucky you)."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Do notifications also come by email?",
+      "a": "The important ones do — visit reminders, follow-ups and Podio nudges have email twins. The bell is the fast lane; email is the paper trail."
+     },
+     {
+      "q": "Can I send a broadcast?",
+      "a": "Only EB members and the admin see the broadcast button. If you need the whole function to hear something, ask your VP."
+     },
+     {
+      "q": "Why did I get a visit announcement for a visit that isn't mine?",
+      "a": "By design — booking a visit tells the whole product's raising crew as an FYI, so nobody double-books the same partner. Only the responsible gets the calendar invite and reminders."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "signing-in",
+  "title": "Signing in",
+  "emoji": "🔑",
+  "category": "getting-started",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "login",
+   "sign in",
+   "google",
+   "password",
+   "phone login",
+   "first time",
+   "can't log in",
+   "inactive",
+   "onboarding",
+   "تسجيل دخول",
+   "مش عارف ادخل",
+   "الباسورد"
+  ],
+  "summary": "First sign-in is Google-only with your AIESEC email; after onboarding you can use email OR phone + password — and phone-only members have their own door.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Short version: **the very first time, sign in with Google** using your @aiesec.net address. That one Google sign-in also grants Sodio your calendar and Gmail-drafts access, which is what powers visit reminders and proposal drafts later. Onboarding then asks you to set a password — after that, email **or** phone + password works, and Google always works too."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open Sodio and tap **Sign in with Google**.",
+     "Pick your **@aiesec.net** account (not your personal Gmail) and accept the permissions.",
+     "Walk through onboarding — confirm your info and **set a password**.",
+     "Done. From now on, sign in with your email or phone + that password, or Google."
+    ],
+    "title": "Your first sign-in"
+   },
+   {
+    "t": "callout",
+    "md": "**No AIESEC email yet?** You can still get in: type your **phone number in BOTH fields** (as the identifier AND as the password). That door stays open until you set a real password. Once your @aiesec.net address lands on the Membership sheet, the phone-door closes — sign in with **Google once**, then use your password.",
+    "tone": "info"
+   },
+   {
+    "t": "p",
+    "md": "The identifier field takes your email or your phone in any reasonable format — Arabic-keyboard digits (٠١٢…) work too, Sodio translates them. If you land on the **/inactive** page, your membership is marked inactive on the sheet — that's a membership question, not a password question; talk to your leader or the IM team."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "I set a password but forgot it — now what?",
+      "a": "Use **Forgot password** on the login page. Sodio emails you a fresh one, and your old one keeps working until you change it. Full story in [Forgot password](/help?a=forgot-password)."
+     },
+     {
+      "q": "It says my number isn't on the membership.",
+      "a": "Your phone must match what the Membership sheet has for you. If you recently changed numbers, ask your leader or the EB to update the sheet — the app syncs from it every 30 minutes."
+     },
+     {
+      "q": "Why does Google ask for calendar and Gmail permissions?",
+      "a": "Calendar powers your visit and next-step reminders on your own Google Calendar; the Gmail permission lets Sodio drop proposal drafts into YOUR Gmail so emails go out from your address. Sodio never sends without you."
+     },
+     {
+      "q": "I used to sign in with my phone in both fields and it stopped working.",
+      "a": "Either you set a password (use it!) or your AIESEC email arrived — in that case sign in with Google once, then your password works."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "blue-man",
+  "title": "The Blue Man — your AI sidekick",
+  "emoji": "🚶",
+  "category": "getting-started",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "blue man",
+   "ai",
+   "assistant",
+   "chatbot",
+   "ask",
+   "help",
+   "chat",
+   "core",
+   "national ranking",
+   "الراجل الازرق",
+   "المساعد",
+   "اسال",
+   "ذكاء اصطناعي"
+  ],
+  "summary": "The walking blue human is Sodio's AI assistant — he knows your data (only yours), live CORE numbers and the AIESEC web, answers in Arabic or English, and hands you tappable links.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "See the walking blue human in the corner? Tap him. **The Blue Man** is Sodio's built-in assistant (powered by Gemini with Google Search grounding), and he's genuinely wired into the system: he can search your accounts and open their details, he reads the same playbook rules this help center does, and he carries a live digest from **CORE** — national rankings per product and Alexandria's own funnel — plus the official AIESEC sites. Ask him \"which of my accounts had a visit but no deal?\" or \"where does Alexandria rank nationally on iGV?\" and he'll actually know."
+   },
+   {
+    "t": "p",
+    "md": "**He only sees what YOU see.** His data context is scoped by the same permissions as the rest of Sodio — a member's Blue Man knows that member's accounts, a VP's knows the function, and consideration viewers get an extra trick: he can search the CV pool (\"CVs with C# in skills\"). He can't leak what you couldn't open yourself."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "**Fresh chat?** He offers suggested-question chips tailored to your role and module — tap one to start.",
+     "**He answers in your language** — write Arabic, get Arabic (fluent Egyptian, not textbook); write English, get English.",
+     "**Tap his links** — when he mentions an account, he attaches an action chip that opens it directly, sometimes straight onto the right dialog (log a contact, record a deal).",
+     "**Your chats are saved** — the history button keeps your 8 most recent conversations in this browser; **＋ New chat** starts clean, 🗑 deletes one.",
+     "**Move him** — on desktop, drag the panel by its grip handle if it's covering something."
+    ],
+    "title": "Getting the most out of him"
+   },
+   {
+    "t": "callout",
+    "md": "You'll also spot **\"Ask The Blue Man\"** callouts around the app (accounts header, dashboard) — they open the chat pre-filled with a question about what you're looking at.",
+    "tone": "info"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Can he change my data?",
+      "a": "No — he reads and links, you click. Every action still goes through the normal forms and the normal permission checks."
+     },
+     {
+      "q": "Are my chats visible to anyone else?",
+      "a": "No. History lives in your own browser's storage, keyed to your account — not on a server, not visible to leaders."
+     },
+     {
+      "q": "How fresh are the CORE numbers?",
+      "a": "The national digest refreshes about every 15 minutes from core.aiesec.org.eg."
+     },
+     {
+      "q": "He said he can't see an account I know exists.",
+      "a": "Then it's outside your scope — he sees exactly what you see. Ask your TL or VP, who see more."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "what-is-sodio",
+  "title": "What is Sodio?",
+  "emoji": "💙",
+  "category": "getting-started",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "sodio",
+   "what is sodio",
+   "crm",
+   "intro",
+   "overview",
+   "start",
+   "blue man",
+   "aiesec alexandria",
+   "ايه هو سوديو",
+   "البرنامج ده ايه",
+   "شرح النظام"
+  ],
+  "summary": "Sodio is AIESEC in Alexandria's free CRM — accounts, sign-ups, calls, visits, dashboards and one blue AI assistant, all in one place.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Sodio is the LC's own CRM, built for us and 100% free. It's where the work lives: raising crews log accounts, contacts, visits and deals on [Raising](/accounts); OGX works the sign-up trackers on [Sign-ups](/signups); the consideration crew books and records IR calls on [Consideration](/consideration); and leaders steer with the [Dashboard](/dashboard), goals-from-planning and leaderboards. If you did it and it's not in Sodio, it didn't happen (as far as the funnel is concerned)."
+   },
+   {
+    "t": "p",
+    "md": "Everything you see is scoped to your role — a member sees their own accounts, a Team Leader their team, a VP their function, the LCP everything. That's not a display trick: the server re-checks who you are on every read and every button press, so guessing a URL outside your scope just gets you a 404."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "You do…",
+     "Where"
+    ],
+    "rows": [
+     [
+      "Raise partners (IGV · IGT · B2B/BD · B2C)",
+      "[Raising](/accounts)"
+     ],
+     [
+      "Work OGX sign-ups (OGT & OGV)",
+      "[Sign-ups](/signups)"
+     ],
+     [
+      "IR calls & the CV pool",
+      "[Consideration](/consideration)"
+     ],
+     [
+      "See visits, touch points & calls in one month view",
+      "[Calendar](/calendar)"
+     ],
+     [
+      "Track KPIs, plans & leaderboards",
+      "[Dashboard](/dashboard)"
+     ],
+     [
+      "Attendance & touch points",
+      "[Attendance](/attendance)"
+     ],
+     [
+      "Your info, avatar, plan & password",
+      "[Profile](/profile)"
+     ]
+    ]
+   },
+   {
+    "t": "p",
+    "md": "And you're never alone in here: **The Blue Man** — the walking blue human in the corner — is Sodio's built-in AI assistant. He knows your data (only what YOU are allowed to see), the LC's playbook, and live national numbers from CORE. Stuck at 11pm? Ask him before you ask your TL. More in [The Blue Man article](/help?a=blue-man)."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Does Sodio cost anything?",
+      "a": "No. It runs entirely on free tiers — built by the LC, for the LC."
+     },
+     {
+      "q": "Why can't I see a tab my friend has?",
+      "a": "Tabs follow your function and role on the Membership sheet. An OGX member won't see Raising, a raising member won't see Sign-ups. If your function's module isn't built yet, you'll see a \"Soon\" workspace — your [Profile](/profile) and Feedback still work."
+     },
+     {
+      "q": "Is my data safe?",
+      "a": "Every read and write is permission-checked server-side, and the whole database is backed up nightly to three separate places."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "your-profile",
+  "title": "Your profile",
+  "emoji": "🪪",
+  "category": "getting-started",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "profile",
+   "avatar",
+   "change password",
+   "phone",
+   "backup gmail",
+   "personal email",
+   "my plan",
+   "my people",
+   "my team",
+   "البروفايل",
+   "الصورة",
+   "غير الباسورد"
+  ],
+  "summary": "Your Profile holds your info, phone, backup Gmail, avatar (pick one or build your own), password, your plan cards and the people around you.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "[Your Profile](/profile) is your corner of Sodio. It shows what the LC knows about you — name, AIESEC Mail, phone, role, function, team — and lets you fix what's yours to fix. Spot something wrong you can't edit? The **Wrong info?** link opens WhatsApp straight to the admin."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Card",
+     "What it does"
+    ],
+    "rows": [
+     [
+      "My info",
+      "Your phone (auto-normalized to the +20… format on blur) and your **Personal Gmail — backup only**."
+     ],
+     [
+      "Avatar",
+      "Pick a fun character, use your Google photo, upload your own, or **🎨 Create your own** — style, seed, dice-roll, flip, gradient background. Yes, The Blue Man himself is pickable."
+     ],
+     [
+      "Change password",
+      "Current + new + confirm. Forgot the current one? The **📬 Email me a new password** button is right there."
+     ],
+     [
+      "My plan",
+      "Raising MMs (Team Leaders & Coordinators) see their opens-per-month plan vs actuals; OGX & consideration MMs see their applicants/accepted/approvals plan card. Editable any time."
+     ],
+     [
+      "My people",
+      "Who's around you, with email / call / WhatsApp buttons: members & coordinators see their team, a TL their direct team, a VP/Director their whole function, the LCP the EB."
+     ],
+     [
+      "Feedback",
+      "The system-feedback form lives here — bugs, ideas, anything about Sodio itself."
+     ]
+    ]
+   },
+   {
+    "t": "callout",
+    "md": "**The backup Gmail is exactly that — a backup.** It receives password resets and IR-call invites until your @aiesec.net arrives. It is **never a sign-in identity** and is **never written to the Membership sheet**. Don't put your AIESEC address in it — Sodio will refuse a backup that matches your main email.",
+    "tone": "warn"
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open [Profile](/profile) and find the **Change password** card.",
+     "Enter your current password, the new one, and the confirmation (the 👁 eye toggle is your friend).",
+     "Tap **Update password**. Done — the new one works immediately."
+    ],
+    "title": "Change your password"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Why can't I edit my name, role or team?",
+      "a": "The Membership Google Sheet is the source of truth for those — the EB edits it (or the in-app membership editor) and Sodio syncs every 30 minutes. Your phone and backup Gmail are the fields that are yours."
+     },
+     {
+      "q": "What are the two email fields?",
+      "a": "**AIESEC Mail** is your identity — sign-in, and what the Membership sheet carries. **Personal Gmail** is a backup inbox for resets and invites until the AIESEC one lands. Two fields, two jobs."
+     },
+     {
+      "q": "I don't see a plan card.",
+      "a": "Plan cards appear only for MMs who file plans — raising TLs/Coordinators (opens) and OGX/consideration MMs (funnel plan). Plain members don't file one."
+     },
+     {
+      "q": "Can I use any image as my avatar?",
+      "a": "Pick from the built-in characters, your Google photo, an upload (auto-shrunk), or build one with 🎨 Create your own."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "unreported-visits-banner",
+  "title": "\"N visits need a report\" — the amber banner",
+  "emoji": "⏰",
+  "category": "raising",
+  "audience": "Raising crews (IGV · IGT · B2B/BD · B2C)",
+  "audienceKeys": [
+   "raising",
+   "b2b",
+   "b2c"
+  ],
+  "keywords": [
+   "unreported visit",
+   "visits need a report",
+   "banner",
+   "amber banner",
+   "overdue visit",
+   "report visit",
+   "clear banner",
+   "زيارة متسجلتش",
+   "تقرير الزيارة"
+  ],
+  "summary": "The banner on Raising counts visits whose day has passed with nobody saying what happened — you see exactly the ones you answer for, and it disappears when you report them.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "A booked visit whose time has passed while nobody reported the result leaves the account frozen at \"Visit Scheduled\" — the funnel counts a visit nobody can prove happened. The banner on [Raising](/accounts) makes those visible in the app, not just in email: **\"N visits need a report\"**. Tap it to expand: each row shows the account, when the visit was, how many days ago, and whose it is — each linking straight to the account."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "You are…",
+     "The banner counts…"
+    ],
+    "rows": [
+     [
+      "Member / Coordinator",
+      "your own overdue visits"
+     ],
+     [
+      "Team Leader",
+      "your team's"
+     ],
+     [
+      "VP / Director",
+      "your whole function's"
+     ],
+     [
+      "LCP / admin",
+      "the LC's"
+     ]
+    ]
+   },
+   {
+    "t": "p",
+    "md": "A clean slate shows **nothing at all** — no banner, no zero. And it only reaches back **two months**: a visit nobody reported in the spring is history, not a to-do."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Tap the row to open the account.",
+     "Report the visit from its History entry (or from the pending-visit prompt) — say whether it happened and how it went.",
+     "If the partner turned out to be not interested, mark the account **Out of Process** with a reason instead — that clears it too, honestly."
+    ],
+    "title": "Clear it"
+   },
+   {
+    "t": "callout",
+    "md": "The +2h report email and the one-week reminder still run — the banner is the same fact shown where the work happens, for the day someone stops reading email.",
+    "tone": "info"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Why do I see a teammate's visit in my banner?",
+      "a": "You don't, unless you're their Team Leader or leader — the banner follows the hierarchy. As a TL you answer for your team's visits, so they show for you (and for the member who owns them)."
+     },
+     {
+      "q": "The visit genuinely didn't happen — what do I report?",
+      "a": "Report it anyway with what actually happened (cancelled, no-show). If the account is dead, mark it Out of Process — that removes it from the banner and from the pipeline."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "add-an-account",
+  "title": "Add an account",
+  "emoji": "➕",
+  "category": "raising",
+  "audience": "Raising crews (IGV · IGT · B2B/BD · B2C)",
+  "audienceKeys": [
+   "raising",
+   "b2b",
+   "b2c"
+  ],
+  "keywords": [
+   "add account",
+   "new account",
+   "duplicate",
+   "archived name",
+   "blacklist",
+   "podio check",
+   "name worlds",
+   "project",
+   "product",
+   "b2c type",
+   "ازاي اضيف اكونت",
+   "اكونت جديد",
+   "بوديو"
+  ],
+  "summary": "The add form checks the name against duplicates, the archive and Podio while you type — here's what each verdict means and what each function must fill.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Open [Raising](/accounts) → `Add account`. Start typing the name and Sodio runs its checks **live, before you fill anything else** — so you never build a whole form for a name that was burned two peaks ago."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "**Duplicate check** — if the name is already an active account in your world, you're blocked and shown whose it is.",
+     "**Archive / blacklist check** — if the name was moved Out of Process (or manually blacklisted), it's blocked too: the archive IS the blacklist. A TL+ can revive it instead of re-adding.",
+     "**Podio check** — Sodio asks the national Podio form's own search. ⚠️ **Already on Podio** means don't submit a duplicate — add it here and ask your MM about the request state (it can be ours!). 🔎 **Not on Podio** means submit it via the linked national form — or flip **`I already submitted it`** right inside that result if you did. If Podio is unreachable you simply get no verdict, plus the manual link."
+    ],
+    "title": "What happens as you type the name"
+   },
+   {
+    "t": "p",
+    "md": "**Name worlds, simply:** account names live in three separate worlds — **ICX** (IGV · IGT · B2B), **BD**, and **B2C** — and each world keeps its own archive. A name only has to be unique *within its world*. If the same business is already **active in another world**, you get an amber heads-up (\"already active on IGV — responsible: X\") and you can proceed: different function, different relationship, both real."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Function",
+     "What the form requires"
+    ],
+    "rows": [
+     [
+      "IGV",
+      "A **Project** (Skill Up!, Rooted, …) — always required"
+     ],
+     [
+      "IGT",
+      "The **product** — GTa or GTe (+ sub product)"
+     ],
+     [
+      "B2B / BD",
+      "Pick which **label** the account carries — both behave the same, BD's MOS is money"
+     ],
+     [
+      "B2C",
+      "One **Type**: Courses, Events or Student activities — no industry, no product"
+     ]
+    ]
+   },
+   {
+    "t": "callout",
+    "md": "Only work one function? The Function picker hides itself — no point showing you a dropdown with one option. And bulk imports (`Raising → Import`, CSV/XLSX, ≤500 rows) run every row through the exact same checks.",
+    "tone": "info"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "The name is blocked as archived but it's a genuinely different business.",
+      "a": "If it's in a *different world* (say, archived on IGV and you're adding B2C), it's only a heads-up — proceed. Same world? Ask a TL+ to check the archive: they can revive it, or a VP+ can remove a manual blacklist entry."
+     },
+     {
+      "q": "Podio says the partner exists — is it another LC's?",
+      "a": "Not necessarily — it can be ours. Add the account in Sodio and ask your MM about the request state; just don't submit a duplicate on Podio."
+     },
+     {
+      "q": "I submitted on Podio before adding the account here.",
+      "a": "Type the name, and inside the 🔎 not-on-Podio result flip **`I already submitted it`**."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "visits-booking-and-reminders",
+  "title": "Book, move and report a visit",
+  "emoji": "📅",
+  "category": "raising",
+  "audience": "Raising crews (IGV · IGT · B2B/BD · B2C)",
+  "audienceKeys": [
+   "raising",
+   "b2b",
+   "b2c"
+  ],
+  "keywords": [
+   "visit",
+   "schedule visit",
+   "book a visit",
+   "move visit",
+   "reschedule",
+   "calendar invite",
+   "reminder",
+   "visit report",
+   "follow-up email",
+   "زيارة",
+   "ازاي احجز زيارة",
+   "معاد الزيارة"
+  ],
+  "summary": "Visits are booked from the contact log with the Visit Scheduled result — Sodio puts them on your Google Calendar, tells your leaders and the crew, and chases you for the report.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "A visit is always the outcome of reaching someone, so it's booked **from the contact log**, not from a separate button. Log the contact, pick the result **Visit Scheduled**, give it a date and time — done. Sodio creates the calendar event, invites your leaders, announces it to your function's crew, and starts the report-chasing clock."
+   },
+   {
+    "t": "diagram",
+    "diagramId": "visit-flow",
+    "caption": "Contact → Visit Scheduled → the visit → report it"
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open the account on [Raising](/accounts) and log the contact (or tap a WhatsApp/Call/Email quick action — it opens the same form).",
+     "Pick the result **Visit Scheduled** and set the date + time.",
+     "Save. The visit lands on your **Google Calendar** with reminders **24 hours** and **1 hour** before, plus a calendar invite your leaders ride as attendees (no Meet link — visits happen in person)."
+    ],
+    "title": "Book a visit"
+   },
+   {
+    "t": "p",
+    "md": "**Who else hears about it?** Two different things happen. First, the **calendar invite**: a Member's visit invites their Team Leader + the function VP(s) as attendees; a Team Leader's or Coordinator's invites the VP(s). Second, the **announcement**: the whole raising crew of the account's own function gets an email + bell as an FYI — no calendar event for them. You can see everyone's visits on the [Calendar](/calendar)."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open the account — the top bar shows **Reschedule visit** while a visit is pending (the History entry has a **Move it** button too).",
+     "Pick the new date + time and save. Same visit, same calendar event — the invite updates and the new time reaches everyone on it.",
+     "A correction made within 15 minutes stays quiet; a genuine move later announces \"🗓️ Visit moved\" so the crew isn't left with a stale time."
+    ],
+    "title": "Move a booked visit"
+   },
+   {
+    "t": "p",
+    "md": "**After the visit**, a follow-up email arrives about **2 hours later** asking how it went — report the result from the account. If you're a Member or Coordinator, your Team Leader gets that email too. A visit still unreported **one week later** triggers one firmer reminder: report it, or mark the account Out of Process if they're not interested."
+   },
+   {
+    "t": "callout",
+    "md": "If saving says the calendar reminder couldn't be created, your Google grant is probably dead — **sign in with Google once more** and future visits will link properly. The visit itself is always saved either way.",
+    "tone": "warn"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Where did the Schedule visit button go?",
+      "a": "It's gone on purpose — a visit is the result of a contact, so you book it from the contact log with the **Visit Scheduled** result. Only **moving** an already-booked visit is still a button, because there's no new contact to log when just the time changes."
+     },
+     {
+      "q": "Does booking a visit spam other functions?",
+      "a": "No. The announcement goes to the account's **own** function crew only (B2B and BD count as one crew). Your TL/VP additionally ride the calendar invite for oversight."
+     },
+     {
+      "q": "I booked the same slot twice by accident — did everyone get two emails?",
+      "a": "No. Re-submitting the same slot announces nothing, and a correction within 15 minutes stays quiet too."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "contacts-and-phone-numbers",
+  "title": "Contacts, tags & phone numbers",
+  "emoji": "📇",
+  "category": "raising",
+  "audience": "Raising crews (IGV · IGT · B2B/BD · B2C)",
+  "audienceKeys": [
+   "raising",
+   "b2b",
+   "b2c"
+  ],
+  "keywords": [
+   "phone number",
+   "whatsapp number",
+   "tags",
+   "contacts",
+   "landline",
+   "hotline",
+   "+20",
+   "international number",
+   "paste phone",
+   "invalid phone",
+   "رقم تليفون",
+   "واتساب",
+   "رقم مش شغال"
+  ],
+  "summary": "Every phone, email and link on an account carries a tag, numbers auto-normalize to +20 format, and pasted numbers get cleaned of the invisible characters that used to break them.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "An account holds as many contacts as you want, each with a **tag** so everyone knows who they're calling. The tag also powers the quick actions — the WhatsApp button dials the number tagged `Whatsapp` first."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Contact kind",
+     "Tags available"
+    ],
+    "rows": [
+     [
+      "Phones",
+      "Contact · Whatsapp · Manager · HR · CEO · Owner · Other"
+     ],
+     [
+      "Emails",
+      "Same list, minus Whatsapp (emails don't WhatsApp)"
+     ],
+     [
+      "Links",
+      "Website · LinkedIn · Instagram · Facebook · Other"
+     ]
+    ]
+   },
+   {
+    "t": "callout",
+    "md": "**Smart auto-tagging:** paste an instagram.com link and it tags itself Instagram; type `ceo@company.com` and it tags itself CEO — same for hr@, manager@, LinkedIn, Facebook and WhatsApp links. Always overridable if the guess is wrong.",
+    "tone": "tip"
+   },
+   {
+    "t": "steps",
+    "items": [
+     "**Egyptian mobiles** normalize themselves to the canonical `+201[0/1/2/5]XXXXXXXX` — type `010...`, `20 10...`, whatever; on blur the field rewrites to what Sodio stored.",
+     "**Landlines**: Alexandria numbers become `+203...`, Cairo `+202...`. Landlines are valid contacts — they're just never tagged Whatsapp (no WhatsApp on a desk phone).",
+     "**Hotlines** (5-digit short codes like `16123`) are valid too — stored exactly as dialled, never WhatsApp-tagged.",
+     "**Anything else** must be a full international number: `+` followed by 7–15 digits."
+    ],
+    "title": "Phone rules (what the field accepts)"
+   },
+   {
+    "t": "p",
+    "md": "**Pasted a number that looks perfect but keeps failing?** That used to happen when numbers copied from Arabic chats carried invisible characters (bidi marks, zero-width spaces). Sodio now strips everything but the `+` and the digits, and the field rewrites itself on blur to exactly what the system sees — so if something's still wrong, you can finally *see* what."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Why won't my number save?",
+      "a": "Check the rewritten value after you leave the field — that's what Sodio actually received. Egyptian mobiles need a valid prefix (010/011/012/015); foreign numbers need the full `+` international form with 7–15 digits."
+     },
+     {
+      "q": "Which number does the WhatsApp button use?",
+      "a": "The one tagged `Whatsapp`, or the first phone if none is tagged. Tag the right one and the whole team taps the right number."
+     },
+     {
+      "q": "Arabic keyboard digits (٠١٢) don't work?",
+      "a": "They do — Sodio translates Arabic-Indic digits to ASCII everywhere, including login."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "direct-visits",
+  "title": "Direct visits — walked in, log it in one form",
+  "emoji": "🚶",
+  "category": "raising",
+  "audience": "Raising crews (IGV · IGT · B2B/BD · B2C)",
+  "audienceKeys": [
+   "raising",
+   "b2b",
+   "b2c"
+  ],
+  "keywords": [
+   "direct visit",
+   "walk in",
+   "door to door",
+   "street",
+   "log past visit",
+   "one form",
+   "زيارة مباشرة",
+   "نزلت شارع",
+   "زيارة من غير معاد"
+  ],
+  "summary": "Knocked on a door with no appointment? The Direct visit form logs the account, the contact and the visit in one go — the outcome you pick decides what happens next.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Not every partner comes from a research sheet — sometimes you walk a street, find a business, and pitch at the door. Logging that used to mean four screens for something that already happened, so it went unlogged. The **Direct visit** button on [Raising](/accounts) writes all three rows — market research + contact + visit — through the real funnel, so it lands in the pipeline, the leaderboard and the dashboard with no double entry. Nothing is announced: the visit is already over."
+   },
+   {
+    "t": "p",
+    "md": "The form is the real door, not a shortcut: the account name runs the same three live checks as **Add account** (duplicates, the archive/blacklist, the Podio look-up with \"I already submitted it\"), and phones/emails go through the real contacts editor with tags. B2C picks from its own three types."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Outcome",
+     "What Sodio records"
+    ],
+    "rows": [
+     [
+      "Turned away at the door",
+      "Visit logged as **not done**. Offers Out of Process with a reason — **off by default**, because a refusal at reception is not a verdict on the business."
+     ],
+     [
+      "Come back another time",
+      "Books the **return visit** there and then (asks for the date)."
+     ],
+     [
+      "Send the info instead",
+      "Sets the account's **next step** to send it."
+     ],
+     [
+      "Got to present",
+      "Visit counts as **done**; you can set a follow-up date."
+     ],
+     [
+      "Closed a deal on the spot",
+      "Visit done — and the account opens **straight onto the deal form** so you record it while it's warm. 🏆"
+     ]
+    ]
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Does a direct visit email the whole crew like a booked visit?",
+      "a": "No. Announcements exist so people know what's coming — this visit already happened, so nothing is sent."
+     },
+     {
+      "q": "They refused at the door — is the account archived?",
+      "a": "Only if you tick Out of Process yourself. \"Turned away\" alone just logs an undone visit; the account stays workable."
+     },
+     {
+      "q": "The name check says it's archived — can I still log the visit?",
+      "a": "An archived name is blocked exactly like in Add account — it's on the blacklist for a reason. Ask a TL+ to revive it first if the situation genuinely changed."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "log-a-contact",
+  "title": "Log a contact (and book visits from it)",
+  "emoji": "📞",
+  "category": "raising",
+  "audience": "Raising crews (IGV · IGT · B2B/BD · B2C)",
+  "audienceKeys": [
+   "raising",
+   "b2b",
+   "b2c"
+  ],
+  "keywords": [
+   "log contact",
+   "contact result",
+   "no response",
+   "waiting for response",
+   "not interested",
+   "visit scheduled",
+   "book visit",
+   "edit contact",
+   "history",
+   "ازاي اسجل مكالمة",
+   "حجز فيزيت",
+   "مش مهتمين"
+  ],
+  "summary": "Every call, WhatsApp and email gets logged with a result — Visit Scheduled books the real visit, Not Interested archives, and honest mistakes are editable from History.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Open the account → `Contact` (or tap a quick action on the list — it opens the same dialog with the method pre-picked). Choose the method — **Call, WhatsApp or Email** — and the result. That's it: the log entry, the pipeline stage, and any side effects all follow from the result you pick."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Result",
+     "What it means / does"
+    ],
+    "rows": [
+     [
+      "No Response",
+      "Nobody picked up. Counts toward the 3-attempt rule."
+     ],
+     [
+      "Waiting for response",
+      "You sent a message and the ball's in their court. The **default for WhatsApp & Email** (hidden on Call — a call either connects or it doesn't). Also counts as unanswered."
+     ],
+     [
+      "Responded",
+      "They answered, no clear signal yet."
+     ],
+     [
+      "Interested",
+      "They want to hear more. Set that next step!"
+     ],
+     [
+      "Not Interested",
+      "**Archives the account** (Out of Process) — behind a confirmation, because this is a one-way door for the name."
+     ],
+     [
+      "Wrong Contact",
+      "The number/email doesn't reach the business."
+     ],
+     [
+      "Visit Scheduled",
+      "Asks for a **date + time** and **books the actual visit** — calendar event on your Google Calendar with 24h + 1h reminders, invite shared with your leaders, and the function crew gets an FYI."
+     ]
+    ]
+   },
+   {
+    "t": "callout",
+    "md": "**There is no separate \"Schedule visit\" button** — a visit is always the outcome of reaching someone, so the contact log is where it's booked. Moving an already-booked visit is different: find the pending visit in History and hit **`Move it`** (same row, same calendar event, new time — no new contact to log).",
+    "tone": "info"
+   },
+   {
+    "t": "p",
+    "md": "**Made a typo?** Contact attempts are editable from the account's **History** — method, result, note. The two exceptions are `Visit Scheduled` and `Not Interested`: editing those would mean silently un-booking a visit or un-archiving an account, so they stay locked. Move the visit or revive the account through their own doors instead."
+   },
+   {
+    "t": "diagram",
+    "diagramId": "visit-flow",
+    "caption": "Contact → Visit Scheduled → the visit happens → report it (the +2h email will ask if you forget)"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Why can't I pick \"Waiting for response\" on a call?",
+      "a": "Because it means \"I sent a message and I'm waiting\" — a call either connects or it's No Response. It's offered on WhatsApp and Email only."
+     },
+     {
+      "q": "I marked Not Interested by accident!",
+      "a": "The account is archived, not deleted. Ask a TL+ — the Archived tab has a revive (Back to active)."
+     },
+     {
+      "q": "Does booking a visit notify people?",
+      "a": "Yes: your calendar gets the event with reminders, your TL/VP ride the invite, and your function's raising crew gets an email + bell FYI. Re-saving the same slot or correcting it within 15 minutes announces nothing — no spam."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "next-steps",
+  "title": "Next steps & the reminders that follow",
+  "emoji": "🗓️",
+  "category": "raising",
+  "audience": "Raising crews (IGV · IGT · B2B/BD · B2C)",
+  "audienceKeys": [
+   "raising",
+   "b2b",
+   "b2c"
+  ],
+  "keywords": [
+   "next step",
+   "follow up",
+   "reminder",
+   "next week",
+   "next working hours",
+   "calendar reminder",
+   "date",
+   "المتابعة",
+   "الخطوة الجاية",
+   "تذكير"
+  ],
+  "summary": "Every in-process account needs a dated next step — set it in one tap, and Sodio puts a follow-up event on your Google Calendar so you never have to remember it yourself.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "The golden rule says every in-process account carries a **next step with a date** or a pending visit. The next step lives on the account card and in the Log-contact dialog — write what's next (*\"send the proposal\"*, *\"call the HR back\"*) and give it a date."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "**`Next week`** — +7 days from today. The most common follow-up window, now one button.",
+     "**`Next working hours`** — finds your next booked working-hours session and sets the step to it. \"Call them again during working hours\" is the most common next step there is; now the account resurfaces exactly when you sit down to work.",
+     "Or just pick any date (and optionally a time) by hand."
+    ],
+    "title": "Setting the date in one tap"
+   },
+   {
+    "t": "callout",
+    "md": "**The calendar does the remembering.** Whenever a next step gets a date, Sodio upserts a follow-up event on your Google Calendar — at the step's time, or at **11:00** when you set only a date. Change the step and the event moves; clear it (or archive the account) and the event disappears. One step, one event, always in sync.",
+    "tone": "info"
+   },
+   {
+    "t": "p",
+    "md": "The next step also shows as a column on the [Raising](/accounts) list, so a leader scanning the table sees instantly which accounts have a plan and which are drifting. An empty next step with no pending visit is the first thing a VP will ask you about."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "I set a next step but got no calendar event.",
+      "a": "The event lands on your own Google Calendar via your Google grant — if you removed Sodio's access, sign in with Google once more. Steps without a date create no event: the date is the reminder."
+     },
+     {
+      "q": "What time does a date-only step remind me?",
+      "a": "11:00 that day. Give the step a time if you want it elsewhere."
+     },
+     {
+      "q": "Does a pending visit need a next step too?",
+      "a": "No — a pending visit satisfies the golden rule by itself. The next step takes over after the visit is reported."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "quick-actions",
+  "title": "Quick actions: WhatsApp, call & email in one tap",
+  "emoji": "⚡",
+  "category": "raising",
+  "audience": "Raising crews (IGV · IGT · B2B/BD · B2C)",
+  "audienceKeys": [
+   "raising",
+   "b2b",
+   "b2c"
+  ],
+  "keywords": [
+   "quick actions",
+   "whatsapp button",
+   "call button",
+   "email button",
+   "whatsapp opener",
+   "ready message",
+   "one tap",
+   "واتساب",
+   "اتصال سريع",
+   "رسالة جاهزة"
+  ],
+  "summary": "The buttons on every account row open WhatsApp, the dialer or email instantly — WhatsApp comes with a ready-to-send opener, and each tap also opens the contact log so nothing goes unrecorded.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Every row on the [Raising](/accounts) list ends with quick actions built from the account's tagged contacts. One tap opens the channel — no copying numbers around."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Button",
+     "What it opens"
+    ],
+    "rows": [
+     [
+      "WhatsApp",
+      "The number tagged `Whatsapp` — or the first phone if none is tagged"
+     ],
+     [
+      "Call",
+      "The first non-WhatsApp phone"
+     ],
+     [
+      "Email",
+      "The first email on the account"
+     ],
+     [
+      "Link icons",
+      "One icon per saved link (Website, LinkedIn, Instagram, Facebook)"
+     ],
+     [
+      "…",
+      "Everything that didn't fit collapses into the overflow menu"
+     ]
+    ]
+   },
+   {
+    "t": "callout",
+    "md": "**The WhatsApp opener is pre-written.** The chat opens with: *\"Hello! This is {your name} from AIESEC, the world's largest youth-led organization. I'm reaching out about a collaboration with {account}.\"* — edit it or just hit send. No more staring at an empty chat wondering how to start.",
+    "tone": "tip"
+   },
+   {
+    "t": "p",
+    "md": "**Tapping a quick action also opens the real contact dialog** with the method pre-selected — WhatsApp tap, WhatsApp pre-picked, all results available (including the branching ones like `Visit Scheduled` and `Not Interested`). Send the message, then log what happened while it's fresh. An unlogged contact is a contact that never happened as far as your funnel knows."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "The WhatsApp button opens the wrong number.",
+      "a": "Tag the right number `Whatsapp` on the account's contacts — the button always prefers the tagged one."
+     },
+     {
+      "q": "Some rows have no Call/WhatsApp button at all.",
+      "a": "The account has no usable phone — the buttons only render for real numbers. Add one from the account page."
+     },
+     {
+      "q": "Do I have to log the contact after tapping?",
+      "a": "The dialog opens to make it one tap, and yes you should — the golden rule, the pipeline stage and your leaderboard numbers all read from the log, not from your WhatsApp history."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "record-a-deal",
+  "title": "Record a deal (and split the opens)",
+  "emoji": "🏆",
+  "category": "raising",
+  "audience": "Raising crews (IGV · IGT · B2B/BD · B2C)",
+  "audienceKeys": [
+   "raising",
+   "b2b",
+   "b2c"
+  ],
+  "keywords": [
+   "deal",
+   "record deal",
+   "opens",
+   "slots",
+   "split opens",
+   "BD money",
+   "EGP",
+   "amount",
+   "benefits",
+   "B2C deal",
+   "edit deal",
+   "ديل",
+   "ازاي اسجل ديل",
+   "اوبنز"
+  ],
+  "summary": "Accounts can close many deals over time — each one records its opens per product, can split credit across members, and BD deals carry money instead.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "**Deals are many-per-account.** 3 slots today and 6 next month = 2 deals, 9 slots — the account stays fully workable after each one (more contacts, more visits, more deals). Every deal belongs to the account's **Responsible**, whoever clicked the button. And yes, there's confetti. 🎉"
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open the account and hit **Deal signed** (or **New deal** if it's not the first).",
+     "Enter the opens **per product**: an IGV account signs IGV opens, an IGT account splits GTa + GTe, and a **B2B/BD account can mix all three** — those per-product opens feed the IGV/IGTa/IGTe dashboard lanes.",
+     "Optionally flip **Split the opens between members** to share the credit — pick anyone in the account's function and give each their share (the splits must sum exactly; the server checks). Default is 100% to the Responsible.",
+     "Attach the contract now or later, save, enjoy the confetti."
+    ],
+    "title": "Record it"
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Function",
+     "What a deal needs"
+    ],
+    "rows": [
+     [
+      "IGV / IGT",
+      "Opens per product; splits optional."
+     ],
+     [
+      "B2B",
+      "Opens across IGV / IGTa / IGTe — the mix is the point."
+     ],
+     [
+      "BD",
+      "**Amount in EGP (required)** + optional benefits — money is BD's MOS. Opens are optional, behind a switch that starts off."
+     ],
+     [
+      "B2C",
+      "No details at all: the popup links the contract Google Form and offers one **Deal signed** button. No opens, no splits, no amount."
+     ]
+    ]
+   },
+   {
+    "t": "p",
+    "md": "**Made a mistake?** Every deal's History entry has an edit button — note, amount & benefits, and its opens (the account's counters recompute). Split numbers show in the history as \"Opens split: A (3) · B (3)\" when custom."
+   },
+   {
+    "t": "callout",
+    "md": "Splits drive every per-member number — leaderboards, the members directory, period reports, \"My numbers\" — while lane totals come from the deal's per-product columns. So splitting fairly is how everyone's work shows up.",
+    "tone": "info"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Who gets the credit if my TL clicks the button?",
+      "a": "The account's **Responsible** — never the person clicking. Use the split switch if several people genuinely raised those opens."
+     },
+     {
+      "q": "Why won't it let me record a deal on an unassigned account?",
+      "a": "An unassigned account has nobody to credit — ask a leader to assign it first (or record with an explicit split)."
+     },
+     {
+      "q": "Does a deal close the account?",
+      "a": "No. Accounts keep working after a deal — many partners sign again next month."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "proposal-emails",
+  "title": "Send a proposal email",
+  "emoji": "✉️",
+  "category": "raising",
+  "audience": "Raising crews (IGV · IGT · B2B/BD)",
+  "audienceKeys": [
+   "raising",
+   "b2b"
+  ],
+  "keywords": [
+   "proposal",
+   "proposal email",
+   "gmail draft",
+   "pdf attach",
+   "partner email",
+   "pitch email",
+   "بروبوزال",
+   "ميل للشركة",
+   "عرض شراكة"
+  ],
+  "summary": "The Proposal email button builds a branded, product-aware pitch as a draft in YOUR Gmail — you review, attach, and hit send from your own address.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Every raising account has a **Proposal email** button. Fill the popup — recipient, sector, an optional custom note — and Sodio creates a ready-to-send **draft in your own Gmail**. The email goes out from *your* address once you review and send it; Sodio is the stationery, not the sender. The account is marked `proposal_sent`, and nothing else moves — sending a proposal never changes ownership or stage."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open the account → **Proposal email**. The product (iGV / iGTa / iGTe / B2B) is auto-detected and the company prefilled.",
+     "Optionally flip **Attach the official proposal** to bundle the per-product PDF. IGV/IGT prefill their own product's PDF; **B2B/BD start with nothing attached** — you opt in per product.",
+     "Create the draft, then open **Gmail**: review, attach anything extra, and hit send."
+    ],
+    "title": "Send one"
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Account",
+     "The email you get"
+    ],
+    "rows": [
+     [
+      "IGV / IGTa / IGTe",
+      "That product's pitch, AIESEC blue, signed as Global Volunteer / Talent / Teacher Manager."
+     ],
+     [
+      "B2B",
+      "A **general all-programs** variant linking to aiesec.org/partners by default — you can still pick a specific product's body. Signed Business Development Manager."
+     ],
+     [
+      "BD",
+      "The **Talent Solutions** pitch — and no PDFs attach by default."
+     ],
+     [
+      "B2C",
+      "None. B2C runs on the contract form, not proposals — the button is hidden and the server refuses it."
+     ]
+    ]
+   },
+   {
+    "t": "callout",
+    "md": "If draft creation fails with a permissions error, your Google grant predates the `gmail.compose` scope — **sign in with Google once** and try again.",
+    "tone": "warn"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Why is there no \"Dear …\" line?",
+      "a": "By request — the email opens straight into the pitch, so there's no name to get wrong."
+     },
+     {
+      "q": "Does the recipient see it came from Sodio?",
+      "a": "No. It's a normal email from your own Gmail, sitting in your Sent folder, with replies coming back to you."
+     },
+     {
+      "q": "Can I edit the email before it goes?",
+      "a": "Yes — that's the whole point of it landing as a draft. Nothing is sent until you press send in Gmail."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "archive-and-blacklist",
+  "title": "The archive IS the blacklist",
+  "emoji": "🗄️",
+  "category": "raising",
+  "audience": "Raising crews (IGV · IGT · B2B/BD · B2C)",
+  "audienceKeys": [
+   "raising",
+   "b2b",
+   "b2c"
+  ],
+  "keywords": [
+   "archive",
+   "blacklist",
+   "out of process",
+   "OOP",
+   "revive",
+   "back to active",
+   "delete account",
+   "import archived",
+   "bulk archive",
+   "bulk reassign",
+   "ارشيف",
+   "بلاك ليست",
+   "خارج العملية"
+  ],
+  "summary": "Out-of-Process accounts are hidden and un-re-addable — the whole LC can read the archive, TL+ can revive, and burned names from before the CRM can be blacklisted by hand.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "There is no separate blacklist: an account marked **Out of Process** disappears from the working lists and its name can't be re-added — that *is* the blacklist. Reasons come from a fixed pick-list (Not responding, Financial issues, Not Interested, Backed out, Blacklisted, …) plus **Other** with free text. Two things archive automatically, each behind a warning: the contact result **Not Interested**, and the Podio request state **Rejected**."
+   },
+   {
+    "t": "p",
+    "md": "**Everyone can read it.** The Archived tab on [Raising](/accounts) is LC-wide: any member can browse every archived name and open any archived account **read-only** — so nobody wastes a week on a partner the LC burned last term. Editing stays scoped as usual. Names live in **three worlds** — ICX raising (IGV/IGT/B2B), BD, and B2C — each with its own archive, so an IGV namesake never blocks a B2C account."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open the Archived tab and find the account (search works).",
+     "Hit **Back to active** — with the confirm, it returns to the raising process, next-step reminders included.",
+     "Select several rows to revive in bulk; VPs/Directors/LCP can instead **Delete** selected archived accounts permanently, which frees the name for good."
+    ],
+    "title": "Bring one back (TL and above)"
+   },
+   {
+    "t": "steps",
+    "items": [
+     "**Add archived** blacklists a single name — the reason is optional.",
+     "**Import archived** takes a CSV/XLSX with Name + optional Reason, shows an editable preview, and imports up to **1000 rows** — free-form reasons are kept as-is.",
+     "Either way the name now blocks re-adding exactly like an OOP account. A VP+ can remove an entry later."
+    ],
+    "title": "Blacklist names from before the CRM (TL and above)"
+   },
+   {
+    "t": "p",
+    "md": "**Bulk operations on the active list**: hit **Select**, tick rows (desktop shows the checkboxes always), and the action bar offers **Archive** or **Assign to…**. Reassigning has an **\"Email them about it 📬\"** toggle — on by default — that sends the new responsible the account list; it stays quiet when you assign to yourself. Every row still passes the normal permission checks individually."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Why can't I add an account — it says archived?",
+      "a": "That name is on the blacklist (OOP or manually added). If the situation truly changed, ask a TL+ to revive it from the Archived tab rather than creating a duplicate."
+     },
+     {
+      "q": "Who can permanently delete an archived account?",
+      "a": "VP/Director/LCP, from the Archived tab's bulk Delete — it removes the account and all its history and frees the name. There is no undo, which is why revive is the default answer."
+     },
+     {
+      "q": "Does archiving delete the account's data?",
+      "a": "No — everything stays and is readable by the whole LC. Only permanent delete removes data."
+     },
+     {
+      "q": "I archived by mistake from a bulk action — now what?",
+      "a": "Open the Archived tab, find it, **Back to active**. Ownership and history are untouched."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "raising-cycle-overview",
+  "title": "The raising cycle, start to finish",
+  "emoji": "🔄",
+  "category": "raising",
+  "audience": "Raising crews (IGV · IGT · B2B/BD · B2C)",
+  "audienceKeys": [
+   "raising",
+   "b2b",
+   "b2c"
+  ],
+  "keywords": [
+   "pipeline",
+   "funnel",
+   "lead",
+   "stages",
+   "raising cycle",
+   "golden rule",
+   "out of process",
+   "oop",
+   "deal",
+   "visit",
+   "next step",
+   "الفانل",
+   "ازاي اشتغل",
+   "مراحل الاكونت"
+  ],
+  "summary": "How an account moves from Lead to Deal Done, and the one golden rule that keeps your pipeline honest.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Every account lives in a pipeline, and its stage is **derived from what you actually did** — you never set it by hand. Add the account, log contacts, book a visit, report it, record the deal. The stage follows."
+   },
+   {
+    "t": "diagram",
+    "diagramId": "pipeline",
+    "caption": "Lead → Contacted → Visit Scheduled → Visit Done → Deal Done (exit lane: Out of Process)"
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Stage",
+     "What puts an account there"
+    ],
+    "rows": [
+     [
+      "Lead",
+      "The account exists — market research, nothing logged yet"
+     ],
+     [
+      "Contacted",
+      "You logged at least one contact attempt"
+     ],
+     [
+      "Visit Scheduled",
+      "A visit is booked (via the contact result `Visit Scheduled`)"
+     ],
+     [
+      "Visit Done",
+      "You reported the visit as completed"
+     ],
+     [
+      "Deal Done",
+      "You recorded a deal — and the account stays workable for more"
+     ],
+     [
+      "Out of Process",
+      "Archived: Not Interested, Podio Rejected, or a manual OOP with a reason"
+     ]
+    ]
+   },
+   {
+    "t": "callout",
+    "md": "**The golden rule:** every in-process account carries a **next step with a date** or a **pending visit**. An account with neither is an account nobody is working. And after **3 unanswered contact attempts**, Sodio prompts you to move it Out of Process — no wasted resources.",
+    "tone": "warn"
+   },
+   {
+    "t": "p",
+    "md": "Deals are **many per account**: 3 slots today and 6 next month is two deals, nine slots. Recording a deal never closes the account — keep contacting, visiting, and dealing. The archive is also the blacklist: an Out-of-Process name can't be re-added, but any member can browse the whole LC's archive read-only, and a TL+ can revive one."
+   },
+   {
+    "t": "callout",
+    "md": "Walked into a business and pitched at the door? Use **Direct visit** on [Raising](/accounts) — one form writes the account, the contact and the visit in one go, so work that already happened still lands in your funnel. And if you have visits nobody reported, Raising shows a **\"N visits need a report\"** banner — clear it before it clears your credibility.",
+    "tone": "tip"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Can I move an account's stage manually?",
+      "a": "No — the stage is computed from your logged work. Want it at Visit Scheduled? Log a contact with result `Visit Scheduled`. Want Deal Done? Record the deal."
+     },
+     {
+      "q": "Does a deal end the account?",
+      "a": "Never. The account stays fully workable — more contacts, more visits, more deals. Partners renew."
+     },
+     {
+      "q": "What counts as an \"unanswered\" attempt?",
+      "a": "`No Response` and `Waiting for response` both count. Three of those with nothing in between and Sodio suggests Out of Process."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "deal-contracts",
+  "title": "Upload and view deal contracts",
+  "emoji": "📎",
+  "category": "raising",
+  "audience": "Raising crews (IGV · IGT · B2B/BD · B2C)",
+  "audienceKeys": [
+   "raising",
+   "b2b",
+   "b2c"
+  ],
+  "keywords": [
+   "contract",
+   "upload contract",
+   "deal file",
+   "attachment",
+   "pdf",
+   "signed link",
+   "contracts button",
+   "عقد",
+   "ارفع العقد",
+   "كونتراكت"
+  ],
+  "summary": "Attach the signed contract to a deal — any file format, at record time or later — and open it from the Contracts button whenever you can view the account.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "A deal can carry its paperwork: **any file format**, up to **10 files per deal, 25 MB each**. Files go straight from your browser to private storage — they never sit on a public link."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "While recording the deal, drop the files into the upload zone — or come back any time and add them from the deal's **History entry**.",
+     "Wait for the upload to finish (big scans over 25 MB need compressing first).",
+     "Done — the account now shows a **Contracts** button; anyone who can view the account can preview or download through a short-lived signed link."
+    ],
+    "title": "Attach a contract"
+   },
+   {
+    "t": "callout",
+    "md": "Executable and active-content files (like `.html` or `.exe`) are rejected for safety — a scan, photo, PDF or document is what belongs here.",
+    "tone": "warn"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "I forgot to upload at record time — is it too late?",
+      "a": "Never. Open the account's History, find the deal, and add the files from there."
+     },
+     {
+      "q": "Who can see the contract?",
+      "a": "Anyone who can view the account — same visibility rules as everything else on it. View links are signed and expire after 10 minutes, so a copied URL goes stale fast."
+     },
+     {
+      "q": "My file is 30 MB and won't upload.",
+      "a": "The cap is 25 MB per file. Compress the scan (lower the resolution or export a smaller PDF) and try again."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "cic-second-calls",
+  "title": "CIC — the second call (and B2C's selling call)",
+  "emoji": "📲",
+  "category": "ogx",
+  "audience": "OGX crews & B2C",
+  "audienceKeys": [
+   "ogx",
+   "b2c"
+  ],
+  "keywords": [
+   "CIC",
+   "second call",
+   "customer interview call",
+   "second caller",
+   "b2c cic",
+   "selling call",
+   "assign 2nd caller",
+   "take the call back",
+   "المكالمة التانية",
+   "سيك"
+  ],
+  "summary": "CIC hands a contacted-but-status-less sign-up to a second caller to verify and follow up — the first assignee keeps the row and their KPIs, and B2C runs its own selling calls on the same pool.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "**CIC = Customer Interview Calls.** A sign-up held by a real member whose **Contacted was answered — Yes *or* No** — but that never got a status shows up in the **📞 CIC** tab on [Sign-ups](/signups). (A \"No\" is a call that happened and didn't land — exactly what a second call re-tries. A row still in the unassigned pool is waiting for its *first* call and never appears here.)"
+   },
+   {
+    "t": "callout",
+    "md": "**It is not a hand-over.** The sign-up stays with its first assignee and keeps counting for them — the second call lives in its own columns. On credit: both callers carry the sign-up and the *contact*; the *outcome* (Applied → Approved) counts for whoever took it there.",
+    "tone": "info"
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open **📞 CIC** and pick rows — one at a time via the inline caller select, or select several → **Assign 2nd caller…** for a whole batch.",
+     "The caller pool is the whole function; the second caller gets a bell and can open the sign-up read-only, plus its full history.",
+     "Recording the call's answers closes it. Handed to the wrong person? **Take the call back** returns it to the queue — the first assignee and their numbers are untouched either way.",
+     "The 🙋 Mine chip in the CIC tab shows exactly the second calls handed to *you*."
+    ],
+    "title": "Handing out second calls (MMs and above)"
+   },
+   {
+    "t": "p",
+    "md": "**🛍️ B2C rides the same pool — to sell, never to verify.** The B2C crew opens Sign-ups → 📞 CIC across *both* OGX sides (the **Both** chip is their default; OGT/OGV only narrow) and pitches courses, events and student activities to people the first OGX call already reached. A B2C TL hands calls to themself or their team, a Coordinator takes them themself, the LCVP/Director hands to anyone in B2C. One sign-up can carry an open OGX second call *and* an open B2C call at once."
+   },
+   {
+    "t": "callout",
+    "md": "**The history always says which side rang.** Every hand-out and every answer lands in the sign-up's History side-tagged — OGX rows and B2C rows never blur, and the OGX funnel is never moved by a B2C call. The B2C dashboard lane has its own CIC card: handed out · called · interested · per caller.",
+    "tone": "tip"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Why isn't a sign-up I expected showing in the CIC tab?",
+      "a": "Three gates: it must be held by a real member (not the pool), Contacted must be answered (Yes or No), and it must have no status yet. If it already reached Applied, the second call has nothing left to verify. Your VP can also switch the CIC queue off entirely for the function."
+     },
+     {
+      "q": "Does the second caller take over my sign-up?",
+      "a": "Never — the row, the contact credit and the KPIs stay yours. Only the outcome (moving it to Applied → Approved) credits whoever actually took it there."
+     },
+     {
+      "q": "I'm B2C — why do I only see the CIC view on Sign-ups?",
+      "a": "By design: your job there is the selling call, not the OGX funnel. You see both sides' queues, open sign-ups read-only, and record on your own side-tagged rows."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "signup-referrals",
+  "title": "Referrals — sign-ups that never met the tracker",
+  "emoji": "🤝",
+  "category": "ogx",
+  "audience": "OGV & OGT crews",
+  "audienceKeys": [
+   "ogx"
+  ],
+  "keywords": [
+   "referral",
+   "referrals",
+   "add referral",
+   "organic",
+   "walk-in",
+   "friend",
+   "ريفرال",
+   "حد جالنا من برا",
+   "اضيف حد مش في الشيت"
+  ],
+  "summary": "Add referral logs someone who came to us directly as a real sign-up — with the first funnel steps filled up front — that counts everywhere but never goes near the tracker sheet.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "A friend, a walk-in, an EP another member sent our way — someone we can approve who never came through the sign-up form used to live in WhatsApp and count nowhere. **Add referral** on [Sign-ups](/signups) makes them a real sign-up from birth: assigned, on the dashboard, on the leaderboard."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Hit **Add referral** (pick OGT or OGV if you work both). Their **name** is required; a **phone or an email** — one is enough, but without either nobody can reach them.",
+     "Optionally add **date of birth**, **country** (resolved against the real country list, like a booking), **Sub product** (OGT: GTa/GTe) and **who referred them**.",
+     "Because you've usually already spoken to them, the first funnel steps are right there: **Contacted · Interested · Status** — no re-opening the row to say what you already know. Contacted = Yes stamps the contact date.",
+     "Leaders can pick **who works it**; everyone else works it themselves. Drop a first note and save."
+    ],
+    "title": "Add one"
+   },
+   {
+    "t": "callout",
+    "md": "**Referrals never touch the tracker.** There is no sheet row behind them, so the sync can't import, overwrite or write them back — ever. The list shows **🤝 Referral** where the EP id would be, and the **🤝 Referrals** tab keeps them together: yours if you're a member, your team's if you're a TL, the function's if you lead it.",
+    "tone": "info"
+   },
+   {
+    "t": "p",
+    "md": "From that moment it's a sign-up like any other — comments, CIC, the potential flow, and every number on the OGX dashboard counts it (the dashboard even says how many of the sign-ups are referrals). **Parents Approval still needs a VP**, exactly like everywhere else."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Why can't I see the Add referral button?",
+      "a": "Your VP decides who may log one from their function settings: the whole crew, or MMs and above (TLs, Coordinators and up). If it's the latter, send yours to your TL and they'll log it."
+     },
+     {
+      "q": "Will the referral appear on the tracker sheet?",
+      "a": "Never — it has no sheet row and the sync is built to skip it in both directions. It lives, and counts, only in Sodio."
+     },
+     {
+      "q": "The date of birth wouldn't save.",
+      "a": "It's validated as a real date on purpose — a half-typed year must not be stored as fact. It's optional; skip it if you're not sure."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "signup-potential-flow",
+  "title": "The potential flow — Applied → Accepted → Approved",
+  "emoji": "🎯",
+  "category": "ogx",
+  "audience": "OGV & OGT crews",
+  "audienceKeys": [
+   "ogx"
+  ],
+  "keywords": [
+   "applied",
+   "accepted",
+   "approved",
+   "approval",
+   "MOS",
+   "potential",
+   "status",
+   "parents approval",
+   "ابروفال",
+   "ستاتس",
+   "approved ازاي"
+  ],
+  "summary": "Whoever owns a sign-up moves it Applied → Accepted → Approved right from the details — Approved is the MOS, Parents Approval stays VP-only, and none of it ever touches the sheet.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "**No waiting on a VP.** The sign-up's **owner** moves it through **Applied → Accepted → Approved** straight from the details dialog (a TL, VP or the LCP can too). **Approved is the MOS** 🏆 — accepted by the host entity, paid, contract signed, ready to start the travel process. Your real Approvals count shows on the [members directory](/members) and drives the Approvals leaderboard on [/dashboard](/dashboard)."
+   },
+   {
+    "t": "callout",
+    "md": "**These statuses live only in Sodio.** The tracker sheet's Status cell only ever carries *Out of Process* or nothing — Applied/Accepted/Approved are never written back. So the sheet can't overwrite your pipeline, and the pipeline can't confuse the sheet.",
+    "tone": "info"
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Status",
+     "Who sets it"
+    ],
+    "rows": [
+     [
+      "Parents Approval",
+      "VP/Director only — it lives in the VP fields"
+     ],
+     [
+      "Applied",
+      "The sign-up's owner (or TL/VP/LCP)"
+     ],
+     [
+      "Accepted",
+      "The sign-up's owner (or TL/VP/LCP)"
+     ],
+     [
+      "Approved ★",
+      "The sign-up's owner (or TL/VP/LCP) — this is the MOS"
+     ]
+    ]
+   },
+   {
+    "t": "p",
+    "md": "The **🎯 Potential** filter finds every sign-up sitting at a given stage in one tap — your end-of-sprint chase list, ready-made."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Why can't I set Parents Approval?",
+      "a": "It's deliberately VP-only — it's a judgment call the function's leader signs off on. Everything from Applied onward is yours as the owner."
+     },
+     {
+      "q": "I moved someone to Approved by mistake.",
+      "a": "Open the details and set the status back — the owner (or a leader) can move it in either direction."
+     },
+     {
+      "q": "Does Approved show up on the sheet?",
+      "a": "No. The sheet only ever sees Out of Process in its Status cell; Approved lives in Sodio and counts on the dashboard, the leaderboard and the members directory."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "signups-module",
+  "title": "The sign-ups module — how it all fits",
+  "emoji": "✈️",
+  "category": "ogx",
+  "audience": "OGV & OGT crews",
+  "audienceKeys": [
+   "ogx"
+  ],
+  "keywords": [
+   "sign-ups",
+   "signups",
+   "tracker",
+   "sheet sync",
+   "unassigned",
+   "pool",
+   "EP",
+   "OGV",
+   "OGT",
+   "views",
+   "tabs",
+   "mine",
+   "السيناب",
+   "التراكر",
+   "وين الساينب بتاعي"
+  ],
+  "summary": "Sign-ups is your OGX workspace: the tracker sheet imports every 15 minutes, your edits write straight back, and the tabs split the pool into what needs you.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "**[Sign-ups](/signups) and the tracker sheet are the same data behind two doors.** Every 15 minutes the four tracker tabs import into Sodio, and every edit you make in Sodio — Contacted, Interested, a comment — is written straight back to the sheet's own cells. You never have to choose where to work; the sheet just follows."
+   },
+   {
+    "t": "callout",
+    "md": "**The ownership rule (`sodio_touched`):** a sign-up's intake data (name, phone, program, batch…) always belongs to the sheet. But the moment anyone touches a row in Sodio, its **workflow fields** — assignee, Contacted, Interested, comments — belong to Sodio, and the importer stops overwriting them. So a stale cell on the sheet can never undo your work.",
+    "tone": "info"
+   },
+   {
+    "t": "diagram",
+    "diagramId": "signup-funnel",
+    "caption": "Every sign-up walks the same road: Sign-up → Contacted → Interested → Applied → Accepted → Approved."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "View",
+     "What's in it"
+    ],
+    "rows": [
+     [
+      "🆕 Unassigned",
+      "The pool — sign-ups nobody holds yet. Contact one and it's yours (unless your VP closed self-claiming)."
+     ],
+     [
+      "My sign-ups",
+      "What you answer for. The 🙋 Mine chip gets you here in one tap from anywhere."
+     ],
+     [
+      "My team",
+      "Team Leaders only — the whole team's rows."
+     ],
+     [
+      "📞 CIC",
+      "Second calls — sign-ups that were contacted but never got a status, handed to a second caller."
+     ],
+     [
+      "🤝 Referrals",
+      "People who came to us directly, never through the tracker."
+     ],
+     [
+      "All",
+      "Every sign-up in the function (VPs/Directors — or roles your VP opened the floor to)."
+     ],
+     [
+      "🗄️ Archived",
+      "Out of Process — browsable, revivable by a VP."
+     ]
+    ]
+   },
+   {
+    "t": "p",
+    "md": "Members see their own rows plus the pool, Team Leaders their team, leaders the whole function. If you filed an MM plan, a card above the list shows this month's **plan vs your live pipeline** — the Approvals bar is your MOS race. Your function's full dashboard (funnel, conversions, Approvals leaderboard) lives on [/dashboard](/dashboard)."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "I edited a cell on the sheet — why didn't it change in Sodio?",
+      "a": "If the row was ever touched in Sodio, its workflow fields (assignee, Contacted, Interested, status) belong to Sodio and the import leaves them alone. Intake data (phone, program…) still syncs from the sheet. Make workflow edits in Sodio — they land on the sheet within seconds."
+     },
+     {
+      "q": "How fresh is the list?",
+      "a": "The tracker imports every 15 minutes (and pauses overnight). Leaders also have a manual Sync now button when they can't wait."
+     },
+     {
+      "q": "Why don't I see the All tab?",
+      "a": "All is for VPs/Directors — unless your VP has opened whole-function visibility to your role from their function settings. Ask them if your work genuinely needs it."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "ogx-streak",
+  "title": "The 🔥 streak — one contact a day keeps it alive",
+  "emoji": "🔥",
+  "category": "ogx",
+  "audience": "OGV & OGT crews",
+  "audienceKeys": [
+   "ogx"
+  ],
+  "keywords": [
+   "streak",
+   "fire",
+   "daily",
+   "contact streak",
+   "nag",
+   "reminder",
+   "top streaks",
+   "board",
+   "ستريك",
+   "النار",
+   "ايميل الستريك"
+  ],
+  "summary": "Mark at least one of your sign-ups Contacted every day to keep your streak; the board ranks the LC's hottest, and a funny evening email warns you before midnight kills it.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "**The rule is one line:** a day counts when at least one sign-up you hold gets marked **Contacted — Yes** that day. Do that daily and your streak grows; miss a day and midnight resets it. The 🔥 card lives on [Sign-ups](/signups) and on your [dashboard](/dashboard) lane — greyed-out flame means today isn't saved yet."
+   },
+   {
+    "t": "p",
+    "md": "**The board is a real ranking:** numbered rows, medals for the top three, the day count front and center, and — on the joint OGX board — each person's side in its own colour (OGV red, OGT teal), with **OGX / OGT / OGV** chips to narrow it. Under your own number you'll see **Your best**, or \"No streak yet — today can be day 1\" if you haven't started."
+   },
+   {
+    "t": "callout",
+    "md": "**The evening guardian:** sitting on a 3+ day streak with nothing logged by ~7 PM Cairo? A (deliberately funny) email + bell lands warning you the streak dies at midnight — once per day, never more. One contact saves it.",
+    "tone": "tip"
+   },
+   {
+    "t": "callout",
+    "md": "The streak is derived from your **live** sign-ups — if a contact gets undone, that day quietly stops counting. And the nag email is your VP's call: they can switch it off for the whole function from their settings (the streak and the board stay either way).",
+    "tone": "info"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Do comments or claims save the streak?",
+      "a": "No — the streak reads contacted sign-ups: at least one of your rows marked Contacted = Yes that day. The contact is the work the streak celebrates."
+     },
+     {
+      "q": "I'm OGT — is the streak OGV-only?",
+      "a": "Not any more. It started as an OGV game and now covers all of OGX; the joint board tags each person's side so the race stays readable."
+     },
+     {
+      "q": "I stopped getting the evening reminder — is something broken?",
+      "a": "Two innocent reasons: it only fires when your streak is 3+ days and today is unsaved, and your VP may have switched the nag off for the function. Your streak itself still counts either way."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "working-a-signup",
+  "title": "Working a sign-up — claim, contact, comment",
+  "emoji": "📞",
+  "category": "ogx",
+  "audience": "OGV & OGT crews",
+  "audienceKeys": [
+   "ogx"
+  ],
+  "keywords": [
+   "claim",
+   "contact",
+   "contacted",
+   "interested",
+   "comment",
+   "whatsapp",
+   "call",
+   "phone filter",
+   "inline edit",
+   "sign-up",
+   "ازاي اكلم ساين اب",
+   "اخد ساين اب",
+   "كومنت"
+  ],
+  "summary": "Contact a sign-up in the Unassigned pool to claim it, log Contacted/Interested right from the row, and keep everything in the comment log — it all writes back to the sheet.",
+  "blocks": [
+   {
+    "t": "steps",
+    "items": [
+     "Open [Sign-ups](/signups) → **🆕 Unassigned** and pick a fresh row — the **WhatsApp / Call** buttons are right there.",
+     "Hit **Contact** — the sign-up becomes yours, your name lands on the sheet, and the details open so you can log everything on the spot.",
+     "Set **Contacted** (Yes/No) and **Interested** (Yes/No) — from the details, or straight from the row: both are inline selects on the table.",
+     "Drop a **comment** with what happened. Tapping WhatsApp/Call also offers to log the contact with the channel pre-filled, so nothing lives only in your chat history."
+    ],
+    "title": "Take a sign-up and work it"
+   },
+   {
+    "t": "callout",
+    "md": "**Some functions close the pool.** If your VP switched off self-service claiming, Contact on an unassigned row will tell you: your TL or VP hands out sign-ups instead. MMs and above can always assign.",
+    "tone": "warn"
+   },
+   {
+    "t": "p",
+    "md": "**Comments are a two-class log, not a chat.** Your entries land in the sheet's *Comment* cell, a VP's in the *VP Comment* cell — each stamped with author and time. The list has a **Comment column** showing the thread newest-first (full text on hover) and a **💬 ➕** to add one without opening the row. Assigned and contacted dates stamp themselves."
+   },
+   {
+    "t": "p",
+    "md": "**Finding your way around:** the **🙋 Mine** chip jumps to your own rows from any view; column funnels filter Batch, Program, Contacted, Interested and Potential from the headers; and the **phone filter** on Quick actions goes both ways — only sign-ups *with* a phone, or only the **📵 missing-phone** ones (tracker placeholders like \"-\" count as missing)."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Can I edit the person's phone, program or university?",
+      "a": "No — intake data belongs to the sheet and stays read-only in the details. You edit the workflow: Contacted, Interested, comments (and statuses once you own the row — see the potential flow)."
+     },
+     {
+      "q": "The Call/WhatsApp buttons are missing on a row.",
+      "a": "That sign-up has no usable phone number — the tracker sometimes holds placeholders. Filter 📵 missing-phone to find them, and try the email instead if there is one."
+     },
+     {
+      "q": "What's Out of Process and who sets it?",
+      "a": "A VP/Director archives a sign-up as Out of Process with a reason — it moves to 🗄️ Archived and is revivable. It's the only status the sheet's Status cell ever carries."
+     },
+     {
+      "q": "I claimed one by mistake — how do I give it back?",
+      "a": "Ask your TL or VP to reassign it (or Unassign it back to the pool) from the bulk bar or the row's assignee select."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "consideration-booked-call-life",
+  "title": "A booked call's life — invite, reschedule, cancel",
+  "emoji": "📅",
+  "category": "consideration",
+  "audience": "Consideration crew",
+  "audienceKeys": [
+   "consideration"
+  ],
+  "keywords": [
+   "reschedule",
+   "cancel call",
+   "meet link",
+   "manage link",
+   "calendar invite",
+   "moved call",
+   "google meet",
+   "الغاء مكالمة",
+   "تأجيل",
+   "ميت لينك",
+   "invitation"
+  ],
+  "summary": "Every booking gets a Meet invite and a confirmation with a manage link — the IR can move or cancel it themselves, you can cancel or ask them to move, and every move is remembered.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "The moment an IR books: a **Google Meet event** is created — on *your* calendar if you have a Google grant, otherwise on the **IM mailbox calendar** (the IR is invited by email either way, and the Meet link shows on your IR-calls page). You get a bell and an email; the IR gets a **confirmation email** in their own time zone with a private **manage link**."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Who wants to change it",
+     "How"
+    ],
+    "rows": [
+     [
+      "The IR reschedules",
+      "Their manage link shows your live free slots (their current one excluded). Picking a new one moves the same event — no re-booking dance."
+     ],
+     [
+      "The IR cancels",
+      "One click on the manage link — no reason required from them. The calendar event is removed, mailbox-hosted or not."
+     ],
+     [
+      "You cancel",
+      "The call's card → cancel **with a reason** — the IR is emailed, the event is removed."
+     ],
+     [
+      "You want it moved",
+      "**Request reschedule** — you write a reason (it reaches the IR word for word) and they get their manage link to pick a new slot."
+     ]
+    ]
+   },
+   {
+    "t": "p",
+    "md": "A moved call **remembers**: every move is appended to its history, and the scheduled list says it in words — *\"Moved twice — first booked for …, then …. Last change by Ensar on …\"*. No more archaeology over what time it originally was."
+   },
+   {
+    "t": "p",
+    "md": "Any row on the scheduled list or the call log **opens into one organized card**: the IR's name, role, email (with its bounce state and the fix right there), WhatsApp button, Cairo time *and* their-zone time, their \"what I'd like to talk about\" note, the Meet link, the host, the full move history, and any cancel reason."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "The call has no Meet link — why?",
+      "a": "It shouldn't happen for new bookings: even without a Google grant the event is built on the IM mailbox calendar. If a genuinely link-less call exists, tell the IM team — the backfill script covers exactly this."
+     },
+     {
+      "q": "Can I move the call myself instead of asking the IR?",
+      "a": "The booking flow is IR-driven, so moving goes through their manage link — use **Request reschedule** with your reason. That keeps their consent and their calendar in the loop."
+     },
+     {
+      "q": "The IR cancelled — is the meeting really gone from calendars?",
+      "a": "Yes — the cancel deletes the event whether it lives on your calendar or the IM mailbox one. No ghost meetings."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "consideration-partner-lcs-cvs",
+  "title": "Partner LCs & the CV pool",
+  "emoji": "🗂️",
+  "category": "consideration",
+  "audience": "Consideration crew",
+  "audienceKeys": [
+   "consideration"
+  ],
+  "keywords": [
+   "partner LC",
+   "registry",
+   "CV pool",
+   "upload CV",
+   "AI extraction",
+   "IR contacts",
+   "history",
+   "notes",
+   "بارتنر",
+   "سي في",
+   "شركاء",
+   "رفع سي في",
+   "blue man"
+  ],
+  "summary": "The registry remembers every partner LC — country, GV/GT badges, its IR people, notes and a full history timeline — and the IGT-only CV pool reads uploaded CVs with AI.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "**The registry** (⚙ on the IR-calls tab) is the LC's memory of every partner entity. Each LC carries its country, **GV/GT badges derived from the calls actually made** (never stored, never stale), its IR people — every IR is a real contact row with a pick-list role, email and WhatsApp — plus **notes** on the LC itself or on any single IR (the 💬 button on their row). The **History** button opens one timeline — calls, CVs and notes, newest first — each call entry naming both the IR *and* the member who took it, with the IR's own \"what I'd like to talk about\" note and the in-call notes. \"Have we spoken to these people before?\" is one click now."
+   },
+   {
+    "t": "p",
+    "md": "Registry filters: by **country**, by **reached as** GV / GT / Both / Never, and by **has calls · has CVs · nothing yet**. Anyone on the crew adds an LC; renaming is open to MMs and above (it cascades everywhere); **deleting** stays VP+ and is refused while calls or CVs still point at it. Names are normalized on the way in — \"AIESEC in İstanbul\", \"LC Istanbul\" and \"istanbul\" can't become three rows."
+   },
+   {
+    "t": "p",
+    "md": "**The CV pool** (IGT only): upload an EP's CV in any format — an LC is required, because a CV without a source is an orphan — and **AI extraction** fills name, phone, email, industry, skills, summary and the full text (PDFs and images read directly; anything unreadable is marked for manual fill). Fields stay editable by the uploader or a VP+, there's a re-run button, files open via short-lived signed links, and a WhatsApp button appears only when the extracted number is actually valid."
+   },
+   {
+    "t": "p",
+    "md": "The CV table filters **server-side over the whole pool** — column funnels on Industry, AI status, Uploaded by, Partner LC, and has/no number — so a filter narrows thousands of CVs, not the page you happen to be on."
+   },
+   {
+    "t": "callout",
+    "md": "**The Blue Man reads the pool.** Ask it things like *\"CVs with C# in skills\"* or *\"marketing CVs from AIESEC in Kocaeli\"* — it searches the real pool with your permissions.",
+    "tone": "tip"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "The AI extracted the wrong phone/industry — can I fix it?",
+      "a": "Yes — every extracted field is editable by whoever uploaded the CV or any VP+, and there's a re-run button if you'd rather let the AI try again."
+     },
+     {
+      "q": "Why can't I delete a partner LC?",
+      "a": "It still has calls or CVs pointing at it — the registry refuses to orphan history. Empty LCs delete fine."
+     },
+     {
+      "q": "Why does an LC show both GV and GT badges?",
+      "a": "Because it's been reached as both — the badges are computed from the actual calls, so they can never drift from reality."
+     },
+     {
+      "q": "Can I create an LC from the CV tab?",
+      "a": "Yes — a CV can arrive from an LC we've never called, so inline LC creation stays there. Renaming and deleting live in the registry only."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "consideration-reporting-calls",
+  "title": "Reporting your IR calls",
+  "emoji": "📝",
+  "category": "consideration",
+  "audience": "Consideration crew",
+  "audienceKeys": [
+   "consideration"
+  ],
+  "keywords": [
+   "report call",
+   "in-call notes",
+   "call log",
+   "overdue",
+   "time passed",
+   "screenshot",
+   "demand",
+   "calls need you",
+   "تقرير المكالمة",
+   "ريبورت",
+   "لوج",
+   "مكالمة فاتت"
+  ],
+  "summary": "A call isn't done until you report it — in-call notes and a screenshot complete it, the ⏰ chip and the 'calls need you' banner chase the ones you forgot, and the call log filters server-side.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "After the call, open it from the scheduled list and fill the **in-call notes**: the demand (industry chips + Other), free notes, and a **screenshot** of the call — it lands named in the Drive folder. That's what moves the call from *scheduled* to *completed* and feeds the Booked → happened number on the lane."
+   },
+   {
+    "t": "p",
+    "md": "**Forgot one?** A booked call whose time passed while still unreported gets an **⏰ Time passed — report it** chip, and a banner counts them: *\"N calls need you\"* (bounced emails ride the same count). The banner follows the hierarchy — a member answers for their own calls, a Team Leader for the team's, a VP/Director/LCP for the whole floor — so a clean slate shows **no banner at all**. **Show them** narrows the list to exactly those rows, and a **Waiting to be reported** KPI sits on the dashboard lane."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open [Consideration](/consideration) → your scheduled calls → tap the call (or its ⏰ chip).",
+     "Pick the **demand** — which industries/products they're interested in — and write what was said.",
+     "Attach the call **screenshot** and save. Done: it's completed, logged, and off your banner."
+    ],
+    "title": "Report a call"
+   },
+   {
+    "t": "p",
+    "md": "A call that happened outside the booking flow can still be recorded — the manual **past-call** form sits behind a toggle on the same tab (future timestamps are refused; a future call should be a booking)."
+   },
+   {
+    "t": "p",
+    "md": "The **call log** is the whole history, server-paged — so its filters run **in the query**, over everything, not just the page on screen: column funnels on **Product** (GV/GT), **Status**, **By** (who took it), **Partner LC**, plus search and a **Called from → to** date window. Filter options come from the full log, and any row opens the call's detail card."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Why do I see a 'calls need you' banner when I reported all mine?",
+      "a": "If you're a TL or above, the banner covers your team's or floor's calls, not just yours — hit **Show them** to see exactly whose. A member with a clean slate never sees it."
+     },
+     {
+      "q": "Do I have to attach a screenshot?",
+      "a": "No — it's optional (but encouraged: it's nice proof the call happened), and it's filed automatically into the LC's Drive folder. If the Drive upload hiccups, the call is still recorded; the report never gets lost to a storage error."
+     },
+     {
+      "q": "Can I edit a report after saving?",
+      "a": "The call's card shows everything recorded; if something's genuinely wrong, ask your VP — and for a wrong *time*, remember reschedules are tracked with full history, so don't re-book to fix a typo."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "consideration-overview",
+  "title": "The Consideration module — what lives where",
+  "emoji": "🌍",
+  "category": "consideration",
+  "audience": "Consideration crew",
+  "audienceKeys": [
+   "consideration"
+  ],
+  "keywords": [
+   "consideration",
+   "IR calls",
+   "international relations",
+   "CV pool",
+   "partner LC",
+   "GV",
+   "GT",
+   "dashboard lane",
+   "اي ار",
+   "كونسيديريشن",
+   "مكالمات",
+   "شركاء"
+  ],
+  "summary": "Consideration is where IR calls with partner LCs and the CV pool live — one tab for calls, one for CVs (IGT only), and a dashboard lane per product.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "[Consideration](/consideration) is the supply side of ICX: talking to **partner LCs abroad** so their EPs come to Alexandria. It has two tabs — **IR calls** (the shared call log, your booking link, scheduled calls, the partner-LC registry) and **CVs** (the EP CV pool). The CV tab is **IGT only** — IGV consideration people keep the IR-call side but never see CVs."
+   },
+   {
+    "t": "p",
+    "md": "Every IR call carries its **own product tag — GV or GT** — decided when the call is booked and frozen. That tag (not the host's current functions) is what splits calls between the **IGV Consideration** and **IGT Consideration** dashboard lanes, so a dual-function member's calls count once, in the right place. Old untagged calls stay visible to everyone."
+   },
+   {
+    "t": "p",
+    "md": "The [dashboard](/dashboard) consideration lane is a real dashboard: calls this month vs last month, completed, upcoming, a **Booked → happened** conversion, partner LCs reached (and reached for the *first time* this month), CVs on the IGT side, a per-month bar strip that starts at the **peak's first month** (no comparing against last term), and a **Calls-by-member** drill where **Done + Upcoming + Waiting = Total**. It takes the same filter bar as every other lane — dates, team, member — and the date inputs are deliberately *not* clamped to today, because a call can be in the future."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Who",
+     "What they see"
+    ],
+    "rows": [
+     [
+      "Consideration crew (function or sub-function says Consideration)",
+      "The whole module — shared call log, booking link, scheduled calls, registry; CVs only if IGT"
+     ],
+     [
+      "IGV / IGT VPs & Directors",
+      "The module + their product's consideration lane"
+     ],
+     [
+      "LCP / admin",
+      "Everything, every lane"
+     ]
+    ]
+   },
+   {
+    "t": "callout",
+    "md": "A **Waiting to be reported** KPI sits on the lane: booked calls whose time passed while nobody reported them. If it's not zero, someone owes a report — see [Reporting your IR calls](/consideration).",
+    "tone": "tip"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "I'm IGV consideration — where are my CVs?",
+      "a": "There aren't any: the CV pool is **IGT only** by design. You keep the full IR-call side."
+     },
+     {
+      "q": "I work both GV and GT — which lane do my calls count in?",
+      "a": "Whichever product the call was **booked as**. The tag is frozen at booking, so changing functions later never rewrites your history."
+     },
+     {
+      "q": "Why does the trend strip only show a couple of months?",
+      "a": "It starts at the current peak's first month on purpose — the previous term's calls aren't a fair comparison, so Sodio refuses to draw them next to yours."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "consideration-time-zones",
+  "title": "Time zones on the booking page",
+  "emoji": "🕰️",
+  "category": "consideration",
+  "audience": "Consideration crew",
+  "audienceKeys": [
+   "consideration"
+  ],
+  "keywords": [
+   "time zone",
+   "timezone",
+   "cairo time",
+   "VPN",
+   "booking page",
+   "local time",
+   "التوقيت",
+   "توقيت القاهرة",
+   "فرق التوقيت",
+   "IR clock"
+  ],
+  "summary": "The booking page draws itself in the visitor's own time zone — and when their connection and device disagree (VPN), the connection wins with a one-tap way back.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "An IR in Jakarta who books \"6:00 PM\" means 6 PM *at home* — so the booking page renders everything in **the visitor's zone**, exactly like Google Calendar. The day strip is properly **regrouped**, not just relabelled: a Cairo-midnight slot shows up as the previous evening in Algiers. A picker lets them switch zones, and the chosen zone also prefills their country."
+   },
+   {
+    "t": "p",
+    "md": "**The VPN case:** a browser reports the *machine's* zone, which a VPN never changes. When the zone resolved from the **connection** disagrees with the device, the connection wins — it's the one signal that moves when the person does. The device zone stays one tap away (\"Showing Singapore time — your device says Cairo. Use Cairo instead\") for the corporate-VPN case where the machine was right all along. No question is ever asked; the page just picks sensibly."
+   },
+   {
+    "t": "p",
+    "md": "The zone is **stored on the booking** and on the partner LC, so every later email — confirmation, reschedule, cancellation — leads with **their** time and carries Cairo as the second line. The screen and the email are built by the same label function, so they can never disagree."
+   },
+   {
+    "t": "p",
+    "md": "On your side nothing changes: the crew reads Cairo everywhere — except that a scheduled call also shows the IR's local time next to it, so nobody wonders why someone missed a call that fell at 3 AM their side."
+   },
+   {
+    "t": "callout",
+    "md": "Egypt's DST is handled end to end: stored instants are always right, and on the spring-forward night the slot that would land in the hour that doesn't exist is simply never offered.",
+    "tone": "info"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "An IR says the page shows the wrong city — what do I tell them?",
+      "a": "Tell them to tap the one-line switch under the times (it offers their device's zone), or pick any zone from the picker. Their booking stores whichever zone the page was showing when they booked."
+     },
+     {
+      "q": "Do I have to convert times when emailing an IR?",
+      "a": "No — every automatic email already leads with the IR's clock and puts Cairo second. And the scheduled-call row shows you both clocks, so if you ever write to them yourself (the [Emails](/emails) tab, for MMs and above — or plain Gmail) you have the right time to copy."
+     },
+     {
+      "q": "Does the IR's zone change what's stored?",
+      "a": "Never. Every booking is stored as one exact instant; zones only change how it's *drawn* for each person."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "consideration-bounced-email",
+  "title": "When the IR's email is wrong",
+  "emoji": "📮",
+  "category": "consideration",
+  "audience": "Consideration crew",
+  "audienceKeys": [
+   "consideration"
+  ],
+  "keywords": [
+   "bounced",
+   "email bounced",
+   "wrong email",
+   "fix email",
+   "mailer daemon",
+   "typo domain",
+   "invite not received",
+   "ايميل غلط",
+   "الايميل مش واصل",
+   "bounce"
+  ],
+  "summary": "Provably wrong addresses are refused at booking; the rest are caught by the bounce watcher, which flags the call and gives you a one-click fix that re-sends the invite.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Two layers protect the one channel a booked call depends on. **At booking**, the page refuses what can be *proven* wrong: dead or mistyped domains (a curated typo table plus a live MX check — and if DNS itself is down, the check fails open rather than blocking a real person), burner domains, stray leading/trailing dots, and local parts that break Gmail's own published rules — an address Gmail itself would never have issued can't be real."
+   },
+   {
+    "t": "p",
+    "md": "**After booking**, what couldn't be proven — a perfectly valid gmail.com with the name spelled backwards — reveals itself only when the mail server bounces. The **bounce watcher** rides the 15-minute cron, scans the IM mailbox for mailer-daemon reports, and flags any scheduled call whose address matches: an **⚠️ Email bounced** chip on the row, a bell for you, and an email that carries a **wa.me link to the IR** — their WhatsApp number is the one channel we know works, so use it to get the right address."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open the call (the row's card shows *⚠️ bounced — the address doesn't exist* with **Fix it** right next to it).",
+     "Type the corrected address — it's checked like a fresh booking (typo domains and burners refused again).",
+     "Save. Sodio **swaps the attendee on the calendar event** — Google re-sends the Meet invite to the right inbox — updates the LC's contact row, re-sends the confirmation email in the IR's own time zone with their manage link, and clears the flag."
+    ],
+    "title": "Fixing it"
+   },
+   {
+    "t": "callout",
+    "md": "If the swap is impossible — no event was ever created because the host had no Google grant, or that grant was revoked since — the event is **rebuilt on the IM mailbox** instead of silently doing nothing. And if the confirmation to the *new* address also fails, the call is re-flagged rather than pretending success.",
+    "tone": "info"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Who can fix a bounced address?",
+      "a": "The call's owner or a VP — from the call's card, right where the warning sits."
+     },
+     {
+      "q": "Why was a booking refused with 'check the email'?",
+      "a": "The address failed a check we can prove: a typo'd or dead domain, a burner, a stray dot, or a Gmail username that can't exist. Ask the IR to re-type it carefully — the page says exactly what's wrong."
+     },
+     {
+      "q": "A bounce got flagged but the IR swears the email is right — now what?",
+      "a": "Bounces come from the receiving mail server, not from us — something rejected it. WhatsApp them (the flag email carries the link), confirm the exact spelling, and use **Fix it** even if the 'new' address only differs by one character."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "consideration-booking-link",
+  "title": "Your booking link — /book/your-slug",
+  "emoji": "🔗",
+  "category": "consideration",
+  "audience": "Consideration crew",
+  "audienceKeys": [
+   "consideration"
+  ],
+  "keywords": [
+   "booking link",
+   "book",
+   "availability",
+   "slots",
+   "buffer",
+   "slot length",
+   "IR booking",
+   "schedule",
+   "لينك الحجز",
+   "مواعيد",
+   "ازاي اعمل لينك حجز",
+   "سلوت"
+  ],
+  "summary": "Set your availability on the My booking link card and share sodio.vercel.app/book/your-slug — IRs abroad pick a free slot themselves.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Instead of WhatsApp ping-pong about times, share your link: an IR anywhere in the world opens `sodio.vercel.app/book/<your-slug>`, sees your free slots **in their own time zone**, and books one. The call lands on your scheduled list with a Meet link and a calendar invite for both of you."
+   },
+   {
+    "t": "diagram",
+    "diagramId": "ir-booking",
+    "caption": "From sharing your link to a booked call on both calendars."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open [Consideration](/consideration) → the **My booking link** card.",
+     "Pick your **slug** (that's the last part of the URL) and turn the link **Active**.",
+     "Add availability: **weekly** rows (e.g. every Tuesday 6–10 PM) or **one-date** rows for a specific day. Times step in **5 minutes** (hour + minute + AM/PM selects), and a window may end at **12 AM midnight**.",
+     "Choose **Slot length** (15 minutes up to 2 hours), an optional **Buffer between calls**, and if you want: minimum notice, how far ahead people can book, and start/end dates for the whole link.",
+     "Copy the link and send it to your partner LCs."
+    ],
+    "title": "Set it up once"
+   },
+   {
+    "t": "p",
+    "md": "**How the buffer actually works:** when nothing is booked, slots sit back-to-back. The moment a call is booked, the grid **re-anchors around it** — with a 6:00 PM call, 30-minute slots and a 10-minute buffer, the next offered slot is **6:40**, then 7:10. So you always get your breather after a real call, without your empty evenings being chopped into weird gaps."
+   },
+   {
+    "t": "p",
+    "md": "The form checks each availability row **as you type**: a backwards or under-10-minute window, a missing day/date, or an overlap with another window on the same day gets outlined with the reason, and Save waits until it's fixed. Two IRs racing for the same slot can't collide either — the second one is told the slot was just taken and shown fresh ones."
+   },
+   {
+    "t": "p",
+    "md": "The IR's side asks for their **name and role** (Member / MM / LCVP / LCP), their **LC** (with suggestions from the registry so duplicates don't multiply), a **required email**, a **phone with country code**, and **what they'd like to talk about** — that note reaches your email and the calendar event, so you never walk in blind."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Can my window end at midnight?",
+      "a": "Yes — pick **12 AM** as the end. A 10 PM → 12 AM window offers its full set of slots, last one included."
+     },
+     {
+      "q": "Why can't the IR see a slot I know is free?",
+      "a": "Check minimum notice and the max-advance window, whether the slot collides with a booked call **plus its buffer**, and whether the link is Active. Also: a Cairo wall-clock time that doesn't exist on a DST-change night is dropped on purpose."
+     },
+     {
+      "q": "Do I need a Google account grant for this to work?",
+      "a": "No — if your Google grant is missing, the Meet event is created on the LC's IM mailbox calendar instead and you're invited by email. The link on your IR-calls page always works."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "attendance",
+  "title": "Attendance — who records it, and how working hours record themselves",
+  "emoji": "🙋",
+  "category": "touchpoints",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "attendance",
+   "absent",
+   "late",
+   "excuse",
+   "working hours",
+   "automatic attendance",
+   "appeal",
+   "confirm attendance",
+   "reminder",
+   "حضور",
+   "غياب",
+   "تسجيل الحضور",
+   "اعتراض"
+  ],
+  "summary": "Meetings and outings are recorded by hand; working hours pre-fill themselves from your real work and a human confirms — with appeals if a mark is wrong and a reminder ladder if nobody records.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "After every touch point, an attendance sheet is filled on [/attendance](/attendance): **attended · late · absent**, with a \"valid excuse?\" box. Team points are recorded by the **Team Leader**, function points by the **VP/Director**, LC points by **TM**. **Nobody marks themself** — a TL records their team and TM records the TL."
+   },
+   {
+    "t": "p",
+    "md": "**Working hours record themselves** 🤖 — then a human confirms. You're pre-filled as attended when, inside the session window (15 minutes before the start to 4 hours after), you did either **2+ real work actions at least 10 minutes apart** or **5+ actions** however tightly packed. Real work = logging a contact, booking a visit, recording a deal, working a sign-up, logging an IR call, adding or updating an account, uploading a CV, and more. Two clicks in a row won't fool it; a genuine ten-contact burst counts."
+   },
+   {
+    "t": "callout",
+    "md": "The AI's answer is a **proposal**, marked \"AI pre-filled — review & confirm\". The recorder reviews the rows, fixes any, and hits `Confirm attendance` — that's the only thing that makes it official. A human edit always wins over the engine.",
+    "tone": "info"
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open [Attendance](/attendance) — sessions still owed a record are waiting for you, or use the picker to open **any** past touch point you may record.",
+     "Mark each person attended / late / absent (search and the status filter help on a 70-row LC session). For working hours, review the pre-filled rows instead.",
+     "Add excuses where they apply, then hit `Confirm attendance`."
+    ],
+    "title": "Record a session"
+   },
+   {
+    "t": "p",
+    "md": "**Disagree with a mark?** Open your history and hit `Appeal` — your message goes to whoever recorded it, with TM on CC. There's no appeal on \"attended\" (nothing to contest). You see your own history and rate; a TL sees the team's, a leader the function's, TM the LC's — and the table filters from its columns: **Type**, **Status**, **Member**."
+   },
+   {
+    "t": "callout",
+    "md": "**The reminder ladder is real.** If a session sits unrecorded, the responsible recorder gets one email per day (late evening Cairo time). After **three reminders**, Sodio greets them with a blocking prompt on next open that won't go away until the sheet is filled. Just fill it. 💙",
+    "tone": "warn"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "I worked the whole session — why am I pre-filled absent?",
+      "a": "The engine only sees actions **inside Sodio** during the window (contacts, visits, deals, sign-ups, IR calls, account edits…). Work that lived in WhatsApp is invisible to it. Ask your recorder to fix the row before confirming, or appeal after."
+     },
+     {
+      "q": "Can I appeal being marked attended?",
+      "a": "No — there's nothing to contest. Appeals exist for late/absent marks only."
+     },
+     {
+      "q": "Why wasn't I on the attendance sheet at all?",
+      "a": "You were unticked from **Who's invited** when the touch point was booked (or edited later) — only invited people appear on the sheet. Inactive members and the Admin caretaker role are never on one either."
+     },
+     {
+      "q": "Who confirms working hours?",
+      "a": "Same as any point: the TL for a team session, the VP/Director for a function one, TM for LC-wide. The pre-fill even runs automatically when they open the sheet after the window closes — they just review and confirm."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "custom-calendar-items",
+  "title": "Custom calendar items — 📌 slots and tasks for anyone",
+  "emoji": "📌",
+  "category": "touchpoints",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "custom item",
+   "calendar item",
+   "add item",
+   "block time",
+   "weekly repeat",
+   "routine",
+   "visible to",
+   "assign slot",
+   "task",
+   "بلوك وقت",
+   "اضافة موعد",
+   "عنصر في التقويم"
+  ],
+  "summary": "Anyone can add Google-Calendar-style slots and tasks to the calendar, assign them to people in their reach, repeat them weekly, and choose who else sees them.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Custom items are the calendar's free-form layer: a title, a time, and an assignee list — no derived audience, no attendance sheet, no reminder ladder. **Everyone** can add them from `Add item` in the [Calendar](/calendar) header, or from any future day's panel. They show as green **📌** chips."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "You are…",
+     "You can assign the item to…"
+    ],
+    "rows": [
+     [
+      "Member / Coordinator",
+      "Your own team — yourself, same-manager teammates, and your TL"
+     ],
+     [
+      "Team Leader",
+      "Your team"
+     ],
+     [
+      "LCVP / Director",
+      "Your function"
+     ],
+     [
+      "LCP-level",
+      "Anyone"
+     ]
+    ]
+   },
+   {
+    "t": "p",
+    "md": "Every assignee gets a **bell** when they're added (and if they're removed), and the item lands on their calendar. The server re-validates every assignee against your reach — the picker can't offer anyone it would refuse."
+   },
+   {
+    "t": "p",
+    "md": "**Repeat: \"Weekly — N weeks\"** (2 to 12) books a routine in one action — the same slot every week, each week its own item, so one occurrence can be deleted without the rest. Assignee bells say \"repeats weekly ×N\"."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "You are…",
+     "\"Visible to\" options"
+    ],
+    "rows": [
+     [
+      "Member / Coordinator / TL",
+      "Just me · my team · my function"
+     ],
+     [
+      "LCVP / Director",
+      "Just me · my function"
+     ],
+     [
+      "LCP-level",
+      "Just me · the EB · the whole LC (+ your function if you hold one)"
+     ],
+     [
+      "TM (any role)",
+      "All of the above for your role, plus the whole LC"
+     ]
+    ]
+   },
+   {
+    "t": "callout",
+    "md": "**Visibility defaults to \"just me\"** — sharing is a decision, not an accident. Use it to say \"this hour is blocked, my team can see I'm busy\" without inviting anyone. Whoever you put on the item sees it regardless of the visibility setting.",
+    "tone": "tip"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Who can delete an item?",
+      "a": "Its owner, or anyone LCP-level. Deleting one occurrence of a weekly repeat leaves the rest alone — each week is its own item."
+     },
+     {
+      "q": "Should this be a custom item or a touch point?",
+      "a": "If you need attendance, announcements and the reminder ladder, it's a touch point. If it's a slot, a task, or a blocked hour, it's an item — deliberately lightweight."
+     },
+     {
+      "q": "I changed function — does that change who sees my old items?",
+      "a": "No. The function on an item is frozen at creation, so moving function never rewrites the audience of every past item."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "rate-a-touch-point",
+  "title": "Rate a touch point — 1 to 5 stars",
+  "emoji": "⭐",
+  "category": "touchpoints",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "rate",
+   "rating",
+   "stars",
+   "session feedback",
+   "touch point feedback",
+   "feedback",
+   "evening email",
+   "review meeting",
+   "تقييم",
+   "تقييم الميتنج",
+   "نجوم"
+  ],
+  "summary": "Any touch point you were part of can be rated 1–5 stars from the Feedback page — the note is optional, it goes quietly to TM and the LCP, and the evening of a session you get one email asking for it.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "A session isn't a shout-out or a concern — \"good, but it ran long\" is neither a complaint about a person nor applause for one. So a touch point is **rated**: on [Feedback](/lc-feedback), pick **A touch point**, choose any past one you were part of, and tap **1–5 stars** (each star has a word under it, Poor → Excellent). The note is optional — the stars *are* the review."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open [Feedback](/lc-feedback) and pick **A touch point**.",
+     "Choose the session from the list of past touch points you were part of.",
+     "Tap the stars. Add a note if you have one.",
+     "Hit `Send the rating`. Done."
+    ],
+    "title": "Rate one in four seconds"
+   },
+   {
+    "t": "callout",
+    "md": "**It always travels the quiet path.** Whatever the score, the rating lands privately in the inbox read by the people who run the LC's sessions — **TM and the LCP** — never as a shout-out to whoever booked it. A 5-star meeting doesn't email anyone \"💙 someone appreciated you\"; a person is never scored, only the session. The inbox shows ★★★★☆ beside the row.",
+    "tone": "info"
+   },
+   {
+    "t": "p",
+    "md": "**You'll be asked — once.** The evening of a touch point (22:00 Cairo), everyone who was invited gets one email asking for the rating, with TM and the booker on CC. It says honestly how small the ask is (\"It is one tap. Five stars, pick one, done.\") — and it never sends twice for the same session, because an inbox that asks twice for a four-second job is an inbox people filter."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Do I have to have been marked attended to rate it?",
+      "a": "No — any past touch point you were part of can be rated; attendance isn't required."
+     },
+     {
+      "q": "Is the rating anonymous?",
+      "a": "You can send it with the anonymity toggle on — your name won't be shown with it, and the rating counts either way."
+     },
+     {
+      "q": "Can I rate a touch point without stars, just a note?",
+      "a": "No — a touch point needs a rating and a rating needs a touch point; the server refuses one without the other. The note is the optional part."
+     },
+     {
+      "q": "Who exactly reads the ratings?",
+      "a": "The feedback inbox: the whole TM function, the LCP, and the IM director. Not the person who booked the session."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "the-calendar",
+  "title": "The calendar — everything on one month",
+  "emoji": "🗓️",
+  "category": "touchpoints",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "calendar",
+   "month view",
+   "visits calendar",
+   "ir calls calendar",
+   "touch points calendar",
+   "filters",
+   "my team",
+   "day view",
+   "الكالندر",
+   "التقويم",
+   "جدول الزيارات"
+  ],
+  "summary": "One month view holds your visits, IR calls, touch points and custom items — filter by kind, narrow by scope chips, and click any day for its full panel.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "[Calendar](/calendar) is one month with everything you're part of: **visits** (one stable color per member), **IR calls** (teal), **touch points** (purple) and **custom 📌 items** (green). Weeks start on Saturday, times are 12-hour, phones get agenda cards instead of a grid, and `?m=YYYY-MM` picks the month."
+   },
+   {
+    "t": "p",
+    "md": "**Filter by kind** with the chips on the filter bar — `Visits · IR calls · Touch points · Items`, each with its color dot. People whose remit spans functions also get a **function filter**; custom items are never filtered by function — they're invite-shaped and always yours."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "You are…",
+     "Your scope chips"
+    ],
+    "rows": [
+     [
+      "Member / Coordinator",
+      "Everyone · Mine · My team · My function (no My team chip if you have no teammates)"
+     ],
+     [
+      "Team Leader",
+      "Everyone · My team · My function (\"mine\" *is* the team)"
+     ],
+     [
+      "LCVP / Director / LCP",
+      "Everyone · My function (the function *is* your team)"
+     ]
+    ]
+   },
+   {
+    "t": "p",
+    "md": "Your chip choice is remembered per browser. \"Mine\" keeps your own visits and IR calls plus the touch points you're actually part of; \"Everyone\" is the whole picture you're allowed to see."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Click any day — a panel opens with that Cairo day's touch points, IR calls, visits and items.",
+     "Visit chips click through to the account (only ones you can open).",
+     "If you can book touch points, `Book a touch point on this day` opens the dialog with the date pre-filled.",
+     "On any future day, `Add item` drops a custom 📌 slot right there."
+    ],
+    "title": "The day panel"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Why do I see other teams' touch points?",
+      "a": "You see what you belong to: your team's points, your function's (other teams' included — same function, same floor) and every LC-wide one. Use the scope chips to narrow."
+     },
+     {
+      "q": "Can I see another function's calendar?",
+      "a": "No — the calendar is your own function's world (LCP/admin see all). The function filter only appears for people whose remit genuinely spans functions."
+     },
+     {
+      "q": "Whose visits am I looking at?",
+      "a": "The whole function's, one color per member, with a legend and counts — booking a visit puts it here automatically."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "touch-points-basics",
+  "title": "Touch points: Meeting, Working hours & Outing",
+  "emoji": "📅",
+  "category": "touchpoints",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "touch point",
+   "meeting",
+   "working hours",
+   "outing",
+   "book a meeting",
+   "routine",
+   "virtual meeting",
+   "google meet",
+   "move meeting",
+   "cancel meeting",
+   "ميتنج",
+   "توتش بوينت",
+   "ازاي احجز ميتنج",
+   "اجتماع"
+  ],
+  "summary": "A touch point is any LC moment — a Meeting, Working hours or an Outing — booked from the calendar, announced to everyone invited, and followed by an attendance sheet.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "A touch point is one of three things: a **Meeting**, **Working hours**, or an **Outing**. That's the whole name — where the audience starts (your team, your function, the LC) is a separate question, and who actually shows up is the one after that. Lists show it as \"Meeting · IGV\", plus \"(6 invited)\" when a guest list was hand-picked."
+   },
+   {
+    "t": "diagram",
+    "diagramId": "touch-point-flow",
+    "caption": "Book it → people attend → attendance is recorded → the session gets rated"
+   },
+   {
+    "t": "table",
+    "headers": [
+     "You are…",
+     "You can book…"
+    ],
+    "rows": [
+     [
+      "Team Leader",
+      "Your **team's** touch points (you may invite sibling teams of your function)"
+     ],
+     [
+      "LCVP / Director",
+      "Your **function's** touch points (you may invite another function)"
+     ],
+     [
+      "TM core",
+      "**LC-wide** touch points"
+     ],
+     [
+      "LCP / admin",
+      "Anything"
+     ]
+    ]
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open [Calendar](/calendar) and hit the book button — or click any day and choose `Book a touch point on this day` (the date comes pre-filled).",
+     "Pick the kind — **Meeting · Working hours · Outing** — and where the audience starts (the options match your role).",
+     "Set the date and a **start time**. There is no end time — on purpose.",
+     "Check **Who's invited** — everyone the scope reaches, already ticked. Untick anyone who isn't actually coming (see the \"Who's invited\" article).",
+     "Optionally add a note, and for a **Meeting** you can flip on virtual — Sodio creates a real **Google Meet** link and puts it in everyone's invite.",
+     "The **Tell everyone invited** switch is ON by default: everyone gets an email + a bell, with the TM VP on CC. Flip it off for a quiet booking."
+    ],
+    "title": "Book one"
+   },
+   {
+    "t": "callout",
+    "md": "**Logging something that already happened is silent.** Pick a past date and the touch point is simply recorded — no emails, no bells, nobody's inbox pays for your bookkeeping.",
+    "tone": "tip"
+   },
+   {
+    "t": "p",
+    "md": "Booking a whole peak one evening at a time is a waste of an evening: the **Routine** builder lays out your repeating rhythm — every Tuesday meeting, every Saturday working hours — and creates them all up front. Each one is its own touch point, so one can be moved or cancelled without touching the rest."
+   },
+   {
+    "t": "p",
+    "md": "Plans change: it can be **moved or cancelled** from the calendar — tap the touch point and pick `Move or cancel`. Who may: always the person who booked it; the function's **VP/Director** for their function's team and function points; **TM** for LC-wide ones; the LCP/admin for anything. A cancel needs a reason, and either way everyone invited is emailed again."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Why is there no end time?",
+      "a": "Deliberate. A touch point has a start; how long it runs is life's business. Attendance for working hours is measured in a window around the start (see the Attendance article)."
+     },
+     {
+      "q": "Can working hours or an outing be virtual?",
+      "a": "No — only Meetings. Working hours are people sitting and working, and an outing is by definition somewhere."
+     },
+     {
+      "q": "I RSVP'd to a virtual meeting in Google Calendar — does that count?",
+      "a": "Yes. For virtual meetings your RSVP is read back from Google Calendar and pre-fills your attendance on its own."
+     },
+     {
+      "q": "Who gets told when I book?",
+      "a": "Everyone invited gets an email and a bell, with the TM VP on CC — unless you switched **Tell everyone invited** off, or the touch point is in the past (past ones are always silent)."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "touch-point-whos-invited",
+  "title": "Who's invited — picking who is actually coming",
+  "emoji": "✅",
+  "category": "touchpoints",
+  "audience": "Anyone who books touch points",
+  "audienceKeys": [
+   "leaders",
+   "tm",
+   "eb",
+   "mm"
+  ],
+  "keywords": [
+   "invited",
+   "guest list",
+   "audience",
+   "untick",
+   "invite list",
+   "leaders and mms",
+   "members only",
+   "edit invited",
+   "who's invited",
+   "attendance sheet",
+   "مين معزوم",
+   "قائمة الدعوة"
+  ],
+  "summary": "Booking shows the derived audience as a tick list — untick people, use the one-tap group chips, and edit the list later; it can only ever narrow, and it locks once attendance is recorded.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "A touch point's people are **derived**: pick a scope and everyone matching it is invited, announced to, and marked present or absent. Right most of the time — wrong when three people already told you they can't make it. So booking shows **Who's invited**: the derived list, everyone ticked. Untick anyone and they're removed from the invite **and** from the attendance sheet — no more being marked absent from something nobody expected them at."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open **Who's invited** while booking — the count next to it says how many are in.",
+     "Tap a chip to make it your audience in one go: **Leaders & MMs**, **Members only**, or any **team** in the list.",
+     "Adjust individuals from there — tick and untick freely.",
+     "The chips are built from the people in front of you, so they can never select someone outside the audience you were allowed to book."
+    ],
+    "title": "Use the group chips instead of thirty checkboxes"
+   },
+   {
+    "t": "callout",
+    "md": "**The list can only ever narrow.** It's an opt-out over the derived audience, validated server-side — a Team Leader cannot reach a name outside their own team, whatever the ticks say. And unticking *everybody* is refused: a touch point with nobody in it isn't one.",
+    "tone": "info"
+   },
+   {
+    "t": "callout",
+    "md": "**Leave everyone ticked and the audience stays live**: nothing is stored, so someone who joins the function before the session is automatically in. The moment you untick even one person, the list is frozen to exactly the ticked people.",
+    "tone": "tip"
+   },
+   {
+    "t": "p",
+    "md": "**It's editable after booking too.** People join, people drop out — open the touch point, go to **Who's invited → Edit**, and save. It's deliberately **quiet** (tidying a list the morning of a meeting must not email twenty people), and it **locks once attendance has been recorded** — that register was signed off."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "I unticked myself — do I disappear from my own touch point?",
+      "a": "You're off the invite and the attendance sheet, yes — but you still see the session on your calendar. You booked it; visibility is a separate question."
+     },
+     {
+      "q": "Do Routine-created touch points get a guest list?",
+      "a": "No — the Routine builder books derived points, which is the sane default for a whole peak booked up front. Edit any single one's list afterwards if you need to."
+     },
+     {
+      "q": "Why can't I edit the list any more?",
+      "a": "Attendance has been recorded for that touch point. The register was confirmed, so the list is locked."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "system-feedback",
+  "title": "Report a bug or suggest a feature (system feedback)",
+  "emoji": "🛠️",
+  "category": "emails-feedback",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "feedback",
+   "bug",
+   "report bug",
+   "suggestion",
+   "enhancement",
+   "broken",
+   "feature request",
+   "system feedback",
+   "فيدباك",
+   "مشكلة",
+   "عطل",
+   "اقتراح"
+  ],
+  "summary": "Something broken or an idea to make Sodio better? The System feedback form on your profile sends it straight to the IM team.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Feedback about **Sodio itself** — a dead button, wrong numbers, a feature you wish existed — goes through **System feedback**. Find it on your [Profile](/profile) (the \"Give feedback\" card) — it opens the form at [/feedback](/feedback). Feedback about **people** is a different door: see [LC feedback](/lc-feedback)."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open [/profile](/profile) and hit `Give feedback` (or go straight to [/feedback](/feedback)).",
+     "Pick the type: **🐞 Bug**, **✨ Enhancement**, or **Other** — the category list adapts to your pick (for a bug: \"Doesn't work / button dead\", \"Wrong data / numbers\", \"Slow / laggy\"… for an enhancement: \"New feature\", \"UX / easier flow\", \"Mobile experience\"…).",
+     "Describe it. Screenshots help enormously — **attach files** right on the form.",
+     "Optionally flip **Send anonymously 🎭** — no name attached, but also no thank-you credit. Your call.",
+     "Send. It reaches the IM team's private inbox."
+    ],
+    "title": "File it"
+   },
+   {
+    "t": "callout",
+    "md": "For bugs, say **what you clicked, what you expected, and what happened instead** — plus your phone/laptop. \"The dashboard is wrong\" takes a week to find; \"IGV lane shows 3 visits but I booked 4, here's the account\" takes an hour.",
+    "tone": "tip"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Who reads it?",
+      "a": "Only the IM team — the inbox is restricted to the IM director and coach. If you didn't send anonymously, they can thank you (in-app + email) when it ships."
+     },
+     {
+      "q": "This is about a person, not the system — where does it go?",
+      "a": "Use [LC feedback](/lc-feedback) instead: shout-outs, concerns and touch-point ratings all live there, with their own privacy rules."
+     },
+     {
+      "q": "Will I hear back?",
+      "a": "Often yes — fixes tend to land fast, and the inbox has a thank-you action. Anonymous feedback is still read and acted on, there's just nobody to thank."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "emails-tab",
+  "title": "Send branded emails from the Emails tab",
+  "emoji": "📨",
+  "category": "emails-feedback",
+  "audience": "MMs and above",
+  "audienceKeys": [
+   "mm",
+   "leaders",
+   "eb"
+  ],
+  "keywords": [
+   "emails",
+   "send email",
+   "email tab",
+   "gmail",
+   "signature",
+   "template",
+   "layout",
+   "bcc",
+   "cc",
+   "attachments",
+   "blue man email",
+   "draft",
+   "ازاي ابعت ايميل",
+   "ايميل رسمي",
+   "توقيع"
+  ],
+  "summary": "Write to a partner, an EP or another LC with the LC's look — it sends from your own Gmail, with your signature built automatically.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "The [Emails](/emails) tab (Coordinators and above) is Sodio's stationery: pick a starting point, write, preview, send. It goes out from **your own Gmail** — the reply lands in your inbox and the email sits in your Sent folder. Sodio supplies the frame, not the sender."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open [/emails](/emails) and pick a starting point: **Blank**, **Reaching a company**, **Following up**, **Thank you after a meeting**, or **Writing to another LC**.",
+     "Add recipients in **To** — type any address, or pick anyone in the LC by name (works in **Cc** and **Bcc** too, and you can reuse addresses you've written to before). `+ Cc` / `+ Bcc` reveal those fields.",
+     "Or tap a **group chip** — My team, Everyone, the EB, the LB, all MMs, any function or standing team. Each chip expands into real addresses you can still edit or remove, and they're built from the membership so they can't go stale.",
+     "Write the letter. The editor has bold/italic/underline, links, numbered lists, quotes, a **text-size menu** (each option shown at its own size), droppable AIESEC logos, and spell check on every field.",
+     "Pick a **layout**: Branded card, Bold banner, Letterhead, or Plain.",
+     "Hit `Preview` — it's rendered by the **same code that sends**, so what you see is exactly what lands in their inbox.",
+     "Hit `Send now`, or `Save as draft` to leave it in your Gmail and sleep on it."
+    ],
+    "title": "Send an email"
+   },
+   {
+    "t": "p",
+    "md": "**Your signature is automatic**: name, full role title, AIESEC in Alexandria, your WhatsApp-linked number and the walking Blue Man mark — built from your membership row. Nothing to paste, nothing to forget."
+   },
+   {
+    "t": "callout",
+    "md": "Stuck on the words? The **Blue Man** button writes or reworks the letter — describe what you want, or ask it to shorten, warm up, or translate what you already typed. It drafts, you decide: **always read it before you send**.",
+    "tone": "tip"
+   },
+   {
+    "t": "callout",
+    "md": "**Attachments**: an email carrying files is left in your **Gmail drafts** instead of sending straight away — open Gmail, check the files landed, and hit send from there. And your half-written email **survives leaving the tab**: everything is saved as you type, so a wrong click costs you nothing. `Start again` wipes it when you actually want a clean slate.",
+    "tone": "info"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Who can see the Emails tab?",
+      "a": "MMs and above — Coordinators, Team Leaders, Directors, LCVPs and the LCP. Members write to partners through the account's **Proposal email** button instead."
+     },
+     {
+      "q": "Can Bcc recipients see each other?",
+      "a": "No — it's a real `Bcc:` header, so Gmail strips it from every delivered copy. Nobody in To or Cc sees the Bcc list either."
+     },
+     {
+      "q": "Where do replies go?",
+      "a": "Straight back to your own Gmail — Sodio never sits in the middle. The **Sent before** list on the tab remembers who you've written to."
+     },
+     {
+      "q": "I left mid-email — is it gone?",
+      "a": "No. Recipients, subject, body, layout and template are all restored when you come back. Only `Start again` clears them."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "expectation-mail",
+  "title": "Send the Expectation mail (OGT/OGV)",
+  "emoji": "✉️",
+  "category": "emails-feedback",
+  "audience": "OGT & OGV VPs/Directors",
+  "audienceKeys": [
+   "ogx",
+   "leaders",
+   "eb"
+  ],
+  "keywords": [
+   "expectation mail",
+   "expectation setting",
+   "home entity",
+   "ogt mail",
+   "ogv mail",
+   "ep email",
+   "ir email",
+   "tn fee",
+   "salary",
+   "vp email",
+   "ميل التوقعات",
+   "ايميل EP"
+  ],
+  "summary": "Build the Home Entity Expectation Setting email from a form, review the exact final version, and send it from your own Gmail.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "The **Expectation mail** tab (route `/ogt-mail`, for OGT & OGV VPs/Directors + the LCP) turns the pre-approval \"Home Entity Expectation Setting Mail\" into a form: fill the standardized fields once, review the exact email, send. If you hold both programs, a **variant toggle** switches between the OGT and OGV versions — OGT keeps **Salary (If any)**, OGV requires **TN Fee and what it covers**."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Fill the form: numeric **EP ID** and **Opportunity ID**, the slot dates (picked from a calendar, rendered like \"Aug 5, 2026\"), flexible per-day **working-hours rows**, and the logistics questions (with details where you answer yes).",
+     "Enter both recipients — the **EP's email and the IR's email** are required. `customer.support@aiesec.net.eg` is always on CC (shown read-only so you know).",
+     "Hit the build button to reach the **review step**: the final email renders in-app with an **editable subject** (defaults to \"Home Entity Expectation Setting Mail\") and an **editable body** — click into it and fix anything.",
+     "Choose `Send now` (goes out from **your own Gmail**) or `Save as draft instead` (lands in your Gmail Drafts for you to send later)."
+    ],
+    "title": "Build and send it"
+   },
+   {
+    "t": "p",
+    "md": "The email ends with **your signature** — name, position (LCVP/Director, Outgoing Global Talent/Volunteer), phone and email — so the EP knows exactly who's writing."
+   },
+   {
+    "t": "callout",
+    "md": "The review step **survives tab switches** — your built preview, edited subject and body are cached, so checking something else mid-way costs you nothing.",
+    "tone": "tip"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Can I edit the email before it goes out?",
+      "a": "Yes — that's the whole point of the review step. Both the subject and the body are editable in place; what you see is what's sent."
+     },
+     {
+      "q": "Who does it actually send from?",
+      "a": "Your own Gmail, via the grant you gave at first sign-in. Replies come back to you and the email sits in your Sent folder."
+     },
+     {
+      "q": "Why won't it send without the IR's email?",
+      "a": "Both the EP and the IR must be in To — the expectation mail is for both sides, and the server requires both addresses."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "lc-feedback",
+  "title": "Shout-outs, concerns & touch-point ratings (LC feedback)",
+  "emoji": "💙",
+  "category": "emails-feedback",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "lc feedback",
+   "shout out",
+   "shoutout",
+   "concern",
+   "complaint",
+   "anonymous",
+   "rate touch point",
+   "rating",
+   "stars",
+   "appreciation",
+   "شكوى",
+   "تقييم",
+   "شكر",
+   "فيدباك عن حد"
+  ],
+  "summary": "Appreciate someone, raise a concern privately, or rate a touch point 1–5 stars — with an anonymous option on all of it.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "[LC feedback](/lc-feedback) is the sidebar's door for feedback about **people and sessions** (Sodio bugs go to [System feedback](/feedback)). Three jobs, three paths: a **🎉 shout-out** reaches the person directly; a **😟 concern** goes to a private inbox; **a touch point gets 1–5 stars** and travels the quiet inbox path whatever the score."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open [/lc-feedback](/lc-feedback). The form opens on **Concern** — flip to **🎉 Shout-out** if you're here with good news.",
+     "Pick **what it's about**: people, or **A touch point** (any past touch point you were part of — you don't have to have been marked present).",
+     "For people: use the smart **quick-pick chips** (My TL, my team… — level-aware, you're never offered yourself) or search the LC and pick up to 10 names.",
+     "For a touch point: pick the session and tap the **stars** (1 = Poor → 5 = Excellent). The stars ARE the review — the note is optional.",
+     "Write the message (required except for ratings), **attach files** if they help, and optionally flip **Send anonymously 🎭**.",
+     "Send. A shout-out bells + emails the person; a concern lands privately; a rating lands in the inbox with its stars."
+    ],
+    "title": "Send one"
+   },
+   {
+    "t": "callout",
+    "md": "**Who sees a concern**: only TM (the whole function), the LCP and the IM director — the private channel. Your name won't be shown with an anonymous one. A shout-out to several people goes as **one email with everyone on BCC**, so recipients never see each other's addresses.",
+    "tone": "info"
+   },
+   {
+    "t": "callout",
+    "md": "Attended a touch point today? Expect **one evening email** asking you to rate it — it's genuinely one tap: five stars, pick one, done. You're asked exactly once per touch point.",
+    "tone": "tip"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Does a 5-star rating notify the organizer?",
+      "a": "No — ratings always travel the quiet inbox path, whatever the score. A person is never scored; only the session is."
+     },
+     {
+      "q": "If I file anonymously, can they still tell me it was handled?",
+      "a": "Yes — the inbox has a \"tell them it's handled\" action that reaches you without revealing you to anyone reading the inbox."
+     },
+     {
+      "q": "Why can't I rate a person?",
+      "a": "By design. Stars are for sessions (\"good, but it ran long\" is not a complaint about anybody); for people you have shout-outs and concerns."
+     },
+     {
+      "q": "Can a shout-out be anonymous?",
+      "a": "Yes — they'll know someone appreciated them, just not who."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "feedback-inbox",
+  "title": "Work the LC feedback inbox",
+  "emoji": "📥",
+  "category": "emails-feedback",
+  "audience": "TM, the LCP & IM",
+  "audienceKeys": [
+   "tm",
+   "admin"
+  ],
+  "keywords": [
+   "feedback inbox",
+   "concerns inbox",
+   "handle concern",
+   "share feedback",
+   "mark done",
+   "archive feedback",
+   "tell author",
+   "ratings inbox",
+   "انبوكس الفيدباك",
+   "شكاوى"
+  ],
+  "summary": "Concerns, touch-point ratings and shout-outs grouped by kind, with states, sharing, and a way to answer the author — even an anonymous one.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "The inbox opens from the **Inbox** button on [/lc-feedback](/lc-feedback) — visible only to its owners: **TM (the whole function), the LCP and the IM director**. New concerns bell + email exactly that list. Rows are grouped into three kinds — **😟 Concerns · 📅 Touch points · 🎉 Shout-outs** — each with an unread count, filtered by state: **Open · Done · Archived**."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Read it — attachments open right from the row, and touch-point rows show their **★ rating** at a glance.",
+     "`📨 Share` passes it to anyone in the LC (bell + email carrying the **message only** — the author's identity never travels, so anonymity survives being passed on). The row remembers who it was shared with.",
+     "`💬 Tell them it's done` sends the author a \"it's handled\" note (optional message included) — this reaches **even anonymous authors**: Sodio knows who wrote it, you still don't.",
+     "`Done` closes it (the row records who closed it and when); `🗄️ Archive` files it away; `↩️ Reopen` brings an archived row back."
+    ],
+    "title": "Handle a row"
+   },
+   {
+    "t": "callout",
+    "md": "Rarely, an anonymous row shows **\"🎭 Anonymous — Name (admin eyes only)\"**. Only the break-glass admin sees that name, and the label means what it says: **it must not leave that screen**. To everyone else in the inbox the row is simply anonymous — keep it that way when sharing or discussing it.",
+    "tone": "warn"
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Kind",
+     "How it arrived",
+     "What to do with it"
+    ],
+    "rows": [
+     [
+      "😟 Concern",
+      "Privately filed about a person — the author may be anonymous",
+      "Handle it with TM/the LCP, share to whoever can act, tell the author when it's resolved"
+     ],
+     [
+      "📅 Touch point",
+      "A 1–5 star session rating (note optional) — the evening email asks attendees automatically",
+      "Scan the stars, read the notes, feed it back to whoever runs sessions"
+     ],
+     [
+      "🎉 Shout-out",
+      "The person already got it (bell + email) — this is your copy",
+      "Enjoy it, mark done. Nothing to fix"
+     ]
+    ]
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Does sharing a row reveal who wrote it?",
+      "a": "Never. The share email and bell carry the message, not the author — an anonymous row stays anonymous no matter how many times it's passed on."
+     },
+     {
+      "q": "What happened to the 'seen' state?",
+      "a": "It was merged away — seen and done were the same thing in practice. The states are new (Open), done, and archived."
+     },
+     {
+      "q": "Why don't 5-star touch points show up as shout-outs?",
+      "a": "Ratings always take the quiet path, whatever the score — a great meeting is data for the session-runners, not applause for a person."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "distribute-work",
+  "title": "Distribute the work — pools, reassigns & claims",
+  "emoji": "📦",
+  "category": "leaders",
+  "audience": "Team Leaders & above",
+  "audienceKeys": [
+   "leaders",
+   "mm",
+   "eb"
+  ],
+  "keywords": [
+   "unassigned",
+   "reassign",
+   "bulk assign",
+   "claim",
+   "distribute accounts",
+   "hand over",
+   "pool",
+   "market research",
+   "cross-function",
+   "sign-ups pool",
+   "توزيع الاكونتات",
+   "ازاي اوزع الشغل"
+  ],
+  "summary": "How the unassigned pool, single and bulk reassigns, claiming and cross-function hand-overs work — and why an account always follows its new owner's function.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Imported market research lands **unassigned** — nobody's until distributed. Everyone above the Member role (Coordinators, TLs, Directors, VPs, LCP) sees the unowned pool on [Raising](/accounts) via the Responsible filter's **— Unassigned** option; plain Members never do, so their list stays a to-do list of their own work."
+   },
+   {
+    "t": "diagram",
+    "diagramId": "roles",
+    "caption": "Who sees which accounts — the scope every reassign and leaderboard runs on."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "One account: open it and use the Responsible picker — a TL chooses self or a team member, leaders reach their whole function.",
+     "Many: on [Raising](/accounts), enter Select mode, tick the rows (or `All`), then `Assign to…`. RBAC re-runs per row — rows outside your reach are skipped and counted in the toast.",
+     "Leave **`Email them about it 📬`** on to send the new owner a bell + an email listing the accounts. Assigning to yourself sends nothing."
+    ],
+    "title": "Reassign accounts (single or bulk)"
+   },
+   {
+    "t": "p",
+    "md": "**An account always follows its owner.** Hand an account to someone who doesn't work its function and it MOVES to theirs — leaving it behind would make it vanish from the new owner's list while still counting on the old function's dashboard. IGTe → IGV lands on Global Classroom by default; a move blocked by an archived namesake in the target world tells you so in plain words. **Claiming** works the same way: any unowned account can be claimed by anyone with create rights, in any function, and it lands in the claimer's function."
+   },
+   {
+    "t": "p",
+    "md": "On [Sign-ups](/signups) the Unassigned tab is the pool: members claim one (`Claim → Contact` — if the function leader has left self-claiming on) or leaders bulk-assign with the same per-row checks. Referrals are assigned from birth — an unassigned sign-up is invisible to the OGX dashboard by design. And promoting a Member/Coordinator to TL+ automatically releases their status-less sign-ups back to the pool."
+   },
+   {
+    "t": "callout",
+    "md": "Unassigned accounts are deliberately half-locked: booking a visit or recording an unsplit deal on one fails with an \"assign it first\" message. Distribute first, then work.",
+    "tone": "warn"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Why can't my member see the unassigned pool?",
+      "a": "By design — distribution is an MM's job. Assign or let them claim; once it's theirs it's on their list."
+     },
+     {
+      "q": "I reassigned 30 accounts and 4 were skipped — why?",
+      "a": "The per-row RBAC check refused them: outside your scope or a function the target can't hold. The toast counts the skips; the rest went through."
+     },
+     {
+      "q": "Does a hand-over notify the old owner?",
+      "a": "No — the notification (bell + optional email) goes to the NEW responsible, listing what they just received."
+     },
+     {
+      "q": "An account changed from IGT to IGV on its own — what happened?",
+      "a": "It was handed to (or claimed by) someone who works IGV. The account follows its owner's function, always — check its History for the reassign entry."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "edit-the-membership",
+  "title": "Edit the membership (EB)",
+  "emoji": "🧑‍🤝‍🧑",
+  "category": "leaders",
+  "audience": "The EB",
+  "audienceKeys": [
+   "eb",
+   "admin"
+  ],
+  "keywords": [
+   "membership",
+   "add member",
+   "edit member",
+   "sheet",
+   "AIESEC mail",
+   "personal gmail",
+   "backup email",
+   "manager",
+   "stakeholder",
+   "teams",
+   "reset password",
+   "deactivate",
+   "تعديل الاعضاء",
+   "اضافة عضو"
+  ],
+  "summary": "The Membership Google Sheet is the source of truth, synced both ways — here's how the EB edits members, what the two email fields mean, how managers default, and what the Reset password button really does.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Membership lives in the **CRM — Membership** Google Sheet, and it's genuinely two-way: the sheet is imported every 30 minutes, and every in-app edit is written straight back to it. Editing is an **EB** power — LCVPs and the LCP/admin on [/membership](/membership); Directors have function authority but don't edit membership."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open [/membership](/membership), search by name, email, team, function or role.",
+     "Click a member to edit, or `Add member`. Every save syncs to the sheet — the toast says so.",
+     "Set the role (LCP · LCVP · Director · Team Leader · Coordinator · Member), functions and sub-functions (free-form — unknown values are kept as chips), the manager, and the team from the registry picker.",
+     "Flip `Active` off to deactivate — they land on the /inactive screen at next sign-in, everywhere (login, Google, mid-session)."
+    ],
+    "title": "Edit or add a member"
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Field",
+     "What it is"
+    ],
+    "rows": [
+     [
+      "AIESEC Mail",
+      "The identity: sign-in + what the Membership sheet carries. Optional at first (phone-only members exist), locked once set — adding it later is the upgrade path"
+     ],
+     [
+      "Personal Gmail — backup only",
+      "A DIFFERENT inbox for password resets and IR-call invites until the @aiesec.net lands. Never a sign-in, never written to the sheet — the half-hourly import can't clobber it. Refused if it equals the AIESEC Mail"
+     ]
+    ]
+   },
+   {
+    "t": "p",
+    "md": "**Manager defaults** (the UI word for the sheet's Stakeholder): when no manager is named, an MM (TL/Coordinator/Member) gets their function's VP, else the function's Director, else the LCP; VPs and Directors get the LCP. A plain Member can never be anyone's manager. **Teams registry** (the Teams card): five types — EB and LB are single teams; `Function`, `Function leaders` and `Team` exist per function, with `Team` being the many TL teams. The sheet's Teams tab mirrors the in-app registry after every change."
+   },
+   {
+    "t": "p",
+    "md": "**`Reset password`** (in the member dialog) does exactly what the login page's **Forgot password** does: it generates a fresh password and **emails it to the member** — their AIESEC Mail, or the backup Gmail if that hasn't landed yet. Their old password keeps working until they change it, so nobody is ever locked out by the button. (A phone-only member with no email at all can't receive one — they sign in with their phone in both fields instead.)"
+   },
+   {
+    "t": "callout",
+    "md": "A member with no email at all signs in with their **phone in both fields** until a password is set. And renames travel: correcting a spelling cascades to touch points, IR logs, sign-up assignments and manager-by-name references, so filters never offer the same person twice.",
+    "tone": "tip"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Can I just edit the Google Sheet directly?",
+      "a": "For membership, yes — it's the source of truth and imports every 30 minutes (there's also a `Sync now` button on /membership). The MIRROR sheets (Raising Accounts, Visits…) are the opposite: Sodio overwrites them hourly, edit in Sodio."
+     },
+     {
+      "q": "Why can't I pick a Member as someone's manager?",
+      "a": "By rule — managers are TL and above. The dialog won't offer it and the server refuses it."
+     },
+     {
+      "q": "One person works two functions — how do I record that?",
+      "a": "The Function cell takes several values (\"B2B, BD\" or \"IGV, IGT\") and the member gets both workspaces. Same for sub-functions."
+     },
+     {
+      "q": "What happens to a promoted member's sign-ups?",
+      "a": "Moving a Member/Coordinator to TL+ releases their status-less sign-ups back to the Unassigned pool automatically — rows with a status keep their history."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "function-defaults",
+  "title": "Function defaults — your function, your switches",
+  "emoji": "🎛️",
+  "category": "leaders",
+  "audience": "LCVPs & Directors",
+  "audienceKeys": [
+   "leaders",
+   "eb",
+   "admin"
+  ],
+  "keywords": [
+   "function defaults",
+   "settings",
+   "podio cycle",
+   "cadence",
+   "who sees what",
+   "open the floor",
+   "claiming",
+   "CIC",
+   "referrals",
+   "streak nag",
+   "working hours",
+   "attendance reminders",
+   "اعدادات الفنكشن"
+  ],
+  "summary": "A card on every function leader's profile that replaces hard-coded behaviour with switches — Podio cadence, read-only visibility per role, OGX toggles and TM's attendance rules; untouched means exactly the old behaviour.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "If you lead a function (LCVP or Director — LCP/admin get all eight: IGV, IGT, B2B, BD, B2C, OGT, OGV, TM), [your profile](/profile) carries a **Function defaults** card. Every switch on it replaces a constant that used to live in the code, and every one is wired to something real. A function whose leader never opens the card behaves exactly as it always did."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open [your profile](/profile) and find the **Function defaults** card — one block per function you lead.",
+     "Flip the switches you want. The card only shows the groups your function actually uses — a TM leader never sees a Podio cadence, a B2C leader never sees the OGX pool.",
+     "Hit `Save`. Only the switches on screen are sent; nothing off-screen can be blanked."
+    ],
+    "title": "Change a default"
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Group",
+     "Functions",
+     "Switches"
+    ],
+    "rows": [
+     [
+      "New accounts & Podio",
+      "IGV · IGT · B2B · BD · B2C",
+      "Do NEW accounts join the Podio continuous-update cycle, and every how many days (1–90). Old defaults: IGV/B2C/BD on, IGT/B2B off, 14 days"
+     ],
+     [
+      "Who sees the whole function",
+      "Raising + OGX functions",
+      "Per role — Members / Coordinators / Team Leaders — may OPEN every account or sign-up in the function. **Read-only**: editing, reassigning and every leaderboard stay exactly as scoped before"
+     ],
+     [
+      "OGX",
+      "OGT · OGV",
+      "Self-service claiming from the unassigned pool · the CIC second-call queue · who may log a referral (everyone vs MMs and above) · the daily streak nag email"
+     ],
+     [
+      "Attendance (TM)",
+      "TM",
+      "The attendance-reminder ladder · automatic pre-fill of working-hours attendance · whether a function is judged on working hours at all"
+     ]
+    ]
+   },
+   {
+    "t": "callout",
+    "md": "The visibility switches widen **reads only, inside your function only**. An opened Member can open every account and read its history, but can't edit, reassign or archive anything that isn't theirs — and dashboards, leaderboards and every mutation still run on the unchanged scope.",
+    "tone": "warn"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "I changed the Podio cadence — do existing accounts move?",
+      "a": "The default applies to NEW accounts. An existing account's cadence is edited on its own \"Podio — continuous update\" card, which restarts its countdown."
+     },
+     {
+      "q": "If I turn claiming off, what happens to the pool?",
+      "a": "Members stop self-claiming; leaders still distribute sign-ups by assigning them. Nothing already claimed moves."
+     },
+     {
+      "q": "Can a Team Leader or Coordinator open this card?",
+      "a": "No — it's the function's LCVP/Director (and LCP/admin). The switches are the leader's call about their own floor."
+     },
+     {
+      "q": "What does an unset switch mean?",
+      "a": "Exactly the behaviour that shipped before the card existed — that's locked by tests, so an LC that never opens it cannot notice it exists."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "leaderboards",
+  "title": "How the leaderboards work",
+  "emoji": "🏆",
+  "category": "leaders",
+  "audience": "Everyone with a lane",
+  "audienceKeys": [
+   "everyone",
+   "leaders"
+  ],
+  "keywords": [
+   "leaderboard",
+   "ranking",
+   "opens",
+   "board",
+   "MMs board",
+   "members board",
+   "re-sort",
+   "team board",
+   "approvals",
+   "ليدر بورد",
+   "الترتيب",
+   "مين الاول"
+  ],
+  "summary": "Two boards per lane — Members and MMs — every funnel number at once, click any column header to re-rank, and leaders above MM never appear.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Every lane on the [dashboard](/dashboard) carries **two leaderboards side by side**: a **Members** board (role Member) and an **MMs** board (Team Leaders & Coordinators). VPs, Directors and the LCP never appear on any board — leaders steer, they aren't ranked against the people they steer."
+   },
+   {
+    "t": "p",
+    "md": "Each board shows **every funnel number at once**, in funnel order: MR · Contacted · Visits · Visits done · Deals · Opens. **Click any KPI header to re-rank** by it — the rows glide into their new order. Default sort is Opens (Deals on the B2C lane, Approvals on OGX). \"Contacted\" counts accounts with at least one contact, not how many attempts you logged."
+   },
+   {
+    "t": "p",
+    "md": "On raising lanes, each row is that person's **own accounts** — no team rollup — and a deal always belongs to the account's **Responsible**, not whoever clicked `Record deal`. Personal Opens come from **deal allocations**: if a deal's opens were split across members, each person's board row shows exactly the share allocated to them, and someone who received split opens without owning the account still gets a row."
+   },
+   {
+    "t": "p",
+    "md": "On OGX lanes the two boards split the same way, with one twist: **an MM's number is their team's** — their own sign-ups land on their line, and so do their members'. When a sign-up went through CIC, both callers carry the sign-up and the contact (both actually spoke to the person), but the **outcome** (Applied → Accepted → Approved) counts for the second caller who took it there — and the function total still counts each sign-up exactly once."
+   },
+   {
+    "t": "p",
+    "md": "If your manager is a real Team Leader, you also get a **team leaderboard** — your team only. It ranks the team, not its leader: the TL doesn't take a row on the board they read, though their own accounts still count in the team plan's actuals."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "I'm a Team Leader — why am I not on the Members board?",
+      "a": "You're on the MMs board with the other Team Leaders and Coordinators. Members and MMs do different jobs; ranking them on one list flattered neither."
+     },
+     {
+      "q": "My opens number dropped after a deal was recorded — how?",
+      "a": "The deal's opens were probably split. Boards read allocations, so you only carry the share that was allocated to you. Open the deal's history entry to see the split."
+     },
+     {
+      "q": "Can I see the boards for just this sprint?",
+      "a": "Yes — the `This sprint` / `This month` chips and the date range re-scope the whole lane, boards included. Only the member filter is KPI-only."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "plans-are-the-goals",
+  "title": "Plans are the goals",
+  "emoji": "🎯",
+  "category": "leaders",
+  "audience": "MMs & leaders",
+  "audienceKeys": [
+   "leaders",
+   "mm",
+   "eb"
+  ],
+  "keywords": [
+   "plan",
+   "goals",
+   "planning",
+   "tl plan",
+   "mm plan",
+   "opens plan",
+   "period report",
+   "sprint",
+   "quarter",
+   "PlanCard",
+   "my plan",
+   "الخطة",
+   "الاهداف",
+   "البلانينج"
+  ],
+  "summary": "Nobody sets goals inside Sodio — the lane goal is the VP planning sheet, the team goal is the TL's filed plan, every MM files their own, and closing periods email a waterfall report.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "There is no `Set goal` button anywhere in Sodio, on purpose. Goals come from planning: the **lane goal** is the VP planning sheet (imported as plan cells), the **team goal** is the Team Leader's own filed plan, and every MM files a personal plan. Progress is drawn against real numbers automatically."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Card",
+     "Where",
+     "What it compares"
+    ],
+    "rows": [
+     [
+      "PlanCard (lane goal)",
+      "Dashboard product lanes — leaders only",
+      "The planning sheet's opens for the current sprint or month vs actual opens raised (toggle sprint/month). The B2B lane has no planned goal — the planning sheet skips B2B/BD"
+     ],
+     [
+      "TeamPlanCard (team goal)",
+      "Dashboard, when your manager is a real TL",
+      "The TL's filed opens plan for this month vs the team's allocation-attributed actuals"
+     ],
+     [
+      "My plan",
+      "[Your profile](/profile)",
+      "Your own filed plan per month of the peak vs your actuals — a TL's actuals cover the whole team, a Coordinator's their own"
+     ]
+    ]
+   },
+   {
+    "t": "steps",
+    "items": [
+     "**Raising MMs** (Team Leaders AND Coordinators of IGV/IGT/B2B/BD): you file opens per month of the peak on first sign-in, and edit any time from the **My plan** card on [your profile](/profile).",
+     "**OGX & Consideration MMs**: you file applicants / accepted / approvals for the peak's months on first sign-in, and edit from the same profile card.",
+     "Work both sides? You file both plans — the raising opens card and the funnel card sit next to each other on the profile."
+    ],
+    "title": "File or edit your plan"
+   },
+   {
+    "t": "p",
+    "md": "[/planning](/planning) (LCP/admin + VPs & Directors of IGV/IGT/OGV/OGT) shows each function's full picture: sprint / month / quarter cards with plan vs actual opens, funnel tables, conversions, and the **MM plans** and **Raising MM plans** cards — each leader sees their own function's plans only."
+   },
+   {
+    "t": "p",
+    "md": "**Period reports**: every time a sprint, month or quarter closes, each function (IGV, IGT, B2B & BD) and the LCP get a **waterfall report email** — totals, plan vs achieved, then per team (bold) down to per person rows. It's automatic; nobody has to compile anything."
+   },
+   {
+    "t": "callout",
+    "md": "Calendar math, so the cards make sense: the term runs Feb→Jan, **S1 summer = Feb–Jul, S2 winter = Aug–Jan**, sprints are half-months (1–15 and 16–end of month), quarters are Feb–Apr, May–Jul, Aug–Oct, Nov–Jan.",
+    "tone": "info"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "I changed function — does my old plan follow me?",
+      "a": "No. Plans are re-checked against your live membership: rows that no longer match your job are dropped, and the first-sign-in redirect will ask for the plan your NEW role actually files."
+     },
+     {
+      "q": "Why does my team card show a nudge instead of numbers?",
+      "a": "The TL hasn't filed this month's plan yet. It's one visit to their profile's My plan card."
+     },
+     {
+      "q": "Why is there no PlanCard on the B2B lane?",
+      "a": "The LC's planning sheet doesn't plan B2B/BD opens, so there's nothing honest to draw a bar against."
+     },
+     {
+      "q": "Can conversions on /planning go over 100%?",
+      "a": "Yes — applicants can outnumber opens, that's normal. Only the dashboard funnel caps at 100%."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "read-the-dashboard",
+  "title": "Read the dashboard",
+  "emoji": "📊",
+  "category": "leaders",
+  "audience": "Everyone with a lane",
+  "audienceKeys": [
+   "everyone",
+   "leaders"
+  ],
+  "keywords": [
+   "dashboard",
+   "KPI",
+   "lanes",
+   "conversion",
+   "my numbers",
+   "filters",
+   "sprint",
+   "funnel",
+   "B2B lane",
+   "OGX dashboard",
+   "consideration",
+   "TM dashboard",
+   "الداشبورد",
+   "ارقامي",
+   "لوحة"
+  ],
+  "summary": "What every lane, KPI card, conversion percentage and filter on /dashboard actually means — and why the leaderboards ignore your member filter.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "The [dashboard](/dashboard) shows your whole function's numbers, even if your accounts list only shows your own. Everyone in a module sees their function's aggregates; the lanes you get are the ones you actually work — a Member, Coordinator or Team Leader gets the side(s) their Sub Function names, an LCVP/Director gets both sides of their product, and the LCP/admin plus TM & F&L leadership see every lane."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Lane",
+     "Who sees it",
+     "What it measures"
+    ],
+    "rows": [
+     [
+      "All ICX / IGV / All IGT / IGTa / IGTe",
+      "That product's raising crew + leaders",
+      "The account funnel, opens attributed per product (a B2B deal's IGV opens land in the IGV lane)"
+     ],
+     [
+      "B2B",
+      "The B2B crew, IGV/IGT VPs & Directors, LCP/admin",
+      "B2B accounts only — B2B raises opens FOR the products, so their leaders follow it"
+     ],
+     [
+      "BD",
+      "The BD crew, LCP/admin (its own lane since v32.6)",
+      "BD accounts — partnerships measured in money (EGP), not opens"
+     ],
+     [
+      "B2C",
+      "The B2C crew + LCP/admin",
+      "Deals-centric: no Slots KPI, `Lead → Deal`, boards ranked by Deals, plus the B2C CIC card — B2C never counts in All ICX"
+     ],
+     [
+      "OGT / OGV",
+      "The OGX crews + overseers",
+      "Sign-ups → Contacted → Interested → Applied → Accepted → Approved ★ — only sign-ups ASSIGNED to someone this peak count (the unassigned pool is a to-do list, not progress); referrals are counted too"
+     ],
+     [
+      "IGV / IGT Consideration",
+      "The consideration crews per product",
+      "IR calls this month vs last, Booked → happened, partner LCs reached, CVs (IGT), a per-member calls drill and a **Waiting to be reported** KPI"
+     ],
+     [
+      "TM",
+      "TM core only (`?fn=TM`)",
+      "Attendance rates by kind/function/member, plan-filing compliance, the awaiting-record chase count"
+     ]
+    ]
+   },
+   {
+    "t": "table",
+    "headers": [
+     "KPI card",
+     "Meaning"
+    ],
+    "rows": [
+     [
+      "Market Research",
+      "Total accounts in the lane"
+     ],
+     [
+      "Contacted",
+      "Accounts with at least one logged contact (not the count of contact attempts)"
+     ],
+     [
+      "Visits",
+      "Visits scheduled"
+     ],
+     [
+      "Visits done",
+      "Visits reported as completed"
+     ],
+     [
+      "Deals",
+      "Count of deals — one account can hold several"
+     ],
+     [
+      "Slots raised",
+      "Opens, split per product from each deal"
+     ],
+     [
+      "Lead → Open",
+      "% of accounts that raised opens"
+     ]
+    ]
+   },
+   {
+    "t": "p",
+    "md": "Under the KPI row sits the **conversion strip**: MR → Contacted, Contacted → Visits, Visits → Done, and **Visit Done → Deal**. All conversions are capped at 100%, so a weird import can never show you a 340% funnel."
+   },
+   {
+    "t": "p",
+    "md": "Filters: `This month`, `This sprint` (sprints are half-months — 1–15 and 16 to end of month), a team filter (scoped to teams that actually have rows in this lane), a member filter, and a date range that is clamped to today. The date label follows the lane: **Added** for accounts, **Signed up** for OGX, **Called** for consideration — and the consideration lane is the one place a future date is allowed, because a call can legitimately be in the future."
+   },
+   {
+    "t": "callout",
+    "md": "**`My numbers`** (the chip in the filter bar) flips the KPIs + conversion strip to just your own accounts — your personal MOS tracker. It scopes the KPI totals ONLY: leaderboards, drills and plan progress always show the full picture. VPs, Directors and the LCP don't get the chip — the whole function is already theirs.",
+    "tone": "info"
+   },
+   {
+    "t": "p",
+    "md": "The consideration lane's trend strip runs from the **peak's first month** to now — it never reaches back into the previous term, so the first month of a peak honestly shows one bar and says there's nothing before it to compare with. Its \"N calls need you\" banner follows the hierarchy: you answer for your own calls, a TL for the team's, a VP/Director/LCP for the floor — a clean slate shows no banner at all."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Why don't I see the B2B lane?",
+      "a": "It's isolated: the B2B/BD crew, IGV/IGT VPs & Directors and the LCP/admin see it. If B2B isn't in your functions or sub-functions and you're not one of those leaders, it's not yours."
+     },
+     {
+      "q": "I picked a member and the leaderboard didn't change — bug?",
+      "a": "By design. The member filter (and `My numbers`) scopes the KPI totals and conversions only; boards and drills always show everyone."
+     },
+     {
+      "q": "Where did the goal bars go?",
+      "a": "Goals come from planning now, not from an in-app dialog — the PlanCard and the TL's filed plan ARE the goals. See \"Plans are the goals\"."
+     },
+     {
+      "q": "Why does the dashboard show more accounts than my list?",
+      "a": "Your accounts list is scoped to what you own; the dashboard shows the whole function's aggregates so everyone can see where the funnel stands."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "members-directory",
+  "title": "The members directory (TM)",
+  "emoji": "📇",
+  "category": "leaders",
+  "audience": "TM & the LCP",
+  "audienceKeys": [
+   "tm",
+   "leaders",
+   "admin"
+  ],
+  "keywords": [
+   "members directory",
+   "TM",
+   "MOS",
+   "KPIs",
+   "member performance",
+   "directory",
+   "talent management",
+   "this sprint",
+   "date window",
+   "دليل الاعضاء",
+   "ارقام الاعضاء"
+  ],
+  "summary": "The whole LC in one view — every member's info, team, manager and their function's own MOS/KPIs, filterable by role and re-counted for any date window.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "[/members](/members) is the whole-LC directory: every member's info, team, manager, contact shortcuts (email / call / WhatsApp) and their live **MOS/KPIs**. Access is the TM function (in functions or sub-functions) plus the LCP/admin — TM people without raising access still get the shell for /members and the playbook."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Member's side",
+     "MOS shown"
+    ],
+    "rows": [
+     [
+      "ICX raising / B2B",
+      "The account funnel with **Opens** starred"
+     ],
+     [
+      "BD",
+      "The funnel plus **Money (EGP)** starred"
+     ],
+     [
+      "B2C",
+      "The funnel ending in **Deals** starred"
+     ],
+     [
+      "OGX (OGT/OGV)",
+      "Sign-ups → Contacted → Interested → Applied → Accepted → **Approved** ★, all live numbers"
+     ],
+     [
+      "Consideration",
+      "**Approvals** — their filed plan number until deeper call KPIs land"
+     ]
+    ]
+   },
+   {
+    "t": "p",
+    "md": "A dual-function member shows every side they work. Deal opens are allocation-attributed, so a member who received split opens carries their real share. Columns sort — the MOS column sorts by each member's own starred metric — and the ⚙ table settings let you reorder or hide columns."
+   },
+   {
+    "t": "p",
+    "md": "Filters: search, a role filter (including **MMs — TLs & Coordinators**), and a **date window**: `This month` and `This sprint` chips plus a from→to range. Every KPI is re-counted for the window; the default is all-time. The directory honours who's actually reviewed — the LCP, F&L leadership, CXP's people and TM's own MMs are out of the performance rows."
+   },
+   {
+    "t": "callout",
+    "md": "For attendance and compliance rather than funnel numbers, TM core has its own dashboard lane: [/dashboard?fn=TM](/dashboard) — attendance rate by kind, function and member, plan-filing compliance and the awaiting-record chase list.",
+    "tone": "tip"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Why is a member missing from the directory?",
+      "a": "They're either deactivated, or in the excluded review set (LCP, F&L VP/Director, CXP, TM's own MMs). Check /membership for their Active flag."
+     },
+     {
+      "q": "Can regular members open /members?",
+      "a": "No — it's TM + LCP/admin. Members see their own people on their profile's card instead."
+     },
+     {
+      "q": "The numbers look small for a strong member — why?",
+      "a": "Check the date window chips — you may be looking at this sprint only. The default is all-time."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "calendar-and-invites",
+  "title": "Calendar reminders & invites, explained",
+  "emoji": "📅",
+  "category": "faq",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "calendar",
+   "reminder",
+   "invite",
+   "google calendar",
+   "meet link",
+   "no reminder",
+   "re-login",
+   "visit reminder",
+   "ir call",
+   "التقويم",
+   "الاجتماع",
+   "لينك ميت"
+  ],
+  "summary": "Why a calendar reminder did or didn't appear, how Meet links get created without a Google grant, and who gets invited to what.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Booking a visit puts a real event on a real Google Calendar with **24h + 1h reminders**. Sodio tries three doors in order, so the event lands somewhere no matter how you signed in: **your own Google Calendar** (if you signed in with Google), then the shared **LC Visits calendar** on the IM mailbox, and finally a real **.ics invite by email**."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "The usual cause is a **dead Google grant** — you signed in with Google long ago and the access expired, or you've only ever used a password. Sodio tells you exactly which case you're in when it happens.",
+     "The fix: **sign out, then sign in with Google once**. That refreshes the grant (it also powers your Gmail proposal drafts and the Emails tab).",
+     "No AIESEC Google account yet? You're covered by the fallbacks — the event goes on the shared LC calendar or arrives as an email invite you can add with one tap."
+    ],
+    "title": "\"My reminder wasn't created\" — the fix"
+   },
+   {
+    "t": "callout",
+    "md": "**Who gets invited to a visit:** a Member's visit invites their **Team Leader + function VP(s)** as calendar attendees; a TL's or Coordinator's invites the VP(s). Separately, the whole function's raising crew gets a one-time FYI announcement (email + bell) — no calendar event for them. The LCP never gets operational email.",
+    "tone": "info"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "My IR call has a Meet link but I never connected Google — how?",
+      "a": "When the host has no Google grant, the event (and its Meet room) is created on the **IM mailbox calendar** instead, and both you and the IR are invited by email. Join from the link on the IR calls page or the invite in your inbox."
+     },
+     {
+      "q": "I set a next step with a date — why is there an event at 11:00?",
+      "a": "That's by design: a next step with a date but no time gets a follow-up event at **11:00** on your calendar. Give the step a time and the event moves to it. Clear the step (or archive the account) and the event is removed."
+     },
+     {
+      "q": "I moved a visit — do people get spammed again?",
+      "a": "No. Re-saving the same slot announces nothing, and a correction within 15 minutes stays quiet (your bell and the Google invite already carry the new time). Only a genuine move later sends a \"🗓️ Visit moved\" notice."
+     },
+     {
+      "q": "Can I see my whole function's visits somewhere?",
+      "a": "Yes — [/calendar](/calendar) shows the month for everything you belong to: visits (one color per member), IR calls, touch points and custom items, with filters by kind and scope."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "login-problems",
+  "title": "I can't log in",
+  "emoji": "🔑",
+  "category": "faq",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "login",
+   "sign in",
+   "password",
+   "phone",
+   "arabic keyboard",
+   "494",
+   "cookies",
+   "inactive",
+   "google",
+   "forgot password",
+   "مش عارف اسجل دخول",
+   "الباسورد",
+   "تسجيل الدخول"
+  ],
+  "summary": "The quick fixes for every known login problem — wrong-looking phone digits, the phone-in-both-fields rule, the rare cookie error, and the deactivated screen.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Ninety percent of login problems are one of four things. Find yours below — each has a 20-second fix."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "**First time ever?** Your first sign-in is **Google only** (with your @aiesec.net account) — it also grants the calendar and Gmail access that power your reminders and proposal drafts. Onboarding then asks you to set a password.",
+     "**No AIESEC email yet?** Sign in with your **phone number in BOTH fields** (identifier and password). That door closes the moment you set a password — after that, use phone + your password.",
+     "**Typing on an Arabic keyboard?** That's fine — Sodio translates Arabic digits (٠١٢ and ۰۱۲) to the normal ones automatically. If it still says your number doesn't exist, check for a typo or a missing digit.",
+     "**Forgot your password?** Use the forgot-password link — Sodio **emails you a fresh password** right away. Your old one keeps working until you change it, so nobody gets locked out mid-reset."
+    ],
+    "title": "Try these in order"
+   },
+   {
+    "t": "callout",
+    "md": "**Seeing a blank error page or \"Request Header Too Large\" (494)?** Clear this site's cookies once (browser settings → site data for sodio.vercel.app), then sign in again with your phone/email + password. This was a one-time bug with oversized session cookies — clearing them once fixes it for good.",
+    "tone": "warn"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "It says my number isn't on the membership — but it is!",
+      "a": "Sodio matches your **exact full number** as it appears on the membership sheet. Ask your Team Leader or the EB to check the `CRM — Membership` sheet — a missing digit or an old number there is the usual culprit. The [membership page](/membership) (EB only) can fix it in-app too."
+     },
+     {
+      "q": "I used to sign in with my phone in both fields and now it doesn't work.",
+      "a": "That means a password exists for your account — either you set one, or forgot-password emailed you a fresh one. Use your phone + that password. If you can't find it, hit forgot-password again for a new one."
+     },
+     {
+      "q": "I landed on a page saying my account is inactive.",
+      "a": "You've been marked inactive on the membership sheet (that's the `/inactive` screen). If that's a mistake, contact your VP or the EB — once the sheet says Active again, you're back in within 30 minutes (or immediately after an in-app edit)."
+     },
+     {
+      "q": "My AIESEC email finally arrived — what changes?",
+      "a": "Once the EB adds it to your membership row, sign in **with Google once** (it grants your calendar + Gmail access), and from then on email or phone + password all work. The phone-in-both-fields door closes."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "phones-and-numbers",
+  "title": "Phone numbers — why Sodio rewrites what you typed",
+  "emoji": "📱",
+  "category": "faq",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "phone number",
+   "normalize",
+   "+20",
+   "whatsapp",
+   "invalid phone",
+   "landline",
+   "hotline",
+   "pasted number",
+   "invisible characters",
+   "رقم التليفون",
+   "الرقم غلط",
+   "واتساب"
+  ],
+  "summary": "Sodio cleans and normalizes every phone number to one canonical format — here's the format, the paste gotchas it fixes for you, and what counts as valid.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Every phone field cleans itself **on blur** (when you tap away): pasted junk is stripped, Arabic digits (٠١٢ / ۰۱۲) become normal ones, and the number is rewritten to its canonical form. If it still fails, the error tells you the specific reason — trust it, the field shows exactly what Sodio sees."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "What you have",
+     "What Sodio stores"
+    ],
+    "rows": [
+     [
+      "Egyptian mobile (010 / 011 / 012 / 015…)",
+      "`+2010XXXXXXXX` — the canonical +20 form"
+     ],
+     [
+      "Alexandria landline (03…)",
+      "`+203XXXXXXX`"
+     ],
+     [
+      "Cairo landline (02…)",
+      "`+202XXXXXXXX`"
+     ],
+     [
+      "Hotline / short code (16123, 19016…)",
+      "Stored as dialled — 5 digits starting with 1"
+     ],
+     [
+      "Anything international",
+      "Full `+` form, 7–15 digits (e.g. `+9715XXXXXXXX`)"
+     ]
+    ]
+   },
+   {
+    "t": "callout",
+    "md": "**Pasted a number from WhatsApp and it \"looks perfect\" but keeps failing?** It used to carry invisible characters (bidi marks, zero-width spaces) you couldn't see or delete. Sodio strips all of those now — just tap out of the field and it rewrites itself clean.",
+    "tone": "tip"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Why is there no WhatsApp button on some numbers?",
+      "a": "Landlines and hotlines can't receive WhatsApp, so Sodio never offers the WhatsApp tag or button for them. Mobiles get it; tag one number `Whatsapp` and the quick action uses that one."
+     },
+     {
+      "q": "The public booking page shows a weird example number.",
+      "a": "It's not weird — it's an example from **your country**, based on the country you picked. All 194 countries have their own tested example, so an IR in France sees a French-shaped number, not an Egyptian one."
+     },
+     {
+      "q": "A sign-up shows no Call/WhatsApp buttons at all.",
+      "a": "The tracker row has no real phone (placeholders like \"-\" are treated as missing). Filter with the phone funnel on Quick actions to find rows with or without numbers."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "something-looks-broken",
+  "title": "Something looks broken",
+  "emoji": "🔧",
+  "category": "faq",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "broken",
+   "bug",
+   "stale data",
+   "refresh",
+   "loading",
+   "walking man",
+   "buttons not working",
+   "iphone",
+   "frozen",
+   "report bug",
+   "feedback",
+   "الموقع باظ",
+   "مش شغال",
+   "مشكلة"
+  ],
+  "summary": "What the walking man means, why numbers refresh when you come back to the tab, the iPhone dead-buttons fix, and the two right ways to report a bug.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Before you panic: the **walking AIESEC human** means a page is loading, not broken — give it a second. And numbers refresh when you **return to the tab** (on focus), not constantly in the background — so if a colleague just recorded a deal, click back into Sodio and it updates."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "**Stale numbers?** Click away and back into the tab, or reload — data refreshes on focus.",
+     "**Every button suddenly dead (usually iPhone)?** This was a stuck dialog lock and it now self-heals automatically. If you're somehow still stuck, one reload fixes it.",
+     "**Can't log in at all?** See the [login problems](/help?a=login-problems) article — cookies, phone rules and the 494 error are all covered there.",
+     "**Still broken?** Report it — see below. A bug nobody reports is a bug forever."
+    ],
+    "title": "Quick triage"
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open [/feedback](/feedback), pick **Bug**, then the category that fits (\"Doesn't work / button dead\", \"Wrong data / numbers\", \"UI looks broken\", \"Responsiveness / mobile\"…). Say what you did, what you expected, and what happened — screenshots help enormously.",
+     "For something about **your own info** (name, team, role): your [profile](/profile) has a **\"Wrong info? WhatsApp the admin to fix it\"** link that opens a chat straight to the IM admin.",
+     "Feedback about **people or sessions** goes to [/lc-feedback](/lc-feedback) instead — that's a different inbox with different readers."
+    ],
+    "title": "How to report it right"
+   },
+   {
+    "t": "callout",
+    "md": "Unsure whether it's a bug or just how it works? Ask **The Blue Man** (the floating walking-man button) first — he knows the whole system and answers in Arabic or English.",
+    "tone": "tip"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Who reads /feedback reports?",
+      "a": "The system-feedback inbox is read by the IM team (Ahmed and Omar). Bugs get triaged and usually appear fixed in the next release — the changelog is full of exactly these reports."
+     },
+     {
+      "q": "The page loads but a table is empty — bug?",
+      "a": "Usually a filter. Column funnels stay active until you clear them (a filled funnel icon means it's on), and the date range persists in the URL. Clear the filters before reporting."
+     },
+     {
+      "q": "Tooltips don't appear on my phone.",
+      "a": "They do now — tap any hinted button once to see its tooltip (it closes on the next tap or after a few seconds). If one is genuinely missing, that's worth a feedback report."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "admin-toolkit",
+  "title": "The IM admin's toolkit",
+  "emoji": "🛠️",
+  "category": "faq",
+  "audience": "IM admin",
+  "audienceKeys": [
+   "admin"
+  ],
+  "keywords": [
+   "admin",
+   "health",
+   "logs",
+   "undo",
+   "backup",
+   "cron",
+   "test session",
+   "view as",
+   "sandbox",
+   "change journal",
+   "restore",
+   "audit"
+  ],
+  "summary": "Health checks, the audit log with undo, LC test sessions, view-as modes and the nightly backups — what each admin tool does and its sharp edges.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "[/admin](/admin) is the cockpit: **Health** (DB, storage buckets, env keys, every cron's last run with freshness colors, today's table counts) and the **audit log** — searchable, with every action carrying a **change set** (one server-action call = one uuid), so a multi-row action reads as one event."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "**Undo from the logs:** each journaled entry has an Undo button; checkboxes + the bulk bar undo many at once. Entries with nothing to replay (sign-ins, sent reports, pre-journal rows) show a disabled checkbox instead of lying to you.",
+     "**LC test session:** open one session for the whole LC — everyone's writes are journaled, and stopping it rolls them all back or keeps them. **Warning below — read it.**",
+     "**View-as (Test view):** pick any member from your profile and the whole app behaves as them. Default is **🧪 Sandbox** — every mutation journaled and rolled back on exit, with emails/notifications/calendar/sheet write-backs suppressed. Flip to **⚡ Real** and actions are genuine and attributed to that member. The audit records view_as start/stop under YOUR name either way, and /admin always reads your real session — a test view can never unmask anonymous feedback."
+    ],
+    "title": "Undo & testing"
+   },
+   {
+    "t": "callout",
+    "md": "**In an LC test session, side effects are NOT suppressed** — emails, bells, calendar events and Sheets write-backs fire for real and cannot be undone. Only the **database** rolls back. Permanent deletes of archived accounts are blocked while a session runs. (Sandbox view-as is the one that suppresses side effects — don't confuse the two.)",
+    "tone": "warn"
+   },
+   {
+    "t": "p",
+    "md": "**Backups** run nightly at 02:00 UTC: all data tables (~19k rows, gzipped ~1.2 MB) go to the private Supabase `backups` bucket (30-day retention), a copy is emailed to the IM mailbox, and a third lands in the CRM Drive folder. Restore = run the migrations from `supabase/migrations/`, gunzip, insert each table's array. **Storage buckets (contracts, cvs) are NOT backed up** — they're files, not rows. A failed run returns 500 and shows on Health; silence there means success."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Cron",
+     "Cadence (UTC)"
+    ],
+    "rows": [
+     [
+      "visit-followups (+ bounce watcher)",
+      "every 15 min"
+     ],
+     [
+      "signups-import",
+      "every 15 min"
+     ],
+     [
+      "membership-import",
+      "every 30 min"
+     ],
+     [
+      "sheets-export (mirrors)",
+      "hourly at :05"
+     ],
+     [
+      "backup",
+      "daily 02:00"
+     ],
+     [
+      "podio-updates",
+      "daily 05:00"
+     ],
+     [
+      "period-reports",
+      "daily 07:00"
+     ],
+     [
+      "streak-nags",
+      "daily 16:00"
+     ],
+     [
+      "touch-point-feedback",
+      "daily 19:00"
+     ],
+     [
+      "attendance-reminders",
+      "daily 20:59"
+     ]
+    ]
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "A cron shows amber/red on Health — what first?",
+      "a": "Check that CRON_SECRET matches everywhere (Vercel env, .env.local, and the pg_cron jobs in supabase/cron.sql) — a mismatch means silent 401s, which has happened before. If the secret rotates, update both env locations, redeploy, and re-run the cron.schedule calls."
+     },
+     {
+      "q": "Can I undo a bulk delete of archived accounts?",
+      "a": "No — cascade deletes can't be restored by the journal, which is why bulk delete is refused in sandbox and blocked during an LC test session. Outside those, the nightly backup is your only net."
+     },
+     {
+      "q": "The sheet imports stopped syncing — broken?",
+      "a": "Maybe not: imports skip when the sheet's modifiedTime hasn't changed, and pause 01:00–07:00 Cairo. The manual \"Sync now\" buttons force a run — that's the human escape hatch."
+     },
+     {
+      "q": "Who exactly counts as \"admin\" here?",
+      "a": "ADMIN_EMAILS (the IM director) gets everything including anonymous-author unmasking. Role/sub-function **Admin** grants the admin tools (Health, logs, journal) without whole-LC visibility — whole-LC access belongs to the IM leadership, LCP and F&L."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "times-and-time-zones",
+  "title": "Times & time zones — what clock is that?",
+  "emoji": "🕰️",
+  "category": "faq",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "time zone",
+   "cairo time",
+   "vpn",
+   "booking page",
+   "12 hour",
+   "am pm",
+   "dst",
+   "daylight saving",
+   "wrong time",
+   "التوقيت",
+   "توقيت القاهرة",
+   "الساعة"
+  ],
+  "summary": "Everything inside Sodio runs on Cairo time in 12-hour format; the public booking page follows the visitor's own clock — here's how, and why a VPN changes nothing.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "**Inside Sodio, every time is Cairo time**, shown in 12-hour AM/PM format — dashboards, visits, touch points, the calendar, all of it. The one exception is the public IR **booking page**, which draws itself in the *visitor's* time zone (like Google Calendar does), so an IR in Jakarta picks 6 PM meaning 6 PM at home. Scheduled IR calls inside Sodio show both clocks — Cairo AND the IR's — so nobody books someone into a 3 AM call by accident."
+   },
+   {
+    "t": "callout",
+    "md": "**\"I turned on a VPN and the booking page still shows my real city.\"** Actually it's the opposite now: the page trusts your **connection** first (where your traffic comes out), because that's the signal that moves when you do. Your device's own zone is offered as a one-tap fallback — \"your device says Cairo. Use Cairo instead\" — for the corporate-VPN case where the machine was right all along. Your browser's `Intl` clock never changes with a VPN; that's just how browsers work.",
+    "tone": "info"
+   },
+   {
+    "t": "steps",
+    "items": [
+     "On the booking page: check the time-zone picker at the top — you can set any zone manually, and it prefills the country too.",
+     "Inside Sodio: remember it's always Cairo. If you're abroad, do the math or check the second line on IR calls (they show the IR's local time).",
+     "Stored times are UTC instants under the hood, so nothing ever drifts — only the label changes with the zone."
+    ],
+    "title": "If a time looks wrong"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "What happens on Egypt's DST switch nights?",
+      "a": "Handled. Stored times were always correct (the conversion is DST-aware), and on the spring-forward night — when the clock jumps from 00:00 straight to 01:00 — slots in the hour that doesn't exist are simply never offered."
+     },
+     {
+      "q": "The IR's confirmation email — whose time does it speak?",
+      "a": "Theirs, first. Confirmations, reschedules and cancellations lead with the IR's local time and carry Cairo as the second line, so the screen and the email can never disagree."
+     },
+     {
+      "q": "Why do time inputs still look 24-hour sometimes?",
+      "a": "Native time input fields keep the 24-hour format your device uses — that's the browser, not Sodio. Everything Sodio *displays* is 12-hour AM/PM."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "cant-see-account",
+  "title": "Why can't I see an account or sign-up?",
+  "emoji": "🕵️",
+  "category": "faq",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "can't see account",
+   "missing account",
+   "access",
+   "scope",
+   "permissions",
+   "unassigned",
+   "archived",
+   "404",
+   "sign-up missing",
+   "visibility",
+   "مش شايف الاكونت",
+   "الصلاحيات"
+  ],
+  "summary": "Who sees what in Sodio, in plain words — and the four most common reasons an account or sign-up seems to have vanished.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Sodio shows you exactly what your role covers — nothing is ever \"lost\", it's just outside your scope or moved. Here's the map."
+   },
+   {
+    "t": "diagram",
+    "diagramId": "roles",
+    "caption": "Who sees which accounts — the scope pyramid."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Your role",
+     "Accounts you see"
+    ],
+    "rows": [
+     [
+      "Member / Coordinator",
+      "Your own accounts (plus the unowned market-research pool, for Coordinators and above)"
+     ],
+     [
+      "Team Leader",
+      "Your own + your team members' accounts"
+     ],
+     [
+      "VP (LCVP)",
+      "Every account in your function(s) + B2B (they raise for you)"
+     ],
+     [
+      "Director",
+      "Same as a VP for their function(s) + B2B — but no membership editing"
+     ],
+     [
+      "LCP / admin",
+      "Everything"
+     ]
+    ]
+   },
+   {
+    "t": "steps",
+    "items": [
+     "**It was archived.** The Archived tab on [Raising](/accounts) is LC-wide — every member can browse ALL archived names and open any archived account **read-only**. Check there first.",
+     "**It's in the unassigned pool.** Imported market research lands with no responsible. Members can't see unowned rows — Coordinators and above can (look for the **— Unassigned** option in the Responsible filter).",
+     "**It moved function.** An account always follows its owner — if it was handed to someone in another function, it now lives (and counts) there. Ask the leader who reassigned it.",
+     "**It was reassigned.** If an account left your list, someone with the authority moved it. Your VP or TL can tell you where it went — the account's History says who and when."
+    ],
+    "title": "The usual suspects"
+   },
+   {
+    "t": "callout",
+    "md": "**Want to see your whole function?** Since v33.32, your VP or Director can open whole-function **viewing** for Members, Coordinators or Team Leaders from their profile's Function defaults card — you'd be able to OPEN every account in your function (still editing only your own). Ask them to flip the switch.",
+    "tone": "tip"
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "I guessed an account's URL and got a 404 — is it deleted?",
+      "a": "Not necessarily. A URL outside your scope returns a 404 on purpose — Sodio never confirms an account exists to someone who can't see it. If you think you should see it, ask your VP."
+     },
+     {
+      "q": "Why does an IGT VP see B2B accounts?",
+      "a": "B2B/BD raises opens for the whole ICX — their deals feed the IGV/IGTa/IGTe lanes. So IGV and IGT VPs and Directors always see B2B accounts alongside their own function's."
+     },
+     {
+      "q": "A sign-up disappeared from my list on /signups.",
+      "a": "Same logic: sign-ups are scoped to you, your team (TL), or your function (VP+). If it left your **My sign-ups**, it was reassigned or released to the Unassigned pool — the sign-up's History log in the detail dialog says exactly what happened."
+     },
+     {
+      "q": "Can I re-add a name that's in the archive?",
+      "a": "No — the archive IS the blacklist for its world. An archived name blocks re-adding until a TL or above revives it from the Archived tab. Note each world (ICX raising · BD · B2C) keeps its own archive, so a B2C archive never blocks an IGV account."
+     }
+    ]
+   }
+  ]
+ }
+];

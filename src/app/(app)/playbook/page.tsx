@@ -1,25 +1,7 @@
-import { getViewer } from "@/server/data";
-import { hasConsiderationAccess, hasOgxAccess, hasTmAccess } from "@/lib/rbac";
-import { memberIsB2B, memberIsB2C } from "@/lib/types";
-import { PlaybookView } from "@/components/crm/playbook-view";
+import { redirect } from "next/navigation";
 
-export const metadata = { title: "Playbook" };
-
-/** The Sodio Playbook — the living, role-organized manual of the system.
- *  ⚠️ RULE: update `playbook-view.tsx` (content + PLAYBOOK_VERSION) with every
- *  release, in the same commit — this page is what gets handed to the next
- *  generations. */
-export default async function PlaybookPage() {
-  const viewer = await getViewer();
-  return (
-    <PlaybookView
-      role={viewer.role}
-      isAdmin={viewer.isAdmin}
-      isB2B={memberIsB2B(viewer)}
-      isB2C={memberIsB2C(viewer)}
-      isTm={hasTmAccess(viewer)}
-      isOgx={hasOgxAccess(viewer)}
-      isConsideration={hasConsiderationAccess(viewer)}
-    />
-  );
+/** The Playbook grew into the Help center (v33.36). The old address keeps
+ *  working forever — links in old emails, chats and heads live here. */
+export default function PlaybookRedirect() {
+  redirect("/help");
 }

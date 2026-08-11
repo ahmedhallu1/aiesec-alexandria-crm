@@ -304,7 +304,7 @@ export async function POST(req: Request) {
   // ---- GROUNDING (v22.2): every internal link must point at something REAL
   // and visible to THIS viewer — hallucinated slugs are stripped down to text.
   const STATIC_PATHS = new Set([
-    "/accounts", "/accounts/import", "/dashboard", "/calendar", "/playbook",
+    "/accounts", "/accounts/import", "/dashboard", "/calendar", "/help", "/playbook",
     "/profile", "/planning", "/members", "/lc-feedback", "/feedback",
     "/feedback/inbox", "/membership", "/admin", "/consideration",
   ]);

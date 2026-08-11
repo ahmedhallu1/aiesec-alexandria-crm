@@ -115,7 +115,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
     { href: "/attendance", label: "Attendance", icon: CalendarCheck2 },
     // v33.24 — writing to partners, EPs and other LCs, with the LC's look
     ...(nav.mailbox ? [{ href: "/emails", label: "Emails", icon: MailPlus }] : []),
-    { href: "/playbook", label: "Playbook", icon: BookOpen },
+    { href: "/help", label: "Help", icon: BookOpen },
     // system feedback moved to the Profile page (v21) — this is feedback about
     // PEOPLE in the LC: shout-outs & concerns
     { href: "/lc-feedback", label: "LC Feedback", icon: MessageSquareHeart },
