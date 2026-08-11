@@ -7,10 +7,10 @@
 > **⚠️ SHIP RULE (every session, no exceptions):** finished work goes
 > **commit → merge to `main` → push to GitHub → `vercel deploy --prod`**.
 > Never leave features on a side branch — that's how `0011_teams.sql` "went
-> missing" once. Also update the in-app **Playbook**
-> (`src/components/crm/playbook-view.tsx` + `PLAYBOOK_VERSION`) with every release.
+> missing" once. Also update the in-app **Help center**
+> (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-11 · Version: v33.35
+Last updated: 2026-08-11 · Version: v33.36
 
 ---
 
@@ -505,8 +505,9 @@ src/app/api/assistant/        POST → Gemini 2.5 Flash + Google Search groundin
 src/server/auth-actions.ts    login (email/phone), Google, forgot-password (emails a password)
 src/app/(app)/                dashboard, accounts (+import, [id]=slug), membership,
                               playbook, feedback(+inbox), profile; loading.tsx everywhere
-src/components/crm/playbook-view.tsx  THE PLAYBOOK (role-organized manual — bump
-                              PLAYBOOK_VERSION + content with every release)
+src/lib/help-content.ts       Help center machinery (types, categories, search)
+src/lib/help-articles.ts      THE KNOWLEDGE BASE (bump HELP_VERSION with every release)
+src/components/crm/help-view.tsx  the /help UI (search, categories, articles, FAQs)
 src/app/welcome/              first-login onboarding
 src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour, Hint,
                               NotificationsBell (+Broadcast), BlueManChat, FeedbackInboxView…
@@ -530,7 +531,7 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | Notifications kinds / broadcast | `src/server/notify.ts`, bell UI in `notifications-bell.tsx` |
 | Avatars (styles / seeds) | `src/lib/avatars.ts`; picker in `profile-view.tsx` |
 | Leader visibility (who sees which accounts) | `scopeFunctions` in `src/lib/rbac.ts` |
-| The Playbook (member manual) | `src/components/crm/playbook-view.tsx` (+ bump `PLAYBOOK_VERSION`) |
+| The Help center (articles/FAQs) | `src/lib/help-articles.ts` (+ bump `HELP_VERSION` in `help-content.ts`) · diagrams in `help-diagrams.tsx` |
 | Lane goal display (plan vs actual) | `lanePlan` in `getDashboard` · `PlanCard` in `dashboard-view.tsx` |
 | TL plans (who files, flow, card) | `isPlanningTl`/`needsTlPlan`/`tlPlanForProfile` in `data.ts` · `saveTlPlan` in `actions.ts` · `tl-plan-form.tsx` · `/welcome/plan-tl` |
 | Deal opens splits | `recordDeal` allocations in `actions.ts` · `deal_allocations` reads in `data.ts` · DealDialog in `account-detail-view.tsx` |
@@ -625,6 +626,47 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-11 · v33.36** — **THE PLAYBOOK BECAME A HELP CENTER** (no
+  migration).
+  ① **/help** replaces /playbook (which redirects forever — old links in
+  emails and heads keep working; the sidebar tab is now **Help**). The
+  playbook was one long page you scrolled; this is a help center you ASK:
+  a hero search box, nine topic categories, ~58 task-first articles, FAQ
+  accordions, and The Blue Man wired in as the AI layer — every screen
+  carries an "Ask The Blue Man" card, and a search with no results offers
+  asking him THAT question.
+  ② **CONTENT IS DATA, NOT JSX** (`src/lib/help-articles.ts`): every article
+  is plain JSON — id, category, audience keys, bilingual keywords, summary,
+  and typed blocks (paragraph · numbered steps · callout · table · FAQ ·
+  diagram). That is what makes it searchable, renderable and — the real
+  point — fact-checkable and regenerable without touching the machinery
+  (`help-content.ts` = types/categories/search, `help-view.tsx` = the UI,
+  `help-diagrams.tsx` = six hand-drawn theme-aware SVGs: the raising
+  pipeline, the OGX funnel, IR booking, a visit's life, the who-sees-what
+  pyramid, a touch point's life).
+  ③ **SEARCH SPEAKS BOTH LANGUAGES**: diacritic- and hamza-folding
+  normalisation (أ/إ/آ→ا, ى→ي, ة→ه, NFKD + combining-mark strip) so either
+  spelling finds the article; scoring ranks title > keywords > summary >
+  body with snippets; URL-driven states (?q= ?c= ?a=) make every search,
+  category and article SHAREABLE — paste /help?a=forgot-password in a group
+  chat and it opens right there.
+  ④ **ROLE-AWARE, NOT ROLE-GATED**: a "For me" toggle filters to the
+  viewer's functions/role (the playbook's sectionsForRole, generalised into
+  audience keys), and category cards wear "That's you" — but nothing is
+  hidden: knowledge is readable by everyone, the filter is a lens.
+  ⑤ **HOW IT WAS WRITTEN**: a 12-agent workflow — nine writers each briefed
+  on one area with the block contract and AI_CONTEXT.md as source of truth,
+  then three fact-checkers hunting wrong routes/permissions/behaviour. They
+  found 9 real issues (reset-password behaviour, who edits touch points,
+  screenshot optionality, visit invites carry no Meet link, B2B/BD are
+  separate lanes…), all fixed before shipping. `tests/help-center.test.ts`
+  pins the contract: unique slug ids, valid categories/diagrams, every
+  internal link resolves to a real route or article, no empty category
+  card, search finds the obvious in both languages (206 tests total).
+  ⑥ The ship rule's address moved: update **`src/lib/help-articles.ts`** (+
+  `HELP_VERSION` in `help-content.ts`) with every release — same rule, new
+  file. PLAYBOOK_VERSION is aliased to HELP_VERSION so nothing else moved.
 
 - **2026-08-11 · v33.35** — **THE NAME, THE ASK, AND THE VISITS NOBODY
   REPORTED** (migration **0057 applied**: `touch_points.feedback_asked_at`).

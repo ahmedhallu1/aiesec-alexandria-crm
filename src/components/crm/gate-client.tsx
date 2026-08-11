@@ -11,7 +11,7 @@ import { usePathname, useRouter } from "next/navigation";
  *  client navigation and non-raising viewers get a BLANK screen (and the
  *  "soon" gate's bounce-to-"/" would loop). "/" matches exactly, never as a
  *  prefix. */
-const ALWAYS_ALLOWED = ["/", "/profile", "/feedback", "/playbook", "/lc-feedback"];
+const ALWAYS_ALLOWED = ["/", "/profile", "/feedback", "/help", "/playbook", "/lc-feedback"];
 
 /** Client-side switch used by the (app) layout for members whose function has
  *  no module: allowed routes render normally, everything else shows "Soon".

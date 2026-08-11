@@ -216,9 +216,9 @@ function buildSteps(role: string, m: TourModules, fns: string[]): TourStep[] {
     },
     {
       openBy: '[data-tour="nav:open"]',
-      target: "nav:/playbook",
-      title: "The Playbook has the rest",
-      body: "Your full manual, written for your role. You can replay this walkthrough from there any time.",
+      target: "nav:/help",
+      title: "Help has the rest",
+      body: "Search anything — how-tos, FAQs, the fine print — or ask The Blue Man from there. You can replay this walkthrough from Help any time.",
     }
   );
 

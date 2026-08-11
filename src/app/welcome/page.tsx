@@ -24,7 +24,7 @@ export default async function WelcomePage() {
         ? "Your Consideration workspace is ready — IR calls with partner LCs and your personal booking link."
         : hasTmAccess(viewer)
           ? "Your Talent Management workspace is ready — the whole LC's directory, KPIs and contact shortcuts."
-          : "Your Profile, the Playbook and Feedback are live today — your function's workspace is on the way.";
+          : "Your Profile, the Help center and Feedback are live today — your function's workspace is on the way.";
 
   return (
     <main className="relative flex min-h-screen items-center justify-center bg-sidebar p-4">
