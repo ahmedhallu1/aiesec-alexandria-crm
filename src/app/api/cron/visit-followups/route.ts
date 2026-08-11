@@ -19,7 +19,9 @@ interface VisitRow {
   member: {
     id: string;
     name: string;
-    email: string;
+    email: string | null;
+    /** the personal Gmail (v33.29) — many members have no @aiesec.net yet */
+    fallback_email: string | null;
     role: string;
     stakeholder_id: string | null;
   } | null;
@@ -53,7 +55,7 @@ async function resolveLeader(member: VisitRow["member"]): Promise<Leader | null>
 const VISIT_SELECT =
   "id, visit_date, visit_time, next_step, followup_prompt_sent_at, " +
   "account:accounts!inner(id, name, out_of_process, is_test), " +
-  "member:members(id, name, email, role, stakeholder_id)";
+  "member:members(id, name, email, fallback_email, role, stakeholder_id)";
 
 /** Runs every 15 min (Supabase pg_cron). Two passes:
  *  1. Exactly 2 hours after a visit's scheduled time → "was it completed?"
@@ -83,7 +85,13 @@ export async function GET(req: NextRequest) {
 
   const twoHours = 2 * 60 * 60 * 1000;
   for (const visit of (pending ?? []) as unknown as VisitRow[]) {
-    if (!visit.account || visit.account.out_of_process || !visit.member?.email) continue;
+    // NO INBOX IS NOT A REASON TO SAY NOTHING (v33.36.2). This used to skip
+    // the whole reminder when the member had no @aiesec.net — no email, no
+    // BELL, and no stamp, so the week-later nag could never fire either and
+    // the visit went unchased forever. Many members are still waiting for
+    // their AIESEC address; they get the backup Gmail if they saved one, and
+    // the in-app notification either way.
+    if (!visit.account || visit.account.out_of_process || !visit.member) continue;
     const visitAt = cairoToUtc(visit.visit_date, visit.visit_time).getTime();
     if (now < visitAt + twoHours) continue;
 
@@ -99,13 +107,18 @@ export async function GET(req: NextRequest) {
       reportUrl: `${env.appUrl}/accounts/${visit.account.id}?report=${visit.id}`,
     });
     try {
-      const to = [visit.member.email, ...(leader ? [leader.email] : [])];
-      await sendEmail({ to, ...mail });
+      const to = [
+        visit.member.email ?? visit.member.fallback_email,
+        ...(leader ? [leader.email] : []),
+      ].filter((e): e is string => !!e);
+      if (to.length > 0) await sendEmail({ to, ...mail });
       await notifyMembers(
         [visit.member.id, ...(leader ? [leader.id] : [])],
         "followup",
         `How did the visit to ${visit.account.name} go? 📝`,
-        "Report it from the account page — your leaders get notified automatically."
+        "Report it from the account page — your leaders get notified automatically.",
+        null,
+        `/accounts/${visit.account.id}`
       );
       await db()
         .from("visits")
@@ -130,7 +143,7 @@ export async function GET(req: NextRequest) {
     .limit(50);
 
   for (const visit of (forgotten ?? []) as unknown as VisitRow[]) {
-    if (!visit.account || visit.account.out_of_process || !visit.member?.email) continue;
+    if (!visit.account || visit.account.out_of_process || !visit.member) continue;
 
     const leader = await resolveLeader(visit.member);
     const mail = visitForgottenEmail({
@@ -143,13 +156,18 @@ export async function GET(req: NextRequest) {
       reportUrl: `${env.appUrl}/accounts/${visit.account.id}?report=${visit.id}`,
     });
     try {
-      const to = [visit.member.email, ...(leader ? [leader.email] : [])];
-      await sendEmail({ to, ...mail });
+      const to = [
+        visit.member.email ?? visit.member.fallback_email,
+        ...(leader ? [leader.email] : []),
+      ].filter((e): e is string => !!e);
+      if (to.length > 0) await sendEmail({ to, ...mail });
       await notifyMembers(
         [visit.member.id, ...(leader ? [leader.id] : [])],
         "followup",
         `⏰ ${visit.account.name} is still unreported`,
-        "Log the visit result, or mark the account Out of Process if they're not interested."
+        "Log the visit result, or mark the account Out of Process if they're not interested.",
+        null,
+        `/accounts/${visit.account.id}`
       );
       await db()
         .from("visits")

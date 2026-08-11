@@ -11,12 +11,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
-import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
+  ColumnFilter, multi,
   resizableCellStyle, ResizableHead, SortHeader, TableSettings, useTableColumns, useTableSort, type SortDir, type TableColumn,
 } from "./data-table-kit";
 import { Hint } from "./hint";
@@ -220,12 +218,15 @@ export function MembersView({
   ranges: { month: DirectoryRange; sprint: DirectoryRange; today: string };
 }) {
   const [q, setQ] = useState("");
-  const [fn, setFn] = useState("");
-  const [role, setRole] = useState("");
-  /** the SIDE of the work — Raising / Consideration / … (v33.6). An IGT MM
-   *  reviewing their function wants "show me the raising people" without
-   *  losing the ones who do both. */
-  const [side, setSide] = useState("");
+  /** EVERY FILTER LIVES ON ITS COLUMN (v33.36.2) — the house rule the rest of
+   *  the app already follows: if an attribute IS a column, you narrow it from
+   *  the column's own funnel, not from a bar above the table. Multi-select
+   *  throughout (a comma list means "any of these"), so "show me the TLs and
+   *  Coordinators of IGV and IGT" is four taps and no dropdown gymnastics.
+   *  Kept in memory — the directory is one page, no round-trip needed. */
+  const [colFilter, setColFilter] = useState<Record<string, string>>({});
+  const setCol = (k: string) => (v: string) =>
+    setColFilter((f) => ({ ...f, [k]: v }));
 
   // the date window lives in the URL (?from/&to) — it's a SERVER filter: the
   // KPIs themselves are recounted, so it can't be done in the browser
@@ -280,6 +281,38 @@ export function MembersView({
     () => [...new Set(members.flatMap((m) => m.sub_functions))].filter(Boolean).sort(),
     [members]
   );
+  const teams = useMemo(
+    () => [...new Set(members.map((m) => m.team_name).filter(Boolean) as string[])].sort(),
+    [members]
+  );
+  const managers = useMemo(
+    () => [...new Set(members.map((m) => m.manager).filter(Boolean) as string[])].sort(),
+    [members]
+  );
+  /** What each person is MEASURED on — a real question a TM lead asks
+   *  ("show me everyone whose MOS is opens"). */
+  const MOS_LABEL: Record<string, string> = {
+    raising: "Opens (raising)",
+    bd: "Money (BD)",
+    b2c: "Deals (B2C)",
+    ogx: "Approvals (OGX)",
+    consideration: "Approvals (consideration)",
+    none: "No tracked MOS",
+  };
+  const mosOptions = useMemo(
+    () =>
+      [...new Set(members.map((m) => m.mos || "none"))]
+        .sort()
+        .map((v) => ({ value: v, label: MOS_LABEL[v] ?? v })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [members]
+  );
+
+  /** No picks = no filter; several picks = match ANY of them. */
+  const anyOf = (raw: string | undefined, pred: (v: string) => boolean) => {
+    const picks = multi(raw);
+    return picks.length === 0 || picks.some(pred);
+  };
 
   const filtered = members.filter((m) => {
     const needle = q.trim().toLowerCase();
@@ -290,18 +323,97 @@ export function MembersView({
       )
     )
       return false;
-    if (fn && !m.functions.includes(fn) && !m.sub_functions.includes(fn)) return false;
+    if (!anyOf(colFilter.fn, (v) => m.functions.includes(v) || m.sub_functions.includes(v)))
+      return false;
     // someone who is Raising AND Consideration matches EITHER filter — they
     // really do both, so hiding them from one of the two lists would be a lie
-    if (side && !m.sub_functions.includes(side)) return false;
-    if (role === MM_FILTER) {
-      if (!MM_ROLES.includes(m.role)) return false;
-    } else if (role && m.role !== role) return false;
+    if (!anyOf(colFilter.sub, (v) => m.sub_functions.includes(v))) return false;
+    if (!anyOf(colFilter.role, (v) => (v === MM_FILTER ? MM_ROLES.includes(m.role) : m.role === v)))
+      return false;
+    if (!anyOf(colFilter.team, (v) => (m.team_name ?? "") === v)) return false;
+    if (!anyOf(colFilter.manager, (v) => (m.manager ?? "") === v)) return false;
+    if (!anyOf(colFilter.mos, (v) => (m.mos || "none") === v)) return false;
+    if (!anyOf(colFilter.email, (v) => (v === "has" ? !!m.email : !m.email))) return false;
+    if (!anyOf(colFilter.phone, (v) => (v === "has" ? !!m.phone : !m.phone))) return false;
+    if (!anyOf(colFilter.mr, (v) => (v === "any" ? m.kpis.mr > 0 : m.kpis.mr === 0))) return false;
+    if (!anyOf(colFilter.deals, (v) => (v === "any" ? m.kpis.deals > 0 : m.kpis.deals === 0)))
+      return false;
     return true;
   });
 
   // click a header to sort the filtered list; mobile cards follow the order
   const { sorted, sortKey, dir, toggle } = useTableSort(filtered, DIRECTORY_SORTERS);
+  /** Which columns carry a funnel, and what each one offers. Built from the
+   *  DATA in front of you — a filter can never offer a value nobody has. */
+  const COL_FILTERS: Record<
+    string,
+    { key: string; label: string; options: { value: string; label: string }[] }
+  > = {
+    role: {
+      key: "role", label: "Role",
+      options: [
+        ...(roles.some((r) => MM_ROLES.includes(r))
+          ? [{ value: MM_FILTER, label: "MMs (TLs & Coordinators)" }]
+          : []),
+        ...roles.map((r) => ({ value: r, label: r })),
+      ],
+    },
+    functions: { key: "fn", label: "Function", options: fns.map((f) => ({ value: f, label: f })) },
+    sub_functions: {
+      key: "sub", label: "Sub function / side",
+      options: sides.map((sf) => ({ value: sf, label: sf })),
+    },
+    team: { key: "team", label: "Team", options: teams.map((t) => ({ value: t, label: t })) },
+    manager: {
+      key: "manager", label: "Manager",
+      options: managers.map((t) => ({ value: t, label: t })),
+    },
+    mos: { key: "mos", label: "MOS", options: mosOptions },
+    email: {
+      key: "email", label: "Email",
+      options: [
+        { value: "has", label: "Has an email" },
+        { value: "missing", label: "No email yet" },
+      ],
+    },
+    phone: {
+      key: "phone", label: "Phone",
+      options: [
+        { value: "has", label: "Has a phone" },
+        { value: "missing", label: "No phone" },
+      ],
+    },
+    mr: {
+      key: "mr", label: "Market research",
+      options: [
+        { value: "any", label: "Has research" },
+        { value: "none", label: "None yet" },
+      ],
+    },
+    deals: {
+      key: "deals", label: "Deals",
+      options: [
+        { value: "any", label: "Has deals" },
+        { value: "none", label: "None yet" },
+      ],
+    },
+  };
+  /** the funnel for a column, or nothing when it isn't filterable */
+  const colFunnel = (colKey: string) => {
+    const f = COL_FILTERS[colKey];
+    if (!f || f.options.length === 0) return null;
+    return (
+      <ColumnFilter
+        label={f.label}
+        value={colFilter[f.key] ?? ""}
+        options={f.options}
+        onChange={setCol(f.key)}
+        allLabel={`All ${f.label.toLowerCase()}`}
+      />
+    );
+  };
+  const anyColFilter = Object.values(colFilter).some(Boolean);
+
   const SortHead = ({
     field, defaultDir = "asc", children, className,
   }: {
@@ -311,12 +423,15 @@ export function MembersView({
     className?: string;
   }) => (
     <TableHead className={className}>
-      <SortHeader
-        label={children}
-        onClick={() => toggle(field, defaultDir)}
-        active={sortKey === field}
-        dir={dir}
-      />
+      <div className="flex items-center gap-1">
+        <SortHeader
+          label={children}
+          onClick={() => toggle(field, defaultDir)}
+          active={sortKey === field}
+          dir={dir}
+        />
+        {colFunnel(field)}
+      </div>
     </TableHead>
   );
 
@@ -417,47 +532,27 @@ export function MembersView({
             className="h-9 w-56 pl-8"
           />
         </div>
-        <Select value={fn || "__all"} onValueChange={(v) => setFn(v === "__all" ? "" : v)}>
-          <SelectTrigger className="h-9 w-auto min-w-28">
-            <SelectValue placeholder="Function" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all">Function: all</SelectItem>
-            {fns.map((f) => (
-              <SelectItem key={f} value={f}>{f}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={role || "__all"} onValueChange={(v) => setRole(v === "__all" ? "" : v)}>
-          <SelectTrigger className="h-9 w-auto min-w-28">
-            <SelectValue placeholder="Role" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all">Role: all</SelectItem>
-            {roles.some((r) => MM_ROLES.includes(r)) ? (
-              <SelectItem value={MM_FILTER}>MMs (Team Leaders &amp; Coordinators)</SelectItem>
-            ) : null}
-            {roles.map((r) => (
-              <SelectItem key={r} value={r}>{r}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {sides.length > 1 ? (
-          <Select value={side || "__all"} onValueChange={(v) => setSide(v === "__all" ? "" : v)}>
-            <SelectTrigger className="h-9 w-auto min-w-28">
-              <SelectValue placeholder="Side" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all">Side: all</SelectItem>
-              {sides.map((sf) => (
-                <SelectItem key={sf} value={sf}>{sf}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : null}
+        {/* phones have no table header to hang the funnels off (v33.36.2) */}
+        <div className="flex flex-wrap items-center gap-2 md:hidden">
+          {(["role", "functions", "sub_functions", "team", "manager", "mos"] as const).map((k) => {
+            const f = COL_FILTERS[k];
+            if (!f || f.options.length === 0) return null;
+            return (
+              <span key={k} className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                {f.label}
+                {colFunnel(k)}
+              </span>
+            );
+          })}
+        </div>
         <span className="text-sm text-muted-foreground">
           {filtered.length} member{filtered.length === 1 ? "" : "s"}
         </span>
+        {anyColFilter || q ? (
+          <Button variant="ghost" size="sm" onClick={() => { setColFilter({}); setQ(""); }}>
+            <X className="size-4" /> Clear filters
+          </Button>
+        ) : null}
         {/* ⚙ Columns — the directory is a table like any other now */}
         <TableSettings columns={cols} className="ml-auto hidden md:inline-flex" />
       </div>
