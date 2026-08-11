@@ -129,11 +129,13 @@ describe("unowned accounts: MMs and up only (v33.2)", () => {
     expect(canSeeUnassigned(igvTl)).toBe(true);
   });
 
-  it("a plain MEMBER cannot — the unowned pool is a distribution problem", () => {
-    // 1,300 ownerless names buried in a member's own list stops it being a
-    // to-do list; handing them out is their MM's job
+  it("a plain MEMBER claims ONE, but never sees the POOL (v33.37)", () => {
+    // the 1,300-row unowned pool stays a leader's distribution problem —
+    // but claiming one account a Member personally researched takes nothing
+    // from anyone (before this, the add-form told them "open it and take it"
+    // about an account they could neither open nor take)
     expect(canSeeUnassigned(igvRaiser)).toBe(false);
-    expect(isClaimableAccount(igvRaiser, account({ responsible_id: null }))).toBe(false);
+    expect(isClaimableAccount(igvRaiser, account({ responsible_id: null }))).toBe(true);
   });
 
   it("the Unassigned FILTER follows who can SEE unowned accounts", () => {

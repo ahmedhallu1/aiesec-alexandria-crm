@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   CalendarClock, Check, ChevronDown, ClipboardCheck, Copy, ExternalLink,
-  Building2, FileText, Globe2, History, ImagePlus, Link2, Loader2, Mail,
+  Building2, FileText, Globe2, Handshake, History, ImagePlus, Link2, Loader2, Mail,
   MessageSquare, Pencil, Phone, Plus, RotateCcw, Send,
   Search, Settings2, Sparkles, Trash2, Upload, UserRound, Video, X,
 } from "lucide-react";
@@ -15,7 +15,8 @@ import {
   addPartnerLcContact, createIgtExpectationDraft, deleteIrCall, deletePartnerLc,
   getCvFileUrl,
   previewIgtExpectationMail,
-  recordIrCall, requestCvUpload, sendIgtExpectationMail,
+  assignLcPartnership, clearLcPartnershipTarget,
+  recordIrCall, recordLcPartnership, requestCvUpload, sendIgtExpectationMail,
   requestIrReschedule, rerunCvExtraction, saveIrBookingSettings,
   updateCvFields, updateIrBookerEmail, updatePartnerLc,
 } from "@/server/actions";
@@ -144,6 +145,18 @@ interface ViewerInfo {
   showExpectation: boolean;
   /** MMs and above may remove a partner LC from the registry */
   canManageLcs: boolean;
+  /** MMs and above hand out 🎯 partnership targets (v33.38) */
+  canAssignPartnerships: boolean;
+  /** the record form's product default — the viewer's own side, when single */
+  defaultProduct: "GV" | "GT" | null;
+}
+
+/** Who a partnership target can be handed to — already narrowed to the
+ *  viewer's own authority by the server. */
+export interface PartnershipTarget {
+  id: string;
+  name: string;
+  role: string;
 }
 
 // ------------------------------------------------ partner LCs & IRs (v33.5)
@@ -205,10 +218,12 @@ function PartnerLcsTab({
   lcs,
   highlight,
   viewer,
+  partnershipTargets,
 }: {
   lcs: (PartnerLc | PartnerLcDetail)[];
   highlight?: string | null;
   viewer: ViewerInfo;
+  partnershipTargets: PartnershipTarget[];
 }) {
   const [q, setQ] = useState("");
   const [removing, setRemoving] = useState<PartnerLcDetail | null>(null);
@@ -217,6 +232,12 @@ function PartnerLcsTab({
   const [notesFor, setNotesFor] = useState<PartnerLcDetail | null>(null);
   /** "lc" or a contact id — what the note composer is pointed at when it opens */
   const [notesAbout, setNotesAbout] = useState("lc");
+  // 🤝 partnerships (v33.38): record on an LC (null = pick/create the LC in
+  // the dialog), and hand out a target
+  const [recordingFor, setRecordingFor] = useState<PartnerLcDetail | null>(null);
+  const [recordOpen, setRecordOpen] = useState(false);
+  const [recordProduct, setRecordProduct] = useState<"GV" | "GT" | null>(null);
+  const [assigningFor, setAssigningFor] = useState<PartnerLcDetail | null>(null);
   const [lcForm, setLcForm] = useState({ name: "", country: "" });
   const [irForm, setIrForm] =
     useState({ name: "", role: "", email: "", phone: "", product: "" });
@@ -224,7 +245,7 @@ function PartnerLcsTab({
   // reached them for, and whether we have actually done anything with them.
   const [fCountry, setFCountry] = useState("");
   const [fProduct, setFProduct] = useState<"" | "GV" | "GT" | "both" | "none">("");
-  const [fHas, setFHas] = useState<"" | "calls" | "cvs" | "nothing">("");
+  const [fHas, setFHas] = useState<"" | "calls" | "cvs" | "partnership" | "nothing">("");
   const [pending, start] = useTransition();
   const router = useRouter();
   const detailed = lcs.filter((l): l is PartnerLcDetail => "calls" in l);
@@ -250,6 +271,8 @@ function PartnerLcsTab({
     }
     if (fHas === "calls" && l.calls === 0) return false;
     if (fHas === "cvs" && l.cvs === 0) return false;
+    if (fHas === "partnership" && !(l.partnerships ?? []).some((p) => p.status === "done"))
+      return false;
     if (fHas === "nothing" && (l.calls > 0 || l.cvs > 0)) return false;
     return true;
   });
@@ -294,6 +317,7 @@ function PartnerLcsTab({
           options={[
             ["calls", "📞 Has calls"],
             ["cvs", "📄 Has CVs"],
+            ["partnership", "🤝 Partnered"],
             ["nothing", "Nothing yet"],
           ]}
         />
@@ -309,7 +333,68 @@ function PartnerLcsTab({
         <span className="text-sm text-muted-foreground">
           {ordered.length} of {detailed.length}
         </span>
+        <Button
+          size="sm"
+          className="ml-auto"
+          onClick={() => { setRecordingFor(null); setRecordProduct(null); setRecordOpen(true); }}
+        >
+          <Handshake className="size-4" /> Record a partnership
+        </Button>
       </div>
+
+      {/* 🎯 YOUR TARGETS (v33.38) — the LCs someone asked YOU to partner with */}
+      {(() => {
+        const mine = detailed.flatMap((l) =>
+          (l.partnerships ?? [])
+            .filter((pp) => pp.status === "pending" && pp.assignedToId === viewer.id)
+            .map((pp) => ({ lc: l, pp }))
+        );
+        if (mine.length === 0) return null;
+        return (
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
+            <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+              🎯 Your partnership target{mine.length === 1 ? "" : "s"} — approach
+              them, open the WhatsApp group, then record it here.
+            </p>
+            <div className="mt-2 space-y-1.5">
+              {mine.map(({ lc, pp }) => (
+                <div key={pp.id} className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="min-w-0 break-words font-medium" dir="auto">{lc.name}</span>
+                  <ProductTag product={pp.product} />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7"
+                    onClick={() => {
+                      setRecordingFor(lc);
+                      setRecordProduct(pp.product);
+                      setRecordOpen(true);
+                    }}
+                  >
+                    <Handshake className="size-3.5" /> Record it
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-muted-foreground"
+                    disabled={pending}
+                    onClick={() =>
+                      start(async () => {
+                        const res = await clearLcPartnershipTarget(pp.id);
+                        if (!res.ok) { toast.error(res.error); return; }
+                        toast.success("Target cleared");
+                        router.refresh();
+                      })
+                    }
+                  >
+                    Hand it back
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* EDIT an LC — name and country, the two things that go wrong */}
       <Dialog
@@ -531,6 +616,20 @@ function PartnerLcsTab({
         canManage={viewer.canManageLcs}
       />
 
+      <RecordPartnershipDialog
+        open={recordOpen}
+        onClose={() => setRecordOpen(false)}
+        lc={recordingFor}
+        lcs={detailed}
+        initialProduct={recordProduct ?? viewer.defaultProduct}
+      />
+      <AssignPartnershipDialog
+        lc={assigningFor}
+        onClose={() => setAssigningFor(null)}
+        targets={partnershipTargets}
+        defaultProduct={viewer.defaultProduct}
+      />
+
       {ordered.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
@@ -606,18 +705,91 @@ function PartnerLcsTab({
                   {viewer.showCvs ? ` · ${lc.cvs} CV${lc.cvs === 1 ? "" : "s"}` : ""}
                   {lc.lastCallAt ? ` · last spoke ${fmtDateTime(lc.lastCallAt)}` : " · never spoken"}
                 </CardDescription>
+                {/* 🤝 THE PARTNERSHIP STATE, per product (v33.38) — a made
+                    partnership is the floor's other MOS, so it reads first */}
+                {(lc.partnerships ?? []).length > 0 ? (
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    {(lc.partnerships ?? []).map((pp) =>
+                      pp.status === "done" ? (
+                        <Hint
+                          key={pp.id}
+                          label={`${pp.product} partnership${pp.partnershipDate ? ` since ${pp.partnershipDate}` : ""}${pp.madeByName ? ` — made by ${pp.madeByName}` : ""}${pp.irName ? ` · IR: ${pp.irName}` : ""}`}
+                        >
+                          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                            🤝 {pp.product} partnership
+                          </span>
+                        </Hint>
+                      ) : (
+                        <Hint
+                          key={pp.id}
+                          label={`${pp.product} target${pp.assignedToName ? ` — assigned to ${pp.assignedToName}` : ""} — waiting to be made`}
+                        >
+                          <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-400">
+                            🎯 {pp.product} → {pp.assignedToName ?? "—"}
+                            {viewer.canAssignPartnerships || pp.assignedToId === viewer.id ? (
+                              <button
+                                type="button"
+                                className="ml-0.5 opacity-70 hover:opacity-100"
+                                title="Clear this target"
+                                onClick={() =>
+                                  start(async () => {
+                                    const res = await clearLcPartnershipTarget(pp.id);
+                                    if (!res.ok) { toast.error(res.error); return; }
+                                    toast.success("Target cleared");
+                                    router.refresh();
+                                  })
+                                }
+                              >
+                                <X className="size-3" />
+                              </button>
+                            ) : null}
+                          </span>
+                        </Hint>
+                      )
+                    )}
+                  </div>
+                ) : null}
               </CardHeader>
               <CardContent className="space-y-1.5">
-                {viewer.canManageLcs ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 w-fit"
-                    onClick={() => setAddingIrTo(lc)}
-                  >
-                    <Plus className="size-3.5" /> Add an IR
-                  </Button>
-                ) : null}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {(lc.partnerships ?? []).filter((pp) => pp.status === "done").length < 2 ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7"
+                      onClick={() => {
+                        setRecordingFor(lc);
+                        setRecordProduct(null);
+                        setRecordOpen(true);
+                      }}
+                    >
+                      <Handshake className="size-3.5" /> Partnership
+                    </Button>
+                  ) : null}
+                  {viewer.canAssignPartnerships &&
+                  (lc.partnerships ?? []).filter((pp) => pp.status === "done").length < 2 ? (
+                    <Hint label="Hand this LC to someone as a partnership target">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7"
+                        onClick={() => setAssigningFor(lc)}
+                      >
+                        🎯 Target
+                      </Button>
+                    </Hint>
+                  ) : null}
+                  {viewer.canManageLcs ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 w-fit"
+                      onClick={() => setAddingIrTo(lc)}
+                    >
+                      <Plus className="size-3.5" /> Add an IR
+                    </Button>
+                  ) : null}
+                </div>
                 {lc.contacts.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
                     No named IR yet — add one, or the next booking collects it.
@@ -1381,6 +1553,315 @@ function PartnerLcManageDialog({
   );
 }
 
+/** 🤝 RECORD A PARTNERSHIP (v33.38). The win itself: a new LC approached, the
+ *  WhatsApp group open. LC (existing or brand new), programme, the IR who
+ *  anchors it (phone or email — one is enough), and the date it happened. */
+function RecordPartnershipDialog({
+  open, onClose, lc, lcs, initialProduct,
+}: {
+  open: boolean;
+  onClose: () => void;
+  /** preselected LC — null means pick or create one in the dialog */
+  lc: PartnerLcDetail | null;
+  lcs: PartnerLcDetail[];
+  initialProduct: "GV" | "GT" | null;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const [form, setForm] = useState({
+    lcId: "", newLc: false, newName: "", newCountry: "",
+    product: "" as "" | "GV" | "GT",
+    irName: "", irPhone: "", irEmail: "", date: todayStr,
+  });
+  // re-seed when the dialog opens on a (different) LC
+  const openKey = open ? `${lc?.id ?? "new"}:${initialProduct ?? ""}` : "";
+  const [seededKey, setSeededKey] = useState("");
+  if (open && seededKey !== openKey) {
+    setSeededKey(openKey);
+    setForm({
+      lcId: lc?.id ?? "", newLc: false, newName: "", newCountry: "",
+      product: initialProduct ?? "",
+      irName: "", irPhone: "", irEmail: "", date: todayStr,
+    });
+  }
+  const chosen = lc ?? lcs.find((l) => l.id === form.lcId) ?? null;
+  // which programmes are still open on the chosen LC (a done one is taken)
+  const takenProducts = (chosen?.partnerships ?? [])
+    .filter((pp) => pp.status === "done")
+    .map((pp) => pp.product);
+  const canSave =
+    !pending &&
+    (form.newLc ? form.newName.trim().length > 1 : !!(lc?.id || form.lcId)) &&
+    (form.product === "GV" || form.product === "GT") &&
+    form.irName.trim().length > 0 &&
+    (form.irPhone.trim().length > 0 || form.irEmail.trim().length > 0);
+
+  const save = () =>
+    start(async () => {
+      const res = await recordLcPartnership({
+        partnerLcId: form.newLc ? null : lc?.id || form.lcId,
+        newLc: form.newLc ? { name: form.newName, country: form.newCountry || null } : null,
+        product: form.product as "GV" | "GT",
+        irName: form.irName,
+        irPhone: form.irPhone || null,
+        irEmail: form.irEmail || null,
+        date: form.date || null,
+      });
+      if (!res.ok) { toast.error(res.error); return; }
+      toast.success("🤝 Partnership recorded — it counts on the dashboard.");
+      onClose();
+      router.refresh();
+    });
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            <span className="inline-flex items-center gap-2">
+              <Handshake className="size-5" /> Record a partnership
+              {lc ? <span dir="auto">— {lc.name}</span> : null}
+            </span>
+          </DialogTitle>
+          <DialogDescription>
+            Approached an LC and opened the WhatsApp group? That IS the
+            partnership — log it and it counts for whoever made it.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          {!lc ? (
+            <div className="grid gap-1.5">
+              <Label>Partner LC *</Label>
+              {form.newLc ? (
+                <div className="grid gap-2">
+                  <Input
+                    dir="auto"
+                    value={form.newName}
+                    onChange={(e) => setForm((f) => ({ ...f, newName: e.target.value }))}
+                    placeholder="AIESEC in …"
+                    maxLength={120}
+                  />
+                  <CountryInput
+                    value={form.newCountry}
+                    onChange={(v) => setForm((f) => ({ ...f, newCountry: v }))}
+                    placeholder="Country"
+                  />
+                  <button
+                    type="button"
+                    className="w-fit text-xs text-primary hover:underline"
+                    onClick={() => setForm((f) => ({ ...f, newLc: false }))}
+                  >
+                    ← Pick from the registry instead
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <Select
+                    value={form.lcId || undefined}
+                    onValueChange={(v) => setForm((f) => ({ ...f, lcId: v }))}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Pick the LC…" /></SelectTrigger>
+                    <SelectContent>
+                      {lcs.map((l) => (
+                        <SelectItem key={l.id} value={l.id}>
+                          {l.name}{l.country ? ` · ${l.country}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <button
+                    type="button"
+                    className="w-fit text-xs text-primary hover:underline"
+                    onClick={() => setForm((f) => ({ ...f, newLc: true, lcId: "" }))}
+                  >
+                    ➕ A brand-new LC — not in the registry yet
+                  </button>
+                </>
+              )}
+            </div>
+          ) : null}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-1.5">
+              <Label>Programme *</Label>
+              <Select
+                value={form.product || undefined}
+                onValueChange={(v) => setForm((f) => ({ ...f, product: v as "GV" | "GT" }))}
+              >
+                <SelectTrigger><SelectValue placeholder="GV or GT…" /></SelectTrigger>
+                <SelectContent>
+                  {(["GV", "GT"] as const).map((pr) => (
+                    <SelectItem key={pr} value={pr} disabled={takenProducts.includes(pr)}>
+                      {pr}{takenProducts.includes(pr) ? " — already partnered" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Partnership date *</Label>
+              <Input
+                type="date"
+                value={form.date}
+                max={todayStr}
+                onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
+              />
+            </div>
+          </div>
+          <div className="grid gap-1.5">
+            <Label>IR name *</Label>
+            <Input
+              dir="auto"
+              value={form.irName}
+              onChange={(e) => setForm((f) => ({ ...f, irName: e.target.value }))}
+              placeholder="Who anchors the partnership on their side"
+              maxLength={120}
+            />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-1.5">
+              <Label>WhatsApp</Label>
+              <Input
+                value={form.irPhone}
+                onChange={(e) => setForm((f) => ({ ...f, irPhone: e.target.value }))}
+                placeholder={
+                  phoneExample(form.newLc ? form.newCountry : chosen?.country) ??
+                  "+90… with the country code"
+                }
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Email</Label>
+              <Input
+                type="email"
+                value={form.irEmail}
+                onChange={(e) => setForm((f) => ({ ...f, irEmail: e.target.value }))}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Phone and email: one of them is a must — a partnership we can&apos;t
+            reach isn&apos;t one.
+          </p>
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={pending}>Cancel</Button>
+          <Button onClick={save} disabled={!canSave}>
+            {pending ? <Loader2 className="size-4 animate-spin" /> : <Handshake className="size-4" />}
+            Record it
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** 🎯 HAND OUT A PARTNERSHIP TARGET (v33.38): an MM or VP points someone at an
+ *  LC — "go make this partnership". The member and their Team Leader are
+ *  belled, and making it counts for the member. */
+function AssignPartnershipDialog({
+  lc, onClose, targets, defaultProduct,
+}: {
+  lc: PartnerLcDetail | null;
+  onClose: () => void;
+  targets: PartnershipTarget[];
+  defaultProduct: "GV" | "GT" | null;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [product, setProduct] = useState<"" | "GV" | "GT">("");
+  const [memberId, setMemberId] = useState("");
+  const [seeded, setSeeded] = useState<string | null>(null);
+  if (lc && seeded !== lc.id) {
+    setSeeded(lc.id);
+    setProduct(defaultProduct ?? "");
+    setMemberId("");
+  }
+  const takenProducts = (lc?.partnerships ?? [])
+    .filter((pp) => pp.status === "done")
+    .map((pp) => pp.product);
+  const pendingOn = (pr: string) =>
+    (lc?.partnerships ?? []).find((pp) => pp.status === "pending" && pp.product === pr)
+      ?.assignedToName ?? null;
+
+  const save = () =>
+    start(async () => {
+      if (!lc || !product || !memberId) return;
+      const res = await assignLcPartnership({
+        partnerLcId: lc.id,
+        product: product as "GV" | "GT",
+        memberId,
+      });
+      if (!res.ok) { toast.error(res.error); return; }
+      toast.success("🎯 Target set — they've been told.");
+      onClose();
+      router.refresh();
+    });
+
+  return (
+    <Dialog open={!!lc} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>🎯 Set {lc?.name} as a target</DialogTitle>
+          <DialogDescription>
+            Hand this LC to someone: approach them, open the WhatsApp group,
+            record the partnership. It counts for the member who makes it — and
+            their Team Leader is told too.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          <div className="grid gap-1.5">
+            <Label>Programme *</Label>
+            <Select
+              value={product || undefined}
+              onValueChange={(v) => setProduct(v as "GV" | "GT")}
+            >
+              <SelectTrigger><SelectValue placeholder="GV or GT…" /></SelectTrigger>
+              <SelectContent>
+                {(["GV", "GT"] as const).map((pr) => (
+                  <SelectItem key={pr} value={pr} disabled={takenProducts.includes(pr)}>
+                    {pr}
+                    {takenProducts.includes(pr)
+                      ? " — already partnered"
+                      : pendingOn(pr)
+                        ? ` — currently ${pendingOn(pr)}'s target`
+                        : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-1.5">
+            <Label>Who makes it *</Label>
+            <Select value={memberId || undefined} onValueChange={setMemberId}>
+              <SelectTrigger><SelectValue placeholder="Pick the member…" /></SelectTrigger>
+              <SelectContent>
+                {targets.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.name} · {t.role}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {product && pendingOn(product) ? (
+            <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-400">
+              This {product} target currently belongs to {pendingOn(product)} —
+              assigning it again moves it to the new person.
+            </p>
+          ) : null}
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={pending}>Cancel</Button>
+          <Button onClick={save} disabled={pending || !product || !memberId}>
+            {pending ? <Loader2 className="size-4 animate-spin" /> : "Set the target"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ------------------------------------------------------------------ main view
 
 export function ConsiderationView({
@@ -1388,6 +1869,7 @@ export function ConsiderationView({
   pageSizeOptions,
   tab, lcs, calls, cvs, q, viewer, booking, origin, highlightLc,
   callFilters, callOptions,
+  partnershipTargets = [],
 }: {
   tab: "calls" | "cvs" | "expectation" | "lcs";
   /** ?lc=<id> — the LC the log linked to, scrolled to and outlined */
@@ -1404,6 +1886,8 @@ export function ConsiderationView({
   viewer: ViewerInfo;
   booking: MyIrBooking | null;
   origin: string;
+  /** who the viewer may hand a 🎯 partnership target to (v33.38) */
+  partnershipTargets?: PartnershipTarget[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1488,7 +1972,12 @@ export function ConsiderationView({
           </div>
         ) : null}
         {tab === "lcs" ? (
-          <PartnerLcsTab lcs={allLcs} highlight={highlightLc} viewer={viewer} />
+          <PartnerLcsTab
+            lcs={allLcs}
+            highlight={highlightLc}
+            viewer={viewer}
+            partnershipTargets={partnershipTargets}
+          />
         ) : tab === "expectation" && viewer.showExpectation ? (
           <IgtExpectationTab />
         ) : tab === "calls" || !viewer.showCvs ? (

@@ -32,6 +32,7 @@ import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/s
 import { ThemeToggle } from "./theme-toggle";
 import { NotificationsBell } from "./notifications-bell";
 import { AutoRefresh, RefreshButton } from "./auto-refresh";
+import { FeedbackButton } from "./floating-feedback";
 import { WalkingLoader } from "./walking-loader";
 import { BlueManChat } from "./blue-man-chat";
 import { PendingPrompt } from "./pending-prompt";
@@ -214,7 +215,15 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
   const arranging = sortMode && !railed;
 
   const navList = (
-    <nav className={cn("flex flex-1 flex-col gap-1 p-3", railed && "items-center px-1.5")}>
+    // THE TABS SCROLL, THE FOOTER STAYS (v33.38): the nav is the only
+    // scrollable region, so the profile block / theme / sign-out under the
+    // divider are always in view — no more scrolling to find Sign out.
+    <nav
+      className={cn(
+        "flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain p-3",
+        railed && "items-center px-1.5"
+      )}
+    >
       {orderedItems.map((item, index) => {
         const active =
           pathname === item.href ||
@@ -597,8 +606,9 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
           <WalkingLoader label="Taking you there…" />
         </div>
       ) : null}
-      {/* manual refresh — pinned top-right over the content, always reachable */}
-      <div className="fixed right-4 top-3 z-40 hidden md:block">
+      {/* manual refresh + the report button — pinned top-right, always reachable */}
+      <div className="fixed right-4 top-3 z-40 hidden items-center gap-1.5 md:flex">
+        <FeedbackButton className="rounded-full border bg-card/85 shadow-sm backdrop-blur hover:bg-muted" />
         <RefreshButton className="rounded-full border bg-card/85 text-muted-foreground shadow-sm backdrop-blur hover:bg-muted hover:text-foreground" />
       </div>
       {/* Desktop sidebar — it is `fixed inset-y-0`, so it is exactly one
@@ -611,7 +621,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
           never squashed. */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-30 hidden flex-col overflow-y-auto overscroll-contain bg-sidebar pb-[env(safe-area-inset-bottom)] md:flex",
+          "fixed inset-y-0 left-0 z-30 hidden flex-col bg-sidebar pb-[env(safe-area-inset-bottom)] md:flex",
           // one easing for the whole collapse — the width, the wordmark and
           // the labels all move together (v33.8)
           "transition-[width] duration-300 ease-out",
@@ -641,7 +651,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
               <Menu className="size-5" />
             </Button>
           </SheetTrigger>
-          <SheetContent side="left" className="flex w-64 flex-col overflow-y-auto overscroll-contain bg-sidebar p-0 pb-[env(safe-area-inset-bottom)] border-sidebar-border">
+          <SheetContent side="left" className="flex w-64 flex-col bg-sidebar p-0 pb-[env(safe-area-inset-bottom)] border-sidebar-border">
             <SheetTitle className="sr-only">Navigation</SheetTitle>
             {brand}
             {navList}
@@ -656,6 +666,7 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
           <p className="truncate text-sm font-black tracking-tight text-sidebar-foreground">Sodio</p>
         </Link>
         <div className="ml-auto flex shrink-0 items-center gap-1">
+          <FeedbackButton className="text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
           <NotificationsBell canBroadcast={canBroadcast} />
           <ThemeToggle className="text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
           <RefreshButton />

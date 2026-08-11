@@ -19,7 +19,8 @@ import {
   updateAccount,
 } from "@/server/actions";
 import {
-  accountSlug, fmtDateTime, fmtTime, IGT_SUB_PRODUCTS, IGV_PROJECTS, OOP_REASONS, productBadge,
+  ACCOUNT_TYPES, accountSlug, B2C_TYPES, fmtDateTime, fmtTime, IGT_SUB_PRODUCTS,
+  IGV_PROJECTS, INDUSTRIES, OOP_REASONS, productBadge,
   STAGES, type ContactMethod,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -764,6 +765,13 @@ export function AccountsView({
   }, [filterKey]);
   const anyFilter = Object.values(filters).some(Boolean);
   const stageOptions = STAGES.filter((s) => s !== "Out of Process");
+  // the Type column holds the raising pair's type for most, B2C's own three
+  // for that world — offer what the viewer's accounts can actually carry
+  const typeOptions = viewer.b2cOnly
+    ? [...B2C_TYPES]
+    : viewer.allowedFns.includes("B2C")
+      ? [...ACCOUNT_TYPES, ...B2C_TYPES]
+      : [...ACCOUNT_TYPES];
   const today = new Date().toISOString().slice(0, 10);
 
   const orderedRows = rows;
@@ -815,6 +823,27 @@ export function AccountsView({
         return viewer.igtAccess
           ? pick("Sub product", "sub", filters.sub, IGT_SUB_PRODUCTS.map((sp) => [sp, sp]))
           : null;
+      // v33.38 — the columns that had no funnel. The rule stands: if it is a
+      // column, you filter it from the column.
+      case "account_type":
+        return pick("Type", "type", filters.type, typeOptions.map((t) => [t, t]));
+      case "industry":
+        return viewer.b2cOnly
+          ? null // B2C accounts carry no industry
+          : pick("Industry", "industry", filters.industry, INDUSTRIES.map((i) => [i, i]));
+      case "proposal":
+        return pick("Proposal", "proposal", filters.proposal, [
+          ["sent", "Sent"], ["not_sent", "Not sent"],
+        ]);
+      case "deals":
+        return pick("Deals", "deals", filters.deals, [
+          ["has", "Has deals"], ["none", "No deals yet"],
+        ]);
+      case "podio":
+        return pick("Podio", "podio", filters.podio, [
+          ["requested", "Requested"], ["not_requested", "Not requested"],
+          ["Checking", "Checking"], ["Approved", "Approved"], ["Rejected", "Rejected"],
+        ]);
       default:
         return null;
     }
@@ -1248,6 +1277,18 @@ export function AccountsView({
             value={filters.stage} placeholder="Status"
             onChange={(v) => setParam("stage", v)}
             options={stageOptions.map((s) => [s, s])}
+          />
+        ) : null}
+        <FilterSelect
+          value={filters.type} placeholder="Type"
+          onChange={(v) => setParam("type", v)}
+          options={typeOptions.map((t) => [t, t])}
+        />
+        {!viewer.b2cOnly ? (
+          <FilterSelect
+            value={filters.industry} placeholder="Industry"
+            onChange={(v) => setParam("industry", v)}
+            options={INDUSTRIES.map((i) => [i, i])}
           />
         ) : null}
         {!archived ? (

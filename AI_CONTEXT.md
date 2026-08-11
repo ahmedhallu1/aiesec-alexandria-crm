@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-11 · Version: v33.37
+Last updated: 2026-08-11 · Version: v33.38
 
 ---
 
@@ -54,8 +54,9 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0051_fallback_email_bounces_b2c_cic` → `0052_three_name_worlds` →
 `0053_calendar_item_visibility` → `0054_function_settings` →
 `0055_touch_point_rating` → `0056_touch_point_members` →
-`0057_touch_point_feedback_nudge` → `0058_ir_max_per_day`
-(**all applied**, 0046–0058 during v33.22–v33.37).
+`0057_touch_point_feedback_nudge` → `0058_ir_max_per_day` →
+`0059_lc_partnerships`
+(**all applied**, 0046–0059 during v33.22–v33.38).
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
@@ -626,6 +627,71 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-11 · v33.38** — **RENAME, FUNNELS & THE PARTNERSHIPS MODULE**
+  (migration **0059 applied**: `lc_partnerships`).
+  ① **ACCOUNTS CAN BE RENAMED.** A typo in the name used to be forever (the
+  fix was archive + re-add, which burned the history). The ✏️ beside the title
+  opens a rename dialog — open to ANYONE who may edit the account — running
+  the SAME world-aware live check as adding (`checkAccountNameLive` grew an
+  `excludeId` so the account's own row never blocks it; `useAccountNameCheck`
+  threads it through). `renameAccount` re-checks server-side, maps the 23505
+  race, writes a "✏️ Renamed from … to …" comment and audit row, and the UI
+  says out loud that the LINK changes with the name (slug = name; old links
+  resolve by UUID).
+  ② **EVERY RAISING COLUMN HAS A FUNNEL.** Industry, Type (ACCOUNT_TYPES,
+  B2C_TYPES for the B2C world), Proposal (sent / not sent), Deals (has /
+  none) and Podio (requested / not requested / Checking / Approved /
+  Rejected — two columns OR'd by hand, since `.in` can't span them) filter
+  from their column headers, server-side and comma-aware like the rest;
+  two-state funnels treat both-picked as no filter. Type + Industry are also
+  mobile chips.
+  ③ **VISIT ANNOUNCEMENTS SKIP THE LEADERS BY DEFAULT** (the LCP's ask): the
+  function-wide "visit booked" email already had a second copy riding the
+  calendar INVITE for every LCVP/Director — `resolveVisitRecipients` now
+  drops them from the announcement unless the function's own defaults say
+  otherwise (`visitAnnounceLeaders` in `function_settings`, a new switch on
+  the Function-defaults card: "Visit announcements reach me too", default
+  OFF). The crew's announcement and the calendar invite are untouched.
+  ④ **THE 🛠️ FEEDBACK BUTTON MOVED HOME**: beside the refresh button on
+  desktop (top-right) and beside the bell in the phone top bar — the
+  bottom-left FAB is gone (`FeedbackButton` replaces `FloatingFeedback`).
+  And the form's two selects stopped jamming into each other: the long
+  labels overflowed their grid track (`min-w-0` + full-width triggers).
+  ⑤ **THE STREAK BOARD RANKS BY THE STREAK** (the Amr case, confirmed by the
+  LCP): longest streak first, saved-today only breaks ties — a ⏳ grace-day
+  row with the longest streak stays on top (it dies only if today ends
+  without a contact). The ⏳ label still says it isn't saved yet.
+  ⑥ **THE SIDEBAR FOOTER IS STATIC**: profile block, theme/bell buttons and
+  the credit are pinned; only the NAV list scrolls (`overflow-y-auto` moved
+  off the aside/drawer onto the nav). Short screens stop burying the sign-out.
+  ⑦ **🤝 THE PARTNERSHIPS MODULE** (0059, `lc_partnerships` — one row per
+  LC × product with a partial unique index, so the same LC can be a NEW GT
+  partnership while an old GV one). Approaching a new LC and opening the
+  WhatsApp group IS the partnership: `recordLcPartnership` (any
+  consideration member) takes the LC — existing or created on the spot via
+  `resolvePartnerLc` — the programme (defaults to the member's own side),
+  the date (default today Cairo, never future) and the anchoring IR (name
+  required; WhatsApp or email, at least one), refuses a programme already
+  made, writes the IR into `partner_lc_contacts` best-effort, and journals
+  for undo. **Targets**: `assignLcPartnership` (MM+: TL → own team,
+  Coordinator → self, VP/Director/LCP → the whole crew via
+  `listConsiderationCrew` — targets are Members/Coordinators/TLs only)
+  files a `pending` row, bells the member AND their Team Leader, and shows
+  as an amber 🎯 chip on the LC card + a "Your partnership targets" banner
+  for the assignee ("Record it" prefills the form; "Hand it back" clears —
+  `clearLcPartnershipTarget`, assignee/assigner/VP, the CIC lesson).
+  **Completing a pending target ALWAYS credits the member it was assigned
+  to** (`made_by = assigned_to ?? recorder`), belling them when a leader
+  filed it on their behalf. The registry gained a 🤝-partnered filter and
+  green per-product partnership chips (date, maker, IR on hover);
+  `considerationStats` gained `partnerships` {total · thisMonth · pending ·
+  byMember} counted per the row's OWN product tag (the 0048 lesson) and
+  honouring the filter bar (member/team on the maker, dates on the
+  partnership's own day) — rendered as two lane KPIs + a by-member strip.
+  ⑧ A stale rbac test pinning the pre-v33.37 claim rule was updated (a
+  Member CAN claim one unowned account; the pool stays hidden — 206 tests).
+  Help center: new 🤝 article + 6 updates; the Blue Man teaches all of it.
 
 - **2026-08-11 · v33.37** — **FOURTEEN FROM THE FLOOR** (migration **0058
   applied**: `ir_booking_settings.max_per_day`). Shipped the batch that had

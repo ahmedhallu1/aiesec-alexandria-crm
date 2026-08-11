@@ -460,6 +460,64 @@ const editableFields = z.object({
   next_step_time: z.string().nullish(),
 });
 
+/** RENAME AN ACCOUNT (v33.38) — open to anyone who may edit it.
+ *
+ *  A misspelled name used to be forever: the fix was archive + re-add, which
+ *  burned the history. The rename runs the SAME world-aware check as adding
+ *  (its own row excluded), and the unique index is the final word on a race.
+ *  ⚠️ The slug IS the name, so the account's URL changes with it — old links
+ *  resolve by UUID, and the mirrors pick the new name up on the next export.
+ */
+export async function renameAccount(
+  accountId: string,
+  nameRaw: string
+): Promise<ActionResult<{ slug: string }>> {
+  const viewer = await getViewer();
+  const account = await loadAccount(accountId);
+  if (!account) return fail("That account no longer exists.");
+  if (!canEditAccount(viewer, account))
+    return fail("You are not allowed to edit this account.", "forbidden");
+  const name = (nameRaw ?? "").replace(/\s+/g, " ").trim();
+  if (name.length < 2) return fail("The name needs at least 2 characters.");
+  if (name === account.name) return { ok: true, data: { slug: accountSlug(name) } };
+
+  const { checkAccountName } = await import("./data");
+  const { duplicate, blacklisted } = await checkAccountName(
+    name,
+    account.function as AccountFunction,
+    { excludeId: accountId }
+  );
+  if (blacklisted)
+    return fail(`"${name}" is on the archived/blacklist names — it cannot be used.`);
+  if (duplicate)
+    return fail(
+      duplicate.out_of_process
+        ? `"${name}" is an archived account's name — it cannot be reused.`
+        : `"${name}" already exists on ${duplicate.function} accounts (responsible: ${duplicate.responsible_name || "Unassigned"}).`
+    );
+
+  await snapshotForUndo("accounts", accountId);
+  const { error } = await db().from("accounts").update({ name }).eq("id", accountId);
+  if (error) {
+    if (error.code === "23505")
+      return fail(`"${name}" was just taken by another account — pick a different name.`);
+    return fail(error.message);
+  }
+  await db().from("account_comments").insert({
+    account_id: accountId,
+    member_id: viewer.id,
+    author_label: commentLabel(viewer),
+    body: `✏️ Renamed from "${account.name}" to "${name}".`,
+  });
+  await logAudit(viewer.id, "account_rename", "account", accountId, {
+    from: account.name,
+    to: name,
+  });
+  await stampWork(viewer.id, "account_update");
+  refresh(accountId);
+  return { ok: true, data: { slug: accountSlug(name) } };
+}
+
 export async function updateAccount(
   accountId: string,
   patch: z.infer<typeof editableFields>
@@ -2437,10 +2495,17 @@ async function resolveVisitRecipients(
   if (responsible.email) attendees.delete(responsible.email);
 
   // ---- announcement crew: the account's OWN raising function ----
+  // VPs/DIRECTORS ARE OFF THE ANNOUNCEMENT EMAIL BY DEFAULT (v33.38, by the
+  // LCP's request): they already ride the calendar INVITE as attendees, so
+  // the announcement was a second email about the same visit. The function's
+  // own defaults can switch them back on (`visitAnnounceLeaders`).
+  const { functionSettingsFor } = await import("./function-settings");
+  const announceLeaders = (await functionSettingsFor(account.function)).visitAnnounceLeaders;
   const announceIds: string[] = [];
   const announceEmails: string[] = [];
   for (const m of members) {
     if (m.role === "LCP") continue; // the LCP never gets operational mail
+    if (!announceLeaders && (m.role === "LCVP" || m.role === "Director")) continue;
     if (m.id === responsible.id || m.id === viewerId) continue; // they get the direct notice
     if (!inFns(announceFns, m) || !isRaisingMember(m)) continue;
     announceIds.push(m.id);
@@ -4188,7 +4253,10 @@ export async function skipPlanForNow(): Promise<ActionResult> {
 
 export async function checkAccountNameLive(
   name: string,
-  fn?: "IGV" | "IGT" | "B2B" | "BD" | "B2C"
+  fn?: "IGV" | "IGT" | "B2B" | "BD" | "B2C",
+  /** RENAMING an existing account (v33.38): its own row must not read as a
+   *  duplicate of itself */
+  excludeId?: string
 ): Promise<
   ActionResult<
     | { status: "free"; note?: string }
@@ -4207,7 +4275,7 @@ export async function checkAccountNameLive(
   if (clean.length < 2) return { ok: true, data: { status: "free" } };
   const { checkAccountName } = await import("./data");
   const { duplicate, blacklisted, crossWorldArchived, crossWorldActive } =
-    await checkAccountName(clean, fn);
+    await checkAccountName(clean, fn, excludeId ? { excludeId } : undefined);
   if (blacklisted)
     return {
       ok: true,
@@ -8687,6 +8755,297 @@ export async function addPartnerLcComment(input: {
   await logAudit(viewer.id, "partner_lc_comment", "partner_lc", input.partnerLcId, {
     about_ir: !!input.contactId,
   });
+  revalidatePath("/consideration");
+  return { ok: true };
+}
+
+// ------------------------------------------------- 🤝 LC partnerships (v33.38)
+
+/** Today as a Cairo calendar day — the partnership date's default. */
+const cairoToday = (): string =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Cairo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+
+/** RECORD A PARTNERSHIP (v33.38): approached an LC, opened the WhatsApp group —
+ *  that IS the win, and it finally has a row. One per LC × PRODUCT, so the same
+ *  LC can be a new GT partnership while staying an old GV one. Completing a
+ *  pending TARGET credits the member it was assigned to; recording cold credits
+ *  the recorder. The IR who anchors it lands in the LC's contact registry too.
+ */
+export async function recordLcPartnership(input: {
+  partnerLcId?: string | null;
+  newLc?: { name: string; country?: string | null } | null;
+  product: "GV" | "GT";
+  irName: string;
+  irPhone?: string | null;
+  irEmail?: string | null;
+  /** YYYY-MM-DD — defaults to today (Cairo); never in the future */
+  date?: string | null;
+}): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  if (viewer.sandbox)
+    return fail("Partnerships are disabled in the sandbox test view.");
+  if (input.product !== "GV" && input.product !== "GT")
+    return fail("Pick the programme — GV or GT.");
+  const irName = (input.irName ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+  if (!irName) return fail("Name the IR the partnership is with.");
+  const irEmail = (input.irEmail ?? "").trim().slice(0, 200) || null;
+  if (irEmail && !EMAIL_RE.test(irEmail)) return fail("That email doesn't look right.");
+  const irPhone = (input.irPhone ?? "").trim().slice(0, 40) || null;
+  if (!irPhone && !irEmail)
+    return fail("A partnership needs a way to reach the IR — their WhatsApp or their email (one is enough).");
+  const today = cairoToday();
+  const date = (input.date ?? "").trim() || today;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(new Date(`${date}T00:00:00Z`).getTime()))
+    return fail("That partnership date isn't a real date.");
+  if (date > today) return fail("A partnership can't be dated in the future.");
+
+  const resolved = await resolvePartnerLc(input);
+  if ("error" in resolved) return resolved.error;
+  const lc = resolved.lc;
+
+  const { data: existing } = await db()
+    .from("lc_partnerships")
+    .select("id, status, assigned_to, made_by, partnership_date")
+    .eq("partner_lc_id", lc.id)
+    .eq("product", input.product)
+    .maybeSingle<{
+      id: string;
+      status: string;
+      assigned_to: string | null;
+      made_by: string | null;
+      partnership_date: string | null;
+    }>();
+  if (existing?.status === "done")
+    return fail(
+      `${lc.name} is already a ${input.product} partnership` +
+        (existing.partnership_date ? ` (since ${existing.partnership_date})` : "") +
+        ". The other programme can still make its own."
+    );
+
+  // completing a TARGET credits the member it was assigned to — the recorder
+  // may be their TL or VP filing it on their behalf
+  const creditTo = existing?.assigned_to ?? viewer.id;
+  const row = {
+    status: "done",
+    made_by: creditTo,
+    partnership_date: date,
+    ir_name: irName,
+    ir_phone: irPhone,
+    ir_email: irEmail,
+    updated_at: new Date().toISOString(),
+  };
+  if (existing) {
+    await snapshotForUndo("lc_partnerships", existing.id);
+    const { error } = await db().from("lc_partnerships").update(row).eq("id", existing.id);
+    if (error) return fail(error.message);
+  } else {
+    const { data: created, error } = await db()
+      .from("lc_partnerships")
+      .insert({ partner_lc_id: lc.id, product: input.product, ...row })
+      .select("id")
+      .single();
+    if (error) {
+      if (error.code === "23505")
+        return fail(`${lc.name} already has a ${input.product} partnership row — refresh and look again.`);
+      return fail(error.message);
+    }
+    await recordUndo("lc_partnerships", created.id, "insert");
+  }
+
+  // the IR anchoring the partnership is a real person — into the registry,
+  // best-effort (a duplicate is fine, a failure must not lose the partnership)
+  try {
+    const { data: existingIrs } = await db()
+      .from("partner_lc_contacts")
+      .select("id, name, email")
+      .eq("partner_lc_id", lc.id);
+    const dupe = ((existingIrs ?? []) as { name: string | null; email: string | null }[]).some(
+      (c) =>
+        (irEmail && (c.email ?? "").toLowerCase() === irEmail.toLowerCase()) ||
+        (c.name ?? "").trim().toLowerCase() === irName.toLowerCase()
+    );
+    if (!dupe)
+      await db().from("partner_lc_contacts").insert({
+        partner_lc_id: lc.id,
+        name: irName,
+        email: irEmail,
+        phone: irPhone,
+        product: input.product,
+        added_by: viewer.id,
+      });
+  } catch {
+    /* registry is a bonus, never the blocker */
+  }
+
+  // someone else completed a member's target — tell them their win landed
+  if (existing?.assigned_to && existing.assigned_to !== viewer.id) {
+    const { notifyMembers } = await import("./notify");
+    await notifyMembers(
+      [existing.assigned_to],
+      "info",
+      `🤝 Partnership made: ${lc.name} (${input.product})`,
+      `${viewer.name} recorded it — it counts for you.`,
+      viewer.id,
+      "/consideration?tab=lcs"
+    );
+  }
+  await logAudit(viewer.id, "lc_partnership_made", "partner_lc", lc.id, {
+    product: input.product,
+    credited_to: creditTo,
+    date,
+  });
+  await stampWork(viewer.id, "ir_call"); // partnership work is floor work
+  revalidatePath("/consideration");
+  revalidatePath("/dashboard");
+  return { ok: true };
+}
+
+/** ASSIGN AN LC AS A PARTNERSHIP TARGET (v33.38) — an MM or VP hands "go make
+ *  this partnership" to a member. TL → self + own team · Coordinator → self ·
+ *  VP/Director/LCP-level → any consideration member. The member AND their Team
+ *  Leader are belled: the manager answers for the target too. */
+export async function assignLcPartnership(input: {
+  partnerLcId: string;
+  product: "GV" | "GT";
+  memberId: string;
+}): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  if (viewer.sandbox)
+    return fail("Partnerships are disabled in the sandbox test view.");
+  if (input.product !== "GV" && input.product !== "GT")
+    return fail("Pick the programme — GV or GT.");
+  const lead = isConsiderationLead(viewer);
+  if (!lead && !["Team Leader", "Coordinator"].includes(viewer.role))
+    return fail("Only MMs, VPs/Directors or the LCP hand out partnership targets.", "forbidden");
+
+  const { listConsiderationCrew } = await import("./data");
+  const crew = await listConsiderationCrew(viewer);
+  const target = crew.find((m) => m.id === input.memberId);
+  if (!target)
+    return fail("Pick someone from the consideration crew — targets go to members and MMs.");
+  if (!lead) {
+    const mine =
+      target.id === viewer.id ||
+      (viewer.role === "Team Leader" && target.managerId === viewer.id);
+    if (!mine)
+      return fail(
+        viewer.role === "Team Leader"
+          ? "A Team Leader hands targets to their own team."
+          : "A Coordinator can only take a target themselves.",
+        "forbidden"
+      );
+  }
+
+  const { data: lc } = await db()
+    .from("partner_lcs")
+    .select("id, name")
+    .eq("id", input.partnerLcId)
+    .maybeSingle<{ id: string; name: string }>();
+  if (!lc) return fail("That partner LC no longer exists.");
+
+  const { data: existing } = await db()
+    .from("lc_partnerships")
+    .select("id, status, partnership_date")
+    .eq("partner_lc_id", lc.id)
+    .eq("product", input.product)
+    .maybeSingle<{ id: string; status: string; partnership_date: string | null }>();
+  if (existing?.status === "done")
+    return fail(
+      `${lc.name} is already a ${input.product} partnership` +
+        (existing.partnership_date ? ` (since ${existing.partnership_date})` : "") +
+        " — nothing to target."
+    );
+
+  if (existing) {
+    await snapshotForUndo("lc_partnerships", existing.id);
+    const { error } = await db()
+      .from("lc_partnerships")
+      .update({
+        assigned_to: target.id,
+        assigned_by: viewer.id,
+        assigned_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existing.id);
+    if (error) return fail(error.message);
+  } else {
+    const { data: created, error } = await db()
+      .from("lc_partnerships")
+      .insert({
+        partner_lc_id: lc.id,
+        product: input.product,
+        status: "pending",
+        assigned_to: target.id,
+        assigned_by: viewer.id,
+        assigned_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single();
+    if (error) {
+      if (error.code === "23505")
+        return fail("That LC just got its partnership row — refresh and look again.");
+      return fail(error.message);
+    }
+    await recordUndo("lc_partnerships", created.id, "insert");
+  }
+
+  // bell the member — and their TL, who answers for the team's targets
+  const recipients = [target.id];
+  if (target.managerId && target.managerId !== viewer.id) {
+    const tl = crew.find((m) => m.id === target.managerId && m.role === "Team Leader");
+    if (tl) recipients.push(tl.id);
+  }
+  const { notifyMembers } = await import("./notify");
+  await notifyMembers(
+    recipients,
+    "info",
+    `🎯 Partnership target: ${lc.name} (${input.product})`,
+    target.id === viewer.id
+      ? "You took it — approach them and record the partnership once the group exists."
+      : `${viewer.name} set it${recipients.length > 1 ? ` for ${target.name}` : " for you"} — approach them, open the WhatsApp group, then record it from the Partner LCs tab.`,
+    viewer.id,
+    "/consideration?tab=lcs"
+  );
+  await logAudit(viewer.id, "lc_partnership_target", "partner_lc", lc.id, {
+    product: input.product,
+    assigned_to: target.id,
+  });
+  revalidatePath("/consideration");
+  return { ok: true };
+}
+
+/** Take a pending target back (v33.38) — the assignee themselves, whoever
+ *  assigned it, or a VP. The CIC lesson: anything handed out must be takeable
+ *  back, or wrong assignments live forever. Done partnerships never clear. */
+export async function clearLcPartnershipTarget(id: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  if (viewer.sandbox)
+    return fail("Partnerships are disabled in the sandbox test view.");
+  const { data: row } = await db()
+    .from("lc_partnerships")
+    .select("id, status, assigned_to, assigned_by")
+    .eq("id", id)
+    .maybeSingle<{ id: string; status: string; assigned_to: string | null; assigned_by: string | null }>();
+  if (!row || row.status !== "pending") return fail("That target is gone or already made.");
+  const allowed =
+    isConsiderationLead(viewer) ||
+    row.assigned_to === viewer.id ||
+    row.assigned_by === viewer.id;
+  if (!allowed) return fail("Only the assignee, the assigner or a VP can clear a target.", "forbidden");
+  const { data: before } = await db()
+    .from("lc_partnerships").select("*").eq("id", id).maybeSingle();
+  const { error } = await db().from("lc_partnerships").delete().eq("id", id);
+  if (!error && before) await recordUndo("lc_partnerships", id, "delete", before);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "lc_partnership_target_cleared", "partner_lc", id, {});
   revalidatePath("/consideration");
   return { ok: true };
 }

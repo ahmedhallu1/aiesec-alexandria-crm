@@ -70,11 +70,15 @@ export function FeedbackForm({
 
   const body = (
     <>
+        {/* min-w-0 on the columns + w-full triggers (v33.38): a grid item's
+            min-width is auto, so the long "Enhancement — make it better" label
+            stretched its trigger INTO the second column — the two selects
+            rendered jammed against each other inside the dialog. */}
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="grid gap-2">
+          <div className="grid min-w-0 gap-2">
             <Label>Type</Label>
             <Select value={type} onValueChange={(v) => pickType(v as typeof type)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="Bug">🐞 Bug — something is broken</SelectItem>
                 <SelectItem value="Enhancement">✨ Enhancement — make it better</SelectItem>
@@ -82,10 +86,10 @@ export function FeedbackForm({
               </SelectContent>
             </Select>
           </div>
-          <div className="grid gap-2">
+          <div className="grid min-w-0 gap-2">
             <Label>What kind exactly?</Label>
             <Select value={category || undefined} onValueChange={setCategory}>
-              <SelectTrigger>
+              <SelectTrigger className="w-full">
                 <SelectValue placeholder={type === "Bug" ? "What's broken?" : "Pick a category…"} />
               </SelectTrigger>
               <SelectContent>

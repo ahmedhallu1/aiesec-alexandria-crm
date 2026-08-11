@@ -14,6 +14,7 @@ import {
   addComment, confirmContractUploads, getContractUrl, getNextWorkingHours, markPodioUpdated,
   reassignAccount, recordDeal, reportVisit, requestContractUploads, reviveAccount,
   scheduleVisit, setOutOfProcess, setPodioUpdateCadence, setPodioUpdateEnabled,
+  renameAccount,
   toggleCommentPin, toggleCommentArchive, updateAccount, updateAccountContacts,
   updateComment, updateContactAttempt, updateDeal,
 } from "@/server/actions";
@@ -39,6 +40,7 @@ import { ConfettiBurst } from "./confetti";
 import { cn } from "@/lib/utils";
 import { StageBadge } from "./stage-badge";
 import { ContactDialog, type ContactTarget } from "./contact-dialog";
+import { useAccountNameCheck } from "./use-account-name-check";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -152,7 +154,12 @@ export function AccountDetailView({
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1.5">
-          <h1 dir="auto" className="text-2xl font-bold">{account.name}</h1>
+          <span className="flex flex-wrap items-center gap-2">
+            <h1 dir="auto" className="text-2xl font-bold">{account.name}</h1>
+            {caps.edit && active ? (
+              <RenameButton account={account} />
+            ) : null}
+          </span>
           <div className="flex flex-wrap items-center gap-2">
             <Badge className={cn("border-transparent font-semibold", fnBadge.bg, fnBadge.text)}>
               {fnBadge.label}
@@ -359,6 +366,85 @@ export function AccountDetailView({
 
 /** Responsible: read-only for members; Team Leaders pick between themselves and
  *  their members, VPs across the function, the LCP anywhere. */
+/** RENAME (v33.38): a typo in the name used to be forever — the ✏️ beside the
+ *  title runs the SAME live check as adding (its own row excluded) and warns
+ *  that the account's link changes with the name. */
+function RenameButton({ account }: { account: PipelineRow }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(account.name);
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  const { nameCheck, blocked } = useAccountNameCheck(
+    open && name.trim() !== account.name ? name : "",
+    account.function,
+    { excludeId: account.id }
+  );
+  const unchanged = name.trim() === account.name;
+  const canSave =
+    !pending && !unchanged && name.trim().length >= 2 &&
+    !blocked && nameCheck?.status !== "checking";
+
+  const save = () =>
+    start(async () => {
+      const res = await renameAccount(account.id, name);
+      if (!res.ok) { toast.error(res.error); return; }
+      toast.success("Renamed. Heads-up: the account's link changed with it.");
+      setOpen(false);
+      if (res.data) router.replace(`/accounts/${res.data.slug}`);
+      router.refresh();
+    });
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) setName(account.name); }}>
+      <Hint label="Rename the account">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7 text-muted-foreground"
+          onClick={() => setOpen(true)}
+        >
+          <Pencil className="size-3.5" />
+        </Button>
+      </Hint>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Rename “{account.name}”</DialogTitle>
+          <DialogDescription>
+            The new name goes through the same checks as adding an account, and
+            the account&apos;s link changes with it (old links keep working).
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Input
+            dir="auto"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && canSave) save(); }}
+            autoFocus
+          />
+          {unchanged || name.trim().length < 2 ? null : nameCheck?.status === "checking" ? (
+            <p className="text-xs text-muted-foreground">Checking the name…</p>
+          ) : blocked ? (
+            <p className="rounded-lg border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive">
+              {nameCheck?.message ?? "That name is already taken."}
+            </p>
+          ) : nameCheck?.status === "free" ? (
+            <p className="text-xs text-emerald-600 dark:text-emerald-400">
+              ✅ The name is free.{nameCheck.note ? ` ${nameCheck.note}` : ""}
+            </p>
+          ) : null}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button onClick={save} disabled={!canSave}>
+            {pending ? <Loader2 className="size-4 animate-spin" /> : "Rename"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ResponsibleRow({
   account, canReassign, targets, viewerId,
 }: {

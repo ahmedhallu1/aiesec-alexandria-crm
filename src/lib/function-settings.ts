@@ -33,6 +33,10 @@ export interface FunctionSettings {
   podioUpdateDefault: boolean;
   /** how many days between updates — 1..90 */
   podioUpdateDays: number;
+  /** the function-wide "visit booked" announcement email ALSO reaches the
+   *  LCVP/Directors (they always ride the calendar invite regardless) —
+   *  off by default since v33.38 */
+  visitAnnounceLeaders: boolean;
 
   // ---------------- who sees what (per role, read-only widening)
   /** plain Members may OPEN every account/sign-up in the function */
@@ -67,6 +71,7 @@ export function functionDefaults(fn: string): FunctionSettings {
     // createAccount's old rule, verbatim: IGV/B2C/BD started ON, IGT/B2B OFF
     podioUpdateDefault: ["IGV", "B2C", "BD"].includes(fn),
     podioUpdateDays: PODIO_UPDATE_DEFAULT_DAYS,
+    visitAnnounceLeaders: false,
     seeAllMembers: false,
     seeAllCoordinators: false,
     seeAllTeamLeaders: false,
@@ -98,6 +103,7 @@ export function resolveFunctionSettings(
       Number.isFinite(days) && days >= 1 && days <= 90
         ? Math.round(days)
         : base.podioUpdateDays,
+    visitAnnounceLeaders: bool("visitAnnounceLeaders"),
     seeAllMembers: bool("seeAllMembers"),
     seeAllCoordinators: bool("seeAllCoordinators"),
     seeAllTeamLeaders: bool("seeAllTeamLeaders"),

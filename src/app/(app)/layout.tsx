@@ -13,7 +13,6 @@ import { ComingSoon } from "@/components/crm/coming-soon";
 import { GateClient } from "@/components/crm/gate-client";
 import { Tour } from "@/components/crm/tour";
 import { ViewAsBanner } from "@/components/crm/view-as-banner";
-import { FloatingFeedback } from "@/components/crm/floating-feedback";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const viewer = await getViewer();
@@ -151,9 +150,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         functions={viewer.functions}
         modules={{ raising, tm, ogx, consideration, calendar }}
       />
-      {/* the always-there feedback tab (v33.37) — report it from where it
-          broke; The Blue Man owns bottom-right, this owns bottom-left */}
-      <FloatingFeedback />
       {viewer.impersonated ? (
         <ViewAsBanner
           activeId={viewer.id}

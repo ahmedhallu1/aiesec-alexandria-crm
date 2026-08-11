@@ -25,7 +25,12 @@ export interface NameCheck {
  *  · the PODIO check asks the national form's own search — a warning, never a
  *    block, and silence when Podio is unreachable
  */
-export function useAccountNameCheck(name: string, fn: string) {
+export function useAccountNameCheck(
+  name: string,
+  fn: string,
+  opts?: { excludeId?: string }
+) {
+  const excludeId = opts?.excludeId;
   const [nameCheck, setNameCheck] = useState<NameCheck | null>(null);
   const checkSeq = useRef(0);
   const trimmed = name.trim();
@@ -41,13 +46,14 @@ export function useAccountNameCheck(name: string, fn: string) {
     const t = setTimeout(async () => {
       const res = await checkAccountNameLive(
         trimmed,
-        fn as "IGV" | "IGT" | "B2B" | "BD" | "B2C"
+        fn as "IGV" | "IGT" | "B2B" | "BD" | "B2C",
+        excludeId
       );
       if (seq !== checkSeq.current) return; // superseded by more typing
       setNameCheck(res.ok ? (res.data as NameCheck) : null);
     }, 450);
     return () => clearTimeout(t);
-  }, [trimmed, fn]);
+  }, [trimmed, fn, excludeId]);
 
   const [podio, setPodio] = useState<PodioCheck | "checking" | null>(null);
   const podioSeq = useRef(0);
