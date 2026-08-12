@@ -40,6 +40,7 @@ import { ConfettiBurst } from "./confetti";
 import { cn } from "@/lib/utils";
 import { StageBadge } from "./stage-badge";
 import { ContactDialog, type ContactTarget } from "./contact-dialog";
+import { CopyNameButton } from "./copy-name-button";
 import { useAccountNameCheck } from "./use-account-name-check";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -156,6 +157,7 @@ export function AccountDetailView({
         <div className="space-y-1.5">
           <span className="flex flex-wrap items-center gap-2">
             <h1 dir="auto" className="text-2xl font-bold">{account.name}</h1>
+            <CopyNameButton name={account.name} />
             {caps.edit && active ? (
               <RenameButton account={account} />
             ) : null}

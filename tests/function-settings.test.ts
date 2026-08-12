@@ -127,8 +127,10 @@ describe("email addresses we can prove are wrong", () => {
 
   it("lets a legitimate Gmail and an AIESEC address through the offline rules", async () => {
     // these still hit DNS, which fails OPEN — so the assertion is that no
-    // offline rule rejected them
+    // offline rule rejected them. With no network each lookup takes the full
+    // 2.5s abort, and two of them brush vitest's 5s default — the timeout
+    // below is for the fail-open path itself, not slow assertions.
     expect(await emailDomainIssue("yomna.eldeeb@gmail.com")).toBeNull();
     expect(await emailDomainIssue("someone@aiesec.net")).toBeNull();
-  });
+  }, 15_000);
 });

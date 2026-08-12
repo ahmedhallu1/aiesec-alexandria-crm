@@ -38,6 +38,11 @@ export interface FunctionSettings {
    *  off by default since v33.38 */
   visitAnnounceLeaders: boolean;
 
+  // ---------------- consideration (IGV / IGT)
+  /** an MM (Team Leader) may hand 🤝 partnership targets to members of OTHER
+   *  teams, not only their own — off by default (v33.39) */
+  partnershipCrossTeam: boolean;
+
   // ---------------- who sees what (per role, read-only widening)
   /** plain Members may OPEN every account/sign-up in the function */
   seeAllMembers: boolean;
@@ -72,6 +77,7 @@ export function functionDefaults(fn: string): FunctionSettings {
     podioUpdateDefault: ["IGV", "B2C", "BD"].includes(fn),
     podioUpdateDays: PODIO_UPDATE_DEFAULT_DAYS,
     visitAnnounceLeaders: false,
+    partnershipCrossTeam: false,
     seeAllMembers: false,
     seeAllCoordinators: false,
     seeAllTeamLeaders: false,
@@ -104,6 +110,7 @@ export function resolveFunctionSettings(
         ? Math.round(days)
         : base.podioUpdateDays,
     visitAnnounceLeaders: bool("visitAnnounceLeaders"),
+    partnershipCrossTeam: bool("partnershipCrossTeam"),
     seeAllMembers: bool("seeAllMembers"),
     seeAllCoordinators: bool("seeAllCoordinators"),
     seeAllTeamLeaders: bool("seeAllTeamLeaders"),

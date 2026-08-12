@@ -1013,6 +1013,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
       "a": "An archived name is blocked exactly like in Add account — it's on the blacklist for a reason. Ask a TL+ to revive it first if the situation genuinely changed."
      }
     ]
+   },
+   {
+    "t": "callout",
+    "tone": "tip",
+    "md": "**\"Come back another time\" (v33.39):** the date AND the time are both optional. Leave both empty for a general \"pass by again\"; a **date alone** becomes a next step for that day; **date + time** actually BOOKS the return visit — calendar invite and reminders, like any visit."
    }
   ]
  },
@@ -1039,7 +1044,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "history",
    "ازاي اسجل مكالمة",
    "حجز فيزيت",
-   "مش مهتمين"
+   "مش مهتمين",
+   "unassigned",
+   "auto assign",
+   "take it"
   ],
   "summary": "Every call, WhatsApp and email gets logged with a result — Visit Scheduled books the real visit, Not Interested archives, and honest mistakes are editable from History.",
   "blocks": [
@@ -1114,6 +1122,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
       "a": "Yes: your calendar gets the event with reminders, your TL/VP ride the invite, and your function's raising crew gets an email + bell FYI. Re-saving the same slot or correcting it within 15 minutes announces nothing — no spam."
      }
     ]
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**Working an unowned account takes it (v33.39).** Logging a contact on an unassigned market-research account automatically makes you its Responsible — no more contacts landing on rows that stay nobody's. A toast says so with an **Undo** button; undo hands it back to the pool (the contact itself stays, because it happened)."
    }
   ]
  },
@@ -2035,7 +2048,9 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "board",
    "ستريك",
    "النار",
-   "ايميل الستريك"
+   "ايميل الستريك",
+   "abuse",
+   "referral streak"
   ],
   "summary": "Mark at least one of your sign-ups Contacted every day to keep your streak; the board ranks the LC's hottest, and a funny evening email warns you before midnight kills it.",
   "blocks": [
@@ -2078,6 +2093,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
       "a": "Two innocent reasons: it only fires when your streak is 3+ days and today is unsaved, and your VP may have switched the nag off for the function. Your streak itself still counts either way."
      }
     ]
+   },
+   {
+    "t": "callout",
+    "tone": "warn",
+    "md": "**The flame can't be gifted (v33.39).** A referral logged by someone ELSE with Contacted=Yes pre-filled never saves the assignee's streak — the streak counts contacts YOU flipped, on sign-ups assigned to you. And undoing all of today's contacts un-saves the day: the streak reads the live data, not a stamp."
    }
   ]
  },
@@ -2271,7 +2291,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "p",
-    "md": "Registry filters: by **country**, by **reached as** GV / GT / Both / Never, and by **has calls · has CVs · 🤝 partnered · nothing yet**. Anyone on the crew adds an LC; renaming is open to MMs and above (it cascades everywhere); **deleting** stays VP+ and is refused while calls or CVs still point at it. Names are normalized on the way in — \"AIESEC in İstanbul\", \"LC Istanbul\" and \"istanbul\" can't become three rows."
+    "md": "Registry filters: by **country**, by **reached as** GV / GT / Both / Never, by **has calls · has CVs · 🤝 partnered · nothing yet**, and by **👥 Assigned to** — who works the LC, derived from its calls (each caller + their Team Leader). Anyone on the crew adds an LC; renaming is open to MMs and above (it cascades everywhere); **deleting** stays VP+ and is refused while calls or CVs still point at it. Names are normalized on the way in — \"AIESEC in İstanbul\", \"LC Istanbul\" and \"istanbul\" can't become three rows."
    },
    {
     "t": "p",
@@ -2330,7 +2350,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "شراكة",
    "بارتنرشيب",
    "جروب واتساب",
-   "تارجت"
+   "تارجت",
+   "cross team",
+   "counts for",
+   "assigned to"
   ],
   "summary": "Approaching a new LC and opening the WhatsApp group IS the win — record it per programme (GV/GT), hand LCs out as targets, and watch the count on the consideration dashboard.",
   "blocks": [
@@ -2351,7 +2374,12 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "p",
-    "md": "**🎯 Targets**: an MM or VP can hand an LC to someone as a partnership target — \"go make this one\". A Team Leader hands targets to their own team, a Coordinator takes one themselves, VPs/Directors and the LCP reach the whole crew. The member **and their Team Leader** get the bell, the LC's card shows 🎯 with the assignee's name, and a **Your partnership targets** banner sits at the top of the tab for whoever holds one. Recording the partnership completes the target — and **it counts for the member it was assigned to**, even when a leader files it on their behalf."
+    "md": "**🎯 Targets**: an MM or VP hands an LC to someone as a partnership target — \"go make this one\" — from the **Set a target** button (any LC, even a brand-new one created right there) or the LC's own card. A Team Leader hands targets to their own team — or to ANY consideration member when their function's defaults switch on **cross-team targets**; a Coordinator takes one themselves; VPs/Directors and the LCP reach the whole crew. The member **and their Team Leader** get the bell, the LC's card shows 🎯 with the assignee's name, and a **Your partnership targets** banner sits at the top of the tab for whoever holds one. Recording the partnership completes the target — and **it counts for the member it was assigned to**, even when a leader files it on their behalf. An MM recording a partnership their member made can also pick **Counts for** right on the record form."
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**IR calls ARE the relationship.** An LC that already has GT calls needs no GT partnership row — the buttons stand down on that programme (\"already reached — IR calls\"), and the same rule applies per programme: GV calls block GV only. An LC called for both shows no partnership buttons at all."
    },
    {
     "t": "p",
@@ -2377,6 +2405,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
       "a": "You do — completing a pending target always credits the member it was assigned to, and you're notified that it landed."
      }
     ]
+   },
+   {
+    "t": "p",
+    "md": "**Who works an LC** is derived from its calls, never stored: every member who made a call with it, plus each caller's Team Leader (a member and their TL on the same team is the point, not a contradiction). The registry filters by **👥 Assigned to**, and each card lists its people."
    }
   ]
  },
@@ -2686,7 +2718,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "لينك الحجز",
    "مواعيد",
    "ازاي اعمل لينك حجز",
-   "سلوت"
+   "سلوت",
+   "per day limit",
+   "sunday",
+   "weekday cap"
   ],
   "summary": "Set your availability on the My booking link card and share sodio.vercel.app/book/your-slug — IRs abroad pick a free slot themselves.",
   "blocks": [
@@ -2743,6 +2778,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
       "a": "No — if your Google grant is missing, the Meet event is created on the LC's IM mailbox calendar instead and you're invited by email. The link on your IR-calls page always works."
      }
     ]
+   },
+   {
+    "t": "callout",
+    "tone": "tip",
+    "md": "**Per-day caps (v33.39):** besides the general \"calls per day\" limit, every weekday can carry its OWN cap — \"3 a day, but Sunday only 1\". Set the small per-day row under the cap on your booking card; \"–\" follows the general number. A full day simply stops being offered on your link."
    }
   ]
  },
@@ -3895,7 +3935,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
      [
       "New accounts & Podio",
       "IGV · IGT · B2B · BD · B2C",
-      "Do NEW accounts join the Podio continuous-update cycle, and every how many days (1–90). Old defaults: IGV/B2C/BD on, IGT/B2B off, 14 days · Do visit announcements ALSO reach the LCVP/Directors (off by default since v33.38 — they always ride the calendar invite)"
+      "Do NEW accounts join the Podio continuous-update cycle, and every how many days (1–90). Old defaults: IGV/B2C/BD on, IGT/B2B off, 14 days · Do visit announcements ALSO reach the LCVP/Directors (off by default since v33.38 — they always ride the calendar invite) · (IGV/IGT) Whether MMs hand 🤝 partnership targets across teams (off by default: a TL targets their own team only)"
      ],
      [
       "Who sees the whole function",

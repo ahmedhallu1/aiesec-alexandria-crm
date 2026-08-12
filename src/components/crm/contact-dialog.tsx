@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { getNextWorkingHours, logContact, setOutOfProcess } from "@/server/actions";
+import { getNextWorkingHours, logContact, setOutOfProcess, undoAutoAssign } from "@/server/actions";
 import type { ContactMethod } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -136,6 +136,20 @@ export function ContactDialog({
             ? `Visit booked for ${scheduledDate} ${scheduledTime} — calendar reminders set 🗓️`
             : `Contact #${res.data?.attempts ?? ""} logged`
       );
+      // working an unowned account TOOK it (v33.39) — say so, with the way back
+      if (res.data?.autoAssigned) {
+        toast.info(`"${target.name}" is yours now — you worked it.`, {
+          duration: 10000,
+          action: {
+            label: "Undo",
+            onClick: async () => {
+              const undo = await undoAutoAssign(target.id);
+              if (undo.ok) toast.success("Handed back to the unassigned pool.");
+              else toast.error(undo.error);
+            },
+          },
+        });
+      }
       reset();
       onOpenChange(false);
     });

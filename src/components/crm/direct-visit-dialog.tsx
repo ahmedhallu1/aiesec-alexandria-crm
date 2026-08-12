@@ -63,7 +63,7 @@ export function DirectVisitDialog({
   const [outcome, setOutcome] = useState<string>("presented");
   const [comment, setComment] = useState("");
   const [nextDate, setNextDate] = useState("");
-  const [nextTime, setNextTime] = useState("11:00");
+  const [nextTime, setNextTime] = useState("");
   const [oop, setOop] = useState(false);
   const [oopReason, setOopReason] = useState("Not Interested");
 
@@ -74,16 +74,16 @@ export function DirectVisitDialog({
   // you away, in which case it stays archived and the attempt is logged on it.
   const archivedHit = nameCheck?.status === "archived";
   const hardBlocked = blocked && !archivedHit;
-  // "come back another time" can be general ("they said pass by again") or a
-  // real booking — date AND time are optional; a date makes it a calendar
-  // visit (11:00 unless a time is picked) (v33.37)
+  // "come back another time" can be general ("they said pass by again"), a
+  // day ("Sunday"), or a real booking — date and time are BOTH optional and
+  // both visible; only date + time together book the return visit (v33.39)
   const wantsDate =
     outcome === "revisit" || outcome === "send_info" || outcome === "presented";
 
   const reset = () => {
     setName(""); setProduct(""); setSubProduct(""); setProject("");
     setAccountType(""); setIndustry(""); setContacts([]); setComment("");
-    setNextDate(""); setOutcome("presented"); setVisitDate(today);
+    setNextDate(""); setNextTime(""); setOutcome("presented"); setVisitDate(today);
     setRequestedPodio(false); setRequestState(""); setOop(false);
   };
 
@@ -365,22 +365,39 @@ export function DirectVisitDialog({
           </div>
 
           {wantsDate ? (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="grid gap-1.5">
-                <Label>
-                  {outcome === "revisit" ? "Going back on (optional)" : "Follow up on"}
-                </Label>
-                <Input
-                  type="date"
-                  value={nextDate}
-                  onChange={(e) => setNextDate(e.target.value)}
-                />
-              </div>
-              {nextDate ? (
+            <div className="grid gap-1.5">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div className="grid gap-1.5">
-                  <Label>Time</Label>
-                  <Input type="time" value={nextTime} onChange={(e) => setNextTime(e.target.value)} />
+                  <Label>
+                    {outcome === "revisit" ? "Going back on (optional)" : "Follow up on"}
+                  </Label>
+                  <Input
+                    type="date"
+                    value={nextDate}
+                    onChange={(e) => {
+                      setNextDate(e.target.value);
+                      if (!e.target.value) setNextTime("");
+                    }}
+                  />
                 </div>
+                <div className="grid gap-1.5">
+                  <Label>Time (optional)</Label>
+                  <Input
+                    type="time"
+                    value={nextTime}
+                    disabled={!nextDate}
+                    onChange={(e) => setNextTime(e.target.value)}
+                  />
+                </div>
+              </div>
+              {outcome === "revisit" ? (
+                <p className="text-xs text-muted-foreground">
+                  {nextDate && nextTime
+                    ? "Date + time — the return visit is BOOKED: calendar invite and reminders, like any visit."
+                    : nextDate
+                      ? "A date alone is a next step for that day — add a time to actually book the return visit."
+                      : "Leave both empty if it was just \u201cpass by again\u201d — it becomes a next step to pin down later."}
+                </p>
               ) : null}
             </div>
           ) : null}

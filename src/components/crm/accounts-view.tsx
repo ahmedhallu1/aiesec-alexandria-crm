@@ -29,6 +29,7 @@ import { ContactDialog, type ContactTarget } from "./contact-dialog";
 import { AddAccountDialog, type MemberOption } from "./add-account-dialog";
 import { DirectVisitDialog } from "./direct-visit-dialog";
 import { AskBlueMan } from "./ask-blue-man";
+import { CopyNameButton } from "./copy-name-button";
 import { FileDrop } from "./file-drop";
 import {
   DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger,
@@ -295,36 +296,6 @@ function FlagToggle({
     >
       {label}
     </Button>
-  );
-}
-
-/** Copies an account name to the clipboard — the Podio form wants it typed
- *  exactly, and retyping is how "Al Safwa" becomes "Alsafwa". */
-function CopyNameButton({ name }: { name: string }) {
-  const [done, setDone] = useState(false);
-  return (
-    <Hint label={done ? "Copied" : "Copy name"}>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="size-6 shrink-0 text-muted-foreground hover:text-primary"
-        onClick={(e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          navigator.clipboard.writeText(name).then(
-            () => {
-              setDone(true);
-              toast.success("Copied");
-              setTimeout(() => setDone(false), 1500);
-            },
-            () => toast.error("Couldn't copy — select the name and copy it by hand.")
-          );
-        }}
-      >
-        {done ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-      </Button>
-    </Hint>
   );
 }
 
@@ -1901,6 +1872,7 @@ function ArchivedList({
           return (
             <>
               <span className="font-medium" dir="auto">{row.name}</span>
+              <CopyNameButton name={row.name} />
               {seesOthers && !cols.isVisible("responsible") ? (
                 <p className="text-xs text-muted-foreground">
                   {row.responsible_name || "Unassigned"}
@@ -1922,7 +1894,12 @@ function ArchivedList({
     }
     switch (key) {
       case "name":
-        return <span className="font-medium" dir="auto">{item.entry.name}</span>;
+        return (
+          <>
+            <span className="font-medium" dir="auto">{item.entry.name}</span>
+            <CopyNameButton name={item.entry.name} />
+          </>
+        );
       case "product":
         return <span className="text-muted-foreground">—</span>;
       case "reason":
