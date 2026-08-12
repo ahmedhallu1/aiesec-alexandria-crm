@@ -121,6 +121,11 @@ export interface CallFilterState {
   status?: string;
   member?: string;
   lc?: string;
+  /** v33.40 — what the call carries: notes / screenshot / cvpool / bounced */
+  has?: string;
+  /** v33.40 — server-side sort over the WHOLE log, not the page in hand */
+  sort?: string;
+  dir?: string;
   from?: string;
   to?: string;
 }
@@ -131,6 +136,9 @@ const CALL_PARAM: Record<string, string> = {
   status: "callstatus",
   member: "callmember",
   lc: "calllc",
+  has: "callhas",
+  sort: "callsort",
+  dir: "calldir",
   from: "callfrom",
   to: "callto",
 };
@@ -2822,6 +2830,16 @@ const CALL_CELL_CLASS: Record<string, string> = {
 const dayName = (iso: string) =>
   new Date(iso).toLocaleDateString("en-US", { weekday: "short", timeZone: "Africa/Cairo" });
 
+/** the columns the SERVER can sort (v33.40) — keys of `IR_SORTS` in data.ts */
+const CALL_SERVER_SORTS: Record<string, string> = {
+  when: "called_at",
+  lc: "lc",
+  product: "product",
+  by: "member",
+  status: "status",
+  booker: "booker",
+};
+
 const CALL_SORTERS: Record<string, (c: IrCallRow) => string | number | null> = {
   when: (c) => c.called_at,
   lc: (c) => c.partner_lc_name,
@@ -3007,6 +3025,18 @@ function IrCallsTab({
       label: "Partner LC",
       key: "lc",
       options: filterOptions.lcs.map((l) => ({ value: l, label: l })),
+    },
+    // WHAT THE CALL CARRIES (v33.40) — notes, a screenshot, a shared CV
+    // pool, or a bounced email; several picks OR together server-side
+    notes: {
+      label: "Carries",
+      key: "has",
+      options: [
+        { value: "notes", label: "📝 Has notes" },
+        { value: "screenshot", label: "📸 Has screenshot" },
+        { value: "cvpool", label: "📄 Has a CV pool link" },
+        { value: "bounced", label: "⚠️ Email bounced" },
+      ],
     },
   };
   const callFunnel = (colKey: string) => {
@@ -3565,9 +3595,36 @@ function IrCallsTab({
                           <span className="inline-flex items-center gap-1">
                             <SortHeader
                               label={c.label}
-                              onClick={() => toggleSort(c.key, c.key === "when" ? "desc" : "asc")}
-                              active={sortKey === c.key}
-                              dir={dir}
+                              onClick={() => {
+                                // v33.40 — the log is PAGED, so the columns
+                                // the server can sort re-sort the WHOLE
+                                // history; the rest sort the page in hand
+                                const sk = CALL_SERVER_SORTS[c.key];
+                                if (sk) {
+                                  const activeNow =
+                                    (filters.sort ?? "called_at") === sk;
+                                  const curDir =
+                                    filters.dir ??
+                                    (sk === "called_at" ? "desc" : "asc");
+                                  onFilter({
+                                    sort: sk,
+                                    dir: activeNow && curDir === "asc" ? "desc" : "asc",
+                                  });
+                                } else {
+                                  toggleSort(c.key, "asc");
+                                }
+                              }}
+                              active={
+                                CALL_SERVER_SORTS[c.key]
+                                  ? (filters.sort ?? "called_at") === CALL_SERVER_SORTS[c.key] &&
+                                    (!!filters.sort || c.key === "when")
+                                  : sortKey === c.key
+                              }
+                              dir={
+                                CALL_SERVER_SORTS[c.key]
+                                  ? ((filters.dir ?? "desc") as "asc" | "desc")
+                                  : dir
+                              }
                             />
                             {callFunnel(c.key)}
                           </span>

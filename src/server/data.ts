@@ -5893,6 +5893,12 @@ export interface IrCallFilters {
   member?: string;
   /** partner LC names */
   lc?: string;
+  /** v33.40 — "notes" / "screenshot" / "cvpool" / "bounced": what the call
+   *  carries, OR'd together like every multi-select funnel */
+  has?: string;
+  /** v33.40 — whitelisted column sort for the log */
+  sort?: string;
+  dir?: "asc" | "desc";
   /** Cairo days, matched against the call's own time */
   from?: string;
   to?: string;
@@ -5970,11 +5976,24 @@ export async function listIrCalls(
     .eq("status", "scheduled")
     .order("called_at", { ascending: true })
     .order("id");
+  // v33.40 — click-to-sort on the log, whitelisted like every sorted table
+  const IR_SORTS: Record<string, string> = {
+    called_at: "called_at",
+    lc: "partner_lc_name",
+    member: "member_name",
+    booker: "booker_name",
+    status: "status",
+    product: "product",
+    booked_at: "booked_at",
+  };
+  const sortCol = IR_SORTS[filters.sort ?? ""] ?? "called_at";
+  const sortAsc =
+    filters.dir === "asc" ? true : filters.dir === "desc" ? false : sortCol === "called_at" ? false : true;
   let logQ = db()
     .from("ir_calls")
     .select("*", { count: "exact" })
     .neq("status", "scheduled")
-    .order("called_at", { ascending: false })
+    .order(sortCol, { ascending: sortAsc, nullsFirst: false })
     .order("id");
   if (range) {
     schedQ = schedQ.gte("called_at", range.fromIso).lte("called_at", range.toIso);
@@ -6010,6 +6029,18 @@ export async function listIrCalls(
     if (members.length > 0) logQ = logQ.in("member_name", members);
     const lcs = picks(filters.lc);
     if (lcs.length > 0) logQ = logQ.in("partner_lc_name", lcs);
+    // WHAT THE CALL CARRIES (v33.40) — several picks OR together, and each
+    // one spans a different column, so the clause is built by hand
+    const has = picks(filters.has);
+    if (has.length > 0) {
+      const clauses: string[] = [];
+      if (has.includes("notes")) clauses.push("notes.not.is.null");
+      if (has.includes("screenshot")) clauses.push("screenshot_drive_id.not.is.null");
+      if (has.includes("cvpool")) clauses.push("cv_pool_link.not.is.null");
+      if (has.includes("bounced")) clauses.push("email_bounced_at.not.is.null");
+      if (clauses.length === 1) logQ = logQ.or(clauses[0]);
+      else if (clauses.length > 1) logQ = logQ.or(clauses.join(","));
+    }
     if (filters.from || filters.to) {
       const { cairoToUtc } = await import("@/lib/time");
       if (filters.from)

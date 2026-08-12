@@ -10,6 +10,8 @@ import {
   canSeeCvPool,
   canSeeLcConcerns,
   canSeeUnassigned,
+  canEditAttendanceRowOf,
+  canRecordAttendance,
   hasPodioAccess,
   calendarItemScopes,
   canUseAdminTools,
@@ -486,5 +488,46 @@ describe("a leader opening their function to a role", () => {
   it("changes nothing at all for anyone whose leader hasn't opened it", () => {
     expect(canViewAccount(igvRaiser, account({ function: "IGV", responsible_id: "other" }))).toBe(false);
     expect(openViewFunctions(igvRaiser)).toEqual([]);
+  });
+});
+
+describe("cross-function attendance — authority follows the MEMBER (v33.40)", () => {
+  // an IGV function meeting that INVITED the IGT function
+  const tp = {
+    scope: "function" as const,
+    function_key: "IGV",
+    team_name: null,
+    owner_id: "vp-igv",
+    invited_functions: ["IGT"],
+  };
+  const igtMember = { id: "x-igt", functions: ["IGT", "Raising"] };
+  const igvMember = { id: "x-igv", functions: ["IGV", "Raising"] };
+
+  it("the invited function's VP can open the sheet — and only their slice", () => {
+    expect(canRecordAttendance(igtVp, tp)).toBe(true);
+    expect(canEditAttendanceRowOf(igtVp, tp, igtMember)).toBe(true);
+    expect(canEditAttendanceRowOf(igtVp, tp, igvMember)).toBe(false);
+  });
+
+  it("the booking function's crew never fills the invited function's rows", () => {
+    expect(canEditAttendanceRowOf(igvVp, tp, igvMember)).toBe(true);
+    expect(canEditAttendanceRowOf(igvVp, tp, igtMember)).toBe(false);
+    expect(canEditAttendanceRowOf(tl, tp, igtMember)).toBe(false);
+  });
+
+  it("a function with no invitation stays off the sheet entirely", () => {
+    const uninvited = { ...tp, invited_functions: [] };
+    expect(canRecordAttendance(igtVp, uninvited)).toBe(false);
+  });
+
+  it("nobody marks themself — the per-row check keeps the LCP's rule", () => {
+    expect(
+      canEditAttendanceRowOf(igvVp, tp, { id: "vp-igv", functions: ["IGV"] })
+    ).toBe(false);
+  });
+
+  it("TM core and the LCP keep the whole sheet", () => {
+    expect(canEditAttendanceRowOf(lcp, tp, igtMember)).toBe(true);
+    expect(canEditAttendanceRowOf(tmVp, tp, igvMember)).toBe(true);
   });
 });

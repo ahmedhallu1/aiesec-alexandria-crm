@@ -259,13 +259,13 @@ that suits you from my booking link and it will land in both our calendars.</p>
 <p>Kindly reply to this email with the signed copies of both documents attached at your earliest convenience respectively to the next steps .</p>
 <ol>
 <li>print first the contract and the acceptance note .</li>
-<li>sign the contract in the places of signature of EP (exchange participant)</li>
-<li>place the ID in every page from page 15 to the END of the contract in a way that id won’t cover any information in the contract then picture them.</li>
+<li>sign the contract in the places of signature of <b>EP</b> (exchange participant)</li>
+<li>place the <b>ID</b> in every page from page 15 to the <b>END</b> of the contract in a way that id won’t cover any information in the contract then picture them.</li>
 <li>sign the acceptance note beside your digital signature in the 2nd page of the acceptance note</li>
-<li>place the ID in the two pages in a way that id won’t cover the information of the acceptance note then picture them .</li>
+<li>place the <b>ID</b> in the two pages in a way that id won’t cover the information of the acceptance note then picture them .</li>
 <li>reply all with all the pictures (preferred pdf).</li>
 </ol>
-<p>Attach student id to proceed in the process</p>`
+<p><b>Attach student id to proceed in the process</b></p>`
   }
 ];
 

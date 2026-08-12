@@ -3,6 +3,7 @@ import {
   type AccountFunction,
   type Member,
   type TouchPointScope,
+  LC_FUNCTIONS,
 } from "./types";
 import { expandTouchPointFns } from "./touch-points";
 import { functionDefaults, type FunctionSettings } from "./function-settings";
@@ -463,6 +464,9 @@ export interface TouchPointRef {
   function_key: string | null;
   team_name: string | null;
   owner_id: string | null;
+  /** the OTHER functions on the sheet (v33.40) — their people are in the
+   *  audience, so their own leaders belong on the recording side too */
+  invited_functions?: string[] | null;
 }
 
 /** Edit / cancel a touch point: its owner, the function's VP/Director for a
@@ -483,12 +487,45 @@ export function canEditTouchPoint(v: Viewer, tp: TouchPointRef): boolean {
 export function canRecordAttendance(v: Viewer, tp: TouchPointRef): boolean {
   if (master(v) || isTmCore(v)) return true;
   if (tp.scope === "lc") return false;
-  const tpFns = expandTouchPointFns(tp.function_key ? [tp.function_key] : []);
+  // AN INVITED FUNCTION RECORDS ITS OWN PEOPLE (v33.40): a cross-function
+  // touch point puts several functions on one sheet, and the booking
+  // function's leader was the only one who could fill it — including rows of
+  // people they don't lead. The invited functions' own MMs and VPs/Directors
+  // belong on the recording side; WHICH rows each may set is the per-row
+  // check (`canEditAttendanceRowOf`), so nobody reaches past their people.
+  const tpFns = expandTouchPointFns([
+    ...(tp.function_key ? [tp.function_key] : []),
+    ...(tp.invited_functions ?? []),
+  ]);
   const fnMatch = [...v.functions, ...v.sub_functions].some((f) => tpFns.has(f));
   if (tp.scope === "function")
     return fnMatch && ["LCVP", "Director", "Team Leader", "Coordinator"].includes(v.role);
   if (tp.owner_id === v.id) return true;
-  return fnMatch && ["LCVP", "Director"].includes(v.role);
+  // a team point that invited sibling teams / functions: their MMs record
+  // their own people (the per-row check keeps them inside their slice)
+  return fnMatch && ["LCVP", "Director", "Team Leader", "Coordinator"].includes(v.role);
+}
+
+/** WHO MAY SET THIS PARTICULAR ROW (v33.40). Authority follows the MEMBER,
+ *  not the sheet: a recorder sets rows of people in THEIR OWN function(s) —
+ *  the booking function's crew never fills the invited function's rows, and
+ *  the invited function's own MMs/VPs fill exactly theirs. TM core and the
+ *  LCP/admin keep the whole sheet; nobody marks themself (below). */
+export function canEditAttendanceRowOf(
+  v: Viewer,
+  tp: TouchPointRef,
+  member: { id: string; functions: string[] }
+): boolean {
+  if (member.id === v.id) return canEditOwnAttendanceRow(v, tp);
+  if (master(v) || isTmCore(v)) return true;
+  if (!canRecordAttendance(v, tp)) return false;
+  // REAL FUNCTIONS ONLY: audience rows merge functions + sub-functions, and a
+  // shared sub-function label ("Raising") must not read as shared authority —
+  // an IGT VP is not the leader of an IGV raiser they happen to rhyme with
+  const real = (fns: string[]) =>
+    fns.filter((f) => (LC_FUNCTIONS as readonly string[]).includes(f));
+  const mFns = expandTouchPointFns(real(member.functions));
+  return real([...v.functions, ...v.sub_functions]).some((f) => mFns.has(f));
 }
 
 /** NOBODY MARKS THEMSELF (v33.19.2, by the LCP's request).

@@ -480,7 +480,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "my team",
    "البروفايل",
    "الصورة",
-   "غير الباسورد"
+   "غير الباسورد",
+   "google grant",
+   "sign in with google",
+   "calendar powers"
   ],
   "summary": "Your Profile holds your info, phone, backup Gmail, avatar (pick one or build your own), password, your plan cards and the people around you.",
   "blocks": [
@@ -555,6 +558,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
       "a": "Pick from the built-in characters, your Google photo, an upload (auto-shrunk), or build one with 🎨 Create your own."
      }
     ]
+   },
+   {
+    "t": "callout",
+    "tone": "tip",
+    "md": "**Got your @aiesec.net after joining?** A banner appears at the top of every page asking you to **sign in with Google once** — that's what unlocks calendar reminders for your visits, Gmail drafts and invites from your own name. Dismissing it snoozes it for a day; it stays until the grant exists (v33.40)."
    }
   ]
  },
@@ -744,7 +752,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
      },
      {
       "q": "I misspelled the account's name — am I stuck with it?",
-      "a": "No — anyone who can edit the account can rename it: the ✏️ beside the title on the account page. The new name goes through the same duplicate/archive/blacklist checks as adding, and the account's link changes with the name (old links keep working, and the rename is logged as a comment)."
+      "a": "No — anyone who can edit the account can rename it: the ✏️ beside the title on the account page. The new name goes through the same duplicate/archive/blacklist checks as adding, and the account's link changes with the name (old links keep working, and the rename is logged as a comment). Since v33.40 the rename also travels to the calendar: a pending visit's event and the next-step reminder get the new name."
      }
     ]
    }
@@ -2255,6 +2263,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
       "a": "Yes — the cancel deletes the event whether it lives on your calendar or the IM mailbox one. No ghost meetings."
      }
     ]
+   },
+   {
+    "t": "callout",
+    "tone": "tip",
+    "md": "**The confirmation comes from YOU (v33.40).** The IR's booking confirmation is sent from the host's own Gmail when their Google grant allows it — so the IR holds your real address and replies reach you directly. No grant yet? The system mailbox sends it with your address on Reply-To, which lands replies the same place."
    }
   ]
  },
@@ -2694,6 +2707,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
       "a": "Bounces come from the receiving mail server, not from us — something rejected it. WhatsApp them (the flag email carries the link), confirm the exact spelling, and use **Fix it** even if the 'new' address only differs by one character."
      }
     ]
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**If the host has no inbox at all** (no AIESEC address, no backup Gmail), the bounce alert email goes to the consideration leadership instead — the bell alone gets scrolled past, and someone with a mailbox has to carry the message (v33.40)."
    }
   ]
  },
@@ -2808,7 +2826,9 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "حضور",
    "غياب",
    "تسجيل الحضور",
-   "اعتراض"
+   "اعتراض",
+   "invited function",
+   "cross function"
   ],
   "summary": "Meetings and outings are recorded by hand; working hours pre-fill themselves from your real work and a human confirms — with appeals if a mark is wrong and a reminder ladder if nobody records.",
   "blocks": [
@@ -2863,6 +2883,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
       "a": "Same as any point: the TL for a team session, the VP/Director for a function one, TM for LC-wide. The pre-fill even runs automatically when they open the sheet after the window closes — they just review and confirm."
      }
     ]
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**Cross-function touch points record per slice (v33.40).** When a touch point invites another function, that function's own MMs and VPs/Directors open the sheet and set **their own people's** rows — the booking function's crew can't fill the invited function's slice, and vice versa. TM and the LCP keep the whole sheet, and the sheet confirms once every slice is recorded."
    }
   ]
  },

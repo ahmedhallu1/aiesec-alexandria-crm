@@ -166,7 +166,7 @@ function DialogContent({
           // While any list is open, that click has exactly one job.
           if (
             document.querySelector(
-              "[data-radix-popper-content-wrapper], [data-radix-select-content][data-state='open'], [data-radix-menu-content][data-state='open']"
+              "[data-radix-popper-content-wrapper], [data-radix-select-content][data-state='open'], [data-radix-menu-content][data-state='open'], [data-country-list]"
             )
           )
             e.preventDefault();

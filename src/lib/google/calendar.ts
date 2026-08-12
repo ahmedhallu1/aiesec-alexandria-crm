@@ -288,6 +288,39 @@ export async function updateVisitEvent(
   });
 }
 
+/** RENAME AN EVENT IN PLACE (v33.40, the Mamma Mia case): patch the summary
+ *  only — times, attendees and reminders untouched, no re-invite emails.
+ *  One for the member's own calendar, one for the mailbox's shared one. */
+export async function renameVisitEventSummary(
+  refreshToken: string | null,
+  eventId: string,
+  summary: string
+): Promise<boolean> {
+  if (!refreshToken || !env.googleClientId) return false;
+  await calendarFor(refreshToken).events.patch({
+    calendarId: "primary",
+    eventId,
+    requestBody: { summary },
+    sendUpdates: "none",
+  });
+  return true;
+}
+
+export async function renameMailboxVisitEventSummary(
+  eventId: string,
+  summary: string
+): Promise<boolean> {
+  const calId = await getVisitsCalendarId();
+  if (!calId) return false;
+  await mailboxCalendar().events.patch({
+    calendarId: calId,
+    eventId,
+    requestBody: { summary },
+    sendUpdates: "none",
+  });
+  return true;
+}
+
 export async function deleteVisitEvent(
   refreshToken: string | null,
   eventId: string

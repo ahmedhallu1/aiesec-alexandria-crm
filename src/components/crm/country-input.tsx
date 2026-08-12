@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { COUNTRIES } from "@/lib/countries";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -9,7 +10,15 @@ import { Input } from "@/components/ui/input";
  *  styled Input with a popover-styled dropdown of matching COUNTRIES —
  *  case-insensitive contains-match, ↑/↓/Enter/Escape keyboard navigation,
  *  click to pick, free text still allowed. `onCommit` fires on an explicit
- *  pick (Enter/click) AND on blur — wire the save there. */
+ *  pick (Enter/click) AND on blur — wire the save there.
+ *
+ *  THE LIST RIDES A PORTAL (v33.40). As an absolute child it kept losing
+ *  paint-order fights with whatever stacking context an ancestor happened to
+ *  create (the CV tab's table header drew OVER it) — the same reason Radix
+ *  portals every popover. Fixed-positioned at the input's rect, re-measured
+ *  on scroll/resize, `pointer-events: auto` against Radix's body lock inside
+ *  dialogs, and `data-country-list` so the dialog's outside-click guard
+ *  knows a tap on it is not a reason to close. */
 export function CountryInput({
   value,
   onChange,
@@ -28,6 +37,10 @@ export function CountryInput({
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(
+    null
+  );
 
   const matches = useMemo(() => {
     const q = value.trim().toLowerCase();
@@ -43,6 +56,24 @@ export function CountryInput({
   const showList = open && matches.length > 0;
   const clampedActive = Math.min(active, Math.max(0, matches.length - 1));
 
+  // anchor the portaled list to the input — kept fresh while it is open
+  useEffect(() => {
+    if (!showList) return;
+    const measure = () => {
+      const el = wrapRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setRect({ top: r.bottom + 4, left: r.left, width: r.width });
+    };
+    measure();
+    window.addEventListener("scroll", measure, true);
+    window.addEventListener("resize", measure);
+    return () => {
+      window.removeEventListener("scroll", measure, true);
+      window.removeEventListener("resize", measure);
+    };
+  }, [showList]);
+
   const pick = (c: string) => {
     onChange(c);
     setOpen(false);
@@ -50,7 +81,7 @@ export function CountryInput({
   };
 
   return (
-    <div className={cn("relative", className)}>
+    <div ref={wrapRef} className={cn("relative", className)}>
       <Input
         id={id}
         value={value}
@@ -88,37 +119,52 @@ export function CountryInput({
           }
         }}
       />
-      {showList ? (
-        <div
-          role="listbox"
-          className="absolute inset-x-0 top-full z-50 mt-1 max-h-56 overflow-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
-        >
-          {matches.map((c, i) => (
+      {showList && rect
+        ? createPortal(
             <div
-              key={c}
-              role="option"
-              aria-selected={i === clampedActive}
-              ref={
-                i === clampedActive
-                  ? (el) => el?.scrollIntoView({ block: "nearest" })
-                  : undefined
-              }
-              className={cn(
-                "cursor-pointer rounded-sm px-2 py-1.5 text-sm",
-                i === clampedActive && "bg-accent text-accent-foreground"
-              )}
-              // mousedown (not click) so the input's blur can't fire first
-              onMouseDown={(e) => {
-                e.preventDefault();
-                pick(c);
+              role="listbox"
+              data-country-list=""
+              // inline pointerEvents beats the body lock Radix applies while
+              // a dialog is open — the list is used inside dialogs too
+              style={{
+                position: "fixed",
+                top: rect.top,
+                left: rect.left,
+                width: rect.width,
+                pointerEvents: "auto",
               }}
-              onMouseEnter={() => setActive(i)}
+              className="z-[60] max-h-56 overflow-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+              // a scrollbar drag on the list itself must not blur the input
+              onMouseDown={(e) => e.preventDefault()}
             >
-              {c}
-            </div>
-          ))}
-        </div>
-      ) : null}
+              {matches.map((c, i) => (
+                <div
+                  key={c}
+                  role="option"
+                  aria-selected={i === clampedActive}
+                  ref={
+                    i === clampedActive
+                      ? (el) => el?.scrollIntoView({ block: "nearest" })
+                      : undefined
+                  }
+                  className={cn(
+                    "cursor-pointer rounded-sm px-2 py-1.5 text-sm",
+                    i === clampedActive && "bg-accent text-accent-foreground"
+                  )}
+                  // mousedown (not click) so the input's blur can't fire first
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    pick(c);
+                  }}
+                  onMouseEnter={() => setActive(i)}
+                >
+                  {c}
+                </div>
+              ))}
+            </div>,
+            document.body
+          )
+        : null}
     </div>
   );
 }

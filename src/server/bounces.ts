@@ -156,21 +156,78 @@ async function alertHost(c: BouncedCall): Promise<void> {
     console.error("[bounces] notify failed:", e);
   }
   try {
-    const [{ data: host }, { cairoWhenLabel }, { irEmailBouncedEmail }, { sendEmail }] =
-      await Promise.all([
-        db()
-          .from("members")
-          .select("name, email, fallback_email")
-          .eq("id", c.member_id)
-          .maybeSingle<{ name: string; email: string | null; fallback_email: string | null }>(),
-        import("./data"),
-        import("@/lib/email/templates"),
-        import("@/lib/google/gmail"),
-      ]);
+    const [{ cairoWhenLabel }, { irEmailBouncedEmail }, { sendEmail }] = await Promise.all([
+      import("./data"),
+      import("@/lib/email/templates"),
+      import("@/lib/google/gmail"),
+    ]);
+    // ONE RETRY, AND EVERY EARLY RETURN SAYS SO (v33.40, the Dai case): the
+    // host lookup failed transiently once, the old `if (!host) return` ate it
+    // without a log, and the alert email simply never existed — while the run
+    // log read like a success. A silent return here is indistinguishable from
+    // "emailed", so nothing stays silent.
+    let host: { name: string; email: string | null; fallback_email: string | null } | null =
+      null;
+    for (let attempt = 0; attempt < 2 && !host; attempt++) {
+      const { data, error } = await db()
+        .from("members")
+        .select("name, email, fallback_email")
+        .eq("id", c.member_id)
+        .maybeSingle<{ name: string; email: string | null; fallback_email: string | null }>();
+      if (error) {
+        console.error("[bounces] host lookup failed:", error.message);
+        continue;
+      }
+      host = data;
+      if (!host) break; // a real no-row answer — retrying won't invent one
+    }
+    if (!host) {
+      console.error(`[bounces] host row unreachable — alert email skipped for call ${c.id}`);
+      return;
+    }
     // the AIESEC address, else the backup Gmail (v33.29) — a host with no
     // mailbox yet is exactly the kind who most needs telling
-    const to = host?.email ?? host?.fallback_email ?? null;
-    if (!host || !to) return;
+    const to = host.email ?? host.fallback_email ?? null;
+    if (!to) {
+      // NO INBOX AT ALL → the consideration leadership hears it instead
+      // (v33.40): the bell alone gets scrolled past, which is why the email
+      // exists — someone with a mailbox has to carry the message
+      console.warn(`[bounces] host ${host.name} has no email — alerting the leads`);
+      const { data: leads } = await db()
+        .from("members")
+        .select("email, fallback_email, role, functions, sub_functions")
+        .eq("is_active", true);
+      const leadEmails = (leads ?? [])
+        .filter(
+          (m) =>
+            ["LCVP", "Director"].includes(m.role as string) &&
+            [...((m.functions as string[]) ?? []), ...((m.sub_functions as string[]) ?? [])]
+              .some((f) => ["Consideration", "IGV", "IGT"].includes(f))
+        )
+        .map((m) => (m.email as string | null) ?? (m.fallback_email as string | null))
+        .filter((e): e is string => !!e);
+      if (leadEmails.length > 0) {
+        const { irEmailBouncedEmail: tmpl } = await import("@/lib/email/templates");
+        const { env } = await import("@/lib/env");
+        const m2 = tmpl({
+          memberFirstName: "team",
+          bookerName: c.booker_name,
+          partnerLc: c.partner_lc_name,
+          badEmail: bad,
+          whenLabel: cairoWhenLabel(c.called_at),
+          bookerPhone: c.booker_phone,
+          whatsappUrl: null,
+          considerationUrl: `${env.appUrl}/consideration`,
+        });
+        await sendEmail({
+          to: leadEmails,
+          subject: `${m2.subject} — host ${host.name} has no email on file`,
+          html: m2.html,
+        });
+        console.log(`[bounces] leads emailed for call ${c.id} (host has no inbox)`);
+      }
+      return;
+    }
     const { env } = await import("@/lib/env");
     const digits = (c.booker_phone ?? "").replace(/[^\d]/g, "");
     const mail = irEmailBouncedEmail({
@@ -188,6 +245,7 @@ async function alertHost(c: BouncedCall): Promise<void> {
       considerationUrl: `${env.appUrl}/consideration`,
     });
     await sendEmail({ to: [to], subject: mail.subject, html: mail.html });
+    console.log(`[bounces] host ${host.name} emailed at ${to} for call ${c.id}`);
   } catch (e) {
     console.error("[bounces] host email failed:", e);
   }
