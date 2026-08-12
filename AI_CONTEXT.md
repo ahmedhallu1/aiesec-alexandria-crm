@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-12 · Version: v33.40
+Last updated: 2026-08-12 · Version: v33.41
 
 ---
 
@@ -627,6 +627,56 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-12 · v33.41** — **THE EMAILS TAB OPENS & REFERRALS BECOME
+  EDITABLE** (no migration).
+  ① **/emails BELONGS TO EVERY MEMBER.** `canUseMailboxTab` was MMs-and-above
+  on the theory that writing for the LC is an MM's job — which in practice
+  sent members back to a blank Gmail with no signature, which is the exact
+  thing the tab exists to stop. The letter still goes out from their OWN
+  Gmail (Sodio is the stationery, not the sender), so nobody gains reach they
+  didn't have; they gain the layout, the real signature and a starting point.
+  ② **THE STARTING POINTS ARE PER PERSON** (`MailAudience` + `templatesFor`
+  in `email/compose.ts`, resolved on the page from what the viewer actually
+  DOES — `hasRaisingAccess` / `hasConsiderationAccess` / OGT-OGV / `isB2C` /
+  `isTmCore`, LCP-admin see all): raising → the company pitch, the follow-up,
+  the thank-you · OGX → **Reaching a sign-up**, **Nudging a quiet EP**, and
+  the contract mail (`mmOnly`) · consideration → writing to another LC and
+  **Asking an LC for CVs** · B2C → **Offering to a customer** · TM →
+  **Inviting the team**. Everyone keeps Blank. Five new templates.
+  ③ **GROUP BLASTS STAY AN MM's TOOL.** `listEmailGroups` handed out
+  "Everyone in the LC" on one click — reach a plain member never had, and the
+  fastest way to make the tab something people mute. Below MM the list is now
+  their own team + their function(s); MMs and above keep the whole set.
+  ④ **A REFERRAL'S DETAILS ARE EDITABLE** (`updateReferralDetails`): every
+  field on a referral is typed by the member who logged it, yet
+  name/phone/email/DOB were write-once and country/sub-product sat behind the
+  VP gate — so the person who typed a country could never fix it ("it refuses
+  to change"). Whoever may WORK the row now corrects it, with the creation
+  form's own validation (name ≥2, phone normalized, email shape, DOB a real
+  date, country resolved against COUNTRIES, and the phone-or-email pair rule
+  surviving the edit). The VP gate stays where it belongs — on TRACKER rows,
+  whose columns the sheet owns and where a free-for-all would fight the
+  import. New **Edit details** card on the sign-up.
+  ⑤ **IR CONFIRMATIONS: THE AIESEC ADDRESS OR NOTHING.** v33.40 sent the
+  confirmation from the host and fell back to the mailbox with the host on
+  Reply-To — but the fallback chain reached `fallback_email`, the backup
+  PERSONAL Gmail we keep only for password resets. A partner entity abroad
+  must not end up writing to someone's private inbox: `aiesecAddress()` gates
+  both the host-send and the Reply-To on an @aiesec.net(.eg) address (all 32
+  live grants already are one).
+  ⑥ **THE SCHEDULED IR-CALL LIST SORTS AND NARROWS**: sort by soonest /
+  latest / partner LC / who takes it / just-booked, and filter by **When**
+  (today · next 7 days · still ahead · ⏰ time passed, on Cairo days) and by
+  what it **Carries** (⚠️ bounced · has a Meet link · no Meet link · their
+  note) — on top of the existing Mine / With / LC / Product chips.
+  ⑦ **THE AUTO-CLAIM RULE, CONFIRMED AND PINNED** (the ask: "I meant
+  unassigned account — if it's one of her members' or anyone's, the
+  assignment doesn't change"). That is what shipped: `logContact` claims only
+  when `responsible_id` is null, and `isClaimableAccount` refuses an owned
+  row a second time. Verified in prod (zero reassigns since v33.39) and now
+  test-pinned — a TL contacting their member's account leaves it theirs.
+  213 tests. Help center: 4 article updates; the Blue Man teaches all of it.
 
 - **2026-08-12 · v33.40** — **CROSS-FUNCTION SHEETS, THE GRANT NUDGE & LOUDER
   PLUMBING** (no migration).

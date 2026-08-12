@@ -12,6 +12,7 @@ import {
   canSeeUnassigned,
   canEditAttendanceRowOf,
   canRecordAttendance,
+  canUseMailboxTab,
   hasPodioAccess,
   calendarItemScopes,
   canUseAdminTools,
@@ -148,6 +149,15 @@ describe("unowned accounts: MMs and up only (v33.2)", () => {
     expect(canFilterUnassigned(igvTl)).toBe(true);
     expect(canFilterUnassigned(igvCoord)).toBe(true);
     expect(canFilterUnassigned(igvRaiser)).toBe(false); // a Member sees no pool
+  });
+
+  it("a TL working a MEMBER's account never takes it (v33.39 auto-claim)", () => {
+    // logContact auto-assigns ONLY when nobody owns the row: a Team Leader
+    // (or anyone) contacting an account that already belongs to one of their
+    // members must leave the responsible exactly as it is
+    expect(isClaimableAccount(tl, account({ responsible_id: "t1" }))).toBe(false);
+    expect(isClaimableAccount(igvVp, account({ responsible_id: "igv1" }))).toBe(false);
+    expect(isClaimableAccount(tl, account({ responsible_id: null }))).toBe(true);
   });
 
   it("an OWNED account is never claimable — this is the IDOR guard", () => {
@@ -529,5 +539,15 @@ describe("cross-function attendance — authority follows the MEMBER (v33.40)", 
   it("TM core and the LCP keep the whole sheet", () => {
     expect(canEditAttendanceRowOf(lcp, tp, igtMember)).toBe(true);
     expect(canEditAttendanceRowOf(tmVp, tp, igvMember)).toBe(true);
+  });
+});
+
+describe("the Emails tab belongs to everyone (v33.41)", () => {
+  it("a plain member may write from the LC's stationery", () => {
+    // the letter still goes out from their OWN Gmail — what they gain is the
+    // signature and a starting point, not reach they didn't have
+    expect(canUseMailboxTab(igvRaiser)).toBe(true);
+    expect(canUseMailboxTab(ogvMm)).toBe(true);
+    expect(canUseMailboxTab(lcp)).toBe(true);
   });
 });

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
-  Archive, Check, ChevronDown, History, LayoutDashboard, Loader2, Mail, Phone,
+  Archive, Check, ChevronDown, History, LayoutDashboard, Loader2, Mail, Pencil, Phone,
   PhoneCall, RefreshCw, RotateCcw,
   MessageSquarePlus,
   Search, UserMinus, UserPlus, UserRound, Users2, X,
@@ -16,7 +16,8 @@ import {
   bulkReviveSignups, claimSignup, clearCicCaller,
   openSignupDetail,
   reassignSignup, reviveSignup, runSignupsImport, setSignupOop,
-  setSignupPotential, updateCicContact, updateSignupContact, updateSignupVpFields,
+  setSignupPotential, updateCicContact, updateReferralDetails, updateSignupContact,
+  updateSignupVpFields,
 } from "@/server/actions";
 import type { OgxPlanCard, SignupDetail, SignupListRow, StreakStats } from "@/server/data";
 import {
@@ -2543,6 +2544,114 @@ function SignupHistory({
   );
 }
 
+/** THE REFERRAL'S OWN DETAILS, EDITABLE (v33.41).
+ *
+ *  Everything here was typed into the Add-referral form by a member — so the
+ *  same member can fix it, with the same validation. Sheet-sourced sign-ups
+ *  never render this card: their intake columns belong to the tracker. */
+function ReferralDetailsCard({
+  signup,
+  onSaved,
+}: {
+  signup: SignupRow;
+  onSaved: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pending, start] = useTransition();
+  const [form, setForm] = useState({
+    name: signup.name ?? "",
+    phone: signup.phone ?? "",
+    email: signup.email ?? "",
+    dob: signup.dob ?? "",
+    country: signup.country ?? "",
+    subProduct: signup.sub_product ?? "",
+  });
+  const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  const save = () =>
+    start(async () => {
+      const res = await updateReferralDetails(signup.id, {
+        name: form.name,
+        phone: form.phone || null,
+        email: form.email || null,
+        dob: form.dob || null,
+        country: form.country || null,
+        ...(signup.fn === "OGT" ? { subProduct: form.subProduct || null } : {}),
+      });
+      if (!res.ok) { toast.error(res.error); return; }
+      toast.success("Referral updated ✍️");
+      setOpen(false);
+      onSaved();
+    });
+
+  if (!open)
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed p-2.5">
+        <span className="text-xs text-muted-foreground">
+          🤝 A referral you logged — its details are yours to correct.
+        </span>
+        <Button size="sm" variant="outline" className="h-7" onClick={() => setOpen(true)}>
+          <Pencil className="size-3.5" /> Edit details
+        </Button>
+      </div>
+    );
+
+  return (
+    <div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-3">
+      <p className="text-sm font-semibold">Referral details</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-1.5">
+          <Label>Name *</Label>
+          <Input dir="auto" value={form.name} onChange={(e) => set("name", e.target.value)} />
+        </div>
+        <div className="grid gap-1.5">
+          <Label>Date of birth</Label>
+          <Input type="date" value={form.dob} onChange={(e) => set("dob", e.target.value)} />
+        </div>
+        <div className="grid gap-1.5">
+          <Label>Phone</Label>
+          <Input value={form.phone} onChange={(e) => set("phone", e.target.value)} />
+        </div>
+        <div className="grid gap-1.5">
+          <Label>Email</Label>
+          <Input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} />
+        </div>
+        <div className="grid gap-1.5">
+          <Label>Country</Label>
+          <CountryInput value={form.country} onChange={(v) => set("country", v)} />
+        </div>
+        {signup.fn === "OGT" ? (
+          <div className="grid gap-1.5">
+            <Label>Sub product</Label>
+            <Select
+              value={form.subProduct || "__none"}
+              onValueChange={(v) => set("subProduct", v === "__none" ? "" : v)}
+            >
+              <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none">—</SelectItem>
+                <SelectItem value="GTa">GTa</SelectItem>
+                <SelectItem value="GTe">GTe</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        A phone or an email is a must — one of them has to stay filled.
+      </p>
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={() => setOpen(false)} disabled={pending}>
+          Cancel
+        </Button>
+        <Button size="sm" onClick={save} disabled={pending || form.name.trim().length < 2}>
+          {pending ? <Loader2 className="size-4 animate-spin" /> : null} Save
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function SignupDetailDialog({
   detail, targets, cicTargets, viewer, loadLogs, onClose, onChanged,
 }: {
@@ -2619,6 +2728,13 @@ function SignupDetailDialog({
               </Button>
             ) : null}
           </div>
+        ) : null}
+
+        {/* A REFERRAL IS OURS TO CORRECT (v33.41). Every field on it was typed
+            by the person who logged it, so whoever works the row fixes it —
+            the VP gate belongs to tracker rows, whose columns the sheet owns. */}
+        {s.source === "referral" && detail.canWork && !s.out_of_process ? (
+          <ReferralDetailsCard signup={s} onSaved={() => onChanged(s.id)} />
         ) : null}
 
         {/* intake data — read-only, straight from the sign-up */}

@@ -1807,7 +1807,9 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "friend",
    "ريفرال",
    "حد جالنا من برا",
-   "اضيف حد مش في الشيت"
+   "اضيف حد مش في الشيت",
+   "edit referral",
+   "fix country"
   ],
   "summary": "Add referral logs someone who came to us directly as a real sign-up — with the first funnel steps filled up front — that counts everywhere but never goes near the tracker sheet.",
   "blocks": [
@@ -1850,6 +1852,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
       "a": "It's validated as a real date on purpose — a half-typed year must not be stored as fact. It's optional; skip it if you're not sure."
      }
     ]
+   },
+   {
+    "t": "callout",
+    "tone": "tip",
+    "md": "**A referral's details are yours to fix (v33.41).** Everything on a referral was typed by whoever logged it, so whoever works the row can correct it — name, phone, email, date of birth, country and (OGT) sub product — from **Edit details** at the top of the sign-up. The old VP gate stays where it belongs: on tracker sign-ups, whose columns the sheet owns."
    }
   ]
  },
@@ -2267,7 +2274,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    {
     "t": "callout",
     "tone": "tip",
-    "md": "**The confirmation comes from YOU (v33.40).** The IR's booking confirmation is sent from the host's own Gmail when their Google grant allows it — so the IR holds your real address and replies reach you directly. No grant yet? The system mailbox sends it with your address on Reply-To, which lands replies the same place."
+    "md": "**The confirmation comes from YOU (v33.40).** The IR's booking confirmation is sent from the host's own Gmail when their Google grant allows it — so the IR holds your real address and replies reach you directly. No grant yet? The system mailbox sends it with your address on Reply-To. Either way it is your **@aiesec.net** and never the backup personal Gmail (v33.41): a partner entity abroad must not end up writing to a private inbox."
    }
   ]
  },
@@ -2491,6 +2498,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
       "a": "The call's card shows everything recorded; if something's genuinely wrong, ask your VP — and for a wrong *time*, remember reschedules are tracked with full history, so don't re-book to fix a typo."
      }
     ]
+   },
+   {
+    "t": "p",
+    "md": "**The scheduled list sorts and narrows too (v33.41):** sort by soonest, latest, partner LC, who takes it, or just-booked; filter by **When** (today · next 7 days · still ahead · ⏰ time passed) and by what the call **Carries** (⚠️ bounced email · has a Meet link · no Meet link · their note) — on top of the Mine / With / LC / Product chips."
    }
   ]
  },
@@ -3418,9 +3429,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
   "category": "emails-feedback",
   "audience": "MMs and above",
   "audienceKeys": [
-   "mm",
-   "leaders",
-   "eb"
+   "everyone"
   ],
   "keywords": [
    "emails",
@@ -3437,13 +3446,17 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "draft",
    "ازاي ابعت ايميل",
    "ايميل رسمي",
-   "توقيع"
+   "توقيع",
+   "templates",
+   "start from",
+   "signature",
+   "كتابة ايميل"
   ],
   "summary": "Write to a partner, an EP or another LC with the LC's look — it sends from your own Gmail, with your signature built automatically.",
   "blocks": [
    {
     "t": "p",
-    "md": "The [Emails](/emails) tab (Coordinators and above) is Sodio's stationery: pick a starting point, write, preview, send. It goes out from **your own Gmail** — the reply lands in your inbox and the email sits in your Sent folder. Sodio supplies the frame, not the sender."
+    "md": "**The Emails tab is every member's now (v33.41).** It used to be MMs and above, which just sent members back to a blank Gmail with no signature. The letter still goes out from **your own Gmail** — Sodio is the stationery, not the sender — so nothing reaches further than it did; what you gain is the LC's layout, your real signature, and a starting point. The [Emails](/emails) tab (Coordinators and above) is Sodio's stationery: pick a starting point, write, preview, send. It goes out from **your own Gmail** — the reply lands in your inbox and the email sits in your Sent folder. Sodio supplies the frame, not the sender."
    },
    {
     "t": "steps",
@@ -3497,6 +3510,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
       "a": "No. Recipients, subject, body, layout and template are all restored when you come back. Only `Start again` clears them."
      }
     ]
+   },
+   {
+    "t": "p",
+    "md": "**\"Start from\" is yours.** The template list is built from what you actually do: raising crews see the company pitch, the follow-up and the thank-you; OGX sees reaching a sign-up, nudging a quiet EP and (MMs) the contract mail; consideration sees writing to another LC and asking for their CVs; B2C sees the customer offer; TM sees the team invite. Everyone keeps **Blank**. **Group blasts stay an MM's tool** — a member addresses their own team and function, not the whole LC."
    }
   ]
  },

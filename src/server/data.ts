@@ -4077,6 +4077,28 @@ export async function listEmailGroups(viewer: Viewer): Promise<EmailGroup[]> {
     if (emails.length > 0) groups.push({ key, label, emails });
   };
 
+  // A GROUP BLAST IS AN MM'S TOOL (v33.41). The Emails tab belongs to every
+  // member now, but "Everyone in the LC" on one click is reach a member never
+  // had — and a mass mail nobody asked for is the fastest way to make the tab
+  // something people mute. Members and Coordinators-in-name-only get the two
+  // groups they are actually part of; MMs and above keep the whole set.
+  const isMm =
+    viewer.isAdmin ||
+    ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(viewer.role);
+  const ownFns = [...viewer.functions, ...viewer.sub_functions];
+  if (!isMm) {
+    const mineTeam = active.filter((m) => viewer.teamMemberIds.includes(m.id));
+    if (mineTeam.length > 0)
+      groups.push({ key: "myteam", label: "My team", emails: mail(mineTeam) });
+    for (const fn of [...new Set(ownFns)].sort())
+      push(
+        `fn:${fn}`,
+        `${fn} — the whole function`,
+        active.filter((m) => [...(m.functions ?? []), ...(m.sub_functions ?? [])].includes(fn))
+      );
+    return groups;
+  }
+
   push("all", "Everyone in the LC", active);
   push(
     "eb",
