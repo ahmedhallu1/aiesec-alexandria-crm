@@ -17,6 +17,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { excuseMyAttendance } from "@/server/attendance";
 import { Hint } from "./hint";
 import { TouchPointManageDialog } from "./touch-point-manage-dialog";
 import { TouchPointDialog } from "./touch-point-dialog";
@@ -25,7 +28,6 @@ import { CalendarItemDialog } from "./calendar-item-dialog";
 import { deleteCalendarItem } from "@/server/calendar-items";
 import type { CalendarVisit } from "@/server/data";
 import { fmtClock12 } from "@/lib/types";
-import { bookedBy } from "@/lib/touch-point-label";
 
 /** Distinct, readable chip colors — one per member, assigned in a stable order. */
 const MEMBER_COLORS = [
@@ -72,12 +74,16 @@ export interface CalendarTouchPoint {
   /** Cairo start, 24h HH:MM — what the manage form edits */
   timeValue: string;
   note: string | null;
+  /** v33.43 — where it happens (non-virtual) */
+  location?: string | null;
   /** lc | function | team — an LC point reads as TM's, not a person's */
   scope: string;
   ownerName: string;
   audience: string;
   cancelled: boolean;
   recorded: boolean;
+  /** the real instant, for "is it still ahead of me?" */
+  startsAt?: string;
   /** this viewer may move or cancel it (server-computed via canEditTouchPoint) */
   canEdit: boolean;
   /** the viewer is actually IN this point's audience — "only mine" keeps it */
@@ -186,6 +192,22 @@ export function CalendarView({
   const [navPending, startNav] = useTransition();
   // the touch point being moved / cancelled (v29)
   const [manage, setManage] = useState<CalendarTouchPoint | null>(null);
+  // v33.43 — "I can't make it": only for a touch point that is MINE, still
+  // ahead of me, alive, and whose attendance nobody has taken yet
+  const [excuse, setExcuse] = useState<CalendarTouchPoint | null>(null);
+  // the clock is state, not a render-time read: the button also has to
+  // DISAPPEAR the moment the session starts, without a refresh
+  const [nowTs, setNowTs] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowTs(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, []);
+  const canExcuse = (t: CalendarTouchPoint) =>
+    t.mine &&
+    !t.cancelled &&
+    !t.recorded &&
+    !!t.startsAt &&
+    new Date(t.startsAt).getTime() > nowTs;
   // the day whose panel is open (Cairo YYYY-MM-DD) — v29.4
   const [day, setDay] = useState<string | null>(null);
   // the day a touch point is being booked ON, driving TouchPointDialog
@@ -727,21 +749,24 @@ export function CalendarView({
                     {t.cancelled ? " · cancelled" : ""}
                   </p>
                   <p className="break-words text-xs text-muted-foreground" dir="auto">
-                    {t.audience} · booked by {bookedBy(t)}
+                    {t.audience}
+                    {t.location ? ` · 📍 ${t.location}` : ""}
                   </p>
                   {t.note ? (
                     <p className="mt-0.5 break-words text-xs text-muted-foreground" dir="auto">{t.note}</p>
                   ) : null}
-                  {t.canEdit && !t.cancelled ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="mt-1.5 h-8"
-                      onClick={() => setManage(t)}
-                    >
-                      <Pencil className="size-3.5" /> Move or cancel
-                    </Button>
-                  ) : null}
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {t.canEdit && !t.cancelled ? (
+                      <Button size="sm" variant="outline" className="h-8" onClick={() => setManage(t)}>
+                        <Pencil className="size-3.5" /> Move or cancel
+                      </Button>
+                    ) : null}
+                    {canExcuse(t) ? (
+                      <Button size="sm" variant="ghost" className="h-8" onClick={() => setExcuse(t)}>
+                        🙏 Can&apos;t make it?
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
               ))}
               {(irByDate.get(date) ?? []).map((c) => (
@@ -830,7 +855,8 @@ export function CalendarView({
                   </p>
                 </div>
                 <p className="mt-1 break-words text-xs text-muted-foreground" dir="auto">
-                  {t.audience} · booked by {bookedBy(t)}
+                  {t.audience}
+                  {t.location ? ` · 📍 ${t.location}` : ""}
                   {t.cancelled
                     ? " · cancelled"
                     : t.recorded
@@ -842,19 +868,31 @@ export function CalendarView({
                     {t.note}
                   </p>
                 ) : null}
-                {t.canEdit && !t.cancelled ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="mt-2 h-8"
-                    onClick={() => {
-                      setDay(null);
-                      setManage(t);
-                    }}
-                  >
-                    <Pencil className="size-3.5" /> Move or cancel
-                  </Button>
-                ) : null}
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {t.canEdit && !t.cancelled ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8"
+                      onClick={() => {
+                        setDay(null);
+                        setManage(t);
+                      }}
+                    >
+                      <Pencil className="size-3.5" /> Move or cancel
+                    </Button>
+                  ) : null}
+                  {canExcuse(t) ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8"
+                      onClick={() => { setDay(null); setExcuse(t); }}
+                    >
+                      🙏 Can&apos;t make it?
+                    </Button>
+                  ) : null}
+                </div>
               </div>
             ))}
 
@@ -1029,6 +1067,83 @@ export function CalendarView({
       {manage ? (
         <TouchPointManageDialog tp={manage} onClose={() => setManage(null)} />
       ) : null}
+      <ExcuseDialog tp={excuse} onClose={() => setExcuse(null)} />
     </div>
+  );
+}
+
+/** "I CAN'T MAKE IT" (v33.43). Filed BEFORE the session: it emails the TM
+ *  function while the room can still be planned, and lands on the attendance
+ *  sheet as late/absent + excused. The recorder can still change it — this is
+ *  a heads-up with teeth, not a self-issued verdict. */
+function ExcuseDialog({
+  tp,
+  onClose,
+}: {
+  tp: CalendarTouchPoint | null;
+  onClose: () => void;
+}) {
+  const [status, setStatus] = useState<"absent" | "late">("absent");
+  const [reason, setReason] = useState("");
+  const [pending, start] = useTransition();
+  const router = useRouter();
+
+  const submit = () =>
+    start(async () => {
+      if (!tp) return;
+      const res = await excuseMyAttendance(tp.id, { status, excuse: reason });
+      if (!res.ok) { toast.error(res.error); return; }
+      toast.success(
+        status === "late"
+          ? "Told them you'll be late — thank you for saying so 🙏"
+          : "Told them you can't make it — thank you for saying so 🙏"
+      );
+      setReason("");
+      onClose();
+      router.refresh();
+    });
+
+  return (
+    <Dialog open={!!tp} onOpenChange={(o) => { if (!o) { setReason(""); onClose(); } }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>🙏 {tp?.label}</DialogTitle>
+          <DialogDescription>
+            Say it now and it reaches TM before the session, and goes on the
+            attendance sheet as <b>excused</b> — instead of you simply not
+            being there.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          <div className="grid gap-1.5">
+            <Label>What&apos;s happening?</Label>
+            <Select value={status} onValueChange={(v) => setStatus(v as "absent" | "late")}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="absent">I can&apos;t come at all</SelectItem>
+                <SelectItem value="late">I&apos;ll be late</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-1.5">
+            <Label>Why? *</Label>
+            <Textarea
+              dir="auto"
+              rows={3}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="A lecture, work, travelling — whatever it is, in one line."
+              maxLength={500}
+            />
+          </div>
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={pending}>Cancel</Button>
+          <Button onClick={submit} disabled={pending || reason.trim().length < 3}>
+            {pending ? <Loader2 className="size-4 animate-spin" /> : null} Send it
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

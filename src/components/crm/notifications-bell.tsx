@@ -25,6 +25,22 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 
+/** SHORT ENOUGH TO SCAN (v33.43). A full "Aug 12, 2026, 7:30 PM" on every row
+ *  turned the panel into a wall of dates; what anyone reads is "how fresh is
+ *  this". The exact time stays on the row's `title` attribute. */
+function relativeWhen(iso: string): string {
+  const then = new Date(iso).getTime();
+  const mins = Math.round((Date.now() - then) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.round(hrs / 24);
+  if (days === 1) return "yesterday";
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString("en", { day: "numeric", month: "short" });
+}
+
 const KIND_ICON: Record<string, string> = {
   welcome: "🎉",
   reset: "🔑",
@@ -117,7 +133,7 @@ export function NotificationsBell({
               <Bell className="size-5 text-primary" /> Notifications
             </DialogTitle>
             <DialogDescription>
-              Everything Sodio wants you to know — freshest first.
+              Newest first. Tap one to open what it&apos;s about.
             </DialogDescription>
           </DialogHeader>
 
@@ -148,19 +164,24 @@ export function NotificationsBell({
                       go && "cursor-pointer transition-colors hover:border-primary hover:bg-primary/10"
                     )}
                   >
-                    <p className="flex items-center gap-1 font-medium">
-                      <span className="min-w-0 flex-1">
-                        {KIND_ICON[n.kind] ?? "🔔"} {n.title}
+                    <p className="flex items-start gap-1.5 font-medium">
+                      <span className="shrink-0">{KIND_ICON[n.kind] ?? "🔔"}</span>
+                      <span className="min-w-0 flex-1 break-words" dir="auto">{n.title}</span>
+                      <span
+                        className="shrink-0 text-xs font-normal text-muted-foreground/70"
+                        title={fmtDateTime(n.created_at)}
+                      >
+                        {relativeWhen(n.created_at)}
                       </span>
-                      {go ? <ChevronRight className="size-4 shrink-0 text-primary" /> : null}
+                      {go ? <ChevronRight className="mt-0.5 size-4 shrink-0 text-primary" /> : null}
                     </p>
+                    {/* the detail lives on the page this opens — two lines is
+                        a summary, ten is a wall (v33.43) */}
                     {n.body ? (
-                      <p className="mt-0.5 whitespace-pre-wrap text-muted-foreground">{n.body}</p>
+                      <p className="mt-0.5 line-clamp-2 pl-6 text-xs text-muted-foreground" dir="auto">
+                        {n.body}
+                      </p>
                     ) : null}
-                    <p className="mt-1 flex items-center justify-between text-xs text-muted-foreground/70">
-                      <span>{fmtDateTime(n.created_at)}</span>
-                      {go ? <span className="font-medium text-primary">Open →</span> : null}
-                    </p>
                   </div>
                 );
               })}

@@ -112,11 +112,13 @@ export default async function CalendarPage({
         time,
         timeValue: time24,
         note: t.note,
+        location: t.location ?? null,
         scope: t.scope,
         ownerName: t.owner_name,
         audience: audienceLabel(t),
         cancelled: t.status === "cancelled",
         recorded: !!t.attendance_recorded_at,
+        startsAt: t.starts_at,
         canEdit: canEditTouchPoint(viewer, t),
         // "only mine": is the viewer actually IN this point's audience (they
         // may merely SEE other teams' points inside their function)

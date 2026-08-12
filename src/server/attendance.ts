@@ -18,7 +18,9 @@ import { getViewer, logAudit } from "./data";
 import { recordUndo, sandboxSuppressed, snapshotForUndo } from "./sandbox";
 import { notifyTouchPointAudience } from "./tm-notify";
 import { sendEmail } from "@/lib/google/gmail";
-import { getTouchPoint, touchPointAudience } from "./touch-points-read";
+import {
+  getTouchPoint, memberInTouchPointAudience, tmFunctionEmails, touchPointAudience,
+} from "./touch-points-read";
 import {
   listAttendanceFor,
   openPendingPrompt,
@@ -205,6 +207,116 @@ export async function loadAttendanceSheet(
       }),
     },
   };
+}
+
+/** TELL THEM BEFORE, NOT AFTER (v33.43).
+ *
+ *  Attendance could only be argued with once it had been recorded — the appeal
+ *  is a post-mortem. Someone who KNOWS on Tuesday that Thursday is impossible
+ *  had nowhere to say so, so they either turned up or vanished. Now anyone in
+ *  an upcoming touch point's audience can file it themselves: it emails the TM
+ *  function while the room can still be planned, and lands on the sheet as
+ *  late/absent + EXCUSED, which whoever records the session can still change.
+ *
+ *  Deliberately not a leader's tool — a VP filing an excuse for somebody else
+ *  is just recording attendance early, and that already has a screen. */
+export async function excuseMyAttendance(
+  touchPointId: string,
+  input: { status: "absent" | "late"; excuse: string }
+): Promise<Result> {
+  const viewer = await getViewer();
+  const tp = await getTouchPoint(touchPointId);
+  if (!tp) return fail("That touch point no longer exists.");
+  if (tp.status !== "scheduled") return fail("This touch point is cancelled.");
+  if (input.status !== "absent" && input.status !== "late")
+    return fail("Say whether you'll be late or can't come at all.");
+  const excuse = clean(input.excuse, 500);
+  if (!excuse || excuse.length < 3) return fail("Add a short reason — that's the whole point.");
+
+  // it has to be YOUR touch point, and it has to still be ahead of you: an
+  // excuse for a session that already happened is what the appeal is for
+  const { data: me } = await db()
+    .from("members")
+    .select("id, name, email, role, functions, sub_functions, team_name, stakeholder_id")
+    .eq("id", viewer.id)
+    .maybeSingle();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if (!me || !memberInTouchPointAudience(me as any, tp))
+    return fail("You're not in this touch point's audience.");
+  if (new Date(tp.starts_at).getTime() <= Date.now())
+    return fail(
+      "This one has already started — if the record is wrong once it's taken, appeal it instead."
+    );
+  if (tp.attendance_recorded_at)
+    return fail("Attendance is already recorded for this one — appeal it instead.");
+
+  const now = new Date().toISOString();
+  const { data: existing } = await db()
+    .from("touch_point_attendance")
+    .select("id")
+    .eq("touch_point_id", touchPointId)
+    .eq("member_id", viewer.id)
+    .maybeSingle<{ id: string }>();
+  if (existing) await snapshotForUndo("touch_point_attendance", existing.id);
+
+  const { error } = await db().from("touch_point_attendance").upsert(
+    {
+      touch_point_id: touchPointId,
+      member_id: viewer.id,
+      status: input.status,
+      excused: true,
+      excuse,
+      automatic: false,
+      recorded_by: viewer.id,
+      recorded_at: now,
+    },
+    { onConflict: "touch_point_id,member_id" }
+  );
+  if (error) return fail(error.message);
+
+  const label = touchPointName(tp);
+  const whenLabel = cairoWhen(tp.starts_at);
+  // TM hears it by email; the person who will record the session gets a bell
+  if (!(await sandboxSuppressed("touch-point excuse email"))) {
+    try {
+      const to = await tmFunctionEmails();
+      if (to.length > 0) {
+        const { touchPointExcuseEmail } = await import("@/lib/email/touchpoint-templates");
+        const mail = touchPointExcuseEmail({
+          memberName: viewer.name,
+          label,
+          whenLabel,
+          audience: audienceLabel(tp),
+          status: input.status,
+          excuse,
+        });
+        await sendEmail({
+          to: [to[0]],
+          bcc: to.length > 1 ? to.slice(1) : undefined,
+          subject: mail.subject,
+          html: mail.html,
+        });
+      }
+    } catch (e) {
+      console.error("[attendance] excuse email failed:", e);
+    }
+  }
+  if (tp.owner_id && tp.owner_id !== viewer.id)
+    await notifyTouchPointAudience(
+      viewer.id,
+      [tp.owner_id],
+      "info",
+      `${input.status === "late" ? "⏰" : "🙏"} ${viewer.name} — ${label}`,
+      `${input.status === "late" ? "Will arrive late" : "Can't come"}: ${excuse}`,
+      viewer.id,
+      "/attendance"
+    );
+
+  await logAudit(viewer.id, "attendance_excuse", "touch_point", touchPointId, {
+    status: input.status,
+  });
+  refresh();
+  return { ok: true };
 }
 
 export interface AttendanceInputRow {

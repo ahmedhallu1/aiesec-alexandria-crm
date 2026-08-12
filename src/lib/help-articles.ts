@@ -220,6 +220,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
       "a": "By design — booking a visit tells the whole product's raising crew as an FYI, so nobody double-books the same partner. Only the responsible gets the calendar invite and reminders."
      }
     ]
+   },
+   {
+    "t": "p",
+    "md": "**Quieter and easier to read (v33.43):** Sodio never bells you about your own click any more (booking a visit or a touch point used to notify the booker), visit announcements reach only the people who answer for the visit, and each row now shows the icon, the headline, a two-line summary and a short \"2h ago\" — tap it to open the thing itself."
    }
   ]
  },
@@ -2843,7 +2847,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "تسجيل الحضور",
    "اعتراض",
    "invited function",
-   "cross function"
+   "cross function",
+   "excuse",
+   "can't come",
+   "late",
+   "اعتذار"
   ],
   "summary": "Meetings and outings are recorded by hand; working hours pre-fill themselves from your real work and a human confirms — with appeals if a mark is wrong and a reminder ladder if nobody records.",
   "blocks": [
@@ -2908,6 +2916,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
     "t": "callout",
     "tone": "warn",
     "md": "**Working hours are SUGGESTED, never recorded (v33.42).** The engine used to write attended/absent rows on its own — and those counted everywhere while nobody had confirmed them. Now it fills the sheet in front of you (each row marked *suggested*) and **stores nothing**: correct what looks wrong and press Confirm. Until you do, the session counts as unrecorded and keeps reminding you."
+   },
+   {
+    "t": "callout",
+    "tone": "tip",
+    "md": "**Can't make it? Say so BEFORE (v33.43).** On any upcoming touch point of yours — on the [Calendar](/calendar) — there's a **🙏 Can't make it?** button: pick *can't come* or *I'll be late*, give a one-line reason, and it emails the TM function straight away and lands on the attendance sheet as **excused**. Whoever records the session can still change it. After the session it's the appeal you want instead."
    }
   ]
  },
@@ -3288,6 +3301,15 @@ export const HELP_ARTICLES: HelpArticle[] = [
       "a": "Everyone invited gets an email and a bell, with the TM VP on CC — unless you switched **Tell everyone invited** off, or the touch point is in the past (past ones are always silent)."
      }
     ]
+   },
+   {
+    "t": "p",
+    "md": "**Where it happens (v33.43):** every non-virtual touch point takes an optional **Where** — \"the office, third floor\", \"the café on Fouad St\" — and it rides every invite and move email. A virtual meeting's *where* is its Meet link, so the field is hidden there."
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**Who gets told (v33.43):** the people expected at it — minus whoever booked it (they know) and minus LCVPs/Directors/the LCP, who read the calendar rather than being pinged. Nobody is announced as \"booked by\" any more: the invite says the what, the when and the where. Attendance still covers everyone in the audience, leaders included."
    }
   ]
  },

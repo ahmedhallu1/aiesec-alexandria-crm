@@ -17,6 +17,9 @@ export interface TouchPointRow {
   team_name: string | null;
   starts_at: string;
   note: string | null;
+  /** v33.43 — where it happens (non-virtual touch points). Optional on the
+   *  type because the derived-audience helpers build partial rows in memory. */
+  location?: string | null;
   invited_teams: string[];
   invited_functions: string[];
   status: "scheduled" | "cancelled";
@@ -239,6 +242,21 @@ export async function tmLeadEmails(): Promise<string[]> {
   return ((data ?? []) as any[])
     .filter((m) => fnsOf(m).includes("TM") && m.email)
     .map((m) => m.email as string);
+}
+
+/** THE WHOLE TM FUNCTION (v33.43) — an excuse filed in advance is TM's to
+ *  read, not only its VP's. Falls back to the leads when TM has nobody with
+ *  an inbox, so the message never evaporates. */
+export async function tmFunctionEmails(): Promise<string[]> {
+  const { data } = await db()
+    .from("members")
+    .select("email, role, functions, sub_functions")
+    .eq("is_active", true);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tm = ((data ?? []) as any[])
+    .filter((m) => fnsOf(m).includes("TM") && m.email)
+    .map((m) => m.email as string);
+  return tm.length > 0 ? [...new Set(tm)] : await tmLeadEmails();
 }
 
 /** Sibling teams a viewer may invite to a team touch point, and the other
