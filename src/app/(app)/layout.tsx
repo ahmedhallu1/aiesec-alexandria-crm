@@ -13,6 +13,8 @@ import { ComingSoon } from "@/components/crm/coming-soon";
 import { GateClient } from "@/components/crm/gate-client";
 import { Tour } from "@/components/crm/tour";
 import { ViewAsBanner } from "@/components/crm/view-as-banner";
+import { GoogleGrantBanner } from "@/components/crm/google-grant-banner";
+import { db } from "@/lib/supabase";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const viewer = await getViewer();
@@ -99,6 +101,20 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const mailbox = canUseMailboxTab(viewer);
   const gateRoutes = ["/attendance", ...(mailbox ? ["/emails"] : []), ...extraRoutes];
 
+  // THE GRANT NUDGE (v33.40): an AIESEC email exists on the row but no Google
+  // grant does — the member signed in before the address landed and has been
+  // working without calendar/Gmail powers ever since, silently. One cheap
+  // read; never in a test view (the grant is the real person's to give).
+  let needsGoogleGrant = false;
+  if (viewer.email && !viewer.impersonated) {
+    const { data: row } = await db()
+      .from("members")
+      .select("google_refresh_token")
+      .eq("id", viewer.id)
+      .maybeSingle<{ google_refresh_token: string | null }>();
+    needsGoogleGrant = !!row && !row.google_refresh_token;
+  }
+
   return (
     <AppShell
       user={{
@@ -131,6 +147,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         await signOut({ redirectTo: "/login" });
       }}
     >
+      {needsGoogleGrant ? <GoogleGrantBanner email={viewer.email!} /> : null}
       {raising ? (
         children
       ) : (

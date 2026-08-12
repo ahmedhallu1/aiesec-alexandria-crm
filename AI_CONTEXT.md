@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-12 · Version: v33.39
+Last updated: 2026-08-12 · Version: v33.40
 
 ---
 
@@ -627,6 +627,66 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-12 · v33.40** — **CROSS-FUNCTION SHEETS, THE GRANT NUDGE & LOUDER
+  PLUMBING** (no migration).
+  ① **CROSS-FUNCTION ATTENDANCE RECORDS PER SLICE.** A touch point that
+  invites another function put that function's people on a sheet only the
+  BOOKING function's leader could fill. Now `canRecordAttendance` folds
+  `invited_functions` into the gate and a new per-row predicate —
+  `canEditAttendanceRowOf`, authority follows the MEMBER — lets each
+  function's MMs and VPs/Directors set exactly their own people's rows
+  (compared on REAL functions only: a shared sub-function label like
+  "Raising" is not shared authority). The booking crew can't fill the
+  invited slice and vice versa; TM/LCP keep the whole sheet; rows outside
+  the recorder's reach render locked and are silently skipped on save, like
+  own rows before; the sheet confirms once every slice is in. 5 new rbac
+  tests (211 total).
+  ② **THE GOOGLE-GRANT NUDGE** (`google-grant-banner.tsx`): 7 live members
+  have an @aiesec.net that landed AFTER they started — they sign in by
+  password and have been working with NO Google grant (no calendar events,
+  no Gmail drafts) with nothing telling them. A banner on every page now
+  asks them to sign in with Google once (the existing `loginWithGoogle`
+  flow); dismissing snoozes it for a day, and it lives until the grant
+  exists. Never shown in a test view.
+  ③ **RENAMES TRAVEL TO THE CALENDAR** (the Mamma Mia case: renamed in
+  Sodio, still "Mamma mia" on the calendar). `renameAccount` now patches the
+  pending visit's event summary — owner calendar first, mailbox calendar as
+  the fallback (new lean `renameVisitEventSummary` /
+  `renameMailboxVisitEventSummary`, summary-only patch, no re-invites) —
+  and re-runs `syncNextStepReminder` so the follow-up event carries the new
+  name AND the new slug link. Mamma Mia's live event was patched in prod;
+  the audit shows no other rename left a stale event.
+  ④ **THE BOUNCE ALERT THAT NEVER REACHED DAI, ROOT-CAUSED.** The 15:30 cron
+  belled her and logged success — but the alert EMAIL never existed: the
+  host lookup failed transiently and `if (!host) return` swallowed it
+  without a log (my own first replication hit the same transient null —
+  QED). `alertHost` now retries the lookup once, logs every early return
+  AND every success, and a host with NO inbox at all gets the alert
+  delivered to the consideration leadership instead. Dai's alert was
+  re-sent by hand from the replication script.
+  ⑤ **IR CONFIRMATIONS COME FROM THE HOST.** The booking confirmation (and
+  the fix-email re-send) goes out from the member's OWN Gmail when their
+  grant allows — the IR holds a real person's address and replies reach
+  them. No grant → the mailbox sends it with the host on **Reply-To**
+  (`sendEmail` learned the header). A dead grant falls back to the mailbox
+  rather than losing the mail; the synchronous-bounce flag is unchanged.
+  ⑥ **THE CALL LOG SORTS THE WHOLE HISTORY**: When / Partner LC / Product /
+  By / Status / Booked-by headers sort server-side (`IR_SORTS` whitelist in
+  `listIrCalls`, `?callsort/&calldir`); the other columns keep the
+  page-in-hand client sort. New **Carries** funnel: has notes · has
+  screenshot · has a CV-pool link · email bounced — OR'd server-side.
+  ⑦ **THE COUNTRY LIST RIDES A PORTAL.** The v33.39 `rise-in` fix wasn't the
+  (whole) trap — some ancestor stacking context kept painting the CV tab's
+  table header over the suggestions. `CountryInput` now portals the list to
+  `<body>` (fixed-position at the input's rect, re-measured on
+  scroll/resize) — the same reason Radix portals every popover — with
+  `pointer-events: auto` against the dialog body lock and a
+  `data-country-list` marker the dialog's outside-click guard recognises.
+  ⑧ **THE CONTRACT TEMPLATE'S OWN FORMATTING**: the doc's HTML export shows
+  EP / ID / END and the whole "Attach student id…" line in bold — the
+  template now carries exactly those, nothing else.
+  Help center: 6 article updates; the Blue Man teaches all of it.
 
 - **2026-08-12 · v33.39** — **THE CORRECTIONS BATCH ON v33.38** (migration
   **0060 applied**: `ir_booking_settings.max_per_day_overrides`).

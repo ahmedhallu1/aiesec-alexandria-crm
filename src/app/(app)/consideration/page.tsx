@@ -51,6 +51,12 @@ export default async function ConsiderationPage({
     status: sp.callstatus,
     member: sp.callmember,
     lc: sp.calllc,
+    has: sp.callhas,
+    sort: sp.callsort,
+    dir: (sp.calldir === "asc" ? "asc" : sp.calldir === "desc" ? "desc" : undefined) as
+      | "asc"
+      | "desc"
+      | undefined,
     from: sp.callfrom,
     to: sp.callto,
   };

@@ -5,6 +5,8 @@ import { sandboxSuppressed } from "@/server/sandbox";
 /** Sends branded transactional email from the IM director's mailbox
  *  (GMAIL_SENDER) via the Gmail API using an offline refresh token. */
 export async function sendEmail(opts: {
+  /** sets the Reply-To header — replies go to a person, not the mailbox */
+  replyTo?: string;
   to: string[];
   cc?: string[];
   bcc?: string[];
@@ -37,6 +39,7 @@ export async function sendEmail(opts: {
   const addrHeaders = [
     `From: ${encodeHeader(env.gmailSenderName)} <${env.gmailSender}>`,
     `To: ${toLine}`,
+    ...(opts.replyTo ? [`Reply-To: ${opts.replyTo}`] : []),
     ...(opts.cc?.length ? [`Cc: ${opts.cc.join(", ")}`] : []),
     ...(opts.bcc?.length ? [`Bcc: ${opts.bcc.join(", ")}`] : []),
     `Subject: ${encodeHeader(opts.subject)}`,

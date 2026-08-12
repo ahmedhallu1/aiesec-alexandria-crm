@@ -510,6 +510,46 @@ export async function renameAccount(
     author_label: commentLabel(viewer),
     body: `✏️ Renamed from "${account.name}" to "${name}".`,
   });
+  // THE NAME TRAVELS (v33.40, the Mamma Mia case): the pending visit's
+  // calendar event and the next-step reminder were still wearing the old
+  // name. Best-effort — a calendar hiccup must never undo a rename.
+  try {
+    const { data: pv } = await db()
+      .from("visits")
+      .select(
+        "calendar_event_id, member:members!visits_member_id_fkey(google_refresh_token)"
+      )
+      .eq("account_id", accountId)
+      .is("done", null)
+      .not("calendar_event_id", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<{
+        calendar_event_id: string;
+        member: { google_refresh_token: string | null } | null;
+      }>();
+    if (pv?.calendar_event_id) {
+      const { renameVisitEventSummary, renameMailboxVisitEventSummary } = await import(
+        "@/lib/google/calendar"
+      );
+      const summary = `AIESEC visit — ${name}`;
+      const ok = await renameVisitEventSummary(
+        pv.member?.google_refresh_token ?? null,
+        pv.calendar_event_id,
+        summary
+      ).catch(() => false);
+      // no grant / not on their calendar → it lives on the mailbox calendar
+      if (!ok) await renameMailboxVisitEventSummary(pv.calendar_event_id, summary).catch(() => {});
+    }
+  } catch (e) {
+    console.error("[rename] visit event rename failed:", e);
+  }
+  try {
+    // re-upserts the follow-up event with the new name + new slug link
+    if (account.next_step_date) await syncNextStepReminder(accountId);
+  } catch (e) {
+    console.error("[rename] next-step event rename failed:", e);
+  }
   await logAudit(viewer.id, "account_rename", "account", accountId, {
     from: account.name,
     to: name,
@@ -7617,6 +7657,7 @@ export async function bookIrCall(input: {
       id: string;
       name: string;
       email: string | null;
+      fallback_email: string | null;
       google_refresh_token: string | null;
       is_active: boolean;
       functions: string[] | null;
@@ -7847,7 +7888,11 @@ export async function bookIrCall(input: {
     }
   }
 
-  // the IR's confirmation — when/who/Meet + the accountless manage link
+  // the IR's confirmation — when/who/Meet + the accountless manage link.
+  // FROM THE HOST THEMSELVES when their Gmail grant allows it (v33.40): the
+  // IR should hold the actual person's address, not a system mailbox — a
+  // reply must reach the member who takes the call. No grant → the mailbox
+  // sends it with the host on Reply-To, which lands replies the same place.
   try {
     const { irBookingConfirmEmail } = await import("@/lib/email/templates");
     const confirm = irBookingConfirmEmail({
@@ -7860,7 +7905,28 @@ export async function bookIrCall(input: {
       meetLink,
       manageUrl: `${env.appUrl}/book/manage/${manageToken}`,
     });
-    await sendEmail({ to: [bookerEmail], subject: confirm.subject, html: confirm.html });
+    let sentFromHost = false;
+    if (owner.google_refresh_token) {
+      try {
+        const { sendMemberEmail } = await import("@/lib/google/gmail");
+        await sendMemberEmail(owner.google_refresh_token, {
+          to: [bookerEmail],
+          subject: confirm.subject,
+          html: confirm.html,
+        });
+        sentFromHost = true;
+      } catch (e2) {
+        // a dead grant is not a dead ADDRESS — the mailbox still carries it
+        console.error("[ir-booking] host-send failed, falling back to mailbox:", e2);
+      }
+    }
+    if (!sentFromHost)
+      await sendEmail({
+        to: [bookerEmail],
+        replyTo: owner.email ?? owner.fallback_email ?? undefined,
+        subject: confirm.subject,
+        html: confirm.html,
+      });
   } catch (e) {
     console.error("[ir-booking] booker confirmation email failed:", e);
     // A SEND THAT FAILS ON THE SPOT IS A BOUNCE WE ALREADY KNOW ABOUT
@@ -8317,7 +8383,27 @@ export async function updateIrBookerEmail(id: string, emailRaw: string): Promise
         meetLink,
         manageUrl: `${env.appUrl}/book/manage/${call.manage_token}`,
       });
-      await sendEmail({ to: [email], subject: confirm.subject, html: confirm.html });
+      let sentFromHost = false;
+      if (owner?.google_refresh_token) {
+        try {
+          const { sendMemberEmail } = await import("@/lib/google/gmail");
+          await sendMemberEmail(owner.google_refresh_token, {
+            to: [email],
+            subject: confirm.subject,
+            html: confirm.html,
+          });
+          sentFromHost = true;
+        } catch (e2) {
+          console.error("[ir-calls] host re-send failed, falling back to mailbox:", e2);
+        }
+      }
+      if (!sentFromHost)
+        await sendEmail({
+          to: [email],
+          replyTo: owner?.email ?? owner?.fallback_email ?? undefined,
+          subject: confirm.subject,
+          html: confirm.html,
+        });
     } catch (e) {
       console.error("[ir-calls] confirmation re-send failed:", e);
       // the whole point of the fix is that the IR hears about it — a failure

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { db } from "@/lib/supabase";
 import {
-  canEditOwnAttendanceRow,
+  canEditAttendanceRowOf,
   canRecordAttendance,
   isTmCore,
 } from "@/lib/rbac";
@@ -170,7 +170,6 @@ export async function loadAttendanceSheet(
   }
   const byMember = new Map(rowsForSheet.map((r) => [r.member_id, r]));
   const verdictBy = new Map(verdicts.map((v) => [v.memberId, v]));
-  const canOwn = canEditOwnAttendanceRow(viewer, tp);
 
   return {
     ok: true,
@@ -199,7 +198,10 @@ export async function loadAttendanceSheet(
           excused: row?.excused ?? false,
           excuse: row?.excuse ?? null,
           automatic: row?.automatic ?? false,
-          locked: m.id === viewer.id && !canOwn,
+          // your own row on a point you may only edit — and, since v33.40,
+          // any row of a member outside your function: authority follows
+          // the member, so a cross-function sheet locks the other slices
+          locked: !canEditAttendanceRowOf(viewer, tp, { id: m.id, functions: m.functions }),
           workHint: v
             ? `${v.actions} action${v.actions === 1 ? "" : "s"}${v.actions >= 2 ? ` · ${v.spanMinutes} min apart` : ""}`
             : null,
@@ -241,18 +243,22 @@ export async function saveAttendance(
     );
 
   const audience = await touchPointAudience(tp);
-  const allowed = new Set(audience.map((m) => m.id));
-  const canOwn = canEditOwnAttendanceRow(viewer, tp);
+  const audienceById = new Map(audience.map((m) => [m.id, m]));
   const existing = await listAttendanceFor(touchPointId);
   const byMember = new Map(existing.map((r) => [r.member_id, r]));
 
   const now = new Date().toISOString();
   let unchanged = 0;
   const payload = (rows ?? [])
-    .filter((r) => r && allowed.has(r.memberId))
-    // nobody marks THEMSELF present on a point they only got edit rights to:
-    // the row is left exactly as it was
-    .filter((r) => canOwn || r.memberId !== viewer.id)
+    // AUTHORITY FOLLOWS THE MEMBER (v33.40): each row must belong to the
+    // audience AND to a function the recorder leads — the own-row rule
+    // (nobody marks themself, v33.19.2) lives inside the same predicate.
+    // Out-of-reach rows are left exactly as they were, like own rows before.
+    .filter((r) => {
+      if (!r) return false;
+      const m = audienceById.get(r.memberId);
+      return !!m && canEditAttendanceRowOf(viewer, tp, { id: m.id, functions: m.functions });
+    })
     .filter((r) => (ATTENDANCE_STATUSES as readonly string[]).includes(r.status))
     .map((r) => {
       // an excuse only means anything when someone wasn't there on time
