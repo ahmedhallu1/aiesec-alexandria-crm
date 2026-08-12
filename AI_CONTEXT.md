@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-12 · Version: v33.42
+Last updated: 2026-08-12 · Version: v33.43
 
 ---
 
@@ -55,8 +55,9 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0053_calendar_item_visibility` → `0054_function_settings` →
 `0055_touch_point_rating` → `0056_touch_point_members` →
 `0057_touch_point_feedback_nudge` → `0058_ir_max_per_day` →
-`0059_lc_partnerships` → `0060_ir_per_day_overrides`
-(**all applied**, 0046–0060 during v33.22–v33.39).
+`0059_lc_partnerships` → `0060_ir_per_day_overrides` →
+`0061_touch_point_location`
+(**all applied**, 0046–0061 during v33.22–v33.43).
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
@@ -627,6 +628,44 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-12 · v33.43** — **TOUCH POINTS GET A PLACE, AND THE BELL GETS
+  QUIET** (migration **0061 applied**: `touch_points.location`).
+  ① **NOBODY IS ANNOUNCED AS "BOOKED BY."** The invite, move and cancel
+  emails led with "X booked a Y" and carried a Booked-by row; the bell body
+  did too; the attendance history had a Booked-by column. None of it is
+  news to the person being invited — the what, the when, the where and the
+  audience are. The owner is still stored on the row and still records
+  attendance; they just aren't announced.
+  ② **AND THE ANNOUNCEMENT IS SMALLER**: the audience minus the person who
+  just booked it (a bell about your own click is the definition of noise)
+  and minus LCVPs/Directors/the LCP (a touch point is the floor's business
+  and the calendar is right there). Being off the announcement does NOT
+  remove them from the audience — attendance still covers them.
+  ③ **A "WHERE" FIELD** (0061): optional, on every non-virtual touch point,
+  printed in the invite and move emails and shown on the calendar cards. A
+  virtual meeting's "where" IS its Meet link, so the field hides there. It
+  used to live in the note or nowhere.
+  ④ **"🙏 CAN'T MAKE IT?" — THE EXCUSE THAT ARRIVES IN TIME.** Attendance
+  could only be argued with AFTER the fact (the appeal is a post-mortem), so
+  someone who knew on Tuesday that Thursday was impossible had nowhere to
+  say it. `excuseMyAttendance` lets anyone in an upcoming touch point's
+  audience file it themselves: it emails the WHOLE TM function
+  (`tmFunctionEmails`, falling back to the leads) while the room can still
+  be planned, bells the person who will record it, and writes their own row
+  as late/absent + **excused** — which the recorder can still change. It
+  refuses once the session has started or attendance is taken; that is the
+  appeal's job.
+  ⑤ **THE BELL STOPS TALKING TO YOU ABOUT YOURSELF.** `notifyMembers` now
+  drops the actor from every recipient list — one guard, so no future caller
+  has to remember. Prod said it plainly: **24 of the last 34 "Visit booked"
+  bells went to the person who had just booked the visit**, and four touch
+  points belled their own booker.
+  ⑥ **THE PANEL IS SCANNABLE**: icon + headline on one line with a short
+  "2h ago" (the exact timestamp on hover), the body clamped to two lines
+  (the detail lives on the page it opens), and the duplicated "Open →" gone.
+  521 visit announcements in seven days is what made the list unreadable —
+  v33.42 narrowed that audience, and this makes what's left legible.
 
 - **2026-08-12 · v33.42** — **WHO HEARS ABOUT WHAT** (no migration).
   ① **WORKING HOURS: THE ENGINE SUGGESTS, IT NEVER RECORDS.** It wrote real

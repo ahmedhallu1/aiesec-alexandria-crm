@@ -27,7 +27,14 @@ export async function notifyMembers(
   createdBy?: string | null,
   link?: string | null
 ): Promise<void> {
-  const ids = [...new Set(memberIds)].filter(Boolean);
+  // NOBODY IS TOLD ABOUT THEIR OWN CLICK (v33.43). 24 of the last 34
+  // "Visit booked" bells went to the person who had just booked it, and the
+  // bookers of touch points were belling themselves too. A notification is
+  // for news you don't already have; the actor watched it happen and got a
+  // toast for it. One guard, so no future caller has to remember.
+  const ids = [...new Set(memberIds)].filter(
+    (id) => Boolean(id) && (!createdBy || id !== createdBy)
+  );
   if (ids.length === 0) return;
   if (await sandboxSuppressed(`notification "${title}" → ${ids.length} member(s)`)) return;
   const rows = ids.map((member_id) => ({

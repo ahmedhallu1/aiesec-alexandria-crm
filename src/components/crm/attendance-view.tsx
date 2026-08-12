@@ -53,7 +53,6 @@ import {
   type TableColumn,
 } from "./data-table-kit";
 import { Hint } from "./hint";
-import { bookedBy } from "@/lib/touch-point-label";
 
 /** /attendance (v29) — for EVERYONE.
  *  A member reads their own history and appeals a wrong row; a Team Leader
@@ -247,7 +246,7 @@ function RecordDialog({
           <DialogTitle dir="auto">{sheet ? sheet.label : "Attendance"}</DialogTitle>
           <DialogDescription dir="auto">
             {sheet
-              ? `${sheet.whenLabel} · ${sheet.audience} · booked by ${bookedBy(sheet)}`
+              ? `${sheet.whenLabel} · ${sheet.audience}`
               : "Loading the audience…"}
           </DialogDescription>
         </DialogHeader>
@@ -506,7 +505,6 @@ const ATTENDANCE_COLUMNS: TableColumn[] = [
   { key: "excuse", label: "Excuse" },
   { key: "actions", label: "Actions" },
   { key: "audience", label: "Audience", defaultHidden: true },
-  { key: "owner", label: "Booked by", defaultHidden: true },
   { key: "recorded", label: "Recorded at", defaultHidden: true },
 ];
 
@@ -532,7 +530,6 @@ const ATTENDANCE_SORTERS: Record<string, (r: AttendanceHistoryRow) => string | n
   status: (r) => r.status,
   excuse: (r) => r.excuse,
   audience: (r) => r.audience,
-  owner: (r) => r.ownerName,
   recorded: (r) => r.recordedAt,
 };
 
@@ -696,8 +693,6 @@ export function AttendanceView({
         return <span dir="auto">{r.excuse ?? "—"}</span>;
       case "audience":
         return <span dir="auto">{r.audience}</span>;
-      case "owner":
-        return <span dir="auto">{r.ownerName}</span>;
       case "recorded":
         return r.recordedAt ? cairoDay(r.recordedAt) : "—";
       case "actions":
@@ -797,7 +792,7 @@ export function AttendanceView({
                     {o.label}
                   </p>
                   <p className="truncate text-xs text-muted-foreground" dir="auto">
-                    {o.whenLabel} · {o.audience} · booked by {bookedBy(o)}
+                    {o.whenLabel} · {o.audience}
                   </p>
                 </div>
                 <Button size="sm" onClick={() => setRecording(o.id)}>

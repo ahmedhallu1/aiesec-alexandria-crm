@@ -99,11 +99,21 @@ async function announce(
   const body =
     mode === "cancelled"
       ? extra?.reason ?? "It's off."
-      : `${who} · booked by ${tp.owner_name}${tp.note ? ` — ${tp.note}` : ""}`;
+      : `${who}${tp.location ? ` · ${tp.location}` : ""}${tp.note ? ` — ${tp.note}` : ""}`;
+
+  // WHO IS ACTUALLY TOLD (v33.43, by the LCP's request):
+  //   · not the person who just booked it — they know, and a bell about your
+  //     own click is the definition of noise;
+  //   · not the LCVPs/Directors/LCP — a touch point is the floor's business
+  //     and they can read the calendar. Being off the announcement does NOT
+  //     remove them from the audience: attendance still covers them.
+  const told = audience.filter(
+    (m) => m.id !== tp.owner_id && !["LCVP", "Director", "LCP"].includes(m.role)
+  );
 
   await notifyTouchPointAudience(
     actorId,
-    audience.map((m) => m.id),
+    told.map((m) => m.id),
     "broadcast",
     title,
     body,
@@ -113,7 +123,7 @@ async function announce(
 
   // …and NO email leaves the building during a test view
   if (await sandboxSuppressed(`touch-point ${mode} email`)) return;
-  const to = audience.map((m) => m.email).filter((e): e is string => !!e);
+  const to = told.map((m) => m.email).filter((e): e is string => !!e);
   if (to.length === 0) return;
   const cc = (await tmLeadEmails()).filter((e) => !to.includes(e));
 
@@ -126,7 +136,7 @@ async function announce(
     label,
     whenLabel: when,
     audience: who,
-    ownerName: tp.owner_name,
+    location: tp.location,
     note: tp.note,
   };
   const mail =
@@ -153,6 +163,8 @@ export interface CreateTouchPointInput {
   date: string;
   time: string;
   note?: string | null;
+  /** v33.43 — where it happens; meaningless (and hidden) when virtual */
+  location?: string | null;
   invitedTeams?: string[];
   invitedFunctions?: string[];
   /** VIRTUAL (v32.9): creates a Google Calendar event with a Meet room and
@@ -428,6 +440,8 @@ export async function createTouchPoint(
       members: memberIds,
       starts_at: startsAt.toISOString(),
       note: clean(input.note, 500) || null,
+      // a virtual touch point's "where" is its Meet link — never a room
+      location: input.virtual ? null : clean(input.location, 160) || null,
       invited_teams: invitedTeams,
       invited_functions: invitedFunctions,
       owner_id: viewer.id,
@@ -560,7 +574,7 @@ export async function updateTouchPointMembers(
 
 export async function updateTouchPoint(
   id: string,
-  patch: { date?: string; time?: string; note?: string | null }
+  patch: { date?: string; time?: string; note?: string | null; location?: string | null }
 ): Promise<Result> {
   const viewer = await getViewer();
   const tp = await getTouchPoint(id);
@@ -592,6 +606,7 @@ export async function updateTouchPoint(
     }
   }
   if (patch.note !== undefined) next.note = clean(patch.note, 500) || null;
+  if (patch.location !== undefined) next.location = clean(patch.location, 160) || null;
   if (Object.keys(next).length === 0) return { ok: true };
 
   await snapshotForUndo("touch_points", id);

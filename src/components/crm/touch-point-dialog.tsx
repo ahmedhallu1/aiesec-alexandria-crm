@@ -100,6 +100,8 @@ export function TouchPointDialog({
   const [date, setDate] = useState(defaultDate ?? "");
   const [time, setTime] = useState("18:00");
   const [note, setNote] = useState("");
+  // v33.43 — where it happens; a virtual meeting's "where" is its Meet link
+  const [location, setLocation] = useState("");
   const [invTeams, setInvTeams] = useState<string[]>([]);
   const [invFns, setInvFns] = useState<string[]>([]);
   const [notify, setNotify] = useState(true);
@@ -189,6 +191,7 @@ export function TouchPointDialog({
         date,
         time,
         note: note || null,
+        location: location || null,
         invitedTeams: scope === "team" ? invTeams : [],
         invitedFunctions: scope === "function" ? invFns : [],
         // omitted when nothing was unticked, so the audience stays DERIVED
@@ -350,6 +353,19 @@ export function TouchPointDialog({
               </div>
             </div>
 
+            {!(kind === "meeting" && virtual) ? (
+              <div className="grid gap-1.5">
+                <Label>Where (optional)</Label>
+                <Input
+                  dir="auto"
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  placeholder="The office, third floor · the café on Fouad St…"
+                  maxLength={160}
+                />
+              </div>
+            ) : null}
+
             <div className="grid gap-1.5">
               <Label>Note (optional)</Label>
               <Textarea
@@ -357,7 +373,7 @@ export function TouchPointDialog({
                 rows={2}
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="Agenda, place, anything they should know…"
+                placeholder="Agenda, anything they should know…"
                 maxLength={500}
               />
             </div>
