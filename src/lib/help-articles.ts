@@ -805,7 +805,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "p",
-    "md": "**Who else hears about it?** Two different things happen. First, the **calendar invite**: a Member's visit invites their Team Leader + the function VP(s) as attendees; a Team Leader's or Coordinator's invites the VP(s). Second, the **announcement**: the raising crew of the account's own function gets an email + bell as an FYI — no calendar event for them. Since v33.38 the announcement **skips the LCVP/Directors by default** — they already ride the calendar invite, and a second email about the same visit was noise; a function's leader can switch it back on from Function defaults on their profile. You can see everyone's visits on the [Calendar](/calendar)."
+    "md": "**Who else hears about it?** Two different things happen. First, the **calendar invite**: a Member's visit invites their Team Leader + the function VP(s) as attendees; a Team Leader's or Coordinator's invites the VP(s). Second, the **announcement** (v33.42, narrowed): a **new booking** reaches the function's **Members** plus the responsible's own Team Leader — not the other MMs, since another team's TL has no call to make about it; a **move** reaches only the responsible's Team Leader, and nobody at all when an MM moves their own visit. LCVPs/Directors join those emails only if their function's defaults say so (they always ride the calendar invite). You can see everyone's visits on the [Calendar](/calendar)."
    },
    {
     "t": "steps",
@@ -843,6 +843,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
      {
       "q": "Why didn't my VP get the visit announcement email?",
       "a": "By design since v33.38 — leaders already receive the calendar invite for every visit, so the function-wide announcement email skips LCVPs and Directors by default. A leader who wants both can flip \"Visit announcements reach me too\" on their Function defaults card."
+     },
+     {
+      "q": "I moved my visit — who was told?",
+      "a": "Your Team Leader (and your VP if their function switched announcements on). Nobody else: a time change is not news to the function, and if you're an MM moving your own visit, nobody is notified at all. The calendar invite updates for everyone on it, as always."
      }
     ]
    }
@@ -2899,6 +2903,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
     "t": "callout",
     "tone": "info",
     "md": "**Cross-function touch points record per slice (v33.40).** When a touch point invites another function, that function's own MMs and VPs/Directors open the sheet and set **their own people's** rows — the booking function's crew can't fill the invited function's slice, and vice versa. TM and the LCP keep the whole sheet, and the sheet confirms once every slice is recorded."
+   },
+   {
+    "t": "callout",
+    "tone": "warn",
+    "md": "**Working hours are SUGGESTED, never recorded (v33.42).** The engine used to write attended/absent rows on its own — and those counted everywhere while nobody had confirmed them. Now it fills the sheet in front of you (each row marked *suggested*) and **stores nothing**: correct what looks wrong and press Confirm. Until you do, the session counts as unrecorded and keeps reminding you."
    }
   ]
  },
@@ -3080,6 +3089,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
       "a": "The feedback inbox: the whole TM function, the LCP, and the IM director. Not the person who booked the session."
      }
     ]
+   },
+   {
+    "t": "p",
+    "md": "**Who gets asked (v33.42):** the evening nudge goes to the floor — members and MMs. VPs, Directors and the LCP aren't chased for a rating (they can still open Feedback and rate any touch point they were part of). **TM rides the CC on LC-wide sessions only** — a team meeting's rating is its own crew's business."
    }
   ]
  },
@@ -4849,6 +4862,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
       "a": "ADMIN_EMAILS (the IM director) gets everything including anonymous-author unmasking. Role/sub-function **Admin** grants the admin tools (Health, logs, journal) without whole-LC visibility — whole-LC access belongs to the IM leadership, LCP and F&L."
      }
     ]
+   },
+   {
+    "t": "p",
+    "md": "**The test view is one tap from anywhere (v33.42):** the 👁 button beside 🛠️ Report (top-right on desktop, next to the bell on a phone) opens a searchable picker — pick a person and the whole app becomes theirs. It starts in **sandbox**, so anything you change is rolled back when you exit from the floating banner."
    }
   ]
  },

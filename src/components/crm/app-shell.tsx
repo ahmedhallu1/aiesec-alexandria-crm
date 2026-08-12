@@ -33,6 +33,8 @@ import { ThemeToggle } from "./theme-toggle";
 import { NotificationsBell } from "./notifications-bell";
 import { AutoRefresh, RefreshButton } from "./auto-refresh";
 import { FeedbackButton } from "./floating-feedback";
+import { TestViewButton } from "./test-view-button";
+import type { ViewAsTarget } from "@/server/data";
 import { WalkingLoader } from "./walking-loader";
 import { BlueManChat } from "./blue-man-chat";
 import { PendingPrompt } from "./pending-prompt";
@@ -50,10 +52,14 @@ interface ShellProps {
   };
   nav: { raising: boolean; dashboard: boolean; tm: boolean; membership: boolean; planning: boolean; ogtMail: boolean; signups: boolean; consideration: boolean; calendar: boolean; mailbox: boolean };
   signOutAction: () => Promise<void>;
+  /** the admin's test-view pool — empty for everyone else (v33.42) */
+  viewAsTargets?: ViewAsTarget[];
   children: React.ReactNode;
 }
 
-export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
+export function AppShell({
+  user, nav, signOutAction, viewAsTargets = [], children,
+}: ShellProps) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   // slow route changes get the walking man after a beat — fast ones never
@@ -608,6 +614,15 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
       ) : null}
       {/* manual refresh + the report button — pinned top-right, always reachable */}
       <div className="fixed right-4 top-3 z-40 hidden items-center gap-1.5 md:flex">
+        {/* the admin's test view, next to the report button (v33.42) — the
+            question "what does a Member see HERE?" is asked on the page you
+            are looking at, not on the profile */}
+        {viewAsTargets.length > 0 ? (
+          <TestViewButton
+            targets={viewAsTargets}
+            className="rounded-full border bg-card/85 text-muted-foreground shadow-sm backdrop-blur hover:bg-muted hover:text-foreground"
+          />
+        ) : null}
         <FeedbackButton className="rounded-full border bg-card/85 shadow-sm backdrop-blur hover:bg-muted" />
         <RefreshButton className="rounded-full border bg-card/85 text-muted-foreground shadow-sm backdrop-blur hover:bg-muted hover:text-foreground" />
       </div>
@@ -666,6 +681,12 @@ export function AppShell({ user, nav, signOutAction, children }: ShellProps) {
           <p className="truncate text-sm font-black tracking-tight text-sidebar-foreground">Sodio</p>
         </Link>
         <div className="ml-auto flex shrink-0 items-center gap-1">
+          {viewAsTargets.length > 0 ? (
+            <TestViewButton
+              targets={viewAsTargets}
+              className="text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            />
+          ) : null}
           <FeedbackButton className="text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
           <NotificationsBell canBroadcast={canBroadcast} />
           <ThemeToggle className="text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground" />

@@ -2529,7 +2529,10 @@ function announceFunctions(fn: string): ("IGV" | "IGT" | "B2B" | "B2C")[] {
 async function resolveVisitRecipients(
   account: PipelineRow,
   responsible: Member | null,
-  viewerId: string
+  viewerId: string,
+  /** v33.42 — a MOVE is not news to a function, only to the people who
+   *  answer for the visit; a new booking still reaches the floor. */
+  kind: "new" | "moved" = "new"
 ): Promise<{ attendeeEmails: string[]; announceIds: string[]; announceEmails: string[] }> {
   const empty = { attendeeEmails: [], announceIds: [], announceEmails: [] };
   if (!responsible || !isRaisingMember(responsible)) return empty;
@@ -2570,20 +2573,42 @@ async function resolveVisitRecipients(
   }
   if (responsible.email) attendees.delete(responsible.email);
 
-  // ---- announcement crew: the account's OWN raising function ----
-  // VPs/DIRECTORS ARE OFF THE ANNOUNCEMENT EMAIL BY DEFAULT (v33.38, by the
-  // LCP's request): they already ride the calendar INVITE as attendees, so
-  // the announcement was a second email about the same visit. The function's
-  // own defaults can switch them back on (`visitAnnounceLeaders`).
+  // ---- WHO ACTUALLY NEEDS TO HEAR ABOUT IT (v33.42, by the LCP's request) ----
+  //
+  // The announcement went to the whole raising function for every event, move
+  // included — so a time change on one member's visit mailed thirty people.
+  // Two audiences now:
+  //   · a NEW booking → the function's MEMBERS (so nobody double-books the
+  //     same partner) + the responsible's own Team Leader. The other MMs are
+  //     not on it: another team's TL has no call to make about this visit.
+  //   · a MOVE → the responsible's Team Leader alone. When an MM moves their
+  //     own visit, nobody: they answer for it themselves.
+  // VPs/Directors ride the calendar INVITE either way, and only join these
+  // emails when their function's own defaults say so (`visitAnnounceLeaders`,
+  // v33.38).
   const { functionSettingsFor } = await import("./function-settings");
   const announceLeaders = (await functionSettingsFor(account.function)).visitAnnounceLeaders;
+  const ownTl =
+    responsible.role === "Member" && responsible.stakeholder_id
+      ? byId.get(responsible.stakeholder_id) ?? null
+      : null;
+  const tlId = ownTl?.role === "Team Leader" ? ownTl.id : null;
   const announceIds: string[] = [];
   const announceEmails: string[] = [];
   for (const m of members) {
     if (m.role === "LCP") continue; // the LCP never gets operational mail
-    if (!announceLeaders && (m.role === "LCVP" || m.role === "Director")) continue;
     if (m.id === responsible.id || m.id === viewerId) continue; // they get the direct notice
     if (!inFns(announceFns, m) || !isRaisingMember(m)) continue;
+    const isLeader = m.role === "LCVP" || m.role === "Director";
+    if (isLeader) {
+      if (!announceLeaders) continue; // opt-in, per function
+    } else if (m.id === tlId) {
+      // the responsible's own TL — on both kinds
+    } else if (kind === "moved") {
+      continue; // a move is nobody else's business
+    } else if (m.role !== "Member") {
+      continue; // a new booking reaches the MEMBERS, not the other MMs
+    }
     announceIds.push(m.id);
     if (m.email) announceEmails.push(m.email);
   }
@@ -2613,7 +2638,21 @@ export async function scheduleVisit(
     .eq("id", account.responsible_id)
     .maybeSingle<Member>();
 
-  const recipients = await resolveVisitRecipients(account, responsible, viewer.id);
+  // the pending visit is read FIRST (v33.42): whether this is a new booking
+  // or a MOVE decides who the announcement reaches, not just what it says
+  const { data: pending } = await db()
+    .from("visits")
+    .select("*")
+    .eq("account_id", accountId)
+    .is("done", null)
+    .maybeSingle<Visit>();
+
+  const recipients = await resolveVisitRecipients(
+    account,
+    responsible,
+    viewer.id,
+    pending ? "moved" : "new"
+  );
 
   const detailsUrl = `${env.appUrl}/accounts/${accountId}`;
   const eventInput = {
@@ -2625,14 +2664,8 @@ export async function scheduleVisit(
     attendees: recipients.attendeeEmails,
   };
 
-  // reschedule if a pending visit exists, otherwise create — keep the row id so
-  // the calendar invite has a stable UID (a reschedule updates the same event)
-  const { data: pending } = await db()
-    .from("visits")
-    .select("*")
-    .eq("account_id", accountId)
-    .is("done", null)
-    .maybeSingle<Visit>();
+  // (a reschedule keeps the same visit row, so the calendar invite's UID is
+  // stable and Google updates the event instead of making a second one)
 
   // ONE BOOKING, ONE ANNOUNCEMENT (v33.23).
   //

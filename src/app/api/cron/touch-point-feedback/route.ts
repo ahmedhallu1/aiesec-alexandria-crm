@@ -64,7 +64,14 @@ export async function GET(req: NextRequest) {
     const whenLabel = cairoWhen(tp.starts_at);
     try {
       const audience = await touchPointAudience(tp);
-      const to = audience.map((m) => m.email).filter((e): e is string => !!e);
+      // THE ASK GOES DOWN, NOT UP (v33.42, by the LCP's request). Rating a
+      // session is the floor's job: members and MMs are asked, VPs/Directors
+      // and the LCP are not chased for it — they can still open Feedback and
+      // rate any touch point they were part of, and nothing stops them.
+      const asked_ = audience.filter(
+        (m) => !["LCVP", "Director", "LCP"].includes(m.role)
+      );
+      const to = asked_.map((m) => m.email).filter((e): e is string => !!e);
       // the booker hears about it too — it is their session being rated
       const owner = tp.owner_id
         ? (
@@ -84,7 +91,11 @@ export async function GET(req: NextRequest) {
           ownerName: tp.owner_name,
           feedbackUrl: `${env.appUrl}/lc-feedback`,
         });
-        const cc = [...new Set([...tmCc, ...(owner ? [owner] : [])])];
+        // TM rides the CC for the LC's OWN sessions only (v33.42) — a team
+        // meeting's rating is not TM's inbox to carry
+        const cc = [
+          ...new Set([...(tp.scope === "lc" ? tmCc : []), ...(owner ? [owner] : [])]),
+        ];
         await sendEmail({
           to: to.length === 1 ? [to[0]] : [],
           bcc: to.length === 1 ? undefined : to,
@@ -94,7 +105,7 @@ export async function GET(req: NextRequest) {
         });
         // a bell for the people who live in the app rather than the inbox
         await notifyMembers(
-          audience.map((m) => m.id),
+          asked_.map((m) => m.id),
           "info",
           `⭐ How was ${label}?`,
           "One tap, five stars — open Feedback, pick 'A touch point'. Four seconds, promise.",

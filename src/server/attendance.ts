@@ -23,13 +23,11 @@ import {
   listAttendanceFor,
   openPendingPrompt,
   resolveAttendancePrompts,
-  runWorkingHoursAttendance,
   workWindowClosed,
   workingHoursVerdicts,
   WORKING_HOURS_RULE,
   type AppealRow,
   type AttendanceRow,
-  type ComputeResult,
   type PendingPromptRow,
 } from "./attendance-read";
 
@@ -95,6 +93,10 @@ export interface AttendanceSheetRow {
   automatic: boolean;
   /** the viewer's own row on a point they only got edit rights to */
   locked: boolean;
+  /** v33.42 — the ENGINE's proposal, held in memory and not saved anywhere.
+   *  It fills the control so the reviewer confirms rather than types; nothing
+   *  counts until they press Confirm. */
+  suggested: boolean;
   /** working hours: what the engine saw ("3 actions · 47 min apart") */
   workHint: string | null;
 }
@@ -132,15 +134,17 @@ export async function loadAttendanceSheet(
     listAttendanceFor(touchPointId),
     isWorkingHours ? workingHoursVerdicts(tp) : Promise.resolve([]),
   ]);
-  let rowsForSheet = existing;
-  // AUTO PRE-FILL ON OPEN (v33.17): a finished working-hours session used to
-  // sit empty until the reviewer clicked "Recompute" (or the nightly cron
-  // got there first). Opening the sheet IS the request to compute — run the
-  // engine when the window has closed and no pre-fill exists yet. Guards:
-  // never after a human confirmed (attendance_recorded_at — rows they left
-  // auto would otherwise be rewritable), never in a sandbox, never twice.
-  // v33.32 — and only if the point's own function still wants the pre-fill.
-  // A leader who turned it off means "we record these by hand".
+  // THE ENGINE SUGGESTS, IT NEVER RECORDS (v33.42, by the LCP's request).
+  //
+  // It used to WRITE attended/absent rows — on the nightly cron and again when
+  // the sheet was opened — and those rows counted in every history and stat
+  // while no human had confirmed a thing. "Automatic attendance" should mean a
+  // filled-in form waiting for a person, not a record. So the verdicts now
+  // ride the sheet in memory: the control comes pre-selected, and pressing
+  // Confirm (`saveAttendance`) is still the only thing that writes anything.
+  //
+  // A function whose leader turned the pre-fill off gets an empty sheet, as
+  // before — they record by hand.
   const autoAllowed = await (async () => {
     if (!isWorkingHours) return false;
     try {
@@ -152,23 +156,12 @@ export async function loadAttendanceSheet(
       return true;
     }
   })();
-  if (
-    isWorkingHours &&
-    autoAllowed &&
-    tp.status === "scheduled" &&
-    !tp.attendance_recorded_at &&
-    workWindowClosed(tp.starts_at) &&
-    !viewer.sandbox &&
-    !existing.some((r) => r.automatic)
-  ) {
-    try {
-      await runWorkingHoursAttendance(tp.id);
-      rowsForSheet = await listAttendanceFor(touchPointId);
-    } catch (e) {
-      console.error("[attendance] auto pre-fill failed:", e);
-    }
-  }
-  const byMember = new Map(rowsForSheet.map((r) => [r.member_id, r]));
+  const engineSuggests =
+    isWorkingHours && autoAllowed && workWindowClosed(tp.starts_at) && !viewer.sandbox;
+  const suggestFrom = engineSuggests
+    ? new Map(verdicts.map((v) => [v.memberId, v]))
+    : null;
+  const byMember = new Map(existing.map((r) => [r.member_id, r]));
   const verdictBy = new Map(verdicts.map((v) => [v.memberId, v]));
 
   return {
@@ -189,15 +182,18 @@ export async function loadAttendanceSheet(
       rows: audience.map((m) => {
         const row = byMember.get(m.id);
         const v = verdictBy.get(m.id);
+        // saved row first; else the engine's proposal, which is NOT saved
+        const proposed = row ? null : suggestFrom?.get(m.id)?.status ?? null;
         return {
           memberId: m.id,
           name: m.name,
           role: m.role,
           team: m.team_name,
-          status: row?.status ?? null,
+          status: row?.status ?? proposed,
           excused: row?.excused ?? false,
           excuse: row?.excuse ?? null,
           automatic: row?.automatic ?? false,
+          suggested: !row && !!proposed,
           // your own row on a point you may only edit — and, since v33.40,
           // any row of a member outside your function: authority follows
           // the member, so a cross-function sheet locks the other slices
@@ -345,29 +341,6 @@ export async function saveAttendance(
   return { ok: true, data: { saved: payload.length, confirmed } };
 }
 
-/** The "Recompute" button — the same engine the nightly cron runs, behind the
- *  recording predicate. Idempotent, human-edited rows survive it, and it does
- *  NOT confirm anything: the responsible still presses Confirm afterwards. */
-export async function computeWorkingHoursAttendance(
-  touchPointId: string
-): Promise<Result<ComputeResult>> {
-  const viewer = await getViewer();
-  const tp = await getTouchPoint(touchPointId);
-  if (!tp) return fail("That touch point no longer exists.");
-  if (!canRecordAttendance(viewer, tp))
-    return fail("Recording this one's attendance is above your access.", "forbidden");
-  if (viewer.sandbox)
-    return fail("Recomputing working hours is disabled in the sandbox test view.");
-
-  const res = await runWorkingHoursAttendance(touchPointId);
-  if (!res.ok) return fail(res.error ?? "The session could not be computed.");
-  await logAudit(viewer.id, "attendance_auto", "touch_point", touchPointId, {
-    attended: res.attended,
-    absent: res.absent,
-  });
-  refresh();
-  return { ok: true, data: res };
-}
 
 // ================================================================== appeals
 
