@@ -247,7 +247,10 @@
 /* Subtle motion (respects prefers-reduced-motion) */
 @media (prefers-reduced-motion: no-preference) {
   .rise-in {
-    animation: rise-in 0.35s cubic-bezier(0.21, 1.02, 0.73, 1) both;
+    /* `backwards`, not `both`: the end keyframe IS the natural state, and a
+       retained transform (even translateY(0)) makes the card a permanent
+       stacking context — trapping its dropdowns under later siblings. */
+    animation: rise-in 0.35s cubic-bezier(0.21, 1.02, 0.73, 1) backwards;
   }
   .rise-in-1 { animation-delay: 0.05s; }
   .rise-in-2 { animation-delay: 0.1s; }
@@ -256,7 +259,7 @@
 
   /* staggered entrance for grids/lists: each child rises a beat later */
   .stagger > * {
-    animation: rise-in 0.4s cubic-bezier(0.21, 1.02, 0.73, 1) both;
+    animation: rise-in 0.4s cubic-bezier(0.21, 1.02, 0.73, 1) backwards;
   }
   .stagger > *:nth-child(1) { animation-delay: 0.03s; }
   .stagger > *:nth-child(2) { animation-delay: 0.07s; }

@@ -5517,6 +5517,13 @@ export interface PartnerLcDetail extends PartnerLc {
   }[];
   /** 🤝 made partnerships + assigned targets, one per product (v33.38) */
   partnerships: LcPartnershipInfo[];
+  /** which products have actual IR CALLS (not hand-added IRs) — a called
+   *  product IS a working relationship, so no partnership is recorded on it
+   *  (v33.39) */
+  callProducts: IrProduct[];
+  /** WHO WORKS THIS LC (v33.39) — derived, never stored: everyone who made a
+   *  call with it, plus each caller's Team Leader. The registry filter. */
+  assignedTo: { id: string; name: string }[];
   /** free-text notes on the LC or on one of its IRs (v33.23) */
   comments: PartnerLcComment[];
   /** calls + CVs + notes as one timeline, newest first (v33.24) */
@@ -5554,7 +5561,7 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
   // Supabase caps one response at 1000 rows — page both whole-table reads on a
   // STABLE key (fetchAll re-runs the builder per page), then restore the
   // newest-first order the counts and the contacts loop rely on
-  const [lcs, calls, cvRows, manual, commentRows, partnershipRows] = await Promise.all([
+  const [lcs, calls, cvRows, manual, commentRows, partnershipRows, memberRows] = await Promise.all([
     listPartnerLcs(viewer),
     fetchAll<{
       partner_lc_id: string | null;
@@ -5565,6 +5572,7 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
       booker_phone: string | null;
       status: string;
       product: string | null;
+      member_id: string | null;
       member_name: string;
       notes: string | null;
       booker_note: string | null;
@@ -5572,7 +5580,7 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
       db()
         .from("ir_calls")
         .select(
-          "partner_lc_id, called_at, booker_name, booker_role, booker_email, booker_phone, status, product, member_name, notes, booker_note"
+          "partner_lc_id, called_at, booker_name, booker_role, booker_email, booker_phone, status, product, member_id, member_name, notes, booker_note"
         )
         .order("id")
     ),
@@ -5622,6 +5630,14 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return (data ?? []) as any[];
     })().catch(() => []),
+    // the LC's derived assignees need each caller's Team Leader (v33.39)
+    (async () => {
+      const { data } = await db()
+        .from("members")
+        .select("id, name, role, stakeholder_id");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (data ?? []) as any[];
+    })().catch(() => []),
   ]);
   const partnershipsByLc = new Map<string, LcPartnershipInfo[]>();
   for (const r of partnershipRows) {
@@ -5658,6 +5674,10 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
     commentsByLc.set(c.partner_lc_id, list);
   }
   calls.sort((a, b) => (a.called_at < b.called_at ? 1 : a.called_at > b.called_at ? -1 : 0));
+  const memberById = new Map<string, { id: string; name: string; role: string; stakeholder_id: string | null }>(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (memberRows as any[]).map((m) => [m.id, m])
+  );
   const cvCounts = new Map<string, number>();
   for (const c of cvRows) {
     if (c.partner_lc_id) cvCounts.set(c.partner_lc_id, (cvCounts.get(c.partner_lc_id) ?? 0) + 1);
@@ -5738,12 +5758,40 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
         ].filter((p): p is IrProduct => p === "GV" || p === "GT")
       ),
     ].sort();
+    // ...and the products with actual CALLS — those ARE the relationship, so
+    // the partnership buttons stand down on them (v33.39)
+    const callProducts = [
+      ...new Set(
+        mine.map((c) => c.product).filter((p): p is IrProduct => p === "GV" || p === "GT")
+      ),
+    ].sort();
+    // WHO WORKS THIS LC: its callers + each caller's Team Leader (a TL's own
+    // calls assign the LC to them alone — they are their own team's leader)
+    const assignedTo: { id: string; name: string }[] = [];
+    {
+      const seenIds = new Set<string>();
+      for (const c of mine) {
+        if (!c.member_id || seenIds.has(c.member_id)) continue;
+        const m = memberById.get(c.member_id);
+        if (!m) continue;
+        seenIds.add(m.id);
+        assignedTo.push({ id: m.id, name: m.name });
+        const tl = m.role === "Team Leader" ? null
+          : m.stakeholder_id ? memberById.get(m.stakeholder_id) : null;
+        if (tl && tl.role === "Team Leader" && !seenIds.has(tl.id)) {
+          seenIds.add(tl.id);
+          assignedTo.push({ id: tl.id, name: tl.name });
+        }
+      }
+    }
     return {
       ...lc,
       calls: mine.length,
       cvs: cvCounts.get(lc.id) ?? 0,
       lastCallAt: mine[0]?.called_at ?? null,
       products,
+      callProducts,
+      assignedTo,
       contacts,
       partnerships: (partnershipsByLc.get(lc.id) ?? []).sort((a, b) =>
         a.product.localeCompare(b.product)
@@ -6189,12 +6237,14 @@ export interface IrBookingSettings {
   guests_can_invite: boolean;
   /** v33.37 — max scheduled calls per Cairo day; null = unlimited */
   max_per_day: number | null;
+  /** v33.39 — per-weekday cap overrides, {"0": 1} = Sunday max 1 (JS dow) */
+  max_per_day_overrides: Record<string, number> | null;
 }
 
 /** every column freeBookingSlots/getBookingPage need — one place to keep the
  *  selects in sync with the interface */
 const BOOKING_SETTINGS_COLS =
-  "member_id, slug, slot_minutes, availability, active, buffer_minutes, min_notice_minutes, max_advance_days, start_date, end_date, guests_can_invite, max_per_day";
+  "member_id, slug, slot_minutes, availability, active, buffer_minutes, min_notice_minutes, max_advance_days, start_date, end_date, guests_can_invite, max_per_day, max_per_day_overrides";
 
 export interface MyIrBooking {
   settings: IrBookingSettings | null;
@@ -6323,13 +6373,26 @@ export async function freeBookingSlots(
 
   // THE DAILY CAP (v33.37): a Cairo day already holding max_per_day scheduled
   // calls simply stops being offered. Counted from the same busy list the
-  // overlap check uses, so the two can never disagree.
+  // overlap check uses, so the two can never disagree. v33.39: a WEEKDAY can
+  // carry its own cap ("3 a day, but Sunday only 1") — an override wins over
+  // the general number, and stands alone when there is no general cap at all.
   const maxPerDay =
     Number.isInteger(s.max_per_day) && (s.max_per_day as number) >= 1
       ? (s.max_per_day as number)
       : null;
+  const dayOverrides: Record<string, number> = {};
+  if (s.max_per_day_overrides && typeof s.max_per_day_overrides === "object") {
+    for (const [k, v] of Object.entries(s.max_per_day_overrides)) {
+      const dow = Number(k);
+      const cap = Number(v);
+      if (dow >= 0 && dow <= 6 && Number.isInteger(cap) && cap >= 1 && cap <= 10)
+        dayOverrides[String(dow)] = cap;
+    }
+  }
+  const capForDow = (dow: number): number | null =>
+    dayOverrides[String(dow)] ?? maxPerDay;
   const bookedPerDay = new Map<string, number>();
-  if (maxPerDay) {
+  if (maxPerDay || Object.keys(dayOverrides).length > 0) {
     for (const b of busy) {
       const day = _cairoYmd(new Date(b.start));
       bookedPerDay.set(day, (bookedPerDay.get(day) ?? 0) + 1);
@@ -6360,8 +6423,10 @@ export async function freeBookingSlots(
       w.date ? w.date === ymd : w.day === dow
     );
     if (windows.length === 0) continue;
-    // the day is FULL — the cap says no more calls here
-    if (maxPerDay && (bookedPerDay.get(ymd) ?? 0) >= maxPerDay) continue;
+    // the day is FULL — the cap (this weekday's own, else the general one)
+    // says no more calls here
+    const dayCap = capForDow(dow);
+    if (dayCap && (bookedPerDay.get(ymd) ?? 0) >= dayCap) continue;
     const seen = new Set<string>();
     const slots: BookingSlot[] = [];
     for (const w of windows) {
@@ -6704,7 +6769,11 @@ export async function streakStats(
   const today = cairoDayIso();
   const cutoff = cairoDayIso(new Date(Date.now() - 400 * 86_400_000));
 
-  let rows: { assigned_to: string | null; contacted_at: string; fn: string }[];
+  let rows: {
+    id: string; assigned_to: string | null; contacted_at: string; fn: string;
+    source: string | null;
+  }[];
+  let contactLogs: { signup_id: string; member_id: string | null; at: string }[];
   let members: {
     id: string; name: string; role: string;
     functions: string[] | null; sub_functions: string[] | null; is_active: boolean;
@@ -6713,11 +6782,14 @@ export async function streakStats(
     // every CURRENTLY-contacted sign-up in the window — the streak's raw
     // material. `contact_status` is re-checked here, so an undone contact
     // simply isn't in the set.
-    const [actRes, memRes] = await Promise.all([
-      fetchAll<{ assigned_to: string | null; contacted_at: string; fn: string }>(() =>
+    const [actRes, logRes, memRes] = await Promise.all([
+      fetchAll<{
+        id: string; assigned_to: string | null; contacted_at: string; fn: string;
+        source: string | null;
+      }>(() =>
         db()
           .from("signups")
-          .select("assigned_to, contacted_at, fn")
+          .select("id, assigned_to, contacted_at, fn, source")
           .in("fn", wanted)
           // the sheet writes "yes"/"YES" as freely as "Yes" — the streak must
           // read contacted the way the whole system does (v33.37)
@@ -6727,6 +6799,19 @@ export async function streakStats(
           .gte("contacted_at", `${cutoff}T00:00:00`)
           .order("id")
       ),
+      // WHO actually flipped it to contacted (v33.39) — the referral abuse:
+      // a row logged by someone ELSE with Contacted=Yes pre-filled must not
+      // save the assignee's flame. Pre-log rows fail to empty, which only
+      // affects referral rows — all newer than the logs table.
+      fetchAll<{ signup_id: string; member_id: string | null; at: string }>(() =>
+        db()
+          .from("signup_logs")
+          .select("signup_id, member_id, at")
+          .eq("field", "contacted")
+          .ilike("new_value", "y%")
+          .gte("at", `${cutoff}T00:00:00`)
+          .order("id")
+      ).catch(() => [] as { signup_id: string; member_id: string | null; at: string }[]),
       db()
         .from("members")
         .select("id, name, role, functions, sub_functions, is_active")
@@ -6734,6 +6819,7 @@ export async function streakStats(
     ]);
     if (memRes.error) throw new Error(memRes.error.message);
     rows = actRes;
+    contactLogs = logRes;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     members = (memRes.data ?? []) as any[];
   } catch (e) {
@@ -6743,11 +6829,32 @@ export async function streakStats(
     return null;
   }
 
+  // signup → the members who personally logged a contact on it (first day each)
+  const ownContactDay = new Map<string, Map<string, string>>();
+  for (const l of contactLogs) {
+    if (!l.member_id) continue;
+    const per = ownContactDay.get(l.signup_id) ?? new Map<string, string>();
+    const day = cairoDayIso(new Date(l.at));
+    const prev = per.get(l.member_id);
+    if (!prev || day < prev) per.set(l.member_id, day);
+    ownContactDay.set(l.signup_id, per);
+  }
+
   // member → the Cairo days they contacted on, and today's tally
   const byMember = new Map<string, { days: Set<string>; today: number }>();
   for (const r of rows) {
     if (!r.assigned_to) continue;
-    const day = cairoDayIso(new Date(r.contacted_at));
+    let day: string;
+    if (r.source === "referral") {
+      // THE ABUSE FIX (v33.39): a referral arrives pre-contacted by whoever
+      // LOGGED it. It saves the assignee's streak only when the assignee
+      // themselves flipped the contact (their own log), on that day.
+      const own = ownContactDay.get(r.id)?.get(r.assigned_to);
+      if (!own) continue;
+      day = own;
+    } else {
+      day = cairoDayIso(new Date(r.contacted_at));
+    }
     const e = byMember.get(r.assigned_to) ?? { days: new Set<string>(), today: 0 };
     e.days.add(day);
     if (day === today) e.today += 1;

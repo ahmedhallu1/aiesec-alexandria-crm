@@ -553,6 +553,9 @@ function FunctionDefaultsBlock({ settings }: { settings: FunctionSettingsCard })
         patch.podioUpdateDays = form.podioUpdateDays;
         patch.visitAnnounceLeaders = form.visitAnnounceLeaders;
       }
+      if (settings.fn === "IGV" || settings.fn === "IGT") {
+        patch.partnershipCrossTeam = form.partnershipCrossTeam;
+      }
       if (groups.visibility) {
         patch.seeAllMembers = form.seeAllMembers;
         patch.seeAllCoordinators = form.seeAllCoordinators;
@@ -637,6 +640,19 @@ function FunctionDefaultsBlock({ settings }: { settings: FunctionSettingsCard })
               "visitAnnounceLeaders",
               form.visitAnnounceLeaders
             )}
+            {settings.fn === "IGV" || settings.fn === "IGT" ? (
+              <>
+                <p className="pt-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                  Consideration
+                </p>
+                {row(
+                  "MMs hand partnership targets across teams",
+                  "OFF: a Team Leader sets 🤝 partnership targets for their own team only. ON: they can hand one to any consideration member in the function.",
+                  "partnershipCrossTeam",
+                  form.partnershipCrossTeam
+                )}
+              </>
+            ) : null}
             <label className="flex items-center justify-between gap-3 rounded-lg border p-3">
               <span className="min-w-0">
                 <span className="block text-sm font-medium">Update every…</span>

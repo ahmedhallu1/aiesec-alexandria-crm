@@ -5,7 +5,7 @@ import {
   myIrBooking,
 } from "@/server/data";
 import {
-  canSeeCvPool, canUseIgtExpectationMail, hasConsiderationAccess, icxFunctions,
+  canSeeCvPool, canUseIgtExpectationMail, fnSetting, hasConsiderationAccess, icxFunctions,
 } from "@/lib/rbac";
 import { env } from "@/lib/env";
 import { ConsiderationView } from "@/components/crm/consideration-view";
@@ -87,10 +87,16 @@ export default async function ConsiderationPage({
     irCallFilterOptions(viewer),
     canAssignPartnerships ? listConsiderationCrew(viewer) : Promise.resolve([]),
   ]);
+  // cross-team targets are the FUNCTION's call (v33.39, function defaults)
+  const crossTeam = icxFunctions(viewer).some(
+    (fn) => fnSetting(viewer, fn).partnershipCrossTeam
+  );
   const partnershipTargets = isLead
     ? crewAll
     : viewer.role === "Team Leader"
-      ? crewAll.filter((m) => m.id === viewer.id || m.managerId === viewer.id)
+      ? crossTeam
+        ? crewAll
+        : crewAll.filter((m) => m.id === viewer.id || m.managerId === viewer.id)
       : crewAll.filter((m) => m.id === viewer.id);
   // the record form's product defaults to the member's own side
   const icx = icxFunctions(viewer);

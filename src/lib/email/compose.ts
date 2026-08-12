@@ -255,19 +255,17 @@ that suits you from my booking link and it will land in both our calendars.</p>
     subject: "Signing the contract",
     audience: "ogx",
     cc: ["customer.support@aiesec.net.eg"],
-    body: `<p>Dear {{name}},</p>
-<p>Congratulations again on your approval! 🎉 I attached the <b>contract</b> and the <b>acceptance note</b> for your review and signature.</p>
-<p>Kindly reply to this email with the signed copies of both documents attached at your earliest convenience, following these steps:</p>
+    body: `<p>I attached the contract and acceptance note for your review and signature.</p>
+<p>Kindly reply to this email with the signed copies of both documents attached at your earliest convenience respectively to the next steps .</p>
 <ol>
-<li><b>Print</b> the contract and the acceptance note.</li>
-<li><b>Sign the contract</b> in the places marked for the EP's (exchange participant's) signature.</li>
-<li>Place your <b>ID</b> on every page from page 15 to the end of the contract — positioned so it doesn't cover any information — then photograph them.</li>
-<li><b>Sign the acceptance note</b> beside your digital signature on its 2nd page.</li>
-<li>Place your ID on the two pages of the acceptance note the same way (covering nothing), then photograph them.</li>
-<li><b>Reply all</b> with all the pictures (PDF preferred).</li>
+<li>print first the contract and the acceptance note .</li>
+<li>sign the contract in the places of signature of EP (exchange participant)</li>
+<li>place the ID in every page from page 15 to the END of the contract in a way that id won’t cover any information in the contract then picture them.</li>
+<li>sign the acceptance note beside your digital signature in the 2nd page of the acceptance note</li>
+<li>place the ID in the two pages in a way that id won’t cover the information of the acceptance note then picture them .</li>
+<li>reply all with all the pictures (preferred pdf).</li>
 </ol>
-<p>Please also attach your <b>student ID</b> to proceed with the process.</p>
-<p>If anything in the steps is unclear, just reply here — happy to walk you through it.</p>`
+<p>Attach student id to proceed in the process</p>`
   }
 ];
 

@@ -17,7 +17,7 @@ import {
   PODIO_FORM_URL,
 } from "@/lib/types";
 import type { AccountContact } from "@/lib/types";
-import { Plus } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 import { MultiPick } from "./multi-pick";
 import { ContactsEditor, contactsValid } from "./contacts-editor";
 import { Button } from "@/components/ui/button";
@@ -329,7 +329,8 @@ export function AddAccountDialog({
                   {nameCheck.info.claim ? (
                     <button
                       type="button"
-                      className="text-xs font-semibold text-primary underline-offset-2 hover:underline"
+                      disabled={pending}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-primary underline-offset-2 hover:underline disabled:opacity-60"
                       onClick={() => {
                         const id = nameCheck.info.claim!;
                         startTransition(async () => {
@@ -343,7 +344,8 @@ export function AddAccountDialog({
                         });
                       }}
                     >
-                      Take it — it&apos;s mine now
+                      {pending ? <Loader2 className="size-3 animate-spin" /> : null}
+                      {pending ? "Taking it…" : "Take it — it's mine now"}
                     </button>
                   ) : nameCheck.info.open ? (
                     <a
@@ -360,7 +362,8 @@ export function AddAccountDialog({
                   {nameCheck.info.revive ? (
                     <button
                       type="button"
-                      className="text-xs font-semibold text-primary underline-offset-2 hover:underline"
+                      disabled={pending}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-primary underline-offset-2 hover:underline disabled:opacity-60"
                       onClick={() => {
                         const id = nameCheck.info.revive!;
                         startTransition(async () => {
@@ -380,13 +383,15 @@ export function AddAccountDialog({
                         });
                       }}
                     >
-                      Bring it back and take it
+                      {pending ? <Loader2 className="size-3 animate-spin" /> : null}
+                      {pending ? "Bringing it back…" : "Bring it back and take it"}
                     </button>
                   ) : null}
                   {nameCheck.info.unblock ? (
                     <button
                       type="button"
-                      className="text-xs font-semibold text-primary underline-offset-2 hover:underline"
+                      disabled={pending}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-primary underline-offset-2 hover:underline disabled:opacity-60"
                       onClick={() => {
                         const id = nameCheck.info.unblock!;
                         startTransition(async () => {
@@ -400,7 +405,8 @@ export function AddAccountDialog({
                         });
                       }}
                     >
-                      Unblock this name
+                      {pending ? <Loader2 className="size-3 animate-spin" /> : null}
+                      {pending ? "Unblocking…" : "Unblock this name"}
                     </button>
                   ) : null}
                 </div>

@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-11 · Version: v33.38
+Last updated: 2026-08-12 · Version: v33.39
 
 ---
 
@@ -55,8 +55,8 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0053_calendar_item_visibility` → `0054_function_settings` →
 `0055_touch_point_rating` → `0056_touch_point_members` →
 `0057_touch_point_feedback_nudge` → `0058_ir_max_per_day` →
-`0059_lc_partnerships`
-(**all applied**, 0046–0059 during v33.22–v33.38).
+`0059_lc_partnerships` → `0060_ir_per_day_overrides`
+(**all applied**, 0046–0060 during v33.22–v33.39).
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
@@ -627,6 +627,63 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-12 · v33.39** — **THE CORRECTIONS BATCH ON v33.38** (migration
+  **0060 applied**: `ir_booking_settings.max_per_day_overrides`).
+  ① **WORKING AN UNOWNED ACCOUNT TAKES IT** (the Shahd case: she contacted
+  unassigned MR rows and two leaders spent their evening reassigning them to
+  her by hand). `logContact` on an unassigned account now claims it FIRST —
+  through the real reassign path, cross-function move included — and the
+  toast says so with an **Undo** button (`undoAutoAssign`: only the current
+  responsible, back to the pool, the contact stays). The "Visit Scheduled"
+  result stopped needing a pre-assigned responsible for these rows: the
+  claim happens before the check.
+  ② **THE STREAK CAN'T BE GIFTED** (the abuse found in prod: referrals logged
+  by one member with Contacted=Yes pre-filled, ASSIGNED to others just after
+  midnight — the assignee's flame saved without them touching a phone).
+  `addSignupReferral` now writes the contact log under the LOGGER, and
+  `streakStats` counts a referral row only when the ASSIGNEE has their own
+  contacted log on it — everything else keeps reading the live data, so
+  undoing all of today's contacts still un-saves the day.
+  ③ **PER-WEEKDAY IR CALL CAPS** (0060): "3 a day, but Sunday only 1" — a
+  JSONB override map beside `max_per_day`, a mini per-day row on the
+  availability card, honoured by the slot builder AND both booking-time
+  validators (the public book + reschedule paths re-read it).
+  ④ **PARTNERSHIPS, ROUND TWO** (the v33.38 gaps): a **global 🎯 Set a
+  target** button — pointing at any LC or a brand-new one created in the
+  dialog (`assignLcPartnership` learned `newLc` via `resolvePartnerLc`);
+  the record form gained **"Counts for"** so an MM records a member's win
+  onto the member's numbers (validated by the same matrix as assigning, the
+  member is belled); **IR CALLS BLOCK PARTNERSHIPS PER PROGRAMME** — an LC
+  with GT calls IS a GT relationship, so record/target stand down on GT
+  (`callProducts` derived from non-cancelled calls only; server refusals in
+  both actions via `lcAlreadyCalled`; a pending target whose programme gets
+  called shows "hand it back"); **WHO WORKS AN LC** is derived from its
+  calls — each caller + their Team Leader — shown on the card and filterable
+  (👥 Assigned to); and a **function default (IGV/IGT)**,
+  `partnershipCrossTeam`, lets TLs hand targets across teams (off = own
+  team only, the same matrix server-side via the TL's own function settings).
+  ⑤ **"COME BACK ANOTHER TIME" GREW A TIME** — both fields visible, both
+  optional: date alone = a next step for that day (the silent 11:00 booking
+  is gone), date + time = a REAL booked return visit with the calendar
+  event, neither = a next step to pin down later. The helper line says
+  which of the three you're about to do.
+  ⑥ **THE STACKING-CONTEXT BUG** (the screenshot: the CV tab's country
+  suggestions rendering UNDER the table header). `rise-in` used
+  `animation-fill-mode: both`, which retains the final `translateY(0)`
+  forever — and a retained transform makes every risen card a permanent
+  stacking context, trapping its dropdowns below later siblings. The final
+  keyframe IS the natural state, so `backwards` gives identical visuals
+  with no trap. Same fix on `.stagger`.
+  ⑦ Smaller, same batch: the **"Take it — it's mine now"** verdict button
+  (and its revive/unblock siblings) shows a spinner and disables while it
+  runs; **copy-name** buttons on the account page title and the archived
+  tab (shared `copy-name-button.tsx`); the LC **Country** field dropped its
+  "(optional)" tag; the **"Signing the contract"** template is the LC's own
+  doc **verbatim** (recovered from the transcript, greeting and rewrites
+  removed); and the flaky DNS test got a budget for its own fail-open path
+  (two 2.5s aborts brush vitest's 5s default with no network).
+  Help center: 7 article updates; the Blue Man teaches all of it. 206 tests.
 
 - **2026-08-11 · v33.38** — **RENAME, FUNNELS & THE PARTNERSHIPS MODULE**
   (migration **0059 applied**: `lc_partnerships`).

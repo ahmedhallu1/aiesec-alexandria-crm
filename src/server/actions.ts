@@ -23,6 +23,7 @@ import {
   canUseIgtExpectationMail,
   canReassignAccount,
   claimTargetFunction,
+  icxFunctions,
   isClaimableAccount,
   canManageArchive,
   commentLabel,
@@ -651,6 +652,26 @@ export async function claimAccountForSelf(
     .eq("id", accountId)
     .maybeSingle<{ name: string }>();
   return { ok: true, data: { slug: row ? accountSlug(row.name) : accountId } };
+}
+
+/** UNDO an auto-assignment (v33.39): logging a contact on an unowned account
+ *  takes it — this is the way back when it shouldn't have. The contact stays
+ *  (it happened); only the ownership returns to the pool. */
+export async function undoAutoAssign(accountId: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const account = await loadAccount(accountId);
+  if (!account) return fail("That account no longer exists.");
+  if (account.responsible_id !== viewer.id)
+    return fail("Only the account's current responsible can hand it back.", "forbidden");
+  await snapshotForUndo("accounts", accountId);
+  const { error } = await db()
+    .from("accounts")
+    .update({ responsible_id: null })
+    .eq("id", accountId);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "account_unassign", "account", accountId, { from: viewer.id });
+  refresh(accountId);
+  return { ok: true };
 }
 
 export async function reassignAccount(
@@ -2250,7 +2271,9 @@ const contactSchema = z.object({
 
 export async function logContact(
   input: z.infer<typeof contactSchema>
-): Promise<ActionResult<{ attempts: number; contactLimitReached: boolean }>> {
+): Promise<
+  ActionResult<{ attempts: number; contactLimitReached: boolean; autoAssigned?: boolean }>
+> {
   const viewer = await getViewer();
   const parsed = contactSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0].message);
@@ -2264,6 +2287,19 @@ export async function logContact(
     return fail("You are not allowed to log contacts on this account.", "forbidden");
   if (account.out_of_process)
     return fail("This account is archived (Out of Process). Ask your TL/VP to bring it back first.");
+
+  // WORKING AN UNOWNED ACCOUNT TAKES IT (v33.39, the Shahd case): contacts
+  // kept landing on unassigned rows that stayed nobody's on every list and
+  // leaderboard. The contact IS the claim — through the real reassign path,
+  // so the cross-function move happens too — and the caller is told, with
+  // Undo one tap away (`undoAutoAssign`).
+  let autoAssigned = false;
+  if (!account.responsible_id && isClaimableAccount(viewer, account)) {
+    const claimed = await reassignAccount(accountId, viewer.id, { skipRefresh: true });
+    if (!claimed.ok) return claimed;
+    autoAssigned = true;
+    account.responsible_id = viewer.id; // the visit/next-step checks below read it
+  }
 
   // "Not Interested" closes the account: it is archived automatically
   const notInterested = status === "Not Interested";
@@ -2323,7 +2359,7 @@ export async function logContact(
       reason: "Not interested",
     });
     refresh(accountId);
-    return { ok: true, data: { attempts: 0, contactLimitReached: false } };
+    return { ok: true, data: { attempts: 0, contactLimitReached: false, autoAssigned } };
   }
 
   // book the visit through the exact same path as the dedicated button
@@ -2378,7 +2414,7 @@ export async function logContact(
   refresh(accountId);
   // BUSINESS RULE: 3 contacts without a final answer → prompt for Out of Process
   const contactLimitReached = (count ?? 0) >= 3 && (answered ?? 0) === 0;
-  return { ok: true, data: { attempts: count ?? 0, contactLimitReached } };
+  return { ok: true, data: { attempts: count ?? 0, contactLimitReached, autoAssigned } };
 }
 
 // ================================================================== visits
@@ -3223,14 +3259,16 @@ async function finishDirectVisit(
     if (d.nextDate) await syncNextStepReminder(accountId);
   }
 
-  // "come back another time" WITH a date is a real booking — calendar event
-  // and reminders like any other visit. Date only → 11:00 (the next-step
-  // convention). No date at all → just the next step, to pin down later.
-  if (d.outcome === "revisit" && d.nextDate) {
+  // "come back another time" (v33.39): date AND time = a real booking —
+  // calendar event and reminders like any other visit. Date alone = a general
+  // next step ("pass by that day"), no visit row — booking an 11:00 visit
+  // nobody picked was putting words in the member's mouth. No date = just the
+  // next step, to pin down later.
+  if (d.outcome === "revisit" && d.nextDate && d.nextTime) {
     await scheduleVisit({
       accountId,
       visitDate: d.nextDate,
-      visitTime: d.nextTime || "11:00",
+      visitTime: d.nextTime,
       notes: `Return visit — first walk-in on ${d.visitDate}. ${d.comment}`,
     });
   }
@@ -6306,6 +6344,11 @@ export async function addSignupReferral(input: {
   }
 
   await logSignupChange(viewer, created.id, "referral_added", null, name);
+  // the contact was made by the LOGGER — say so in the log. The streak reads
+  // this: a referral handed to someone else pre-contacted never saves the
+  // assignee's flame (v33.39, the abuse fix)
+  if (contacted === "Yes")
+    await logSignupChange(viewer, created.id, "contacted", null, "Yes");
   if (owner.id !== viewer.id) {
     await logSignupChange(viewer, created.id, "assigned", null, owner.name);
     const { notifyMembers } = await import("./notify");
@@ -7276,6 +7319,8 @@ export async function saveIrBookingSettings(input: {
   guestsCanInvite?: boolean;
   /** v33.37 — cap the calls one Cairo day may hold; null = unlimited */
   maxPerDay?: number | null;
+  /** v33.39 — per-weekday overrides, {"0": 1} = Sunday max 1 (JS dow keys) */
+  maxPerDayOverrides?: Record<string, number> | null;
 }): Promise<ActionResult<{ slug: string }>> {
   const viewer = await getViewer();
   if (!hasConsiderationAccess(viewer)) return considerationFail();
@@ -7298,6 +7343,21 @@ export async function saveIrBookingSettings(input: {
     input.maxPerDay == null || input.maxPerDay === 0 ? null : Number(input.maxPerDay);
   if (maxPerDay !== null && (!Number.isInteger(maxPerDay) || maxPerDay < 1 || maxPerDay > 10))
     return fail("The daily cap must be between 1 and 10 calls (or no limit).");
+  // per-weekday exceptions: only real weekdays, only real caps — anything
+  // else is dropped rather than stored as junk
+  let maxPerDayOverrides: Record<string, number> | null = null;
+  if (input.maxPerDayOverrides && typeof input.maxPerDayOverrides === "object") {
+    const clean: Record<string, number> = {};
+    for (const [k, v] of Object.entries(input.maxPerDayOverrides)) {
+      const dow = Number(k);
+      const cap = Number(v);
+      if (!Number.isInteger(dow) || dow < 0 || dow > 6) continue;
+      if (!Number.isInteger(cap) || cap < 1 || cap > 10)
+        return fail("A weekday's own cap must be between 1 and 10 calls.");
+      clean[String(dow)] = cap;
+    }
+    maxPerDayOverrides = Object.keys(clean).length > 0 ? clean : null;
+  }
   const minNoticeMinutes = Number(input.minNoticeMinutes ?? 60);
   if (!Number.isInteger(minNoticeMinutes) || minNoticeMinutes < 0 || minNoticeMinutes > 10_080)
     return fail("The minimum notice must be between 0 minutes and 7 days.");
@@ -7408,6 +7468,7 @@ export async function saveIrBookingSettings(input: {
     end_date: endD.value,
     guests_can_invite: input.guestsCanInvite ?? true,
     max_per_day: maxPerDay,
+    max_per_day_overrides: maxPerDayOverrides,
   });
   if (error) {
     if (error.code === "23505")
@@ -7543,7 +7604,7 @@ export async function bookIrCall(input: {
   const { data: settings } = await db()
     .from("ir_booking_settings")
     .select(
-      "member_id, slug, slot_minutes, availability, active, buffer_minutes, min_notice_minutes, max_advance_days, start_date, end_date, guests_can_invite, max_per_day"
+      "member_id, slug, slot_minutes, availability, active, buffer_minutes, min_notice_minutes, max_advance_days, start_date, end_date, guests_can_invite, max_per_day, max_per_day_overrides"
     )
     .ilike("slug", slug)
     .maybeSingle<IrBookingSettings>();
@@ -8394,7 +8455,7 @@ async function loadManagedCall(token: string): Promise<
       db()
         .from("ir_booking_settings")
         .select(
-          "member_id, slug, slot_minutes, availability, active, buffer_minutes, min_notice_minutes, max_advance_days, start_date, end_date, guests_can_invite, max_per_day"
+          "member_id, slug, slot_minutes, availability, active, buffer_minutes, min_notice_minutes, max_advance_days, start_date, end_date, guests_can_invite, max_per_day, max_per_day_overrides"
         )
         .eq("member_id", call.member_id)
         .maybeSingle<IrBookingSettings>(),
@@ -8770,6 +8831,76 @@ const cairoToday = (): string =>
     day: "2-digit",
   }).format(new Date());
 
+/** Who may a partnership be handed to / credited to (v33.39, one matrix for
+ *  assign AND record-for): lead → the whole crew · TL → self + own team, or
+ *  the whole crew when their function's defaults open cross-team targets ·
+ *  Coordinator → self. */
+async function resolvePartnershipTarget(
+  viewer: Viewer,
+  memberId: string
+): Promise<
+  | { target: { id: string; name: string; role: string; managerId: string | null } }
+  | { error: ActionResult<never> }
+> {
+  const { listConsiderationCrew } = await import("./data");
+  const crew = await listConsiderationCrew(viewer);
+  const target = crew.find((m) => m.id === memberId);
+  if (!target)
+    return {
+      error: fail(
+        "Pick someone from the consideration crew — targets go to members and MMs."
+      ) as ActionResult<never>,
+    };
+  if (isConsiderationLead(viewer)) return { target };
+  if (!["Team Leader", "Coordinator"].includes(viewer.role))
+    return {
+      error: fail(
+        "Only MMs, VPs/Directors or the LCP hand out partnership targets.",
+        "forbidden"
+      ) as ActionResult<never>,
+    };
+  let mine =
+    target.id === viewer.id ||
+    (viewer.role === "Team Leader" && target.managerId === viewer.id);
+  // cross-team targets are the FUNCTION's call (v33.39, function defaults)
+  if (!mine && viewer.role === "Team Leader") {
+    const { functionSettingsFor } = await import("./function-settings");
+    for (const fn of icxFunctions(viewer)) {
+      if ((await functionSettingsFor(fn)).partnershipCrossTeam) {
+        mine = true;
+        break;
+      }
+    }
+  }
+  if (!mine)
+    return {
+      error: fail(
+        viewer.role === "Team Leader"
+          ? "A Team Leader hands targets to their own team — unless your function's defaults open cross-team targets."
+          : "A Coordinator can only take a target themselves.",
+        "forbidden"
+      ) as ActionResult<never>,
+    };
+  return { target };
+}
+
+/** IR CALLS ARE THE RELATIONSHIP (v33.39): an LC already called for a product
+ *  needs no partnership row on it — recording or targeting one there is
+ *  refused, exactly like the buttons that stood down in the UI. */
+async function lcAlreadyCalled(
+  partnerLcId: string,
+  product: "GV" | "GT"
+): Promise<boolean> {
+  const { data } = await db()
+    .from("ir_calls")
+    .select("id")
+    .eq("partner_lc_id", partnerLcId)
+    .eq("product", product)
+    .neq("status", "cancelled")
+    .limit(1);
+  return (data ?? []).length > 0;
+}
+
 /** RECORD A PARTNERSHIP (v33.38): approached an LC, opened the WhatsApp group —
  *  that IS the win, and it finally has a row. One per LC × PRODUCT, so the same
  *  LC can be a new GT partnership while staying an old GV one. Completing a
@@ -8785,6 +8916,9 @@ export async function recordLcPartnership(input: {
   irEmail?: string | null;
   /** YYYY-MM-DD — defaults to today (Cairo); never in the future */
   date?: string | null;
+  /** v33.39 — who it COUNTS FOR: an MM records a partnership their member
+   *  made; same matrix as assigning a target. Defaults to the recorder. */
+  memberId?: string | null;
 }): Promise<ActionResult> {
   const viewer = await getViewer();
   if (!hasConsiderationAccess(viewer)) return considerationFail();
@@ -8809,6 +8943,12 @@ export async function recordLcPartnership(input: {
   if ("error" in resolved) return resolved.error;
   const lc = resolved.lc;
 
+  // an LC already CALLED for this product needs no partnership row (v33.39)
+  if (await lcAlreadyCalled(lc.id, input.product))
+    return fail(
+      `${lc.name} already has ${input.product} IR calls — that IS the working relationship, nothing to record.`
+    );
+
   const { data: existing } = await db()
     .from("lc_partnerships")
     .select("id, status, assigned_to, made_by, partnership_date")
@@ -8828,9 +8968,17 @@ export async function recordLcPartnership(input: {
         ". The other programme can still make its own."
     );
 
-  // completing a TARGET credits the member it was assigned to — the recorder
-  // may be their TL or VP filing it on their behalf
-  const creditTo = existing?.assigned_to ?? viewer.id;
+  // WHO IT COUNTS FOR (v33.39): an explicit pick wins (validated by the same
+  // matrix as assigning); else completing a TARGET credits its assignee; else
+  // the recorder — their own win.
+  let creditTo = existing?.assigned_to ?? viewer.id;
+  if (input.memberId && input.memberId !== viewer.id) {
+    const picked = await resolvePartnershipTarget(viewer, input.memberId);
+    if ("error" in picked) return picked.error;
+    creditTo = picked.target.id;
+  } else if (input.memberId === viewer.id) {
+    creditTo = viewer.id;
+  }
   const row = {
     status: "done",
     made_by: creditTo,
@@ -8883,11 +9031,11 @@ export async function recordLcPartnership(input: {
     /* registry is a bonus, never the blocker */
   }
 
-  // someone else completed a member's target — tell them their win landed
-  if (existing?.assigned_to && existing.assigned_to !== viewer.id) {
+  // someone else's win landed — tell whoever it counts for
+  if (creditTo !== viewer.id) {
     const { notifyMembers } = await import("./notify");
     await notifyMembers(
-      [existing.assigned_to],
+      [creditTo],
       "info",
       `🤝 Partnership made: ${lc.name} (${input.product})`,
       `${viewer.name} recorded it — it counts for you.`,
@@ -8911,7 +9059,9 @@ export async function recordLcPartnership(input: {
  *  VP/Director/LCP-level → any consideration member. The member AND their Team
  *  Leader are belled: the manager answers for the target too. */
 export async function assignLcPartnership(input: {
-  partnerLcId: string;
+  /** an existing LC — or a brand-new one via `newLc` (v33.39) */
+  partnerLcId?: string | null;
+  newLc?: { name: string; country?: string | null } | null;
   product: "GV" | "GT";
   memberId: string;
 }): Promise<ActionResult> {
@@ -8921,34 +9071,22 @@ export async function assignLcPartnership(input: {
     return fail("Partnerships are disabled in the sandbox test view.");
   if (input.product !== "GV" && input.product !== "GT")
     return fail("Pick the programme — GV or GT.");
-  const lead = isConsiderationLead(viewer);
-  if (!lead && !["Team Leader", "Coordinator"].includes(viewer.role))
+  if (!isConsiderationLead(viewer) && !["Team Leader", "Coordinator"].includes(viewer.role))
     return fail("Only MMs, VPs/Directors or the LCP hand out partnership targets.", "forbidden");
 
-  const { listConsiderationCrew } = await import("./data");
-  const crew = await listConsiderationCrew(viewer);
-  const target = crew.find((m) => m.id === input.memberId);
-  if (!target)
-    return fail("Pick someone from the consideration crew — targets go to members and MMs.");
-  if (!lead) {
-    const mine =
-      target.id === viewer.id ||
-      (viewer.role === "Team Leader" && target.managerId === viewer.id);
-    if (!mine)
-      return fail(
-        viewer.role === "Team Leader"
-          ? "A Team Leader hands targets to their own team."
-          : "A Coordinator can only take a target themselves.",
-        "forbidden"
-      );
-  }
+  const picked = await resolvePartnershipTarget(viewer, input.memberId);
+  if ("error" in picked) return picked.error;
+  const target = picked.target;
 
-  const { data: lc } = await db()
-    .from("partner_lcs")
-    .select("id, name")
-    .eq("id", input.partnerLcId)
-    .maybeSingle<{ id: string; name: string }>();
-  if (!lc) return fail("That partner LC no longer exists.");
+  const resolved = await resolvePartnerLc(input);
+  if ("error" in resolved) return resolved.error;
+  const lc = resolved.lc;
+
+  // an LC already CALLED for this product needs no target on it (v33.39)
+  if (await lcAlreadyCalled(lc.id, input.product))
+    return fail(
+      `${lc.name} already has ${input.product} IR calls — that IS the working relationship, nothing to target.`
+    );
 
   const { data: existing } = await db()
     .from("lc_partnerships")
@@ -8999,8 +9137,12 @@ export async function assignLcPartnership(input: {
   // bell the member — and their TL, who answers for the team's targets
   const recipients = [target.id];
   if (target.managerId && target.managerId !== viewer.id) {
-    const tl = crew.find((m) => m.id === target.managerId && m.role === "Team Leader");
-    if (tl) recipients.push(tl.id);
+    const { data: mgr } = await db()
+      .from("members")
+      .select("id, role, is_active")
+      .eq("id", target.managerId)
+      .maybeSingle<{ id: string; role: string; is_active: boolean }>();
+    if (mgr?.role === "Team Leader" && mgr.is_active) recipients.push(mgr.id);
   }
   const { notifyMembers } = await import("./notify");
   await notifyMembers(
