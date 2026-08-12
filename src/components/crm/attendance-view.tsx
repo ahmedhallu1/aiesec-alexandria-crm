@@ -265,23 +265,23 @@ function RecordDialog({
                   {sheet.recordedAt
                     ? "Pre-filled automatically — confirmed"
                     : sheet.windowClosed
-                      ? "AI pre-filled — review & confirm"
-                      : "Filling itself in from everyone's work…"}
+                      ? "Filled in for you — nothing is saved until you confirm"
+                      : "It fills itself in once the session ends"}
                 </p>
                 {/* the engine proposes, a human decides: nothing counts as
                     recorded until this sheet is confirmed (v29.3) */}
                 <p className="mt-1 text-muted-foreground">
                   {sheet.recordedAt
                     ? "Sodio filled this in from everyone's work activity and you confirmed it. Change anything you like — it saves again."
-                    : "Sodio filled this in from everyone's work activity. Correct whatever looks wrong, then confirm — until you do, this session keeps reminding you."}
+                    : "Sodio has pre-selected everyone from their work activity — as a HELPER, not a record: none of it is stored, and nobody counts as present or absent, until you correct what looks wrong and press Confirm."}
                 </p>
                 <p className="mt-1 text-muted-foreground">{sheet.rule}</p>
                 {/* v33.17: the sheet computes ITSELF on open once the window
                     closes — the Recompute button became a chore, not a tool */}
                 {!sheet.windowClosed ? (
                   <p className="mt-2 text-[11px] text-muted-foreground">
-                    The session is still open — it computes itself the moment
-                    you open this sheet after it ends.
+                    The session is still open — the suggestion appears the
+                    moment you open this sheet after it ends.
                   </p>
                 ) : null}
               </div>
@@ -342,7 +342,11 @@ function RecordDialog({
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-semibold" dir="auto">
                           {r.name}
-                          {r.automatic ? (
+                          {r.suggested ? (
+                            <span className="ml-1.5 text-[10px] font-normal text-primary">
+                              suggested
+                            </span>
+                          ) : r.automatic ? (
                             <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">
                               auto
                             </span>

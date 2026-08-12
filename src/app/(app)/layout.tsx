@@ -115,8 +115,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     needsGoogleGrant = !!row && !row.google_refresh_token;
   }
 
+  // the test-view pool: `listViewAsTargets` already gates on the admin
+  // capability and returns [] for everyone else (v33.42)
+  const viewAsTargets = canUseAdminTools(viewer) ? await listViewAsTargets() : [];
+
   return (
     <AppShell
+      viewAsTargets={viewAsTargets}
       user={{
         name: viewer.name,
         email: viewer.email ?? viewer.id,
@@ -170,7 +175,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       {viewer.impersonated ? (
         <ViewAsBanner
           activeId={viewer.id}
-          targets={await listViewAsTargets()}
+          targets={viewAsTargets.length > 0 ? viewAsTargets : await listViewAsTargets()}
           mode={viewer.sandbox ? "sandbox" : "real"}
         />
       ) : null}

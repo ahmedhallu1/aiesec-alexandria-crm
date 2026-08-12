@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-12 · Version: v33.41
+Last updated: 2026-08-12 · Version: v33.42
 
 ---
 
@@ -627,6 +627,51 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-12 · v33.42** — **WHO HEARS ABOUT WHAT** (no migration).
+  ① **WORKING HOURS: THE ENGINE SUGGESTS, IT NEVER RECORDS.** It wrote real
+  attended/absent rows — on the nightly cron AND again when the sheet was
+  opened — and those rows counted in every history and stat while no human
+  had confirmed a thing. "Automatic attendance" has to mean a form filled in
+  for you, not a record. `loadAttendanceSheet` now pre-SELECTS each row from
+  `workingHoursVerdicts` **in memory** (new `suggested` flag, a blue
+  "suggested" badge), and `saveAttendance` stays the only writer; the cron
+  stopped calling the engine entirely and just chases the human, which was
+  always its job. The writer (`runWorkingHoursAttendance` via
+  `computeWorkingHoursAttendance`) had no UI left after v33.17 and is gone.
+  ⚠️ Checked prod first: the only 42 engine rows belong to two sessions a
+  human DID confirm, so they are legitimate and were left alone.
+  ② **VISIT ANNOUNCEMENTS REACH THE PEOPLE WHO ANSWER FOR THE VISIT** (the
+  LCP's ask — the whole function was being mailed for every event, moves
+  included). `resolveVisitRecipients` takes a `kind` now: a **new booking**
+  goes to the function's **Members** + the responsible's own Team Leader
+  (the other MMs are off it — another team's TL has no call to make about
+  this visit); a **move** goes to the responsible's Team Leader alone, and
+  to **nobody** when an MM moves their own. LCVPs/Directors keep the v33.38
+  opt-in (`visitAnnounceLeaders`) and ride the calendar invite regardless.
+  The pending-visit lookup moved above the resolution so the kind is known
+  before the audience is built.
+  ③ **THE RATING NUDGE ASKS THE FLOOR.** The evening touch-point-feedback
+  email and bell now skip LCVPs/Directors/the LCP — rating a session is the
+  floor's job, and a leader can still open Feedback and rate any touch point
+  they were part of. And **TM rides the CC on LC-scope points only**: a team
+  meeting's rating is not TM's inbox to carry.
+  ④ **THE TEST VIEW IS ONE TAP FROM ANYWHERE** (`test-view-button.tsx`): a 👁
+  beside 🛠️ Report (top-right on desktop, by the bell on phones) opens a
+  searchable picker over `listViewAsTargets` — which already gates on the
+  admin capability and returns [] for everyone else, so the button simply
+  doesn't render for them. Sandbox mode, same `startViewAs` call the profile
+  card makes. The question "what does a Member see HERE?" is asked on the
+  page you are looking at, not on the profile.
+  ⑤ **AN OGX MM'S LINE IS THEIR OWN WORK.** The MM board rolled their
+  members' sign-ups into their row (v33.14), so it answered the question the
+  TEAM drill already answers and hid what the MM personally carries. Their
+  own rows now, nothing else.
+  ⑥ **THE has/no-MEET-LINK FILTER IS GONE.** Verified against prod: all 44
+  IR calls — scheduled and completed — carry a Meet link, because every
+  booking creates the event (owner calendar, else the IM mailbox). A call
+  without one would be a bug to fix, not a view to offer.
+  Help center: 4 article updates; the Blue Man teaches all of it. 213 tests.
 
 - **2026-08-12 · v33.41** — **THE EMAILS TAB OPENS & REFERRALS BECOME
   EDITABLE** (no migration).

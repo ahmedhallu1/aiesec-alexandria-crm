@@ -2949,7 +2949,7 @@ function IrCallsTab({
     "soonest"
   );
   const [schedWhen, setSchedWhen] = useState<"" | "today" | "week" | "passed" | "upcoming">("");
-  const [schedFlag, setSchedFlag] = useState<"" | "bounced" | "meet" | "nomeet" | "note">("");
+  const [schedFlag, setSchedFlag] = useState<"" | "bounced" | "note">("");
   // THE CLOCK IS STATE, NOT A RENDER-TIME READ (v33.41): a call whose slot
   // passes while the page is open should start showing as ⏰ passed without a
   // refresh — and a render that reads Date.now() is impure besides.
@@ -3012,9 +3012,9 @@ function IrCallsTab({
       if (schedWhen === "passed" && !pastDue(c)) return false;
       if (schedWhen === "upcoming" && new Date(c.called_at).getTime() < now) return false;
       // WHAT IT CARRIES (v33.41)
+      // (no has/no-Meet-link filter: every booking creates the event and the
+      // link — a call without one is a bug to fix, not a view to offer)
       if (schedFlag === "bounced" && !c.email_bounced_at) return false;
-      if (schedFlag === "meet" && !c.meet_link) return false;
-      if (schedFlag === "nomeet" && c.meet_link) return false;
       if (schedFlag === "note" && !c.booker_note) return false;
       return true;
     });
@@ -3332,8 +3332,6 @@ function IrCallsTab({
                   <SelectContent>
                     <SelectItem value="__all">Carries — any</SelectItem>
                     <SelectItem value="bounced">⚠️ Email bounced</SelectItem>
-                    <SelectItem value="meet">📹 Has a Meet link</SelectItem>
-                    <SelectItem value="nomeet">No Meet link</SelectItem>
                     <SelectItem value="note">📝 Has their note</SelectItem>
                   </SelectContent>
                 </Select>

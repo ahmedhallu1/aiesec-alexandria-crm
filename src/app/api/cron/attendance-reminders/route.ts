@@ -9,7 +9,6 @@ import { touchPointLabel } from "@/lib/types";
 import { audienceLabel, cairoWhen, touchPointName } from "@/lib/touch-points";
 import type { TouchPointRow } from "@/server/touch-points-read";
 import {
-  runWorkingHoursAttendance,
   unrecordedTouchPoints,
   workWindowClosed,
 } from "@/server/attendance-read";
@@ -157,21 +156,12 @@ export async function GET(req: NextRequest) {
     const whenLabel = cairoWhen(tp.starts_at);
     const fnSetting = settingOf(tp.function_key);
     try {
-      // ---- working hours: PRE-FILL them, then nag like anything else ----
-      // the engine writes attended/absent from everyone's stamped work, but a
-      // human still has to confirm it (v29.3) — so the ladder below applies
-      // unchanged, and only a confirmation in the sheet stops it
-      if (tp.kind === "working_hours") {
-        if (!workWindowClosed(tp.starts_at)) continue; // still running — nothing to review yet
-        if (fnSetting && fnSetting.workingHoursAuto === false) {
-          // the function records these by hand — no pre-fill, but the nag below
-          // still runs so the sheet doesn't sit unrecorded forever
-        } else {
-          const res = await runWorkingHoursAttendance(tp.id);
-          if (res.ok) computed.push(`${label} ${whenLabel}: ${res.attended} in · ${res.absent} out`);
-          else errors.push(`${label} ${whenLabel}: ${res.error}`);
-        }
-      }
+      // ---- working hours: nothing is computed INTO the table any more ----
+      // v33.42: the engine used to write attended/absent here, and those rows
+      // counted everywhere while nobody had confirmed them. It is a helper, so
+      // its verdicts now live in the SHEET (pre-selected, unsaved) and this
+      // job only does what it always should have: chase the human.
+      if (tp.kind === "working_hours" && !workWindowClosed(tp.starts_at)) continue;
 
       // ---- everything unconfirmed: one nudge per Cairo day ----
       if (fnSetting && fnSetting.attendanceReminders === false) continue;

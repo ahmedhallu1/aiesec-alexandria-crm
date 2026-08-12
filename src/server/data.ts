@@ -5380,14 +5380,12 @@ export async function ogxDashboard(
       // TWO BOARDS (v33.13): members and MMs are doing different jobs and were
       // ranked against each other on one list, which flattered neither.
       if (who.role === "Member") addOgxRow(init(board, who.id, who.name), r, opts);
-      // AN MM'S NUMBER IS THEIR TEAM'S (v33.14) — that is what they are held
-      // to. Their own rows land on their line, and so do their members'.
+      // AN MM'S LINE IS THEIR OWN WORK (v33.42, by the LCP's request). It used
+      // to roll their members' sign-ups up into it, so an MM's row answered a
+      // question the TEAM board already answers — and hid how much they
+      // personally carry. Their own rows, and nothing else.
       if (who.role === "Team Leader" || who.role === "Coordinator")
         addOgxRow(init(mmBoard, who.id, who.name), r, opts);
-      else {
-        const theirTl = tlOf(who.id);
-        if (theirTl) addOgxRow(init(mmBoard, theirTl.id, theirTl.name), r, opts);
-      }
     };
     credit(holder, firstOpts);
     if (cicCounts && cic) credit(cic, secondOpts);
