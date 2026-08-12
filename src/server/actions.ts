@@ -2837,7 +2837,7 @@ async function mailboxSender(): Promise<
 > {
   const viewer = await getViewer();
   if (!canUseMailboxTab(viewer))
-    return { error: fail("The Emails tab is for MMs and above.", "forbidden") };
+    return { error: fail("The Emails tab needs an active membership.", "forbidden") };
   const { data: me } = await db()
     .from("members")
     .select("google_refresh_token, email, phone, role, functions")
@@ -3012,7 +3012,7 @@ export async function draftEmailWithAi(input: {
   subject?: string | null;
 }): Promise<ActionResult<{ html: string; subject?: string }>> {
   const viewer = await getViewer();
-  if (!canUseMailboxTab(viewer)) return fail("The Emails tab is for MMs and above.", "forbidden");
+  if (!canUseMailboxTab(viewer)) return fail("The Emails tab needs an active membership.", "forbidden");
   const instruction = (input.instruction ?? "").trim().slice(0, 2000);
   if (instruction.length < 3) return fail("Tell it what you want first.");
   const geminiKey = process.env.GEMINI_API_KEY;
@@ -6965,6 +6965,105 @@ export async function updateSignupVpFields(
   return { ok: true };
 }
 
+/** EDIT A REFERRAL'S OWN DETAILS (v33.41).
+ *
+ *  A referral is Sodio's row end to end — the tracker never writes it, and the
+ *  person who logged it typed every field on it. Yet name/phone/email/DOB were
+ *  write-once and country/sub-product sat behind the VP gate, so the member who
+ *  entered a country could not fix their own typo: "it refuses to change". The
+ *  VP gate belongs to SHEET rows, where the tracker owns those columns and a
+ *  free-for-all would fight the import. Here, whoever may work the row may
+ *  correct it — with exactly the validation the creation form ran.
+ */
+export async function updateReferralDetails(
+  id: string,
+  input: {
+    name?: string;
+    phone?: string | null;
+    email?: string | null;
+    dob?: string | null;
+    country?: string | null;
+    subProduct?: string | null;
+  }
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const signup = await loadSignup(id);
+  if (!signup) return fail("That sign-up no longer exists.");
+  if (signup.source !== "referral")
+    return fail(
+      "Only a referral's own details are editable here — tracker sign-ups keep the sheet's values."
+    );
+  if (!canWorkSignup(viewer, signup))
+    return fail("You are not allowed to edit this sign-up.", "forbidden");
+  if (signup.out_of_process) return fail("This sign-up is archived (Out of Process).");
+
+  const clean = (v: string | null | undefined, max: number) =>
+    (v ?? "").replace(/\s+/g, " ").trim().slice(0, max) || null;
+  const patch: Record<string, unknown> = {};
+
+  if (input.name !== undefined) {
+    const name = clean(input.name, 120);
+    if (!name || name.length < 2) return fail("Type the person's name.");
+    patch.name = name;
+  }
+  // phone/email: the pair rule survives an edit — a referral nobody can reach
+  // is exactly what the creation form refuses to make
+  let nextPhone = signup.phone;
+  let nextEmail = signup.email;
+  if (input.email !== undefined) {
+    const email = clean(input.email, 200)?.toLowerCase() ?? null;
+    if (email && !EMAIL_RE.test(email)) return fail("That email doesn't look right.");
+    patch.email = email;
+    nextEmail = email;
+  }
+  if (input.phone !== undefined) {
+    let phone = clean(input.phone, 40);
+    if (phone) {
+      const check = normalizePhone(phone);
+      if (!check.ok) return fail(check.error ?? "That phone number doesn't look right.");
+      phone = check.value;
+    }
+    patch.phone = phone;
+    nextPhone = phone;
+  }
+  if (!nextPhone && !nextEmail)
+    return fail("Keep a phone or an email — otherwise nobody can reach them.");
+
+  if (input.dob !== undefined) {
+    const dobRaw = clean(input.dob, 10);
+    if (dobRaw && !/^\d{4}-\d{2}-\d{2}$/.test(dobRaw))
+      return fail("That date of birth isn't a real date.");
+    patch.dob = dobRaw;
+  }
+  if (input.country !== undefined) {
+    const raw = clean(input.country, 60);
+    if (raw) {
+      const { COUNTRIES } = await import("@/lib/countries");
+      const { resolveCountry } = await import("@/lib/timezones");
+      const country = resolveCountry(raw, COUNTRIES);
+      if (!country) return fail(`"${raw}" isn't a country we know — pick one from the list.`);
+      patch.country = country;
+    } else patch.country = null;
+  }
+  if (input.subProduct !== undefined) {
+    const sp = clean(input.subProduct, 20);
+    if (signup.fn !== "OGT" && sp)
+      return fail("Sub product is an OGT field.");
+    patch.sub_product = sp;
+    if (signup.fn === "OGT") patch.program = sp;
+  }
+  if (Object.keys(patch).length === 0) return { ok: true };
+
+  await snapshotForUndo("signups", id);
+  const { error } = await db().from("signups").update(touchSignup(patch)).eq("id", id);
+  if (error) return fail(error.message);
+  await logSignupChange(viewer, id, "referral_edited", null, Object.keys(patch).join(", "));
+  await logAudit(viewer.id, "signup_referral_edit", "signup", id, patch);
+  await stampWork(viewer.id, "signup_contact");
+  refresh();
+  return { ok: true };
+}
+
 /** VP-only: Out of Process — the sign-up leaves the list (like the accounts
  *  archive) and the sheet row is stamped. Revive brings it back. */
 export async function setSignupOop(id: string, reason: string): Promise<ActionResult> {
@@ -7081,6 +7180,17 @@ const canManageCv = (viewer: Viewer, cv: { uploaded_by: string | null }) =>
   viewer.role === "LCP" ||
   cv.uploaded_by === viewer.id ||
   ((viewer.role === "LCVP" || viewer.role === "Director") && hasConsiderationAccess(viewer));
+
+/** THE IR'S REPLY GOES TO AN AIESEC ADDRESS OR NOWHERE (v33.41).
+ *
+ *  The confirmation is sent from the host so the IR holds a real person — but
+ *  "a real person" means their @aiesec.net, never the backup personal Gmail
+ *  we keep only for password resets while their AIESEC mail is pending. A
+ *  partner entity abroad must not end up writing to someone's private inbox. */
+const aiesecAddress = (m: { email?: string | null } | null | undefined): string | null => {
+  const e = (m?.email ?? "").trim().toLowerCase();
+  return e.endsWith("@aiesec.net") || e.endsWith("@aiesec.net.eg") ? e : null;
+};
 
 /** VP-and-above inside the module: LCP/admin + LCVPs/Directors with access. */
 const isConsiderationLead = (viewer: Viewer) =>
@@ -7905,8 +8015,9 @@ export async function bookIrCall(input: {
       meetLink,
       manageUrl: `${env.appUrl}/book/manage/${manageToken}`,
     });
+    const hostMail = aiesecAddress(owner);
     let sentFromHost = false;
-    if (owner.google_refresh_token) {
+    if (owner.google_refresh_token && hostMail) {
       try {
         const { sendMemberEmail } = await import("@/lib/google/gmail");
         await sendMemberEmail(owner.google_refresh_token, {
@@ -7923,7 +8034,8 @@ export async function bookIrCall(input: {
     if (!sentFromHost)
       await sendEmail({
         to: [bookerEmail],
-        replyTo: owner.email ?? owner.fallback_email ?? undefined,
+        // the AIESEC address or nothing — never the backup personal Gmail
+        replyTo: hostMail ?? undefined,
         subject: confirm.subject,
         html: confirm.html,
       });
@@ -8383,8 +8495,9 @@ export async function updateIrBookerEmail(id: string, emailRaw: string): Promise
         meetLink,
         manageUrl: `${env.appUrl}/book/manage/${call.manage_token}`,
       });
+      const hostMail = aiesecAddress(owner);
       let sentFromHost = false;
-      if (owner?.google_refresh_token) {
+      if (owner?.google_refresh_token && hostMail) {
         try {
           const { sendMemberEmail } = await import("@/lib/google/gmail");
           await sendMemberEmail(owner.google_refresh_token, {
@@ -8400,7 +8513,7 @@ export async function updateIrBookerEmail(id: string, emailRaw: string): Promise
       if (!sentFromHost)
         await sendEmail({
           to: [email],
-          replyTo: owner?.email ?? owner?.fallback_email ?? undefined,
+          replyTo: hostMail ?? undefined,
           subject: confirm.subject,
           html: confirm.html,
         });

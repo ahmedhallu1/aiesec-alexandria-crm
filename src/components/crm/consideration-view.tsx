@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -2943,6 +2943,21 @@ function IrCallsTab({
   const [schedMine, setSchedMine] = useState(false);
   // v33.32 — "show me only the ones that need something from me"
   const [schedNeedy, setSchedNeedy] = useState(false);
+  // v33.41 — the scheduled list grew past scanning: sort it, and narrow by
+  // WHEN (today / this week / passed) or by what it still carries
+  const [schedSort, setSchedSort] = useState<"soonest" | "latest" | "lc" | "with" | "booked">(
+    "soonest"
+  );
+  const [schedWhen, setSchedWhen] = useState<"" | "today" | "week" | "passed" | "upcoming">("");
+  const [schedFlag, setSchedFlag] = useState<"" | "bounced" | "meet" | "nomeet" | "note">("");
+  // THE CLOCK IS STATE, NOT A RENDER-TIME READ (v33.41): a call whose slot
+  // passes while the page is open should start showing as ⏰ passed without a
+  // refresh — and a render that reads Date.now() is impure besides.
+  const [nowTs, setNowTs] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowTs(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, []);
   /** the slot has passed and the call is still just "scheduled" */
   const pastDue = useCallback(
     (c: IrCallRow) => c.status === "scheduled" && new Date(c.called_at) < new Date(),
@@ -2974,14 +2989,47 @@ function IrCallsTab({
   const schedLcOptions = [...new Set(data.scheduled.map((c) => c.partner_lc_name))].sort(
     (a, b) => a.localeCompare(b)
   );
-  const scheduledShown = data.scheduled.filter(
-    (c) =>
-      (!schedNeedy || (mine(c) && (pastDue(c) || !!c.email_bounced_at))) &&
-      (!schedMine || c.member_id === viewer.id) &&
-      (!schedWith || c.member_name === schedWith) &&
-      (!schedProduct || c.product === schedProduct) &&
-      (!schedLc || c.partner_lc_name === schedLc)
-  );
+  const scheduledShown = useMemo(() => {
+    const now = nowTs;
+    const dayMs = 86_400_000;
+    const cairoDay = (iso: string) =>
+      new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo" }).format(new Date(iso));
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo" }).format(
+      new Date(nowTs)
+    );
+    const rows = data.scheduled.filter((c) => {
+      if (schedNeedy && !(mine(c) && (pastDue(c) || !!c.email_bounced_at))) return false;
+      if (schedMine && c.member_id !== viewer.id) return false;
+      if (schedWith && c.member_name !== schedWith) return false;
+      if (schedProduct && c.product !== schedProduct) return false;
+      if (schedLc && c.partner_lc_name !== schedLc) return false;
+      // WHEN (v33.41) — Cairo days, the clock the crew reads
+      if (schedWhen === "today" && cairoDay(c.called_at) !== today) return false;
+      if (schedWhen === "week") {
+        const t = new Date(c.called_at).getTime();
+        if (t < now || t > now + 7 * dayMs) return false;
+      }
+      if (schedWhen === "passed" && !pastDue(c)) return false;
+      if (schedWhen === "upcoming" && new Date(c.called_at).getTime() < now) return false;
+      // WHAT IT CARRIES (v33.41)
+      if (schedFlag === "bounced" && !c.email_bounced_at) return false;
+      if (schedFlag === "meet" && !c.meet_link) return false;
+      if (schedFlag === "nomeet" && c.meet_link) return false;
+      if (schedFlag === "note" && !c.booker_note) return false;
+      return true;
+    });
+    const cmp: Record<typeof schedSort, (a: IrCallRow, b: IrCallRow) => number> = {
+      soonest: (a, b) => a.called_at.localeCompare(b.called_at),
+      latest: (a, b) => b.called_at.localeCompare(a.called_at),
+      lc: (a, b) => a.partner_lc_name.localeCompare(b.partner_lc_name),
+      with: (a, b) => a.member_name.localeCompare(b.member_name),
+      booked: (a, b) => (b.booked_at ?? "").localeCompare(a.booked_at ?? ""),
+    };
+    return [...rows].sort(cmp[schedSort]);
+  }, [
+    data.scheduled, schedNeedy, schedMine, schedWith, schedProduct, schedLc,
+    schedWhen, schedFlag, schedSort, viewer.id, mine, pastDue, nowTs,
+  ]);
 
   const canTouch = (c: IrCallRow) => viewer.isVp || c.member_id === viewer.id;
   const [deleting, setDeleting] = useState<IrCallRow | null>(null);
@@ -3169,8 +3217,8 @@ function IrCallsTab({
               <Badge variant="secondary">{data.scheduled.length}</Badge>
             </CardTitle>
             <p className="text-sm text-muted-foreground">
-              Booked through the links — soonest first. During the call, open it
-              and fill the in-call notes.
+              Booked through the links. During the call, open it and fill the
+              in-call notes.
             </p>
           </CardHeader>
           <CardContent className="space-y-2">
@@ -3258,7 +3306,54 @@ function IrCallsTab({
                     <SelectItem value="GT">GT</SelectItem>
                   </SelectContent>
                 </Select>
-                {schedMine || schedWith || schedLc || schedProduct ? (
+                {/* v33.41 — when, what it carries, and the sort */}
+                <Select
+                  value={schedWhen || "__all"}
+                  onValueChange={(v) => setSchedWhen(v === "__all" ? "" : (v as typeof schedWhen))}
+                >
+                  <SelectTrigger size="sm" className="w-36 text-xs">
+                    <SelectValue placeholder="When" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all">When — any</SelectItem>
+                    <SelectItem value="today">📅 Today</SelectItem>
+                    <SelectItem value="week">Next 7 days</SelectItem>
+                    <SelectItem value="upcoming">Still ahead</SelectItem>
+                    <SelectItem value="passed">⏰ Time passed</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={schedFlag || "__all"}
+                  onValueChange={(v) => setSchedFlag(v === "__all" ? "" : (v as typeof schedFlag))}
+                >
+                  <SelectTrigger size="sm" className="w-40 text-xs">
+                    <SelectValue placeholder="Carries" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all">Carries — any</SelectItem>
+                    <SelectItem value="bounced">⚠️ Email bounced</SelectItem>
+                    <SelectItem value="meet">📹 Has a Meet link</SelectItem>
+                    <SelectItem value="nomeet">No Meet link</SelectItem>
+                    <SelectItem value="note">📝 Has their note</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={schedSort}
+                  onValueChange={(v) => setSchedSort(v as typeof schedSort)}
+                >
+                  <SelectTrigger size="sm" className="w-40 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="soonest">Sort: soonest first</SelectItem>
+                    <SelectItem value="latest">Sort: latest first</SelectItem>
+                    <SelectItem value="lc">Sort: partner LC</SelectItem>
+                    <SelectItem value="with">Sort: who takes it</SelectItem>
+                    <SelectItem value="booked">Sort: just booked</SelectItem>
+                  </SelectContent>
+                </Select>
+                {schedMine || schedWith || schedLc || schedProduct || schedWhen ||
+                schedFlag || schedSort !== "soonest" ? (
                   <Hint label="Clear the filters">
                     <Button
                       variant="ghost"
@@ -3267,6 +3362,7 @@ function IrCallsTab({
                       onClick={() => {
                         setSchedMine(false); setSchedWith("");
                         setSchedLc(""); setSchedProduct("");
+                        setSchedWhen(""); setSchedFlag(""); setSchedSort("soonest");
                       }}
                     >
                       <X className="size-4" />

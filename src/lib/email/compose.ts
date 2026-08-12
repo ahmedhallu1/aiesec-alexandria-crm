@@ -182,8 +182,36 @@ export interface ComposeTemplate {
   /** addresses to put on CC automatically when this template is picked
    *  (v33.37 — the contract mail carries customer support, always) */
   cc?: string[];
-  /** which crews see this template — absent = everyone with the Emails tab */
-  audience?: "ogx";
+  /** WHO THIS IS A STARTING POINT FOR (v33.41). The tab belongs to every
+   *  member now, so the list has to be theirs: absent = everyone, otherwise
+   *  the viewer must hold one of these. `mmOnly` narrows further, for the
+   *  letters that carry an LC-level commitment. */
+  audience?: MailAudience[];
+  mmOnly?: boolean;
+}
+
+/** The crews a template can be written for — matched against what the viewer
+ *  actually does, never against their rank. */
+export type MailAudience =
+  | "raising"
+  | "consideration"
+  | "ogx"
+  | "b2c"
+  | "tm";
+
+/** The starting points THIS person can use (v33.41) — a raiser is not shown
+ *  the EP contract mail, an OGX member is not shown the company pitch, and
+ *  everyone keeps Blank. */
+export function templatesFor(
+  templates: ComposeTemplate[],
+  viewer: { audiences: MailAudience[]; isMm: boolean }
+): ComposeTemplate[] {
+  const mine = new Set(viewer.audiences);
+  return templates.filter((t) => {
+    if (t.mmOnly && !viewer.isMm) return false;
+    if (!t.audience) return true;
+    return t.audience.some((a) => mine.has(a));
+  });
 }
 
 export const COMPOSE_TEMPLATES: ComposeTemplate[] = [
@@ -197,6 +225,7 @@ export const COMPOSE_TEMPLATES: ComposeTemplate[] = [
   {
     key: "partner_intro",
     label: "Reaching a company",
+    audience: ["raising", "b2c"],
     hint: "A first approach to a business you want to partner with.",
     subject: "A partnership between AIESEC in Alexandria and {{company}}",
     body: `<p>Dear {{name}},</p>
@@ -224,6 +253,7 @@ whether it's worth keeping the conversation open.</p>
   {
     key: "thank_you",
     label: "Thank you after a meeting",
+    audience: ["raising", "b2c", "consideration"],
     hint: "Sent the same day — it is what makes the second meeting happen.",
     subject: "Thank you for your time today",
     body: `<p>Dear {{name}},</p>
@@ -238,6 +268,7 @@ please don't hesitate to reach out with any question.</p>
   {
     key: "lc_to_lc",
     label: "Writing to another LC",
+    audience: ["consideration"],
     hint: "IR: an entity abroad, about exchange or a partnership.",
     subject: "AIESEC in Alexandria — cooperation with {{company}}",
     body: `<p>Dear {{name}},</p>
@@ -253,7 +284,8 @@ that suits you from my booking link and it will land in both our calendars.</p>
     label: "Signing the contract",
     hint: "To an approved EP — the contract + acceptance note, with the signing steps. Customer support rides the CC automatically.",
     subject: "Signing the contract",
-    audience: "ogx",
+    audience: ["ogx"],
+    mmOnly: true,
     cc: ["customer.support@aiesec.net.eg"],
     body: `<p>I attached the contract and acceptance note for your review and signature.</p>
 <p>Kindly reply to this email with the signed copies of both documents attached at your earliest convenience respectively to the next steps .</p>
@@ -266,6 +298,75 @@ that suits you from my booking link and it will land in both our calendars.</p>
 <li>reply all with all the pictures (preferred pdf).</li>
 </ol>
 <p><b>Attach student id to proceed in the process</b></p>`
+  },
+  // ---- v33.41: a real starting point for every crew, not just the raisers
+  {
+    key: "ep_first_reach",
+    label: "Reaching a sign-up",
+    audience: ["ogx"],
+    hint: "The first written contact with someone who signed up and hasn't answered the phone.",
+    subject: "AIESEC in Alexandria — about your application",
+    body: `<p>Hi {{name}},</p>
+<p>This is your contact from <b>AIESEC in Alexandria</b> — thank you for signing
+up with us! I tried reaching you by phone and thought I'd write as well.</p>
+<p>I'd love to walk you through the opportunities that fit you, what the process
+looks like and what it costs, in a short call whenever suits you.</p>
+<p>When would be a good time to talk?</p>`,
+  },
+  {
+    key: "ep_nudge",
+    label: "Nudging a quiet EP",
+    audience: ["ogx"],
+    hint: "For the sign-up who went quiet mid-process — warm, one question, easy to answer.",
+    subject: "Still interested? — AIESEC in Alexandria",
+    body: `<p>Hi {{name}},</p>
+<p>I wanted to check in — we spoke about going abroad with AIESEC and I haven't
+heard back since.</p>
+<p>No pressure at all: just tell me whether you'd like to keep going, or whether
+the timing isn't right this term. Either answer helps.</p>
+<p>Talk soon,</p>`,
+  },
+  {
+    key: "ir_cv_request",
+    label: "Asking an LC for CVs",
+    audience: ["consideration"],
+    hint: "To a partner LC that has EPs ready — asking for their pool.",
+    subject: "EP profiles for our opportunities — AIESEC in Alexandria",
+    body: `<p>Dear {{name}},</p>
+<p>Greetings from <b>AIESEC in Alexandria, Egypt</b>! 🇪🇬</p>
+<p>Following our conversation, we have opportunities open and would love to see
+the profiles you have ready — could you share your EP pool (CVs or the sheet
+you keep) so we can match them against what our partners need?</p>
+<p>Happy to send ours in return.</p>
+<p>Best regards,</p>`,
+  },
+  {
+    key: "b2c_offer",
+    label: "Offering to a customer",
+    audience: ["b2c"],
+    hint: "A course, an event or a student activity — what it is and what the next step is.",
+    subject: "{{company}} × AIESEC in Alexandria",
+    body: `<p>Dear {{name}},</p>
+<p>I'm writing from <b>AIESEC in Alexandria</b> about what we can offer your
+students this term.</p>
+<p>Here's what it includes:</p>
+<ul><li></li><li></li></ul>
+<p>If it sounds useful, I'd be glad to arrange a short meeting to go through the
+details and the dates.</p>
+<p>Warm regards,</p>`,
+  },
+  {
+    key: "tm_invite",
+    label: "Inviting the team",
+    audience: ["tm"],
+    hint: "A session, a meeting or working hours — the what, the when and the why.",
+    subject: "See you there — {{company}}",
+    body: `<p>Hi everyone,</p>
+<p>We're getting together for:</p>
+<p><b>What:</b> <br><b>When:</b> <br><b>Where:</b> </p>
+<p>Please come on time — and tell me beforehand if you can't make it, so nobody
+is marked absent for a reason we already knew about.</p>
+<p>See you there,</p>`,
   }
 ];
 

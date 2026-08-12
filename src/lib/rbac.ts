@@ -94,10 +94,15 @@ export const master = (v: Viewer) =>
  *  entity on the LC's behalf is a responsibility that comes with the job;
  *  a first-week member has no letters to send yet. */
 export function canUseMailboxTab(v: Viewer): boolean {
-  return (
-    v.isAdmin ||
-    ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(v.role)
-  );
+  // EVERY MEMBER WRITES (v33.41). It opened to MMs and above because writing
+  // on behalf of the LC felt like an MM's job — but a member reaching their
+  // own partner, EP or LC was then doing it from a blank Gmail with no
+  // signature, which is exactly what this tab exists to stop. The letter goes
+  // out from their OWN Gmail either way, so nobody gains reach they didn't
+  // already have; what they gain is the LC's stationery. Which STARTING
+  // POINTS they see is a separate question — `templatesFor` answers it.
+  void v;
+  return true;
 }
 
 /** The admin TOOLS — Health & Logs, the test view, the change journal (v33).
