@@ -2758,7 +2758,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "سلوت",
    "per day limit",
    "sunday",
-   "weekday cap"
+   "weekday cap",
+   "no slots",
+   "end date",
+   "nobody books"
   ],
   "summary": "Set your availability on the My booking link card and share sodio.vercel.app/book/your-slug — IRs abroad pick a free slot themselves.",
   "blocks": [
@@ -2820,6 +2823,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
     "t": "callout",
     "tone": "tip",
     "md": "**Per-day caps (v33.39):** besides the general \"calls per day\" limit, every weekday can carry its OWN cap — \"3 a day, but Sunday only 1\". Set the small per-day row under the cap on your booking card; \"–\" follows the general number. A full day simply stops being offered on your link."
+   },
+   {
+    "t": "callout",
+    "tone": "warn",
+    "md": "**If nobody can book you, the card says why (v33.44).** A link that is switched off, a schedule whose **end date has passed**, a start date still in the future, no hours at all, hours only on dates that are gone — each one silently empties your grid, and now each one is spelled out at the top of *My booking link*. If every setting looks fine but the grid is still empty (fully booked, daily cap, minimum notice), it says that too."
    }
   ]
  },
@@ -4012,7 +4020,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
      [
       "New accounts & Podio",
       "IGV · IGT · B2B · BD · B2C",
-      "Do NEW accounts join the Podio continuous-update cycle, and every how many days (1–90). Old defaults: IGV/B2C/BD on, IGT/B2B off, 14 days · Do visit announcements ALSO reach the LCVP/Directors (off by default since v33.38 — they always ride the calendar invite) · (IGV/IGT) Whether MMs hand 🤝 partnership targets across teams (off by default: a TL targets their own team only)"
+      "Do NEW accounts join the Podio continuous-update cycle, and every how many days (1–90). Old defaults: IGV/B2C/BD on, IGT/B2B off, 14 days · Do visit announcements ALSO reach the LCVP/Directors (off by default since v33.38 — they always ride the calendar invite) · (IGV/IGT) Whether MMs hand 🤝 partnership targets across teams (off by default: a TL targets their own team only) · **Visits land on my calendar** — ON by default: every visit in the function invites you to its calendar event; OFF leaves it to the member and their TL (v33.44)"
      ],
      [
       "Who sees the whole function",
@@ -4566,7 +4574,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "forgot password",
    "مش عارف اسجل دخول",
    "الباسورد",
-   "تسجيل الدخول"
+   "تسجيل الدخول",
+   "backup gmail reset",
+   "google error",
+   "401"
   ],
   "summary": "The quick fixes for every known login problem — wrong-looking phone digits, the phone-in-both-fields rule, the rare cookie error, and the deactivated screen.",
   "blocks": [
@@ -4609,6 +4620,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
       "a": "Once the EB adds it to your membership row, sign in **with Google once** (it grants your calendar + Gmail access), and from then on email or phone + password all work. The phone-in-both-fields door closes."
      }
     ]
+   },
+   {
+    "t": "callout",
+    "tone": "tip",
+    "md": "**Forgot your password and your @aiesec.net hasn't arrived?** Type the **backup Gmail** from your profile instead — the reset now looks in both places (v33.44). And if Google shows an error on the way in, sign out of your other Google accounts (or use a private window): Sodio always asks you to pick an account now, and it must be your AIESEC one."
    }
   ]
  },

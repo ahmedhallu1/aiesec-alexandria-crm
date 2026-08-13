@@ -15,7 +15,15 @@ export const authConfig = {
           scope:
             "openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.compose",
           access_type: "offline",
-          prompt: "consent",
+          // ALWAYS SHOW THE ACCOUNT PICKER (v33.44). With `consent` alone
+          // Google reuses whatever account context the browser is already in
+          // — the `authuser=1` in the failing URL — and a member signed into
+          // several accounts could be bounced with a 401 "malformed request"
+          // ("Can't sign in to …: Request canceled") or, worse, silently
+          // approve with their PERSONAL Gmail, which no membership row
+          // matches. `select_account` makes them pick every time; `consent`
+          // stays because it is what returns a refresh token.
+          prompt: "select_account consent",
         },
       },
     }),

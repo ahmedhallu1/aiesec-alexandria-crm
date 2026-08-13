@@ -20,9 +20,9 @@ export default async function TlPlanPage() {
   const isTl = viewer.role === "Team Leader";
 
   return (
-    <main className="relative flex min-h-dvh items-center justify-center bg-sidebar p-4">
+    <main className="relative flex min-h-dvh items-start justify-center overflow-x-hidden bg-sidebar p-4 sm:items-center">
       <ThemeToggle className="absolute right-4 top-4 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
-      <div className="w-full max-w-xl rounded-2xl bg-card p-8 shadow-2xl">
+      <div className="w-full min-w-0 max-w-xl rounded-2xl bg-card p-5 shadow-2xl sm:p-8">
         <div className="mb-6 text-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/aiesec-blue.png" alt="AIESEC" className="mx-auto mb-3 h-8 w-auto dark:hidden" />

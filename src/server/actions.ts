@@ -2562,8 +2562,19 @@ async function resolveVisitRecipients(
     (fns.includes("B2C") && rowIsB2C(m));
 
   // ---- calendar attendees (TL + VP as the spec describes) ----
+  //
+  // A VP CAN STEP OFF THE CALENDAR TOO (v33.44). v33.38 let them opt out of
+  // the announcement EMAIL, but every visit still landed on their Google
+  // Calendar as an invite — for a function with thirty visits a week that is
+  // the noisier of the two. `visitInviteLeaders` (Function defaults, ON by
+  // default = exactly the old behaviour) turns that off; the responsible's
+  // own Team Leader still rides it, because they answer for the visit.
+  const { functionSettingsFor: fnSettingsForVisit } = await import("./function-settings");
+  const visitSettings = await fnSettingsForVisit(account.function);
   const attendees = new Set<string>();
-  const vps = members.filter((m) => m.role === "LCVP" && inFns(shareFns, m));
+  const vps = visitSettings.visitInviteLeaders
+    ? members.filter((m) => m.role === "LCVP" && inFns(shareFns, m))
+    : [];
   if (responsible.role === "Member") {
     const tl = responsible.stakeholder_id ? byId.get(responsible.stakeholder_id) : null;
     if (tl?.role === "Team Leader" && tl.email) attendees.add(tl.email);
@@ -2586,8 +2597,7 @@ async function resolveVisitRecipients(
   // VPs/Directors ride the calendar INVITE either way, and only join these
   // emails when their function's own defaults say so (`visitAnnounceLeaders`,
   // v33.38).
-  const { functionSettingsFor } = await import("./function-settings");
-  const announceLeaders = (await functionSettingsFor(account.function)).visitAnnounceLeaders;
+  const announceLeaders = visitSettings.visitAnnounceLeaders;
   const ownTl =
     responsible.role === "Member" && responsible.stakeholder_id
       ? byId.get(responsible.stakeholder_id) ?? null

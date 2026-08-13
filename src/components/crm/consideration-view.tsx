@@ -2453,6 +2453,28 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
             <ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} />
           </Button>
         </div>
+        {/* WHY NOBODY CAN BOOK YOU (v33.44). A member's schedule end date had
+            passed, her link offered nothing, and there was no way to tell that
+            from a quiet week. Anything that silently empties the grid is said
+            here — outside the collapsible body, so it can't be missed. */}
+        {(booking.issues ?? []).length > 0 ? (
+          <div className="space-y-1.5 pt-1">
+            {(booking.issues ?? []).map((iss, i) => (
+              <p
+                key={i}
+                className={cn(
+                  "rounded-lg border p-2.5 text-xs font-medium",
+                  iss.level === "blocked"
+                    ? "border-destructive/40 bg-destructive/10 text-destructive"
+                    : "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                )}
+              >
+                {iss.level === "blocked" ? "⚠️ " : "ℹ️ "}
+                {iss.message}
+              </p>
+            ))}
+          </div>
+        ) : null}
         <p className="text-sm text-muted-foreground">
           IRs abroad pick a free slot on your public page — the call lands here
           as <b>scheduled</b>, on your Google Calendar with a <b>Meet link</b>,
