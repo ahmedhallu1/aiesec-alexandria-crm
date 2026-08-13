@@ -552,6 +552,7 @@ function FunctionDefaultsBlock({ settings }: { settings: FunctionSettingsCard })
         patch.podioUpdateDefault = form.podioUpdateDefault;
         patch.podioUpdateDays = form.podioUpdateDays;
         patch.visitAnnounceLeaders = form.visitAnnounceLeaders;
+        patch.visitInviteLeaders = form.visitInviteLeaders;
       }
       if (settings.fn === "IGV" || settings.fn === "IGT") {
         patch.partnershipCrossTeam = form.partnershipCrossTeam;
@@ -633,6 +634,12 @@ function FunctionDefaultsBlock({ settings }: { settings: FunctionSettingsCard })
               "Every new account in this function joins the update cycle, with reminders when it falls due. Accounts that already exist keep their own setting.",
               "podioUpdateDefault",
               form.podioUpdateDefault
+            )}
+            {row(
+              "Visits land on my calendar",
+              "ON: every visit booked in this function invites you to its calendar event (the 24h & 1h reminders come with it). OFF: only the member and their Team Leader carry it — you still see everything on Sodio's own calendar.",
+              "visitInviteLeaders",
+              form.visitInviteLeaders
             )}
             {row(
               "Visit announcements reach me too",

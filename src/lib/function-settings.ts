@@ -37,6 +37,9 @@ export interface FunctionSettings {
    *  LCVP/Directors (they always ride the calendar invite regardless) —
    *  off by default since v33.38 */
   visitAnnounceLeaders: boolean;
+  /** every visit in this function also lands on the LCVP/Director's own
+   *  CALENDAR as an invite — on by default, which is what it always did */
+  visitInviteLeaders: boolean;
 
   // ---------------- consideration (IGV / IGT)
   /** an MM (Team Leader) may hand 🤝 partnership targets to members of OTHER
@@ -77,6 +80,7 @@ export function functionDefaults(fn: string): FunctionSettings {
     podioUpdateDefault: ["IGV", "B2C", "BD"].includes(fn),
     podioUpdateDays: PODIO_UPDATE_DEFAULT_DAYS,
     visitAnnounceLeaders: false,
+    visitInviteLeaders: true,
     partnershipCrossTeam: false,
     seeAllMembers: false,
     seeAllCoordinators: false,
@@ -110,6 +114,7 @@ export function resolveFunctionSettings(
         ? Math.round(days)
         : base.podioUpdateDays,
     visitAnnounceLeaders: bool("visitAnnounceLeaders"),
+    visitInviteLeaders: bool("visitInviteLeaders"),
     partnershipCrossTeam: bool("partnershipCrossTeam"),
     seeAllMembers: bool("seeAllMembers"),
     seeAllCoordinators: bool("seeAllCoordinators"),

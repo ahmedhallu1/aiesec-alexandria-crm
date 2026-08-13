@@ -19,7 +19,7 @@ export default async function LoginPage({
   const { error } = await searchParams;
 
   return (
-    <main className="aurora relative flex min-h-screen items-center justify-center overflow-hidden bg-sidebar p-4">
+    <main className="aurora relative flex min-h-dvh items-start justify-center overflow-hidden bg-sidebar p-4 sm:items-center">
       <ThemeToggle className="absolute right-4 top-4 z-10 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
       <div className="rise-in relative z-10 w-full max-w-md rounded-2xl bg-card p-8 shadow-2xl">
         <div className="mb-8 text-center">
@@ -36,9 +36,20 @@ export default async function LoginPage({
 
         {error ? (
           <div className="mb-6 rounded-lg border border-red-300 bg-red-50 p-3 text-sm font-medium text-red-900 dark:border-red-900/60 dark:bg-red-950/60 dark:text-red-100">
-            {error === "AccessDenied"
-              ? "This email is not on the LC membership list. Ask your VP or the IM team to add you."
-              : "Sign-in failed. Try again — if it keeps happening, contact the IM team."}
+            {error === "AccessDenied" ? (
+              <>
+                That Google account isn&apos;t on the LC membership list.{" "}
+                <b>Make sure you picked your @aiesec.net account</b> — a personal
+                Gmail will never match. If your AIESEC address is right and this
+                keeps happening, ask your VP or the IM team.
+              </>
+            ) : (
+              <>
+                Sign-in failed. If Google showed an error before this, sign out of
+                your other Google accounts (or use a private window) and try once
+                more — then tell the IM team if it persists.
+              </>
+            )}
           </div>
         ) : null}
 

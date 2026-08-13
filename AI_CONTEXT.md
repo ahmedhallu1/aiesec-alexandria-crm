@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-12 · Version: v33.43
+Last updated: 2026-08-13 · Version: v33.44
 
 ---
 
@@ -628,6 +628,54 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-13 · v33.44** — **THE SILENT FAILURES BATCH** (no migration).
+  ① **A VP CAN STEP OFF THE VISIT CALENDAR** (`visitInviteLeaders`, Function
+  defaults, **ON by default = exactly the old behaviour**). v33.38 let them
+  leave the announcement EMAIL, but every visit still landed on their Google
+  Calendar as an invite — for a busy function that is the noisier of the two.
+  OFF and only the responsible + their Team Leader carry the event; the
+  leader still sees everything on Sodio's own calendar.
+  ② **THE RESET FINDS THE BACKUP GMAIL.** `requestPasswordReset` looked the
+  member up with `.ilike("email", …)` — the AIESEC column ONLY — so somebody
+  whose @aiesec.net hasn't arrived (exactly who `fallback_email` exists for)
+  typed the address they actually own, matched nothing, and got the same
+  reassuring "check your inbox" as everyone else while nothing was sent.
+  `issueTempPassword` had always been willing to send there; only the lookup
+  was missing. Both columns are searched now, ILIKE metacharacters are
+  escaped (`_` is legal in a local part and would have matched somebody
+  else), and TWO members sharing one backup address sends to neither.
+  ③ **THE BOOKING CARD SAYS WHY NOBODY CAN BOOK YOU.** A consideration
+  member's schedule END DATE had passed; her link read "Live", her hours
+  were all still there, and it offered nothing — indistinguishable from a
+  quiet week. `bookingIssues` now names every silent emptier: switched off ·
+  schedule ended · schedule not started yet · no hours · hours only on dates
+  that have gone — and, when every setting looks fine, it asks the real slot
+  builder and reports "live but no free slot" (booked out, the daily cap, or
+  the minimum notice). Rendered OUTSIDE the collapsible body so it can't be
+  missed. ⚠️ Prod at ship time: **Hana Aboud**'s schedule ended 2026-08-09,
+  **Habiba Taher**'s link is switched off, **Omar El-Saied**'s ends
+  2026-08-14 — all three now see it.
+  ④ **GOOGLE SIGN-IN ALWAYS SHOWS THE ACCOUNT PICKER** (`prompt:
+  "select_account consent"`). Mamoun's first sign-in died on Google's own
+  consent page — a 401 "malformed request" with `authuser=1` in the URL and
+  "Can't sign in to mamoun55@aiesec.net: Request canceled" — while his phone
+  sign-in worked. With `consent` alone Google reuses whatever account context
+  the browser is already in, which is what that `authuser=1` is; the picker
+  removes the ambiguity and also stops a member approving with a personal
+  Gmail no membership row matches. The login page's two error messages now
+  say what to actually do.
+  ⑤ **ONBOARDING ON A PHONE**: `min-h-dvh` instead of `min-h-screen`,
+  top-aligned below `sm` (a centred card taller than the visible viewport is
+  the classic un-scrollable clip), `p-5` on small screens, and the membership
+  record's grid track is `minmax(0,1fr)` with breakable values. And the base
+  `Input` now uses a MINIMUM height rather than a fixed `h-9`: identical at
+  default settings, but an Android phone with a large system font grows the
+  box instead of pushing the text out of it. ⚠️ Honest note: the reported
+  overflow did NOT reproduce at 360–375px in a headless mobile viewport
+  (measured: zero overflowing elements, before and after), so this is
+  hardening against the mechanisms that can produce it, not a confirmed fix.
+  Help center: 3 article updates; the Blue Man teaches all of it. 213 tests.
 
 - **2026-08-12 · v33.43** — **TOUCH POINTS GET A PLACE, AND THE BELL GETS
   QUIET** (migration **0061 applied**: `touch_points.location`).

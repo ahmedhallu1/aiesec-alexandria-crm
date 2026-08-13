@@ -6300,6 +6300,11 @@ const BOOKING_SETTINGS_COLS =
 export interface MyIrBooking {
   settings: IrBookingSettings | null;
   suggestedSlug: string;
+  /** WHY NOBODY CAN BOOK YOU (v33.44). A member set her hours, her schedule's
+   *  END DATE had quietly passed, and her link offered nothing — with no way
+   *  to tell that from "nobody wants a call". Anything that silently empties
+   *  the grid is said out loud here. */
+  issues: { level: "blocked" | "warn"; message: string }[];
 }
 
 const SLUG_RE = /^[a-z0-9-]{3,40}$/;
@@ -6319,12 +6324,68 @@ export async function myIrBooking(viewer: Viewer): Promise<MyIrBooking | null> {
     .replace(/^-+|-+$/g, "")
     .slice(0, 40);
   if (suggested.length < 3) suggested = `ir-${suggested || "call"}`.slice(0, 40);
+  const settings = data
+    ? { ...data, availability: sanitizeAvailability(data.availability) }
+    : null;
   return {
-    settings: data
-      ? { ...data, availability: sanitizeAvailability(data.availability) }
-      : null,
+    settings,
     suggestedSlug: data?.slug ?? suggested,
+    issues: settings ? await bookingIssues(settings) : [],
   };
+}
+
+/** Everything that can make a saved booking link offer NOTHING, in the order
+ *  a member would want to hear it. The last check is the honest one: ask the
+ *  real slot builder and report an empty grid even when every setting looks
+ *  individually fine. */
+async function bookingIssues(
+  s: IrBookingSettings
+): Promise<{ level: "blocked" | "warn"; message: string }[]> {
+  const out: { level: "blocked" | "warn"; message: string }[] = [];
+  const today = _cairoYmd(new Date());
+  if (!s.active)
+    out.push({
+      level: "blocked",
+      message: "Your link is switched OFF — nobody can book a call until you turn it back on.",
+    });
+  if (s.end_date && s.end_date < today)
+    out.push({
+      level: "blocked",
+      message: `Your schedule ENDED on ${s.end_date} — the link is live but offers no dates. Clear the end date or push it forward.`,
+    });
+  if (s.start_date && s.start_date > today)
+    out.push({
+      level: "warn",
+      message: `Your schedule starts on ${s.start_date} — nothing is bookable before then.`,
+    });
+  const rows = sanitizeAvailability(s.availability);
+  if (rows.length === 0)
+    out.push({
+      level: "blocked",
+      message: "You haven't added any hours yet — add at least one window below.",
+    });
+  else if (rows.every((r) => r.date && r.date < today))
+    out.push({
+      level: "blocked",
+      message: "Every hour you set is on a date that has passed — add new ones.",
+    });
+
+  // the final word: what the PUBLIC page would actually show
+  if (out.every((i) => i.level !== "blocked")) {
+    try {
+      const days = await freeBookingSlots(s);
+      const slots = days.reduce((n, d) => n + d.slots.length, 0);
+      if (slots === 0)
+        out.push({
+          level: "blocked",
+          message:
+            "Your link is live but has no free slot right now — every window is already booked, blocked by the daily cap, or too soon under your minimum notice.",
+        });
+    } catch {
+      /* a diagnostic must never break the page it is diagnosing */
+    }
+  }
+  return out;
 }
 
 /** Defensive read of the jsonb availability — malformed rows are dropped.

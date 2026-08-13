@@ -114,16 +114,36 @@ export async function requestPasswordReset(
 ): Promise<{ ok: boolean; message: string }> {
   const clean = (email ?? "").trim().toLowerCase();
   if (!clean.includes("@"))
-    return { ok: false, message: "Type your AIESEC email first." };
+    return { ok: false, message: "Type your email first." };
   try {
     const { db } = await import("@/lib/supabase");
-    const { data: member } = await db()
-      .from("members")
-      .select("id, name, email, fallback_email, is_active")
-      .ilike("email", clean)
-      .maybeSingle<{
-        id: string; name: string; email: string; is_active: boolean;
-      }>();
+    // THE BACKUP GMAIL IS AN INBOX TOO (v33.44). The lookup only ever asked
+    // the AIESEC column, so a member whose @aiesec.net hasn't landed yet —
+    // exactly the person we keep `fallback_email` for — typed the address
+    // they actually own, matched nothing, and got the same reassuring
+    // "check your inbox" as everyone else while nothing was sent.
+    // `issueTempPassword` has always been happy to send there; only finding
+    // them was missing.
+    // ILIKE takes LIKE metacharacters, and `_` is legal in an email local
+    // part — an unescaped one would match a DIFFERENT member's address.
+    const pattern = clean.replaceAll("\\", "").replaceAll("%", "\\%").replaceAll("_", "\\_");
+    type Row = {
+      id: string; name: string; email: string | null;
+      fallback_email: string | null; is_active: boolean;
+    };
+    const find = async (column: "email" | "fallback_email") =>
+      (
+        await db()
+          .from("members")
+          .select("id, name, email, fallback_email, is_active")
+          .ilike(column, pattern)
+          .limit(2)
+      ).data as Row[] | null;
+    let rows = (await find("email")) ?? [];
+    // never guess: two members sharing one backup address is a data error,
+    // and mailing a fresh password to the wrong person is not a recovery
+    if (rows.length === 0) rows = (await find("fallback_email")) ?? [];
+    const member = rows.length === 1 ? rows[0] : null;
     if (member?.is_active) {
       const { issueTempPassword } = await import("./password");
       const res = await issueTempPassword(member);

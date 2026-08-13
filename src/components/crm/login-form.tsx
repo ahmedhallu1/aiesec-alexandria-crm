@@ -118,13 +118,19 @@ export function LoginForm() {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-1.5">
-            <Label>Your AIESEC email</Label>
+            <Label>Your email</Label>
             <Input
               type="email"
               value={resetEmail}
               onChange={(e) => setResetEmail(e.target.value)}
               placeholder="you@aiesec.net"
             />
+            {/* v33.44 — the backup Gmail works here too: it is the whole
+                point of having one while the AIESEC address is pending */}
+            <p className="text-xs text-muted-foreground">
+              Your AIESEC address — or the backup Gmail on your profile, if
+              that&apos;s the inbox you actually have.
+            </p>
           </div>
           <DialogFooter>
             <Button onClick={askReset} disabled={resetPending || !resetEmail.includes("@")}>

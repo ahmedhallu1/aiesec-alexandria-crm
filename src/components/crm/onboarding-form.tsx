@@ -89,25 +89,29 @@ export function OnboardingForm({ member }: { member: MemberInfo }) {
       {/* Read-only membership info */}
       <div className="rounded-xl border bg-muted/40 p-4">
         <p className="mb-2 text-sm font-semibold">Your membership record</p>
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+        {/* min-w-0 + break-words: a grid item's default min-width is its
+            CONTENT, so one long address ("mohamedmamoun55@aiesec.net") made
+            this track wider than the card and pushed the form off a 360px
+            Android screen (v33.44) */}
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
           <dt className="text-muted-foreground">Email</dt>
-          <dd className="font-medium">{member.email}</dd>
+          <dd className="min-w-0 break-words font-medium">{member.email}</dd>
           <dt className="text-muted-foreground">Role</dt>
-          <dd className="font-medium">{member.role}</dd>
+          <dd className="min-w-0 break-words font-medium">{member.role}</dd>
           <dt className="text-muted-foreground">Function</dt>
-          <dd className="font-medium">{member.functions.join(", ") || "—"}</dd>
+          <dd className="min-w-0 break-words font-medium">{member.functions.join(", ") || "—"}</dd>
           <dt className="text-muted-foreground">Sub function</dt>
-          <dd className="font-medium">{member.subFunctions.join(", ") || "—"}</dd>
+          <dd className="min-w-0 break-words font-medium">{member.subFunctions.join(", ") || "—"}</dd>
           {member.teamName ? (
             <>
               <dt className="text-muted-foreground">Team</dt>
-              <dd className="font-medium">{member.teamName}</dd>
+              <dd className="min-w-0 break-words font-medium">{member.teamName}</dd>
             </>
           ) : null}
           {member.stakeholderName ? (
             <>
               <dt className="text-muted-foreground">Manager</dt>
-              <dd className="font-medium">{member.stakeholderName}</dd>
+              <dd className="min-w-0 break-words font-medium">{member.stakeholderName}</dd>
             </>
           ) : null}
         </dl>
