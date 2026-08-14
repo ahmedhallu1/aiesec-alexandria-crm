@@ -8,7 +8,7 @@ import {
   canEditTouchPoint,
   type Viewer,
 } from "@/lib/rbac";
-import { NO_WORKING_HOURS_FUNCTIONS, TOUCH_POINT_KINDS, TOUCH_POINT_SCOPES, WORK_SESSION_HOURS, type TouchPointKind, type TouchPointScope } from "@/lib/types";
+import { cairoToday, NO_WORKING_HOURS_FUNCTIONS, TOUCH_POINT_KINDS, TOUCH_POINT_SCOPES, WORK_SESSION_HOURS, type TouchPointKind, type TouchPointScope } from "@/lib/types";
 import { audienceLabel, cairoWhen, expandTouchPointFns, touchPointName } from "@/lib/touch-points";
 import { cairoToUtc } from "@/lib/time";
 import { getViewer, logAudit } from "./data";
@@ -845,7 +845,7 @@ export async function saveRoutine(
   // generate every occurrence up front
   let created = 0;
   let skipped = 0;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = cairoToday();
   for (const date of weeklyDates(startsOn, endsOn, input.weekday)) {
     if (date < today) continue; // never book the past
     const res = await createTouchPoint({

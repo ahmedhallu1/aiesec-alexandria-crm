@@ -72,6 +72,7 @@ import {
   URL_RE,
 } from "@/lib/types";
 import type { AccountContact, AccountFunction, Member, MemberRole, Visit } from "@/lib/types";
+import { cairoToday } from "@/lib/types";
 
 export type ActionResult<T = undefined> =
   | { ok: true; data?: T }
@@ -144,7 +145,7 @@ async function syncNextStepReminder(accountId: string): Promise<void> {
       .maybeSingle<{ google_refresh_token: string | null }>();
     const token = owner?.google_refresh_token ?? null;
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = cairoToday();
     const wanted =
       !account.out_of_process && !!account.next_step_date && account.next_step_date >= today;
 
@@ -2356,7 +2357,7 @@ export async function logContact(
   // carry a next step with a date (unless one is already set in the future).
   const hasPendingVisit = account.visit_id && account.visit_done === null;
   const hasFutureNextStep =
-    account.next_step_date && account.next_step_date >= new Date().toISOString().slice(0, 10);
+    account.next_step_date && account.next_step_date >= cairoToday();
   if (!notInterested && !visitScheduled && !hasPendingVisit && !nextStepDate && !hasFutureNextStep) {
     return fail(
       "Set a next step with a date (or schedule a visit) — no account may float without one.",
@@ -9064,14 +9065,6 @@ export async function addPartnerLcComment(input: {
 
 // ------------------------------------------------- 🤝 LC partnerships (v33.38)
 
-/** Today as a Cairo calendar day — the partnership date's default. */
-const cairoToday = (): string =>
-  new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Africa/Cairo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
 
 /** Who may a partnership be handed to / credited to (v33.39, one matrix for
  *  assign AND record-for): lead → the whole crew · TL → self + own team, or

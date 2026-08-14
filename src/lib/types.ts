@@ -956,15 +956,48 @@ export function productBadge(fn: AccountFunction, product: IgtProduct | null): {
 // ------------------------------------------------------------------ timestamps
 // Every action is logged to the minute — these keep the formatting consistent.
 
-/** "13 Jul 2026, 2:05 PM" (12-hour, in the viewer's local time). */
+/** THE CRM RUNS ON CAIRO TIME, EVERYWHERE (v33.45).
+ *
+ *  These used to format in "the viewer's local time", which is two different
+ *  answers for the same instant: the browser said Cairo, but the SAME markup
+ *  rendered on the server said UTC, because Vercel's runtime clock is UTC.
+ *  Egypt is UTC+2 (UTC+3 under DST), so every server-rendered timestamp ran
+ *  2–3 hours slow — and anything logged between midnight and ~03:00 Cairo
+ *  came out DATED THE PREVIOUS DAY. A member editing an account at 1 AM on
+ *  the 13th saw "12". It also made server and client disagree on the same
+ *  node, which is a hydration mismatch.
+ *
+ *  The LC is in Alexandria and every visit, call and shift is already stored
+ *  as Cairo wall-clock, so Cairo is the one correct calendar. Pinning it here
+ *  makes the server and the browser produce the same string.
+ */
+const CAIRO = "Africa/Cairo";
+
+/** "13 Jul 2026, 2:05 PM" (12-hour, Cairo time). */
 export function fmtDateTime(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString("en-US", {
+    timeZone: CAIRO,
     day: "2-digit", month: "short", year: "numeric",
     hour: "numeric", minute: "2-digit", hour12: true,
   });
+}
+
+/** The CAIRO calendar day of an instant, as YYYY-MM-DD.
+ *
+ *  Use this instead of `iso.slice(0, 10)` on any timestamptz column. That
+ *  slice reads the UTC day straight off the string, so a row touched at
+ *  01:00 Cairo on the 13th reports "…-12". */
+export function fmtDay(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return typeof iso === "string" ? iso.slice(0, 10) : "—";
+  // en-CA gives ISO order (YYYY-MM-DD) without hand-assembling parts
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: CAIRO, year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(d);
 }
 
 /** "18:30" (a wall-clock string, not an instant) → "6:30 PM" (v33.18).
@@ -980,12 +1013,28 @@ export function fmtClock12(hhmm: string | null | undefined): string {
   return `${h12}:${m[2]} ${suffix}`;
 }
 
-/** "2:05 PM" from an ISO timestamp (12-hour). */
+/** TODAY, in Cairo, as YYYY-MM-DD.
+ *
+ *  `new Date().toISOString().slice(0, 10)` is UTC today, which between
+ *  midnight and 02:00–03:00 Cairo is YESTERDAY. That is not academic: it was
+ *  prefilling date pickers with the previous day, so a member logging work
+ *  after midnight got the wrong date typed in for them, and it made
+ *  "is this next step overdue?" answer no for a step that expired hours ago.
+ *  Every "today" the user can see or be judged against comes from here. */
+export function cairoToday(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: CAIRO, year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
+}
+
+/** "2:05 PM" from an ISO timestamp (12-hour, Cairo time — see fmtDateTime). */
 export function fmtTime(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+  return d.toLocaleTimeString("en-US", {
+    timeZone: CAIRO, hour: "numeric", minute: "2-digit", hour12: true,
+  });
 }
 
 /** How each role experiences the CRM — used by the welcome page, welcome

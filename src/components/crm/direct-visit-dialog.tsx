@@ -8,6 +8,7 @@ import { logDirectVisit } from "@/server/actions";
 import {
   ACCOUNT_TYPES, B2C_TYPES, DIRECT_VISIT_OUTCOMES, IGT_SUB_PRODUCTS,
   IGV_PROJECTS, INDUSTRIES, OOP_REASONS, PODIO_FORM_URL,
+  cairoToday,
   type AccountContact, type AccountFunction,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -47,7 +48,7 @@ export function DirectVisitDialog({
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = cairoToday();
   const [fn, setFn] = useState<AccountFunction>(allowedFns[0] ?? "IGV");
   const [name, setName] = useState("");
   const [product, setProduct] = useState("");

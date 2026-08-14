@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { CalendarRange, Loader2, Repeat, Trash2, Video } from "lucide-react";
 import { deleteTimeline, listTimelines, saveTimeline } from "@/server/actions";
+import { cairoToday } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader,
@@ -67,12 +68,14 @@ export function TimelineDialog({
   const [time, setTime] = useState("19:00");
   const [virtual, setVirtual] = useState(false);
   const [note, setNote] = useState("");
-  const today = new Date().toISOString().slice(0, 10);
+  const today = cairoToday();
   const [startsOn, setStartsOn] = useState(today);
+  // six months on from the CAIRO day, not the UTC one — walk the calendar
+  // from `today` so the default end never lands a day early
   const [endsOn, setEndsOn] = useState(() => {
-    const d = new Date();
-    d.setMonth(d.getMonth() + 6);
-    return d.toISOString().slice(0, 10);
+    const [y, m, d] = today.split("-").map(Number);
+    const end = new Date(Date.UTC(y, m - 1 + 6, d));
+    return end.toISOString().slice(0, 10);
   });
 
   useEffect(() => {

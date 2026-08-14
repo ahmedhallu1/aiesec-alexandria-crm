@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { getNextWorkingHours, logContact, setOutOfProcess, undoAutoAssign } from "@/server/actions";
+import { cairoToday } from "@/lib/types";
 import type { ContactMethod } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -94,7 +95,7 @@ export function ContactDialog({
 
   const isVisitScheduled = status === "Visit Scheduled";
   const isNotInterested = status === "Not Interested";
-  const today = new Date().toISOString().slice(0, 10);
+  const today = cairoToday();
   const nextStepAlreadySet = !!target.nextStepDate && target.nextStepDate >= today;
   const nextStepRequired =
     !isVisitScheduled && !isNotInterested && !target.hasPendingVisit && !nextStepAlreadySet;

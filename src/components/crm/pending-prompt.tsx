@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { AlarmClock, ArrowRight } from "lucide-react";
 import { getMyPendingPrompt } from "@/server/attendance";
+import { cairoToday } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -21,14 +22,6 @@ import {
 
 const SNOOZE_KEY = "sodio-pending-snooze";
 
-/** Cairo's "today" on the client — the LC lives on Cairo wall-clock. */
-const cairoToday = () =>
-  new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Africa/Cairo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
 
 interface Prompt {
   id: string;
