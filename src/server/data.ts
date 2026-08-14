@@ -3160,13 +3160,19 @@ export async function getSystemHealth(): Promise<SystemHealth> {
   // cron last-run — real timestamps stamped by markCronRun (app_settings).
   // Keep this list in sync with supabase/cron.sql + src/app/api/cron/*.
   const CRON_META: { key: string; label: string; note: string }[] = [
-    { key: "visit-followups", label: "Visit follow-ups", note: "every 15 min" },
-    { key: "signups-import", label: "Sign-ups sheet sync", note: "every 15 min" },
-    { key: "membership-import", label: "Membership import", note: "every 30 min" },
-    { key: "sheets-export", label: "Sheets export", note: "hourly (:05)" },
+    // GitHub Actions (free) — see .github/workflows/
+    { key: "visit-followups", label: "Visit follow-ups", note: "every 30 min, 04–21 UTC (Actions)" },
+    { key: "signups-import", label: "Sign-ups sheet sync", note: "every 15 min, 04–21 UTC (Actions)" },
+    { key: "membership-import", label: "Membership import", note: "every 30 min, 04–21 UTC (Actions)" },
+    { key: "sheets-export", label: "Sheets export", note: "hourly (:05), 04–21 UTC (Actions)" },
+    // Supabase pg_cron → Vercel — see supabase/cron.sql
     { key: "podio-updates", label: "Podio continuous updates", note: "daily 05:00 UTC" },
     { key: "period-reports", label: "Period reports", note: "daily 07:00 UTC (fires on sprint/month/quarter ends)" },
     { key: "streak-nags", label: "OGV streak nags", note: "daily 16:00 UTC (19:00 Cairo)" },
+    // v33.46 — this one runs, stamps, and was the only job the health page
+    // could not report on: it was missing from this list, so a silent failure
+    // would have shown as nothing at all.
+    { key: "touch-point-feedback", label: "Touch-point feedback", note: "daily 19:00 UTC" },
     { key: "attendance-reminders", label: "Attendance reminders", note: "daily 21:00 UTC" },
     { key: "backup", label: "Nightly backup", note: "daily 02:00 UTC (04:00 Cairo)" },
   ];
@@ -5404,9 +5410,15 @@ export async function ogxDashboard(
     // function, the row is waiting to be re-assigned, not progress.
     const holder = byId.get(r.assigned_to);
     if (!holder || !inFn(holder)) continue;
-    // this peak only — assigned_at is when it became work
+    // this peak only — assigned_at is when it became work.
+    // v33.46 — this read the same field TWO DIFFERENT WAYS, four lines apart:
+    // a raw .slice(0, 10) here, signupDayIso() in the explicit-range branch
+    // below. signed_up_at is free sheet text and 14 rows are "M/D/YYYY", which
+    // the slice hands back unchanged — and "8/13/2026" < "2026-08-01" is
+    // FALSE as a string compare, so those rows sailed past the peak cutoff
+    // whatever year they came from. One parser for one field.
     if (peakStart && !filters.from && !filters.to) {
-      const day = (r.assigned_at ?? r.signed_up_at ?? "").slice(0, 10);
+      const day = signupDayIso(r.assigned_at ?? r.signed_up_at);
       if (day && day < peakStart) continue;
     }
     // an explicit date range overrides the peak default
