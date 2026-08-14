@@ -1796,6 +1796,54 @@ function addRowLane(s: FunnelStats, r: PipelineRow, lane: string) {
  *  is always there for someone who wants it now. */
 const DASHBOARD_TTL_SECONDS = 1800;
 
+/** WHY THIS IS NOT `unstable_cache` ANYMORE (v33.46).
+ *
+ *  v33.14 stopped `refresh()` from expiring the dashboard entry, and left a
+ *  comment saying the entry now lives out its life. It didn't. Two lines
+ *  above that comment `refresh()` calls `revalidatePath("/", "layout")` —
+ *  which Next's own reference documents under the heading "Revalidating all
+ *  data": it invalidates ALL cached data, `unstable_cache` entries included.
+ *  So every contact logged by any of forty members still dropped the shared
+ *  4,000-row read for everyone, which is the exact cost v33.14 set out to
+ *  remove. The tag on the entry was inert too — nothing in the codebase has
+ *  ever called `revalidateTag("accounts")`.
+ *
+ *  `refresh()` is called from ~94 places and its blanket invalidation is what
+ *  keeps every other page correct, so it stays. The dashboard read moves out
+ *  of Next's cache instead, into plain module memory that `revalidatePath`
+ *  cannot reach. Per-instance rather than global, which only means a cold
+ *  instance pays for one read.
+ *
+ *  THE COST is the one v33.14 already accepted and wrote down: a dashboard
+ *  number can be up to DASHBOARD_TTL_SECONDS behind. It is a steering
+ *  instrument, not a live scoreboard. Account pages and lists are unaffected
+ *  — `refresh()` still expires those immediately. */
+const dashboardMemo = new Map<string, { at: number; rows: PipelineRow[] }>();
+/** The key space is SCOPES, not viewers (see dashboardCacheKey), so this is
+ *  bounded by roles × teams × date-filters in practice. The cap is a
+ *  guardrail against an unexpected filter combination growing it forever. */
+const DASHBOARD_MEMO_MAX = 64;
+
+async function readDashboardRows(
+  key: string,
+  load: () => Promise<PipelineRow[]>
+): Promise<PipelineRow[]> {
+  const now = Date.now();
+  const hit = dashboardMemo.get(key);
+  if (hit && now - hit.at < DASHBOARD_TTL_SECONDS * 1000) return hit.rows;
+  const rows = await load();
+  if (dashboardMemo.size >= DASHBOARD_MEMO_MAX) {
+    let oldestKey: string | null = null;
+    let oldestAt = Infinity;
+    for (const [k, v] of dashboardMemo) {
+      if (v.at < oldestAt) { oldestAt = v.at; oldestKey = k; }
+    }
+    if (oldestKey) dashboardMemo.delete(oldestKey);
+  }
+  dashboardMemo.set(key, { at: now, rows });
+  return rows;
+}
+
 /** The registered `Team` names, lower-cased. Structural teams (EB, LB,
  *  Function, Function leaders) are deliberately excluded — they are not
  *  anybody's team. */
@@ -1929,14 +1977,11 @@ export async function getDashboard(
     from: rowFilters.from,
     to: rowFilters.to,
   });
-  const { unstable_cache } = await import("next/cache");
-  const readRows = unstable_cache(
-    async () =>
-      listAccounts(dashViewer, rowFilters, MAX_FETCH_ROWS, DASHBOARD_COLUMNS),
-    ["dashboard-rows", key],
-    { revalidate: DASHBOARD_TTL_SECONDS, tags: ["accounts"] }
-  );
-  const rows = (await readRows()).filter((r) => r.responsible_id != null);
+  const rows = (
+    await readDashboardRows(key, () =>
+      listAccounts(dashViewer, rowFilters, MAX_FETCH_ROWS, DASHBOARD_COLUMNS)
+    )
+  ).filter((r) => r.responsible_id != null);
   const inKpiScope = (r: PipelineRow) =>
     !filters.responsibleId || r.responsible_id === filters.responsibleId;
   const members = await listVisibleMembers(dashViewer);

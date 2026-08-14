@@ -125,9 +125,14 @@ function refresh(accountId?: string) {
   // The dashboard's row read is SHARED between everyone with the same scope,
   // so expiring it here meant one member logging a contact made forty people
   // re-read four thousand rows. With the project near its CPU allowance that
-  // is the single most expensive habit in the system, so the entry now lives
-  // out its five minutes (v33.14). Account PAGES and lists are unaffected —
-  // revalidatePath above still refreshes those immediately.
+  // is the single most expensive habit in the system (v33.14).
+  //
+  // v33.46 — dropping the tag was not enough. `revalidatePath("/", "layout")`
+  // on the line above is Next's documented "revalidate ALL data" call, and it
+  // took the dashboard's cache entry with it every time, which is why the
+  // v33.14 saving never actually landed. The read now lives in module memory
+  // that this call cannot reach — see `dashboardMemo` in data.ts. Everything
+  // else here is unchanged: account pages and lists still refresh instantly.
 }
 
 /** Keeps the responsible's CALENDAR follow-up reminder in sync with the
