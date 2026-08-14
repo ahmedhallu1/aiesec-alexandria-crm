@@ -4482,7 +4482,12 @@ function RequestRescheduleDialog({
     start(async () => {
       const res = await requestIrReschedule(call.id, why.trim());
       if (res.ok) {
-        toast.success("The IR got an email — they'll pick the new time. 📧");
+        // v33.48 — never claim "the IR got an email" without knowing they
+        // could. A bounced address returns the request saved and the mail
+        // withheld, and that has to be said out loud, not celebrated.
+        const warning = res.data?.warning;
+        if (warning) toast.warning(warning, { duration: 12_000 });
+        else toast.success("The IR got an email — they'll pick the new time. 📧");
         onClose();
         router.refresh();
       } else toast.error(res.error);
