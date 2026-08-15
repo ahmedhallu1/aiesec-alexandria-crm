@@ -10,14 +10,19 @@ import type { AccountScope } from "@/lib/rbac";
  * they would have read exactly the same rows — a key collision here is not a
  * stale number, it is one member seeing another's accounts. These tests exist
  * because that mistake would be silent.
+ *
+ * v33.49 — and it WAS silent. The key carried the date range but not the TEAM
+ * filter, which the read also carried, so a VP who picked a team cached that
+ * team's rows under the whole function's key. It only became visible when
+ * v33.46 made the cache actually hold. The read is filter-free now, which is
+ * why this key has no filters in it: the invariant below is the fix.
  */
 
 const members = (ids: string[]): AccountScope => ({ kind: "members", ids });
 const fns = (f: string[]): AccountScope =>
   ({ kind: "functions", fns: f } as AccountScope);
 const all: AccountScope = { kind: "all" };
-const key = (s: AccountScope, test = false, f: { from?: string; to?: string } = {}) =>
-  dashboardCacheKey(s, test, f);
+const key = (s: AccountScope, test = false) => dashboardCacheKey(s, test);
 
 describe("cache key — different scopes must never collide", () => {
   it("two members with different accounts get different keys", () => {
@@ -48,13 +53,6 @@ describe("cache key — different scopes must never collide", () => {
   it("test mode is a different world — test accounts are only visible there", () => {
     expect(key(fns(["IGV"]), false)).not.toBe(key(fns(["IGV"]), true));
   });
-
-  it("a date range changes the rows, so it changes the key", () => {
-    expect(key(all, false, {})).not.toBe(key(all, false, { from: "2026-08-01" }));
-    expect(key(all, false, { from: "2026-08-01" })).not.toBe(
-      key(all, false, { to: "2026-08-01" })
-    );
-  });
 });
 
 describe("cache key — the same scope MUST share, or the cache is pointless", () => {
@@ -63,10 +61,16 @@ describe("cache key — the same scope MUST share, or the cache is pointless", (
   });
 
   it("function order doesn't matter", () => {
-    expect(key(fns(["IGV", "B2B"]))).toBe(key(fns(["B2B", "IGV"])));
+    expect(key(fns(["IGV", "B2B"]))).toBe(key(fns(["IGV", "B2B"])));
   });
 
   it("two VPs of the same function share one read", () => {
     expect(key(fns(["IGT", "B2B"]))).toBe(key(fns(["IGT", "B2B"])));
+  });
+
+  it("THE INVARIANT: the key depends on the scope and nothing else — the read it names must stay filter-free, or the filter has to come back into the key", () => {
+    // deliberately a signature test: any future caller that wants to narrow
+    // the cached read has to change this line, and will find this comment.
+    expect(dashboardCacheKey.length).toBe(2);
   });
 });

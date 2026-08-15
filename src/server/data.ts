@@ -47,6 +47,9 @@ import {
   slugLikePattern } from "@/lib/types";
 import { cairoToUtc } from "@/lib/time";
 import { monthOf, sprintOf } from "@/lib/plan";
+import {
+  addRowLane, allTimeWork, didAnything, emptyStats, laneAllocSlots, laneWorkSlots,
+  noWork, rowInLane, type FunnelStats, type RowWork } from "@/lib/dashboard-funnel";
 
 export interface PipelineRow extends AccountPipeline {
   responsible_role: MemberRole;
@@ -853,6 +856,10 @@ export interface AccountFilters {
   archived?: boolean;
   /** dashboards need the full picture including archived accounts */
   includeArchived?: boolean;
+  /** INTERNAL (v33.49) — a fixed id list. Only the dashboard's delta refresh
+   *  uses it, to re-read exactly the accounts that changed since its snapshot;
+   *  nothing parses it from a URL. The scope is applied on top as always. */
+  ids?: string[];
   /** B2B/BD accounts not yet requested on Podio (no request, no state) —
    *  the leaders' submission worklist */
 }
@@ -1049,6 +1056,8 @@ async function buildAccountsQuery(
     const single = one(vals);
     query = single !== null ? query.eq(col, single) : query.in(col, vals);
   };
+
+  if (filters.ids && filters.ids.length > 0) query = query.in("id", filters.ids);
 
   eqOrIn("function", filters.fn);
   eqOrIn("project", filters.project);
@@ -1683,94 +1692,14 @@ export async function listTeamFilterOptions(
 
 // ------------------------------------------------------------------ dashboard
 
-export interface FunnelStats {
-  /** Market Research — every account that entered the system */
-  mr: number;
-  contacted: number;
-  visitScheduled: number;
-  visitDone: number;
-  /** number of DEALS signed (an account can close several) */
-  deals: number;
-  /** accounts with at least one deal (used for conversion rates) */
-  dealAccounts: number;
-  slots: number;
-  outOfProcess: number;
-  contactLimitFlags: number;
-  nextStepMissingFlags: number;
-}
+/** THE FUNNEL MODEL LIVES IN `@/lib/dashboard-funnel` (v33.49) — which lane a
+ *  row belongs to, which lane its opens feed, and which DATE each KPI is
+ *  judged on. It is pure, so it is unit-tested; this file supplies the rows. */
+export type { FunnelStats, RowWork } from "@/lib/dashboard-funnel";
 
 export interface DrillGroup extends FunnelStats {
   key: string;
   label: string;
-}
-
-const emptyStats = (): FunnelStats => ({
-  mr: 0, contacted: 0, visitScheduled: 0, visitDone: 0, deals: 0,
-  dealAccounts: 0, slots: 0, outOfProcess: 0, contactLimitFlags: 0,
-  nextStepMissingFlags: 0,
-});
-
-/** Which dashboard lane an account belongs to for FUNNEL metrics (MR,
- *  contacted, visits…). B2B accounts live in the All-ICX lane (and the B2B
- *  drill row); their opens still feed the product lanes via deal breakdowns. */
-function rowInLane(r: PipelineRow, lane: string): boolean {
-  // B2C is its own module — it never pollutes the All-ICX lane (v23)
-  if (lane === "all") return r.function !== "B2C";
-  if (lane === "IGV") return r.function === "IGV";
-  if (lane === "IGT") return r.function === "IGT";
-  if (lane === "IGTa") return r.function === "IGT" && r.product === "GTa";
-  if (lane === "IGTe") return r.function === "IGT" && r.product === "GTe";
-  // B2B & BD are one function — the B2B lane shows both labels
-  // v32.6: BD is its OWN lane — B2B raises opens, BD sells partnerships, and
-  // mixing them made both numbers meaningless
-  if (lane === "B2B") return r.function === "B2B";
-  if (lane === "BD") return r.function === "BD";
-  if (lane === "B2C") return r.function === "B2C";
-  return true;
-}
-
-/** Opens this account contributes to a lane. Deals carry a per-product split
- *  (B2B mixes all three; IGT deals split IGTa/IGTe), so a lane's slots include
- *  every account's contribution — B2B included. */
-function laneSlots(r: PipelineRow, lane: string): number {
-  // B2C deals carry no opens — the lane has no slots at all (v23)
-  if (lane === "B2C" || r.function === "B2C") return 0;
-  if (lane === "all") return r.slots_count ?? 0;
-  // pre-0009 fallback: attribute the account's total to its own product
-  if (r.slots_igv_count == null)
-    return rowInLane(r, lane) ? r.slots_count ?? 0 : 0;
-  if (lane === "IGV") return r.slots_igv_count ?? 0;
-  if (lane === "IGTa") return r.slots_igta_count ?? 0;
-  if (lane === "IGTe") return r.slots_igte_count ?? 0;
-  if (lane === "IGT") return (r.slots_igta_count ?? 0) + (r.slots_igte_count ?? 0);
-  if (lane === "B2B") return r.function === "B2B" ? r.slots_count ?? 0 : 0;
-  if (lane === "BD") return r.function === "BD" ? r.slots_count ?? 0 : 0;
-  return r.slots_count ?? 0;
-}
-
-/** Funnel metrics come from the lane's own accounts; slots/deals count every
- *  account contributing opens to the lane (B2B feeding IGV/IGTa/IGTe). */
-function addRowLane(s: FunnelStats, r: PipelineRow, lane: string) {
-  if (rowInLane(r, lane)) {
-    s.mr += 1;
-    if (r.attempts > 0) s.contacted += 1;
-    if (r.visit_id) s.visitScheduled += 1;
-    if (r.visit_done) s.visitDone += 1;
-    if (r.out_of_process) s.outOfProcess += 1;
-    if (r.contact_limit_reached) s.contactLimitFlags += 1;
-    if (r.next_step_missing) s.nextStepMissingFlags += 1;
-    // B2C deals carry NO opens — count them straight off the account (v23)
-    if (r.function === "B2C" && (r.deals_count ?? 0) > 0) {
-      s.deals += r.deals_count ?? 0;
-      s.dealAccounts += 1;
-    }
-  }
-  const ls = laneSlots(r, lane);
-  if (ls > 0) {
-    s.slots += ls;
-    s.deals += r.deals_count || 1;
-    s.dealAccounts += 1;
-  }
 }
 
 /** How long a dashboard read may be reused.
@@ -1818,30 +1747,106 @@ const DASHBOARD_TTL_SECONDS = 1800;
  *  number can be up to DASHBOARD_TTL_SECONDS behind. It is a steering
  *  instrument, not a live scoreboard. Account pages and lists are unaffected
  *  — `refresh()` still expires those immediately. */
-const dashboardMemo = new Map<string, { at: number; rows: PipelineRow[] }>();
-/** The key space is SCOPES, not viewers (see dashboardCacheKey), so this is
- *  bounded by roles × teams × date-filters in practice. The cap is a
- *  guardrail against an unexpected filter combination growing it forever. */
-const DASHBOARD_MEMO_MAX = 64;
+interface DashboardSnapshot {
+  /** when the FULL read was taken — governs the TTL */
+  at: number;
+  /** the instant the snapshot is current AS OF: everything written after this
+   *  is picked up by the delta below. Taken BEFORE the read starts, so a row
+   *  written while it ran is re-read rather than missed. */
+  asOf: string;
+  rows: PipelineRow[];
+}
+const dashboardMemo = new Map<string, DashboardSnapshot>();
+/** The key space is SCOPES, not viewers (see dashboardCacheKey) — since
+ *  v33.49 it carries no filters at all, so this is bounded by roles × teams.
+ *  The cap is a guardrail, not a working limit. */
+const DASHBOARD_MEMO_MAX = 32;
+/** More accounts than this changed since the snapshot (a market-research
+ *  import, a bulk reassign) → re-read the lot instead of patching row by row. */
+const DASHBOARD_DELTA_MAX = 400;
 
-async function readDashboardRows(
-  key: string,
-  load: () => Promise<PipelineRow[]>
-): Promise<PipelineRow[]> {
-  const now = Date.now();
-  const hit = dashboardMemo.get(key);
-  if (hit && now - hit.at < DASHBOARD_TTL_SECONDS * 1000) return hit.rows;
-  const rows = await load();
-  if (dashboardMemo.size >= DASHBOARD_MEMO_MAX) {
-    let oldestKey: string | null = null;
-    let oldestAt = Infinity;
-    for (const [k, v] of dashboardMemo) {
-      if (v.at < oldestAt) { oldestAt = v.at; oldestKey = k; }
+/** THE SNAPSHOT SELF-FRESHENS (v33.49).
+ *
+ *  v33.46 was right that the expensive read should not be dropped every time
+ *  somebody logs a contact — but it left the dashboard genuinely frozen for
+ *  half an hour, and the Refresh button unable to do anything about it
+ *  (`refresh()` calls `revalidatePath`, which module memory does not listen
+ *  to). "The numbers are wrong" is what that looks like from the floor.
+ *
+ *  So the full read still happens at most once per TTL, and every render adds
+ *  one tiny query on top: which accounts have been touched since the snapshot.
+ *  Normally that returns nothing and costs a scan of a 4,000-row table. When
+ *  it returns something, only those rows are re-read — so a new account, a
+ *  reassignment, an archive or an account that has just left this scope lands
+ *  on the dashboard immediately, at a fraction of the cost of re-reading
+ *  everything. (The work numbers — contacts, visits, deals — are read live
+ *  from their own tables and were never affected by this cache.)
+ *
+ *  WHAT STILL LAGS: a permanently DELETED account, which by definition can't
+ *  appear in a list of changed rows. That is a VP-only action on an archived
+ *  name, and it heals on the next full read. */
+async function readDashboardRows(viewer: Viewer): Promise<PipelineRow[]> {
+  const key = dashboardCacheKey(accountScope(viewer), !!viewer.testMode);
+  // THE READ IS FILTER-FREE — see dashboardCacheKey. Every filter (date range,
+  // team, member) is applied in JS by getDashboard, so this row set is exactly
+  // "every account this scope can see", and nothing about the caller's filters
+  // can make one viewer's entry wrong for the next.
+  const readAll = async (): Promise<DashboardSnapshot> => {
+    const asOf = new Date().toISOString();
+    const rows = await listAccounts(
+      viewer,
+      { includeArchived: true },
+      MAX_FETCH_ROWS,
+      DASHBOARD_COLUMNS
+    );
+    return { at: Date.now(), asOf, rows };
+  };
+  const remember = (snap: DashboardSnapshot) => {
+    if (dashboardMemo.size >= DASHBOARD_MEMO_MAX && !dashboardMemo.has(key)) {
+      let oldestKey: string | null = null;
+      let oldestAt = Infinity;
+      for (const [k, v] of dashboardMemo) {
+        if (v.at < oldestAt) { oldestAt = v.at; oldestKey = k; }
+      }
+      if (oldestKey) dashboardMemo.delete(oldestKey);
     }
-    if (oldestKey) dashboardMemo.delete(oldestKey);
+    dashboardMemo.set(key, snap);
+    return snap.rows;
+  };
+
+  const hit = dashboardMemo.get(key);
+  if (!hit || Date.now() - hit.at >= DASHBOARD_TTL_SECONDS * 1000)
+    return remember(await readAll());
+
+  try {
+    const asOf = new Date().toISOString();
+    const { data, error } = await db()
+      .from("accounts")
+      .select("id")
+      .gte("updated_at", hit.asOf)
+      .limit(DASHBOARD_DELTA_MAX + 1);
+    if (error) throw error;
+    const ids = ((data ?? []) as { id: string }[]).map((c) => c.id);
+    if (ids.length > DASHBOARD_DELTA_MAX) return remember(await readAll());
+    if (ids.length > 0) {
+      const fresh = await listAccounts(
+        viewer,
+        { includeArchived: true, ids },
+        ids.length,
+        DASHBOARD_COLUMNS
+      );
+      // a changed row is dropped and re-added: one that no longer matches this
+      // scope (reassigned into another function) simply doesn't come back
+      const changed = new Set(ids);
+      hit.rows = [...hit.rows.filter((r) => !changed.has(r.id)), ...fresh];
+    }
+    hit.asOf = asOf;
+  } catch (e) {
+    // a delta that fails leaves the snapshot exactly as stale as it already
+    // was — never wrong, and never a blank dashboard
+    console.error("[dashboard] delta refresh failed:", (e as Error).message);
   }
-  dashboardMemo.set(key, { at: now, rows });
-  return rows;
+  return hit.rows;
 }
 
 /** The registered `Team` names, lower-cased. Structural teams (EB, LB,
@@ -1928,23 +1933,85 @@ interface AllocRow {
   deal: { account_id: string } | null;
 }
 
-/** Opens one allocation contributes to a lane (mirror of laneSlots, but for a
- *  single allocation row instead of an account's running counters). */
-function laneAllocSlots(
-  a: { slots_igv: number; slots_igta: number; slots_igte: number },
-  lane: string,
-  accountFn: string
-): number {
-  // B2C has NO opens at all (v23) — allocations never count into its lane
-  if (lane === "B2C" || accountFn === "B2C") return 0;
-  if (lane === "IGV") return a.slots_igv ?? 0;
-  if (lane === "IGTa") return a.slots_igta ?? 0;
-  if (lane === "IGTe") return a.slots_igte ?? 0;
-  if (lane === "IGT") return (a.slots_igta ?? 0) + (a.slots_igte ?? 0);
-  const totalSlots = (a.slots_igv ?? 0) + (a.slots_igta ?? 0) + (a.slots_igte ?? 0);
-  if (lane === "B2B") return accountFn === "B2B" ? totalSlots : 0;
-  if (lane === "BD") return accountFn === "BD" ? totalSlots : 0;
-  return totalSlots; // "all"
+
+/** THE WORK ITSELF, read per table and keyed by account (v33.49) — one query
+ *  per KPI that has a date of its own, each filtered on ITS OWN column.
+ *
+ *  Only reached when a date range is set: with no range the account row's
+ *  running counters already are the all-time answer, so the LC's whole contact
+ *  log never has to be read. Inside a range these tables are bounded by the
+ *  range itself (a month of an LC's work is a few hundred rows), which is why
+ *  they can be read LIVE on every render while the 4,000-row account read is
+ *  the one that gets cached.
+ *
+ *  Test accounts need no filter here: the caller looks every row up in its own
+ *  account set, which already excludes them unless the viewer is in a test
+ *  view. Anything that doesn't resolve to an account in scope is dropped. */
+async function dashboardWindowWork(
+  startIso: string | null,
+  endIso: string | null,
+  from?: string,
+  to?: string
+): Promise<Map<string, RowWork>> {
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const [contacts, booked, held, deals] = await Promise.all([
+    // contacted → the ATTEMPT's own timestamp
+    fetchAll<any>(() => {
+      let q = db().from("contact_attempts").select("account_id");
+      if (startIso) q = q.gte("created_at", startIso);
+      if (endIso) q = q.lt("created_at", endIso);
+      return q.order("id");
+    }).catch(() => []),
+    // visits → the BOOKING (created_at), which is the work done in the window
+    fetchAll<any>(() => {
+      let q = db().from("visits").select("account_id");
+      if (startIso) q = q.gte("created_at", startIso);
+      if (endIso) q = q.lt("created_at", endIso);
+      return q.order("id");
+    }).catch(() => []),
+    // visits done → the day it actually HAPPENED (visit_date, a Cairo calendar
+    // day, so it stays a plain date comparison)
+    fetchAll<any>(() => {
+      let q = db().from("visits").select("account_id").eq("done", true);
+      if (from) q = q.gte("visit_date", from);
+      if (to) q = q.lte("visit_date", to);
+      return q.order("id");
+    }).catch(() => []),
+    // deals + the opens they carry → when the deal was signed
+    fetchAll<any>(() => {
+      let q = db()
+        .from("deals")
+        .select("account_id, slots, slots_igv, slots_igta, slots_igte");
+      if (startIso) q = q.gte("created_at", startIso);
+      if (endIso) q = q.lt("created_at", endIso);
+      return q.order("id");
+    }).catch(() => []),
+  ]);
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+
+  const out = new Map<string, RowWork>();
+  const at = (id: string): RowWork => {
+    let w = out.get(id);
+    if (!w) { w = noWork(); out.set(id, w); }
+    return w;
+  };
+  for (const c of contacts) if (c.account_id) at(c.account_id).contacted = true;
+  for (const v of booked) if (v.account_id) at(v.account_id).visitBooked = true;
+  for (const v of held) if (v.account_id) at(v.account_id).visitDone = true;
+  for (const d of deals) {
+    if (!d.account_id) continue;
+    const w = at(d.account_id);
+    w.deals += 1;
+    w.slots += d.slots ?? 0;
+    w.igv += d.slots_igv ?? 0;
+    w.igta += d.slots_igta ?? 0;
+    w.igte += d.slots_igte ?? 0;
+    // pre-0009 deals carry no per-product split — the account's own product
+    // takes the whole total, exactly as the counters' fallback does
+    if (d.slots_igv == null && d.slots_igta == null && d.slots_igte == null)
+      w.split = false;
+  }
+  return out;
 }
 
 export async function getDashboard(
@@ -1954,11 +2021,17 @@ export async function getDashboard(
 ) {
   const lane = laneKey && laneKey !== "all" ? laneKey : "all";
   const dashViewer = dashboardViewer(viewer);
-  // lane filtering happens HERE in JS — a DB fn/product filter would drop the
-  // B2B (and cross-product IGT) accounts whose opens feed this lane.
-  // responsibleId ("My numbers" / the member select) is ALSO applied in JS:
-  // it scopes the KPI + conversion totals ONLY — leaderboards, drills and
-  // goal progress always show the full picture.
+  // EVERY FILTER IS APPLIED HERE, IN JS (v33.49) — the DB read is the scope's
+  // whole account set and nothing else, which is what makes it safely
+  // cacheable (see dashboardCacheKey for the collision this closes).
+  //   · lane (fn/product) — a DB filter would drop the B2B and cross-product
+  //     IGT accounts whose opens feed this lane
+  //   · date range — each KPI is judged on its OWN date, so the accounts read
+  //     can't be narrowed by one of them (see RowWork)
+  //   · team — the TL and everyone reporting to them
+  //   · responsibleId ("My numbers" / the member select) — scopes the KPI +
+  //     conversion totals ONLY; leaderboards, drills and goal progress always
+  //     show the full picture
   // UNOWNED accounts are excluded from every dashboard number (v33.2). The
   // 1,300 imported market-research names nobody has taken are not work anyone
   // has done: counting them as Market Research inflates the top of the funnel
@@ -1966,22 +2039,53 @@ export async function getDashboard(
   // is failing at contacting when really nobody has been given the names yet.
   // They can carry nothing else — scheduling a visit or recording a deal both
   // refuse until the account is assigned.
-  const rowFilters = {
-    ...filters,
-    fn: undefined,
-    product: undefined,
-    responsibleId: undefined,
-    includeArchived: true,
+  const allRows = (await readDashboardRows(dashViewer)).filter(
+    (r) => r.responsible_id != null
+  );
+  // a team filter means "this TL and everyone reporting to them" — several
+  // teams is the UNION of those people (it was a DB filter until v33.49,
+  // which is exactly what poisoned the shared cache entry)
+  const teamPicks = pickList(filters.teamId);
+  let teamScope: Set<string> | null = null;
+  if (teamPicks.length > 0) {
+    const { data: team } = await db()
+      .from("members")
+      .select("id")
+      .in("stakeholder_id", teamPicks);
+    teamScope = new Set([
+      ...teamPicks,
+      ...((team ?? []) as { id: string }[]).map((t) => t.id),
+    ]);
+  }
+  const rows = teamScope
+    ? allRows.filter((r) => teamScope.has(r.responsible_id))
+    : allRows;
+
+  // ---- the window, and the work inside it --------------------------------
+  // Cairo day bounds → UTC instants, half-open [startIso, endIso). A naive
+  // "YYYY-MM-DDT00:00:00Z" is 2–3 hours out here, which silently moved the
+  // first evening of every range into the period before it.
+  const { from, to } = clampDirectoryWindow({ from: filters.from, to: filters.to });
+  const windowed = !!(from || to);
+  const startIso = from ? cairoToUtc(from, "00:00").toISOString() : null;
+  const endIso = to ? cairoToUtc(nextDayIso(to), "00:00").toISOString() : null;
+  const startTs = startIso ? Date.parse(startIso) : -Infinity;
+  const endTs = endIso ? Date.parse(endIso) : Infinity;
+  const inWindow = (ts: string | null | undefined) => {
+    if (!ts) return false;
+    const t = Date.parse(ts);
+    return Number.isFinite(t) && t >= startTs && t < endTs;
   };
-  const key = dashboardCacheKey(accountScope(dashViewer), !!dashViewer.testMode, {
-    from: rowFilters.from,
-    to: rowFilters.to,
-  });
-  const rows = (
-    await readDashboardRows(key, () =>
-      listAccounts(dashViewer, rowFilters, MAX_FETCH_ROWS, DASHBOARD_COLUMNS)
-    )
-  ).filter((r) => r.responsible_id != null);
+  const workById = windowed
+    ? await dashboardWindowWork(startIso, endIso, from, to)
+    : null;
+  const workOf = (r: PipelineRow): RowWork => {
+    if (!workById) return allTimeWork(r);
+    const w = workById.get(r.id) ?? noWork();
+    w.mr = inWindow(r.created_at);
+    return w;
+  };
+
   const inKpiScope = (r: PipelineRow) =>
     !filters.responsibleId || r.responsible_id === filters.responsibleId;
   const members = await listVisibleMembers(dashViewer);
@@ -2014,17 +2118,23 @@ export async function getDashboard(
   const rowById = new Map(rows.map((r) => [r.id, r]));
 
   for (const r of rows) {
+    const w = workOf(r);
     const inLane = rowInLane(r, lane);
-    const contributes = laneSlots(r, lane) > 0;
+    const contributes = laneWorkSlots(r, w, lane) > 0;
     if (!inLane && !contributes) continue; // nothing for this lane
+    // Inside a window, an account the viewer simply didn't touch this month
+    // must not take a row on a board or a drill — it would be a name with
+    // seven zeroes beside it. (With no window every account counts as MR, so
+    // this never fires and the picture is the one it has always been.)
+    if (windowed && !didAnything(w)) continue;
 
-    if (inKpiScope(r)) addRowLane(total, r, lane);
+    if (inKpiScope(r)) addRowLane(total, r, w, lane);
 
     // product drill: IGV / IGTa / IGTe / B2B rows (account-level numbers)
     if (inLane) {
       const fnKey =
         r.function === "IGT" ? (r.product ? `I${r.product}` : "IGT") : r.function;
-      addRowLane(getOrInit(byFunction, fnKey, fnKey), r, lane);
+      addRowLane(getOrInit(byFunction, fnKey, fnKey), r, w, lane);
     }
 
     // MM drill (v23.2 — was "by team"): every Team Leader AND Coordinator
@@ -2044,7 +2154,7 @@ export async function getDashboard(
       // person: "Hana Wael" beats "Hana Wael — Suits, شماريخ".
       const own = teamLabelOf(mm.team_name, registeredTeams);
       const mmLabel = own ? `${mm.name} — ${own}` : mm.name;
-      addRowLane(getOrInit(byTeam, mm.id, mmLabel), r, lane);
+      addRowLane(getOrInit(byTeam, mm.id, mmLabel), r, w, lane);
     }
 
     // leaderboards (VPs/Directors/LCP never appear — leaders steer):
@@ -2053,11 +2163,11 @@ export async function getDashboard(
     // each row is that person's OWN accounts (no team rollup)
     const respLabel = r.responsible_name;
     if (r.responsible_role === "Member") {
-      addRowLane(getOrInit(byMemberRole, r.responsible_id, respLabel), r, lane);
-      addRowLane(getOrInit(byPerson, r.responsible_id, respLabel), r, lane);
+      addRowLane(getOrInit(byMemberRole, r.responsible_id, respLabel), r, w, lane);
+      addRowLane(getOrInit(byPerson, r.responsible_id, respLabel), r, w, lane);
     } else if (r.responsible_role === "Team Leader" || r.responsible_role === "Coordinator") {
-      addRowLane(getOrInit(byMM, r.responsible_id, respLabel), r, lane);
-      addRowLane(getOrInit(byPerson, r.responsible_id, respLabel), r, lane);
+      addRowLane(getOrInit(byMM, r.responsible_id, respLabel), r, w, lane);
+      addRowLane(getOrInit(byPerson, r.responsible_id, respLabel), r, w, lane);
     }
   }
 
@@ -2066,12 +2176,23 @@ export async function getDashboard(
   // allocations whose parent account is in the scoped/filtered row set count —
   // the boards stay consistent with the rest of the dashboard. When the table
   // is empty (pre-migration), keep the account-based numbers.
-  const allocations = await fetchAll<AllocRow>(() =>
-    db()
+  // v33.49 — inside a window these are the allocations of the deals SIGNED in
+  // that window (they used to be every allocation ever, narrowed only by which
+  // accounts happened to be created inside it: a board could credit a member
+  // for opens raised months earlier, or drop this week's deal because the
+  // account was older than the filter).
+  const allocations = await fetchAll<AllocRow>(() => {
+    let q = db()
       .from("deal_allocations")
-      .select("member_id, slots_igv, slots_igta, slots_igte, deal:deals!inner(account_id)")
-      .order("id")
-  ).catch(() => [] as AllocRow[]);
+      .select(
+        windowed
+          ? "member_id, slots_igv, slots_igta, slots_igte, deal:deals!inner(account_id, created_at)"
+          : "member_id, slots_igv, slots_igta, slots_igte, deal:deals!inner(account_id)"
+      );
+    if (startIso) q = q.gte("deal.created_at", startIso);
+    if (endIso) q = q.lt("deal.created_at", endIso);
+    return q.order("id");
+  }).catch(() => [] as AllocRow[]);
   const allocSlotsByMember = new Map<string, number>();
   for (const al of allocations) {
     const acc = al.deal ? rowById.get(al.deal.account_id) : undefined;
@@ -2080,7 +2201,10 @@ export async function getDashboard(
     if (v > 0)
       allocSlotsByMember.set(al.member_id, (allocSlotsByMember.get(al.member_id) ?? 0) + v);
   }
-  if (allocations.length > 0) {
+  // A window with no deals in it means "nobody raised opens in this window" —
+  // zero, not "fall back to everything they ever raised". The pre-0018 fallback
+  // (an empty allocations TABLE) only applies to the all-time view.
+  if (allocations.length > 0 || windowed) {
     // members who received split opens without owning a scoped account still
     // deserve a board row
     for (const [mid, v] of allocSlotsByMember) {

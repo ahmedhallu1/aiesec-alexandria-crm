@@ -133,6 +133,13 @@ function refresh(accountId?: string) {
   // v33.14 saving never actually landed. The read now lives in module memory
   // that this call cannot reach — see `dashboardMemo` in data.ts. Everything
   // else here is unchanged: account pages and lists still refresh instantly.
+  //
+  // v33.49 — and that is why nothing here expires it either. The snapshot
+  // freshens ITSELF on every dashboard render (one small query for the
+  // accounts touched since it was taken), so a write shows up on the next
+  // render without anybody re-reading four thousand rows — which clearing it
+  // from here, on ~94 call sites, would put straight back.
+
 }
 
 /** Keeps the responsible's CALENDAR follow-up reminder in sync with the

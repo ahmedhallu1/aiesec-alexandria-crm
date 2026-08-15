@@ -4355,8 +4355,17 @@ export const HELP_ARTICLES: HelpArticle[] = [
     "md": "Under the KPI row sits the **conversion strip**: MR → Contacted, Contacted → Visits, Visits → Done, and **Visit Done → Deal**. All conversions are capped at 100%, so a weird import can never show you a 340% funnel."
    },
    {
+    "t": "callout",
+    "md": "**A date range counts each KPI on ITS OWN date.** Pick `This month` and you get: accounts **added** this month, accounts **contacted** this month (the contact's own date — the name can be from any month), visits **booked** this month, visits **held** this month, deals **signed** this month and the opens those deals carried. Before v33.49 the range filtered accounts by the day they were ADDED and then counted everything else off that shortlist, which quietly hid a quarter of the month's calls and visits — every one of them made on an older account. If a number still looks wrong, hover the card: it says which date it is counting.",
+    "tone": "info"
+   },
+   {
     "t": "p",
-    "md": "Filters: `This month`, `This sprint` (sprints are half-months — 1–15 and 16 to end of month), a team filter (scoped to teams that actually have rows in this lane), a member filter, and a date range that is clamped to today. The date label follows the lane: **Added** for accounts, **Signed up** for OGX, **Called** for consideration — and the consideration lane is the one place a future date is allowed, because a call can legitimately be in the future."
+    "md": "Because each card answers its own question, a step can outrun the one above it — a month where the crew called 170 old names and added 96 new ones is a real month, not a broken number. The percentages stay capped at 100%."
+   },
+   {
+    "t": "p",
+    "md": "Filters: `This month`, `This sprint` (sprints are half-months — 1–15 and 16 to end of month), a team filter (scoped to teams that actually have rows in this lane), a member filter, and a date range that is clamped to today. The date label follows the lane: **Worked** for accounts (each KPI on its own date), **Signed up** for OGX, **Called** for consideration — and the consideration lane is the one place a future date is allowed, because a call can legitimately be in the future."
    },
    {
     "t": "callout",
@@ -4385,6 +4394,14 @@ export const HELP_ARTICLES: HelpArticle[] = [
      {
       "q": "Why does the dashboard show more accounts than my list?",
       "a": "Your accounts list is scoped to what you own; the dashboard shows the whole function's aggregates so everyone can see where the funnel stands."
+     },
+     {
+      "q": "I logged a contact and the dashboard didn't move — is it broken?",
+      "a": "It should move on the next render now. The dashboard reuses its heavy account read for up to half an hour to keep the hosting bill down, but since v33.49 the snapshot re-checks what has changed on every load, and the work numbers (contacts, visits, deals) are read live every time. If a brand-new ACCOUNT is missing, hit Refresh once."
+     },
+     {
+      "q": "Contacted is bigger than Market Research for this month — how?",
+      "a": "Because they are two different questions about the same days: MR counts the names ADDED this month, Contacted counts the accounts CALLED this month whatever month they were added. A crew working through an older research list will always show that shape, and it is the honest one."
      }
     ]
    }

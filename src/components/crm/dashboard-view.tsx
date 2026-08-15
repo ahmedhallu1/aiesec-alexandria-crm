@@ -127,15 +127,50 @@ export function DashboardView({
 
   // KPIs, in the LC's order — conversions between consecutive steps live below.
   // B2C (v23) is deals-centric: no opens/slots exist there at all.
+  //
+  // THE HINT SAYS WHICH DATE THE NUMBER IS COUNTED ON (v33.49). With a range
+  // set, each of these is judged on its OWN date — the account's birthday, the
+  // contact's timestamp, the day the visit was booked, the day it was held,
+  // the day the deal was signed — so the hint has to say which, or the next
+  // person to compare two cards is right back where this started.
+  const dated = !!(filters.from || filters.to);
   const kpis = [
-    { label: "Market Research", value: total.mr, hint: "total accounts in the system" },
-    { label: "Contacted", value: total.contacted, hint: "accounts with ≥1 contact" },
-    { label: "Visits", value: total.visitScheduled, hint: "visits scheduled" },
-    { label: "Visits done", value: total.visitDone, hint: "confirmed visits" },
-    { label: "Deals", value: total.deals, hint: "deals signed (accounts can close many)" },
+    {
+      label: "Market Research",
+      value: total.mr,
+      hint: dated ? "accounts ADDED in this range" : "total accounts in the system",
+    },
+    {
+      label: "Contacted",
+      value: total.contacted,
+      hint: dated ? "accounts contacted IN this range" : "accounts with ≥1 contact",
+    },
+    {
+      label: "Visits",
+      value: total.visitScheduled,
+      hint: dated ? "accounts whose visit was BOOKED in this range" : "visits scheduled",
+    },
+    {
+      label: "Visits done",
+      value: total.visitDone,
+      hint: dated ? "visits HELD in this range" : "confirmed visits",
+    },
+    {
+      label: "Deals",
+      value: total.deals,
+      hint: dated
+        ? "deals SIGNED in this range"
+        : "deals signed (accounts can close many)",
+    },
     ...(isB2cLane
       ? []
-      : [{ label: "Slots raised", value: total.slots, hint: "total slots/opens" }]),
+      : [
+          {
+            label: "Slots raised",
+            value: total.slots,
+            hint: dated ? "opens from deals signed in this range" : "total slots/opens",
+          },
+        ]),
   ];
   const conversions = [
     { label: "MR → Contacted", value: pct(total.contacted, total.mr) },
@@ -155,8 +190,11 @@ export function DashboardView({
   // Consideration lanes (v33.32): same bar again, IR calls instead of accounts
   const isConsLane = activeFn.startsWith("CONS");
   const noun = isConsLane ? "IR calls" : isOgxLane ? "sign-ups" : "accounts";
-  /** which DATE the range filters on — each lane has its own */
-  const dateLabel = isConsLane ? "Called" : isOgxLane ? "Signed up" : "Added";
+  /** which DATE the range filters on — each lane has its own. A raising lane
+   *  no longer has ONE: every KPI is counted on its own date (v33.49), so the
+   *  label stopped saying "Added" — which is true of Market Research and of
+   *  nothing else on the row. */
+  const dateLabel = isConsLane ? "Called" : isOgxLane ? "Signed up" : "Worked";
   // a call can legitimately be in the FUTURE, so the consideration lane is the
   // one place the date inputs must not be clamped to today
   const dateMax = isConsLane ? undefined : today;
@@ -354,6 +392,20 @@ export function DashboardView({
           sub={isB2cLane ? "accounts that signed a deal" : "accounts that raised opens"}
         />
       </div>
+
+      {/* v33.49 — with a range set these cards are five different questions
+          about the same days, not one cohort followed down a funnel: the
+          contacts are the contacts MADE in the range, whatever month the name
+          was added. Said out loud, because a conversion between two of them
+          can legitimately read 100% when the work was done on older accounts. */}
+      {dated && !isOgxLane && !isConsLane ? (
+        <p className="-mt-2 text-xs text-muted-foreground rise-in">
+          Each number counts the work done in this range on its own date —
+          accounts added, contacts made, visits booked, visits held, deals
+          signed. They are not one group of accounts followed through the
+          funnel, so a step can outrun the one above it.
+        </p>
+      ) : null}
 
       {/* step-to-step conversion strip */}
       <Card className="rise-in rise-in-2">

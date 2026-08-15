@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-13 · Version: v33.44
+Last updated: 2026-08-15 · Version: v33.49
 
 ---
 
@@ -628,6 +628,119 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-15 · v33.49** — **THE DASHBOARD TELLS THE TRUTH AGAIN** (no
+  migration). Reported from the floor as "almost all the numbers are wrong,
+  and they were right until something changed". Two separate faults, one of
+  them a year old and one of them two days old.
+  ① **A DATE RANGE FILTERED ACCOUNTS BY THE DAY THEY WERE ADDED, AND THEN
+  COUNTED EVERY OTHER KPI OFF THAT SHORTLIST.** `getDashboard` passed
+  `from`/`to` straight into the accounts query as `accounts.created_at`, so
+  "This month" really meant *on accounts added this month* — right for Market
+  Research and wrong for all five cards beside it. A contact made today on a
+  name imported in July, a visit booked this morning for an account added last
+  sprint, a deal signed this week on a six-week-old account: none of them
+  existed on the dashboard, while the member who did all three was looking
+  straight at their own work counted as zero. **Measured in prod: 110 of the
+  423 contact attempts made in August (26%) and 9 of the 36 visits booked
+  (25%) sat on accounts created before August.** All ICX for August went
+  **Contacted 285 → 390, Visits 25 → 34, Done 13 → 14** (MR, deals and opens
+  unchanged — those were already on the right date). Every KPI is now counted
+  on ITS OWN date, the rule the period reports (v33.45) and the TM directory
+  (v29.4) already followed: MR = `accounts.created_at` · Contacted =
+  `contact_attempts.created_at` · Visits = `visits.created_at` (the BOOKING —
+  30 of the 36 live visits are booked for a different day, so `visit_date`
+  would move the work into a sprint nobody had worked yet) · Visits done =
+  `visits.visit_date` · Deals + opens = `deals.created_at`, per-member opens
+  via that deal's allocations. **The unit is unchanged** — contacted/visits/
+  done still count ACCOUNTS, because the strip under them is a funnel. The
+  window is Cairo-anchored and half-open (it was naive UTC, losing the first
+  2–3 hours of every range). Consequence worth saying out loud: the cards are
+  five questions about the same days, not one cohort, so Contacted can exceed
+  MR — a line under the KPI row says so, and each card's hint now names the
+  date it counts.
+  ② **THE SHARED CACHE WAS SERVING ONE TEAM'S ROWS AS THE WHOLE FUNCTION'S.**
+  `dashboardCacheKey` carried the scope, the test-mode flag and the date range
+  — but NOT the team filter, which the same read also applied. So a VP who
+  picked a team cached that team's rows under the function's key, and for the
+  next half hour everyone in that function (the VP included, after clearing
+  the filter) was served a subset as the total. It has been latent since
+  v33.6 and invisible because `refresh()` was dropping the entry on nearly
+  every write — until **v33.46 (two days ago) made the cache actually hold**,
+  which is exactly the "it was right until something changed". Fixed
+  structurally rather than by adding one key: **the cached read is now
+  FILTER-FREE** (the scope's whole account set) and date/team/member are all
+  applied in JS, so no filter can disagree with the key again. A test pins the
+  invariant.
+  ③ **AND THE SNAPSHOT FRESHENS ITSELF.** v33.46 also left the dashboard
+  frozen for up to 30 minutes with a Refresh button that could not touch it
+  (`refresh()` calls `revalidatePath`, which module memory doesn't hear). The
+  full read still happens once per TTL; every render now adds one small query
+  — which accounts changed since the snapshot — and re-reads only those, so a
+  new account, a reassignment or an archive lands immediately. Work numbers
+  (contacts/visits/deals) are read live from their own tables and never went
+  through that cache at all. Only a permanently DELETED account can lag, and
+  it heals on the next full read. **`refresh()` still does not clear it** —
+  that was the whole point of v33.46 and would put the 4,000-row read back on
+  ~94 call sites.
+  ④ The funnel model — lanes, per-product opens and the date each KPI is
+  judged on — moved out of `getDashboard` into **`src/lib/dashboard-funnel.ts`**,
+  pure and unit-tested (`tests/dashboard-funnel.test.ts`). It was the logic
+  that had been wrong for a year and the only way to check it was to look at
+  the dashboard and believe it. **242 tests.** Help center + the Blue Man
+  updated with what a date range means (and the Blue Man's "auto-refreshes
+  every ~30s" line, untrue since v33, was corrected).
+
+- **BACKFILLED 2026-08-15** — v33.45–v33.48 shipped **without updating this
+  file or the Help center**, against the ship rule at the top. The four
+  entries below are reconstructed from their commits; v33.46 in particular is
+  the release that made the dashboard fault above visible, and nothing said
+  so anywhere a reader would look.
+  - **2026-08-14 · v33.48** — **STOP POSTING MAIL INTO A MAILBOX WE KNOW IS
+    DEAD.** `sendEmail` only throws when the HANDOFF fails, so a bad address
+    "succeeds" and the bounce arrives minutes later — the CRM was reporting
+    "The IR got an email 📧" for a reschedule request sent to an address
+    already flagged as bounced (the Tyumen call). `requestIrReschedule` now
+    checks `email_bounced_at`, records the request but WITHHOLDS the mail, and
+    says plainly that the IR has not heard. And `updateIrBookerEmail`, which
+    re-sent the invite and confirmation but never the pending reschedule, now
+    delivers that too — one extracted sender, so the two can't drift.
+  - **2026-08-14 · v33.47** — **THE AUDIT** (migration **0062 applied**).
+    Three objects had no RLS at all — `function_settings`, `lc_partnerships`,
+    and `accounts_pipeline` as a SECURITY DEFINER view (the whole account
+    pipeline, running as its owner). Not an active leak (the anon key is never
+    used by the app and never reaches the browser) but the defence-in-depth
+    layer was believed complete and wasn't. Also revoked anon/authenticated
+    EXECUTE on `bump_rate_bucket` and pinned `search_path` on both SECURITY
+    DEFINER functions. `touch-point-feedback` was missing from the health
+    page's cron list; the dead `goal-reminders` row was dropped. And the OGX
+    peak filter read `signed_up_at` two ways four lines apart (a raw
+    `.slice(0,10)` vs `signupDayIso`) — 14 rows are "M/D/YYYY", which the
+    slice hands back unchanged, so `"8/13/2026" < "2026-08-01"` sailed past
+    the cutoff whatever year they were from.
+  - **2026-08-14 · v33.46** — **THE TWO CRONS COME OFF VERCEL, AND THE
+    DASHBOARD CACHE FINALLY HOLDS.** Visit reminders + sheets export moved to
+    GitHub Actions (`runVisitFollowups` lifted into
+    `src/server/cron/visit-followups.ts`; both routes stay as the manual
+    handle); reminders drop to every 30 min in working hours, so the +2h
+    follow-up can arrive up to half an hour later and nobody gets reminder
+    mail at 3 AM. ⚠️ The pg_cron twins were left scheduled — unschedule them
+    once each Actions job has run green. The dashboard read moved from
+    `unstable_cache` into module memory because `revalidatePath("/", "layout")`
+    is Next's documented "revalidate ALL data" and had been dropping the entry
+    on every write since v33.14. **This is the release that made ① and ② of
+    v33.49 visible**; see there.
+  - **2026-08-14 · v33.45** — **THE CALENDAR TELLS THE TRUTH.** Visits were
+    credited to the wrong sprint: `buildFunctionReport` counted BOTH "Visits"
+    and "Done" on `visits.visit_date`, so work booked on the 13th for the
+    16th–18th moved into a sprint nobody had worked (report said 2, directory
+    said 5). Booked and done are two queries on two dates now. The same
+    function bounded its window with naive UTC strings against a CAIRO sprint,
+    losing 2–3 hours off each end. `fmtDateTime`/`fmtTime` were pinned to
+    Africa/Cairo (server renders ran 2–3 hours slow and anything after Cairo
+    midnight was dated the day before), and `fmtDay()`/`cairoToday()` replaced
+    the four privately-written copies of the same helper. Booking-page
+    warnings moved from the card header down to the control they blame.
 
 - **2026-08-13 · v33.44** — **THE SILENT FAILURES BATCH** (no migration).
   ① **A VP CAN STEP OFF THE VISIT CALENDAR** (`visitInviteLeaders`, Function
