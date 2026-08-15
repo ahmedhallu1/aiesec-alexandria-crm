@@ -501,3 +501,38 @@ html {
     scroll-behavior: auto;
   }
 }
+
+/* 🃏 PRANK MODE (v33.51) — the two animations the mood needs. Both are pure
+   decoration, both end exactly where they started, and both are switched off
+   for anyone who asked the OS for less motion. See prankster.tsx. */
+.prank-stroll {
+  position: fixed;
+  bottom: 0.5rem;
+  left: -140px;
+  z-index: 60;
+  height: 88px;
+  width: auto;
+  pointer-events: none;
+  animation: prank-walk 8.5s linear forwards;
+}
+@keyframes prank-walk {
+  to {
+    left: calc(100vw + 140px);
+  }
+}
+/* a one-second shiver of the whole page — returns to identity, so it leaves
+   no transform behind to trap a dropdown (the v33.39 lesson) */
+.prank-shiver {
+  animation: prank-shiver 1.2s ease-in-out;
+}
+@keyframes prank-shiver {
+  0%, 100% { transform: rotate(0deg); }
+  15% { transform: rotate(0.7deg); }
+  35% { transform: rotate(-0.6deg); }
+  55% { transform: rotate(0.45deg); }
+  75% { transform: rotate(-0.3deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .prank-stroll { animation-duration: 0.01ms; opacity: 0; }
+  .prank-shiver { animation: none; }
+}

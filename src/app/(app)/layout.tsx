@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { getViewer, listViewAsTargets, needsMmPlan, needsTlPlan } from "@/server/data";
 import { PLAN_SKIP_COOKIE } from "@/lib/plan-skip";
+import { prankIsOn } from "@/lib/types";
 import {
   hasRaisingAccess, hasTmAccess, hasOgxAccess, hasConsiderationAccess,
   canManageMembership, canSeePlanning, canUseAdminTools, canUseMailboxTab,
@@ -119,8 +120,23 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // capability and returns [] for everyone else (v33.42)
   const viewAsTargets = canUseAdminTools(viewer) ? await listViewAsTargets() : [];
 
+  // 🃏 PRANK MODE (v33.51) — off in a TEST VIEW on purpose: an admin looking
+  // at somebody's screen to diagnose it must see the real thing, and pranking
+  // yourself-as-them proves nothing. `prankIsOn` is the one expiry rule.
+  const prankOn = prankIsOn(viewer) && !viewer.impersonated;
+  let prankBy: string | null = null;
+  if (prankOn && viewer.prank_by) {
+    const { data: author } = await db()
+      .from("members")
+      .select("name")
+      .eq("id", viewer.prank_by)
+      .maybeSingle<{ name: string }>();
+    prankBy = author?.name ?? null;
+  }
+
   return (
     <AppShell
+      prank={{ on: prankOn, by: prankBy }}
       viewAsTargets={viewAsTargets}
       user={{
         name: viewer.name,

@@ -70,6 +70,26 @@ export const ICX_FUNCTIONS = ["IGV", "IGT"] as const;
 /** B2B & BD are ONE function (same membership today, may split in future
  *  peaks) — EITHER name in functions or sub-functions grants the whole-ICX
  *  raising access. Use this everywhere instead of inline "B2B" checks. */
+/** 🃏 PRANK MODE (v33.51) — how long the EB can put someone in a mood for.
+ *  Every option EXPIRES; "forever" is the only one that needs turning off by
+ *  hand, and it says so on the card. */
+export const PRANK_OPTIONS = [
+  { value: "off", label: "😇 Off — behave", days: 0 },
+  { value: "day", label: "🌤️ Today only", days: 1 },
+  { value: "week", label: "📅 One week", days: 7 },
+  { value: "peak", label: "🔥 The whole peak (6 months)", days: 183 },
+  { value: "forever", label: "♾️ Until I turn it off", days: 36500 },
+] as const;
+export type PrankOption = (typeof PRANK_OPTIONS)[number]["value"];
+
+/** Is this member's Sodio in a mood right now? One rule, used by the server
+ *  (what to send the browser) and the membership editor (what to show). */
+export function prankIsOn(m: { prank_until?: string | null }): boolean {
+  if (!m.prank_until) return false;
+  const t = Date.parse(m.prank_until);
+  return Number.isFinite(t) && t > Date.now();
+}
+
 /** Where email can actually REACH this member right now (v33.29). */
 export function reachableEmail(m: {
   email?: string | null;
@@ -383,6 +403,10 @@ export interface Member {
    *  sign-in, Gmail sending and scopes stay on the AIESEC account. */
   fallback_email?: string | null;
   phone: string | null;
+  /** 🃏 PRANK MODE (v33.51, migration 0063): the EB has put this member's
+   *  Sodio in a mischievous mood until this instant. NULL/past = off. */
+  prank_until?: string | null;
+  prank_by?: string | null;
   functions: string[];
   sub_functions: string[];
   role: MemberRole;

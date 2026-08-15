@@ -6,8 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   AlertTriangle, Archive, CalendarClock, Check, CheckCircle2, CheckSquare, CircleAlert,
-  ChevronDown, Copy, FileUp, Footprints, LayoutDashboard, Loader2, MessageSquarePlus,
-  Phone, Plus,
+  FileUp, Footprints, LayoutDashboard, Loader2, MessageSquarePlus, Phone, Plus,
   RotateCcw, Search,
   Trash2, Users2, X,
   XCircle,
@@ -33,9 +32,6 @@ import { DirectVisitDialog } from "./direct-visit-dialog";
 import { AskBlueMan } from "./ask-blue-man";
 import { CopyNameButton } from "./copy-name-button";
 import { FileDrop } from "./file-drop";
-import {
-  DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Hint } from "./hint";
 import { QuickActions } from "./quick-actions";
 import {

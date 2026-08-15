@@ -8,6 +8,101 @@ import type { HelpArticle } from "./help-content";
  */
 export const HELP_ARTICLES: HelpArticle[] = [
  {
+  "id": "prank-mode",
+  "title": "🃏 Prank mode (someone got you)",
+  "emoji": "🃏",
+  "category": "faq",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "prank",
+   "prank mode",
+   "joke",
+   "button not working",
+   "button needs 3 clicks",
+   "wrong page",
+   "wrong tab",
+   "screen shaking",
+   "blue man walking",
+   "is it broken",
+   "مقلب",
+   "الزرار مش شغال"
+  ],
+  "summary": "A button that needs three clicks, a tab that sends you the scenic route, a little blue man strolling past — nothing is broken, the EB just put you in a mood.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "If Sodio has started behaving like it's in a mood — a button that ignores the first click and gets **bigger** each time, a tab that opens the wrong page and then apologises, a one-second shiver, the Blue Man walking across the bottom of your screen — **nothing is broken and nothing is lost.** Somebody in the EB switched **🃏 prank mode** on for you. The first time it happens, Sodio tells you so and names them. 💛"
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**It cannot touch your work.** Prank mode lives entirely in your browser. It never changes an account, a contact, a visit, a deal, a number, a sign-up or an email, and it is never written anywhere. It is pixels, and only your pixels."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "What you'll see",
+     "What's actually happening"
+    ],
+    "rows": [
+     [
+      "A button ignores you and grows",
+      "It goes through on the **third** click — and it gets bigger each time, so it's easier to hit than when you started."
+     ],
+     [
+      "A tab opens the wrong page",
+      "The apology message carries a **real link** to the page you asked for. One extra tap, and that link is never pranked."
+     ],
+     [
+      "The screen shivers for a second",
+      "A CSS animation that ends exactly where it started. Nothing moved."
+     ],
+     [
+      "A blue man strolls past",
+      "It's the Blue Man. He's having a walk. You can't click him and he leaves on his own."
+     ]
+    ]
+   },
+   {
+    "t": "steps",
+    "title": "When you actually need to focus",
+    "items": [
+     "Tap **😤 I'm working** on any of its messages — ten minutes of complete silence.",
+     "Use it as often as you like. There's no limit and nobody is told.",
+     "Prank mode also **expires by itself** — the EB sets it for a day, a week or the peak."
+    ]
+   },
+   {
+    "t": "p",
+    "md": "It also stays away from the places where a joke would be a problem: the login and onboarding screens, [Feedback](/feedback), this [Help centre](/help), the admin pages, anything inside a dialog or a form, and every Save / Send / Record / Delete / Archive button in the system. At most one joke every 90 seconds, whatever you click."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Can I turn it off myself?",
+      "a": "No — that's rather the point. Ask whoever set it (the first message names them) or any EB member, and they switch it off in the membership editor. Meanwhile \"😤 I'm working\" buys you ten minutes of quiet whenever you need it."
+     },
+     {
+      "q": "Did it break something? Should I report it?",
+      "a": "No, and no need — everything it does undoes itself in seconds. If something genuinely looks wrong (a number, an account, a missing row), that is NOT prank mode: report it on Feedback as usual."
+     },
+     {
+      "q": "Who can switch it on?",
+      "a": "Only the EB (LCP/LCVPs) and admins, from the membership editor — and it's recorded in the audit log with their name, so it is never anonymous."
+     },
+     {
+      "q": "Does it slow the system down or cost anything?",
+      "a": "No. It's a few lines of animation in your own browser: no emails, no jobs, no database writes, nothing sent anywhere."
+     }
+    ]
+   }
+  ]
+ },
+ {
   "id": "forgot-password",
   "title": "Forgot your password?",
   "emoji": "📬",

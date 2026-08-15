@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-15 · Version: v33.50
+Last updated: 2026-08-15 · Version: v33.51
 
 ---
 
@@ -56,8 +56,8 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0055_touch_point_rating` → `0056_touch_point_members` →
 `0057_touch_point_feedback_nudge` → `0058_ir_max_per_day` →
 `0059_lc_partnerships` → `0060_ir_per_day_overrides` →
-`0061_touch_point_location`
-(**all applied**, 0046–0061 during v33.22–v33.43).
+`0061_touch_point_location` → `0062_close_rls_gaps` → `0063_prank_mode`
+(**all applied**, 0046–0063 during v33.22–v33.51).
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
@@ -628,6 +628,53 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-15 · v33.51** — **🃏 PRANK MODE** (migration **0063 applied**:
+  `members.prank_until`, `members.prank_by`). The EB can put ONE member's Sodio
+  in a mischievous mood — for a day, a week, the whole peak, or until they turn
+  it off — from a card in the membership editor. Then Sodio starts playing with
+  them, and only them.
+  ① **THE JOKES.** A **stubborn button** ignores the first click and *grows*
+  each time ("Nope. 😌", "Was that a click or a suggestion? 🤨") — the
+  third click is the real one, and by then the button is half again its size,
+  so the joke is easier to finish than it was to start. **The scenic route**:
+  a sidebar tab opens the WRONG page and immediately apologises with a working
+  link to the one they asked for ("it's not another trap. Promise. 🤞").
+  **Ambient mischief**: the Blue Man strolls across the bottom of the screen,
+  the page shivers for one second, or a completely pointless toast turns up
+  ("Achievement unlocked: 🏆 Clicked A Thing").
+  ② **AND THE REASON IT IS ALLOWED TO EXIST IN A CRM 70 PEOPLE RUN A PEAK ON.**
+  Nothing is ever BLOCKED, only delayed by two clicks. There is a hard
+  blocklist — no dialogs, no forms, no Save / Send / Record / Delete /
+  Archive / Confirm / Sign-in buttons, nothing destructive, nothing on
+  /login, /welcome, /inactive, **/feedback** (reporting a problem must never
+  BE one), /help or /admin, and never while somebody is typing. A **90-second
+  cooldown** caps it whatever they click. Every single prank carries
+  **"😤 I'm working"**, which buys ten minutes of total silence, as often
+  as they want. It **expires by itself**. And the first time it fires, a
+  **reveal** explains the whole thing and names who did it — seven seconds
+  later, so the modal can't swallow the very clicks the joke is asking for —
+  because a member quietly convinced Sodio is broken costs the LC an
+  afternoon, and that is the one thing this feature must never do.
+  ③ **THE SERVER SIDE IS ONE TIMESTAMP.** `setPrankMode` (EB/admin only,
+  audited under the setter's name, `prank_by` on the row) writes
+  `prank_until` and nothing else. Every prank lives in the victim's browser
+  (`prankster.tsx`), mounted by the app shell only while the mood lasts and
+  **never in a test view** — an admin diagnosing somebody's screen must see
+  the real thing. No jobs, no emails, no notifications, no sheet column, not
+  one row of data touched.
+  ④ Verified in a real browser before shipping: the stubborn button blocks
+  twice, scales 1.16 → 1.56, then fires for real and heals to no inline
+  transform; **Save changes, a destructive button and a button inside a form
+  all passed straight through, six for six**; the wrong-turn link delivered
+  the victim to the page they actually asked for; nothing left a stuck
+  pointer-events lock. The button's LABEL is deliberately never rewritten —
+  its contents are React's, and mutating them mid-render is how you earn a
+  "failed to execute removeChild" in somebody's console; the joke touches
+  only the inline transform and says its line in a toast.
+  Help centre: a new 🃏 article under FAQs (what you're seeing, why
+  nothing is broken, how to buy silence); the Blue Man is briefed to answer
+  "my button needs three clicks" without anyone filing a bug.
 
 - **2026-08-15 · v33.50** — **FOUR FROM THE FLOOR** (no migration).
   ① **THE HELP CENTER WAS UNREADABLE ON A PHONE — because of its TABLES.** The

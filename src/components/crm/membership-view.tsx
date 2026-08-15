@@ -10,6 +10,7 @@ import {
   saveTeamEntry,
   runMembershipImport,
   runSheetsExport,
+  setPrankMode,
   upsertMember,
 } from "@/server/actions";
 import { normalizePhone,
@@ -19,6 +20,8 @@ import { normalizePhone,
   LC_FUNCTIONS,
   MEMBER_ROLES,
   PHONE_RE,
+  PRANK_OPTIONS,
+  prankIsOn,
   SUB_FUNCTIONS,
   type MemberRole,
 } from "@/lib/types";
@@ -55,6 +58,8 @@ export interface MemberRow {
   has_podio?: boolean | null;
   /** backup Gmail (v33.29) — DB-only, never written to the sheet */
   fallback_email?: string | null;
+  /** 🃏 prank mode (v33.51) — DB-only, never on the sheet */
+  prank_until?: string | null;
   left_at?: string | null;
   first_login_at: string | null;
   has_password: boolean;
@@ -966,6 +971,13 @@ function MemberDialog({
               </div>
             ) : null}
           </div>
+
+          {/* 🃏 PRANK MODE (v33.51) — existing members only: there is no joy in
+              pranking somebody who hasn't signed in yet. Saved on the spot
+              (its own action, its own audit row), NOT with the form, because
+              it is the one field here that has nothing to do with membership
+              and everything to do with the EB's sense of humour. */}
+          {member ? <PrankRow member={member} /> : null}
         </div>
 
         <DialogFooter className="gap-2 sm:justify-between">
@@ -980,5 +992,78 @@ function MemberDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** 🃏 THE PRANK ROW (v33.51) — the EB's sense of humour, with a receipt.
+ *
+ *  Saved on its own the moment it is picked (not with the form) and audited
+ *  under the setter's name, because a prank with no author is just a bug
+ *  report waiting to happen. Everything it switches on is cosmetic and lives
+ *  in the victim's browser — see prankster.tsx for the rules it obeys and the
+ *  escape hatch it always carries. */
+function PrankRow({ member }: { member: MemberRow }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [until, setUntil] = useState<string | null>(member.prank_until ?? null);
+  const on = prankIsOn({ prank_until: until });
+
+  const apply = (option: string) =>
+    start(async () => {
+      const res = await setPrankMode(member.id, option);
+      if (!res.ok) { toast.error(res.error); return; }
+      setUntil(res.data?.until ?? null);
+      const picked = PRANK_OPTIONS.find((o) => o.value === option);
+      toast.success(
+        option === "off"
+          ? `${member.name} is free. 😇`
+          : `${member.name} is in a mood — ${picked?.label.replace(/^\S+\s/, "")}. 🃏`
+      );
+      router.refresh();
+    });
+
+  return (
+    <div
+      className={cn(
+        "rounded-lg border p-3",
+        on ? "border-amber-500/60 bg-amber-500/5" : "border-dashed"
+      )}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <Label className="flex items-center gap-1.5">
+            🃏 Prank mode
+            {on ? (
+              <Badge className="bg-amber-500 text-white hover:bg-amber-500">ON</Badge>
+            ) : null}
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            {on
+              ? `Sodio is being playfully impossible for them${
+                  until && Date.parse(until) < Date.parse("2090-01-01")
+                    ? ` until ${new Date(until).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
+                    : " until you turn it off"
+                }.`
+              : "A stubborn button, a wrong turn on the way to a tab, the Blue Man strolling past. Never their work — and they can pause it for 10 minutes whenever they actually need to focus."}
+          </p>
+        </div>
+        <Select
+          value={on ? "on" : "off"}
+          onValueChange={(v) => apply(v)}
+          disabled={pending}
+        >
+          <SelectTrigger className="w-auto min-w-40">
+            <SelectValue placeholder="Off" />
+          </SelectTrigger>
+          <SelectContent>
+            {/* the current state, unpickable — the options below are the moves */}
+            {on ? <SelectItem value="on" disabled>🃏 Currently ON</SelectItem> : null}
+            {PRANK_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
   );
 }

@@ -38,6 +38,7 @@ import type { ViewAsTarget } from "@/server/data";
 import { WalkingLoader } from "./walking-loader";
 import { BlueManChat } from "./blue-man-chat";
 import { PendingPrompt } from "./pending-prompt";
+import { Prankster } from "./prankster";
 
 interface ShellProps {
   user: {
@@ -54,11 +55,14 @@ interface ShellProps {
   signOutAction: () => Promise<void>;
   /** the admin's test-view pool — empty for everyone else (v33.42) */
   viewAsTargets?: ViewAsTarget[];
+  /** 🃏 prank mode (v33.51): the EB has this member in a mood. Client-side
+   *  mischief only — see prankster.tsx for the rules it obeys. */
+  prank?: { on: boolean; by: string | null };
   children: React.ReactNode;
 }
 
 export function AppShell({
-  user, nav, signOutAction, viewAsTargets = [], children,
+  user, nav, signOutAction, viewAsTargets = [], prank, children,
 }: ShellProps) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -711,6 +715,12 @@ export function AppShell({
       {/* v29: the must-do prompt — after three ignored reminders it meets the
           member here, on every app open, until the record lands */}
       <PendingPrompt />
+
+      {/* 🃏 v33.51 — mounted ONLY for a member the EB has put in a mood, and
+          only while it lasts. Everything it does is cosmetic and self-
+          reverting; it never mounts in a test view (an admin diagnosing
+          somebody's screen must see the real thing). */}
+      {prank?.on ? <Prankster prankedBy={prank.by} /> : null}
 
       {/* The Blue Man — Sodio's assistant (persistent per-user chats +
           role/module-aware suggested questions) */}

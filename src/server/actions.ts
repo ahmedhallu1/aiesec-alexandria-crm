@@ -67,6 +67,7 @@ import {
   MEMBER_ROLES,
   normalizePhone,
   PHONE_RE,
+  PRANK_OPTIONS,
   SUB_FUNCTIONS,
   VISIT_RESULTS,
   URL_RE,
@@ -3836,6 +3837,57 @@ const memberSchema = z
   .refine((m) => !!m.email || !!m.phone, {
     message: "A member needs an email OR a phone number (phone-only members sign in with their number).",
   });
+
+/** 🃏 PRANK MODE (v33.51, migration 0063).
+ *
+ *  The EB puts one member's Sodio in a mischievous mood — a stubborn button, a
+ *  wrong turn on the way to a tab, the Blue Man strolling across the screen —
+ *  for a day, a week, the peak, or until they turn it off.
+ *
+ *  WHAT THIS ACTION IS ALLOWED TO DO: write one timestamp. That is the whole
+ *  server side of the feature. Every prank lives in the browser
+ *  (`prankster.tsx`), touches nothing but the pixels in front of the victim,
+ *  and cannot reach an account, a number, an email or the sheet — which is the
+ *  only reason a joke belongs in a CRM the whole LC works in.
+ *
+ *  IT IS ALSO NOT ANONYMOUS. `prank_by` and the audit log both name the author,
+ *  so the victim's revenge can be properly targeted. */
+export async function setPrankMode(
+  memberId: string,
+  option: string
+): Promise<ActionResult<{ until: string | null }>> {
+  const viewer = await getViewer();
+  if (!canManageMembership(viewer))
+    return fail("Only the EB and admins can hand out prank mode.", "forbidden");
+  const opt = PRANK_OPTIONS.find((o) => o.value === option);
+  if (!opt) return fail("Unknown prank setting.");
+  const { data: target } = await db()
+    .from("members")
+    .select("id, name, is_active")
+    .eq("id", memberId)
+    .maybeSingle<{ id: string; name: string; is_active: boolean }>();
+  if (!target) return fail("That member doesn't exist.");
+  // pranking somebody who can't sign in isn't a prank, it's a stray row
+  if (!target.is_active && opt.value !== "off")
+    return fail("That member is deactivated — there's nobody there to prank.");
+
+  const until =
+    opt.value === "off"
+      ? null
+      : new Date(Date.now() + opt.days * 86_400_000).toISOString();
+  const { error } = await db()
+    .from("members")
+    .update({ prank_until: until, prank_by: until ? viewer.id : null })
+    .eq("id", memberId);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, until ? "prank_on" : "prank_off", "member", memberId, {
+    target: target.name,
+    option: opt.value,
+    until,
+  });
+  refresh();
+  return { ok: true, data: { until } };
+}
 
 /** EB (LCP/LCVPs) + admins edit membership directly in the system; every
  *  change is written back to the Membership sheet so imports don't revert it. */
