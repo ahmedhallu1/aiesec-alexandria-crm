@@ -110,7 +110,8 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "p",
-    "md": "**Tables are yours too.** Every big table (Raising, Sign-ups, members directory, attendance, the IR-call log…) carries a **⚙ Columns** control: drag columns to reorder, show or hide them, and **Reset** to defaults — dozens of optional columns ship hidden so your table starts clean. Click any header to **sort** (leaderboards even glide into their new order); the little **funnel** button on a column header filters by that column, Google-Sheets style; and the rows-per-page picker (30/50/100/200) lives by the pager. On the Raising table that now covers **every** column — Industry, Type, Proposal (sent / not sent), Deals (has / none) and Podio (requested / not / Checking / Approved / Rejected) each carry their funnel; show the column from ⚙ and filter from its header."
+    "md": "**Tables are yours too.** Every big table (Raising, Sign-ups, members directory, attendance, the IR-call log…) carries a **⚙ Columns** control: drag columns to reorder, show or hide them, and **Reset** to defaults — dozens of optional columns ship hidden so your table starts clean. Click any header to **sort** (leaderboards even glide into their new order); the little **funnel** button on a column header filters by that column, Google-Sheets style; and the rows-per-page picker (30/50/100/200) lives by the pager. On the Raising table that now covers **every** column — Industry, Type, Proposal (sent / not sent), Deals (has / none) and Podio (requested / not / Checking / Approved / Rejected) each carry their funnel; show the column from ⚙ and filter from its header. On a phone, where cards replace tables, the same filters appear as labelled chips above the list — Raising, Sign-ups and the CV pool all carry them."
+
    },
    {
     "t": "callout",
@@ -2327,7 +2328,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "p",
-    "md": "The CV table filters **server-side over the whole pool** — column funnels on Industry, AI status, Uploaded by, Partner LC, and has/no number — so a filter narrows thousands of CVs, not the page you happen to be on."
+    "md": "The CV pool filters **server-side over the whole pool** — Industry, AI status, Uploaded by, Partner LC, and has/no number — so a filter narrows thousands of CVs, not the page you happen to be on. On a computer they are funnels on the column headers; **on a phone they are labelled chips above the cards** (a card list has no header to hang a funnel on, which is why the pool used to be search-only there)."
    },
    {
     "t": "callout",
@@ -4362,6 +4363,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
    {
     "t": "p",
     "md": "Because each card answers its own question, a step can outrun the one above it — a month where the crew called 170 old names and added 96 new ones is a real month, not a broken number. The percentages stay capped at 100%."
+   },
+   {
+    "t": "p",
+    "md": "**Getting there:** the sidebar’s **Dashboard** tab, or the **Dashboard** button on [Raising](/accounts) and [Sign-ups](/signups) — the button follows the list you are looking at, so filtering Raising to IGV opens the IGV lane."
    },
    {
     "t": "p",

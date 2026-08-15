@@ -109,6 +109,70 @@ function FaqItem({ q, a }: { q: string; a: string }) {
   );
 }
 
+/** A table block. **ON A PHONE IT IS NOT A TABLE** (v33.50).
+ *
+ *  The rule everywhere else in Sodio is that card lists replace tables on
+ *  phones; the help center was the one place still shipping a real `<table>`
+ *  to a 375px screen. Three columns of prose inside `overflow-x-auto` came out
+ *  as slivers two words wide with the LAST column cut off at the edge and
+ *  nothing to say it could be scrolled — which is what "the help center is
+ *  broken on mobile" looks like: the reference tables (who sees which lane,
+ *  what each KPI means) were the part you couldn't read.
+ *
+ *  Below `sm` each ROW becomes a card: the first cell is its heading, the rest
+ *  are labelled with their own column header. Same data, same order, nothing
+ *  hidden, no sideways scrolling. From `sm` up the table is exactly what it
+ *  was. */
+function HelpTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
+  return (
+    <>
+      {/* phones — one card per row */}
+      <div className="space-y-2 sm:hidden">
+        {rows.map((r, i) => (
+          <div key={i} className="rounded-lg border">
+            <p dir="auto" className="rounded-t-lg bg-muted/60 px-3 py-1.5 text-sm font-semibold">
+              {md(r[0])}
+            </p>
+            <div className="space-y-1.5 px-3 py-2">
+              {r.slice(1).map((c, j) => (
+                <div key={j}>
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                    {md(headers[j + 1] ?? "")}
+                  </p>
+                  <p dir="auto" className="text-sm leading-relaxed">{md(c)}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      {/* everything wider — the table it always was */}
+      <div className="hidden overflow-x-auto rounded-lg border sm:block">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-muted/60 text-left text-xs text-muted-foreground">
+              {headers.map((h, i) => (
+                <th key={i} className="px-3 py-1.5 font-semibold">{md(h)}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i} className="border-t">
+                {r.map((c, j) => (
+                  <td key={j} dir="auto" className="px-3 py-1.5 align-top leading-relaxed">
+                    {md(c)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
 function Block({ b }: { b: HelpBlock }) {
   switch (b.t) {
     case "p":
@@ -139,30 +203,7 @@ function Block({ b }: { b: HelpBlock }) {
         </div>
       ) : null;
     case "table":
-      return b.headers && b.rows ? (
-        <div className="overflow-x-auto rounded-lg border">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-muted/60 text-left text-xs text-muted-foreground">
-                {b.headers.map((h, i) => (
-                  <th key={i} className="px-3 py-1.5 font-semibold">{md(h)}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {b.rows.map((r, i) => (
-                <tr key={i} className="border-t">
-                  {r.map((c, j) => (
-                    <td key={j} dir="auto" className="px-3 py-1.5 align-top leading-relaxed">
-                      {md(c)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : null;
+      return b.headers && b.rows ? <HelpTable headers={b.headers} rows={b.rows} /> : null;
     case "faq":
       return b.faqItems && b.faqItems.length > 0 ? (
         <div className="space-y-1.5">
@@ -287,7 +328,11 @@ export function HelpView({ viewer }: { viewer: HelpViewer }) {
           if (e.key === "Enter" && hits[0]) go({ a: hits[0].article.id });
           if (e.key === "Escape") setQuery("");
         }}
-        placeholder="Search anything — accounts, visits, sign-ups, لو سمحت بالعربي كمان…"
+        // SHORT ON PURPOSE: a 375px box fits ~28 characters, so the old
+        // placeholder ("Search anything — accounts, visits, sign-ups, لو سمحت
+        // بالعربي كمان…") was cut mid-word and the Arabic half — the part that
+        // tells half the LC they can type Arabic — was never seen on a phone.
+        placeholder="Search anything — بالعربي كمان…"
         className="h-12 rounded-xl border-2 pl-11 pr-10 text-base shadow-sm"
         dir="auto"
         aria-label="Search the help center"
@@ -600,8 +645,10 @@ function PopularFaqs({
             onClick={() => onOpen(f.articleId)}
             className="flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors hover:border-primary/50 hover:bg-muted/40"
           >
-            <span className="text-muted-foreground">❓</span>
-            <span dir="auto" className="min-w-0 flex-1 truncate">{f.q}</span>
+            <span className="shrink-0 text-muted-foreground">❓</span>
+            {/* two lines on a phone, one from sm up: a truncated question is
+                one you can't decide whether to tap */}
+            <span dir="auto" className="min-w-0 flex-1 line-clamp-2 sm:truncate">{f.q}</span>
             <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
           </button>
         ))}

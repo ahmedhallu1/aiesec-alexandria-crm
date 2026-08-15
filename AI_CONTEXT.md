@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-15 · Version: v33.49
+Last updated: 2026-08-15 · Version: v33.50
 
 ---
 
@@ -628,6 +628,42 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-15 · v33.50** — **FOUR FROM THE FLOOR** (no migration).
+  ① **THE HELP CENTER WAS UNREADABLE ON A PHONE — because of its TABLES.** The
+  house rule since v3 is that card lists replace tables on phones; the help
+  center was the one place still shipping a real `<table>` to a 375px screen.
+  Reproduced at 375px before touching anything: "Read the dashboard"'s
+  three-column reference came out as slivers two words wide with the LAST
+  column clipped at the edge and nothing to say it could be scrolled — so the
+  tables that answer *who sees which lane* and *what each KPI means* were
+  exactly the part you couldn't read. `HelpTable` now renders **one card per
+  row below `sm`** (first cell as the heading, every other cell labelled with
+  its own column header) and the identical table from `sm` up. Verified: zero
+  overflowing elements, `scrollWidth` = 375, the desktop table `display:none`,
+  seven row-cards in its place. Two smaller ones on the same pass: the search
+  placeholder was cut mid-word ("…accounts, v") so the Arabic half — the part
+  that tells half the LC they can type Arabic — was never seen on a phone
+  (short placeholder now), and the Popular-questions rows `truncate`d, which
+  is a question you can't decide whether to tap (two lines on a phone, one
+  from `sm` up).
+  ② **THE CV POOL COULD NOT BE FILTERED ON A PHONE AT ALL.** Its five filters
+  (Industry · AI status · Uploaded by · Partner LC · has/no number) hang on
+  COLUMN HEADERS, and phones get cards — so the whole pool was search-only
+  there. `FilterSelect` — the labelled-chip twin of `ColumnFilter`, private to
+  accounts-view since v33.3 and the reason every other list went without —
+  moved into `data-table-kit.tsx`, and the CV tab now carries a `md:hidden`
+  chip row with the same five filters, the same URL params, the same
+  server-side query, plus a Clear.
+  ③ **RAISING HAS A DASHBOARD BUTTON**, like Sign-ups has had since v28. The
+  busiest page in the LC sent people hunting for the sidebar. It follows the
+  list you are looking at — filter Raising to IGV and it opens the IGV lane
+  (IGT + a product pick lands on IGTa/IGTe), several picks or none opens the
+  viewer's own default lane.
+  ④ **v33.49's explanatory line under the KPI row is gone** by request. The
+  same fact still travels where it costs no height: each KPI card's hint names
+  the date it counts, and the Help centre's "Read the dashboard" spells out
+  the whole rule.
 
 - **2026-08-15 · v33.49** — **THE DASHBOARD TELLS THE TRUTH AGAIN** (no
   migration). Reported from the floor as "almost all the numbers are wrong,

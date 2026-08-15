@@ -393,19 +393,10 @@ export function DashboardView({
         />
       </div>
 
-      {/* v33.49 — with a range set these cards are five different questions
-          about the same days, not one cohort followed down a funnel: the
-          contacts are the contacts MADE in the range, whatever month the name
-          was added. Said out loud, because a conversion between two of them
-          can legitimately read 100% when the work was done on older accounts. */}
-      {dated && !isOgxLane && !isConsLane ? (
-        <p className="-mt-2 text-xs text-muted-foreground rise-in">
-          Each number counts the work done in this range on its own date —
-          accounts added, contacts made, visits booked, visits held, deals
-          signed. They are not one group of accounts followed through the
-          funnel, so a step can outrun the one above it.
-        </p>
-      ) : null}
+      {/* v33.50 — the paragraph that used to explain the per-KPI dates here is
+          gone by request. The explanation lives where it doesn't cost the row
+          any height: each KPI card's own hint names the date it counts, and
+          the Help centre's "Read the dashboard" spells the whole rule out. */}
 
       {/* step-to-step conversion strip */}
       <Card className="rise-in rise-in-2">

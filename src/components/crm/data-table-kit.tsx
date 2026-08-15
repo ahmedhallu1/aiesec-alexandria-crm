@@ -524,6 +524,67 @@ export interface ColumnFilterOption {
  * pushes it into a URL param and an in-memory list filters locally — same
  * component either way.
  */
+/** THE MOBILE TWIN OF `ColumnFilter` (v33.50 — moved here from accounts-view,
+ *  where it was private and every other list had to go without).
+ *
+ *  A funnel icon lives on a column HEADER and says which column it filters by
+ *  sitting on it. A phone shows cards, not headers, so the same filter has to
+ *  carry its own name: this renders a labelled chip ("Industry", "Industry:
+ *  Software", "Industry: 3") with the identical multi-select menu underneath.
+ *  Wrap a row of them in `<div className="contents md:hidden">` next to the
+ *  desktop table and the two stay in sync — one URL param, two affordances. */
+export function FilterSelect({
+  value, placeholder, options, onChange,
+}: {
+  value: string;
+  placeholder: string;
+  options: [string, string][];
+  onChange: (v: string) => void;
+}) {
+  const picked = multi(value);
+  const labelOf = (v: string) => options.find(([ov]) => ov === v)?.[1] ?? v;
+  const summary =
+    picked.length === 0
+      ? placeholder
+      : picked.length === 1
+        ? `${placeholder}: ${labelOf(picked[0])}`
+        : `${placeholder}: ${picked.length}`;
+  const toggle = (v: string) =>
+    onChange((picked.includes(v) ? picked.filter((p) => p !== v) : [...picked, v]).join(","));
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          className={cn("h-9 w-auto min-w-28 justify-between font-normal", picked.length > 0 && "border-primary/60")}
+        >
+          <span className="truncate">{summary}</span>
+          <ChevronDown className="size-3.5 opacity-50" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-72 w-52 overflow-y-auto">
+        <DropdownMenuCheckboxItem
+          checked={picked.length === 0}
+          onCheckedChange={() => onChange("")}
+        >
+          {placeholder}: all
+        </DropdownMenuCheckboxItem>
+        {options.map(([v, label]) => (
+          <DropdownMenuCheckboxItem
+            key={v}
+            checked={picked.includes(v)}
+            onCheckedChange={() => toggle(v)}
+            onSelect={(e) => e.preventDefault()}
+          >
+            <span className="truncate" dir="auto">{label}</span>
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function ColumnFilter({
   label,
   value,

@@ -6,7 +6,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   AlertTriangle, Archive, CalendarClock, Check, CheckCircle2, CheckSquare, CircleAlert,
-  ChevronDown, Copy, FileUp, Footprints, Loader2, MessageSquarePlus, Phone, Plus,
+  ChevronDown, Copy, FileUp, Footprints, LayoutDashboard, Loader2, MessageSquarePlus,
+  Phone, Plus,
   RotateCcw, Search,
   Trash2, Users2, X,
   XCircle,
@@ -38,7 +39,8 @@ import {
 import { Hint } from "./hint";
 import { QuickActions } from "./quick-actions";
 import {
-  ColumnFilter, ColumnResizer, multi, PageSizePicker, resizableCellStyle, SortHeader,
+  ColumnFilter, ColumnResizer, FilterSelect, multi, PageSizePicker, resizableCellStyle,
+  SortHeader,
   TableSettings,
   useTableColumns,
   useTableSort,
@@ -1052,6 +1054,19 @@ export function AccountsView({
 
   const archivedCount = archivedItems.length;
 
+  /** Which dashboard lane this list is currently about. A single function
+   *  filter maps 1:1 (IGT + a product pick lands on IGTa/IGTe); several picks
+   *  or none has no single answer, so the dashboard opens on the viewer's own
+   *  default lane rather than guessing. */
+  const dashboardHref = (() => {
+    const fns = multi(filters.fn);
+    const products = multi(filters.product);
+    const fn = fns.length === 1 ? fns[0] : viewer.allowedFns.length === 1 ? viewer.allowedFns[0] : null;
+    if (fn === "IGT" && products.length === 1)
+      return `/dashboard?fn=${products[0] === "GTa" ? "IGTa" : "IGTe"}`;
+    return fn ? `/dashboard?fn=${fn}` : "/dashboard";
+  })();
+
   return (
     <div className={cn("mx-auto max-w-7xl space-y-4", navPending && "nav-pending")}>
       <div className="flex flex-wrap items-center justify-between gap-3 rise-in">
@@ -1074,6 +1089,19 @@ export function AccountsView({
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
+          {/* THE NUMBERS ARE ONE TAP AWAY (v33.50) — Sign-ups has had this
+              button since v28 and Raising, the busiest page in the LC, sent
+              people hunting for the sidebar. It follows the list you are
+              looking at: filter to IGV and it opens the IGV lane, so the
+              dashboard answers for the same accounts. No filter (or several)
+              → the viewer's own default lane. */}
+          <Hint label="Your funnel in numbers — KPIs, conversions, leaderboards">
+            <Button variant="outline" asChild>
+              <Link href={dashboardHref}>
+                <LayoutDashboard className="size-4" /> Dashboard
+              </Link>
+            </Button>
+          </Hint>
           {/* desktop selects directly via the always-on row checkboxes; the
               Select toggle is the mobile way into selection */}
           {!archived && rows.length > 0 ? (
@@ -2731,54 +2759,3 @@ function ImportArchivedDialog({
  *  multi-select for the same reason (v33.3). A Radix Select can only hold one
  *  value, so this is a checkbox menu that reports the same comma-joined
  *  string the column filters and the server both speak. */
-function FilterSelect({
-  value, placeholder, options, onChange,
-}: {
-  value: string;
-  placeholder: string;
-  options: [string, string][];
-  onChange: (v: string) => void;
-}) {
-  const picked = multi(value);
-  const labelOf = (v: string) => options.find(([ov]) => ov === v)?.[1] ?? v;
-  const summary =
-    picked.length === 0
-      ? placeholder
-      : picked.length === 1
-        ? `${placeholder}: ${labelOf(picked[0])}`
-        : `${placeholder}: ${picked.length}`;
-  const toggle = (v: string) =>
-    onChange((picked.includes(v) ? picked.filter((p) => p !== v) : [...picked, v]).join(","));
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="outline"
-          className={cn("h-9 w-auto min-w-28 justify-between font-normal", picked.length > 0 && "border-primary/60")}
-        >
-          <span className="truncate">{summary}</span>
-          <ChevronDown className="size-3.5 opacity-50" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-72 w-52 overflow-y-auto">
-        <DropdownMenuCheckboxItem
-          checked={picked.length === 0}
-          onCheckedChange={() => onChange("")}
-        >
-          {placeholder}: all
-        </DropdownMenuCheckboxItem>
-        {options.map(([v, label]) => (
-          <DropdownMenuCheckboxItem
-            key={v}
-            checked={picked.includes(v)}
-            onCheckedChange={() => toggle(v)}
-            onSelect={(e) => e.preventDefault()}
-          >
-            <span className="truncate" dir="auto">{label}</span>
-          </DropdownMenuCheckboxItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}

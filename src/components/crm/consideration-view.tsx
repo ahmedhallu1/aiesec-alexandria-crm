@@ -32,8 +32,8 @@ import { availabilityIssues } from "@/lib/availability";
 import { cn } from "@/lib/utils";
 import { CountryInput } from "./country-input";
 import {
-  ColumnFilter, PageSizePicker, resizableCellStyle, ResizableHead, SortHeader,
-  TableSettings, useTableColumns, useTableSort, type TableColumn,
+  ColumnFilter, FilterSelect, PageSizePicker, resizableCellStyle, ResizableHead,
+  SortHeader, TableSettings, useTableColumns, useTableSort, type TableColumn,
 } from "./data-table-kit";
 import { FileDrop } from "./file-drop";
 import { Hint } from "./hint";
@@ -5007,6 +5007,67 @@ function CvsTab({
         </p>
         {/* ⚙ Columns — the pool reads like a sheet on desktop */}
         <TableSettings columns={cols} className="ml-auto hidden md:inline-flex" />
+      </div>
+
+      {/* THE POOL IS FILTERABLE ON A PHONE TOO (v33.50). Every CV funnel hung
+          on a column HEADER, and phones get cards — so the whole pool was
+          search-only there: no industry, no AI status, no uploader, no partner
+          LC, no has-a-number. These are the same five filters, the same URL
+          params and the same server-side query; they just carry their own
+          names because there is no header to sit on. */}
+      <div className="flex flex-wrap gap-2 md:hidden">
+        <FilterSelect
+          value={cvFilters.industry}
+          placeholder="Industry"
+          onChange={(v) => setParams({ industry: v || null, page: null })}
+          options={INDUSTRY_OPTIONS.map((i) => [i, i] as [string, string])}
+        />
+        <FilterSelect
+          value={cvFilters.status}
+          placeholder="AI status"
+          onChange={(v) => setParams({ status: v || null, page: null })}
+          options={[
+            ["done", "Done"], ["pending", "Pending"],
+            ["failed", "Failed"], ["unsupported", "Unsupported"],
+          ]}
+        />
+        <FilterSelect
+          value={cvFilters.phone}
+          placeholder="Phone"
+          onChange={(v) => setParams({ cvphone: v || null, page: null })}
+          options={[["has", "✅ Has a number"], ["missing", "📵 No number"]]}
+        />
+        {lcOptions.length > 1 ? (
+          <FilterSelect
+            value={cvFilters.lc}
+            placeholder="Partner LC"
+            onChange={(v) => setParams({ cvlc: v || null, page: null })}
+            options={lcOptions.map((o) => [o.value, o.label] as [string, string])}
+          />
+        ) : null}
+        {uploaderOptions.length > 1 ? (
+          <FilterSelect
+            value={cvFilters.uploader}
+            placeholder="Uploaded by"
+            onChange={(v) => setParams({ uploader: v || null, page: null })}
+            options={uploaderOptions.map((u) => [u, u] as [string, string])}
+          />
+        ) : null}
+        {[cvFilters.industry, cvFilters.status, cvFilters.phone, cvFilters.lc, cvFilters.uploader]
+          .some(Boolean) ? (
+          <Button
+            variant="ghost"
+            className="h-9"
+            onClick={() =>
+              setParams({
+                industry: null, status: null, cvphone: null, cvlc: null,
+                uploader: null, page: null,
+              })
+            }
+          >
+            Clear
+          </Button>
+        ) : null}
       </div>
 
       {data.rows.length === 0 ? (
