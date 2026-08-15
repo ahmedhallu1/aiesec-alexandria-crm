@@ -1796,6 +1796,54 @@ function addRowLane(s: FunnelStats, r: PipelineRow, lane: string) {
  *  is always there for someone who wants it now. */
 const DASHBOARD_TTL_SECONDS = 1800;
 
+/** WHY THIS IS NOT `unstable_cache` ANYMORE (v33.46).
+ *
+ *  v33.14 stopped `refresh()` from expiring the dashboard entry, and left a
+ *  comment saying the entry now lives out its life. It didn't. Two lines
+ *  above that comment `refresh()` calls `revalidatePath("/", "layout")` —
+ *  which Next's own reference documents under the heading "Revalidating all
+ *  data": it invalidates ALL cached data, `unstable_cache` entries included.
+ *  So every contact logged by any of forty members still dropped the shared
+ *  4,000-row read for everyone, which is the exact cost v33.14 set out to
+ *  remove. The tag on the entry was inert too — nothing in the codebase has
+ *  ever called `revalidateTag("accounts")`.
+ *
+ *  `refresh()` is called from ~94 places and its blanket invalidation is what
+ *  keeps every other page correct, so it stays. The dashboard read moves out
+ *  of Next's cache instead, into plain module memory that `revalidatePath`
+ *  cannot reach. Per-instance rather than global, which only means a cold
+ *  instance pays for one read.
+ *
+ *  THE COST is the one v33.14 already accepted and wrote down: a dashboard
+ *  number can be up to DASHBOARD_TTL_SECONDS behind. It is a steering
+ *  instrument, not a live scoreboard. Account pages and lists are unaffected
+ *  — `refresh()` still expires those immediately. */
+const dashboardMemo = new Map<string, { at: number; rows: PipelineRow[] }>();
+/** The key space is SCOPES, not viewers (see dashboardCacheKey), so this is
+ *  bounded by roles × teams × date-filters in practice. The cap is a
+ *  guardrail against an unexpected filter combination growing it forever. */
+const DASHBOARD_MEMO_MAX = 64;
+
+async function readDashboardRows(
+  key: string,
+  load: () => Promise<PipelineRow[]>
+): Promise<PipelineRow[]> {
+  const now = Date.now();
+  const hit = dashboardMemo.get(key);
+  if (hit && now - hit.at < DASHBOARD_TTL_SECONDS * 1000) return hit.rows;
+  const rows = await load();
+  if (dashboardMemo.size >= DASHBOARD_MEMO_MAX) {
+    let oldestKey: string | null = null;
+    let oldestAt = Infinity;
+    for (const [k, v] of dashboardMemo) {
+      if (v.at < oldestAt) { oldestAt = v.at; oldestKey = k; }
+    }
+    if (oldestKey) dashboardMemo.delete(oldestKey);
+  }
+  dashboardMemo.set(key, { at: now, rows });
+  return rows;
+}
+
 /** The registered `Team` names, lower-cased. Structural teams (EB, LB,
  *  Function, Function leaders) are deliberately excluded — they are not
  *  anybody's team. */
@@ -1929,14 +1977,11 @@ export async function getDashboard(
     from: rowFilters.from,
     to: rowFilters.to,
   });
-  const { unstable_cache } = await import("next/cache");
-  const readRows = unstable_cache(
-    async () =>
-      listAccounts(dashViewer, rowFilters, MAX_FETCH_ROWS, DASHBOARD_COLUMNS),
-    ["dashboard-rows", key],
-    { revalidate: DASHBOARD_TTL_SECONDS, tags: ["accounts"] }
-  );
-  const rows = (await readRows()).filter((r) => r.responsible_id != null);
+  const rows = (
+    await readDashboardRows(key, () =>
+      listAccounts(dashViewer, rowFilters, MAX_FETCH_ROWS, DASHBOARD_COLUMNS)
+    )
+  ).filter((r) => r.responsible_id != null);
   const inKpiScope = (r: PipelineRow) =>
     !filters.responsibleId || r.responsible_id === filters.responsibleId;
   const members = await listVisibleMembers(dashViewer);
@@ -3115,13 +3160,19 @@ export async function getSystemHealth(): Promise<SystemHealth> {
   // cron last-run — real timestamps stamped by markCronRun (app_settings).
   // Keep this list in sync with supabase/cron.sql + src/app/api/cron/*.
   const CRON_META: { key: string; label: string; note: string }[] = [
-    { key: "visit-followups", label: "Visit follow-ups", note: "every 15 min" },
-    { key: "signups-import", label: "Sign-ups sheet sync", note: "every 15 min" },
-    { key: "membership-import", label: "Membership import", note: "every 30 min" },
-    { key: "sheets-export", label: "Sheets export", note: "hourly (:05)" },
+    // GitHub Actions (free) — see .github/workflows/
+    { key: "visit-followups", label: "Visit follow-ups", note: "every 30 min, 04–21 UTC (Actions)" },
+    { key: "signups-import", label: "Sign-ups sheet sync", note: "every 15 min, 04–21 UTC (Actions)" },
+    { key: "membership-import", label: "Membership import", note: "every 30 min, 04–21 UTC (Actions)" },
+    { key: "sheets-export", label: "Sheets export", note: "hourly (:05), 04–21 UTC (Actions)" },
+    // Supabase pg_cron → Vercel — see supabase/cron.sql
     { key: "podio-updates", label: "Podio continuous updates", note: "daily 05:00 UTC" },
     { key: "period-reports", label: "Period reports", note: "daily 07:00 UTC (fires on sprint/month/quarter ends)" },
     { key: "streak-nags", label: "OGV streak nags", note: "daily 16:00 UTC (19:00 Cairo)" },
+    // v33.46 — this one runs, stamps, and was the only job the health page
+    // could not report on: it was missing from this list, so a silent failure
+    // would have shown as nothing at all.
+    { key: "touch-point-feedback", label: "Touch-point feedback", note: "daily 19:00 UTC" },
     { key: "attendance-reminders", label: "Attendance reminders", note: "daily 21:00 UTC" },
     { key: "backup", label: "Nightly backup", note: "daily 02:00 UTC (04:00 Cairo)" },
   ];
@@ -3724,9 +3775,15 @@ export async function buildFunctionReport(
   const lcp = allMembers.find((m) => m.role === "LCP");
 
   // ---- window events on the crew's accounts --------------------------------
-  const fromTs = `${window.start}T00:00:00`;
-  const toTs = `${window.end}T23:59:59`;
-  const [accs, attempts, visits, deals, allocs] = await Promise.all([
+  // v33.45 — these were naive strings ("2026-08-01T00:00:00"), which PostgREST
+  // hands to Postgres as UTC. The window is a CAIRO sprint/month, so every
+  // report silently sliced the first 2–3 hours off the opening day and stole
+  // the same hours from the day after the close. Anchor both ends in Cairo
+  // and make the range half-open so midnight belongs to exactly one period.
+  const { cairoToUtc } = await import("@/lib/time");
+  const fromTs = cairoToUtc(window.start, "00:00").toISOString();
+  const toTs = cairoToUtc(nextDayIso(window.end), "00:00").toISOString();
+  const [accs, attempts, visitsBooked, visitsDone, deals, allocs] = await Promise.all([
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     fetchAll<any>(() =>
       db()
@@ -3734,7 +3791,7 @@ export async function buildFunctionReport(
         .select("id, responsible_id, created_at, is_test")
         .eq("is_test", false)
         .gte("created_at", fromTs)
-        .lte("created_at", toTs)
+        .lt("created_at", toTs)
         .order("id")
     ),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -3744,15 +3801,33 @@ export async function buildFunctionReport(
         .select("id, member_id, account_id, created_at, account:accounts!inner(responsible_id, is_test)")
         .eq("account.is_test", false)
         .gte("created_at", fromTs)
-        .lte("created_at", toTs)
+        .lt("created_at", toTs)
         .order("id")
     ),
+    // "Visits" = the booking ACTION (visits.created_at), matching the members
+    // directory. v33.45 — this used visit_date, so a member who booked three
+    // visits on the 13th for the 16th–18th had that work moved OUT of the
+    // sprint they did it in and INTO a sprint they had not worked yet: the
+    // report said 2, the directory said 5, and neither agreed with the member.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     fetchAll<any>(() =>
       db()
         .from("visits")
-        .select("id, member_id, done, visit_date, account:accounts!inner(responsible_id, is_test)")
+        .select("id, member_id, created_at, account:accounts!inner(responsible_id, is_test)")
         .eq("account.is_test", false)
+        .gte("created_at", fromTs)
+        .lt("created_at", toTs)
+        .order("id")
+    ),
+    // "Done" = the day the visit ACTUALLY HAPPENED (visits.visit_date), a
+    // Cairo calendar day, so it stays a plain date comparison.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    fetchAll<any>(() =>
+      db()
+        .from("visits")
+        .select("id, member_id, visit_date, account:accounts!inner(responsible_id, is_test)")
+        .eq("account.is_test", false)
+        .eq("done", true)
         .gte("visit_date", window.start)
         .lte("visit_date", window.end)
         .order("id")
@@ -3764,7 +3839,7 @@ export async function buildFunctionReport(
         .select("id, member_id, slots, slots_igv, slots_igta, slots_igte, amount, created_at, account:accounts!inner(responsible_id, is_test)")
         .eq("account.is_test", false)
         .gte("created_at", fromTs)
-        .lte("created_at", toTs)
+        .lt("created_at", toTs)
         .order("id")
     ),
     // per-member opens = allocations (v22) — split deals credit each member
@@ -3775,7 +3850,7 @@ export async function buildFunctionReport(
         .select("member_id, slots_igv, slots_igta, slots_igte, deal:deals!inner(created_at, account:accounts!inner(is_test))")
         .eq("deal.account.is_test", false)
         .gte("deal.created_at", fromTs)
-        .lte("deal.created_at", toTs)
+        .lt("deal.created_at", toTs)
         .order("id")
     ).catch(() => []),
   ]);
@@ -3800,12 +3875,18 @@ export async function buildFunctionReport(
     const owner = c.account?.responsible_id;
     if (owner && crewIds.has(owner)) get(owner).contacts++;
   }
+  // booked and done are two different questions on two different dates, so
+  // they are two different lists — a visit booked in this window and held in
+  // the next counts once in each, which is what actually happened.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const v of (visits ?? []) as any[]) {
+  for (const v of (visitsBooked ?? []) as any[]) {
     const owner = v.account?.responsible_id;
-    if (!owner || !crewIds.has(owner)) continue;
-    get(owner).visits++;
-    if (v.done) get(owner).visitsDone++;
+    if (owner && crewIds.has(owner)) get(owner).visits++;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const v of (visitsDone ?? []) as any[]) {
+    const owner = v.account?.responsible_id;
+    if (owner && crewIds.has(owner)) get(owner).visitsDone++;
   }
   const useAllocs = allocs.length > 0;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -5329,9 +5410,15 @@ export async function ogxDashboard(
     // function, the row is waiting to be re-assigned, not progress.
     const holder = byId.get(r.assigned_to);
     if (!holder || !inFn(holder)) continue;
-    // this peak only — assigned_at is when it became work
+    // this peak only — assigned_at is when it became work.
+    // v33.46 — this read the same field TWO DIFFERENT WAYS, four lines apart:
+    // a raw .slice(0, 10) here, signupDayIso() in the explicit-range branch
+    // below. signed_up_at is free sheet text and 14 rows are "M/D/YYYY", which
+    // the slice hands back unchanged — and "8/13/2026" < "2026-08-01" is
+    // FALSE as a string compare, so those rows sailed past the peak cutoff
+    // whatever year they came from. One parser for one field.
     if (peakStart && !filters.from && !filters.to) {
-      const day = (r.assigned_at ?? r.signed_up_at ?? "").slice(0, 10);
+      const day = signupDayIso(r.assigned_at ?? r.signed_up_at);
       if (day && day < peakStart) continue;
     }
     // an explicit date range overrides the peak default
@@ -6297,14 +6384,32 @@ export interface IrBookingSettings {
 const BOOKING_SETTINGS_COLS =
   "member_id, slug, slot_minutes, availability, active, buffer_minutes, min_notice_minutes, max_advance_days, start_date, end_date, guests_can_invite, max_per_day, max_per_day_overrides";
 
+/** Which control in the editor a booking issue points at. `dates` = the
+ *  "Schedule starts / ends" pair, `hours` = the availability rows, `active` =
+ *  the on/off switch. */
+export type BookingIssueField = "active" | "dates" | "hours";
+
+export interface BookingIssue {
+  level: "blocked" | "warn";
+  message: string;
+  field?: BookingIssueField;
+}
+
 export interface MyIrBooking {
   settings: IrBookingSettings | null;
   suggestedSlug: string;
   /** WHY NOBODY CAN BOOK YOU (v33.44). A member set her hours, her schedule's
    *  END DATE had quietly passed, and her link offered nothing — with no way
    *  to tell that from "nobody wants a call". Anything that silently empties
-   *  the grid is said out loud here. */
-  issues: { level: "blocked" | "warn"; message: string }[];
+   *  the grid is said out loud here.
+   *
+   *  v33.45 — each issue names the CONTROL that causes it, so the editor can
+   *  print it next to that control instead of only in a banner at the top:
+   *  a member reading "your schedule ENDED" three cards above the date field
+   *  still has to go hunting for the fix. `field` is undefined for issues
+   *  with no single control to blame (an empty grid is the sum of all of
+   *  them). */
+  issues: BookingIssue[];
 }
 
 const SLUG_RE = /^[a-z0-9-]{3,40}$/;
@@ -6338,35 +6443,38 @@ export async function myIrBooking(viewer: Viewer): Promise<MyIrBooking | null> {
  *  a member would want to hear it. The last check is the honest one: ask the
  *  real slot builder and report an empty grid even when every setting looks
  *  individually fine. */
-async function bookingIssues(
-  s: IrBookingSettings
-): Promise<{ level: "blocked" | "warn"; message: string }[]> {
-  const out: { level: "blocked" | "warn"; message: string }[] = [];
+async function bookingIssues(s: IrBookingSettings): Promise<BookingIssue[]> {
+  const out: BookingIssue[] = [];
   const today = _cairoYmd(new Date());
   if (!s.active)
     out.push({
       level: "blocked",
+      field: "active",
       message: "Your link is switched OFF — nobody can book a call until you turn it back on.",
     });
   if (s.end_date && s.end_date < today)
     out.push({
       level: "blocked",
+      field: "dates",
       message: `Your schedule ENDED on ${s.end_date} — the link is live but offers no dates. Clear the end date or push it forward.`,
     });
   if (s.start_date && s.start_date > today)
     out.push({
       level: "warn",
+      field: "dates",
       message: `Your schedule starts on ${s.start_date} — nothing is bookable before then.`,
     });
   const rows = sanitizeAvailability(s.availability);
   if (rows.length === 0)
     out.push({
       level: "blocked",
+      field: "hours",
       message: "You haven't added any hours yet — add at least one window below.",
     });
   else if (rows.every((r) => r.date && r.date < today))
     out.push({
       level: "blocked",
+      field: "hours",
       message: "Every hour you set is on a date that has passed — add new ones.",
     });
 

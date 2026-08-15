@@ -72,6 +72,7 @@ import {
   URL_RE,
 } from "@/lib/types";
 import type { AccountContact, AccountFunction, Member, MemberRole, Visit } from "@/lib/types";
+import { cairoToday } from "@/lib/types";
 
 export type ActionResult<T = undefined> =
   | { ok: true; data?: T }
@@ -124,9 +125,14 @@ function refresh(accountId?: string) {
   // The dashboard's row read is SHARED between everyone with the same scope,
   // so expiring it here meant one member logging a contact made forty people
   // re-read four thousand rows. With the project near its CPU allowance that
-  // is the single most expensive habit in the system, so the entry now lives
-  // out its five minutes (v33.14). Account PAGES and lists are unaffected —
-  // revalidatePath above still refreshes those immediately.
+  // is the single most expensive habit in the system (v33.14).
+  //
+  // v33.46 — dropping the tag was not enough. `revalidatePath("/", "layout")`
+  // on the line above is Next's documented "revalidate ALL data" call, and it
+  // took the dashboard's cache entry with it every time, which is why the
+  // v33.14 saving never actually landed. The read now lives in module memory
+  // that this call cannot reach — see `dashboardMemo` in data.ts. Everything
+  // else here is unchanged: account pages and lists still refresh instantly.
 }
 
 /** Keeps the responsible's CALENDAR follow-up reminder in sync with the
@@ -144,7 +150,7 @@ async function syncNextStepReminder(accountId: string): Promise<void> {
       .maybeSingle<{ google_refresh_token: string | null }>();
     const token = owner?.google_refresh_token ?? null;
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = cairoToday();
     const wanted =
       !account.out_of_process && !!account.next_step_date && account.next_step_date >= today;
 
@@ -2356,7 +2362,7 @@ export async function logContact(
   // carry a next step with a date (unless one is already set in the future).
   const hasPendingVisit = account.visit_id && account.visit_done === null;
   const hasFutureNextStep =
-    account.next_step_date && account.next_step_date >= new Date().toISOString().slice(0, 10);
+    account.next_step_date && account.next_step_date >= cairoToday();
   if (!notInterested && !visitScheduled && !hasPendingVisit && !nextStepDate && !hasFutureNextStep) {
     return fail(
       "Set a next step with a date (or schedule a visit) — no account may float without one.",
@@ -7196,8 +7202,13 @@ import { canSeeCvPool, hasConsiderationAccess } from "@/lib/rbac";
 import { CV_INDUSTRIES } from "@/lib/cv-extract";
 import { freeBookingSlots } from "./data";
 import type { CvRow, IrBookingSettings, IrCallRow, PartnerLc } from "./data";
-/** server-side ir_call rows (own select) still carry the raw token */
-type IrCallServerRow = IrCallRow & { manage_token: string | null };
+/** server-side ir_call rows (own select) still carry the raw token, and the
+ *  reason behind a pending reschedule — the client row has no use for either.
+ *  These functions `select("*")`, so both are already on the object. */
+type IrCallServerRow = IrCallRow & {
+  manage_token: string | null;
+  reschedule_reason: string | null;
+};
 
 import type { Viewer } from "@/lib/rbac";
 
@@ -8574,11 +8585,30 @@ export async function updateIrBookerEmail(id: string, emailRaw: string): Promise
     }
   }
 
+  // THE RESCHEDULE REQUEST SHE NEVER GOT (v33.48).
+  //
+  // Fixing the address re-sends the confirmation — but a call whose owner has
+  // ALREADY asked for a new time needs the other mail too, or the IR gets a
+  // tidy invite to a slot the host has no intention of keeping and hears
+  // nothing about moving it. That is the Tyumen case exactly: bounced on
+  // Tuesday, reschedule requested on Thursday into the same dead mailbox.
+  //
+  // Best-effort and last: the address is proven good by the confirmation
+  // above, and a failure here must not undo a correction that worked.
+  if (call.reschedule_requested_at && call.manage_token && call.reschedule_reason) {
+    try {
+      await sendIrRescheduleRequest({ ...call, booker_email: email }, call.reschedule_reason);
+    } catch (e) {
+      console.error("[ir-calls] pending reschedule re-send failed:", e);
+    }
+  }
+
   await logAudit(viewer.id, retry ? "ir_call_email_retry" : "ir_call_email_fix", "ir_call", id, {
     lc: call.partner_lc_name,
     from: oldEmail,
     to: email,
     inviteSwapped,
+    ...(call.reschedule_requested_at ? { resentRescheduleRequest: true } : {}),
   });
   refresh();
   return { ok: true };
@@ -8590,7 +8620,7 @@ export async function updateIrBookerEmail(id: string, emailRaw: string): Promise
 export async function requestIrReschedule(
   id: string,
   reason: string
-): Promise<ActionResult> {
+): Promise<ActionResult<{ warning?: string }>> {
   const viewer = await getViewer();
   // v29: the IR is owed an explanation — the reason is logged AND emailed
   const why = (reason ?? "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 500);
@@ -8616,27 +8646,29 @@ export async function requestIrReschedule(
       "This call wasn't booked through a link — there's no IR email to reach. Agree on a new time directly, then cancel and rebook."
     );
 
-  // email FIRST (it's the whole point) — the stamp only lands after it sends;
-  // in the sandbox test view sendEmail is suppressed and the stamp is journaled
-  try {
-    const { irRescheduleRequestEmail } = await import("@/lib/email/templates");
-    const { cairoWhenLabel, bookerZoneFor } = await import("./data");
-    const { whenLabelInZone } = await import("@/lib/timezones");
-    const zone = await bookerZoneFor(call.booker_tz, call.partner_lc_id);
-    const mail = irRescheduleRequestEmail({
-      bookerName: call.booker_name,
-      memberName: call.member_name,
-      partnerLc: call.partner_lc_name,
-      whenLabel: zone
-        ? whenLabelInZone(call.called_at, zone)
-        : cairoWhenLabel(call.called_at),
-      reason: why,
-      manageUrl: `${env.appUrl}/book/manage/${call.manage_token}`,
-    });
-    await sendEmail({ to: [call.booker_email], subject: mail.subject, html: mail.html });
-  } catch (e) {
-    console.error("[ir-calls] reschedule request email failed:", e);
-    return fail("Could not email the IR — try again in a moment.");
+  // DON'T POST INTO A MAILBOX WE KNOW IS DEAD (v33.48).
+  //
+  // The Tyumen call: the invite bounced three minutes after booking, the flag
+  // was set, and two days later a reschedule request went to the SAME address
+  // and reported "The IR got an email". It didn't — sendEmail only fails when
+  // the HANDOFF fails, and handing a bad address to Gmail succeeds; the bounce
+  // comes back minutes later, long after this function returned ok.
+  //
+  // So a known-bad address is not something to send into and hope. The REQUEST
+  // is still real work and is still recorded — the call does need moving — but
+  // the caller is told plainly that the IR has not heard, and the mail is left
+  // for updateIrBookerEmail to send the moment the address is corrected.
+  const bounced = !!call.email_bounced_at;
+
+  if (!bounced) {
+    // email FIRST (it's the whole point) — the stamp only lands after it sends;
+    // in the sandbox test view sendEmail is suppressed and the stamp is journaled
+    try {
+      await sendIrRescheduleRequest(call, why);
+    } catch (e) {
+      console.error("[ir-calls] reschedule request email failed:", e);
+      return fail("Could not email the IR — try again in a moment.");
+    }
   }
 
   await snapshotForUndo("ir_calls", id);
@@ -8647,9 +8679,40 @@ export async function requestIrReschedule(
   if (error) return fail(error.message);
   await logAudit(viewer.id, "ir_call_reschedule_request", "ir_call", id, {
     lc: call.partner_lc_name,
+    ...(bounced ? { email_withheld: "bounced" } : {}),
   });
   refresh();
-  return { ok: true };
+  return {
+    ok: true,
+    data: bounced
+      ? {
+          warning:
+            `${call.booker_name} was NOT emailed — ${call.booker_email} bounced, so anything sent there disappears. ` +
+            "The request is saved. Fix the address on this call and she gets the reschedule request straight away.",
+        }
+      : {},
+  };
+}
+
+/** The "please pick a new time" mail. Extracted (v33.48) so the reschedule
+ *  request and the email-correction resend build it exactly the same way —
+ *  the IR's own clock, the reason they are owed, and their manage link. */
+async function sendIrRescheduleRequest(call: IrCallServerRow, why: string): Promise<void> {
+  const { irRescheduleRequestEmail } = await import("@/lib/email/templates");
+  const { cairoWhenLabel, bookerZoneFor } = await import("./data");
+  const { whenLabelInZone } = await import("@/lib/timezones");
+  const zone = await bookerZoneFor(call.booker_tz, call.partner_lc_id);
+  const mail = irRescheduleRequestEmail({
+    bookerName: call.booker_name,
+    memberName: call.member_name,
+    partnerLc: call.partner_lc_name,
+    whenLabel: zone
+      ? whenLabelInZone(call.called_at, zone)
+      : cairoWhenLabel(call.called_at),
+    reason: why,
+    manageUrl: `${env.appUrl}/book/manage/${call.manage_token}`,
+  });
+  await sendEmail({ to: [call.booker_email!], subject: mail.subject, html: mail.html });
 }
 
 // ------------------------------------------------- public manage page (v28)
@@ -9064,14 +9127,6 @@ export async function addPartnerLcComment(input: {
 
 // ------------------------------------------------- 🤝 LC partnerships (v33.38)
 
-/** Today as a Cairo calendar day — the partnership date's default. */
-const cairoToday = (): string =>
-  new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Africa/Cairo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
 
 /** Who may a partnership be handed to / credited to (v33.39, one matrix for
  *  assign AND record-for): lead → the whole crew · TL → self + own team, or

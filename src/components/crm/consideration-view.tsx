@@ -22,6 +22,7 @@ import {
 } from "@/server/actions";
 import type {
   PartnerLcDetail,
+  BookingIssue, BookingIssueField,
   CvRow, IrAvailabilityRow, IrCallRow, MyIrBooking, PartnerLc,
 } from "@/server/data";
 import { IR_ROLES, normalizePhone, fmtDateTime } from "@/lib/types";
@@ -2335,6 +2336,25 @@ const todayYmd = () =>
     timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit",
   }).format(new Date());
 
+/** One "why nobody can book you" line. Rendered either in the card header or
+ *  directly beneath the control it blames — same look in both places, so a
+ *  member who has seen it once in the banner recognises it at the field. */
+function IssueNote({ issue }: { issue: BookingIssue }) {
+  return (
+    <p
+      className={cn(
+        "rounded-lg border p-2.5 text-xs font-medium",
+        issue.level === "blocked"
+          ? "border-destructive/40 bg-destructive/10 text-destructive"
+          : "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+      )}
+    >
+      {issue.level === "blocked" ? "⚠️ " : "ℹ️ "}
+      {issue.message}
+    </p>
+  );
+}
+
 /** "My booking link" — the member's public /book/<slug> page: slug, slot
  *  length, availability (weekly rows + one-off dates) and — v28 — buffer,
  *  minimum notice, maximum advance, an active date range and the guests-can-
@@ -2369,6 +2389,18 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
   const [guestsInvite, setGuestsInvite] = useState(s?.guests_can_invite ?? true);
   const [open, setOpen] = useState(!s); // first-timers see the setup expanded
   const [copied, setCopied] = useState(false);
+
+  // v33.45 — route each issue to the control it blames. Open: `dates`/`hours`
+  // print against their own fields and the header keeps the rest. Closed:
+  // the header carries every one of them, since no field is on screen to
+  // carry it. Issues are derived from the SAVED settings, so an unsaved edit
+  // doesn't clear a warning that is still true on the public page.
+  const allIssues = booking.issues ?? [];
+  const inlineIssues = (field: BookingIssueField) =>
+    open ? allIssues.filter((i) => i.field === field) : [];
+  const headerIssues = open
+    ? allIssues.filter((i) => i.field !== "dates" && i.field !== "hours")
+    : allIssues;
 
   const savedLink = s ? `${origin}/book/${s.slug}` : null;
 
@@ -2456,22 +2488,18 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
         {/* WHY NOBODY CAN BOOK YOU (v33.44). A member's schedule end date had
             passed, her link offered nothing, and there was no way to tell that
             from a quiet week. Anything that silently empties the grid is said
-            here — outside the collapsible body, so it can't be missed. */}
-        {(booking.issues ?? []).length > 0 ? (
+            here — outside the collapsible body, so it can't be missed.
+
+            v33.45 — but "said out loud" is not the same as "said WHERE YOU FIX
+            IT". While the editor is OPEN, every issue that names a control
+            (`field`) is printed against that control instead, so the schedule
+            warning sits on the date pair it is about. Only the homeless ones
+            stay up here. Closed, the banner still carries everything — a
+            collapsed card must never hide a dead link. */}
+        {headerIssues.length > 0 ? (
           <div className="space-y-1.5 pt-1">
-            {(booking.issues ?? []).map((iss, i) => (
-              <p
-                key={i}
-                className={cn(
-                  "rounded-lg border p-2.5 text-xs font-medium",
-                  iss.level === "blocked"
-                    ? "border-destructive/40 bg-destructive/10 text-destructive"
-                    : "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
-                )}
-              >
-                {iss.level === "blocked" ? "⚠️ " : "ℹ️ "}
-                {iss.message}
-              </p>
+            {headerIssues.map((iss, i) => (
+              <IssueNote key={i} issue={iss} />
             ))}
           </div>
         ) : null}
@@ -2654,31 +2682,50 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
           {/* grid-cols-1 = repeat(1, minmax(0,1fr)): a FLEXIBLE track, so the
               native date control's own intrinsic width can't push the card
               off a phone screen (v33.28) */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="min-w-0 space-y-1.5">
-              <Label htmlFor="bk-start">Schedule starts (optional)</Label>
-              <Input
-                id="bk-start"
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="h-9"
-              />
+          <div className="space-y-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="min-w-0 space-y-1.5">
+                <Label htmlFor="bk-start">Schedule starts (optional)</Label>
+                <Input
+                  id="bk-start"
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="h-9"
+                />
+              </div>
+              <div className="min-w-0 space-y-1.5">
+                <Label htmlFor="bk-end">Schedule ends (optional)</Label>
+                <Input
+                  id="bk-end"
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className={cn(
+                    "h-9",
+                    // the dead end date is the usual culprit — ring the field
+                    // itself, not just the sentence under it
+                    inlineIssues("dates").some((i) => i.level === "blocked") &&
+                      "border-destructive focus-visible:ring-destructive/40"
+                  )}
+                />
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="bk-end">Schedule ends (optional)</Label>
-              <Input
-                id="bk-end"
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="h-9"
-              />
-            </div>
+            {/* v33.45 — the schedule warning lives HERE, under the two dates it
+                is about, so the fix is the next control the eye lands on. */}
+            {inlineIssues("dates").map((iss, i) => (
+              <IssueNote key={i} issue={iss} />
+            ))}
           </div>
 
           <div className="space-y-1.5">
             <Label>Availability (Cairo time)</Label>
+            {/* the whole-grid hours problems ("no hours at all", "every hour
+                you set has passed") belong to this list, not to a banner three
+                cards up. Per-ROW problems are still marked on their row. */}
+            {inlineIssues("hours").map((iss, i) => (
+              <IssueNote key={i} issue={iss} />
+            ))}
             <div className="space-y-2">
               {rows.map((r, i) => {
                 const isDate = r.date != null;
@@ -4435,7 +4482,12 @@ function RequestRescheduleDialog({
     start(async () => {
       const res = await requestIrReschedule(call.id, why.trim());
       if (res.ok) {
-        toast.success("The IR got an email — they'll pick the new time. 📧");
+        // v33.48 — never claim "the IR got an email" without knowing they
+        // could. A bounced address returns the request saved and the mail
+        // withheld, and that has to be said out loud, not celebrated.
+        const warning = res.data?.warning;
+        if (warning) toast.warning(warning, { duration: 12_000 });
+        else toast.success("The IR got an email — they'll pick the new time. 📧");
         onClose();
         router.refresh();
       } else toast.error(res.error);

@@ -1,0 +1,88 @@
+# Visit reminders + sheet export OFF Vercel (v33.46) — see scripts/run-cron.mjs.
+#
+# Why: these two were 120 of the ~126 daily cron calls hitting Vercel, and a
+# third of them fired between midnight and 6 AM Cairo, when there is no visit
+# to chase and nothing new to export. Neither serves a browser request.
+#
+# BUDGET NOTE — this repo is PRIVATE, so Actions minutes are capped (2,000/mo
+# on the free plan) and are a real budget, not a free lunch. The sheet-import
+# workflow already measures ~51s per run and ~780 min/month. These schedules
+# are deliberately SPARSER than the pg_cron ones they replace so the two
+# workflows together stay well inside the cap:
+#
+#   visit-followups   every 15 min, 24/7   →  every 30 min, working hours
+#   sheets-export     hourly, 24/7         →  hourly, working hours
+#
+# The follow-up email fires 2h after a visit; a half-hour tick means it can
+# arrive up to 30 min later than it used to, which nobody will notice — and
+# members stop getting reminder mail at 3 AM.
+#
+# BEFORE ENABLING: confirm the repo secrets below exist (the imports workflow
+# already needs most of them), run each job once with "Run workflow"
+# (workflow_dispatch) to confirm it's green, THEN unschedule the pg_cron
+# twins in Supabase:
+#   select cron.unschedule('visit-followups');
+#   select cron.unschedule('sheets-export');
+# Until you do, both run. That is SAFE but not free: sheets-export just
+# rewrites the same sheet, and visit-followups stamps each visit before it
+# sends, so the loser of a race sends nothing and no member is emailed twice.
+
+name: Background jobs
+
+on:
+  schedule:
+    # visit reminders every 30 min, sheet export at :05 — working hours only
+    # (04:00–21:59 UTC ≈ 06:00–00:00 Cairo)
+    - cron: "*/30 4-21 * * *"
+    - cron: "5 4-21 * * *"
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Which job to run"
+        required: true
+        default: visit-followups
+        type: choice
+        options: [visit-followups, sheets-export, both]
+
+concurrency:
+  group: background-jobs
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GOOGLE_SERVICE_ACCOUNT_KEY_BASE64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY_BASE64 }}
+      DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
+      GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
+      GMAIL_SENDER: ${{ secrets.GMAIL_SENDER }}
+      AUTH_GOOGLE_ID: ${{ secrets.AUTH_GOOGLE_ID }}
+      AUTH_GOOGLE_SECRET: ${{ secrets.AUTH_GOOGLE_SECRET }}
+      NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
+      ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # 22+ ships a global WebSocket — @supabase/supabase-js needs one and
+          # throws at createClient() on Node 20 (v33.19.2)
+          node-version: 22
+          cache: npm
+      # tsx is already in devDependencies, so npm ci installs it — no extra
+      # install step needed here (the imports workflow had a redundant one).
+      - run: npm ci --no-audit --no-fund
+
+      - name: Visit follow-ups
+        if: >-
+          (github.event_name == 'schedule' && github.event.schedule == '*/30 4-21 * * *') ||
+          github.event.inputs.job == 'both' || github.event.inputs.job == 'visit-followups'
+        run: npx tsx --tsconfig tsconfig.scripts.json scripts/run-cron.mjs visit-followups
+
+      - name: Sheets export
+        if: >-
+          (github.event_name == 'schedule' && github.event.schedule == '5 4-21 * * *') ||
+          github.event.inputs.job == 'both' || github.event.inputs.job == 'sheets-export'
+        run: npx tsx --tsconfig tsconfig.scripts.json scripts/run-cron.mjs sheets-export

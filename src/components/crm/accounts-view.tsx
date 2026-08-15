@@ -19,7 +19,8 @@ import {
   updateAccount,
 } from "@/server/actions";
 import {
-  ACCOUNT_TYPES, accountSlug, B2C_TYPES, fmtDateTime, fmtTime, IGT_SUB_PRODUCTS,
+  ACCOUNT_TYPES, accountSlug, B2C_TYPES, cairoToday, fmtDateTime, fmtDay, fmtTime,
+  IGT_SUB_PRODUCTS,
   IGV_PROJECTS, INDUSTRIES, OOP_REASONS, productBadge,
   STAGES, type ContactMethod,
 } from "@/lib/types";
@@ -743,7 +744,7 @@ export function AccountsView({
     : viewer.allowedFns.includes("B2C")
       ? [...ACCOUNT_TYPES, ...B2C_TYPES]
       : [...ACCOUNT_TYPES];
-  const today = new Date().toISOString().slice(0, 10);
+  const today = cairoToday();
 
   const orderedRows = rows;
 
@@ -857,7 +858,7 @@ export function AccountsView({
       case "created_at":
         return (
           <>
-            <span className="block leading-tight">{row.created_at?.slice(0, 10)}</span>
+            <span className="block leading-tight">{fmtDay(row.created_at)}</span>
             <span className="block text-[10px] opacity-70">{fmtTime(row.created_at)}</span>
           </>
         );
@@ -964,7 +965,7 @@ export function AccountsView({
       case "last_contact":
         return row.last_contact_at ? (
           <>
-            <span className="block leading-tight">{row.last_contact_at.slice(0, 10)}</span>
+            <span className="block leading-tight">{fmtDay(row.last_contact_at)}</span>
             <span className="block text-[10px] opacity-70">
               {row.last_contact_status ?? row.last_contact_method ?? ""}
             </span>
@@ -1018,7 +1019,9 @@ export function AccountsView({
         );
       }
       case "updated_at":
-        return row.updated_at?.slice(0, 10) ?? "—";
+        // v33.45 — was `.slice(0, 10)`, i.e. the UTC day off the raw ISO
+        // string: an account edited at 1 AM Cairo showed the day before.
+        return fmtDay(row.updated_at);
       case "proposal":
         return row.proposal_sent ? "✅ sent" : "—";
       case "podio":

@@ -12,6 +12,7 @@ import {
 import {
   NO_WORKING_HOURS_FUNCTIONS, touchPointLabel,
   type TouchPointKind, type TouchPointScope,
+  cairoToday,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { AudiencePicker } from "./audience-picker";
@@ -27,12 +28,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 
-/** Today in Cairo — used to tell "booking ahead" apart from "logging something
- *  that already happened" (v31: past dates are pickable again). */
-const cairoTodayIso = () =>
-  new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit",
-  }).format(new Date());
+/** Today in Cairo — used to tell "booking ahead" apart from "logging
+ *  something that already happened" (v31: past dates are pickable again). */
+const cairoTodayIso = cairoToday;
 
 /** "HH:MM" right now in Cairo (h23 so midnight is 00:00, never 24:00). */
 const cairoNowHm = () =>

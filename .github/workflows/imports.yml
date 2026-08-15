@@ -63,8 +63,10 @@ jobs:
           # throws at createClient() on Node 20 (v33.19.2)
           node-version: 22
           cache: npm
+      # tsx is in devDependencies, so npm ci already installed it — the extra
+      # `npm i -D tsx` this used to run resolved the registry again on every
+      # tick for a package that was already on disk (v33.46).
       - run: npm ci --no-audit --no-fund
-      - run: npm i -D tsx --no-audit --no-fund
 
       # the 15-minute tick always carries sign-ups; membership rides the
       # :00/:30 tick. workflow_dispatch honours the chosen job.

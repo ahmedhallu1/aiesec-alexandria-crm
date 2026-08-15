@@ -19,7 +19,7 @@ import { AskBlueMan } from "./ask-blue-man";
 import { Hint } from "./hint";
 import { CountUp } from "./count-up";
 import { cn } from "@/lib/utils";
-import { FUNCTION_COLORS } from "@/lib/types";
+import { cairoToday, FUNCTION_COLORS } from "@/lib/types";
 import type {
   DrillGroup, FunnelStats, LanePlan, OgxBoardRow, OgxDashboardData, OgxFunnel,
   StreakStats, TeamPlan,
@@ -145,7 +145,7 @@ export function DashboardView({
   ];
   const month = monthRange();
   const sprint = sprintRange();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = cairoToday();
   const thisMonthActive = filters.from === month.from && filters.to === month.to;
   const thisSprintActive = filters.from === sprint.from && filters.to === sprint.to;
   const myNumbersActive = filters.member === viewerId;

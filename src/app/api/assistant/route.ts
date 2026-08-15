@@ -3,7 +3,7 @@ import { getAccount, getViewer, listAccounts, searchCvs } from "@/server/data";
 import type { PipelineRow } from "@/server/data";
 import { canSeeCvPool } from "@/lib/rbac";
 import { BLUE_MAN_SYSTEM_PROMPT, buildAssistantContext } from "@/lib/assistant";
-import { accountSlug } from "@/lib/types";
+import { accountSlug, fmtDay } from "@/lib/types";
 
 export const maxDuration = 60;
 
@@ -197,7 +197,7 @@ export async function POST(req: Request) {
         industry: account.industry,
         type: account.account_type,
         last_contacts: attempts.slice(0, 5).map((c) => ({
-          date: c.created_at?.slice(0, 10),
+          date: fmtDay(c.created_at),
           method: c.method,
           result: c.status,
           comment: c.comment,
@@ -208,7 +208,7 @@ export async function POST(req: Request) {
           comment: v.visit_comment,
         })),
         deals: deals.slice(0, 5).map((d) => ({
-          date: d.created_at?.slice(0, 10),
+          date: fmtDay(d.created_at),
           opens: d.slots,
           igv: d.slots_igv,
           igta: d.slots_igta,
