@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-16 · Version: v33.53
+Last updated: 2026-08-16 · Version: v33.54
 
 ---
 
@@ -34,7 +34,7 @@ the blueprint for future OGX/other-function modules.
 | Stack | Next.js 16 (App Router, Turbopack) · React 19 · Tailwind v4 · shadcn/ui · Supabase (Postgres, project `iesrpuuoduxtihuaqfic`) |
 | Auth | Auth.js v5: **FIRST sign-in is Google-only** (grants `calendar` + `gmail.compose`) → onboarding sets a password → afterwards **email OR phone + password**, or Google, all work. **Members with NO email yet (v24) sign in with their phone in BOTH fields** until a password is set; adding their email closes that door (Google once, then password). Deactivated members land on **/inactive**. **Forgot password emails a fresh password** (`issueTempPassword` in `server/password.ts`); the old password still works until the member changes it (no lockouts) |
 | Google | Service account (Sheets sync, folder creation) · **the IM mailbox token carries mail + calendar + drive + sheets** — every Drive FILE is written as the mailbox, because a service account has no storage quota · Calendar events on each member's own calendar |
-| Cron | Supabase `pg_cron` + `pg_net` → `/api/cron/*`, **10 jobs** (visit-followups 15 min · signups-import 15 min · membership-import 30 min · sheets-export hourly :05 · **backup daily 02:00 UTC** · podio-updates daily 05:00 · period-reports daily 07:00 · streak-nags daily 16:00 · touch-point-feedback daily 19:00 · attendance-reminders daily 20:59) |
+| Cron | Supabase `pg_cron` + `pg_net` → `/api/cron/*`, **10 jobs** (visit-followups 15 min · signups-import 15 min · membership-import 30 min · sheets-export hourly :05 · **backup daily 02:00 UTC** · podio-updates daily 05:00 · period-reports daily 07:00 (sprint + month, no quarters) · streak-nags daily 16:00 · touch-point-feedback daily 19:00 · attendance-reminders daily 20:59) |
 | Admin | `ADMIN_EMAILS` env (= IM director, treated as LCP) |
 
 **Migrations** live in `supabase/migrations/` and are run **manually** in the
@@ -628,6 +628,49 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-16 · v33.54** — **THE PERIOD REPORTS GROW UP, AND THE ROAD TO
+  ACTIVATE BECOMES A ROAD** (no migration).
+  ① **OGX HAD NO PERIOD REPORT AT ALL.** `buildFunctionReport` counts
+  accounts, contacts, visits and opens — an OGX crew has none of those, so
+  every sprint and month closed with IGV, IGT and B2B getting a report and the
+  two biggest crews in the LC getting nothing. New **`buildOgxReport`**: same
+  email, same shape (KPIs · team waterfall · filed MM plans), the sign-up
+  funnel instead — Sign-ups → Contacted → Interested → Applied → Accepted →
+  **Approved 🏆**. It says out loud what a window MEANS there: a sign-up
+  carries one usable date (`signed_up_at`) and no status carries any, so the
+  period is the sign-ups that ARRIVED in it and the funnel is where those
+  people stand today. Anything else would be a guess dressed as a fact.
+  ② **QUARTERS ARE GONE.** Nobody steers a peak in three-month jumps, and the
+  quarterly mail landed on the same morning as the month's saying much the
+  same thing. Sprint and month only.
+  ③ **EVERY NUMBER CARRIES THE LAST ONE.** Each KPI prints a small line under
+  it — "▲ 110 vs last sprint (35)", "same as last sprint" — from the identical
+  read over the previous window of the same length. Sprint 1 compares against
+  the previous month's sprint 2, sprint 2 against sprint 1, a month against
+  the month before. A comparison that would reach back before the peak is
+  dropped rather than invented (`previous: null`), and the recursion is one
+  step deep by construction.
+  ④ **THE WATERFALL'S TEAM ROWS FOLLOW v33.53** — "Hana Wael's team", not the
+  retired sheet name.
+  ⑤ **VERIFIED AGAINST PROD, not just typechecked.** Every one of the five
+  reports was built for Aug sprint 1 with July's sprint 2 as the comparison:
+  IGV 145 MR / 75 contacts / 26 visits / 14 done / 2 deals / 4 opens · IGT
+  96 / 188 / 8 / 3 · B2B&BD 331 / 163 / 2 · OGV 24 sign-ups → 9 approved ·
+  **OGT 0, which is real**: their tracker's most recent sign-up is 10 May, so
+  an August window is genuinely empty. OGV's 24 matches the row count in the
+  database exactly.
+  ⚠️ **Known and deliberate:** the report attributes work by the PERSON (an
+  account's responsible), while the dashboard attributes by the ACCOUNT's
+  function. A dual-function member's work therefore appears in both of their
+  crews' reports. That is the v21 design — "what did this crew do" — and it is
+  written down here rather than silently changed.
+  ⑥ **🏆 THE ACTIVATE STRIP IS A ROAD** (by request: road style, bigger, no
+  close button). AIESEC-blue verges, asphalt with kerbs, a yellow centre line
+  that travels, the Blue Man walking it at the LC's real position (the peak's
+  first day is the start line, 3 December the finish), a chequered finish and
+  the trophy. The dismiss button is gone — this is the LC's horizon, not a
+  notification — and it still removes ITSELF the day after the conference.
 
 - **2026-08-16 · v33.53** — **A TEAM IS ITS MANAGER** (no migration; one prod
   data cleanup). The LC deleted the **Teams tab** and the **Team Name column**

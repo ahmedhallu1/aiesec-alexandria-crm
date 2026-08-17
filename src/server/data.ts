@@ -3862,10 +3862,192 @@ export async function laneOpensActual(
 
 // ================================================================== period reports (v21)
 
+/** THE OGX PERIOD REPORT (v33.54).
+ *
+ *  OGX never had one: `buildFunctionReport` counts accounts, contacts, visits
+ *  and opens, and an OGX crew has none of those — their funnel is sign-ups.
+ *  Same email, same shape (KPIs + a team waterfall + last period in brackets),
+ *  different numbers.
+ *
+ *  WHAT A WINDOW MEANS HERE. A sign-up carries one usable date — `signed_up_at`,
+ *  free sheet text, normalised by `signupDayIso` — and the statuses carry none
+ *  at all. So the window is the sign-ups that ARRIVED in it, and the funnel is
+ *  where those particular people stand today. That is the honest reading of
+ *  the data we hold, and the report says so in as many words rather than
+ *  implying that eight approvals happened inside the fortnight. */
+export async function buildOgxReport(
+  fn: "OGT" | "OGV",
+  window: { start: string; end: string },
+  kind: "sprint" | "month" = "month",
+  previous?: { start: string; end: string } | null
+): Promise<FunctionReportData | null> {
+  const { data: membersData } = await db()
+    .from("members")
+    .select("id, name, email, role, functions, sub_functions, stakeholder_id")
+    .eq("is_active", true);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const all = (membersData ?? []) as any[];
+  const inFn = (m: (typeof all)[number]) =>
+    [...(m.functions ?? []), ...(m.sub_functions ?? [])].includes(fn);
+  const crew = all.filter(inFn);
+  if (crew.length === 0) return null;
+  const crewIds = new Set(crew.map((m) => m.id as string));
+  const lcp = all.find((m) => m.role === "LCP");
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows = await fetchAll<any>(() =>
+    db()
+      .from("signups")
+      .select("assigned_to, contact_status, interested, status, signed_up_at, created_at, out_of_process")
+      .eq("fn", fn)
+      .order("id")
+  );
+  const inWindow = (r: { signed_up_at: string | null; created_at: string }) => {
+    const day = signupDayIso(r.signed_up_at) ?? r.created_at.slice(0, 10);
+    return !!day && day >= window.start && day <= window.end;
+  };
+
+  interface P { signups: number; contacted: number; interested: number; applied: number; accepted: number; approved: number }
+  const zero = (): P => ({ signups: 0, contacted: 0, interested: 0, applied: 0, accepted: 0, approved: 0 });
+  const stats = new Map<string, P>();
+  const get = (id: string) => {
+    let p = stats.get(id);
+    if (!p) { p = zero(); stats.set(id, p); }
+    return p;
+  };
+  const yes = (v: string | null) => !!v && /^y/i.test(v.trim());
+  for (const r of rows) {
+    if (r.out_of_process) continue;
+    if (!r.assigned_to || !crewIds.has(r.assigned_to)) continue;
+    if (!inWindow(r)) continue;
+    const p = get(r.assigned_to);
+    p.signups += 1;
+    if (yes(r.contact_status)) p.contacted += 1;
+    if (yes(r.interested)) p.interested += 1;
+    // the status LADDER: approved implies accepted implies applied
+    if (["Applied", "Accepted", "Approved"].includes(r.status ?? "")) p.applied += 1;
+    if (["Accepted", "Approved"].includes(r.status ?? "")) p.accepted += 1;
+    if (r.status === "Approved") p.approved += 1;
+  }
+
+  const sum = (ids: string[]): P =>
+    ids.reduce((acc, id) => {
+      const s = stats.get(id) ?? zero();
+      acc.signups += s.signups; acc.contacted += s.contacted; acc.interested += s.interested;
+      acc.applied += s.applied; acc.accepted += s.accepted; acc.approved += s.approved;
+      return acc;
+    }, zero());
+  const cells = (who: string, p: P): (string | number)[] =>
+    [who, p.signups, p.contacted, p.interested, p.applied, p.accepted, p.approved];
+
+  // the waterfall:每 team (its leader) in bold, its people under it
+  const headers = ["Who", "Sign-ups", "Contacted", "Interested", "Applied", "Accepted", "Approved"];
+  const table: (string | number)[][] = [];
+  const boldRows: number[] = [];
+  const indentRows: number[] = [];
+  const grouped = new Set<string>();
+  for (const tl of crew.filter((m) => m.role === "Team Leader")) {
+    const people = crew.filter((m) => m.stakeholder_id === tl.id && m.id !== tl.id);
+    const ids = [tl.id, ...people.map((m) => m.id as string)];
+    ids.forEach((id) => grouped.add(id));
+    boldRows.push(table.length);
+    table.push(cells(teamLabel(tl.name), sum(ids)));
+    indentRows.push(table.length);
+    table.push(cells(`${tl.name} (TL)`, stats.get(tl.id) ?? zero()));
+    for (const p of people) {
+      indentRows.push(table.length);
+      table.push(cells(p.name, stats.get(p.id) ?? zero()));
+    }
+  }
+  const loose = crew.filter(
+    (m) => !grouped.has(m.id) && !["LCVP", "Director", "LCP"].includes(m.role)
+  );
+  if (loose.length > 0) {
+    boldRows.push(table.length);
+    table.push(cells("No team yet", sum(loose.map((m) => m.id as string))));
+    for (const p of loose) {
+      indentRows.push(table.length);
+      table.push(cells(p.name, stats.get(p.id) ?? zero()));
+    }
+  }
+
+  const total = sum([...crewIds]);
+  const prev = previous ? await buildOgxReport(fn, previous, kind, null) : null;
+  const cmp = (now: number, before: number | undefined): string | undefined => {
+    if (before === undefined || prev === null) return undefined;
+    const d = now - before;
+    if (d === 0) return `same as last ${kind}`;
+    return `${d > 0 ? "▲" : "▼"} ${Math.abs(d).toLocaleString("en")} vs last ${kind} (${before.toLocaleString("en")})`;
+  };
+  const kpis: [string, string, string?][] = [
+    ["Sign-ups in this period", String(total.signups), cmp(total.signups, prev?.totals.mr)],
+    ["Contacted", String(total.contacted), cmp(total.contacted, prev?.totals.contacts)],
+    ["Interested", String(total.interested), cmp(total.interested, prev?.totals.visits)],
+    ["Applied", String(total.applied), cmp(total.applied, prev?.totals.visitsDone)],
+    ["Accepted", String(total.accepted), cmp(total.accepted, prev?.totals.deals)],
+    ["Approved 🏆 (the MOS)", String(total.approved), cmp(total.approved, prev?.totals.opens)],
+  ];
+
+  // the filed MM plans that overlap the window — their goals for the period
+  const mmPlanLines: string[] = [];
+  const months = new Set<string>();
+  {
+    const c = new Date(`${window.start.slice(0, 7)}-01T00:00:00Z`);
+    const endKey = window.end.slice(0, 7);
+    for (let i = 0; i < 6; i++) {
+      const key = c.toISOString().slice(0, 7);
+      months.add(`${key}-01`);
+      if (key >= endKey) break;
+      c.setUTCMonth(c.getUTCMonth() + 1);
+    }
+  }
+  const { data: plans } = await db()
+    .from("mm_plans")
+    .select("member_id, month, applicants, accepted, approvals")
+    .in("month", [...months]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const p of (plans ?? []) as any[]) {
+    const m = crew.find((c2) => c2.id === p.member_id);
+    if (!m) continue;
+    mmPlanLines.push(
+      `${m.name} — ${String(p.month).slice(0, 7)}: ${p.applicants} applicants · ${p.accepted} accepted · ${p.approvals} approvals (plan)`
+    );
+  }
+
+  const recipients = [
+    ...crew.map((m) => m.email as string),
+    ...(lcp?.email ? [lcp.email as string] : []),
+  ].filter(Boolean);
+
+  return {
+    functionLabel: fn,
+    recipients: [...new Set(recipients.map((e) => e.toLowerCase()))],
+    // the OGX funnel reuses the ICX slots so one email template serves both
+    totals: {
+      mr: total.signups, contacts: total.contacted, visits: total.interested,
+      visitsDone: total.applied, deals: total.accepted, opens: total.approved, egp: 0,
+    },
+    kpis,
+    planLine:
+      "Counted on the sign-ups that ARRIVED in this period — the funnel below is where those people stand today (no status carries a date of its own).",
+    waterfallHeaders: headers,
+    waterfallRows: table,
+    boldRows,
+    indentRows,
+    mmPlanLines,
+  };
+}
+
 export interface FunctionReportData {
   functionLabel: string;
   recipients: string[]; // whole function + the LCP
-  kpis: [string, string][];
+  /** the window's own totals — what the NEXT period compares itself against */
+  totals: {
+    mr: number; contacts: number; visits: number; visitsDone: number;
+    deals: number; opens: number; egp: number;
+  };
+  /** label · value · an optional "▲ 12 vs last sprint (31)" note (v33.54) */
+  kpis: [string, string, string?][];
   planLine: string | null;
   waterfallHeaders: string[];
   waterfallRows: (string | number)[][];
@@ -3881,7 +4063,11 @@ export interface FunctionReportData {
 export async function buildFunctionReport(
   fnKey: "IGV" | "IGT" | "B2B",
   window: { start: string; end: string },
-  kind: "sprint" | "month" | "quarter" = "month"
+  kind: "sprint" | "month" = "month",
+  /** the window BEFORE this one, for the comparison line. Pass null to skip it
+   *  — the recursive call for the previous period does, so it can never
+   *  recurse further than one step. */
+  previous?: { start: string; end: string } | null
 ): Promise<FunctionReportData | null> {
   const isB2BReport = fnKey === "B2B";
   const { data: membersData } = await db()
@@ -4060,7 +4246,7 @@ export async function buildFunctionReport(
     const ids = [tl.id, ...teamPeople.map((m) => m.id)];
     ids.forEach((id) => grouped.add(id));
     boldRows.push(rows.length);
-    rows.push(toCells(`${tl.team_name || `Team ${label(tl)}`}`, sum(ids)));
+    rows.push(toCells(teamLabel(label(tl)), sum(ids)));
     indentRows.push(rows.length);
     rows.push(toCells(`${label(tl)} (TL)`, stats.get(tl.id) ?? zero()));
     for (const p of teamPeople) {
@@ -4090,14 +4276,27 @@ export async function buildFunctionReport(
   }
 
   const total = sum(crew.map((m) => m.id));
-  const kpis: [string, string][] = [
-    ["Market Research (accounts added)", String(total.mr)],
-    ["Contact attempts", String(total.contacts)],
-    ["Visits scheduled", String(total.visits)],
-    ["Visits done", String(total.visitsDone)],
-    ["Deals", String(total.deals)],
-    ["Opens raised", String(total.opens)],
-    ...(isB2BReport ? ([["BD money", `${total.egp.toLocaleString()} EGP`]] as [string, string][]) : []),
+  // LAST PERIOD, FOR CONTEXT (v33.54). A number on its own says nothing about
+  // whether the sprint went well — the same read over the PREVIOUS window of
+  // the same length is what turns it into news. `prev` is null when there is
+  // no previous window inside the peak, and then nothing is printed.
+  const prev = previous ? await buildFunctionReport(fnKey, previous, kind, null) : null;
+  const cmp = (now: number, before: number | undefined): string | undefined => {
+    if (before === undefined || prev === null) return undefined;
+    const d = now - before;
+    if (d === 0) return `same as last ${kind}`;
+    return `${d > 0 ? "▲" : "▼"} ${Math.abs(d).toLocaleString("en")} vs last ${kind} (${before.toLocaleString("en")})`;
+  };
+  const kpis: [string, string, string?][] = [
+    ["Market Research (accounts added)", String(total.mr), cmp(total.mr, prev?.totals.mr)],
+    ["Contact attempts", String(total.contacts), cmp(total.contacts, prev?.totals.contacts)],
+    ["Visits scheduled", String(total.visits), cmp(total.visits, prev?.totals.visits)],
+    ["Visits done", String(total.visitsDone), cmp(total.visitsDone, prev?.totals.visitsDone)],
+    ["Deals", String(total.deals), cmp(total.deals, prev?.totals.deals)],
+    ["Opens raised", String(total.opens), cmp(total.opens, prev?.totals.opens)],
+    ...(isB2BReport
+      ? ([["BD money", `${total.egp.toLocaleString()} EGP`, cmp(total.egp, prev?.totals.egp)]] as [string, string, string?][])
+      : []),
   ];
 
   // ---- plan vs achieved (opens) for planned lanes --------------------------
@@ -4158,6 +4357,7 @@ export async function buildFunctionReport(
   return {
     functionLabel: isB2BReport ? "B2B & BD" : fnKey,
     recipients: [...new Set(recipients.map((e) => e.toLowerCase()))],
+    totals: total,
     kpis,
     planLine,
     waterfallHeaders: headers,

@@ -3,32 +3,44 @@ import { db } from "@/lib/supabase";
 import { env } from "@/lib/env";
 import { sendEmail } from "@/lib/google/gmail";
 import { periodReportEmail } from "@/lib/email/templates";
-import { buildFunctionReport, markCronRun } from "@/server/data";
+import { buildFunctionReport, buildOgxReport, markCronRun } from "@/server/data";
 import { notifyMembers } from "@/server/notify";
 
 export const dynamic = "force-dynamic";
 
-/** v21 — per-function period reports (sprint / month / quarter).
+/** v21 — per-function period reports. **SPRINT AND MONTH ONLY** (v33.54 —
+ *  quarters are gone: nobody steers a peak in three-month jumps, and the
+ *  quarterly mail landed on the same morning as the month's saying much the
+ *  same thing).
  *
  *  Checked DAILY; a report fires only on the morning after its period closed:
  *   - sprint:  on the 16th (sprint 1 = 1–15) and on the 1st (sprint 2 = 16–EOM)
  *   - month:   on the 1st (previous month)
- *   - quarter: on Feb/May/Aug/Nov 1st (previous term quarter)
  *  Reporting starts with the winter peak — periods before Aug 2026 are skipped.
- *  One email per function (IGV / IGT / B2B&BD) to the whole crew + the LCP,
- *  BCC'd; per-(kind,fn,period) idempotency via app_settings.
+ *  Every report carries the SAME numbers for the previous window of the same
+ *  length in brackets, so a sprint reads as better or worse than the last one
+ *  rather than as a number on its own.
+ *
+ *  ONE EMAIL PER FUNCTION — raising (IGV / IGT / B2B&BD) and, since v33.54,
+ *  **OGX (OGT / OGV)**, which had no period report at all: their funnel is
+ *  sign-ups, not accounts, so it gets its own builder. To the whole crew + the
+ *  LCP, BCC'd; per-(kind,fn,period) idempotency via app_settings.
  *
  *  ?test=1 sends the CURRENT (unfinished) sprint's reports to the IM mailbox
  *  only — a preview, not counted as sent. */
 
 const REPORT_START = "2026-08-01";
 const FUNCTIONS: ("IGV" | "IGT" | "B2B")[] = ["IGV", "IGT", "B2B"];
+/** the OGX sides — their own funnel, their own builder (v33.54) */
+const OGX_FUNCTIONS: ("OGT" | "OGV")[] = ["OGT", "OGV"];
 
 interface Due {
-  kind: "sprint" | "month" | "quarter";
+  kind: "sprint" | "month";
   start: string;
   end: string;
   label: string;
+  /** the window of the SAME length immediately before this one */
+  previous: { start: string; end: string } | null;
 }
 
 const MONTHS = ["January","February","March","April","May","June",
@@ -42,11 +54,19 @@ function duePeriods(now: Date): Due[] {
   const due: Due[] = [];
 
   if (day === 16) {
+    // sprint 1 closed last night; the one before it is the PREVIOUS month's
+    // sprint 2 (16–end), which is what "vs last sprint" has to mean
+    const py = m0 === 0 ? y - 1 : y;
+    const pm0 = m0 === 0 ? 11 : m0 - 1;
     due.push({
       kind: "sprint",
       start: `${y}-${pad(m0 + 1)}-01`,
       end: `${y}-${pad(m0 + 1)}-15`,
       label: `${MONTHS[m0]} ${y} · Sprint 1 (1–15)`,
+      previous: {
+        start: `${py}-${pad(pm0 + 1)}-16`,
+        end: `${py}-${pad(pm0 + 1)}-${pad(eom(py, pm0))}`,
+      },
     });
   }
   if (day === 1) {
@@ -58,31 +78,27 @@ function duePeriods(now: Date): Due[] {
       start: `${py}-${pad(pm0 + 1)}-16`,
       end: `${py}-${pad(pm0 + 1)}-${pad(last)}`,
       label: `${MONTHS[pm0]} ${py} · Sprint 2 (16–${last})`,
+      // the sprint before it is the same month's first half
+      previous: { start: `${py}-${pad(pm0 + 1)}-01`, end: `${py}-${pad(pm0 + 1)}-15` },
     });
+    const ppy = pm0 === 0 ? py - 1 : py;
+    const ppm0 = pm0 === 0 ? 11 : pm0 - 1;
     due.push({
       kind: "month",
       start: `${py}-${pad(pm0 + 1)}-01`,
       end: `${py}-${pad(pm0 + 1)}-${pad(last)}`,
       label: `${MONTHS[pm0]} ${py}`,
+      previous: {
+        start: `${ppy}-${pad(ppm0 + 1)}-01`,
+        end: `${ppy}-${pad(ppm0 + 1)}-${pad(eom(ppy, ppm0))}`,
+      },
     });
-    // term quarters start Feb/May/Aug/Nov → a quarter CLOSED when this month
-    // is one of those (the previous 3 months formed it)
-    if ([1, 4, 7, 10].includes(m0)) {
-      const qStartM0 = (pm0 - 2 + 12) % 12;
-      const qStartY = pm0 < 2 ? py - 1 : py;
-      // term quarters: Q1 Feb-Apr · Q2 May-Jul · Q3 Aug-Oct · Q4 Nov-Jan.
-      // m0 is the reporting month (1st) = the month AFTER the quarter closed:
-      // May(4)→Q1 · Aug(7)→Q2 · Nov(10)→Q3 · Feb(1)→Q4.
-      const qNum = { 4: "Q1", 7: "Q2", 10: "Q3", 1: "Q4" }[m0] ?? "Q";
-      due.push({
-        kind: "quarter",
-        start: `${qStartY}-${pad(qStartM0 + 1)}-01`,
-        end: `${py}-${pad(pm0 + 1)}-${pad(last)}`,
-        label: `${qNum} (${MONTHS[qStartM0].slice(0, 3)}–${MONTHS[pm0].slice(0, 3)} ${py})`,
-      });
-    }
   }
-  return due.filter((d) => d.start >= REPORT_START);
+  // QUARTERS ARE GONE (v33.54) — see the note at the top of this file.
+  return due
+    .filter((d) => d.start >= REPORT_START)
+    // a comparison that reaches back before the peak is another term's work
+    .map((d) => (d.previous && d.previous.start < REPORT_START ? { ...d, previous: null } : d));
 }
 
 /** The current (possibly unfinished) sprint — for ?test=1 previews. */
@@ -96,6 +112,9 @@ function currentSprint(now: Date): Due {
     start: `${y}-${pad(m0 + 1)}-${second ? "16" : "01"}`,
     end: `${y}-${pad(m0 + 1)}-${second ? pad(last) : "15"}`,
     label: `${MONTHS[m0]} ${y} · Sprint ${second ? 2 : 1} — LIVE PREVIEW`,
+    previous: second
+      ? { start: `${y}-${pad(m0 + 1)}-01`, end: `${y}-${pad(m0 + 1)}-15` }
+      : null,
   };
 }
 
@@ -109,8 +128,12 @@ export async function GET(req: NextRequest) {
 
   const periods = isTest ? [currentSprint(new Date())] : duePeriods(new Date());
 
+  const targets: { fn: string; ogx: boolean }[] = [
+    ...FUNCTIONS.map((fn) => ({ fn, ogx: false })),
+    ...OGX_FUNCTIONS.map((fn) => ({ fn, ogx: true })),
+  ];
   for (const period of periods) {
-    for (const fn of FUNCTIONS) {
+    for (const { fn, ogx } of targets) {
       const settingKey = `report:${period.kind}:${fn}:${period.start}`;
       try {
         if (!isTest) {
@@ -119,7 +142,14 @@ export async function GET(req: NextRequest) {
           if (already) { skipped.push(`${settingKey} (already sent)`); continue; }
         }
 
-        const report = await buildFunctionReport(fn, period, period.kind);
+        const report = ogx
+          ? await buildOgxReport(fn as "OGT" | "OGV", period, period.kind, period.previous)
+          : await buildFunctionReport(
+              fn as "IGV" | "IGT" | "B2B",
+              period,
+              period.kind,
+              period.previous
+            );
         if (!report) { skipped.push(`${settingKey} (no crew)`); continue; }
 
         const mail = periodReportEmail({

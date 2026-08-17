@@ -713,7 +713,7 @@ export function AppShell({
         {/* 🏆 v33.52 — the national conference the whole LC works towards.
             In the page's own flow (never fixed): a second fixed bar would sit
             on top of the phone's top bar and fight it for the same 3rem. */}
-        <div className="-mx-4 mb-4 md:-mx-8">
+        <div className="mb-4">
           <ActivateStrip />
         </div>
         {children}

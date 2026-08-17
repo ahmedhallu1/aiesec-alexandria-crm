@@ -94,17 +94,23 @@ export function button(label: string, url: string): string {
     </td></tr></table>`;
 }
 
-function row(label: string, value: string): string {
+function row(label: string, value: string, rawHtml = false): string {
   return `<tr>
     <td style="padding:10px 14px;background:#eef3fa;font-weight:600;color:#0A2540;white-space:nowrap;border-bottom:2px solid #ffffff;vertical-align:top;">${label}</td>
-    <td style="padding:10px 14px;background:#f7f9fc;border-bottom:2px solid #ffffff;color:#12263f;">${escapeHtml(value)}</td>
+    <td style="padding:10px 14px;background:#f7f9fc;border-bottom:2px solid #ffffff;color:#12263f;">${rawHtml ? value : escapeHtml(value)}</td>
   </tr>`;
 }
 
-export function detailsTable(rows: [string, string | null | undefined][]): string {
+/** `html: true` means the CALLER has already escaped every piece of the value
+ *  and is supplying markup on purpose (v33.54 — the period report's small
+ *  "vs last sprint" line under each number). */
+export function detailsTable(
+  rows: [string, string | null | undefined][],
+  opts: { html?: boolean } = {}
+): string {
   const filled = rows.filter(([, v]) => v != null && v !== "");
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;border-radius:10px;overflow:hidden;margin:18px 0;border:1px solid #e3ebf5;">
-    ${filled.map(([l, v]) => row(l, v as string)).join("")}
+    ${filled.map(([l, v]) => row(l, v as string, opts.html)).join("")}
   </table>`;
 }
 
@@ -722,7 +728,9 @@ export function periodReportEmail(opts: {
   functionLabel: string;
   periodKind: "sprint" | "month" | "quarter";
   periodLabel: string;
-  kpis: [string, string][];
+  /** label · value · an optional comparison note, printed small under the
+   *  value ("▲ 12 vs last sprint (31)") — v33.54 */
+  kpis: [string, string, string?][];
   planLine?: string | null;
   waterfallHeaders: string[];
   waterfallRows: (string | number)[][];
@@ -742,7 +750,15 @@ export function periodReportEmail(opts: {
         <p style="margin:0 0 14px;color:#5c6b80;">${escapeHtml(opts.periodLabel)}</p>
         ${opts.planLine ? `<p style="border-left:4px solid #037EF3;background:#f0f7ff;border-radius:0 8px 8px 0;padding:12px 16px;font-weight:600;">${escapeHtml(opts.planLine)}</p>` : ""}
         <p style="margin:18px 0 4px;font-size:13px;font-weight:800;letter-spacing:0.6px;text-transform:uppercase;color:#037EF3;">Function totals</p>
-        ${detailsTable(opts.kpis)}
+        ${detailsTable(
+          opts.kpis.map(([l, v, note]) => [
+            l,
+            note
+              ? `${escapeHtml(v)}<div style="font-size:11px;color:#7b8794;font-weight:500;margin-top:2px;">${escapeHtml(note)}</div>`
+              : escapeHtml(v),
+          ]) as [string, string][],
+          { html: true }
+        )}
         <p style="margin:22px 0 4px;font-size:13px;font-weight:800;letter-spacing:0.6px;text-transform:uppercase;color:#037EF3;">The waterfall — every team, every person</p>
         <p style="margin:0 0 6px;color:#5c6b80;font-size:13px;">Bold rows are team totals; the rows under them are that team's people.</p>
         ${gridTable(opts.waterfallHeaders, opts.waterfallRows, { boldRows: opts.boldRows, indentCol0: opts.indentRows })}
