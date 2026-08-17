@@ -84,6 +84,9 @@ export function audienceLabel(tp: {
   scope: TouchPointScope;
   function_key: string | null;
   team_name: string | null;
+  /** v33.53 — teams have no NAMES any more, so a team point is named after
+   *  the leader who booked it ("Hana Wael's team") instead of "the team" */
+  owner_name?: string | null;
   invited_teams?: string[] | null;
   invited_functions?: string[] | null;
 }): string {
@@ -96,6 +99,9 @@ export function audienceLabel(tp: {
       ? "the whole LC"
       : tp.scope === "function"
         ? `${tp.function_key ?? "the function"}`
-        : `${tp.team_name ?? "the team"}${tp.function_key ? ` (${tp.function_key})` : ""}`;
+        : `${
+            tp.team_name ??
+            (tp.owner_name ? `${tp.owner_name}'s team` : "the team")
+          }${tp.function_key ? ` (${tp.function_key})` : ""}`;
   return extra.length > 0 ? `${base} + ${extra.join(", ")}` : base;
 }

@@ -49,18 +49,6 @@ const MEMBERSHIP_HEADERS = [
 const TEAMS_TAB = "Teams";
 // the 5 team types: EB and LB are single teams; Function, Function leaders
 // (stored internally as MM) and Team exist per function / many times
-const TEAMS_HEADERS = [
-  "Type (EB / LB / Function / Function leaders / Team)",
-  "Function (IGV/IGT/B2B…)",
-  "Team Name",
-];
-const TEAMS_SEED = [
-  ["EB", "EB", "IRIS"],
-  ["LB", "LB", "شماريخ"],
-  ["Function leaders", "IGT", "فرقة ناجي عطالله"],
-  ["Function leaders", "B2B, BD", "Suits"],
-  ["Function leaders", "IGV", "تملي معاك"],
-];
 
 export function clients(): { sheets: sheets_v4.Sheets; drive: drive_v3.Drive } {
   const missing = requireEnv("serviceAccountKeyBase64", "driveFolderId");
@@ -153,40 +141,26 @@ async function ensureSpreadsheet(
 
 /** Ensures a named TAB exists on a spreadsheet (creates it + writes headers and
  *  seed rows when blank). Returns the tab's actual title for range building. */
-async function ensureTab(
-  spreadsheetId: string,
-  title: string,
-  headers: string[],
-  seedRows: string[][] = []
-): Promise<string> {
+/** The Teams tab as it stands: its real title, or null when it isn't there.
+ *
+ *  ⚠️ NEVER CREATES IT (v33.53). Named teams are retired — the LC deleted the
+ *  Teams tab and the Team Name column from the Membership sheet, and a team is
+ *  now simply a MANAGER and the people whose Manager cell names them. The
+ *  half-hourly import used `ensureTab`, which would have re-created the tab
+ *  and re-seeded it within thirty minutes of the LC deleting it. */
+async function findTab(spreadsheetId: string, title: string): Promise<string | null> {
   const { sheets } = clients();
   const meta = await sheets.spreadsheets.get({
     spreadsheetId,
     fields: "sheets(properties(title))",
   });
-  const existing = (meta.data.sheets ?? []).find(
-    (s) => normTitle(s.properties?.title ?? "") === normTitle(title)
-  )?.properties?.title;
-  if (!existing) {
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId,
-      requestBody: { requests: [{ addSheet: { properties: { title } } }] },
-    });
-  }
-  const tab = existing ?? title;
-  const firstCell = await sheets.spreadsheets.values
-    .get({ spreadsheetId, range: `'${tab}'!A1:B1` })
-    .catch(() => null);
-  if (!firstCell?.data.values?.[0]?.[0]) {
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `'${tab}'!A1`,
-      valueInputOption: "RAW",
-      requestBody: { values: [headers, ...seedRows] },
-    });
-  }
-  return tab;
+  return (
+    (meta.data.sheets ?? []).find(
+      (x) => normTitle(x.properties?.title ?? "") === normTitle(title)
+    )?.properties?.title ?? null
+  );
 }
+
 
 /** Every mirror sheet carries this in its LAST header cell — the sheets are
  *  write-only exports: deleting/editing rows there never touches Sodio.
@@ -737,7 +711,10 @@ export async function importMembership(opts?: { force?: boolean }): Promise<numb
  *  table (names only — the membership derives who's in each team). Best-effort. */
 export async function importTeams(): Promise<number> {
   const id = await ensureSpreadsheet("CRM — Membership", MEMBERSHIP_HEADERS);
-  const tab = await ensureTab(id, TEAMS_TAB, TEAMS_HEADERS, TEAMS_SEED);
+  // NO TAB, NO IMPORT (v33.53) — the registry is retired, and re-creating the
+  // tab the LC deleted would undo their own edit twice an hour.
+  const tab = await findTab(id, TEAMS_TAB);
+  if (!tab) return 0;
   const { sheets } = clients();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: id,
@@ -867,7 +844,9 @@ export async function writeTeamsTab(
 ): Promise<void> {
   if (await sandboxSuppressed("teams tab write-back")) return;
   const id = await ensureSpreadsheet("CRM — Membership", MEMBERSHIP_HEADERS);
-  const tab = await ensureTab(id, TEAMS_TAB, TEAMS_HEADERS, TEAMS_SEED);
+  // mirror the registry ONLY into a tab that still exists (v33.53)
+  const tab = await findTab(id, TEAMS_TAB);
+  if (!tab) return;
   const { sheets } = clients();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: id,

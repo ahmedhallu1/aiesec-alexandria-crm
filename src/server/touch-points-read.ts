@@ -1,4 +1,5 @@
 import { db } from "@/lib/supabase";
+import { teamLabel } from "@/lib/types";
 import {
   isTmCore,
   type Viewer,
@@ -78,18 +79,11 @@ export function teamsOf(cell: string | null | undefined): string[] {
  *  decided by who reports to her (v33.5). */
 export async function ownTeamName(v: {
   name: string;
-  team_name: string | null;
+  team_name?: string | null;
 }): Promise<string> {
-  const names = teamsOf(v.team_name);
-  if (names.length > 0) {
-    const { data } = await db().from("teams").select("name").eq("type", "Team");
-    const registered = new Set(
-      ((data ?? []) as { name: string }[]).map((t) => t.name.trim().toLowerCase())
-    );
-    const real = names.find((n) => registered.has(n.toLowerCase()));
-    if (real) return real;
-  }
-  return `${v.name}'s team`;
+  // v33.53 — this used to hunt the `teams` registry for a name in the member's
+  // Team Name cell. Both are gone from the sheet; a team is its leader.
+  return teamLabel(v.name);
 }
 
 /** The pure per-member membership test behind `touchPointAudience` — also

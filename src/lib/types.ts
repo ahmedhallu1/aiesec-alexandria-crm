@@ -90,6 +90,17 @@ export function prankIsOn(m: { prank_until?: string | null }): boolean {
   return Number.isFinite(t) && t > Date.now();
 }
 
+/** WHAT TO CALL A TEAM (v33.53).
+ *
+ *  Named teams are retired. The LC deleted the Teams tab and the Team Name
+ *  column from the Membership sheet, so a team is now exactly what the sheet
+ *  still says it is: a MANAGER, and the people whose Manager cell names them.
+ *  EB and LB remain the only named bodies, and they are structures, not teams.
+ *
+ *  Every label in the system therefore comes from one place — here — instead
+ *  of four private copies of "look up a registered name, else fall back". */
+export const teamLabel = (leaderName: string): string => `${leaderName}'s team`;
+
 /** Where email can actually REACH this member right now (v33.29). */
 export function reachableEmail(m: {
   email?: string | null;

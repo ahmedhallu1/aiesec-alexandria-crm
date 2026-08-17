@@ -6,7 +6,7 @@ import {
   considerationFunctions, accountScope, icxFunctions, isB2B, isB2C,
   isBd, isTmCore, ogxLanes, raisingFunctions, seesEveryLane } from "@/lib/rbac";
 import { tmStats } from "@/server/tm-stats";
-import { memberIsB2C, type OgxFunction } from "@/lib/types";
+import { memberIsB2C, teamLabel, type OgxFunction } from "@/lib/types";
 import { DashboardView, type DashboardScopeView } from "@/components/crm/dashboard-view";
 
 export const metadata = { title: "Dashboard" };
@@ -184,7 +184,7 @@ export default async function DashboardPage({
       : viewer.role === "LCVP" || viewer.role === "Director"
         ? `${fnNames.join(" & ") || viewer.functions.join(" & ")} function`
         : viewer.role === "Team Leader"
-          ? viewer.team_name || "Your team"
+          ? teamLabel(viewer.name)
           : `${fnNames.join(" & ")} — your function's picture`;
 
   // v22: goals are never set in-app — the lane goal comes from the VPs'
@@ -192,18 +192,12 @@ export default async function DashboardPage({
   const teamLead = data.teamLeadId
     ? members.find((m) => m.id === data.teamLeadId)
     : null;
-  // THE TEAM'S NAME, RESOLVED (v33.19.2). `team_name` is the whole comma-list
-  // from the membership sheet — Shahd's reads "فرقة ناجي عطالله, شماريخ",
-  // which are the function-leaders team and the LB, not her team — so the
-  // card was titled with two teams she doesn't lead. `ownTeamName` picks the
-  // registered `Team` out of the cell, else falls back to "<name>'s team",
-  // exactly as the touch-point labels do since v33.6.
-  const { ownTeamName } = await import("@/server/touch-points-read");
-  const teamLabel =
+  // A TEAM IS ITS LEADER (v33.53) — no registry lookup left to do.
+  const teamCardLabel =
     viewer.role === "Team Leader"
-      ? await ownTeamName(viewer)
+      ? teamLabel(viewer.name)
       : teamLead
-        ? await ownTeamName(teamLead)
+        ? teamLabel(teamLead.name)
         : null;
   // leaders already see the whole function — "My numbers" is for the people
   // who actually carry accounts (members, coordinators, TLs)
@@ -224,7 +218,7 @@ export default async function DashboardPage({
       teamBoard={data.teamBoard}
       lanePlan={data.lanePlan}
       teamPlan={data.teamPlan}
-      teamLabel={teamLabel}
+      teamLabel={teamCardLabel}
       views={views}
       activeFn={activeFn}
       // the chip's own label IS the heading — "IGV Raising Dashboard",

@@ -175,7 +175,6 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
           m.email ?? "",
           m.phone ?? "",
           m.role,
-          m.team_name ?? "",
           (m.functions ?? []).join(" "),
           (m.sub_functions ?? []).join(" "),
         ].some((v) => v.toLowerCase().includes(needle))
@@ -262,7 +261,7 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
         <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search name, email, team, function…"
+          placeholder="Search name, email, manager, function…"
           className="h-9 pl-8"
         />
       </div>
@@ -333,9 +332,7 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
                   <TableRow key={m.id} className={!m.is_active ? "opacity-50" : undefined}>
                     <TableCell className="font-medium">
                       {m.name}
-                      {m.team_name ? (
-                        <span className="ml-2 text-xs text-muted-foreground">{m.team_name}</span>
-                      ) : null}
+
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{m.email ?? <span className="italic opacity-70">no email — phone sign-in</span>}</TableCell>
                     <TableCell><Badge variant="outline">{m.role}</Badge></TableCell>
@@ -396,7 +393,6 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
           // a plain Member is never anyone's manager (v24 rule)
           .filter((m) => m.is_active && m.id !== editing?.id && m.role !== "Member")
           .map((m) => m.name)}
-        teams={teams}
         onOpenChange={(o) => {
           if (!o) { setEditing(null); setAdding(false); }
         }}
@@ -405,29 +401,32 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
   );
 }
 
-/** The TEAMS REGISTRY (v24.2): EB manages EVERY named team here — the
- *  5 types are EB & LB (one each), Function & Function leaders (one per
- *  function) and Team (a TL's team — many per function). Add, rename or
- *  remove; the sheet's Teams tab follows automatically. */
+/** THE TWO NAMED BODIES (v33.53 — was the teams registry).
+ *
+ *  The LC deleted the Teams tab and the Team Name column from the Membership
+ *  sheet: teams have no names any more, they have a MANAGER. Only the two
+ *  standing bodies keep a name — the EB and the LB — and this card is where
+ *  those two are set. Function and Team rows are no longer offered; the ones
+ *  already in the table are inert. */
 /** The functions that submit partners to Podio at all — the only ones for
  *  which "has Podio access" means anything. */
 const PODIO_FUNCTIONS = ["IGV", "IGT", "B2B", "BD", "B2C"];
 
-const TEAM_TYPE_OPTIONS = ["Team", "Function leaders", "Function", "EB", "LB"] as const;
+const TEAM_TYPE_OPTIONS = ["EB", "LB"] as const;
 
 function TeamsCard({ teams }: { teams: TeamRegistryRow[] }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [openCard, setOpenCard] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [type, setType] = useState<string>("Team");
+  const [type, setType] = useState<string>("EB");
   const [fn, setFn] = useState("IGV");
   const [name, setName] = useState("");
 
   const singleType = type === "EB" || type === "LB";
   const typeLabel = (t: string) => (t === "MM" ? "Function leaders" : t);
 
-  const reset = () => { setEditingId(null); setType("Team"); setFn("IGV"); setName(""); };
+  const reset = () => { setEditingId(null); setType("EB"); setFn(""); setName(""); };
 
   const startEdit = (t: TeamRegistryRow) => {
     setEditingId(t.id);
@@ -580,13 +579,14 @@ function TeamsCard({ teams }: { teams: TeamRegistryRow[] }) {
 }
 
 function MemberDialog({
-  member, open, onOpenChange, stakeholderOptions, teams,
+  member, open, onOpenChange, stakeholderOptions,
 }: {
   member: MemberRow | null;
   open: boolean;
   onOpenChange: (o: boolean) => void;
   stakeholderOptions: string[];
-  teams: TeamRegistryRow[];
+  // v33.53 — the dialog took the teams registry for its team picker. There is
+  // no picker and no registry to pick from: the Manager field IS the team.
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -598,7 +598,6 @@ function MemberDialog({
     functions: member?.functions ?? [],
     sub_functions: member?.sub_functions ?? [],
     stakeholder_name: member?.stakeholder_name ?? "",
-    team_name: member?.team_name ?? "",
     is_active: member?.is_active ?? true,
     has_podio: !!member?.has_podio,
     fallback_email: member?.fallback_email ?? "",
@@ -631,50 +630,8 @@ function MemberDialog({
   const hasIdentity = !!form.email.trim() || !!form.phone.trim();
   const ready = form.name.trim().length >= 2 && emailOk && phoneOk && hasIdentity;
 
-  // The team picker offers what makes sense for the ROLE — an AUTOMATIC rule,
-  // no registry bookkeeping needed (v29.4):
-  //   LCP / LCVP  → the EB team
-  //   Member      → their function's registered Team rows
-  //   Team Leader → the Team rows they can lead **AND** their function's
-  //                 "Function leaders" team — a TL IS an MM. (Before v29.4 a
-  //                 TL only ever saw type='Team' rows, so in an LC that has
-  //                 registered none the picker was EMPTY even though the
-  //                 function's leaders team existed.)
-  //   Coordinator / Director → their function's "Function leaders" team
-  // B2B and BD are ONE function everywhere, so either key matches either label,
-  // and 'MM' is the pre-v24.2 alias of the 'Function leaders' type.
-  const teamChoices = (() => {
-    const isB2bKey = (k: string) => k === "B2B" || k === "BD";
-    const own = [...form.functions, ...form.sub_functions];
-    const fnMatch = (key: string) =>
-      form.functions.length === 0 ||
-      own.includes(key) ||
-      (isB2bKey(key) && own.some(isB2bKey));
-    const pick = (type: "Team" | "Function leaders") =>
-      teams
-        .filter((t) => {
-          const matchesType =
-            type === "Function leaders"
-              ? t.type === "Function leaders" || t.type === "MM"
-              : t.type === type;
-          return matchesType && fnMatch(t.function_key);
-        })
-        .map((t) => t.name);
-
-    if (form.role === "LCP" || form.role === "LCVP")
-      return [...new Set(teams.filter((t) => t.type === "EB").map((t) => t.name))];
-    if (form.role === "Member") return [...new Set(pick("Team"))];
-    if (form.role === "Team Leader")
-      return [...new Set([...pick("Team"), ...pick("Function leaders")])];
-    return [...new Set(pick("Function leaders"))];
-  })();
-  // "add a NEW team" is only meaningful for TL teams (Member / Team Leader) —
-  // the structural teams (EB, Function leaders…) come from the Teams card
-  const canCreateTeam = form.role === "Member" || form.role === "Team Leader";
-  const [creatingTeam, setCreatingTeam] = useState(false);
-  const [newTeamName, setNewTeamName] = useState("");
-  const [newTeamFn, setNewTeamFn] = useState("");
-
+  // v33.53 — the whole team PICKER is gone: there are no team names to pick
+  // from. A member's team is the Manager field above it.
   const save = () =>
     start(async () => {
       const res = await upsertMember({
@@ -686,7 +643,6 @@ function MemberDialog({
         functions: form.functions,
         sub_functions: form.sub_functions,
         stakeholder_name: form.stakeholder_name || null,
-        team_name: form.team_name.trim() || null,
         is_active: form.is_active,
         has_podio: form.has_podio,
         fallback_email: form.fallback_email.trim().toLowerCase() || null,
@@ -802,7 +758,7 @@ function MemberDialog({
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3">
             <div className="grid gap-1.5">
               <Label>Role</Label>
               <Select
@@ -815,83 +771,9 @@ function MemberDialog({
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid gap-1.5">
-              <Label>Team name</Label>
-              {creatingTeam ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {form.functions.length !== 1 ? (
-                    <Select value={newTeamFn || undefined} onValueChange={setNewTeamFn}>
-                      <SelectTrigger className="w-24 shrink-0"><SelectValue placeholder="Fn" /></SelectTrigger>
-                      <SelectContent>
-                        {(form.functions.length ? form.functions : [...LC_FUNCTIONS]).map((f) => (
-                          <SelectItem key={f} value={f}>{f}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : null}
-                  <Input
-                    value={newTeamName}
-                    placeholder="New team's name"
-                    className="min-w-32 flex-1"
-                    onChange={(e) => setNewTeamName(e.target.value)}
-                  />
-                  <Button
-                    type="button" size="sm" className="shrink-0"
-                    disabled={pending || newTeamName.trim().length < 2}
-                    onClick={() =>
-                      start(async () => {
-                        const fnKey =
-                          form.functions.length === 1 ? form.functions[0] : newTeamFn;
-                        if (!fnKey) { toast.error("Pick the team's function."); return; }
-                        const res = await saveTeamEntry({
-                          type: "Team",
-                          functionKey: fnKey,
-                          name: newTeamName.trim(),
-                        });
-                        if (res.ok) {
-                          setForm((f) => ({ ...f, team_name: newTeamName.trim() }));
-                          toast.success(`Team "${newTeamName.trim()}" registered 🏷️`);
-                          setCreatingTeam(false);
-                          setNewTeamName("");
-                          router.refresh();
-                        } else toast.error(res.error);
-                      })
-                    }
-                  >
-                    Create
-                  </Button>
-                  <Button
-                    type="button" variant="ghost" size="sm" className="shrink-0 px-2 text-xs"
-                    onClick={() => setCreatingTeam(false)}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              ) : (
-                <Select
-                  value={form.team_name || "__none"}
-                  onValueChange={(v) => {
-                    if (v === "__new") { setCreatingTeam(true); return; }
-                    setForm((f) => ({ ...f, team_name: v === "__none" ? "" : v }));
-                  }}
-                >
-                  <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none">—</SelectItem>
-                    {/* a stored name outside the registry stays selectable */}
-                    {form.team_name && !teamChoices.includes(form.team_name) ? (
-                      <SelectItem value={form.team_name}>{form.team_name}</SelectItem>
-                    ) : null}
-                    {teamChoices.map((n) => (
-                      <SelectItem key={n} value={n}>{n}</SelectItem>
-                    ))}
-                    {canCreateTeam ? (
-                      <SelectItem value="__new">➕ New team…</SelectItem>
-                    ) : null}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
+            {/* v33.53 — the Team-name field is gone with the sheet's Team
+                Name column. A team is a MANAGER and the people whose Manager
+                cell names them; there is nothing left here to type. */}
           </div>
 
           <div className="grid gap-1.5">

@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-16 · Version: v33.52
+Last updated: 2026-08-16 · Version: v33.53
 
 ---
 
@@ -60,12 +60,12 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 (**all applied**, 0046–0063 during v33.22–v33.51).
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
-sheets):** `CRM — Membership` (two-way, + a **"Teams" tab** naming the standing
-teams — sheet types `EB / LB / Function / Function leaders / Team`;
-"Function leaders" is stored as **MM**, "Team" rows are skipped (TL team names
-live in the Membership tab); the Function cell may hold SEVERAL functions
-("B2B, BD") → one `teams` row per function; imported into the `teams` table.
-The whole Drive folder is shared with **every EB member as commenter**) ·
+sheets):** `CRM — Membership` (two-way; **8 columns since v33.53**: Name · Email ·
+Phone · Role · Function · Sub Function · **Manager** · Active. The "Teams" TAB
+and the "Team Name" COLUMN were deleted by the LC — **teams have no names any
+more**: a team is a MANAGER and the people whose Manager cell names them. EB
+and LB keep a name in the `teams` table, edited in-app; nothing recreates the
+tab. The whole Drive folder is shared with **every EB member as commenter**) ·
 `CRM — Raising Accounts` (ALL accounts in ONE mirror — IGV + IGT + B2B, active
 AND archived — with `Function / Product / Archived?` flag columns for
 filtering) · `CRM — Archived Accounts` (the focused blacklist view: OOP +
@@ -628,6 +628,44 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-16 · v33.53** — **A TEAM IS ITS MANAGER** (no migration; one prod
+  data cleanup). The LC deleted the **Teams tab** and the **Team Name column**
+  from the Membership sheet — the structure is now Name · Email · Phone ·
+  Role · Function · Sub Function · **Manager** · Active — and Sodio follows.
+  ① **THE IMPORT WOULD HAVE PUT THE TAB BACK.** `importTeams` and
+  `writeTeamsTab` called `ensureTab`, which CREATES a missing tab and seeds
+  it, and the membership import runs every 30 minutes: the LC's own edit
+  would have been undone within half an hour, twice an hour, forever. Both
+  now use a new `findTab`, which never creates anything and returns null —
+  the import becomes a no-op. Verified against the live sheet: `importTeams()`
+  → 0, the tab list is still `Membership` alone, and the 81-row membership
+  import read the 8-column layout perfectly (it has resolved columns BY
+  HEADER NAME since v33.15, which is why deleting a column shifted nothing).
+  ② **ONE RULE FOR EVERY TEAM LABEL** — `teamLabel(name)` = "<name>'s team",
+  in types.ts. It replaces four private copies of "look up a registered team
+  name in the member's comma-list, else fall back": `teamLabelOf` (the
+  dashboard MM drill), `ownTeamName` (touch points), `listTeamFilterOptions`
+  (the dashboard team filter) and the OGX team drill. `registeredTeamNames`
+  and `functionTeamName` are deleted — nothing reads the registry for a label
+  any more. A team touch point with no name is announced as its leader's
+  ("Hana Wael's team"), never "the team".
+  ③ **THE MEMBERSHIP EDITOR LOSES ITS TEAM FIELD** — the picker, the "➕ New
+  team…" flow, the team chip under each name and the team in the search line
+  all go with the column. The **Manager** field, which was always the real
+  answer, stays; v33.52's Manager funnel is how you now ask "show me X's
+  people". The registry card keeps **EB and LB only** — the two named bodies.
+  ④ **NOTHING BROKE IN THE AUDIENCE RULES**, because the touch-point audience
+  has resolved a team by the MANAGER LINK since v33.5 (`m.stakeholder_id ===
+  tp.owner_id`) — the name match was already the dead branch. The profile's
+  "my teams" card is derived the same way: EB / LB from role, the function
+  from the Function column, and "My team" from the manager.
+  ⑤ **THE STALE NAMES ARE GONE FROM THE DB.** 30 of 81 active members still
+  carried a `team_name` string the sheet no longer has ("تملي معاك, شماريخ",
+  "IRIS, شماريخ, M^3"…) — all of them retired structural names, and the last
+  way one could still pull somebody into an invited-team audience by string
+  match. Cleared in prod; the column stays for history and reads null.
+  Errors and warnings are exactly the pre-change baseline (56/34), 242 tests.
 
 - **2026-08-16 · v33.52** — **FILTERS, GOALS, A RANKING AND THE ROAD TO
   ACTIVATE** (no migration).

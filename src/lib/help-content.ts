@@ -11,7 +11,7 @@
  */
 
 /** ⚠️ Bump with EVERY release — the help center must describe the live system. */
-export const HELP_VERSION = "v33.52";
+export const HELP_VERSION = "v33.53";
 /** The playbook's name for the same rule — kept so nothing else has to move. */
 export const PLAYBOOK_VERSION = HELP_VERSION;
 

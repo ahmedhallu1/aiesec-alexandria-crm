@@ -45,6 +45,7 @@ import type {
 import {
   parsePhoneSessionKey, normalizeName, accountSlug, fmtClock12,
   slugLikePattern } from "@/lib/types";
+import { teamLabel } from "@/lib/types";
 import { cairoToUtc } from "@/lib/time";
 import { monthOf, sprintOf } from "@/lib/plan";
 import {
@@ -1709,25 +1710,14 @@ export async function listTeamFilterOptions(
   viewer: Viewer,
   opts: { fn?: string } = {}
 ): Promise<{ id: string; label: string }[]> {
-  const [allLeads, { data: teamRows }] = await Promise.all([
-    listTeamLeaders(viewer),
-    db().from("teams").select("name").eq("type", "Team"),
-  ]);
+  const allLeads = await listTeamLeaders(viewer);
   const leads = opts.fn
     ? allLeads.filter((m) => memberWorksFunction(m, opts.fn!))
     : allLeads;
-  const normal = new Set(
-    ((teamRows ?? []) as { name: string }[]).map((t) => t.name.trim().toLowerCase())
-  );
   return leads.map((m) => {
-    const named = (m.team_name ?? "")
-      .split(/[,;]+/)
-      .map((t) => t.trim())
-      .filter(Boolean)
-      .find((t) => normal.has(t.toLowerCase()));
     return {
       id: m.id,
-      label: named || `${m.name}'s team`,
+      label: teamLabel(m.name),
     };
   });
 }
@@ -1891,30 +1881,13 @@ async function readDashboardRows(viewer: Viewer): Promise<PipelineRow[]> {
   return hit.rows;
 }
 
-/** The registered `Team` names, lower-cased. Structural teams (EB, LB,
- *  Function, Function leaders) are deliberately excluded — they are not
- *  anybody's team. */
-async function registeredTeamNames(): Promise<Set<string>> {
-  try {
-    const { data } = await db().from("teams").select("name").eq("type", "Team");
-    return new Set(
-      ((data ?? []) as { name: string }[]).map((t) => t.name.trim().toLowerCase())
-    );
-  } catch {
-    return new Set();
-  }
-}
 
-/** Picks the one REAL team out of a membership cell that lists several. */
-function teamLabelOf(cell: string | null, registered: Set<string>): string | null {
-  const names = (cell ?? "")
-    .split(/[,;]+/)
-    .map((t) => t.trim())
-    .filter(Boolean);
-  if (names.length === 0) return null;
-  const real = names.find((n) => registered.has(n.toLowerCase()));
-  // a cell with several names and no registered team names no team of theirs
-  return real ?? (names.length === 1 ? names[0] : null);
+/** v33.53 — this used to pick the one REGISTERED team name out of a member's
+ *  comma-list. There are no registered team names and no Team Name column any
+ *  more: a Team Leader's row IS their team, a Coordinator's is their own work.
+ *  Kept as a named function because the drills read better for it. */
+function mmDrillLabel(m: { name: string; role: string }): string {
+  return m.role === "Team Leader" ? teamLabel(m.name) : m.name;
 }
 
 /** Exactly the columns the dashboard reads — every one of them is used by
@@ -2132,9 +2105,6 @@ export async function getDashboard(
     !filters.responsibleId || r.responsible_id === filters.responsibleId;
   const members = await listVisibleMembers(dashViewer);
   const byId = new Map(members.map((m) => [m.id, m]));
-  // the registered TL teams — the only names in a member's team cell that
-  // actually name THEIR team (v33.10)
-  const registeredTeams = await registeredTeamNames();
 
   // the viewer's team: themself (TL) or their manager — but ONLY if that
   // manager is a real Team Leader (the EB is not a team)
@@ -2194,9 +2164,7 @@ export async function getDashboard(
       // function-leaders team and the LB, neither of which is her team. The
       // registered `Team` in that cell if there is one, otherwise just the
       // person: "Hana Wael" beats "Hana Wael — Suits, شماريخ".
-      const own = teamLabelOf(mm.team_name, registeredTeams);
-      const mmLabel = own ? `${mm.name} — ${own}` : mm.name;
-      addRowLane(getOrInit(byTeam, mm.id, mmLabel), r, w, lane);
+      addRowLane(getOrInit(byTeam, mm.id, mmDrillLabel(mm)), r, w, lane);
     }
 
     // leaderboards (VPs/Directors/LCP never appear — leaders steer):
@@ -2474,22 +2442,23 @@ export async function teamsForViewer(viewer: Viewer): Promise<{ label: string; n
   // future peak, so a BD member joins the BD teams — not B2B's.
   const fns = [...new Set(viewer.functions.filter(Boolean))];
 
+  // EB AND LB ARE THE ONLY NAMED BODIES (v33.53). The Teams tab is gone from
+  // the sheet and with it every function / function-leaders / team NAME —
+  // everything else a member belongs to is derived: their function, and the
+  // manager they report to.
   if (onEb) push("Executive Board", byKey.get("EB:"));
   if (isManager) push("Leadership Body", byKey.get("LB:"));
-  for (const fn of fns) push(`${fn} function`, byKey.get(`Function:${fn}`));
-  // the "Function leaders" team: the function's VP/Director + their TLs
-  if (["Team Leader", "Coordinator", "Director", "LCVP"].includes(viewer.role))
-    for (const fn of fns) push(`${fn} leaders`, byKey.get(`Function leaders:${fn}`));
+  for (const fn of fns) push(`${fn} function`, fn);
 
-  // Team-Leader team (from members.team_name): their own if TL, else their manager's
-  if (viewer.role === "Team Leader") push("My team", viewer.team_name);
+  // their team = the manager's, or their own when they ARE the manager
+  if (viewer.role === "Team Leader") push("My team", teamLabel(viewer.name));
   else if (viewer.stakeholder_id) {
     const { data: tl } = await db()
       .from("members")
-      .select("role, team_name")
+      .select("name, role")
       .eq("id", viewer.stakeholder_id)
-      .maybeSingle<{ role: string; team_name: string | null }>();
-    if (tl?.role === "Team Leader") push("My team", tl.team_name);
+      .maybeSingle<{ name: string; role: string }>();
+    if (tl?.role === "Team Leader") push("My team", teamLabel(tl.name));
   }
 
   // de-dupe by name
@@ -2497,16 +2466,6 @@ export async function teamsForViewer(viewer: Viewer): Promise<{ label: string; n
   return out.filter((t) => (seen.has(t.name) ? false : seen.add(t.name)));
 }
 
-/** The display name of a function's team (e.g. "فرقة ناجي عطالله" for IGT). */
-export async function functionTeamName(fn: string): Promise<string | null> {
-  const { data } = await db()
-    .from("teams")
-    .select("name")
-    .eq("type", "Function")
-    .eq("function_key", fn)
-    .maybeSingle<{ name: string }>();
-  return data?.name ?? null;
-}
 
 // ------------------------------------------------------------------ TM module
 
@@ -5577,7 +5536,6 @@ export async function ogxDashboard(
   // funnel below it is measuring.
   const { peakForPlanning } = await import("@/lib/plan");
   const peakStart = peakForPlanning(new Date()).start ?? null;
-  const registered = await registeredTeamNames();
 
   for (const r of rows) {
     if (r.out_of_process) continue; // archived sign-ups leave every KPI
@@ -5659,8 +5617,7 @@ export async function ogxDashboard(
 
     if (tl)
       addOgxRow(
-        // the REGISTERED team out of the cell, never the whole comma-list
-        init(byTeam, tl.id, teamLabelOf(tl.team_name, registered) ?? `${tl.name}'s team`),
+        init(byTeam, tl.id, teamLabel(tl.name)),
         r
       );
   }
@@ -5760,7 +5717,7 @@ export async function ogxDashboard(
       .filter((m) => m.role === "Team Leader")
       .map((m) => ({
         id: m.id,
-        label: teamLabelOf(m.team_name, registered) ?? `${m.name}'s team`,
+        label: teamLabel(m.name),
       })),
     memberOptions: fnMembers.map((m) => ({ id: m.id, label: m.name })),
   };
