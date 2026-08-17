@@ -35,17 +35,25 @@ export default async function AttendancePage({
   const viewer = await getViewer();
   const params = await searchParams;
 
+  // THE FUNNELS ARE MULTI-SELECT, so these arrive as comma lists ("meeting,
+  // outing") — v33.52. Validating the whole string against the pick-list made
+  // `.includes()` false for every multi-pick and silently dropped the filter,
+  // so the funnel showed two ticks and the table showed everything.
+  const cleanList = (raw: string | undefined, allowed: readonly string[]) =>
+    (raw ?? "")
+      .split(",")
+      .map((v) => v.trim())
+      .filter((v) => allowed.includes(v))
+      .join(",");
   const filters = {
     from: DATE_RE.test(params.from ?? "") ? params.from! : "",
     to: DATE_RE.test(params.to ?? "") ? params.to! : "",
-    kind: (TOUCH_POINT_KINDS as readonly string[]).includes(params.kind ?? "")
-      ? params.kind!
-      : "",
-    status: (ATTENDANCE_STATUSES as readonly string[]).includes(params.status ?? "")
-      ? params.status!
-      : "",
+    kind: cleanList(params.kind, TOUCH_POINT_KINDS as readonly string[]),
+    status: cleanList(params.status, ATTENDANCE_STATUSES as readonly string[]),
     // v33.27 — the one question a 70-person LC session actually raises
     member: (params.member ?? "").slice(0, 120),
+    // v33.52 — "how did IGV show up on Thursday?"
+    fn: (params.fn ?? "").slice(0, 120),
   };
   const page = Math.max(1, Number(params.page) || 1);
   const pageSize = pageSizeOf(params.size);

@@ -60,6 +60,8 @@ export interface AttendanceHistoryRow {
   recordedAt: string;
   memberId: string;
   memberName: string;
+  /** the member's function(s) as the sheet spells them (v33.52) */
+  memberFunctions: string[];
   /** the viewer's OWN row — the only one they may appeal */
   mine: boolean;
   /** the viewer may open this touch point's recording sheet */
@@ -85,6 +87,9 @@ export interface AttendanceFilters {
   status?: string;
   /** by member NAME, which is what the funnel offers */
   member?: string;
+  /** by the MEMBER'S function (v33.52) — comma list, matched against their
+   *  functions AND sub-functions, the way every other function check reads */
+  fn?: string;
   page?: number;
 }
 
@@ -335,17 +340,28 @@ export async function listAttendanceHistory(
   // BY MEMBER (v33.27). The funnel offers names, so the names are resolved to
   // ids once, before the page is cut — filtering the visible page would have
   // silently hidden matches on every other page.
+  // BY MEMBER and BY FUNCTION (v33.27, v33.52) — both resolve names/functions
+  // for EVERY matching row before the page is cut; filtering the visible page
+  // would silently hide matches on every other page.
   const wantedNames = picks(filters.member);
-  let filtered = rows;
-  if (wantedNames.length > 0) {
-    const allIds = [...new Set(rows.map((r) => r.member_id))];
-    const nameById = await memberNames(allIds);
-    const lower = wantedNames.map((n) => n.toLowerCase());
-    filtered = rows.filter((r) =>
-      lower.includes((nameById.get(r.member_id) ?? "").toLowerCase())
-    );
-    if (filtered.length === 0) return { ...empty, totals: totalsOf([]) };
+  const wantedFns = picks(filters.fn);
+  let profiles: Map<string, { name: string; fns: string[] }> | null = null;
+  if (wantedNames.length > 0 || wantedFns.length > 0) {
+    profiles = await memberProfiles([...new Set(rows.map((r) => r.member_id))]);
   }
+  let filtered = rows;
+  if (wantedNames.length > 0 && profiles) {
+    const lower = wantedNames.map((n) => n.toLowerCase());
+    filtered = filtered.filter((r) =>
+      lower.includes((profiles!.get(r.member_id)?.name ?? "").toLowerCase())
+    );
+  }
+  if (wantedFns.length > 0 && profiles) {
+    filtered = filtered.filter((r) =>
+      (profiles!.get(r.member_id)?.fns ?? []).some((f) => wantedFns.includes(f))
+    );
+  }
+  if (filtered.length === 0) return { ...empty, totals: totalsOf([]) };
   rows = filtered;
 
   rows.sort((a, b) => {
@@ -360,7 +376,7 @@ export async function listAttendanceHistory(
 
   // 3. names + appeals for the visible page only
   const memberIds = [...new Set(slice.map((r) => r.member_id))];
-  const names = await memberNames(memberIds);
+  const people = await memberProfiles(memberIds);
   const appeals = await appealsForAttendance(slice.map((r) => r.id));
 
   const out: AttendanceHistoryRow[] = slice.map((r) => {
@@ -374,7 +390,8 @@ export async function listAttendanceHistory(
       automatic: r.automatic,
       recordedAt: r.recorded_at,
       memberId: r.member_id,
-      memberName: names.get(r.member_id) ?? "—",
+      memberName: people.get(r.member_id)?.name ?? "—",
+      memberFunctions: people.get(r.member_id)?.fns ?? [],
       mine: r.member_id === viewer.id,
       canRecord: canRecordAttendance(viewer, tp),
       touchPointId: tp.id,
@@ -403,6 +420,33 @@ function totalsOf(rows: AttendanceRow[]): AttendanceTotals {
     excused,
     rate: rows.length === 0 ? 0 : Math.round((attended / rows.length) * 100),
   };
+}
+
+/** Name + functions for a set of members, one read (v33.52 — the attendance
+ *  history needs both: the Member column and the Function funnel). */
+export async function memberProfiles(
+  ids: string[]
+): Promise<Map<string, { name: string; fns: string[] }>> {
+  const map = new Map<string, { name: string; fns: string[] }>();
+  if (ids.length === 0) return map;
+  const rows = await inChunks<{
+    id: string; name: string; functions: string[] | null; sub_functions: string[] | null;
+  }>(ids, 100, async (chunk) => {
+    const { data } = await db()
+      .from("members")
+      .select("id, name, functions, sub_functions")
+      .in("id", chunk);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (data ?? []) as any[];
+  });
+  for (const m of rows)
+    map.set(m.id, {
+      name: m.name,
+      // a member is "in" a function if EITHER column names it — the rule the
+      // whole RBAC engine uses
+      fns: [...new Set([...(m.functions ?? []), ...(m.sub_functions ?? [])])],
+    });
+  return map;
 }
 
 export async function memberNames(ids: string[]): Promise<Map<string, string>> {

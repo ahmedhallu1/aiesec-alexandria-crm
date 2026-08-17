@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-15 · Version: v33.51
+Last updated: 2026-08-16 · Version: v33.52
 
 ---
 
@@ -628,6 +628,56 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-16 · v33.52** — **FILTERS, GOALS, A RANKING AND THE ROAD TO
+  ACTIVATE** (no migration).
+  ① **THE ATTENDANCE MEMBER FILTER COULD NOT BE CLEARED.** Its options were
+  built from the rows ON SCREEN, so the moment you picked one member the list
+  had one entry, the `length > 1` guard hid the funnel, and the filter was
+  stuck with no control left to clear it. The active picks are unioned back
+  into the options and the funnel renders whenever a filter is on. Same trap,
+  same fix, on the CV pool's Uploaded-by and Partner-LC funnels.
+  ② **ATTENDANCE FILTERS BY FUNCTION** — a new Function column (the member's
+  own, functions + sub-functions) with its own funnel, resolved server-side
+  BEFORE the page is cut so it filters the whole history, not the page in
+  hand. And the page's kind/status validation was rewritten: the funnels are
+  multi-select and emit comma lists ("meeting,outing"), which
+  `TOUCH_POINT_KINDS.includes()` rejected whole — so every multi-pick silently
+  filtered nothing while the funnel showed two ticks.
+  ③ **MEMBERSHIP FILTERS BY MANAGER.** With team names gone from the sheet, a
+  team IS its manager — this is the funnel that answers "show me X's people".
+  Its options come from the membership itself.
+  ④ **THE OGX GOAL APPEARS** (the report: "the goal of MMs/VPs in OGX not
+  appearing"). Two holes: the lane only ever showed the MMs' FILED plans added
+  up — null until somebody files, and no OGX MM has — while the VPs' own
+  numbers sat in `plan_cells` as OGV / OGTa / OGTe, imported in v21 and read
+  by nothing. The OGT/OGV lanes now show **the function's goal from the
+  planning sheet** (this sprint and this month, applicants · accepted ·
+  approvals), the MM plan card as before, and an amber nudge for an MM who
+  hasn't filed this month instead of silence.
+  ⑤ **THE CONSIDERATION FLOOR HAS A RANKING.** It had a calls drill and no
+  leaderboard, while every other lane ranks its people. The by-member table is
+  now ranked (by calls done) and carries the rest of the job: **LCs reached**
+  (distinct, counted once however many times they called), **🤝 partnerships
+  made**, and **CVs** on the IGT lane. No 15-row cut any more — a board shows
+  the floor.
+  ⑥ **🏆 ROAD TO ACTIVATE** (`activate-strip.tsx`): a thin AIESEC-blue band at
+  the top of every page counting down to the national conference on
+  **3 December 2026**, with the day's own Cairo date so it can never be a
+  build-time constant. **It removes itself** the day after — no EB action, no
+  cleanup. Dismissing hides it until tomorrow only. Rendered in the page's own
+  flow, never fixed: a second fixed bar would fight the phone's top bar for
+  the same 3rem.
+  ⑦ **50 MARKET-RESEARCH NAMES HANDED TO THE B2B/BD CREW**
+  (`scripts/hand-out-b2b-accounts.mjs`, `--dry` to preview): unassigned, still
+  in process, not test, and **carrying a phone number** — shuffled
+  (Fisher–Yates, not "the first 50 by id") and dealt round-robin to the crew's
+  Members + MMs, 8/7/7/7/7/7/7 across Akmal · Hana Wael · Mahmoud khaled ·
+  Monzer Essam · Salma · Youssef atya · Youssef Elgayar. Each account is
+  **marked B2B** (it belongs to a B2B raiser now — the v33.18 rule; B2B shares
+  the ICX name world with IGV/IGT so no name could collide), every hand-over
+  is in the audit log, and everyone got a bell — plus an email for the three
+  who have an address on file.
 
 - **2026-08-15 · v33.51** — **🃏 PRANK MODE** (migration **0063 applied**:
   `members.prank_until`, `members.prank_by`). The EB can put ONE member's Sodio

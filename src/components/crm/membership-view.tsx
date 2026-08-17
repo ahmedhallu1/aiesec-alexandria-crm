@@ -82,7 +82,13 @@ function anyOf(raw: string | undefined, pred: (v: string) => boolean): boolean {
 
 const COL_FILTERS: Record<
   string,
-  { key: string; label: string; options: () => { value: string; label: string }[] }
+  {
+    key: string;
+    label: string;
+    /** the live list, for funnels whose options are the DATA (Manager) rather
+     *  than a fixed pick-list (Role, Function…) */
+    options: (members: MemberRow[]) => { value: string; label: string }[];
+  }
 > = {
   role: {
     key: "role",
@@ -98,6 +104,18 @@ const COL_FILTERS: Record<
     key: "sub",
     label: "Sub function",
     options: () => SUB_FUNCTIONS.map((f) => ({ value: f, label: f })),
+  },
+  /** BY MANAGER (v33.52) — with team names gone from the sheet, a "team" IS
+   *  its manager, so this is the funnel that answers "show me X's people".
+   *  Options come from the membership itself: a name nobody manages can't be
+   *  offered. */
+  manager: {
+    key: "manager",
+    label: "Manager",
+    options: (ms) =>
+      [...new Set(ms.map((m) => m.stakeholder_name).filter(Boolean))]
+        .sort((a, b) => (a as string).localeCompare(b as string))
+        .map((n) => ({ value: n as string, label: n as string })),
   },
   status: {
     key: "status",
@@ -141,6 +159,7 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
     anyOf(colFilter.role, (v) => m.role === v) &&
     anyOf(colFilter.fn, (v) => (m.functions ?? []).includes(v)) &&
     anyOf(colFilter.sub, (v) => (m.sub_functions ?? []).includes(v)) &&
+    anyOf(colFilter.manager, (v) => (m.stakeholder_name ?? "") === v) &&
     anyOf(colFilter.status, (v) =>
       v === "active" ? m.is_active : v === "left" ? !!m.left_at : !m.is_active
     ) &&
@@ -185,7 +204,7 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
           <ColumnFilter
             label={COL_FILTERS[field].label}
             value={colFilter[COL_FILTERS[field].key] ?? ""}
-            options={COL_FILTERS[field].options()}
+            options={COL_FILTERS[field].options(members)}
             onChange={setCol(COL_FILTERS[field].key)}
           />
         ) : null}

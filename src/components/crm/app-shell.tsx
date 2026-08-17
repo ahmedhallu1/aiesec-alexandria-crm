@@ -39,6 +39,7 @@ import { WalkingLoader } from "./walking-loader";
 import { BlueManChat } from "./blue-man-chat";
 import { PendingPrompt } from "./pending-prompt";
 import { Prankster } from "./prankster";
+import { ActivateStrip } from "./activate-strip";
 
 interface ShellProps {
   user: {
@@ -709,6 +710,12 @@ export function AppShell({
           railed ? "md:ml-[3.75rem]" : "md:ml-60"
         )}
       >
+        {/* 🏆 v33.52 — the national conference the whole LC works towards.
+            In the page's own flow (never fixed): a second fixed bar would sit
+            on top of the phone's top bar and fight it for the same 3rem. */}
+        <div className="-mx-4 mb-4 md:-mx-8">
+          <ActivateStrip />
+        </div>
         {children}
       </main>
 

@@ -910,7 +910,9 @@ function ConsiderationPanel({ stats }: { stats: import("@/server/data").Consider
       {stats.byMember.length > 0 ? (
         <Card className="rise-in rise-in-1">
           <CardContent className="pt-4">
-            <p className="text-xs font-medium text-muted-foreground">Calls by member</p>
+            <p className="text-xs font-medium text-muted-foreground">
+              🏅 Consideration leaderboard — ranked by calls done
+            </p>
             {/* THE COLUMNS ADD UP NOW (v33.32). It used to read
                 "This month · Upcoming · Total" — three numbers that look like
                 a sum and aren't: an upcoming call is already inside both the
@@ -942,16 +944,37 @@ function ConsiderationPanel({ stats }: { stats: import("@/server/data").Consider
                     <th className="py-1 pr-2 text-right font-medium" title="Of the calls in this snapshot, how many fall in this month">
                       This month
                     </th>
-                    <th className="py-1 text-right font-medium" title="Every call they hold — done, upcoming and waiting together">
+                    <th className="py-1 pr-2 text-right font-medium" title="Every call they hold — done, upcoming and waiting together">
                       Total
                     </th>
+                    {/* THE REST OF THE JOB (v33.52) — a caller is not measured
+                        on calls alone: the LCs they reach, the partnerships
+                        they open and (on IGT) the CVs they bring back are the
+                        same person's KPIs, and this floor had no ranking on
+                        any of them. */}
+                    <th className="py-1 pr-2 text-right font-medium" title="Distinct partner LCs they have actually spoken to">
+                      LCs
+                    </th>
+                    <th className="py-1 pr-2 text-right font-medium" title="New partnerships they made in this lane">
+                      🤝
+                    </th>
+                    {stats.showCvs ? (
+                      <th className="py-1 text-right font-medium" title="CVs they put in the shared pool">
+                        CVs
+                      </th>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
                   {stats.byMember.map((m) => (
                     <tr key={m.name} className="border-t">
-                      <td className="max-w-40 truncate py-1.5 pr-2" dir="auto">{m.name}</td>
-                      <td className="py-1.5 pr-2 text-right tabular-nums">{m.done}</td>
+                      <td className="max-w-40 truncate py-1.5 pr-2" dir="auto">
+                        <span className="mr-1.5 text-xs text-muted-foreground tabular-nums">
+                          {stats.byMember.indexOf(m) + 1}.
+                        </span>
+                        {m.name}
+                      </td>
+                      <td className="py-1.5 pr-2 text-right font-semibold tabular-nums">{m.done}</td>
                       <td className="py-1.5 pr-2 text-right tabular-nums">{m.upcoming}</td>
                       <td
                         className={cn(
@@ -964,7 +987,12 @@ function ConsiderationPanel({ stats }: { stats: import("@/server/data").Consider
                       <td className="py-1.5 pr-2 text-right tabular-nums text-muted-foreground">
                         {m.month}
                       </td>
-                      <td className="py-1.5 text-right font-semibold tabular-nums">{m.total}</td>
+                      <td className="py-1.5 pr-2 text-right font-semibold tabular-nums">{m.total}</td>
+                      <td className="py-1.5 pr-2 text-right tabular-nums">{m.lcs}</td>
+                      <td className="py-1.5 pr-2 text-right tabular-nums">{m.partnerships}</td>
+                      {stats.showCvs ? (
+                        <td className="py-1.5 text-right tabular-nums">{m.cvs}</td>
+                      ) : null}
                     </tr>
                   ))}
                 </tbody>
@@ -1086,7 +1114,26 @@ function OgxPanel({ data, streak }: { data: OgxDashboardData; streak: StreakStat
           whole crew (members, coordinators, TLs and their VP) plays */}
       {streak ? <DashboardStreakCard streak={streak} /> : null}
 
+      {/* THE FUNCTION'S GOAL FROM THE PLANNING SHEET (v33.52) — this is the
+          VPs' own plan, and until now no OGX lane ever showed it even though
+          the numbers have been imported since v21. It renders whether or not
+          any MM has filed, which is what "the goal isn't appearing" was. */}
+      {data.lanePlan ? <OgxLanePlan fn={data.fn} plan={data.lanePlan} /> : null}
       {data.plan ? <OgxPlanBar fn={data.fn} plan={data.plan} /> : null}
+      {data.needsOwnPlan ? (
+        <Card className="rise-in rise-in-2 border-amber-500/50 bg-amber-500/5">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-4">
+            <p className="text-sm">
+              🎯 <b>You haven&apos;t filed this month&apos;s plan.</b> Your
+              applicants · accepted · approvals for {data.fn} are your goals for
+              the period — file them and they show up here.
+            </p>
+            <Button variant="outline" asChild>
+              <Link href="/profile">Open my plan</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* KPI row — the sign-up funnel, in order */}
       <div className="stagger grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
@@ -1232,6 +1279,45 @@ function DashboardStreakCard({ streak }: { streak: StreakStats }) {
             </div>
           </div>
         ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** THE VPs' PLAN FOR THIS OGX LANE (v33.52) — straight off the planning
+ *  sheet's own cells (OGV / OGTa+OGTe), this sprint and this month. It is the
+ *  function's official goal, and it is shown to everyone on the lane: an MM
+ *  reading it knows what the function committed to, which is the number their
+ *  own plan has to add up to. */
+function OgxLanePlan({
+  fn, plan,
+}: {
+  fn: string;
+  plan: NonNullable<OgxDashboardData["lanePlan"]>;
+}) {
+  const trio = (t: { applicants: number; accepted: number; approvals: number }) => (
+    <span className="flex flex-wrap gap-x-4 gap-y-0.5">
+      <span>Applicants <b className="text-foreground">{t.applicants}</b></span>
+      <span>Accepted <b className="text-foreground">{t.accepted}</b></span>
+      <span>Approvals <b className="text-foreground">{t.approvals}</b> 🏆</span>
+    </span>
+  );
+  return (
+    <Card className="rise-in rise-in-2">
+      <CardContent className="space-y-2 pt-4">
+        <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <Target className="size-3.5" /> {fn} goal · the VPs&apos; planning sheet
+        </p>
+        <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+          <div className="rounded-lg border p-2.5">
+            <p className="mb-1 font-semibold text-foreground">{plan.sprintLabel}</p>
+            {trio(plan.sprint)}
+          </div>
+          <div className="rounded-lg border p-2.5">
+            <p className="mb-1 font-semibold text-foreground">{plan.monthLabel}</p>
+            {trio(plan.month)}
+          </div>
+        </div>
       </CardContent>
     </Card>
   );

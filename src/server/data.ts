@@ -384,6 +384,12 @@ export interface ConsiderationStats {
     done: number;
     upcoming: number;
     overdue: number;
+    /** distinct partner LCs this person has actually spoken to (v33.52) */
+    lcs: number;
+    /** 🤝 partnerships they MADE in this lane */
+    partnerships: number;
+    /** CVs they put in the pool — IGT only, 0 on the IGV lane */
+    cvs: number;
   }[];
   /** the last 6 months' call volume, oldest first — the trend strip */
   byMonth: { month: string; label: string; calls: number }[];
@@ -576,20 +582,47 @@ export async function considerationStats(
   // done / upcoming / overdue, so those three add up to the total and the
   // table can be read as arithmetic. "This month" sits apart — it is a slice
   // of the same calls, not a fourth bucket, and the header says so.
+  // THE CONSIDERATION LEADERBOARD (v33.52). The floor had a calls drill and no
+  // RANKING — every other lane in Sodio ranks its people on their own KPIs, and
+  // the IR crew's KPIs are calls, the LCs they reach, the partnerships they
+  // make and (on IGT) the CVs they bring in. Same row, more columns.
   const perMember = new Map<
     string,
-    { name: string; total: number; month: number; done: number; upcoming: number; overdue: number }
+    {
+      name: string; total: number; month: number; done: number; upcoming: number;
+      overdue: number; lcs: number; partnerships: number; cvs: number;
+    }
   >();
+  const lcsByMember = new Map<string, Set<string>>();
+  const blank = (name: string) => ({
+    name, total: 0, month: 0, done: 0, upcoming: 0, overdue: 0,
+    lcs: 0, partnerships: 0, cvs: 0,
+  });
   for (const c of live) {
     const key = c.member_name || "—";
-    const row =
-      perMember.get(key) ??
-      { name: key, total: 0, month: 0, done: 0, upcoming: 0, overdue: 0 };
+    const row = perMember.get(key) ?? blank(key);
     row.total += 1;
     if (inMonth(c.called_at)) row.month += 1;
     if (c.status === "completed") row.done += 1;
     else if (isUpcoming(c)) row.upcoming += 1;
     else if (isOverdue(c)) row.overdue += 1;
+    perMember.set(key, row);
+    // an LC counts ONCE per person however many times they called it
+    const seen = lcsByMember.get(key) ?? new Set<string>();
+    seen.add(c.partner_lc_name.toLowerCase());
+    lcsByMember.set(key, seen);
+  }
+  for (const [key, seen] of lcsByMember) {
+    const row = perMember.get(key);
+    if (row) row.lcs = seen.size;
+  }
+  // CVs are the IGT hunt: `cvRows` is already lane-scoped (empty on IGV)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const cv of cvRows as any[]) {
+    const key = cv.uploaded_by || "";
+    if (!key) continue;
+    const row = perMember.get(key) ?? blank(key);
+    row.cvs += 1;
     perMember.set(key, row);
   }
   // THE TREND STRIP IS THE PEAK, NOT THE LAST SIX MONTHS (v33.32.2).
@@ -639,6 +672,11 @@ export async function considerationStats(
     row.total += 1;
     if ((r.partnership_date ?? "") >= monthDay) row.month += 1;
     perPartnerMember.set(key, row);
+    // the same person's row on the leaderboard (v33.52) — a partnership is a
+    // consideration KPI, not a separate scoreboard
+    const board = perMember.get(key) ?? blank(key);
+    board.partnerships += 1;
+    perMember.set(key, board);
   }
   const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const byMonth = monthKeys.map((key) => ({
@@ -674,7 +712,11 @@ export async function considerationStats(
         : null,
     newLcsThisMonth,
     irOverdue: live.filter(isOverdue).length,
-    byMember: [...perMember.values()].sort((a, b) => b.total - a.total).slice(0, 15),
+    byMember: [...perMember.values()].sort(
+      (a, b) =>
+        b.done - a.done || b.total - a.total || b.partnerships - a.partnerships ||
+        b.lcs - a.lcs || b.cvs - a.cvs
+    ),
     byMonth,
     filtered,
     partnerships: {
@@ -5376,6 +5418,20 @@ export interface OgxDashboardData {
     plan: { applicants: number; accepted: number; approvals: number };
     actual: { applicants: number; accepted: number; approvals: number };
   } | null;
+  /** THE FUNCTION'S OWN GOAL, from the VPs' planning sheet (v33.52).
+   *  `plan` above is the MMs' filed plans added up — it is null until somebody
+   *  files one, which is why an OGX lane could show no goal at all. This is
+   *  the sheet's own numbers for the current sprint and month (plan_cells
+   *  carries OGV / OGTa / OGTe, imported in v21 and never read until now). */
+  lanePlan: {
+    sprintLabel: string;
+    monthLabel: string;
+    sprint: { applicants: number; accepted: number; approvals: number };
+    month: { applicants: number; accepted: number; approvals: number };
+  } | null;
+  /** the viewer is an OGX MM who has NOT filed this month's plan — the card
+   *  says so instead of showing nothing at all */
+  needsOwnPlan: boolean;
   /** lane-scoped filter options (OGX crews are invisible to the ICX pickers) */
   teamOptions: { id: string; label: string }[];
   memberOptions: { id: string; label: string }[];
@@ -5621,7 +5677,7 @@ export async function ogxDashboard(
   const { data: planRows } = await db()
     .from("mm_plans")
     .select(
-      "applicants, accepted, approvals, member:members!mm_plans_member_id_fkey(functions, sub_functions)"
+      "member_id, applicants, accepted, approvals, member:members!mm_plans_member_id_fkey(functions, sub_functions)"
     )
     .eq("month", month.start);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -5650,6 +5706,45 @@ export async function ogxDashboard(
     plan = { monthLabel: month.label, plan: planned, actual };
   }
 
+  // ---- the FUNCTION's goal, from the planning sheet (v33.52) -------------
+  // OGV maps 1:1; the OGT lane is OGTa + OGTe, exactly as the ICX IGT lane
+  // sums IGTa + IGTe.
+  let lanePlan: OgxDashboardData["lanePlan"] = null;
+  {
+    const planFns = fn === "OGV" ? ["OGV"] : ["OGTa", "OGTe"];
+    const [cells, sprint] = [await listPlanCells(planFns), sprintOf()];
+    if (cells.length > 0) {
+      const sum = (scope: string, keys: string[], metric: string) =>
+        cells
+          .filter((c) => c.scope === scope && keys.includes(c.period_start) && c.metric === metric)
+          .reduce((acc, c) => acc + c.value, 0);
+      const trio = (scope: string, keys: string[]) => ({
+        applicants: sum(scope, keys, "applicants"),
+        accepted: sum(scope, keys, "accepted"),
+        approvals: sum(scope, keys, "approvals"),
+      });
+      const sprintPlan = trio("sprint", sprint.planKeys);
+      const monthPlan = trio("month", month.planKeys);
+      if (
+        sprintPlan.applicants + sprintPlan.accepted + sprintPlan.approvals +
+        monthPlan.applicants + monthPlan.accepted + monthPlan.approvals > 0
+      )
+        lanePlan = {
+          sprintLabel: sprint.label,
+          monthLabel: month.label,
+          sprint: sprintPlan,
+          month: monthPlan,
+        };
+    }
+  }
+
+  // an OGX MM with no filed plan for this month gets told, not ignored
+  const needsOwnPlan =
+    (viewer.role === "Team Leader" || viewer.role === "Coordinator") &&
+    _ogxFunctions(viewer).includes(fn) &&
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    !((planRows ?? []) as any[]).some((p) => p.member_id === viewer.id);
+
   const fnMembers = members.filter((m) => inFn(m) && m.role !== "LCP");
   return {
     fn,
@@ -5658,6 +5753,8 @@ export async function ogxDashboard(
     board: [...board.values()].sort(rank),
     mmBoard: [...mmBoard.values()].sort(rank),
     byTeam: [...byTeam.values()].sort(rank),
+    lanePlan,
+    needsOwnPlan,
     plan,
     teamOptions: fnMembers
       .filter((m) => m.role === "Team Leader")

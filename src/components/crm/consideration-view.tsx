@@ -4758,14 +4758,17 @@ function CvsTab({
           "status"
         );
       case "uploader":
-        return uploaderOptions.length > 1
+        // v33.52 — `|| the active pick`: an options list built from the rows on
+        // screen shrinks to one the moment you filter by it, and the funnel
+        // that could clear it disappeared with it
+        return uploaderOptions.length > 1 || cvFilters.uploader
           ? pick(
               "Uploaded by", cvFilters.uploader,
               uploaderOptions.map((u) => ({ value: u, label: u })), "uploader"
             )
           : null;
       case "lc":
-        return lcOptions.length > 1
+        return lcOptions.length > 1 || cvFilters.lc
           ? pick("Partner LC", cvFilters.lc, lcOptions, "cvlc")
           : null;
       // the phone funnel hangs on Contact, the column that DRAWS the number —

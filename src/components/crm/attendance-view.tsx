@@ -49,7 +49,8 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  ColumnFilter, SortHeader, TableSettings, useTableColumns, useTableSort,
+  ColumnFilter,
+  multi, SortHeader, TableSettings, useTableColumns, useTableSort,
   type TableColumn,
 } from "./data-table-kit";
 import { Hint } from "./hint";
@@ -501,6 +502,7 @@ const ATTENDANCE_COLUMNS: TableColumn[] = [
   { key: "kind", label: "Type" },
   { key: "when", label: "When" },
   { key: "member", label: "Member" },
+  { key: "function", label: "Function" },
   { key: "status", label: "Status" },
   { key: "excuse", label: "Excuse" },
   { key: "actions", label: "Actions" },
@@ -513,6 +515,7 @@ const ATTENDANCE_CELL_CLASS: Record<string, string> = {
   kind: "text-xs text-muted-foreground",
   when: "whitespace-nowrap text-xs",
   member: "max-w-40 truncate",
+  function: "max-w-32 truncate text-xs text-muted-foreground",
   excuse: "max-w-48 truncate text-xs text-muted-foreground",
   audience: "max-w-40 truncate text-xs text-muted-foreground",
   owner: "max-w-40 truncate text-xs text-muted-foreground",
@@ -560,7 +563,7 @@ export function AttendanceView({
   pageSizeOptions: number[];
   totals: AttendanceTotals;
   appeals: OpenAppeal[];
-  filters: { from: string; to: string; kind: string; status: string; member?: string };
+  filters: { from: string; to: string; kind: string; status: string; member?: string; fn?: string };
   scopeLabel: string;
   openTouchPointId: string | null;
 }) {
@@ -606,10 +609,26 @@ export function AttendanceView({
    *  only reachable from the bar above (which the table's own readers never
    *  look at), and Member could not be filtered at all — on a 70-person LC
    *  session that is the one question worth asking. */
+  // THE OPTIONS MUST INCLUDE WHAT IS ALREADY PICKED (v33.52). These lists are
+  // built from the rows ON SCREEN — so the moment you filtered to one member,
+  // the list had one entry, the `length > 1` guard hid the funnel, and there
+  // was no way left to clear it. The active picks are unioned back in, and the
+  // funnel renders whenever a filter is on, however few options remain.
   const memberOptions = useMemo(
     () =>
-      [...new Set(history.map((r) => r.memberName).filter(Boolean))].sort() as string[],
-    [history]
+      [...new Set([
+        ...history.map((r) => r.memberName).filter(Boolean),
+        ...multi(filters.member ?? ""),
+      ])].sort() as string[],
+    [history, filters.member]
+  );
+  const fnOptions = useMemo(
+    () =>
+      [...new Set([
+        ...history.flatMap((r) => r.memberFunctions ?? []),
+        ...multi(filters.fn ?? ""),
+      ])].filter(Boolean).sort() as string[],
+    [history, filters.fn]
   );
   const attendanceFilter = (key: string) => {
     const pick = (
@@ -640,10 +659,17 @@ export function AttendanceView({
           ATTENDANCE_STATUSES.map((k) => ({ value: k, label: k })), "status"
         );
       case "member":
-        return memberOptions.length > 1
+        return memberOptions.length > 1 || filters.member
           ? pick(
               "Member", filters.member ?? "",
               memberOptions.map((m) => ({ value: m, label: m })), "member"
+            )
+          : null;
+      case "function":
+        return fnOptions.length > 1 || filters.fn
+          ? pick(
+              "Function", filters.fn ?? "",
+              fnOptions.map((f) => ({ value: f, label: f })), "fn"
             )
           : null;
       default:
@@ -676,6 +702,8 @@ export function AttendanceView({
             <span className="block text-muted-foreground">{cairoTime(r.startsAt)}</span>
           </>
         );
+      case "function":
+        return r.memberFunctions.length > 0 ? r.memberFunctions.join(", ") : "—";
       case "member":
         return (
           <>
