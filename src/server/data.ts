@@ -3898,12 +3898,22 @@ export async function buildOgxReport(
   const rows = await fetchAll<any>(() =>
     db()
       .from("signups")
-      .select("assigned_to, contact_status, interested, status, signed_up_at, created_at, out_of_process")
+      .select("assigned_to, assigned_at, contact_status, interested, status, signed_up_at, created_at, out_of_process")
       .eq("fn", fn)
       .order("id")
   );
-  const inWindow = (r: { signed_up_at: string | null; created_at: string }) => {
-    const day = signupDayIso(r.signed_up_at) ?? r.created_at.slice(0, 10);
+  // WHEN A SIGN-UP BECAME WORK, NOT WHEN THEY FILLED THE FORM (v33.55 — the
+  // first cut of this report keyed on `signed_up_at` alone and handed OGT a
+  // row of zeroes for August. It was reading the truth about the wrong
+  // question: OGT's tracker holds 2,079 people whose newest form is dated
+  // 10 May, and the crew has been working that backlog all peak. The OGX
+  // DASHBOARD has used `assigned_at ?? signed_up_at` since v33.47 for exactly
+  // this reason; the report now uses the same rule, so the two agree.)
+  const inWindow = (r: {
+    assigned_at: string | null; signed_up_at: string | null; created_at: string;
+  }) => {
+    const day =
+      signupDayIso(r.assigned_at) ?? signupDayIso(r.signed_up_at) ?? r.created_at.slice(0, 10);
     return !!day && day >= window.start && day <= window.end;
   };
 
@@ -3980,7 +3990,7 @@ export async function buildOgxReport(
     return `${d > 0 ? "▲" : "▼"} ${Math.abs(d).toLocaleString("en")} vs last ${kind} (${before.toLocaleString("en")})`;
   };
   const kpis: [string, string, string?][] = [
-    ["Sign-ups in this period", String(total.signups), cmp(total.signups, prev?.totals.mr)],
+    ["Sign-ups worked in this period", String(total.signups), cmp(total.signups, prev?.totals.mr)],
     ["Contacted", String(total.contacted), cmp(total.contacted, prev?.totals.contacts)],
     ["Interested", String(total.interested), cmp(total.interested, prev?.totals.visits)],
     ["Applied", String(total.applied), cmp(total.applied, prev?.totals.visitsDone)],
@@ -4029,7 +4039,7 @@ export async function buildOgxReport(
     },
     kpis,
     planLine:
-      "Counted on the sign-ups that ARRIVED in this period — the funnel below is where those people stand today (no status carries a date of its own).",
+      "Counted on the sign-ups HANDED OUT in this period (the tracker's own sign-up date when they were never assigned) — the funnel below is where those people stand today, since no status carries a date of its own.",
     waterfallHeaders: headers,
     waterfallRows: table,
     boldRows,
@@ -5587,6 +5597,14 @@ export interface OgxDashboardData {
     monthLabel: string;
     sprint: { applicants: number; accepted: number; approvals: number };
     month: { applicants: number; accepted: number; approvals: number };
+    /** WHAT THE FUNCTION ACTUALLY DID THIS MONTH (v33.55) — a plan on its own
+     *  is a wish; the card exists to be compared. Counted on the sign-ups
+     *  WORKED this month (assigned_at, falling back to the sign-up's own
+     *  date), the same rule the period report and the peak filter use. */
+    achieved: { applicants: number; accepted: number; approvals: number };
+    /** the viewer's OWN filed plan for this month, when they filed one */
+    mine: { applicants: number; accepted: number; approvals: number } | null;
+    mineAchieved: { applicants: number; accepted: number; approvals: number } | null;
   } | null;
   /** the viewer is an OGX MM who has NOT filed this month's plan — the card
    *  says so instead of showing nothing at all */
@@ -5885,13 +5903,49 @@ export async function ogxDashboard(
       if (
         sprintPlan.applicants + sprintPlan.accepted + sprintPlan.approvals +
         monthPlan.applicants + monthPlan.accepted + monthPlan.approvals > 0
-      )
+      ) {
+        // ---- ACHIEVED, this month ---------------------------------------
+        // "worked this month" = handed out this month (assigned_at), or the
+        // sign-up's own date when nobody ever took it. The same rule as the
+        // period report, so the two never disagree.
+        const monthStart = month.start;
+        const workedThisMonth = (r: OgxDashSignup) => {
+          const day =
+            signupDayIso(r.assigned_at) ?? signupDayIso(r.signed_up_at) ?? null;
+          return !!day && day >= monthStart && day <= month.end;
+        };
+        const tally = (only?: string) => {
+          const out = { applicants: 0, accepted: 0, approvals: 0 };
+          for (const r of rows) {
+            if (r.out_of_process) continue;
+            if (only && r.assigned_to !== only) continue;
+            if (!r.assigned_to) continue;
+            if (!workedThisMonth(r)) continue;
+            if (["Applied", "Accepted", "Approved"].includes(r.status ?? ""))
+              out.applicants += 1;
+            if (["Accepted", "Approved"].includes(r.status ?? "")) out.accepted += 1;
+            if (r.status === "Approved") out.approvals += 1;
+          }
+          return out;
+        };
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const own = ((planRows ?? []) as any[]).find((p) => p.member_id === viewer.id);
         lanePlan = {
           sprintLabel: sprint.label,
           monthLabel: month.label,
           sprint: sprintPlan,
           month: monthPlan,
+          achieved: tally(),
+          mine: own
+            ? {
+                applicants: own.applicants ?? 0,
+                accepted: own.accepted ?? 0,
+                approvals: own.approvals ?? 0,
+              }
+            : null,
+          mineAchieved: own ? tally(viewer.id) : null,
         };
+      }
     }
   }
 

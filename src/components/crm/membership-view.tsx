@@ -472,7 +472,15 @@ function TeamsCard({ teams }: { teams: TeamRegistryRow[] }) {
           <span className="flex items-center gap-2 text-sm font-semibold">
             <Users2 className="size-4 text-primary" /> Teams
             <span className="text-xs font-normal text-muted-foreground">
-              {teams.length} registered
+              {/* v33.55 — the count used to be every registry row (24: the
+                  retired Function and Function-leaders names). Only the two
+                  named bodies are real now. */}
+              {teams.filter((t) => t.type === "EB" || t.type === "LB").length === 0
+                ? "none set"
+                : teams
+                    .filter((t) => t.type === "EB" || t.type === "LB")
+                    .map((t) => `${t.type}: ${t.name}`)
+                    .join(" · ")}
             </span>
           </span>
           <span className="text-xs text-muted-foreground">{openCard ? "Hide" : "Manage"}</span>
@@ -527,7 +535,7 @@ function TeamsCard({ teams }: { teams: TeamRegistryRow[] }) {
 
             {groups.length === 0 ? (
               <p className="text-xs text-muted-foreground">
-                No teams registered yet — add the team names, then assign each
+                No bodies named yet — set the EB and LB names, then assign each
                 member to one from their edit dialog.
               </p>
             ) : (

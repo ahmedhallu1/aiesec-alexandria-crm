@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-16 · Version: v33.54
+Last updated: 2026-08-17 · Version: v33.55
 
 ---
 
@@ -628,6 +628,57 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-17 · v33.55** — **THE CORRECTIONS ON v33.52–54** (no migration; two
+  prod data operations).
+  ① **THE OGT REPORT SAID ZERO, AND OF COURSE IT ISN'T.** v33.54's OGX report
+  keyed its window on `signed_up_at` alone — the truth about the wrong
+  question: OGT's tracker holds 2,079 people whose newest form is dated
+  **10 May**, and the crew has been working that backlog all peak. The OGX
+  DASHBOARD has used `assigned_at ?? signed_up_at` since v33.47 for exactly
+  this reason. The report uses the same rule now and OGT's August reads
+  **501 sign-ups · 354 contacted · 107 interested · 1 applied** — the numbers
+  on the lane, to the row. OGV August: 1,289 · 646 · 159 · 31 · 19 · **13
+  approved**. The KPI is named "Sign-ups **worked** in this period" so nobody
+  reads it as arrivals.
+  ② **AN IGV ACCOUNT MOVED TO B2B KEPT ITS PROJECT.** The app clears
+  function-specific fields on every hand-over (`fnSpecificReset`); the v33.52
+  hand-out SCRIPT wrote `responsible_id` + `function` straight to the table and
+  bypassed it, so six accounts landed in B2B still carrying "Global Classroom"
+  or "Skill Up!" — fields B2B does not have. The script now clears
+  project/product/sub_product like the real path, and `--repair` found and
+  cleared the six.
+  ③ **"50 EACH, NOT 50 FOR ALL."** The first hand-out dealt 50 across the
+  seven of them. `--each=50` tops each person up to fifty FROM THIS POOL —
+  counted off the script's own audit rows, so their pre-existing accounts
+  aren't counted against them and re-running can never double anybody.
+  **300 more went out**: Akmal +42, everyone else +43. All 350 carry a phone,
+  all are marked B2B, none carry a stray field, everyone got a bell and the
+  three with an address got the list by mail.
+  ④ **THE OGX GOAL IS A COMPARISON NOW** — planned **vs achieved**, per
+  metric, with a bar: the function's planning-sheet numbers for the month
+  against what it has actually done, and (for anyone who filed one) their OWN
+  plan against their own sign-ups. Achieved counts the sign-ups worked this
+  month, the same rule as ① so the card and the report can't disagree. A plan
+  card that only printed the target was the complaint, and it was right.
+  ⑤ **THE ATTENDANCE FUNNELS SAY THEY ARE WORKING.** The pending shimmer sat
+  on the filter BAR while the funnels live in the table HEADER, so clicking
+  "Member" looked like nothing happened. The whole view shimmers and the title
+  carries a spinner.
+  ⑥ **"24 registered" IS GONE** — that was every retired registry row. The
+  card names what is actually set: `EB: IRIS · LB: شماريخ`.
+  ⑦ **ONE STREAK CARD.** The dashboard carried a thinner copy — no "your
+  best", no side chips, and the LC board as a single wrapped line of same-size
+  names, which tells nobody who is first. Both places render
+  `streak-card.tsx` now; on the dashboard the side chips switch the lane.
+  ⑧ **THE ROAD IS A ROAD.** Two parallel lines became one inline SVG in
+  perspective: tarmac narrowing to a vanishing point, a centre line whose
+  dashes crowd towards the horizon, milestone posts that light up as they're
+  passed, a chequered finish gate, and the Blue Man walking it — **smaller the
+  further along he is**, which is what makes it read as distance rather than a
+  progress bar with a picture on it. One coordinate space, so nothing floats.
+  Width-driven, since fixing the height letterboxed a 6:1 drawing inside a
+  12:1 banner.
 
 - **2026-08-16 · v33.54** — **THE PERIOD REPORTS GROW UP, AND THE ROAD TO
   ACTIVATE BECOMES A ROAD** (no migration).

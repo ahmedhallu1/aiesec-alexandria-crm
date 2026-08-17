@@ -10,6 +10,10 @@
  *   · the account is MARKED B2B, because it now belongs to a B2B raiser (the
  *     same rule every cross-function hand-over follows since v33.18). B2B and
  *     IGV/IGT share a name world, so no unique-name collision is possible
+ *   · and the OLD function's fields go with it — an IGV project ("Global
+ *     Classroom") or an IGT product on a B2B account is a field B2B does not
+ *     have. `fnSpecificReset` does this in the app; the first run of this
+ *     script did not, which is what `--repair` exists to undo
  *   · every hand-over is written to the audit log under the admin's name, and
  *     each person gets ONE bell + one email listing what landed on their plate
  *
@@ -19,7 +23,11 @@
 import "./_node-compat.mjs";
 
 const DRY = !process.argv.includes("--go");
-const TOTAL = 50;
+/** how many each person should END UP holding from this hand-out */
+const EACH = Number((process.argv.find((a) => a.startsWith("--each=")) ?? "").split("=")[1] || 50);
+/** --repair: don't hand anything out, just clear the IGV/IGT fields left on
+ *  accounts already moved to B2B by an earlier run */
+const REPAIR = process.argv.includes("--repair");
 
 const { db } = await import("../src/lib/supabase.ts");
 const { env } = await import("../src/lib/env.ts");
@@ -44,6 +52,27 @@ const admin = (crew ?? []).find(
   (m) => (m.email ?? "").toLowerCase() === (env.adminEmails[0] ?? "").toLowerCase()
 );
 
+if (REPAIR) {
+  const { data: strays } = await db()
+    .from("accounts")
+    .select("id, name, project, product, sub_product")
+    .eq("function", "B2B")
+    .or("project.not.is.null,product.not.is.null,sub_product.not.is.null");
+  console.log(`B2B accounts still carrying IGV/IGT fields: ${(strays ?? []).length}`);
+  for (const a of strays ?? [])
+    console.log(`  ${a.name}: project=${a.project ?? "-"} product=${a.product ?? "-"} sub=${a.sub_product ?? "-"}`);
+  if (DRY) { console.log("\nDRY RUN — re-run with --go --repair to clear them."); process.exit(0); }
+  if ((strays ?? []).length > 0) {
+    const { error } = await db()
+      .from("accounts")
+      .update({ project: null, product: null, sub_product: null })
+      .in("id", (strays ?? []).map((a) => a.id));
+    if (error) throw new Error(error.message);
+  }
+  console.log("cleared.");
+  process.exit(0);
+}
+
 // ---- what they are getting ----------------------------------------------
 const { data: pool, error } = await db()
   .from("accounts")
@@ -56,8 +85,25 @@ const { data: pool, error } = await db()
   .limit(2000);
 if (error) throw new Error(error.message);
 const usable = (pool ?? []).filter((a) => /\d/.test(a.phone ?? ""));
-console.log(`pool: ${usable.length} unassigned names with a real phone`);
-if (usable.length < TOTAL) throw new Error(`only ${usable.length} available`);
+// EACH means 50 FROM THIS POOL each — not 50 accounts in total. Their own
+// existing accounts are their own work and have nothing to do with the
+// hand-out, so the top-up counts only what THIS script has already given
+// them (the audit rows it writes), which also makes re-running it safe.
+const { data: given } = await db()
+  .from("audit_log")
+  .select("details")
+  .eq("action", "account_reassigned")
+  .contains("details", { via: "B2B market-research hand-out" });
+const held = new Map(takers.map((m) => [m.id, 0]));
+for (const g of given ?? []) {
+  const who = takers.find((m) => m.name === g.details?.to);
+  if (who) held.set(who.id, (held.get(who.id) ?? 0) + 1);
+}
+const need = new Map(takers.map((m) => [m.id, Math.max(0, EACH - (held.get(m.id) ?? 0))]));
+const TOTAL = [...need.values()].reduce((a, b) => a + b, 0);
+console.log(`pool: ${usable.length} unassigned names with a real phone · handing out ${TOTAL} to reach ${EACH} each`);
+if (TOTAL === 0) { console.log("everybody is already at target."); process.exit(0); }
+if (usable.length < TOTAL) throw new Error(`only ${usable.length} available, ${TOTAL} needed`);
 
 // Fisher–Yates, so "shuffled" means shuffled and not "the first 50 by id"
 for (let i = usable.length - 1; i > 0; i--) {
@@ -66,13 +112,20 @@ for (let i = usable.length - 1; i > 0; i--) {
 }
 const picked = usable.slice(0, TOTAL);
 
-// deal them round-robin: everybody gets within one of everybody else
+// deal each person exactly what they still need to reach EACH
 const deal = new Map(takers.map((m) => [m.id, []]));
-picked.forEach((a, i) => deal.get(takers[i % takers.length].id).push(a));
+let cursor = 0;
+for (const m of takers) {
+  const want = need.get(m.id) ?? 0;
+  deal.set(m.id, picked.slice(cursor, cursor + want));
+  cursor += want;
+}
 
 for (const m of takers) {
   const got = deal.get(m.id);
-  console.log(` ${m.name} (${m.role}) → ${got.length}${m.email ? "" : "  [no email — bell only]"}`);
+  console.log(
+    ` ${m.name} (${m.role}) had ${held.get(m.id)} from this pool → +${got.length}${m.email ? "" : "  [no email — bell only]"}`
+  );
 }
 if (DRY) {
   console.log("\nDRY RUN — nothing written. Re-run with --go to hand them out.");
@@ -87,7 +140,9 @@ for (const m of takers) {
   const ids = got.map((a) => a.id);
   const { error: upErr } = await db()
     .from("accounts")
-    .update({ responsible_id: m.id, function: "B2B" })
+    // function-specific fields go with the function (fnSpecificReset's rule):
+    // a B2B account has no IGV project and no IGT product
+    .update({ responsible_id: m.id, function: "B2B", project: null, product: null, sub_product: null })
     .in("id", ids);
   if (upErr) {
     console.error(` ! ${m.name}: ${upErr.message}`);

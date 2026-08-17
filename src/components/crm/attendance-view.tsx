@@ -762,10 +762,17 @@ export function AttendanceView({
   ];
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    // v33.55 — the column funnels sit in the TABLE header, and the only
+    // pending hint was on the filter bar above it: clicking "Member" looked
+    // like nothing happened until the server came back. The whole view
+    // shimmers now, and the history card says so in words.
+    <div className={cn("mx-auto max-w-6xl space-y-4", navPending && "nav-pending")}>
       <div className="rise-in">
         <h1 className="flex items-center gap-2 text-2xl font-bold">
           <CalendarCheck2 className="size-6 text-primary" /> Attendance
+          {navPending ? (
+            <Loader2 className="size-4 animate-spin text-primary" />
+          ) : null}
         </h1>
         <p className="text-sm text-muted-foreground">
           Every meeting, working-hours session and outing — who showed up, who

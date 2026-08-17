@@ -19,6 +19,7 @@ import { AskBlueMan } from "./ask-blue-man";
 import { Hint } from "./hint";
 import { CountUp } from "./count-up";
 import { cn } from "@/lib/utils";
+import { StreakCard } from "./streak-card";
 import { cairoToday, FUNCTION_COLORS } from "@/lib/types";
 import type {
   DrillGroup, FunnelStats, LanePlan, OgxBoardRow, OgxDashboardData, OgxFunnel,
@@ -365,7 +366,7 @@ export function DashboardView({
       {isConsLane ? (
         consideration ? <ConsiderationPanel stats={consideration} /> : null
       ) : isOgxLane && ogx ? (
-        <OgxPanel data={ogx} streak={streak ?? null} />
+        <OgxPanel data={ogx} streak={streak ?? null} onScope={(sc) => setParam("fn", sc)} />
       ) : (
         <>
       {/* Goals = the plans (v22): the lane goal comes from the VPs' planning
@@ -1085,7 +1086,14 @@ const OGX_METRICS: { key: keyof OgxFunnel; label: string; short: string }[] = [
 /** The OGT/OGV lane (v28): the sign-up funnel — Sign-ups → Contacted →
  *  Interested → Applied → Accepted → Approved (the MOS), with the fn's MM
  *  plans, a Members & Coordinators leaderboard and a per-team drill. */
-function OgxPanel({ data, streak }: { data: OgxDashboardData; streak: StreakStats | null }) {
+function OgxPanel({
+  data, streak, onScope,
+}: {
+  data: OgxDashboardData;
+  streak: StreakStats | null;
+  /** switch the dashboard LANE — what the streak card's side chips mean here */
+  onScope: (fn: string) => void;
+}) {
   const t = data.total;
   const kpis = [
     {
@@ -1112,7 +1120,13 @@ function OgxPanel({ data, streak }: { data: OgxDashboardData; streak: StreakStat
     <>
       {/* the OGV streak sits at the TOP of the lane — it's the daily habit the
           whole crew (members, coordinators, TLs and their VP) plays */}
-      {streak ? <DashboardStreakCard streak={streak} /> : null}
+      {streak ? (
+        <StreakCard
+          streak={streak}
+          showAction
+          onScope={onScope}
+        />
+      ) : null}
 
       {/* THE FUNCTION'S GOAL FROM THE PLANNING SHEET (v33.52) — this is the
           VPs' own plan, and until now no OGX lane ever showed it even though
@@ -1213,76 +1227,10 @@ function OgxPanel({ data, streak }: { data: OgxDashboardData; streak: StreakStat
  *  keeps the flame alive. It was only on /signups; it belongs here too, on the
  *  OGV lane, for every OGV person: members, coordinators, TLs and the VP.
  *  The flame is dimmed until today's save lands. */
-function DashboardStreakCard({ streak }: { streak: StreakStats }) {
-  const dayWord = (n: number) => `day${n === 1 ? "" : "s"}`;
-  return (
-    <Card className="rise-in rise-in-1 border-orange-400/40">
-      <CardContent className="space-y-2.5 px-4 py-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <span
-            aria-hidden
-            className={cn(
-              "text-4xl leading-none transition-all",
-              !streak.savedToday && "opacity-40 grayscale"
-            )}
-          >
-            🔥
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-2xl font-bold tabular-nums">
-              {streak.current}-day streak
-            </p>
-            <p
-              className={cn(
-                "text-xs",
-                streak.savedToday
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : "text-muted-foreground"
-              )}
-            >
-              {streak.savedToday
-                ? "Streak saved for today ✅"
-                : "Save today's streak — contact a sign-up!"}
-            </p>
-          </div>
-          <p className="shrink-0 text-xs text-muted-foreground">
-            Best:{" "}
-            <span className="font-semibold tabular-nums text-foreground">{streak.best}</span>{" "}
-            {dayWord(streak.best)}
-          </p>
-          {!streak.savedToday ? (
-            <Button size="sm" variant="outline" asChild className="shrink-0">
-              <Link href="/signups">Go contact one</Link>
-            </Button>
-          ) : null}
-        </div>
-        {streak.topStreaks.length > 0 ? (
-          <div className="border-t pt-2">
-            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-              LC top streaks
-            </p>
-            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5">
-              {streak.topStreaks.map((t, i) => (
-                <p
-                  key={`${t.name}-${i}`}
-                  className={cn("text-sm", !t.savedToday && "opacity-60")}
-                  title={t.savedToday ? undefined : "Alive, but not saved today — dies at midnight"}
-                >
-                  {MEDALS[i] ?? "•"} {t.name}
-                  <span className="text-muted-foreground">
-                    {" "}
-                    — {t.current} {dayWord(t.current)}
-                    {t.savedToday ? "" : " ⏳"}
-                  </span>
-                </p>
-              ))}
-            </div>
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
-}
+/** v33.55 — the dashboard used to carry a thinner COPY of the streak card.
+ *  It renders `StreakCard` itself now, so the two can only differ on purpose;
+ *  the side chips switch the dashboard LANE, which is what they mean here. */
+
 
 /** THE VPs' PLAN FOR THIS OGX LANE (v33.52) — straight off the planning
  *  sheet's own cells (OGV / OGTa+OGTe), this sprint and this month. It is the
@@ -1295,31 +1243,89 @@ function OgxLanePlan({
   fn: string;
   plan: NonNullable<OgxDashboardData["lanePlan"]>;
 }) {
-  const trio = (t: { applicants: number; accepted: number; approvals: number }) => (
-    <span className="flex flex-wrap gap-x-4 gap-y-0.5">
-      <span>Applicants <b className="text-foreground">{t.applicants}</b></span>
-      <span>Accepted <b className="text-foreground">{t.accepted}</b></span>
-      <span>Approvals <b className="text-foreground">{t.approvals}</b> 🏆</span>
-    </span>
-  );
-  return (
-    <Card className="rise-in rise-in-2">
-      <CardContent className="space-y-2 pt-4">
-        <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          <Target className="size-3.5" /> {fn} goal · the VPs&apos; planning sheet
+  /** one metric: achieved / planned, with a bar. A plan with no number in it
+   *  is not shown as 0% — it is shown as no target. */
+  const metric = (
+    label: string,
+    done: number,
+    target: number,
+    trophy = false
+  ) => {
+    const pct = target > 0 ? Math.min(1, done / target) : done > 0 ? 1 : 0;
+    return (
+      <div key={label} className="min-w-0 flex-1">
+        <p className="flex items-baseline justify-between gap-2 text-xs">
+          <span className="truncate text-muted-foreground">
+            {label} {trophy ? "🏆" : ""}
+          </span>
+          <span className="shrink-0 font-bold tabular-nums">
+            {done.toLocaleString("en")}
+            <span className="font-medium text-muted-foreground">
+              {" "}/ {target > 0 ? target.toLocaleString("en") : "—"}
+            </span>
+          </span>
         </p>
-        <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
-          <div className="rounded-lg border p-2.5">
-            <p className="mb-1 font-semibold text-foreground">{plan.sprintLabel}</p>
-            {trio(plan.sprint)}
-          </div>
-          <div className="rounded-lg border p-2.5">
-            <p className="mb-1 font-semibold text-foreground">{plan.monthLabel}</p>
-            {trio(plan.month)}
-          </div>
+        <div className="mt-1 h-1.5 w-full rounded-full bg-muted">
+          <div
+            className={cn(
+              "h-full rounded-full transition-all duration-700",
+              pct >= 1 ? "bg-success" : "bg-primary",
+              pct > 0 && "goal-fill goal-striped"
+            )}
+            style={{ width: `${pct * 100}%` }}
+          />
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    );
+  };
+
+  return (
+    <div className="grid gap-3 rise-in rise-in-2 lg:grid-cols-2">
+      {/* THE FUNCTION'S GOAL vs WHAT IT HAS DONE (v33.55). It used to print
+          the planning sheet's numbers and stop — a target with nothing beside
+          it, which is the one thing a goal card must not be. */}
+      <Card>
+        <CardContent className="space-y-3 pt-4">
+          <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <Target className="size-3.5" /> {fn} · the VPs&apos; plan vs achieved
+            <span className="ml-auto font-semibold text-foreground">{plan.monthLabel}</span>
+          </p>
+          <div className="flex flex-wrap gap-x-5 gap-y-3">
+            {metric("Applicants", plan.achieved.applicants, plan.month.applicants)}
+            {metric("Accepted", plan.achieved.accepted, plan.month.accepted)}
+            {metric("Approvals", plan.achieved.approvals, plan.month.approvals, true)}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            This sprint&apos;s share of it — {plan.sprintLabel}:{" "}
+            <b className="text-foreground">{plan.sprint.applicants}</b> applicants ·{" "}
+            <b className="text-foreground">{plan.sprint.accepted}</b> accepted ·{" "}
+            <b className="text-foreground">{plan.sprint.approvals}</b> approvals.
+            Achieved counts the sign-ups worked this month.
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* the viewer's OWN filed plan, same treatment (v33.55) */}
+      {plan.mine && plan.mineAchieved ? (
+        <Card>
+          <CardContent className="space-y-3 pt-4">
+            <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <Target className="size-3.5" /> My filed plan vs achieved
+              <span className="ml-auto font-semibold text-foreground">{plan.monthLabel}</span>
+            </p>
+            <div className="flex flex-wrap gap-x-5 gap-y-3">
+              {metric("Applicants", plan.mineAchieved.applicants, plan.mine.applicants)}
+              {metric("Accepted", plan.mineAchieved.accepted, plan.mine.accepted)}
+              {metric("Approvals", plan.mineAchieved.approvals, plan.mine.approvals, true)}
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Your own sign-ups only — the numbers you filed for this month are
+              your goals for it.
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
+    </div>
   );
 }
 

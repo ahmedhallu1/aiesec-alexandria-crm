@@ -3,27 +3,29 @@
 import { useEffect, useState } from "react";
 import { cairoToday } from "@/lib/types";
 
-/** 🏆 ROAD TO ACTIVATE (v33.54 — the road itself).
+/** 🏆 ROAD TO ACTIVATE (v33.55 — a road with a horizon, not two lines).
  *
  *  Activate is the national conference the whole LC is working towards, and
  *  the awards are decided by what this system already measures. So the banner
- *  is not a notice, it is a ROAD: asphalt, a moving centre line, the Blue Man
- *  travelling it, and the trophy waiting at the end. Where he stands is where
- *  the LC stands — the peak's first day is the start line, the conference is
- *  the finish.
+ *  is a ROAD IN PERSPECTIVE: it starts wide underfoot and narrows to a
+ *  vanishing point where the trophy waits, with milestone posts down the verge
+ *  and the Blue Man walking it. He stands where the LC stands — the peak's
+ *  first day is the start line, 3 December the finish — and he SHRINKS as he
+ *  gets further away, which is what makes it read as distance rather than as a
+ *  progress bar with a picture on it.
  *
- *  NO DISMISS BUTTON, by request: this is the LC's horizon, not a notification.
- *  It removes ITSELF the day after the conference — `ACTIVATE_DAY` is the only
- *  thing keeping it alive, so there is nothing to clean up and no EB action to
- *  remember. */
+ *  Everything is drawn: one inline SVG, one coordinate space, no layout maths
+ *  between the road and the traveller (the first cut positioned him with CSS
+ *  percentages against a separately-drawn road, which is why he floated).
+ *
+ *  NO DISMISS BUTTON, by request — this is the LC's horizon, not a
+ *  notification. It removes ITSELF the day after the conference. */
 export const ACTIVATE_DAY = "2026-12-03";
-/** the start line: the winter peak's first day, so the road measures the run
- *  the LC is actually on rather than an arbitrary countdown window */
+/** the start line: the winter peak's first day */
 const ROAD_START = "2026-08-01";
 
 const dayNum = (d: string) => Date.parse(`${d}T00:00:00Z`);
 
-/** Whole Cairo days to the conference (negative once it's past). */
 export function daysToActivate(today = cairoToday()): number {
   const a = dayNum(ACTIVATE_DAY);
   const t = dayNum(today);
@@ -40,9 +42,23 @@ export function roadProgress(today = cairoToday()): number {
   return Math.min(1, Math.max(0, (now - start) / (end - start)));
 }
 
+// ---- the road's geometry, in the SVG's own units --------------------------
+const W = 620;
+const H = 104;
+/** the vanishing point — where the road, the verges and the horizon meet */
+const VX = 566;
+const VY = 40;
+/** the near edge of the tarmac, at the left kerb */
+const NEAR_TOP = 44;
+const NEAR_BOTTOM = 100;
+
+/** the road's two edges at a given distance t (0 = here, 1 = the horizon) */
+const edgeTop = (t: number) => NEAR_TOP + (VY - NEAR_TOP) * t;
+const edgeBottom = (t: number) => NEAR_BOTTOM + (VY - NEAR_BOTTOM) * t;
+const atX = (t: number) => t * VX;
+
 export function ActivateStrip() {
-  // the CLIENT's own Cairo day — never a build-time constant baked into a
-  // cached page
+  // the CLIENT's own Cairo day — never a build-time constant in a cached page
   const [state, setState] = useState<{ days: number; progress: number } | null>(null);
   useEffect(() => {
     const today = cairoToday();
@@ -51,60 +67,138 @@ export function ActivateStrip() {
 
   if (!state || state.days < 0) return null;
   const { days, progress } = state;
-  const line =
-    days === 0 ? "TODAY" : days === 1 ? "TOMORROW" : `${days} DAYS`;
-  // keep the traveller clear of both kerbs so he never clips the trophy
-  const at = 6 + progress * 74;
+  const line = days === 0 ? "TODAY" : days === 1 ? "TOMORROW" : `${days} DAYS`;
+
+  // the traveller: further along = further away = smaller and higher up
+  const t = Math.min(0.88, progress);
+  const manH = 46 - 30 * t;
+  const manX = atX(t) - manH * 0.18;
+  const manY = edgeBottom(t) - manH * 0.86;
+
+  // centre-line dashes, spaced so they crowd towards the horizon like real ones
+  const dashes = Array.from({ length: 11 }, (_, i) => {
+    const a = Math.pow(i / 11, 0.72);
+    const b = Math.pow((i + 0.45) / 11, 0.72);
+    const midA = (edgeTop(a) + edgeBottom(a)) / 2;
+    const midB = (edgeTop(b) + edgeBottom(b)) / 2;
+    const wA = (edgeBottom(a) - edgeTop(a)) * 0.055;
+    const wB = (edgeBottom(b) - edgeTop(b)) * 0.055;
+    return `M ${atX(a)} ${midA - wA} L ${atX(b)} ${midB - wB} L ${atX(b)} ${midB + wB} L ${atX(a)} ${midA + wA} Z`;
+  });
+
+  // milestone posts down the near verge
+  const posts = [0.16, 0.38, 0.6, 0.79].map((p) => ({
+    x: atX(p),
+    y: edgeBottom(p),
+    h: 13 - 8 * p,
+    done: p <= progress,
+  }));
 
   return (
     <div className="activate-road relative overflow-hidden rounded-xl border border-white/10">
-      <div className="relative flex items-center gap-3 px-4 py-3 sm:px-6 sm:py-4">
+      <div className="relative flex items-center gap-4 px-4 py-3 sm:px-6">
         {/* the sign */}
-        <div className="min-w-0 shrink-0">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/55">
+        <div className="shrink-0">
+          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/55">
             Road to
           </p>
-          <p className="-mt-0.5 text-xl font-black uppercase leading-none tracking-tight text-white sm:text-2xl">
+          <p className="-mt-0.5 text-2xl font-black uppercase leading-none tracking-tight text-white sm:text-3xl">
             Activate
+          </p>
+          <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-white/45">
+            3 December 2026
           </p>
         </div>
 
         {/* the road */}
-        <div className="relative h-11 min-w-0 flex-1 sm:h-12">
-          <div className="activate-asphalt absolute inset-x-0 top-1/2 h-8 -translate-y-1/2 overflow-hidden rounded-md sm:h-9">
-            {/* kerbs */}
-            <div className="absolute inset-x-0 top-[3px] h-px bg-white/25" />
-            <div className="absolute inset-x-0 bottom-[3px] h-px bg-white/25" />
-            {/* the centre line, travelling */}
-            <div className="activate-lane absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2" />
-            {/* the finish */}
-            <div className="activate-finish absolute inset-y-0 right-0 w-7" />
-          </div>
-          {/* the traveller — where the LC is on the run */}
-          <div
-            className="absolute top-1/2 z-10 -translate-y-[68%] transition-[left] duration-1000"
-            style={{ left: `${at}%` }}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/brand/walk.png"
-              alt=""
-              className="h-10 w-auto drop-shadow-[0_2px_6px_rgba(0,0,0,0.7)] sm:h-11"
-            />
-          </div>
-          {/* the finish */}
-          <div className="absolute right-0 top-1/2 z-10 -translate-y-1/2 text-2xl sm:text-[26px]">
-            🏆
-          </div>
-        </div>
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          role="img"
+          aria-label={`The road to Activate — ${days} days to go`}
+          // WIDTH-DRIVEN, height follows (v33.55). Fixing the height instead
+          // letterboxed it: a 6:1 drawing inside a 12:1 box centres itself and
+          // leaves half the banner empty blue.
+          className="min-w-0 flex-1"
+          style={{ height: "auto", maxHeight: 112 }}
+          preserveAspectRatio="xMidYMax meet"
+        >
+          <defs>
+            <linearGradient id="rt-tarmac" x1="0" y1="1" x2="1" y2="0">
+              <stop offset="0" stopColor="#39434f" />
+              <stop offset="1" stopColor="#1a212b" />
+            </linearGradient>
+            <radialGradient id="rt-haze" cx="0.5" cy="0.5" r="0.5">
+              <stop offset="0" stopColor="#9ec9ff" stopOpacity="0.55" />
+              <stop offset="1" stopColor="#9ec9ff" stopOpacity="0" />
+            </radialGradient>
+          </defs>
+
+          {/* the light at the end of it */}
+          <ellipse cx={VX} cy={VY} rx="70" ry="26" fill="url(#rt-haze)" />
+
+          {/* verges */}
+          <path
+            d={`M 0 ${NEAR_BOTTOM} L ${VX} ${VY} L ${VX} ${VY + 3} L 0 ${H} Z`}
+            fill="#0b2f5e"
+          />
+          {/* the tarmac */}
+          <path
+            d={`M 0 ${NEAR_TOP} L ${VX} ${VY} L ${VX} ${VY} L 0 ${NEAR_BOTTOM} Z`}
+            fill="url(#rt-tarmac)"
+          />
+          {/* kerb lines */}
+          <path d={`M 0 ${NEAR_TOP + 3} L ${VX} ${VY}`} stroke="#ffffff" strokeOpacity="0.35" strokeWidth="1.5" fill="none" />
+          <path d={`M 0 ${NEAR_BOTTOM - 3} L ${VX} ${VY}`} stroke="#ffffff" strokeOpacity="0.35" strokeWidth="1.5" fill="none" />
+          {/* the centre line */}
+          {dashes.map((d, i) => (
+            <path key={i} d={d} fill="#ffd400" fillOpacity={0.92 - i * 0.05} />
+          ))}
+          {/* milestone posts — the ones behind us are lit */}
+          {posts.map((p, i) => (
+            <g key={i}>
+              <line
+                x1={p.x} y1={p.y} x2={p.x} y2={p.y - p.h}
+                stroke={p.done ? "#ffd400" : "#ffffff"}
+                strokeOpacity={p.done ? 0.9 : 0.3}
+                strokeWidth="1.6"
+              />
+              <circle cx={p.x} cy={p.y - p.h} r={p.done ? 2.4 : 1.8} fill={p.done ? "#ffd400" : "#ffffff"} fillOpacity={p.done ? 1 : 0.35} />
+            </g>
+          ))}
+          {/* the finish: a gate at the vanishing point */}
+          <g>
+            <line x1={VX - 16} y1={VY + 2} x2={VX - 16} y2={VY - 22} stroke="#ffffff" strokeOpacity="0.7" strokeWidth="1.6" />
+            <line x1={VX + 16} y1={VY + 2} x2={VX + 16} y2={VY - 22} stroke="#ffffff" strokeOpacity="0.7" strokeWidth="1.6" />
+            <rect x={VX - 17} y={VY - 26} width="34" height="7" fill="#ffffff" fillOpacity="0.85" />
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <rect
+                key={i}
+                x={VX - 17 + i * 5.7}
+                y={VY - 26 + (i % 2 ? 3.5 : 0)}
+                width="5.7"
+                height="3.5"
+                fill="#0A2540"
+                fillOpacity="0.85"
+              />
+            ))}
+          </g>
+          {/* the traveller */}
+          <image
+            href="/brand/walk.png"
+            x={manX}
+            y={manY}
+            height={manH}
+            style={{ filter: "drop-shadow(0 2px 5px rgba(0,0,0,.75))" }}
+          />
+        </svg>
 
         {/* the distance left */}
         <div className="shrink-0 text-right">
-          <p className="text-lg font-black leading-none tabular-nums text-white sm:text-xl">
+          <p className="text-xl font-black leading-none tabular-nums text-white sm:text-2xl">
             {line}
           </p>
-          <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/55">
-            {days === 0 ? "go get it" : "to go · 3 Dec"}
+          <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-white/55">
+            {days === 0 ? "go get it 🏆" : "to go"}
           </p>
         </div>
       </div>
