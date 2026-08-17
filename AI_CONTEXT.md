@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-17 · Version: v33.56
+Last updated: 2026-08-17 · Version: v33.57
 
 ---
 
@@ -628,6 +628,33 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-17 · v33.57** — **THE ROAD IS A ROAD, AND HE IS ON IT** (no
+  migration). Reported as "he walks BESIDE the road and the road is a wall" —
+  both true, and both had a real cause.
+  ① **THE WALL.** v33.55 drew one-point perspective: a wedge narrowing to a
+  vanishing point. In a banner nine times wider than it is tall that reads as
+  a surface seen edge-on — a wall — not one you look along. A **side view** is
+  the honest projection for a long, low band: tarmac across the whole width,
+  a dashed centre line, kerbs, verge posts that light up as they are passed,
+  and a chequered finish gate standing ON the road at the end.
+  ② **WHY HE FLOATED, AND IT WAS THE ASSET.** `walk.png` is a 356×200 APNG
+  whose figure occupies only the **middle fifth** of the canvas — x 39.3%–
+  59.6%, y 17.0%–83.5% — the rest being transparent room for the walk cycle.
+  Placing the IMAGE put that canvas where the person should be, so he sat high
+  and left of his own feet with the empty half of the frame overlapping the
+  road. The bounding box was measured out of the file's alpha channel and is
+  now three named constants; a `walker(cx, feetY, figH)` helper converts
+  "figure this tall, feet here" into the canvas box, so every placement is in
+  terms of the PERSON. Measured in the browser afterwards: tarmac 66→104,
+  **his feet at 99** — on the road, five units clear of the near kerb, with
+  his head rising above the far one exactly as a person standing on a road
+  seen side-on should.
+  ③ **AND IT FILLS THE BANNER.** With `meet`, a viewBox narrower in aspect
+  than its box gets letterboxed — the blue gutters either side of the road.
+  The height cap was what created that mismatch, so it is gone: the ratio
+  (800:112) now IS the banner's height, ~98px under a 700px slot, which is
+  enough road for the walker to have presence on.
 
 - **2026-08-17 · v33.56** — **THE PLAN CARDS FOLLOW THE FILTER BAR** (no
   migration). Every "planned vs achieved" on the dashboard is **MONTHLY** —
