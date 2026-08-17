@@ -2094,6 +2094,15 @@ export async function getDashboard(
   const workById = windowed
     ? await dashboardWindowWork(startIso, endIso, from, to)
     : null;
+  // IS THE "THIS SPRINT" CHIP ON? (v33.56) — the plan cards are monthly and
+  // only follow the sprint when the whole page does. An exact match on the
+  // current sprint's own bounds is the chip; a hand-typed range is not.
+  // ⚠️ Compared against the RAW filter, not the clamped window: the clamp
+  // pulls `to` back to today, so mid-sprint the chip's own end date would
+  // never match itself.
+  const sprintNow = sprintOf();
+  const sprintMode =
+    filters.from === sprintNow.start && filters.to === sprintNow.end;
   const workOf = (r: PipelineRow): RowWork => {
     if (!workById) return allTimeWork(r);
     const w = workById.get(r.id) ?? noWork();
@@ -2273,6 +2282,9 @@ export async function getDashboard(
   }
   if (planOwnerId && planScopeIds) {
     const month = monthOf();
+    // the filed plan is MONTHLY; the window it is judged against follows the
+    // bar (v33.56)
+    const win = sprintMode ? sprintNow : month;
     const { data: planRow } = await db()
       .from("tl_plans")
       .select("opens")
@@ -2285,8 +2297,8 @@ export async function getDashboard(
         "slots_igv, slots_igta, slots_igte, deal:deals!inner(created_at, account:accounts!inner(is_test))"
       )
       .in("member_id", [...planScopeIds])
-      .gte("deal.created_at", `${month.start}T00:00:00`)
-      .lte("deal.created_at", `${month.end}T23:59:59`);
+      .gte("deal.created_at", `${win.start}T00:00:00`)
+      .lte("deal.created_at", `${win.end}T23:59:59`);
     if (!viewer.testMode) q = q.eq("deal.account.is_test", false);
     const { data: monthAllocs } = await q;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2296,9 +2308,14 @@ export async function getDashboard(
     );
     teamPlan = {
       teamLeaderId: planOwnerId,
-      monthLabel: month.label,
-      plannedOpens: planRow?.opens ?? 0,
+      monthLabel: win.label,
+      // half a month, rounded up: a target you can't quite reach is worse
+      // than one you can just about beat
+      plannedOpens: sprintMode
+        ? Math.ceil((planRow?.opens ?? 0) / 2)
+        : planRow?.opens ?? 0,
       actualOpens,
+      mode: sprintMode ? "sprint" : "month",
     };
   }
 
@@ -2331,19 +2348,18 @@ export async function getDashboard(
           metric: m,
           value: sum(scope, keys, m),
         }));
+      // the bar decides: "This sprint" on → the sprint's own planned cells;
+      // anything else (including a custom range) → the month
+      const win = sprintMode ? sprint : month;
+      const scope = sprintMode ? "sprint" : "month";
       lanePlan = {
         lane,
-        sprint: {
-          label: sprint.label,
-          plannedOpens: sum("sprint", sprint.planKeys, "opens"),
-          actualOpens: act(sprintActual),
-          funnel: funnel("sprint", sprint.planKeys),
-        },
-        month: {
-          label: month.label,
-          plannedOpens: sum("month", month.planKeys, "opens"),
-          actualOpens: act(monthActual),
-          funnel: funnel("month", month.planKeys),
+        mode: sprintMode ? "sprint" : "month",
+        window: {
+          label: win.label,
+          plannedOpens: sum(scope, win.planKeys, "opens"),
+          actualOpens: act(sprintMode ? sprintActual : monthActual),
+          funnel: funnel(scope, win.planKeys),
         },
       };
     }
@@ -2365,8 +2381,13 @@ export async function getDashboard(
 /** The dashboard's per-lane plan snapshot (current sprint + current month). */
 export interface LanePlan {
   lane: string;
-  sprint: LanePlanWindow;
-  month: LanePlanWindow;
+  /** WHICH WINDOW THIS CARD IS ABOUT (v33.56). The dashboard's plan cards are
+   *  MONTHLY — that is the period an LC actually steers by — and they switch
+   *  to the sprint only while the "This sprint" filter is on. So the card no
+   *  longer carries a toggle of its own: it follows the bar above it, and the
+   *  numbers on screen always belong to the window the whole page is showing. */
+  mode: "month" | "sprint";
+  window: LanePlanWindow;
 }
 export interface LanePlanWindow {
   label: string;
@@ -2382,6 +2403,10 @@ export interface TeamPlan {
   monthLabel: string;
   plannedOpens: number;
   actualOpens: number;
+  /** v33.56 — an MM files a MONTH. With "This sprint" on, the card shows half
+   *  of it against the sprint's own opens: they never planned a sprint, so the
+   *  target is derived and the card says so rather than pretending. */
+  mode: "month" | "sprint";
 }
 
 // ------------------------------------------------------------------ manual archive
@@ -5593,16 +5618,19 @@ export interface OgxDashboardData {
    *  the sheet's own numbers for the current sprint and month (plan_cells
    *  carries OGV / OGTa / OGTe, imported in v21 and never read until now). */
   lanePlan: {
-    sprintLabel: string;
-    monthLabel: string;
-    sprint: { applicants: number; accepted: number; approvals: number };
-    month: { applicants: number; accepted: number; approvals: number };
+    /** which window this card is about — monthly unless "This sprint" is on
+     *  (v33.56). A VP's sprint numbers come from the planning sheet's own
+     *  sprint cells; an MM never filed a sprint, so theirs is HALF the month
+     *  they did file, and the card says so. */
+    mode: "month" | "sprint";
+    label: string;
+    plan: { applicants: number; accepted: number; approvals: number };
     /** WHAT THE FUNCTION ACTUALLY DID THIS MONTH (v33.55) — a plan on its own
      *  is a wish; the card exists to be compared. Counted on the sign-ups
      *  WORKED this month (assigned_at, falling back to the sign-up's own
      *  date), the same rule the period report and the peak filter use. */
     achieved: { applicants: number; accepted: number; approvals: number };
-    /** the viewer's OWN filed plan for this month, when they filed one */
+    /** the viewer's OWN plan for this window, when they filed one */
     mine: { applicants: number; accepted: number; approvals: number } | null;
     mineAchieved: { applicants: number; accepted: number; approvals: number } | null;
   } | null;
@@ -5888,6 +5916,8 @@ export async function ogxDashboard(
   {
     const planFns = fn === "OGV" ? ["OGV"] : ["OGTa", "OGTe"];
     const [cells, sprint] = [await listPlanCells(planFns), sprintOf()];
+    // the bar decides (v33.56): "This sprint" on → the sprint, else the month
+    const sprintMode = filters.from === sprint.start && filters.to === sprint.end;
     if (cells.length > 0) {
       const sum = (scope: string, keys: string[], metric: string) =>
         cells
@@ -5908,11 +5938,11 @@ export async function ogxDashboard(
         // "worked this month" = handed out this month (assigned_at), or the
         // sign-up's own date when nobody ever took it. The same rule as the
         // period report, so the two never disagree.
-        const monthStart = month.start;
-        const workedThisMonth = (r: OgxDashSignup) => {
+        const win = sprintMode ? sprint : month;
+        const workedInWindow = (r: OgxDashSignup) => {
           const day =
             signupDayIso(r.assigned_at) ?? signupDayIso(r.signed_up_at) ?? null;
-          return !!day && day >= monthStart && day <= month.end;
+          return !!day && day >= win.start && day <= win.end;
         };
         const tally = (only?: string) => {
           const out = { applicants: 0, accepted: 0, approvals: 0 };
@@ -5920,7 +5950,7 @@ export async function ogxDashboard(
             if (r.out_of_process) continue;
             if (only && r.assigned_to !== only) continue;
             if (!r.assigned_to) continue;
-            if (!workedThisMonth(r)) continue;
+            if (!workedInWindow(r)) continue;
             if (["Applied", "Accepted", "Approved"].includes(r.status ?? ""))
               out.applicants += 1;
             if (["Accepted", "Approved"].includes(r.status ?? "")) out.accepted += 1;
@@ -5930,17 +5960,18 @@ export async function ogxDashboard(
         };
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const own = ((planRows ?? []) as any[]).find((p) => p.member_id === viewer.id);
+        // an MM files a MONTH; half of it is the sprint's share (rounded up)
+        const halve = (n: number) => (sprintMode ? Math.ceil(n / 2) : n);
         lanePlan = {
-          sprintLabel: sprint.label,
-          monthLabel: month.label,
-          sprint: sprintPlan,
-          month: monthPlan,
+          mode: sprintMode ? "sprint" : "month",
+          label: win.label,
+          plan: sprintMode ? sprintPlan : monthPlan,
           achieved: tally(),
           mine: own
             ? {
-                applicants: own.applicants ?? 0,
-                accepted: own.accepted ?? 0,
-                approvals: own.approvals ?? 0,
+                applicants: halve(own.applicants ?? 0),
+                accepted: halve(own.accepted ?? 0),
+                approvals: halve(own.approvals ?? 0),
               }
             : null,
           mineAchieved: own ? tally(viewer.id) : null,

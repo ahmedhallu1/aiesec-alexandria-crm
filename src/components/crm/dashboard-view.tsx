@@ -1288,19 +1288,17 @@ function OgxLanePlan({
         <CardContent className="space-y-3 pt-4">
           <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
             <Target className="size-3.5" /> {fn} · the VPs&apos; plan vs achieved
-            <span className="ml-auto font-semibold text-foreground">{plan.monthLabel}</span>
+            <span className="ml-auto font-semibold text-foreground">{plan.label}</span>
           </p>
           <div className="flex flex-wrap gap-x-5 gap-y-3">
-            {metric("Applicants", plan.achieved.applicants, plan.month.applicants)}
-            {metric("Accepted", plan.achieved.accepted, plan.month.accepted)}
-            {metric("Approvals", plan.achieved.approvals, plan.month.approvals, true)}
+            {metric("Applicants", plan.achieved.applicants, plan.plan.applicants)}
+            {metric("Accepted", plan.achieved.accepted, plan.plan.accepted)}
+            {metric("Approvals", plan.achieved.approvals, plan.plan.approvals, true)}
           </div>
           <p className="text-[11px] text-muted-foreground">
-            This sprint&apos;s share of it — {plan.sprintLabel}:{" "}
-            <b className="text-foreground">{plan.sprint.applicants}</b> applicants ·{" "}
-            <b className="text-foreground">{plan.sprint.accepted}</b> accepted ·{" "}
-            <b className="text-foreground">{plan.sprint.approvals}</b> approvals.
-            Achieved counts the sign-ups worked this month.
+            {plan.mode === "sprint"
+              ? "The planning sheet's own sprint cells, against the sign-ups worked in this sprint."
+              : "The planning sheet's month, against the sign-ups worked in it."}
           </p>
         </CardContent>
       </Card>
@@ -1310,8 +1308,8 @@ function OgxLanePlan({
         <Card>
           <CardContent className="space-y-3 pt-4">
             <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-              <Target className="size-3.5" /> My filed plan vs achieved
-              <span className="ml-auto font-semibold text-foreground">{plan.monthLabel}</span>
+              <Target className="size-3.5" /> My plan vs achieved
+              <span className="ml-auto font-semibold text-foreground">{plan.label}</span>
             </p>
             <div className="flex flex-wrap gap-x-5 gap-y-3">
               {metric("Applicants", plan.mineAchieved.applicants, plan.mine.applicants)}
@@ -1319,8 +1317,9 @@ function OgxLanePlan({
               {metric("Approvals", plan.mineAchieved.approvals, plan.mine.approvals, true)}
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Your own sign-ups only — the numbers you filed for this month are
-              your goals for it.
+              {plan.mode === "sprint"
+                ? "Your own sign-ups. You file a MONTH, so the target here is half of it — the sprint's share."
+                : "Your own sign-ups — the numbers you filed for this month are your goals for it."}
             </p>
           </CardContent>
         </Card>
@@ -1566,6 +1565,12 @@ function TeamPlanCard({
                   {" "}/ {plan.plannedOpens.toLocaleString("en")} opens planned
                 </span>
               </p>
+            ) : null}
+            {plan.plannedOpens > 0 && plan.mode === "sprint" ? (
+              // v33.56 — nobody files a sprint plan: this is half the month
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                Half of the month you filed — the sprint&apos;s share.
+              </p>
             ) : (
               <p className="mt-1 text-sm text-muted-foreground">
                 {personal
@@ -1604,9 +1609,12 @@ function TeamPlanCard({
 /** The VP plan snapshot (from the planning sheet): current SPRINT by default,
  *  toggleable to the month. Opens = plan vs actually-raised; the consideration
  *  funnel numbers are the plan (consideration isn't tracked in Sodio yet). */
+/** THE LANE'S GOAL vs WHAT IT RAISED — for the window the PAGE is showing
+ *  (v33.56). The card used to carry its own sprint/month toggle, which could
+ *  disagree with the filter bar three inches above it. It follows the bar now:
+ *  monthly, unless "This sprint" is on. */
 function PlanCard({ plan }: { plan: LanePlan }) {
-  const [view, setView] = useState<"sprint" | "month">("sprint");
-  const win = view === "sprint" ? plan.sprint : plan.month;
+  const win = plan.window;
   const progress = win.plannedOpens > 0 ? Math.min(1, win.actualOpens / win.plannedOpens) : 0;
   const metricLabel: Record<string, string> = {
     applicants: "Applicants", accepted: "Accepted", approvals: "Approvals",
@@ -1626,20 +1634,9 @@ function PlanCard({ plan }: { plan: LanePlan }) {
               </span>
             </p>
           </div>
-          <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
-            {(["sprint", "month"] as const).map((k) => (
-              <button
-                key={k}
-                onClick={() => setView(k)}
-                className={cn(
-                  "rounded-md px-3 py-1 text-xs font-medium capitalize transition-colors",
-                  view === k ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"
-                )}
-              >
-                {k === "sprint" ? "This sprint" : "This month"}
-              </button>
-            ))}
-          </div>
+          <span className="shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
+            {plan.mode === "sprint" ? "This sprint" : "This month"}
+          </span>
         </div>
         <div className="mt-3 h-2 w-full rounded-full bg-muted">
           <div

@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-17 · Version: v33.55
+Last updated: 2026-08-17 · Version: v33.56
 
 ---
 
@@ -628,6 +628,31 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-17 · v33.56** — **THE PLAN CARDS FOLLOW THE FILTER BAR** (no
+  migration). Every "planned vs achieved" on the dashboard is **MONTHLY** —
+  the period an LC actually steers by — and switches to the sprint **only
+  while the "This sprint" chip is on**.
+  ① **THE LANE CARD LOST ITS OWN TOGGLE.** `PlanCard` carried a private
+  sprint/month switch three inches under a filter bar that has the same two
+  chips, so the card could contradict the page it sits on. `LanePlan` now
+  returns ONE window plus the `mode` it is in, and the card prints that mode
+  as a label instead of offering a second opinion.
+  ② **A VP SEES SPRINT CELLS; AN MM SEES HALF THEIR MONTH.** With the chip on,
+  the function's numbers come from the planning sheet's own `scope='sprint'`
+  cells — real filed targets. Nobody files a sprint plan at MM level, so a
+  Team Leader's `tl_plans` month and an OGX MM's `mm_plans` month are HALVED
+  (rounded up: a target you can't quite reach is worse than one you can just
+  about beat), and both cards say out loud that it is half the month rather
+  than presenting a derived number as a commitment.
+  ③ **ACHIEVED FOLLOWS THE SAME WINDOW** — team opens are read over the
+  sprint's own dates, and OGX's achieved counts the sign-ups worked in it.
+  ④ **THE CHIP IS DETECTED ON THE RAW FILTER**, not the clamped one. The
+  window is clamped to today (no work exists in the future), so mid-sprint the
+  chip's own end date would never have matched itself — and the ICX lane
+  silently stayed monthly while OGX switched. Verified in prod on 17 Aug:
+  IGV goes 15 planned / 6 raised (August) → **8 / 2** (Sprint 2), OGV goes
+  17·9·8 planned → **7·4·3**, both labelled "August · Sprint 2 (16–31)".
 
 - **2026-08-17 · v33.55** — **THE CORRECTIONS ON v33.52–54** (no migration; two
   prod data operations).
