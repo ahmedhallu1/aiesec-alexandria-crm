@@ -3675,13 +3675,43 @@ export function isPlanningMm(v: {
 }
 
 /** True when an eligible MM has not filled a single plan month yet. */
+/** ONCE THEY HAVE FILED, STOP ASKING THE DATABASE (v33.59).
+ *
+ *  The app layout calls `needsMmPlan` AND `needsTlPlan` before rendering ANY
+ *  page, so every MM in the LC paid two count queries per page view, forever,
+ *  to be told the same thing they were told yesterday: yes, they filed. The
+ *  hosting bill is made of exactly this kind of query.
+ *
+ *  Only the "they have filed" answer is remembered — never "they still need
+ *  to", so the redirect that makes a new MM file on day one is untouched and
+ *  can never be skipped by a stale cache. The TTL is there because plan rows
+ *  CAN be deleted (`pruneStalePlans` drops the plans of someone whose role
+ *  changed), and the redirect has to come back for them within the hour. */
+const PLAN_FILED_TTL_MS = 1_800_000;
+const planFiled = new Map<string, number>();
+
+async function hasFiledPlan(table: "mm_plans" | "tl_plans", memberId: string): Promise<boolean> {
+  const key = `${table}:${memberId}`;
+  const at = planFiled.get(key);
+  if (at !== undefined && Date.now() - at < PLAN_FILED_TTL_MS) return true;
+  const { count, error } = await db()
+    .from(table)
+    .select("id", { count: "exact", head: true })
+    .eq("member_id", memberId);
+  // an unreadable table is not evidence of anything — say "filed" so nobody is
+  // trapped in a redirect by a blip, exactly as `needsTlPlan` already did
+  if (error) return true;
+  const filed = (count ?? 0) > 0;
+  if (filed) {
+    if (planFiled.size > 200) planFiled.clear();
+    planFiled.set(key, Date.now());
+  }
+  return filed;
+}
+
 export async function needsMmPlan(v: Viewer): Promise<boolean> {
   if (!isPlanningMm(v)) return false;
-  const { count } = await db()
-    .from("mm_plans")
-    .select("id", { count: "exact", head: true })
-    .eq("member_id", v.id);
-  return (count ?? 0) === 0;
+  return !(await hasFiledPlan("mm_plans", v.id));
 }
 
 // ------------------------------------------------------- raising MM plans (v22)
@@ -3711,12 +3741,9 @@ export function isPlanningTl(v: {
 /** True when an eligible raising MM has not filed a single plan month yet. */
 export async function needsTlPlan(v: Viewer): Promise<boolean> {
   if (!isPlanningTl(v)) return false;
-  const { count, error } = await db()
-    .from("tl_plans")
-    .select("id", { count: "exact", head: true })
-    .eq("member_id", v.id);
-  if (error) return false; // pre-0018 grace: never lock anyone out
-  return (count ?? 0) === 0;
+  // pre-0018 grace (an unreadable table) is inside `hasFiledPlan`: it answers
+  // "filed", which lands here as "doesn't need to" — never lock anyone out
+  return !(await hasFiledPlan("tl_plans", v.id));
 }
 
 export interface TlPlanRow {

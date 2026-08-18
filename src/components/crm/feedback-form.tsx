@@ -17,6 +17,13 @@ import { adminWhatsAppLink, FEEDBACK_CATEGORIES } from "@/lib/types";
 import { WhatsAppIcon } from "./icons";
 import { FeedbackAttachments, type FeedbackAttachment } from "./feedback-attachments";
 
+/** What the CLOSED Type trigger says — see the note on the grid below. */
+const TYPE_SHORT: Record<"Bug" | "Enhancement" | "Other", string> = {
+  Bug: "🐞 Bug",
+  Enhancement: "✨ Enhancement",
+  Other: "💬 Other",
+};
+
 export function FeedbackForm({
   showInboxLink,
   frameless = false,
@@ -71,34 +78,51 @@ export function FeedbackForm({
 
   const body = (
     <>
-        {/* min-w-0 on the columns + w-full triggers (v33.38): a grid item's
-            min-width is auto, so the long "Enhancement — make it better" label
-            stretched its trigger INTO the second column — the two selects
-            rendered jammed against each other inside the dialog. */}
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="grid min-w-0 gap-2">
-            <Label>Type</Label>
-            <Select value={type} onValueChange={(v) => pickType(v as typeof type)}>
-              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Bug">🐞 Bug — something is broken</SelectItem>
-                <SelectItem value="Enhancement">✨ Enhancement — make it better</SelectItem>
-                <SelectItem value="Other">💬 Other</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid min-w-0 gap-2">
-            <Label>What kind exactly?</Label>
-            <Select value={category || undefined} onValueChange={setCategory}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={type === "Bug" ? "What's broken?" : "Pick a category…"} />
-              </SelectTrigger>
-              <SelectContent>
-                {categories.map((c) => (
-                  <SelectItem key={c} value={c}>{c}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        {/* THE TWO SELECTS FIT THEIR CONTAINER, NOT THE VIEWPORT (v33.59).
+            v33.38 put `min-w-0` on the two COLUMNS and `w-full` on the
+            triggers, and they still overlapped — reported with a screenshot of
+            the Type box lying across the one beside it. Two reasons, and the
+            old fix addressed neither:
+            ① `sm:grid-cols-2` asks the VIEWPORT, but this form also renders
+               inside a 512px dialog (the 🛠️ Report button). On a laptop that
+               meant two ~224px tracks holding a trigger whose content
+               ("✨ Enhancement — make it better") needs ~285px. `@container` +
+               `@md:` asks the CONTAINER instead, so the dialog gets one column
+               and the /feedback page keeps two.
+            ② A grid ITEM's automatic minimum size is its own min-content
+               width, which overrides `width: 100%` — `min-w-0` on the wrapper
+               never reached the trigger, so the trigger grew to fit its label
+               whatever the track said. It carries `min-w-0` itself now.
+            And the closed Type trigger shows a SHORT label: the descriptions
+            are there to help someone CHOOSE, which happens in the open list. */}
+        <div className="@container">
+          <div className="grid gap-4 @md:grid-cols-2">
+            <div className="grid min-w-0 gap-2">
+              <Label>Type</Label>
+              <Select value={type} onValueChange={(v) => pickType(v as typeof type)}>
+                <SelectTrigger className="w-full min-w-0">
+                  <SelectValue>{TYPE_SHORT[type]}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Bug">🐞 Bug — something is broken</SelectItem>
+                  <SelectItem value="Enhancement">✨ Enhancement — make it better</SelectItem>
+                  <SelectItem value="Other">💬 Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid min-w-0 gap-2">
+              <Label>What kind exactly?</Label>
+              <Select value={category || undefined} onValueChange={setCategory}>
+                <SelectTrigger className="w-full min-w-0">
+                  <SelectValue placeholder={type === "Bug" ? "What's broken?" : "Pick a category…"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map((c) => (
+                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
         <div className="grid gap-2">

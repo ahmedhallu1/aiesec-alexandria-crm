@@ -430,7 +430,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "p",
-    "md": "**Activate is AIESEC in Egypt's national conference.** Every LC in the country sends delegates to the same hall for a few days, and it closes with the awards — handed out **per aspect**, so raising, the OGX programmes, talent and the rest each have their own recognition. Every function in Alexandria has something of its own to win."
+    "md": "**Activate is AIESEC in Egypt's national conference.** Every LC in the country sends delegates to the same hall for a few days, and it closes with the awards — handed out **per aspect**: every function has its own award, and it doesn't stop at the functions, since there are awards for the LC as a whole and others besides. Whatever you work on, there is something there to win."
    },
    {
     "t": "callout",

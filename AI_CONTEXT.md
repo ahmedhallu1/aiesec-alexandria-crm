@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-18 · Version: v33.58
+Last updated: 2026-08-19 · Version: v33.59
 
 ---
 
@@ -569,7 +569,8 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | IR call-log filters | `IrCallFilters`/`irCallFilterOptions`/`listIrCalls` in data.ts · `IrCallsTab` in `consideration-view.tsx` |
 | Handing an IR call to another host | `reassignIrCall` in `actions.ts` · `irCallHandoverTargets` in `data.ts` · `HandOverCallDialog` in `consideration-view.tsx` · the three `irCallHandedTo*`/`irCallHostChanged` templates |
 | The Activate banner (brief, road, walker) | `src/components/crm/activate-strip.tsx` (`ACTIVATE_DAY`, `roadDays`, `monthPosts`, `LINKS`) |
-| Link prefetching / Vercel invocations | `prefetch={false}` on every `<Link>` (see the note at the sidebar nav in `app-shell.tsx`) · the proxy matcher in `src/proxy.ts` |
+| Link prefetching / Vercel invocations | `prefetch={false}` on every `<Link>` (see the note at the sidebar nav in `app-shell.tsx`) · the proxy matcher in `src/proxy.ts` · pinned by `tests/link-prefetch.test.ts` |
+| What EVERY page view costs (per-request reads) | `src/app/(app)/layout.tsx` · the module-memory cache in `src/server/function-settings.ts` · `hasFiledPlan` in `data.ts` |
 
 ---
 
@@ -631,6 +632,103 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-19 · v33.59** — **THE CORRECTIONS ON v33.58, AND THE HOSTING BILL
+  MEASURED PROPERLY** (no migration).
+  ① **THE AWARDS LINE SAYS LESS AND MEANS MORE.** v33.58's brief listed the
+  aspects by name — "raising and partnerships, the OGX programmes, talent,
+  marketing, the whole board" — which is a list that can be wrong, dates
+  badly, and buries the only two facts a member needs: **every function has
+  its own award**, and it doesn't stop at the functions (the LC as a whole, and
+  others besides). Same point in a third of the words, and nothing in it can go
+  stale. Same wording in the Help centre article, which had inherited the list.
+  ② **THE TWO SELECTS ON THE REPORT FORM WERE LYING ON TOP OF EACH OTHER**
+  (reported with a screenshot; v33.38 had already "fixed" this once). Two
+  mechanisms, and the old fix addressed neither:
+  **`sm:grid-cols-2` asks the VIEWPORT**, but this form also renders inside a
+  512px dialog — so on a laptop two 223px tracks were handed a trigger whose
+  label ("✨ Enhancement — make it better") needs 254px. And **a grid item's
+  automatic minimum size is its own min-content width, which overrides
+  `width: 100%`** — so `min-w-0` on the wrapper never reached the trigger and
+  it grew to fit its text whatever the track said. Now: `@container` + `@md:`
+  so the split follows the CONTAINER, `min-w-0` on the triggers themselves, and
+  a SHORT label on the closed Type trigger (the descriptions are there to help
+  someone CHOOSE, which happens in the open list). **Measured in a browser
+  before and after**, at the dialog's real width: the old markup put a 254px
+  trigger in a 223px track **overlapping the next one by 15px** — the
+  screenshot, reproduced exactly — and the fix gives 223 + 223 with the 16px
+  gap intact. At 375px it is one column, zero overflowing elements,
+  `scrollWidth` 375; at the /feedback page's 672px card it is 303 + 303.
+  ③ **The WhatsApp number is confirmed as 01099019374** (`ADMIN_WHATSAPP` =
+  `201099019374`, one constant read by the report form and the profile's
+  "wrong info?" link). Worth writing down because the request carried a
+  13-digit variant — an Egyptian mobile is 10 digits after the country code,
+  so a 13-digit `+20…` cannot dial. The verified number stands.
+  ④ **THE VERCEL AUDIT, WITH THE REAL NUMBERS.** From the dashboard: **Fluid
+  Active CPU 7h45m / 4h — the one resource actually EXCEEDED** (194%) ·
+  Function Invocations 761K / 1M (76%) · Edge Requests 502K / 1M · everything
+  else under 25% (Fast Origin Transfer 3.33/10 GB, Provisioned Memory
+  76.5/360 GB-hrs, Edge CPU 1m57s/1h, ISR reads 23K/1M, image optimisation
+  effectively unused). ⚠️ The usage API is **Pro-only** (`/v1/usage` returns
+  `plan_upgrade_required`), and Hobby retains about an hour of runtime logs, so
+  there is no per-route invocation series to read — the dashboard figures are
+  the record, and the mechanisms below are established from the code and from
+  what the retained logs do show.
+  **THE CAUSE IS THE ONE v33.58 FOUND, AND THE COUNTER IS A LAGGING
+  INDICATOR.** `<Link>` prefetching fired a dozen RSC requests per page view,
+  each a full server render — which is why CPU and invocations moved together.
+  That fix went live on 18 Aug (`v33.58.1`), so **17 of the 19 days in that
+  761K accrued before it**. The retained logs agree: the distribution is now
+  human-shaped (/accounts 32, /login 19, /consideration 9 in the window)
+  rather than the flat one v33.58 measured, and source counts are middleware
+  51 : function 72, where they were 234 : 232.
+  **THREE READS EVERY PAGE VIEW PAID FOR, NOW GONE:**
+  · **the function-settings map** — the most-read thing in the system (every
+  request builds a Viewer, and it decides what a Member may see) sat in
+  `unstable_cache`, which `refresh()` drops on **every write in the LC**
+  (`revalidatePath("/", "layout")` is Next's documented "revalidate ALL data").
+  With ~94 write paths and forty members working it was evicted continuously:
+  the cache existed and never hit. Moved to module memory, out of
+  `revalidatePath`'s reach — the same fix v33.46 applied to the dashboard, in a
+  much hotter path. A failed read is never cached (it resolves to defaults, and
+  holding that for a minute would close every opened function to its members
+  over one blip);
+  · **the Google-grant check** — "one cheap read" is true of one read and false
+  of one read on every page view of every member for a month, and it asked for
+  a column the Viewer already carries (`getViewerByEmail` selects `*` from the
+  same row in the same request). Same value, no round trip;
+  · **the two plan-count queries** — the layout asks `needsMmPlan` AND
+  `needsTlPlan` before rendering any page, so every MM paid two counts per page
+  view to be told what they were told yesterday. Only the "has filed" answer is
+  remembered, never "still needs to", so the day-one redirect is untouched and
+  cannot be skipped by a stale cache; a 30-minute TTL keeps it honest for
+  `pruneStalePlans`, which can delete plan rows.
+  **AND THE FIX IS PINNED**: `tests/link-prefetch.test.ts` fails if any
+  `<Link>` loses `prefetch={false}` — 30 one-word props across 20 files is
+  exactly the kind of thing that comes back one careless link at a time. It
+  strips comments before scanning (app-shell's own note about prefetching
+  contains the words `<Link>`) and reads whole opening tags, because the prop
+  usually sits three lines below the `<Link`, where a line-by-line grep misses
+  it — my first version of this check produced a false positive for that reason.
+  **MEASURED AND DISMISSED**, so nobody re-hunts them: the crons (only **6
+  daily** jobs still on Vercel — the imports and visit reminders are on GitHub
+  Actions since v33.46; confirmed against `cron.job`) · client polling (none —
+  `AutoRefresh` is focus-driven with a 10-minute floor, and every `setInterval`
+  in the app is a local clock tick) · uploaded avatars in the Viewer's
+  `select("*")` (5 members, largest 33KB, 124KB in total) · the help centre's
+  237KB of articles (already a client-bundle import, never in the RSC payload).
+  **WHAT CANNOT BE MOVED, said plainly**: the unused allowances are unused
+  because **nothing here is cacheable at the CDN** — every page is per-member
+  and auth-gated, so ISR reads and image optimisation have nothing to absorb.
+  ⚠️ **And the arithmetic is worth facing**: 4 CPU-hours a month is ~14,400
+  CPU-seconds; seventy people each opening a few dozen dynamic, database-backed
+  pages a day will spend that whether or not a single line is wasteful. The
+  cuts above are real and they buy headroom — the next lever, deliberately NOT
+  pulled here, is the **111 client `router.refresh()` calls that follow server
+  actions which already called `revalidatePath`**: each one is a second full
+  render of the same page. Removing them is a ~111-site change that trades a
+  metered bill for staleness bugs on the floor, and it wants its own release
+  with its own verification, not the tail of this one.
 
 - **2026-08-18 · v33.58** — **ACTIVATE OPENS, A CALL CHANGES HANDS, AND THE
   HOSTING BILL GETS ITS ROOT CAUSE** (no migration).

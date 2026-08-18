@@ -3701,10 +3701,14 @@ export async function saveFunctionSettings(
   if (error) return fail(error.message);
 
   // The settings map is cached for a minute on every request that builds a
-  // Viewer. `updateTag` (not revalidateTag) is the read-your-own-writes one in
-  // Next 16 — a leader flipping a switch must not be served the stale value
-  // they just changed while it revalidates in the background.
+  // Viewer. Since v33.59 that cache is module memory (see the note in
+  // function-settings.ts — `revalidatePath` was evicting the `unstable_cache`
+  // entry on every write in the LC, so it never hit), so the bust is a direct
+  // call. `updateTag` stays for the tag's other readers and because it is the
+  // read-your-own-writes one in Next 16.
   const { updateTag } = await import("next/cache");
+  const { bustFunctionSettings } = await import("./function-settings");
+  bustFunctionSettings();
   updateTag(FUNCTION_SETTINGS_TAG);
   await logAudit(viewer.id, "function_settings_save", "function", fn, { settings: merged });
   refresh();

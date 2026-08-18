@@ -104,17 +104,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   // THE GRANT NUDGE (v33.40): an AIESEC email exists on the row but no Google
   // grant does — the member signed in before the address landed and has been
-  // working without calendar/Gmail powers ever since, silently. One cheap
-  // read; never in a test view (the grant is the real person's to give).
-  let needsGoogleGrant = false;
-  if (viewer.email && !viewer.impersonated) {
-    const { data: row } = await db()
-      .from("members")
-      .select("google_refresh_token")
-      .eq("id", viewer.id)
-      .maybeSingle<{ google_refresh_token: string | null }>();
-    needsGoogleGrant = !!row && !row.google_refresh_token;
-  }
+  // working without calendar/Gmail powers ever since, silently. Never in a
+  // test view (the grant is the real person's to give).
+  //
+  // v33.59 — THE QUERY IS GONE. This was "one cheap read", which is true of
+  // one read and false of one read on every page view of every member for a
+  // month: it was the app's second-hottest query. And it asked for a column
+  // the Viewer already carries — `getViewerByEmail` selects `*` from the same
+  // row, in the same request, a few lines above. Same value, no round trip.
+  const needsGoogleGrant =
+    !!viewer.email && !viewer.impersonated && !viewer.google_refresh_token;
 
   // the test-view pool: `listViewAsTargets` already gates on the admin
   // capability and returns [] for everyone else (v33.42)

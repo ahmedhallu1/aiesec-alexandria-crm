@@ -173,10 +173,9 @@ function ActivateBrief({ days, day, total }: { days: number; day: number; total:
       <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
         <p className="font-semibold">🏆 The awards are handed out per aspect.</p>
         <p className="mt-1 text-muted-foreground">
-          Not one trophy for one LC — recognition across the functions: raising
-          and partnerships, the OGX programmes, talent, marketing, the whole
-          board. Which means <b>every function in Alexandria has its own thing
-          to win</b>, and no one is a spectator in somebody else&apos;s award.
+          <b>Every function has its own award</b> — and it doesn&apos;t stop at
+          the functions: there are awards for the LC as a whole, and others
+          besides. Whatever you work on, there is something there to win.
         </p>
       </div>
 
