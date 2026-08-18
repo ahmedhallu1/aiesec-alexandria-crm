@@ -45,7 +45,7 @@ function md(text: string): React.ReactNode[] {
       const href = m[2];
       out.push(
         href.startsWith("/") ? (
-          <Link key={k++} href={href} className="font-medium text-primary hover:underline">
+          <Link prefetch={false} key={k++} href={href} className="font-medium text-primary hover:underline">
             {m[1]}
           </Link>
         ) : (
@@ -448,7 +448,7 @@ export function HelpView({ viewer }: { viewer: HelpViewer }) {
         ) : null}
 
         <p className="pb-4 text-center text-xs text-muted-foreground">
-          Wrong or unclear? Say it on <Link href="/feedback" className="font-medium text-primary hover:underline">Feedback</Link> — it reaches the IM team directly. 💙
+          Wrong or unclear? Say it on <Link prefetch={false} href="/feedback" className="font-medium text-primary hover:underline">Feedback</Link> — it reaches the IM team directly. 💙
         </p>
       </div>
     );
@@ -581,7 +581,7 @@ export function HelpView({ viewer }: { viewer: HelpViewer }) {
           <p className="pb-4 text-center text-xs text-muted-foreground">
             Sodio Help · {HELP_VERSION} — updated with every release. Something
             wrong or missing? Tell us on{" "}
-            <Link href="/feedback" className="font-medium text-primary hover:underline">Feedback</Link>. 💙
+            <Link prefetch={false} href="/feedback" className="font-medium text-primary hover:underline">Feedback</Link>. 💙
           </p>
         </>
       ) : null}

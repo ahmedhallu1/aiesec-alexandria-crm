@@ -12,11 +12,11 @@ export const metadata = {
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; fresh?: string }>;
 }) {
   const session = await auth();
   if (session?.user) redirect("/");
-  const { error } = await searchParams;
+  const { error, fresh } = await searchParams;
 
   return (
     <main className="aurora relative flex min-h-dvh items-start justify-center overflow-hidden bg-sidebar p-4 sm:items-center">
@@ -33,6 +33,18 @@ export default async function LoginPage({
           </h1>
           <p className="mt-1 text-sm text-muted-foreground"><span className="font-bold text-foreground">Sodio</span></p>
         </div>
+
+        {/* JUST SET A PASSWORD (v33.58) — onboarding ends the session on
+            purpose so the new password gets used once, immediately. Without
+            this line that sign-out reads as being kicked out. No email or
+            phone in the URL: a flag says what happened, never who. */}
+        {fresh && !error ? (
+          <div className="mb-6 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm font-medium text-emerald-900 dark:border-emerald-900/60 dark:bg-emerald-950/60 dark:text-emerald-100">
+            <b>Your password is set 🔐</b> Sign in with it now — once you&apos;ve
+            typed it yourself you&apos;ll remember it, and you&apos;re straight
+            into Sodio.
+          </div>
+        ) : null}
 
         {error ? (
           <div className="mb-6 rounded-lg border border-red-300 bg-red-50 p-3 text-sm font-medium text-red-900 dark:border-red-900/60 dark:bg-red-950/60 dark:text-red-100">

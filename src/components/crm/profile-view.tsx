@@ -16,7 +16,7 @@ import { Switch } from "@/components/ui/switch";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { ADMIN_EMAIL, cleanPhone, FUNCTION_COLORS, normalizePhone, PHONE_RE } from "@/lib/types";
+import { ADMIN_EMAIL, adminWhatsAppLink, cleanPhone, FUNCTION_COLORS, normalizePhone, PHONE_RE } from "@/lib/types";
 import type { MmPlanData, PersonCard, TlPlanData } from "@/server/data";
 import { TlPlanForm } from "./tl-plan-form";
 import { MmPlanForm } from "./mm-plan-form";
@@ -268,9 +268,9 @@ export function ProfileView({
               <ReadRow label="Manager" value={member.stakeholderName} />
             ) : null}
             <a
-              href={`https://wa.me/201099019374?text=${encodeURIComponent(
+              href={adminWhatsAppLink(
                 `Hey! My Sodio profile info needs a fix — ${member.name}`
-              )}`}
+              )}
               target="_blank"
               rel="noreferrer"
               className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
@@ -514,7 +514,7 @@ export function ProfileView({
             Sodio better. 💙
           </p>
           <Button asChild variant="outline" size="sm">
-            <Link href="/feedback">Give feedback</Link>
+            <Link prefetch={false} href="/feedback">Give feedback</Link>
           </Button>
         </CardContent>
       </Card>

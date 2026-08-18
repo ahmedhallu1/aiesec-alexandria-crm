@@ -118,7 +118,7 @@ function NoAccess() {
         work. If you think it should be yours, ask your MM or VP to reassign it —
         they can hand it over in one click.
       </p>
-      <Link
+      <Link prefetch={false}
         href="/accounts"
         className="mt-6 inline-flex items-center rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
       >

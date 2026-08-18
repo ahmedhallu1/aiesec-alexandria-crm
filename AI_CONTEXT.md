@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-17 · Version: v33.57
+Last updated: 2026-08-18 · Version: v33.58
 
 ---
 
@@ -567,6 +567,9 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | Fixing an IR's email (invite swap/rebuild) | `updateIrBookerEmail` in `actions.ts` · `swapIrCallAttendee` in `google/calendar.ts` |
 | Consideration lane filters | `ConsiderationFilters` in `considerationStats` (data.ts) · the shared filter bar in `dashboard-view.tsx` |
 | IR call-log filters | `IrCallFilters`/`irCallFilterOptions`/`listIrCalls` in data.ts · `IrCallsTab` in `consideration-view.tsx` |
+| Handing an IR call to another host | `reassignIrCall` in `actions.ts` · `irCallHandoverTargets` in `data.ts` · `HandOverCallDialog` in `consideration-view.tsx` · the three `irCallHandedTo*`/`irCallHostChanged` templates |
+| The Activate banner (brief, road, walker) | `src/components/crm/activate-strip.tsx` (`ACTIVATE_DAY`, `roadDays`, `monthPosts`, `LINKS`) |
+| Link prefetching / Vercel invocations | `prefetch={false}` on every `<Link>` (see the note at the sidebar nav in `app-shell.tsx`) · the proxy matcher in `src/proxy.ts` |
 
 ---
 
@@ -628,6 +631,98 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-18 · v33.58** — **ACTIVATE OPENS, A CALL CHANGES HANDS, AND THE
+  HOSTING BILL GETS ITS ROOT CAUSE** (no migration).
+  ① **THE BANNER ANSWERS THE QUESTION IT WAS ASKING.** The Road to Activate
+  has counted down since v33.52 to a conference half the floor has never been
+  to — for them "3 December" was a date on a blue bar, which is the opposite
+  of the point. The whole strip is a button now, and it opens the brief:
+  Activate is **AIESEC in Egypt's national conference**, every LC sends
+  delegates, and it closes with the awards — handed out **per aspect**, so
+  raising, the OGX programmes and talent each have their own and nobody is a
+  spectator in somebody else's. And the honest line between that and the work:
+  the awards go to what an LC actually DELIVERED over the peak, which is
+  exactly what this system counts every day. It links the conference's own
+  Instagram (@__activate25 · @activate__24 · @22_activate) and the shared
+  Drive folder, because a member should be able to look rather than be told.
+  ② **AND HE WALKS BY DAYS, VISIBLY.** His x has always been the elapsed
+  fraction — a genuine day-by-day advance that at ~5px a day nobody could
+  see, which reads as a picture that never moves. So the road SAYS it:
+  "day 18 of 124" beside the countdown, and the four arbitrary verge posts
+  became the real **months** of the run-up (SEP · OCT · NOV), derived from the
+  two dates and lighting up as they are passed. Walking past SEP is a step you
+  notice; walking past 0.4 is not.
+  ③ **🤝 AN IR CALL CAN BE HANDED TO SOMEBODY ELSE** (MMs and above). A call
+  the host can't make had two exits and both cost the LC something: cancel it
+  on the IR, or ask a partner entity abroad to redo their booking because of
+  our rota. The third exit is usually the right one — **same time, new host**.
+  `reassignIrCall` moves all of it, not just the row: the owner (so it counts
+  for the new host on every board), a fresh calendar event on THEIR calendar
+  — or the IM mailbox when they have no Google grant, the v33.19 tier-2 path —
+  with the IR invited, then the old event withdrawn (new first, delete second:
+  the other order leaves the IR holding nothing if the rebuild fails). The IR
+  is emailed in **their own clock** with the new Meet link, their manage token
+  unchanged — so rescheduling from it now reads the new host's availability,
+  which is right. Both members get a bell and a mail: one gains a commitment,
+  the other is released from one. **What deliberately does NOT move:** the
+  GV/GT tag — that is the conversation's subject, snapshotted at booking
+  (v33.23), and rewriting it would silently move history between two floors.
+  Refusals that matter: a target who already has an overlapping call is named
+  (real intervals, not just the exact-slot unique index), and an IR address
+  already flagged as bounced is **not** written into — the caller is told the
+  IR has not heard, the v33.48 rule.
+  ④ **SIGN-UPS OPEN ON THE NEWEST HAND-OUT.** Every assigned view sorted by
+  `signed_up_at` — the day the person filled the form, which for OGT is often
+  months before anybody was given them (their newest tracker row is dated
+  10 May). So a sign-up handed to you this morning landed wherever its form
+  date put it, frequently pages deep: the one row you came for was the hardest
+  to find. Mine · My team · All · Referrals now open on **`assigned_at`,
+  newest first**; the pool and the CIC queue keep the sign-up date, because
+  nothing in them has been assigned and the column would rank nothing. The
+  Assigned column became sortable and the header arrow follows the effective
+  sort, so it can't claim nothing is sorted while something plainly is.
+  ⑤ **THE FIRST PASSWORD PROVES ITSELF.** Onboarding is the one moment a
+  member invents a password — and they were then carried into the app on the
+  Google session they arrived with, so the first time they were ever asked to
+  type it was days later, cold. Setting it now **ends the session** and lands
+  them on /login with a line saying why; they sign in with what they just
+  chose. It is the standard confirm-by-use pattern: it cements the password,
+  and it surfaces a wrong assumption in ten seconds rather than next week.
+  (A password CHANGE from the profile deliberately doesn't do this — they just
+  proved they knew the current one.)
+  ⑥ **REPORTING A PROBLEM CAN BE A CONVERSATION.** The system-feedback form
+  gained **"Or WhatsApp me directly"** beside Send feedback, carrying the page
+  the reporter was on. The form stays the right door when it can wait and the
+  detail matters — it keeps the type, the category and the screenshots, and it
+  can't get lost in a chat. WhatsApp is for being blocked right now. The
+  number lives in ONE place at last (`ADMIN_WHATSAPP` in types.ts); the
+  profile's "wrong info?" link reads the same constant.
+  ⑦ **THE VERCEL INVOCATIONS, ROOT-CAUSED AND MEASURED.** The project sat past
+  75% of the Hobby function-invocation allowance, and the crons were not it —
+  only six daily jobs are still scheduled (the v33.46 pg_cron twins are gone,
+  and both GitHub Actions workflows run green). The cause was **`<Link>`
+  prefetching**: Next prefetches every link that ENTERS THE VIEWPORT in
+  production, and the sidebar puts a dozen on screen on every page. So one
+  page view quietly fired a dozen RSC requests for routes nobody asked for.
+  Two independent confirmations: the production logs group by path into a
+  **flat distribution** — /planning, /lc-feedback and /emails each hit about
+  as often as /dashboard, which is not how anybody uses this app — and they
+  group by source into **middleware 234 : function 232**, i.e. every request
+  costs a proxy invocation on top of itself. Then it was measured directly: a
+  throwaway page in a REAL production build, 12 links with the default and 12
+  with `prefetch={false}`, one load — **12 requests versus 0** (24 RSC
+  requests in total, because each prefetch was redirected and followed).
+  Fixed: `prefetch={false}` on **all 30** `<Link>`s in the app, and the two
+  metadata routes (`icon.png`, `apple-icon.png`) excluded from the proxy
+  matcher, which was waking an auth check to decide whether a stranger may see
+  a favicon. **And it costs nothing in UX**: every route here is dynamic and
+  auth-gated, so "auto" prefetch only ever fetched the shell down to the
+  nearest `loading.tsx` — a skeleton the member sees on click regardless. We
+  were paying a full server round-trip per link to pre-render a spinner.
+  ⚠️ The exact usage numbers could not be read programmatically — Vercel's
+  `/v1/usage` API is Pro-only — so the percentages on the dashboard are the
+  user's to watch; what is measured here is the mechanism and its size.
 
 - **2026-08-17 · v33.57** — **THE ROAD IS A ROAD, AND HE IS ON IT** (no
   migration). Reported as "he walks BESIDE the road and the road is a wall" —

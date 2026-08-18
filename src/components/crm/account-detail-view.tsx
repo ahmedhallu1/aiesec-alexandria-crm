@@ -145,7 +145,7 @@ export function AccountDetailView({
           you were returned to the top of 1,300 rows having lost your place.
           The list remembers its own query (see `rememberAccountsQuery`), and
           this returns to exactly it. */}
-      <Link
+      <Link prefetch={false}
         href={backHref}
         className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >

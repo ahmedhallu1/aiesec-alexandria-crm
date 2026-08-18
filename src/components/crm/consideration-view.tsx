@@ -7,7 +7,7 @@ import {
   CalendarClock, Check, ChevronDown, ClipboardCheck, Copy, ExternalLink,
   Building2, FileText, Globe2, Handshake, History, ImagePlus, Link2, Loader2, Mail,
   MessageSquare, Pencil, Phone, Plus, RotateCcw, Send,
-  Search, Settings2, Sparkles, Trash2, Upload, UserRound, Video, X,
+  Search, Settings2, Sparkles, Trash2, Upload, UserRound, UserRoundPlus, Video, X,
 } from "lucide-react";
 import {
   addPartnerLc, addPartnerLcComment, cancelIrCall, completeIrCall, confirmCvUpload,
@@ -17,7 +17,7 @@ import {
   previewIgtExpectationMail,
   assignLcPartnership, clearLcPartnershipTarget,
   recordIrCall, recordLcPartnership, requestCvUpload, sendIgtExpectationMail,
-  requestIrReschedule, rerunCvExtraction, saveIrBookingSettings,
+  reassignIrCall, requestIrReschedule, rerunCvExtraction, saveIrBookingSettings,
   updateCvFields, updateIrBookerEmail, updatePartnerLc,
 } from "@/server/actions";
 import type {
@@ -156,6 +156,8 @@ interface ViewerInfo {
   canManageLcs: boolean;
   /** MMs and above hand out 🎯 partnership targets (v33.38) */
   canAssignPartnerships: boolean;
+  /** MMs and above may hand a booked IR call to another host (v33.58) */
+  canHandOverCalls: boolean;
   /** the record form's product default — the viewer's own side, when single */
   defaultProduct: "GV" | "GT" | null;
 }
@@ -2057,6 +2059,7 @@ export function ConsiderationView({
   tab, lcs, calls, cvs, q, viewer, booking, origin, highlightLc,
   callFilters, callOptions,
   partnershipTargets = [],
+  handoverTargets = [],
 }: {
   tab: "calls" | "cvs" | "expectation" | "lcs";
   /** ?lc=<id> — the LC the log linked to, scrolled to and outlined */
@@ -2075,6 +2078,8 @@ export function ConsiderationView({
   origin: string;
   /** who the viewer may hand a 🎯 partnership target to (v33.38) */
   partnershipTargets?: PartnershipTarget[];
+  /** who a booked IR call may be handed to (v33.58) — the consideration crew */
+  handoverTargets?: PartnershipTarget[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -2180,6 +2185,7 @@ export function ConsiderationView({
             viewer={viewer}
             booking={booking}
             origin={origin}
+            handoverTargets={handoverTargets}
             filters={callFilters}
             filterOptions={callOptions}
             onFilter={(patch) =>
@@ -2974,7 +2980,10 @@ const CV_SORTERS: Record<string, (c: CvRow) => string | number | null> = {
 function IrCallsTab({
   data, lcs, onLcCreated, goPage, viewer, booking, origin,
   pageSize, pageSizeOptions, onPageSize, onOpenLc, filters, filterOptions, onFilter,
+  handoverTargets,
 }: {
+  /** who this call could be handed to instead (v33.58) */
+  handoverTargets: PartnershipTarget[];
   pageSize: number;
   pageSizeOptions: number[];
   onPageSize: (n: number) => void;
@@ -2994,6 +3003,8 @@ function IrCallsTab({
   const [completing, setCompleting] = useState<IrCallRow | null>(null);
   const [cancelling, setCancelling] = useState<IrCallRow | null>(null);
   const [rescheduling, setRescheduling] = useState<IrCallRow | null>(null);
+  // 🤝 v33.58 — same time, different host
+  const [handingOver, setHandingOver] = useState<IrCallRow | null>(null);
   // EVERY CALL OPENS (v33.29 part 2): click a scheduled row or a log row for
   // the whole story on one card — who, when (both clocks), why, links, history
   const [detail, setDetail] = useState<IrCallRow | null>(null);
@@ -3579,6 +3590,19 @@ function IrCallsTab({
                         </Button>
                       </Hint>
                     ) : null}
+                    {/* 🤝 HAND IT ON RATHER THAN CANCEL IT (v33.58). The two
+                        buttons beside this one both cost the LC the call —
+                        cancelling loses it, "reschedule" makes an entity
+                        abroad redo work because of our rota. Keeping the time
+                        and changing the host usually loses nobody anything,
+                        so it sits FIRST, before the two that do. */}
+                    {viewer.canHandOverCalls && handoverTargets.length > 0 ? (
+                      <Hint label="Can't make it? Give this call to someone else — same time, new host">
+                        <Button variant="outline" size="sm" onClick={() => setHandingOver(c)}>
+                          <UserRoundPlus className="size-4" /> Hand over
+                        </Button>
+                      </Hint>
+                    ) : null}
                     <Hint label="Cancel this call — the IR gets your reason by email">
                       <Button
                         variant="ghost"
@@ -3903,6 +3927,11 @@ function IrCallsTab({
       </Card>
 
       <CompleteCallDialog call={completing} onClose={() => setCompleting(null)} />
+      <HandOverCallDialog
+        call={handingOver}
+        targets={handoverTargets}
+        onClose={() => setHandingOver(null)}
+      />
       <CancelCallDialog call={cancelling} onClose={() => setCancelling(null)} />
       <RequestRescheduleDialog call={rescheduling} onClose={() => setRescheduling(null)} />
       <IrCallDetailDialog
@@ -4396,6 +4425,99 @@ function CompleteCallDialog({ call, onClose }: { call: IrCallRow | null; onClose
               Save — mark completed
             </Button>
           </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** 🤝 SAME TIME, NEW HOST (v33.58).
+ *
+ *  The dialog's whole job is to make clear what this is NOT: it is not a
+ *  cancellation and it is not a request to the IR. The time doesn't move,
+ *  nobody abroad has to do anything, and the person picked here becomes the
+ *  one the IR is expecting — calendar invite, Meet room and all. */
+function HandOverCallDialog({
+  call, targets, onClose,
+}: {
+  call: IrCallRow | null;
+  targets: PartnershipTarget[];
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [to, setTo] = useState("");
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+
+  // reopening always starts with an empty pick — never the last person chosen
+  if (!call && loadedFor !== null) setLoadedFor(null);
+  if (call && loadedFor !== call.id) {
+    setTo("");
+    setLoadedFor(call.id);
+  }
+
+  // the current host is not a hand-over target
+  const options = targets.filter((t) => t.id !== call?.member_id);
+
+  const hand = () => {
+    if (!call || !to) return;
+    start(async () => {
+      const res = await reassignIrCall(call.id, to);
+      if (res.ok) {
+        const name = options.find((o) => o.id === to)?.name ?? "them";
+        // a warning is not a failure — the hand-over happened either way, and
+        // whatever didn't follow it (a calendar, the IR's mail) is something
+        // a human now has to finish, so it must not be a two-second toast
+        if (res.data?.warning) toast.warning(res.data.warning, { duration: 12_000 });
+        else
+          toast.success(
+            `Handed to ${name} 🤝 The IR was told, and the invite moved to their calendar.`
+          );
+        onClose();
+        router.refresh();
+      } else toast.error(res.error);
+    });
+  };
+
+  return (
+    <Dialog open={!!call} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-h-[90dvh] max-w-sm overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Hand this call to someone else</DialogTitle>
+          <DialogDescription dir="auto">
+            The {call ? fmtDateTime(call.called_at) : ""} call with{" "}
+            {call?.partner_lc_name} keeps its time — only the host changes.
+            {call?.booker_name ? ` ${call.booker_name}` : " The IR"} gets an
+            email saying who they&apos;ll be meeting, a fresh calendar invite
+            goes out, and the old one is withdrawn.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-1.5">
+          <Label>Who takes it? *</Label>
+          <Select value={to || undefined} onValueChange={setTo}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Pick a member…" />
+            </SelectTrigger>
+            <SelectContent>
+              {options.map((t) => (
+                <SelectItem key={t.id} value={t.id}>
+                  {t.name} · {t.role}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            From then on the call is theirs — it counts for them, they fill the
+            notes, and the IR&apos;s reschedule link reads their availability.
+            {call?.product ? ` It stays a ${call.product} call.` : ""}
+          </p>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose}>Never mind</Button>
+          <Button onClick={hand} disabled={pending || !to}>
+            {pending ? <Loader2 className="size-4 animate-spin" /> : <UserRoundPlus className="size-4" />}
+            Hand it over
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

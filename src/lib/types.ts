@@ -1086,6 +1086,19 @@ export const ROLE_BLURBS: Record<string, string> = {
 /** The IM director — receives "fix my info" requests from members. */
 export const ADMIN_EMAIL = "ahmedhallul@aiesec.net";
 
+/** The IM director's WhatsApp, in wa.me form (no +, no spaces).
+ *
+ *  Some things are faster said than filed: a member who is stuck, or whose
+ *  bug needs a screen shared, should be able to reach a human in one tap
+ *  instead of writing a report and waiting. Every place that offers that
+ *  reads this one constant — the number used to be typed into the profile
+ *  page by hand, which is exactly how a number goes stale in one place and
+ *  not the other. */
+export const ADMIN_WHATSAPP = "201099019374";
+/** Ready-to-send wa.me link carrying an opener. */
+export const adminWhatsAppLink = (text: string) =>
+  `https://wa.me/${ADMIN_WHATSAPP}?text=${encodeURIComponent(text)}`;
+
 /** The national Podio "partners" web-form ("Check if your company exists?").
  *  The Add-account flow links here so members verify the name isn't already
  *  taken by another LC before adding it. Overridable via NEXT_PUBLIC_PODIO_FORM_URL. */

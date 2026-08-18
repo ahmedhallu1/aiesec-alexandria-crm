@@ -349,6 +349,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
   "summary": "First sign-in is Google-only with your AIESEC email; after onboarding you can use email OR phone + password — and phone-only members have their own door.",
   "blocks": [
    {
+    "t": "callout",
+    "tone": "info",
+    "md": "**After you set your password, Sodio signs you out on purpose.** That is not a glitch and you have not been locked out — you land back on the sign-in page and use the password you just chose. Typing it once, straight away, is what makes it stick; it also means a password you mistyped in your head is caught in the first ten seconds rather than next week."
+   },
+   {
     "t": "p",
     "md": "Short version: **the very first time, sign in with Google** using your @aiesec.net address. That one Google sign-in also grants Sodio your calendar and Gmail-drafts access, which is what powers visit reminders and proposal drafts later. Onboarding then asks you to set a password — after that, email **or** phone + password works, and Google always works too."
    },
@@ -393,7 +398,77 @@ export const HELP_ARTICLES: HelpArticle[] = [
     ]
    }
   ]
+ }, {
+  "id": "road-to-activate",
+  "title": "🏆 What is Activate? (the blue bar at the top)",
+  "emoji": "🏆",
+  "category": "getting-started",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "activate",
+   "conference",
+   "national conference",
+   "awards",
+   "road to activate",
+   "countdown",
+   "blue bar",
+   "banner",
+   "blue man",
+   "3 december",
+   "المؤتمر",
+   "الجوايز",
+   "اكتيفيت"
+  ],
+  "summary": "The blue road across the top of every page is the countdown to Activate — AIESEC in Egypt's national conference, where the awards are handed out. Tap it for the whole story.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "That blue band at the top of every page — with the road, the walking Blue Man and a number of days — is **the road to Activate**. **Tap it.** It opens a short brief on what Activate is and links to the conference's own Instagram accounts and the shared folder, so you can see it rather than take our word for it."
+   },
+   {
+    "t": "p",
+    "md": "**Activate is AIESEC in Egypt's national conference.** Every LC in the country sends delegates to the same hall for a few days, and it closes with the awards — handed out **per aspect**, so raising, the OGX programmes, talent and the rest each have their own recognition. Every function in Alexandria has something of its own to win."
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**The awards are won before the conference, not at it.** What gets read out on stage is what an LC actually delivered over the peak — and that is precisely what Sodio counts every day: the contact you log, the visit you report, the deal you record, the sign-up you move to **Approved 🏆**."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "What you see on the bar",
+     "What it means"
+    ],
+    "rows": [
+     [
+      "The number on the right",
+      "Days left until the conference — **3 December 2026**."
+     ],
+     [
+      "\"day N of M\"",
+      "How far into the run-up the LC is. The Blue Man stands at exactly that point and moves one day's worth of road every morning."
+     ],
+     [
+      "The lit posts along the verge",
+      "The months of the run-up. A post lights up once the LC has walked past it."
+     ],
+     [
+      "The chequered gate",
+      "The conference itself, at the end of the road."
+     ]
+    ]
+   },
+   {
+    "t": "p",
+    "md": "The bar removes itself the day after the conference — nobody has to clean it up."
+   }
+  ]
  },
+
  {
   "id": "blue-man",
   "title": "The Blue Man — your AI sidekick",
@@ -2247,6 +2322,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
   "summary": "Contact a sign-up in the Unassigned pool to claim it, log Contacted/Interested right from the row, and keep everything in the comment log — it all writes back to the sheet.",
   "blocks": [
    {
+    "t": "p",
+    "md": "**Your list opens on whatever was handed to you most recently.** Every view of sign-ups you already hold — 🙋 Mine, My team, All, 🤝 Referrals — is sorted by **when it was assigned, newest first**, so a sign-up given to you this morning is the top row rather than buried by its form date. (The 🆕 Unassigned pool is the exception: nothing there has been assigned, so it stays ordered by the sign-up date.) Any column header still re-sorts the list if you want it another way."
+   },
+   {
     "t": "steps",
     "items": [
      "Open [Sign-ups](/signups) → **🆕 Unassigned** and pick a fresh row — the **WhatsApp / Call** buttons are right there.",
@@ -2381,7 +2460,98 @@ export const HELP_ARTICLES: HelpArticle[] = [
     "md": "**The confirmation comes from YOU (v33.40).** The IR's booking confirmation is sent from the host's own Gmail when their Google grant allows it — so the IR holds your real address and replies reach you directly. No grant yet? The system mailbox sends it with your address on Reply-To. Either way it is your **@aiesec.net** and never the backup personal Gmail (v33.41): a partner entity abroad must not end up writing to a private inbox."
    }
   ]
+ }, {
+  "id": "ir-call-hand-over",
+  "title": "Hand a booked IR call to someone else",
+  "emoji": "🤝",
+  "category": "consideration",
+  "audience": "Consideration MMs & leaders",
+  "audienceKeys": [
+   "consideration",
+   "leaders"
+  ],
+  "keywords": [
+   "hand over",
+   "handover",
+   "reassign",
+   "assign call",
+   "give call",
+   "another member",
+   "can't make it",
+   "swap host",
+   "transfer call",
+   "تحويل مكالمة",
+   "اسلم المكالمة"
+  ],
+  "summary": "Can't make a call you've been booked for? Give it to another member instead of cancelling — same time, new host, and everything moves with it.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Until now a call you couldn't make had two exits and both cost the LC something: **cancel** it on the IR, or **ask them to move it**, which makes a partner entity abroad redo work because of our rota. There's a third now, and it's usually the right one: keep the time, change the host."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open [Consideration](/consideration) → the scheduled call.",
+     "Hit **🤝 Hand over** in the call's action row.",
+     "Pick who takes it — the list is the consideration crew.",
+     "That's it. The call is theirs from that moment."
+    ]
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**Everything moves, not just the name.** A fresh calendar invite is built on the new host's calendar (or the IM mailbox if they have no Google grant) with the IR invited, and the old event is withdrawn. The IR gets an email in **their own time zone** saying who they'll be meeting, with the new Meet link — the time never changes. Both members get a bell and an email: one gains the call, the other is released from it."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Who can hand a call over",
+     "Which calls"
+    ],
+    "rows": [
+     [
+      "Team Leader / Coordinator (MMs)",
+      "Their own calls — and a TL, their team's."
+     ],
+     [
+      "LCVP / Director / LCP",
+      "Anyone's call in the module."
+     ],
+     [
+      "Member",
+      "None — a Member holds their calls; ask your TL or VP to move one."
+     ]
+    ]
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Does the call still count for me?",
+      "a": "No — from the hand-over it counts for the new host, in the by-member ranking and the lane. That's the point: whoever does the call gets the credit."
+     },
+     {
+      "q": "What if they're already busy at that time?",
+      "a": "Sodio refuses the hand-over and names the call that clashes. It compares real intervals, so a partial overlap is caught too, not just an identical slot."
+     },
+     {
+      "q": "Does the IR's reschedule link still work?",
+      "a": "Yes, and it now reads the NEW host's availability — which is exactly right."
+     },
+     {
+      "q": "Does a GV call become a GT call if a GT member takes it?",
+      "a": "No. The GV/GT tag is what the conversation is about, fixed when it was booked. Only the host changes."
+     },
+     {
+      "q": "What if the IR's email has bounced?",
+      "a": "Then nothing is sent there — Sodio says so instead of claiming they were told. Fix the address on the call, or reach them on WhatsApp."
+     }
+    ]
+   }
+  ]
  },
+
  {
   "id": "consideration-partner-lcs-cvs",
   "title": "Partner LCs & the CV pool",
@@ -3520,6 +3690,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
    {
     "t": "p",
     "md": "Feedback about **Sodio itself** — a dead button, wrong numbers, a feature you wish existed — goes through **System feedback**. Find it on your [Profile](/profile) (the \"Give feedback\" card) — it opens the form at [/feedback](/feedback). Feedback about **people** is a different door: see [LC feedback](/lc-feedback)."
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**Or just say it.** Next to **Send feedback** there's an **Or WhatsApp me directly** button — it opens a chat with the IM director carrying the page you were on. Use the form when it can wait and the detail matters (it keeps the type, the category and your screenshots, and it can't get lost in a chat); use WhatsApp when you're blocked right now, or when it's faster to show than to write."
    },
    {
     "t": "steps",

@@ -62,7 +62,7 @@ export function StreakCard({
               broken number rather than as "you haven't started". */}
           {showAction && !streak.savedToday ? (
             <Button size="sm" variant="outline" asChild className="order-last shrink-0 sm:order-none">
-              <Link href="/signups">Go contact one</Link>
+              <Link prefetch={false} href="/signups">Go contact one</Link>
             </Button>
           ) : null}
           <p className="ml-auto shrink-0 text-end text-xs text-muted-foreground">

@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { signOut } from "@/lib/auth";
 import { getViewer } from "@/server/data";
 import {
   hasRaisingAccess, hasOgxAccess, hasConsiderationAccess, hasTmAccess,
@@ -26,6 +27,25 @@ export default async function WelcomePage() {
           ? "Your Talent Management workspace is ready — the whole LC's directory, KPIs and contact shortcuts."
           : "Your Profile, the Help center and Feedback are live today — your function's workspace is on the way.";
 
+  /** SIGN IN WITH THE PASSWORD YOU JUST CHOSE (v33.58).
+   *
+   *  Onboarding is the one moment a member INVENTS a password, and until now
+   *  they were carried straight into the app on the Google session they
+   *  arrived with — so the first time they were ever asked to type it was days
+   *  later, cold, with no idea whether the thing in their head was the thing
+   *  they saved. The standard every bank and password manager uses is to make
+   *  the credential prove itself immediately: signing out and signing back in
+   *  turns the password from something they typed once into something they
+   *  have USED, which is what makes it stick, and it surfaces a wrong
+   *  assumption while the person still remembers what they meant to type.
+   *
+   *  A server action, not next-auth/react: the app mounts no SessionProvider,
+   *  and this is the same `signOut` the sidebar and /inactive already call. */
+  async function signOutToLogin() {
+    "use server";
+    await signOut({ redirectTo: "/login?fresh=1" });
+  }
+
   return (
     <main className="relative flex min-h-dvh items-start justify-center overflow-x-hidden bg-sidebar p-4 sm:items-center">
       <ThemeToggle className="absolute right-4 top-4 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
@@ -47,6 +67,7 @@ export default async function WelcomePage() {
         </div>
 
         <OnboardingForm
+          signOutToLogin={signOutToLogin}
           member={{
             name: viewer.name,
             email: viewer.email ?? "",

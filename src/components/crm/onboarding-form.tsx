@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Mail } from "lucide-react";
 import { completeOnboarding } from "@/server/actions";
@@ -23,8 +22,15 @@ interface MemberInfo {
   stakeholderName: string | null;
 }
 
-export function OnboardingForm({ member }: { member: MemberInfo }) {
-  const router = useRouter();
+export function OnboardingForm({
+  member,
+  signOutToLogin,
+}: {
+  member: MemberInfo;
+  /** ends the session and lands on /login?fresh=1 — see the note in
+   *  welcome/page.tsx for why the first password has to be USED right away */
+  signOutToLogin: () => Promise<void>;
+}) {
   const [name, setName] = useState(member.name);
   const [phone, setPhone] = useState(member.phone);
   const [password, setPassword] = useState("");
@@ -52,9 +58,11 @@ export function OnboardingForm({ member }: { member: MemberInfo }) {
         toast.error(res.error);
         return;
       }
-      toast.success("You're all set — welcome to Sodio 💙");
-      router.replace("/");
-      router.refresh();
+      // THE PASSWORD PROVES ITSELF (v33.58): the session that brought them
+      // here ends, and the very next thing they do is sign in with what they
+      // just chose. `signOutToLogin` redirects, so nothing after it runs.
+      toast.success("Password saved 🔐 Now sign in with it once — that's what makes it stick.");
+      await signOutToLogin();
     });
 
   return (

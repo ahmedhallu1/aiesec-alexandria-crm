@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import {
-  getViewer, irCallFilterOptions, listConsiderationCrew, listCvsPage, listIrCalls,
+  getViewer, irCallFilterOptions, irCallHandoverTargets, listConsiderationCrew,
+  listCvsPage, listIrCalls,
   listPartnerLcDetails,
   myIrBooking,
 } from "@/server/data";
@@ -69,7 +70,10 @@ export default async function ConsiderationPage({
   const isLead =
     viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
 
-  const [lcs, calls, cvs, booking, callOptions, crewAll] = await Promise.all([
+  // 🤝 HAND-OVER (v33.58) — the same MM-and-above gate as partnership targets:
+  // a Member holds their calls, an MM redistributes them.
+  const canHandOverCalls = canAssignPartnerships;
+  const [lcs, calls, cvs, booking, callOptions, crewAll, handoverTargets] = await Promise.all([
     listPartnerLcDetails(viewer),
     listIrCalls(viewer, tab === "calls" ? page : 0, pageSize, undefined, callFilters),
     showCvs
@@ -92,6 +96,7 @@ export default async function ConsiderationPage({
     myIrBooking(viewer),
     irCallFilterOptions(viewer),
     canAssignPartnerships ? listConsiderationCrew(viewer) : Promise.resolve([]),
+    canHandOverCalls ? irCallHandoverTargets(viewer) : Promise.resolve([]),
   ]);
   // cross-team targets are the FUNCTION's call (v33.39, function defaults)
   const crossTeam = icxFunctions(viewer).some(
@@ -126,6 +131,7 @@ export default async function ConsiderationPage({
       partnershipTargets={partnershipTargets.map((m) => ({
         id: m.id, name: m.name, role: m.role,
       }))}
+      handoverTargets={handoverTargets}
       viewer={{
         id: viewer.id,
         isVp: viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role),
@@ -139,6 +145,7 @@ export default async function ConsiderationPage({
           viewer.isAdmin ||
           ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(viewer.role),
         canAssignPartnerships,
+        canHandOverCalls,
         defaultProduct,
       }}
     />

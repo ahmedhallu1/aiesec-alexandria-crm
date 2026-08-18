@@ -13,7 +13,8 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { FEEDBACK_CATEGORIES } from "@/lib/types";
+import { adminWhatsAppLink, FEEDBACK_CATEGORIES } from "@/lib/types";
+import { WhatsAppIcon } from "./icons";
 import { FeedbackAttachments, type FeedbackAttachment } from "./feedback-attachments";
 
 export function FeedbackForm({
@@ -123,13 +124,35 @@ export function FeedbackForm({
           </div>
           <Switch checked={anonymous} onCheckedChange={setAnonymous} />
         </div>
-        <div className="flex items-center justify-between gap-3">
-          <Button onClick={submit} disabled={pending || message.trim().length < 3}>
-            {pending ? "Sending…" : "Send feedback"}
-          </Button>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={submit} disabled={pending || message.trim().length < 3}>
+              {pending ? "Sending…" : "Send feedback"}
+            </Button>
+            {/* THE ONE-TAP HUMAN (v33.58). A form is the right shape for most
+                reports — it carries the page, the type and the attachments,
+                and it lands somewhere it can't be lost. But some things are
+                faster said than written: a member who is blocked right now, or
+                whose bug needs a screen shared and three questions asked, will
+                give up on a textarea long before they give up on WhatsApp. The
+                opener already names Sodio and the page they were on, so the
+                chat starts with the context the form would have collected. */}
+            <Button asChild variant="outline">
+              <a
+                href={adminWhatsAppLink(
+                  `Hey Ahmed! I'm on Sodio (${page}) and wanted to reach out directly about: `
+                )}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <WhatsAppIcon className="size-4" /> Or WhatsApp me directly
+              </a>
+            </Button>
+          </div>
           {showInboxLink ? (
             <Link
               href="/feedback/inbox"
+              prefetch={false}
               className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary"
             >
               <Inbox className="size-4" /> Open the inbox

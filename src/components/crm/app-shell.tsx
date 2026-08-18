@@ -313,7 +313,23 @@ export function AppShell({
               <GripVertical className="size-4" />
             </span>
           ) : null}
-          <Link
+          {/* ── prefetch={false} IS THE HOSTING BILL (v33.58) ──────────────
+              Next prefetches every <Link> that ENTERS THE VIEWPORT, in
+              production. This sidebar puts a dozen of them on screen at once,
+              on every single page — so one page view quietly fired a dozen
+              RSC requests to routes nobody had asked for, each one a Vercel
+              function invocation, each one paired with a proxy invocation on
+              top. It is visible in the production logs as a flat distribution:
+              /planning, /lc-feedback and /emails were each hit about as often
+              as /dashboard, which is not how anybody uses this app — it is the
+              signature of the sidebar, not of members.
+
+              And it bought nothing. Every route here is dynamic and
+              auth-gated, so "auto" prefetch only ever fetched the shell down
+              to the nearest loading.tsx — a skeleton the member sees on click
+              regardless. We paid a full server round-trip per link to
+              pre-render a spinner. */}
+          <Link prefetch={false}
             href={item.href}
             title={railed ? item.label : undefined}
             data-tour={`nav:${item.href}`}
@@ -465,7 +481,7 @@ export function AppShell({
                 "flex-col items-stretch gap-0.5"
         )}
       >
-        <Link
+        <Link prefetch={false}
           href="/profile"
           onClick={() => setOpen(false)}
           data-tour={inDrawer ? undefined : "nav:/profile"}
@@ -553,7 +569,7 @@ export function AppShell({
   );
 
   const brand = (
-    <Link
+    <Link prefetch={false}
       href={effectiveHome}
       onClick={() => setOpen(false)}
       title="Home — your workspace"
@@ -680,7 +696,7 @@ export function AppShell({
           </SheetContent>
         </Sheet>
         {/* on a ≤360px phone the logo was the thing that got squeezed (v33.28) */}
-        <Link href={effectiveHome} className="flex min-w-0 items-center gap-2" title="Home — your workspace">
+        <Link prefetch={false} href={effectiveHome} className="flex min-w-0 items-center gap-2" title="Home — your workspace">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/aiesec-white.png" alt="AIESEC" className="h-5 w-auto shrink-0" />
           <p className="truncate text-sm font-black tracking-tight text-sidebar-foreground">Sodio</p>

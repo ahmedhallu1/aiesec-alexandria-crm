@@ -864,7 +864,7 @@ export function AccountsView({
         return (
           <>
             <span className="inline-flex items-center gap-1.5">
-              <Link
+              <Link prefetch={false}
                 href={hrefFor(row)}
                 className="font-medium hover:text-primary"
                 dir="auto"
@@ -1093,7 +1093,7 @@ export function AccountsView({
               → the viewer's own default lane. */}
           <Hint label="Your funnel in numbers — KPIs, conversions, leaderboards">
             <Button variant="outline" asChild>
-              <Link href={dashboardHref}>
+              <Link prefetch={false} href={dashboardHref}>
                 <LayoutDashboard className="size-4" /> Dashboard
               </Link>
             </Button>
@@ -1138,7 +1138,7 @@ export function AccountsView({
             <>
               <Hint label="Got a sheet of market research? Import a whole CSV/Excel at once">
                 <Button variant="outline" asChild>
-                  <Link href="/accounts/import">
+                  <Link prefetch={false} href="/accounts/import">
                     <FileUp className="size-4" /> Import
                   </Link>
                 </Button>
@@ -1195,7 +1195,7 @@ export function AccountsView({
           {visitsOpen ? (
             <div className="mt-2 space-y-1 border-t border-amber-500/30 pt-2">
               {overdueVisits.slice(0, 12).map((v) => (
-                <Link
+                <Link prefetch={false}
                   key={v.id}
                   href={`/accounts/${v.accountSlug}`}
                   className="flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md px-1.5 py-1 text-sm hover:bg-amber-500/10"

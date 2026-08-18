@@ -467,7 +467,7 @@ export function CalendarView({
         }`}
       >
         {openable ? (
-          <Link href={`/accounts/${v.account.id}`} className={className} style={style}>
+          <Link prefetch={false} href={`/accounts/${v.account.id}`} className={className} style={style}>
             {body}
           </Link>
         ) : (
@@ -984,7 +984,7 @@ export function CalendarView({
                 </>
               );
               return openable ? (
-                <Link
+                <Link prefetch={false}
                   key={v.id}
                   href={`/accounts/${v.account.id}`}
                   className="block min-w-0 rounded-lg border p-2.5 transition-colors hover:border-primary/50 hover:bg-muted/40"

@@ -165,7 +165,7 @@ function renderLite(text: string) {
           // urls in disguise (open-redirect vector via prompt injection)
           if (url.startsWith("/") && !/^\/[\\/]/.test(url)) {
             return (
-              <Link
+              <Link prefetch={false}
                 key={j}
                 href={url}
                 className="mx-0.5 my-0.5 inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary transition-colors hover:bg-primary hover:text-primary-foreground"

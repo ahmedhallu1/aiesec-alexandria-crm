@@ -220,7 +220,7 @@ export function ImportView({
 
   return (
     <div className="mx-auto max-w-7xl space-y-4">
-      <Link
+      <Link prefetch={false}
         href="/accounts"
         className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >

@@ -8420,6 +8420,359 @@ export async function cancelIrCall(id: string, reason: string): Promise<ActionRe
   return { ok: true };
 }
 
+/** 🤝 HAND A BOOKED IR CALL TO SOMEBODY ELSE (v33.58).
+ *
+ *  Before this, an MM who couldn't make a call had two doors and both cost
+ *  the LC the call: cancel it on the IR, or ask the IR to move it — which
+ *  makes a partner entity abroad re-do work because of our rota. The obvious
+ *  third door was missing: keep the time, change the host. That is usually
+ *  the RIGHT answer — the LC has a dozen people who can take a GV call, and
+ *  the IR only ever wanted somebody from Alexandria on the other end.
+ *
+ *  "Migrated with emails and correct logic" means all of it moves, not just
+ *  the row:
+ *    · the OWNER (`member_id`/`member_name`) — so the call counts for the new
+ *      host in `considerationStats`, the by-member ranking and the lane;
+ *    · the CALENDAR: a fresh event on the new host's own calendar (or the IM
+ *      mailbox when they have no Google grant, the v33.19 tier-2 path) with
+ *      the IR invited — then the old event is deleted, so nobody is left
+ *      holding a Meet room they aren't hosting;
+ *    · the IR is TOLD, in their own clock, with the new Meet link and their
+ *      manage link intact — that link is keyed to the CALL, so rescheduling
+ *      from it now reads the NEW host's availability, which is exactly right;
+ *    · both members get a bell and a mail: one gains a commitment, the other
+ *      is released from one.
+ *
+ *  What deliberately does NOT move: `product`. A call's GV/GT tag is the
+ *  subject of the conversation, snapshotted at booking (v33.23) — handing a
+ *  GV call to a GT member doesn't turn it into a GT call, and rewriting it
+ *  would silently move history between two functions' floors.
+ *
+ *  MMs AND ABOVE, by request: a Member may hold calls but not redistribute
+ *  them. Own call → yours to hand on; a Team Leader may move their team's;
+ *  a VP/Director/LCP may move anyone's. */
+export async function reassignIrCall(
+  id: string,
+  toMemberId: string
+): Promise<ActionResult<{ warning?: string }>> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  // MMs and above — the actor's own rank, checked before anything is read
+  const isMm =
+    viewer.isAdmin ||
+    ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(viewer.role);
+  if (!isMm)
+    return fail(
+      "Handing a call to someone else is an MM's call to make — ask your TL or VP to move it.",
+      "forbidden"
+    );
+  if (viewer.sandbox)
+    return fail(
+      "Handing over calls is disabled in the sandbox test view — the calendar invite and the IR's email are real."
+    );
+
+  const { data: call } = await db()
+    .from("ir_calls")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle<IrCallServerRow>();
+  if (!call) return fail("That call no longer exists.");
+  if (call.status !== "scheduled")
+    return fail(`Only scheduled calls can be handed over — this one is ${call.status}.`);
+  const lead = isConsiderationLead(viewer);
+  const ownsIt =
+    call.member_id === viewer.id ||
+    (viewer.role === "Team Leader" &&
+      !!call.member_id &&
+      viewer.teamMemberIds.includes(call.member_id));
+  if (!ownsIt && !lead)
+    return fail(
+      "That call isn't yours to hand over — only its host, their Team Leader or a VP/Director can.",
+      "forbidden"
+    );
+  if (toMemberId === call.member_id)
+    return fail("That's already the host of this call.");
+
+  // THE PICKER AND THE ACTION ASK THE SAME QUESTION (the v33.19 CIC lesson):
+  // the target list is rebuilt here rather than trusting the id off the wire.
+  const { irCallHandoverTargets } = await import("./data");
+  const targets = await irCallHandoverTargets(viewer);
+  if (!targets.some((t) => t.id === toMemberId))
+    return fail("That member doesn't take IR calls — pick someone from the consideration crew.");
+
+  const { data: to } = await db()
+    .from("members")
+    .select("id, name, email, fallback_email, google_refresh_token, is_active")
+    .eq("id", toMemberId)
+    .maybeSingle<{
+      id: string;
+      name: string;
+      email: string | null;
+      fallback_email: string | null;
+      google_refresh_token: string | null;
+      is_active: boolean;
+    }>();
+  if (!to?.is_active) return fail("That member is no longer active.");
+
+  // DON'T DOUBLE-BOOK THE PERSON YOU ARE HELPING. The unique index only
+  // catches an EXACT same-instant clash; a 30-minute call landing 10 minutes
+  // into their existing one would sail past it and both IRs would sit in
+  // empty rooms. Compare real intervals over a generous window.
+  const minutes = call.duration_minutes ?? 30;
+  const start = new Date(call.called_at);
+  const end = new Date(start.getTime() + minutes * 60_000);
+  const { data: busy } = await db()
+    .from("ir_calls")
+    .select("called_at, duration_minutes, partner_lc_name")
+    .eq("member_id", toMemberId)
+    .eq("status", "scheduled")
+    .gte("called_at", new Date(start.getTime() - 6 * 3_600_000).toISOString())
+    .lte("called_at", new Date(end.getTime() + 6 * 3_600_000).toISOString());
+  const clash = (busy ?? []).find((b) => {
+    const bStart = new Date(b.called_at as string);
+    const bEnd = new Date(bStart.getTime() + ((b.duration_minutes as number) ?? 30) * 60_000);
+    return bStart < end && start < bEnd;
+  });
+  if (clash) {
+    const { cairoWhenLabel } = await import("./data");
+    return fail(
+      `${to.name} already has the ${clash.partner_lc_name} call at ${cairoWhenLabel(
+        clash.called_at as string
+      )} — that overlaps this one.`
+    );
+  }
+
+  const fromName = call.member_name;
+  const fromId = call.member_id;
+
+  await snapshotForUndo("ir_calls", id);
+  const { error } = await db()
+    .from("ir_calls")
+    .update({ member_id: to.id, member_name: to.name })
+    .eq("id", id);
+  if (error) {
+    // the same unique (member_id, called_at) index the booking race hits
+    if (error.code === "23505")
+      return fail(`${to.name} already has a call booked at exactly that time.`);
+    return fail(error.message);
+  }
+
+  // ---- THE CALENDAR FOLLOWS THE HOST ------------------------------------
+  // NEW FIRST, then delete the old one. The other order leaves a window —
+  // and, if the rebuild fails, a hole — where the IR holds no invite at all.
+  // A rebuild that fails is survivable (the old event still works and the
+  // warning says so); a deleted event with nothing in its place is not.
+  const onMailbox =
+    (call as { event_calendar?: string | null }).event_calendar === "mailbox";
+  let warning: string | undefined;
+  let meetLink = call.meet_link;
+  if (!(await sandboxSuppressed("IR-call hand-over calendar event"))) {
+    try {
+      const {
+        createIrCallEvent, createIrCallEventOnMailbox,
+        deleteIrCallEvent, deleteIrCallEventOnMailbox,
+      } = await import("@/lib/google/calendar");
+      const description = `AIESEC IR call.\nPartner LC: ${call.partner_lc_name}${
+        call.booker_name ? `\nBooked by: ${call.booker_name}` : ""
+      }${call.booker_email ? ` <${call.booker_email}>` : ""}\nHost: ${to.name}, AIESEC in Alexandria.${
+        call.booker_note ? `\n\nWhat they'd like to talk about:\n${call.booker_note}` : ""
+      }`;
+      // TIER 1 — the new host's own calendar; TIER 2 — the IM mailbox, with
+      // them invited so it still lands on their calendar (v33.19)
+      const own = to.google_refresh_token
+        ? await createIrCallEvent(to.google_refresh_token, {
+            partnerLc: call.partner_lc_name,
+            start,
+            minutes,
+            attendeeEmail: call.booker_email,
+            description,
+          }).catch((e) => {
+            console.error("[ir-calls] hand-over: new host's calendar failed, trying mailbox:", e);
+            return null;
+          })
+        : null;
+      const made =
+        own ??
+        (await createIrCallEventOnMailbox({
+          partnerLc: call.partner_lc_name,
+          start,
+          minutes,
+          attendeeEmail: call.booker_email,
+          ownerEmail: to.email ?? to.fallback_email ?? null,
+          description,
+        }));
+      if (made) {
+        meetLink = made.meetLink;
+        await db()
+          .from("ir_calls")
+          .update({
+            calendar_event_id: made.id,
+            meet_link: made.meetLink,
+            event_calendar: own ? "owner" : "mailbox",
+          })
+          .eq("id", id);
+        // only now is the old one safe to remove
+        if (call.calendar_event_id) {
+          try {
+            if (onMailbox) await deleteIrCallEventOnMailbox(call.calendar_event_id);
+            else {
+              const { data: prev } = fromId
+                ? await db()
+                    .from("members")
+                    .select("google_refresh_token")
+                    .eq("id", fromId)
+                    .maybeSingle<{ google_refresh_token: string | null }>()
+                : { data: null };
+              await deleteIrCallEvent(prev?.google_refresh_token ?? null, call.calendar_event_id);
+            }
+          } catch (e) {
+            console.error("[ir-calls] hand-over: old event delete failed:", e);
+            warning = `${fromName}'s calendar still shows this call — ask them to delete it by hand.`;
+          }
+        }
+      } else {
+        warning =
+          `The call is ${to.name}'s now, but no calendar invite could be created for them` +
+          `${call.calendar_event_id ? ` — the original event is still on ${fromName}'s calendar, so don't delete it until ${to.name} has the details` : ""}.`;
+      }
+    } catch (e) {
+      console.error("[ir-calls] hand-over calendar failed:", e);
+      warning = `The call is ${to.name}'s now, but the calendar didn't follow — check both calendars by hand.`;
+    }
+  }
+
+  // ---- WHO HEARS ABOUT IT -----------------------------------------------
+  const { cairoWhenLabel, bookerZoneFor } = await import("./data");
+  const cairo = cairoWhenLabel(call.called_at);
+  const considerationUrl = `${env.appUrl}/consideration`;
+
+  // the new host: a commitment they didn't have this morning
+  try {
+    const { notifyMembers } = await import("./notify");
+    await notifyMembers(
+      [to.id],
+      "info",
+      `🤝 An IR call is yours — ${call.partner_lc_name}`,
+      `${viewer.name} handed you the ${cairo} call with ${call.partner_lc_name}.`,
+      viewer.id,
+      "/consideration"
+    );
+  } catch (e) {
+    console.error("[ir-calls] hand-over bell (new host) failed:", e);
+  }
+  const toMail = to.email ?? to.fallback_email;
+  if (toMail) {
+    try {
+      const { irCallHandedToYouEmail } = await import("@/lib/email/templates");
+      const { data: lc } = call.partner_lc_id
+        ? await db()
+            .from("partner_lcs")
+            .select("country")
+            .eq("id", call.partner_lc_id)
+            .maybeSingle<{ country: string | null }>()
+        : { data: null };
+      const mail = irCallHandedToYouEmail({
+        memberFirstName: to.name.split(" ")[0],
+        fromName: viewer.name,
+        partnerLc: call.partner_lc_name,
+        country: lc?.country ?? null,
+        bookerName: call.booker_name,
+        bookerEmail: call.booker_email,
+        whenLabel: cairo,
+        slotMinutes: minutes,
+        meetLink,
+        note: call.booker_note,
+        considerationUrl,
+      });
+      await sendEmail({ to: [toMail], subject: mail.subject, html: mail.html });
+    } catch (e) {
+      console.error("[ir-calls] hand-over email (new host) failed:", e);
+    }
+  }
+
+  // the previous host: released — and told so BY NAME when a leader moved it
+  // over their head, which is the case where silence would be worst
+  if (fromId && fromId !== to.id) {
+    try {
+      const { notifyMembers } = await import("./notify");
+      await notifyMembers(
+        [fromId],
+        "info",
+        `🤝 Your ${call.partner_lc_name} call moved to ${to.name}`,
+        `The ${cairo} call is ${to.name}'s now — nothing left for you to do.`,
+        viewer.id,
+        "/consideration"
+      );
+    } catch (e) {
+      console.error("[ir-calls] hand-over bell (previous host) failed:", e);
+    }
+    const { data: prev } = await db()
+      .from("members")
+      .select("email, fallback_email")
+      .eq("id", fromId)
+      .maybeSingle<{ email: string | null; fallback_email: string | null }>();
+    const prevMail = prev?.email ?? prev?.fallback_email;
+    if (prevMail && fromId !== viewer.id) {
+      try {
+        const { irCallHandedOverEmail } = await import("@/lib/email/templates");
+        const mail = irCallHandedOverEmail({
+          memberFirstName: fromName.split(" ")[0],
+          toName: to.name,
+          byName: viewer.name,
+          byLeader: true,
+          partnerLc: call.partner_lc_name,
+          whenLabel: cairo,
+          considerationUrl,
+        });
+        await sendEmail({ to: [prevMail], subject: mail.subject, html: mail.html });
+      } catch (e) {
+        console.error("[ir-calls] hand-over email (previous host) failed:", e);
+      }
+    }
+  }
+
+  // THE IR — the one person who has to know, and the one we can't assume
+  // reads anything else. Never into a mailbox already known to be dead
+  // (v33.48): the address bounced, so anything sent there evaporates and
+  // reporting "they were told" would be a lie.
+  if (call.booker_email && !call.email_bounced_at) {
+    try {
+      const { irCallHostChangedEmail } = await import("@/lib/email/templates");
+      const { whenLabelInZone } = await import("@/lib/timezones");
+      const zone = await bookerZoneFor(call.booker_tz, call.partner_lc_id);
+      const mail = irCallHostChangedEmail({
+        bookerName: call.booker_name,
+        newMemberName: to.name,
+        oldMemberName: fromName,
+        partnerLc: call.partner_lc_name,
+        whenLabel: zone ? whenLabelInZone(call.called_at, zone) : cairo,
+        cairoLabel: zone ? cairo : null,
+        slotMinutes: minutes,
+        meetLink,
+        manageUrl: call.manage_token ? `${env.appUrl}/book/manage/${call.manage_token}` : null,
+      });
+      await sendEmail({ to: [call.booker_email], subject: mail.subject, html: mail.html });
+    } catch (e) {
+      console.error("[ir-calls] hand-over email (IR) failed:", e);
+      warning =
+        `${warning ? `${warning} ` : ""}${call.booker_name ?? "The IR"} could NOT be emailed about the new host — tell them yourself before the call.`;
+    }
+  } else if (call.booker_email && call.email_bounced_at) {
+    warning =
+      `${warning ? `${warning} ` : ""}${call.booker_name ?? "The IR"} was NOT told — ${call.booker_email} bounced, so nothing sent there arrives. Fix the address on this call, or reach them on WhatsApp.`;
+  }
+
+  await logAudit(viewer.id, "ir_call_reassign", "ir_call", id, {
+    lc: call.partner_lc_name,
+    from: fromName,
+    to: to.name,
+    when: cairo,
+    ...(warning ? { warning } : {}),
+  });
+  refresh();
+  return { ok: true, data: warning ? { warning } : {} };
+}
+
 /** FIX THE IR'S EMAIL (v33.29 part 2) — when the invite bounced (or the crew
  *  spots a typo), the owner/VP corrects the address IN PLACE: the calendar
  *  event's attendee is swapped so Google re-sends the invite to the right

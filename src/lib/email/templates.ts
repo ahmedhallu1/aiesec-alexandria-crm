@@ -1075,6 +1075,148 @@ export function irCallCancelledByMemberEmail(opts: {
   };
 }
 
+/** ── A CALL CHANGES HANDS (v33.58) ──────────────────────────────────────
+ *
+ *  Three people need to hear about a hand-over and they need to hear three
+ *  different things, which is why this is three templates and not one with a
+ *  flag: the person now expected to show up, the person who no longer is, and
+ *  the IR abroad — who never asked for any of this and only cares that
+ *  somebody will be on the other end of the Meet.
+ *
+ *  The IR's copy is `externalEmailLayout` like every other booker-facing mail
+ *  (v29): no CRM links, no internal wording, nothing they have no context for. */
+export function irCallHandedToYouEmail(opts: {
+  memberFirstName: string;
+  /** who handed it over — the previous host, or the leader who moved it */
+  fromName: string;
+  partnerLc: string;
+  country: string | null;
+  bookerName: string | null;
+  bookerEmail: string | null;
+  /** Cairo label, like every internal mail */
+  whenLabel: string;
+  slotMinutes: number;
+  meetLink: string | null;
+  note: string | null;
+  considerationUrl: string;
+}): { subject: string; html: string } {
+  return {
+    subject: `🤝 An IR call is yours now — ${opts.partnerLc} · ${opts.whenLabel}`,
+    html: emailLayout({
+      preheader: `${opts.fromName} handed you the ${opts.partnerLc} IR call — ${opts.whenLabel}.`,
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">You're taking this one, ${escapeHtml(opts.memberFirstName)} 🌍</h1>
+        <p><b>${escapeHtml(opts.fromName)}</b> handed you an IR call that was
+        already booked. It is on your calendar now, with the IR invited — you
+        are the host they'll be expecting.</p>
+        ${detailsTable([
+          ["Partner LC", opts.partnerLc],
+          ["Country", opts.country],
+          ["Who you're meeting", opts.bookerName],
+          ["Their email", opts.bookerEmail],
+          ["When", opts.whenLabel],
+          ["Duration", `${opts.slotMinutes} minutes`],
+          ["Google Meet", opts.meetLink],
+          ["What they want to talk about", opts.note],
+        ])}
+        <p>Open it in the IR-calls tab before the call, and fill the in-call
+        notes afterwards — their <b>demand</b>, their <b>B2C campaign
+        dates</b> and a screenshot. It counts for you now.</p>
+        ${button("Open the Consideration module", opts.considerationUrl)}
+        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">Can't take it either? Hand it on, or cancel it with a reason so the IR can rebook — don't leave them waiting in an empty room.</p>`,
+    }),
+  };
+}
+
+/** The other half: the person who is no longer expected on the call. */
+export function irCallHandedOverEmail(opts: {
+  memberFirstName: string;
+  toName: string;
+  /** who moved it — them, or a leader acting over them */
+  byName: string;
+  byLeader: boolean;
+  partnerLc: string;
+  whenLabel: string;
+  considerationUrl: string;
+}): { subject: string; html: string } {
+  return {
+    subject: `🤝 Your ${opts.partnerLc} IR call now belongs to ${opts.toName}`,
+    html: emailLayout({
+      preheader: `The ${opts.whenLabel} call with ${opts.partnerLc} moved to ${opts.toName}.`,
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">That call is off your plate, ${escapeHtml(opts.memberFirstName)}</h1>
+        <p>${
+          opts.byLeader
+            ? `<b>${escapeHtml(opts.byName)}</b> moved your`
+            : "You handed over your"
+        } <b>${escapeHtml(opts.whenLabel)}</b> call with
+        <b>${escapeHtml(opts.partnerLc)}</b> to
+        <b>${escapeHtml(opts.toName)}</b>.</p>
+        ${detailsTable([
+          ["Partner LC", opts.partnerLc],
+          ["When", opts.whenLabel],
+          ["Now hosted by", opts.toName],
+        ])}
+        <p>The calendar invite has been removed from your calendar and rebuilt
+        on theirs, and the IR has been told who to expect. Nothing is left for
+        you to do — and the call will count for ${escapeHtml(opts.toName)}, not you.</p>
+        ${button("Open the Consideration module", opts.considerationUrl)}`,
+    }),
+  };
+}
+
+/** The IR's copy — the one that actually matters on the day. */
+export function irCallHostChangedEmail(opts: {
+  bookerName: string | null;
+  /** who they'll now be meeting */
+  newMemberName: string;
+  /** who they booked with */
+  oldMemberName: string;
+  partnerLc: string;
+  /** THEIR clock leads (v33.22) */
+  whenLabel: string;
+  cairoLabel?: string | null;
+  slotMinutes: number;
+  meetLink: string | null;
+  manageUrl: string | null;
+}): { subject: string; html: string } {
+  return {
+    subject: `🤝 Your IR call is now with ${opts.newMemberName} — ${opts.whenLabel}`,
+    html: externalEmailLayout({
+      preheader: `Same time, new host: ${opts.newMemberName} will be meeting you instead of ${opts.oldMemberName}.`,
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Same time — a different colleague 🤝</h1>
+        <p>Hi${opts.bookerName ? ` ${escapeHtml(opts.bookerName)}` : ""} — a
+        quick heads-up about your call with AIESEC in Alexandria:
+        <b>${escapeHtml(opts.newMemberName)}</b> will be meeting you instead of
+        ${escapeHtml(opts.oldMemberName)}. <b>The time has not changed</b>, and
+        they have everything you told us.</p>
+        ${detailsTable([
+          ["Now meeting", opts.newMemberName],
+          ["Your LC", opts.partnerLc],
+          ["When (your time)", opts.whenLabel],
+          ["Same moment in Cairo", opts.cairoLabel ?? null],
+          ["Duration", `${opts.slotMinutes} minutes`],
+          ["Google Meet", opts.meetLink],
+        ])}
+        <p>A fresh calendar invite is on its way to this address — <b>use that
+        one</b>, the earlier invite has been withdrawn.</p>
+        ${opts.meetLink ? button("Join the Google Meet", opts.meetLink) : ""}
+        ${
+          opts.manageUrl
+            ? `<p>If the new time or host doesn't suit you, you can still move or cancel it here:</p>
+        ${button("Reschedule or cancel", opts.manageUrl)}`
+            : ""
+        }
+        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">${
+          opts.cairoLabel
+            ? "Times are shown in your own time zone."
+            : "All times are Cairo time (GMT+2/+3)."
+        } Sent via Sodio — AIESEC in Alexandria.</p>`,
+    }),
+  };
+}
+
 /** v28 — sent to the IR when the MEMBER asks to move the call: the IR picks
  *  the new time themselves on the public manage page. */
 export function irRescheduleRequestEmail(opts: {

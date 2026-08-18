@@ -5286,11 +5286,31 @@ export async function listSignupsPage(
       const safe = filters.q.replaceAll(",", " ").replaceAll("(", "").replaceAll(")", "");
       q = q.or(`name.ilike.%${safe}%,ep_id.ilike.%${safe}%,phone.ilike.%${safe}%`);
     }
+    // NEWEST HAND-OUT ON TOP (v33.58). Every list of assigned sign-ups opened
+    // on `signed_up_at` — the day the person filled the form, which for OGT is
+    // often months before anybody was given them (their newest tracker row is
+    // dated 10 May). So a sign-up handed to you this morning landed wherever
+    // its form date put it, frequently pages deep, and the one row you came
+    // to the page for was the hardest to find. `assigned_at` is the date that
+    // answers "what is new FOR ME", and it is what these views now open on.
+    //
+    // The pool is the exception and stays on the sign-up date: nothing there
+    // has been assigned, so every `assigned_at` is null and the column would
+    // rank nothing. Same for the CIC queue, which is ordered by the second
+    // call, not the first hand-over.
+    const poolLike = view === "unassigned" || view === "cic";
     const sortField =
-      filters.sort && SIGNUP_SORTABLE.has(filters.sort) ? filters.sort : "signed_up_at";
-    return q
-      .order(sortField, { ascending: filters.dir === "asc", nullsFirst: false })
-      .order("id");
+      filters.sort && SIGNUP_SORTABLE.has(filters.sort)
+        ? filters.sort
+        : poolLike
+          ? "signed_up_at"
+          : "assigned_at";
+    q = q.order(sortField, { ascending: filters.dir === "asc", nullsFirst: false });
+    // a sign-up that predates the assigned_at column (or was claimed before it
+    // was stamped) still needs a stable place — the form date decides it
+    if (sortField !== "signed_up_at")
+      q = q.order("signed_up_at", { ascending: false, nullsFirst: false });
+    return q.order("id");
   };
 
   // inline-edit capability flags, same rules as getSignupDetail (v33.17)
@@ -6397,6 +6417,47 @@ export async function listConsiderationCrew(
       role: m.role as string,
       managerId: (m.stakeholder_id as string | null) ?? null,
     }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** WHO A BOOKED IR CALL CAN BE HANDED TO (v33.58).
+ *
+ *  A call is a slot on ONE person's calendar, and life happens: an exam lands
+ *  on the evening, someone leaves the function, an MM realises a teammate is
+ *  the better fit for that LC. Until now the only exits were cancelling on
+ *  the IR or quietly not showing up. This is the third: the same call, the
+ *  same time, a different host.
+ *
+ *  The pool is the people who actually TAKE IR calls, by exactly the rule the
+ *  module itself uses (`worksSide(v, "Consideration")` in rbac) applied to a
+ *  plain membership row: anyone whose Sub Function says Consideration, plus
+ *  the IGV/IGT LCVPs and Directors who own both sides of their product. Read
+ *  ONCE and re-checked inside `reassignIrCall`, so the picker can never offer
+ *  a name the action would refuse — the v33.19 CIC lesson. */
+export async function irCallHandoverTargets(
+  viewer: Viewer
+): Promise<{ id: string; name: string; role: string }[]> {
+  if (!_hasConsiderationAccess(viewer)) return [];
+  const { data } = await db()
+    .from("members")
+    .select("id, name, role, functions, sub_functions")
+    .eq("is_active", true);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[])
+    .filter((m) => {
+      const subs: string[] = m.sub_functions ?? [];
+      const fns: string[] = m.functions ?? [];
+      if (subs.includes("Consideration")) return true;
+      // the product's leadership owns both of its sides
+      return (
+        (m.role === "LCVP" || m.role === "Director") &&
+        fns.some((f) => f === "IGV" || f === "IGT")
+      );
+    })
+    // the LCP is never an operational host — the same rule every other
+    // member picker in Sodio follows
+    .filter((m) => m.role !== "LCP")
+    .map((m) => ({ id: m.id as string, name: m.name as string, role: m.role as string }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 

@@ -312,7 +312,7 @@ export function EmailsView({
         <div className="flex items-center gap-2">
           {showExpectation ? (
             <Button variant="outline" size="sm" asChild>
-              <Link href="/ogt-mail">
+              <Link prefetch={false} href="/ogt-mail">
                 <MailPlus className="size-4" /> Expectation mail
               </Link>
             </Button>

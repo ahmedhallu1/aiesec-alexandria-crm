@@ -546,6 +546,8 @@ interface ViewerInfo {
 /** Server sort fields (SIGNUP_SORTABLE in data.ts) per column key. */
 const SIGNUP_SORT: Record<string, { field: string; dir: "asc" | "desc" }> = {
   signed_up_at: { field: "signed_up_at", dir: "desc" },
+  // the DEFAULT order of every assigned view (v33.58) — newest hand-out first
+  assigned: { field: "assigned_at", dir: "desc" },
   name: { field: "name", dir: "asc" },
   program: { field: "program", dir: "asc" },
   contacted: { field: "contact_status", dir: "asc" },
@@ -899,9 +901,19 @@ export function SignupsView({
     startNav(() => router.replace(`/signups?${params.toString()}`));
   };
 
+  // WHAT THE LIST IS ACTUALLY SORTED BY (v33.58). The server picks the order
+  // when nobody has clicked a header — assigned_at on the assigned views, the
+  // sign-up date on the pool and the CIC queue — so the arrow has to follow
+  // that same rule or the header would claim no column is sorted while one
+  // plainly is. Mirrors `listSignupsPage`.
+  const defaultSortField =
+    activeView === "unassigned" || activeView === "cic" ? "signed_up_at" : "assigned_at";
+  const sortField = filters.sort || defaultSortField;
+  const sortDir = filters.sort ? filters.dir : "desc";
+
   const sortBy = (field: string, defaultDir: "asc" | "desc" = "desc") => {
-    if (filters.sort === field)
-      setParams({ dir: filters.dir === "asc" ? "desc" : "asc" });
+    if (sortField === field)
+      setParams({ sort: field, dir: sortDir === "asc" ? "desc" : "asc" });
     else setParams({ sort: field, dir: defaultDir });
   };
 
@@ -922,13 +934,13 @@ export function SignupsView({
         onClick={() => sortBy(field, defaultDir)}
         className={cn(
           "group/sort -mx-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 transition-all duration-150 hover:bg-muted hover:text-foreground active:scale-95",
-          filters.sort === field && "font-bold text-primary"
+          sortField === field && "font-bold text-primary"
         )}
         title="Sort by this column"
       >
         {children}
-        {filters.sort === field ? (
-          <span>{filters.dir === "asc" ? "↑" : "↓"}</span>
+        {sortField === field ? (
+          <span>{sortDir === "asc" ? "↑" : "↓"}</span>
         ) : (
           <span
             aria-hidden
@@ -1687,7 +1699,7 @@ export function SignupsView({
             }
           >
             <Button variant="outline" asChild>
-              <Link href={`/dashboard?fn=${viewer.b2cOnly ? "B2C" : activeFn}`}>
+              <Link prefetch={false} href={`/dashboard?fn=${viewer.b2cOnly ? "B2C" : activeFn}`}>
                 <LayoutDashboard className="size-4" /> Dashboard
               </Link>
             </Button>

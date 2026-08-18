@@ -15,7 +15,14 @@ export const config = {
   matcher: [
     // Everything except auth endpoints, the login page, cron endpoints,
     // the public IR-call booking page, static assets, brand images, PWA
-    // files and .well-known
-    "/((?!api/auth|api/cron|login|inactive|book|_next/static|_next/image|favicon.ico|icons|brand|manifest.webmanifest|robots.txt|sitemap.xml|\\.well-known).*)",
+    // files and .well-known.
+    //
+    // THE METADATA ROUTES BELONG HERE TOO (v33.58). `icon.png` and
+    // `apple-icon.png` are Next metadata files — public, static, and served
+    // to every browser tab and every phone that installs the PWA. They were
+    // not excluded, so each one woke the proxy: an auth check, a function
+    // invocation, and a billable one, to decide that a favicon may be shown
+    // to a stranger. They show up in the production logs by name.
+    "/((?!api/auth|api/cron|login|inactive|book|_next/static|_next/image|favicon.ico|icon.png|apple-icon.png|opengraph-image|icons|brand|manifest.webmanifest|robots.txt|sitemap.xml|\\.well-known).*)",
   ],
 };

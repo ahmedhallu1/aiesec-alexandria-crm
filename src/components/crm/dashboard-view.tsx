@@ -665,7 +665,7 @@ function TmPanel({ stats }: { stats: import("@/server/tm-stats").TmStats }) {
                     {a.byMember.length > MEMBER_ROWS ? (
                       <p className="text-xs text-muted-foreground">
                         +{a.byMember.length - MEMBER_ROWS} more —{" "}
-                        <Link href="/attendance" className="font-medium text-primary hover:underline">
+                        <Link prefetch={false} href="/attendance" className="font-medium text-primary hover:underline">
                           the full record lives in Attendance
                         </Link>
                         .
@@ -1061,7 +1061,7 @@ function ConsiderationPanel({ stats }: { stats: import("@/server/data").Consider
         {stats.fn} numbers — calls are attributed through the caller&apos;s
         function (the crew&apos;s own calls market both). The full log lives in
         the{" "}
-        <Link href="/consideration" className="font-medium text-primary hover:underline">
+        <Link prefetch={false} href="/consideration" className="font-medium text-primary hover:underline">
           Consideration module
         </Link>
         {stats.showCvs ? " — calls, screenshots and the searchable CV pool." : " — calls and screenshots."}
@@ -1143,7 +1143,7 @@ function OgxPanel({
               the period — file them and they show up here.
             </p>
             <Button variant="outline" asChild>
-              <Link href="/profile">Open my plan</Link>
+              <Link prefetch={false} href="/profile">Open my plan</Link>
             </Button>
           </CardContent>
         </Card>
@@ -1583,7 +1583,7 @@ function TeamPlanCard({
           </div>
           {isOwnPlan ? (
             <Button size="sm" variant="outline" asChild>
-              <Link href="/profile">
+              <Link prefetch={false} href="/profile">
                 <Target className="size-4" /> My plan
               </Link>
             </Button>
@@ -1900,7 +1900,7 @@ function KpiCard({
     </Card>
   );
   const card = href ? (
-    <Link href={href} className="block h-full">
+    <Link prefetch={false} href={href} className="block h-full">
       {body}
     </Link>
   ) : (
