@@ -90,10 +90,17 @@ function monthPosts(): { label: string; at: number }[] {
   d.setUTCDate(1);
   d.setUTCMonth(d.getUTCMonth() + 1); // the first month AFTER the start line
   while (d.getTime() < end) {
-    out.push({
-      label: d.toLocaleString("en", { month: "short", timeZone: "UTC" }).toUpperCase(),
-      at: (d.getTime() - start) / (end - start),
-    });
+    const at = (d.getTime() - start) / (end - start);
+    // A POST INSIDE THE GATE IS NOT A POST. The conference falls on the 3rd,
+    // so its own month starts two days before the finish — measured at 0.984
+    // of the road, which drew DEC's marker and label underneath the chequered
+    // banner. Anything in the last 6% is the finish, and the finish already
+    // has a marker.
+    if (at <= 0.94)
+      out.push({
+        label: d.toLocaleString("en", { month: "short", timeZone: "UTC" }).toUpperCase(),
+        at,
+      });
     d.setUTCMonth(d.getUTCMonth() + 1);
   }
   return out;
@@ -273,7 +280,13 @@ export function ActivateStrip() {
             viewBox={`0 0 ${W} ${H}`}
             role="img"
             aria-label={`The road to Activate — day ${day} of ${total}`}
-            className="min-w-0 flex-1"
+            // A ROAD NEEDS ROOM (v33.58). `flex-1` over a basis of 0 means the
+            // drawing gets whatever the two text blocks leave — on a phone
+            // that is about 100px, which compresses 800 units eightfold and
+            // renders the walker as a five-pixel smudge. Below `sm` the
+            // countdown says it in words instead, and the road returns the
+            // moment there is road to draw.
+            className="hidden min-w-0 flex-1 sm:block"
             style={{ height: "auto" }}
             preserveAspectRatio="xMidYMax meet"
           >
