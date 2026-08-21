@@ -251,7 +251,7 @@ function AskAiCard({ prefill, label }: { prefill?: string; label?: string }) {
 export function HelpView({ viewer }: { viewer: HelpViewer }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [, startNav] = useTransition();
+  const [navPending, startNav] = useTransition();
 
   const keys = useMemo(() => viewerAudienceKeys(viewer), [viewer]);
   const articleId = searchParams.get("a");
@@ -389,7 +389,7 @@ export function HelpView({ viewer }: { viewer: HelpViewer }) {
       .filter((x) => x.category === article.category && x.id !== article.id)
       .slice(0, 4);
     return (
-      <div className="mx-auto max-w-3xl space-y-4">
+      <div className={cn("mx-auto max-w-3xl space-y-4", navPending && "nav-pending")}>
         <div className="flex flex-wrap items-center gap-2 rise-in">
           <button
             type="button"
@@ -460,7 +460,7 @@ export function HelpView({ viewer }: { viewer: HelpViewer }) {
   const catArticles = category ? visible.filter((a) => a.category === category.id) : [];
 
   return (
-    <div className="mx-auto max-w-4xl space-y-5">
+    <div className={cn("mx-auto max-w-4xl space-y-5", navPending && "nav-pending")}>
       {/* hero */}
       <div className="rise-in hero-animate overflow-hidden rounded-2xl border bg-gradient-to-br from-[#037EF3] to-[#7552CC] p-6 text-white sm:p-8">
         <div className="flex flex-wrap items-center gap-2">

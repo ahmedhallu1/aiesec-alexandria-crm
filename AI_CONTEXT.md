@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-21 · Version: v34
+Last updated: 2026-08-22 · Version: v34.1
 
 ---
 
@@ -649,6 +649,80 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-22 · v34.1** — **SEVEN FROM THE FLOOR, AFTER THE IDENTITY SHIPPED**
+  (no migration).
+  ① **THE PRODUCT FILTER FILTERED THE WRONG FIELD.** That column renders
+  `productBadge(function, product)` — IGV · IGTa · IGTe · IGT · B2B · BD · B2C
+  — but its funnel filtered `accounts.product`, which only ever holds GTa/GTe.
+  A crew looking at IGV and BD rows was offered "IGTa / IGTe", every pick
+  matched nothing, and "All" showed everything: the control looked like it did
+  nothing, which is exactly how it was reported. It now offers what the column
+  SHOWS. That needed a new param — `?lane`, a csv OR'd server-side across
+  (function, product) pairs — because `fn` is validated as a SINGLE value and a
+  multi-pick would have been dropped whole, and because mixing a function pick
+  with an IGT side on `fn`+`product` would silently AND to zero rows. Plain
+  "IGT" stays on the list: most imported IGT accounts have no product set and
+  would otherwise be unreachable from that column.
+  ② **CLICKING A HELP TOPIC LOOKED DEAD.** `help-view` had
+  `const [, startNav] = useTransition()` — it ran the navigation inside a
+  transition and threw the pending flag away, so nothing rendered while the
+  page fetched. Seven other views do this correctly. Fixed, and **pinned by
+  `tests/nav-pending.test.ts`**, which fails if any component navigates while
+  discarding the flag, or if any `*-view.tsx` navigates without rendering
+  `nav-pending`. The one exception is listed with its reason
+  (`account-detail-view` only navigates after a rename, from a dialog that has
+  its own pending state). Verified the test FAILS on the old code before
+  keeping it.
+  ③ **A VISIT CANNOT BE BOOKED BETWEEN 3 AND 7 IN THE MORNING** — that is a
+  slipped AM/PM, not a plan. Midnight–3 and 7–9 are legal but ask first. The
+  rule is one tested pure module (`lib/visit-time`) read by the server and by
+  every input that can book: the Schedule/Move dialog, the contact log's
+  "Visit Scheduled" result, and the direct visit's "come back another time".
+  Guarded at `scheduleVisit` (the single choke point all three route through)
+  AND early in `logContact`, so a refused time cannot leave a phantom contact
+  behind — the rule that file already had. ⚠️ Deliberately NOT applied to the
+  direct visit's own "when did it happen": that records a visit that already
+  took place and never goes through `scheduleVisit`.
+  ④ **ONE PODIO EMAIL A DAY, NOT ONE PER ACCOUNT.** The cron sent one email
+  PER ACCOUNT to the responsible AND every VP/Director of the function, so a
+  member holding twenty due accounts got twenty emails on one morning and the
+  leaders got everyone's. It is a digest now, to the person who can act: the
+  owner. Accounts are grouped per recipient, split into "still pending" (the
+  week-later nag) and "also due now", and an account is stamped only AFTER its
+  digest actually sends, so a failed send retries tomorrow instead of going
+  silent. ⚠️ An unassigned or deactivated-owner account still goes to the
+  function's leaders — "owner only" would otherwise drop it out of the cycle
+  entirely. The bell is grouped the same way. The per-account template is
+  deleted rather than left dead.
+  ⑤ **A SMALL DOT SAYS AN ACCOUNT NEEDS YOU.** Every signal already existed —
+  an unreported visit whose day has passed, a Podio refresh come due, no next
+  step, three unanswered attempts — but each lived in a different email, bell
+  or filter you had to know to apply, so a row that needed work looked exactly
+  like one that didn't. `lib/account-actions` is pure and tested, computed from
+  data the list already carries (no extra query); amber is a nudge, violet is
+  overdue, and the detail is one hover or tap away. On the table and both
+  mobile card views. An archived account reports nothing — it is out of the
+  game. The Podio-check signal skips UNOWNED accounts for the same reason the
+  server's own `needs_podio` filter does: nobody is going to submit a name
+  nobody has been given.
+  ⑥ **AN EMAIL ADDRESS CAN NO LONGER BE SOMEBODY'S NAME.** The membership
+  editor's `name` only required two characters, so an @aiesec.net address
+  passed straight through and became that member's display name on every
+  leaderboard and in the greeting of every email. `lib/member-fields` checks
+  SHAPE — not identity, because this LC's names are Arabic, English,
+  hyphenated and occasionally one word — and refuses an address, a phone
+  number, a link, or anything with no letters, saying which field it belongs
+  in. Wired into the schema AND into the sheet import's existing
+  shifted-row guard, which already skips-and-logs a misaligned row: a name cell
+  holding an address is the same class of mistake, and it is the one that shows.
+  ⑦ **CONFIRMED, NOT CHANGED: OGT planning is OGTa + OGTe**, exactly like IGT
+  is IGTa + IGTe. `PLAN_FUNCTIONS` carries all six, `planFnsFor` expands
+  OGT → OGTa+OGTe, the sheet has a `🎯 oGTa`/`🎯 oGTe` tab each, and
+  `ogxDashboard` sums the pair. Nothing to do.
+  Also: the favicon was already correct on production — `icon.png` served
+  there is byte-identical to the new mark, so an old logo in a tab is the
+  browser's cache, not the deploy.
 
 - **2026-08-21 · v34** — **SODIO GETS ITS OWN FACE** (no migration; a
   visual-identity pass — no RBAC, data-layer or gamification behaviour was

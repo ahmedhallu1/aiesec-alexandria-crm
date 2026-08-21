@@ -4,7 +4,7 @@ import { markCronRun } from "@/server/data";
 import { db } from "@/lib/supabase";
 import { env } from "@/lib/env";
 import { sendEmail } from "@/lib/google/gmail";
-import { podioUpdateDueEmail } from "@/lib/email/templates";
+import { podioUpdateDigestEmail, type PodioDueAccount } from "@/lib/email/templates";
 import { accountSlug, podioDefaultDays, type AccountFunction } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -42,7 +42,8 @@ function leaderMatches(
 
 /** Continuous Podio updates (v23 B2C → v24 every function that opts in).
  *  Daily: for every ACTIVE account with the feature ON whose refresh date has
- *  arrived, ping the responsible + the function's VP/Director — bell + email,
+ *  arrived, ping the RESPONSIBLE (v34.1 — leaders only for unowned accounts,
+ *  and everything batched into ONE email per person) — bell + email,
  *  ONCE per cycle (podio_update_notified_at). A week after that first nag with
  *  still no update, a SECOND, firmer reminder goes out — also once per cycle
  *  (podio_update_second_notified_at; "Updated on Podio" clears both). */
@@ -95,6 +96,23 @@ export async function GET(req: NextRequest) {
   const sent: string[] = [];
   const errors: string[] = [];
 
+  /** ONE EMAIL PER PERSON PER DAY, NOT ONE PER ACCOUNT (v34.1).
+   *  A member holding twenty due accounts used to get twenty emails on the
+   *  same morning, and every VP/Director of the function got everyone's — the
+   *  fastest way to turn a reminder into a filter rule. The pass is worked out
+   *  per account exactly as before; the SENDING is batched per recipient, and
+   *  an account is only stamped once its digest actually went out, so a failed
+   *  send retries tomorrow instead of going silent. */
+  interface Bucket {
+    memberId: string | null;
+    name: string;
+    emails: string[];
+    /** set only on the unowned-account fallback bucket */
+    leaderIds?: string[];
+    due: (PodioDueAccount & { id: string; pass: 1 | 2 })[];
+  }
+  const buckets = new Map<string, Bucket>();
+
   for (const a of accountsData as PodioRow[]) {
     const every = a.podio_update_every_days ?? podioDefaultDays(a.function);
     const anchor = new Date(a.podio_updated_at ?? a.created_at);
@@ -115,62 +133,85 @@ export async function GET(req: NextRequest) {
       pass = 2;
     else continue; // already nagged this cycle
 
-    const daysOverdue = Math.floor((now.getTime() - due.getTime()) / DAY_MS);
-    const url = `${env.appUrl}/accounts/${accountSlug(a.name)}`;
     const responsible = a.responsible && a.responsible.is_active ? a.responsible : null;
-    const leaders = allLeaders.filter((m) => leaderMatches(m, a.function));
+    // AN UNOWNED ACCOUNT STILL HAS TO REACH SOMEBODY. "Owner only" is the rule
+    // for accounts that HAVE one; an unassigned or deactivated-owner account
+    // would otherwise fall silently out of the cycle, so it goes to the
+    // function's leaders as the fallback it always was.
+    const leaders = responsible ? [] : allLeaders.filter((m) => leaderMatches(m, a.function));
+    const key = responsible ? `m:${responsible.id}` : `fn:${a.function}`;
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = responsible
+        ? { memberId: responsible.id, name: responsible.name, emails: responsible.email ? [responsible.email] : [], due: [] }
+        : {
+            memberId: null,
+            name: `${a.function} leaders`,
+            emails: leaders.map((l) => l.email).filter(Boolean),
+            due: [],
+          };
+      if (!responsible) bucket.leaderIds = leaders.map((l) => l.id);
+      buckets.set(key, bucket);
+    }
+    bucket.due.push({
+      id: a.id,
+      pass,
+      name: a.name,
+      fn: a.function,
+      url: `${env.appUrl}/accounts/${accountSlug(a.name)}`,
+      daysOverdue: Math.floor((now.getTime() - due.getTime()) / DAY_MS),
+      everyDays: every,
+    });
+  }
 
+  for (const bucket of buckets.values()) {
+    const first = bucket.due.filter((d) => d.pass === 1);
+    const second = bucket.due.filter((d) => d.pass === 2);
     try {
-      const recipientIds = [
-        ...(responsible ? [responsible.id] : []),
-        ...leaders.map((l) => l.id),
-      ];
-      const recipientEmails = [
-        ...(responsible?.email ? [responsible.email] : []),
-        ...leaders.map((l) => l.email).filter(Boolean),
-      ];
-
-      await notifyMembers(
-        [...new Set(recipientIds)],
-        "podio_update",
-        pass === 2
-          ? `⏰ Still not updated on Podio — "${a.name}"`
-          : `🔄 Update "${a.name}" on Podio`,
-        pass === 2
-          ? `Reminded a week ago and still pending (${daysOverdue} days overdue) — refresh it now, then mark it updated.`
-          : daysOverdue > 0
-            ? `${daysOverdue} day${daysOverdue === 1 ? "" : "s"} overdue — refresh it, then mark it updated.`
-            : `The ${every}-day refresh is due today — update it, then mark it updated.`,
-        null,
-        `/accounts/${accountSlug(a.name)}`
-      );
-
-      if (recipientEmails.length > 0) {
-        const mail = podioUpdateDueEmail({
-          accountName: a.name,
-          accountFunction: a.function,
-          everyDays: every,
-          daysOverdue,
-          responsibleName: responsible ? responsible.name : null,
-          accountUrl: url,
-          secondReminder: pass === 2,
-        });
-        await sendEmail({ to: [...new Set(recipientEmails)], ...mail });
+      // one bell too — it names the count and opens the first account, rather
+      // than twenty bells that each open one
+      const bellIds = bucket.memberId ? [bucket.memberId] : (bucket.leaderIds ?? []);
+      const total = bucket.due.length;
+      if (bellIds.length > 0) {
+        await notifyMembers(
+          bellIds,
+          "podio_update",
+          total === 1
+            ? `🔄 Update "${bucket.due[0].name}" on Podio`
+            : `🔄 ${total} accounts need a Podio update`,
+          second.length > 0
+            ? `${second.length} of them were flagged a week ago and are still pending.`
+            : `Refresh each on Podio, then mark it updated to reset the countdown.`,
+          null,
+          total === 1 ? `/accounts/${accountSlug(bucket.due[0].name)}` : `/accounts`
+        );
       }
 
-      const { error: stampError } = await db()
-        .from("accounts")
-        .update(
-          pass === 2
-            ? { podio_update_second_notified_at: now.toISOString() }
-            : { podio_update_notified_at: now.toISOString() }
-        )
-        .eq("id", a.id);
-      // an unstamped nag would re-send daily — surface it instead
-      if (stampError) throw new Error(`stamp failed: ${stampError.message}`);
-      sent.push(`${a.name}${pass === 2 ? " (2nd)" : ""}`);
+      if (bucket.emails.length > 0) {
+        const mail = podioUpdateDigestEmail({
+          firstName: bucket.name.split(" ")[0],
+          due: first,
+          stillPending: second,
+          accountsUrl: `${env.appUrl}/accounts`,
+        });
+        await sendEmail({ to: [...new Set(bucket.emails)], ...mail });
+      }
+
+      // stamp only AFTER the digest went out — a failed send must retry
+      for (const d of bucket.due) {
+        const { error: stampError } = await db()
+          .from("accounts")
+          .update(
+            d.pass === 2
+              ? { podio_update_second_notified_at: now.toISOString() }
+              : { podio_update_notified_at: now.toISOString() }
+          )
+          .eq("id", d.id);
+        if (stampError) throw new Error(`stamp failed for ${d.name}: ${stampError.message}`);
+      }
+      sent.push(`${bucket.name}: ${bucket.due.length} account(s)`);
     } catch (e) {
-      errors.push(`${a.name}: ${e instanceof Error ? e.message : e}`);
+      errors.push(`${bucket.name}: ${e instanceof Error ? e.message : e}`);
     }
   }
 

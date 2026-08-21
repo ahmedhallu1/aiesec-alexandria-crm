@@ -30,6 +30,7 @@ import { ContactDialog, type ContactTarget } from "./contact-dialog";
 import { AddAccountDialog, type MemberOption } from "./add-account-dialog";
 import { DirectVisitDialog } from "./direct-visit-dialog";
 import { AskVioletMan } from "./ask-violet-man";
+import { ActionDot } from "./action-dot";
 import { CopyNameButton } from "./copy-name-button";
 import { FileDrop } from "./file-drop";
 import { Hint } from "./hint";
@@ -629,6 +630,21 @@ export function AccountsView({
     [router, searchParams]
   );
 
+  /** Set several params at once. Two setParam calls race — the second reads
+   *  the same stale searchParams as the first and drops its change. */
+  const setParams = useCallback(
+    (next: Record<string, string>) => {
+      const params = new URLSearchParams(searchParams.toString());
+      for (const [key, value] of Object.entries(next)) {
+        if (value) params.set(key, value);
+        else params.delete(key);
+      }
+      params.delete("page");
+      startNav(() => router.replace(`/accounts?${params.toString()}`));
+    },
+    [router, searchParams]
+  );
+
   useEffect(() => {
     if (q === filters.q) return;
     if (debounce.current) clearTimeout(debounce.current);
@@ -765,14 +781,37 @@ export function AccountsView({
       />
     );
     switch (key) {
-      case "product":
+      case "product": {
         // the Product column shows Project for IGV-only and Type for B2C-only
         // viewers — filter what is actually on screen
         if (viewer.igvOnly)
           return pick("Project", "project", filters.project, IGV_PROJECTS.map((p) => [p, p]));
         if (viewer.b2cOnly) return null;
-        if (!viewer.allowedFns.includes("IGT")) return null;
-        return pick("Product", "product", filters.product, [["GTa", "IGTa"], ["GTe", "IGTe"]]);
+        // THE FUNNEL MUST OFFER WHAT THE COLUMN SHOWS. This cell renders
+        // productBadge(function, product) — IGV · IGTa · IGTe · IGT · B2B ·
+        // BD · B2C — but the funnel filtered accounts.product, which only ever
+        // holds GTa/GTe. So a crew seeing IGV and BD rows was offered
+        // "IGTa / IGTe", and every pick matched nothing while "All" showed
+        // everything: the control looked like it did nothing.
+        // Function picks drive ?fn, the two IGT sides drive ?product, and both
+        // move in one navigation. Plain "IGT" stays on the list because most
+        // imported IGT accounts have no product set and would otherwise be
+        // unreachable from this column.
+        const opts: [string, string][] = [];
+        for (const f of viewer.allowedFns) {
+          if (f === "IGT") opts.push(["IGT", "IGT"], ["GTa", "IGTa"], ["GTe", "IGTe"]);
+          else opts.push([f, f]);
+        }
+        if (opts.length === 0) return null;
+        return (
+          <ColumnFilter
+            label="Product"
+            value={filters.lane}
+            options={opts.map(([v, l]) => ({ value: v, label: l }))}
+            onChange={(v) => setParams({ lane: v, fn: "", product: "" })}
+          />
+        );
+      }
       case "stage":
         return archived
           ? null
@@ -873,6 +912,8 @@ export function AccountsView({
                 {row.name}
               </Link>
               <PinSign text={row.pinned_comment} />
+              {/* one dot for everything this row is waiting for — see ActionDot */}
+              <ActionDot row={row} />
               {/* copying a name is what you do with it: the Podio form, a
                   WhatsApp message, a search. Always there (v33.10). */}
               <CopyNameButton name={row.name} />
@@ -1437,6 +1478,7 @@ export function AccountsView({
                           <span className="min-w-0 truncate">{row.name}</span>
                           <span className="flex shrink-0 items-center gap-1.5">
                             <PinSign text={row.pinned_comment} />
+                            <ActionDot row={row} />
                           </span>
                         </p>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -1545,6 +1587,7 @@ export function AccountsView({
                       <p className="flex items-center gap-1.5 truncate text-sm font-semibold">
                         <span className="min-w-0 truncate">{row.name}</span>
                         <PinSign text={row.pinned_comment} />
+                        <ActionDot row={row} />
                       </p>
                       {row.next_step_date ? (
                         <p className="truncate text-xs text-muted-foreground">

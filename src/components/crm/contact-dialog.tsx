@@ -16,6 +16,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Mail, Phone } from "lucide-react";
+import { VisitTimeNote } from "./visit-time-note";
 import { WhatsAppIcon } from "./icons";
 
 const METHODS: ContactMethod[] = ["Call", "WhatsApp", "Email"];
@@ -269,6 +270,7 @@ export function ContactDialog({
                     <Input type="date" min={today} value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} />
                     <Input type="time" value={scheduledTime} onChange={(e) => setScheduledTime(e.target.value)} />
                   </div>
+                  <VisitTimeNote time={scheduledTime} />
                   <p className="mt-2 text-xs text-muted-foreground">
                     Books the visit exactly like the <b>Schedule visit</b> button —
                     calendar reminders 24h &amp; 1h before included.

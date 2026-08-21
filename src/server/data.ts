@@ -869,6 +869,13 @@ export interface AccountFilters {
   fn?: AccountFunction;
   project?: string;
   product?: "GTa" | "GTe";
+  /** THE PRODUCT COLUMN'S OWN FILTER (v34.1). That column renders
+   *  productBadge(function, product) — IGV · IGTa · IGTe · IGT · B2B · BD ·
+   *  B2C — which spans TWO db fields, so it cannot be expressed as `fn` or
+   *  `product` alone. A csv of those badge values, OR'd: picking IGV and IGTa
+   *  means "show me either", which is what a multi-select promises. `fn`
+   *  stays single-valued for the bar control and for inbound links. */
+  lane?: string;
   /** IGT sub-product (Other, Teaching…) — loose text match */
   subProduct?: string;
   stage?: Stage;
@@ -1103,6 +1110,17 @@ async function buildAccountsQuery(
   if (filters.ids && filters.ids.length > 0) query = query.in("id", filters.ids);
 
   eqOrIn("function", filters.fn);
+  // the Product column's funnel: OR across (function, product) pairs
+  {
+    const lanes = pickList(filters.lane);
+    if (lanes.length > 0) {
+      const term = (v: string) =>
+        v === "GTa" || v === "GTe"
+          ? `and(function.eq.IGT,product.eq.${v})`
+          : `function.eq.${v}`;
+      query = query.or(lanes.map(term).join(","));
+    }
+  }
   eqOrIn("project", filters.project);
   eqOrIn("product", filters.product);
   // sub_product is free-ish text (a row may hold several values) — match

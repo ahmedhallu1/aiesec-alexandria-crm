@@ -50,6 +50,7 @@ export default async function AccountsPage({
     product: (!params.fn || params.fn === "IGT"
       ? keepCsv(params.product, ["GTa", "GTe"])
       : undefined) as AccountFilters["product"],
+    lane: keepCsv(params.lane, ["IGV", "IGT", "GTa", "GTe", "B2B", "BD", "B2C"]),
     project: params.project || undefined,
     stage: keepCsv(params.stage, undefined, (v) => v !== "Out of Process") as Stage | undefined,
     lastStatus: params.lastStatus || undefined,
@@ -184,6 +185,7 @@ export default async function AccountsPage({
         q: params.q ?? "",
         fn: params.fn ?? "",
         product: params.product ?? "",
+        lane: params.lane ?? "",
         project: params.project ?? "",
         stage: params.stage ?? "",
         lastStatus: params.lastStatus ?? "",

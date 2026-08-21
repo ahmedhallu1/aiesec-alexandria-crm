@@ -8,6 +8,8 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/supabase";
 import { env } from "@/lib/env";
+import { checkVisitTime } from "@/lib/visit-time";
+import { memberEmailProblem, memberNameProblem } from "@/lib/member-fields";
 import {
   accountFnTargets,
   accountScope,
@@ -2361,6 +2363,10 @@ export async function logContact(
   const visitScheduled = status === "Visit Scheduled";
   if (visitScheduled && (!scheduledDate || !scheduledTime))
     return fail("Pick the date and time of the visit.");
+  if (visitScheduled) {
+    const when = checkVisitTime(scheduledTime);
+    if (!when.ok) return fail(when.error);
+  }
   // the visit lands on the RESPONSIBLE's calendar — fail BEFORE the attempt
   // row is written, or an unbookable visit leaves a phantom contact behind
   if (visitScheduled && !account.responsible_id)
@@ -2649,6 +2655,12 @@ export async function scheduleVisit(
   const parsed = visitSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0].message);
   const { accountId, visitDate, visitTime, notes } = parsed.data;
+
+  // nobody takes a visit at 4 in the morning — that is a slipped AM/PM, not a
+  // plan. Checked here because logContact and the direct-visit form both book
+  // through this function, so one guard covers all three doors.
+  const when = checkVisitTime(visitTime);
+  if (!when.ok) return fail(when.error);
 
   const account = await loadAccount(accountId);
   if (!account || !canEditAccount(viewer, account))
@@ -3810,7 +3822,16 @@ export async function updateAvatar(url: string | null): Promise<ActionResult> {
 const memberSchema = z
   .object({
     id: z.string().uuid().nullish(),
-    name: z.string().trim().min(2, "Name is required."),
+    // SHAPE, not just length. "Name is required" passed an @aiesec.net
+    // address straight through, and that address then became the member's
+    // display name on every leaderboard and in every email that greets them.
+    name: z
+      .string()
+      .trim()
+      .superRefine((v, ctx) => {
+        const problem = memberNameProblem(v);
+        if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
+      }),
     // email is OPTIONAL since v24 — phone-only members sign in with their
     // number (both fields) until the AIESEC email lands
     email: z
@@ -3818,6 +3839,10 @@ const memberSchema = z
       .trim()
       .toLowerCase()
       .refine((v) => v === "" || EMAIL_RE.test(v), "That email doesn't look valid.")
+      .superRefine((v, ctx) => {
+        const problem = memberEmailProblem(v, "the AIESEC Mail");
+        if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
+      })
       .nullish(),
     phone: phoneField,
     role: z.enum(MEMBER_ROLES as [MemberRole, ...MemberRole[]]),

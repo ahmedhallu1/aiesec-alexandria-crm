@@ -29,6 +29,7 @@ import {
   VISIT_RESULTS, podioDefaultDays, productBadge,
 } from "@/lib/types";
 import type { AccountContact } from "@/lib/types";
+import { VisitTimeNote } from "./visit-time-note";
 import { FileDrop } from "./file-drop";
 import { Hint } from "./hint";
 import { MultiPick } from "./multi-pick";
@@ -2183,6 +2184,7 @@ function VisitDialog({
               <Input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
             </div>
           </div>
+          <VisitTimeNote time={time} />
           <div className="grid gap-1.5">
             <Label>Notes (go on the calendar invite)</Label>
             <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Address, who to meet…" />
