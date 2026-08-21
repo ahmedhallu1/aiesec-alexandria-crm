@@ -45,7 +45,7 @@ export function memberSignature(m: {
       </div>
     </td>
     <td style="vertical-align:top;padding-left:4px;">
-      <!-- THE BLUE MAN, NOT THE LC MARK (v33.27). Every layout already carries
+      <!-- THE VIOLET MAN, NOT THE LC MARK (v33.27). Every layout already carries
            the AIESEC in Alexandria logo at the top; repeating it 20 lines
            lower made the letter look like two letters stapled together. The
            walking human is the LC's own face and belongs to the person, which

@@ -1,9 +1,12 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-/* Official AIESEC brand (logos.aiesec.org)
-   AIESEC Blue #037EF3 · Dark #0A2540 · White · Grey #52565E
-   Product colors: GV (Global Volunteer) #F85A40 · GTa (Global Talent) #0CB9C1
+/* SODIO's identity lives in the :root / .dark token blocks below. The AIESEC
+   values it descends from, for reference:
+     Official AIESEC brand (logos.aiesec.org)
+     AIESEC Blue #037EF3 · Dark #0A2540 · White · Grey #52565E
+   Product colors — FROZEN, they are AIESEC's not Sodio's:
+     GV (Global Volunteer) #F85A40 · GTa (Global Talent) #0CB9C1 · GTe #F48924
    Dark mode: device preference by default + manual toggle (class strategy). */
 
 @custom-variant dark (&:is(.dark *));
@@ -11,44 +14,74 @@
 :root {
   --radius: 0.625rem;
 
-  --background: #f7f9fc;
+  /* ── SODIO IDENTITY v1 — "blue anchors, purple acts" ────────────────────
+     One geometric S, AIESEC blue as the anchor, and #7552CC purple as Sodio's
+     own: it marks the thing you should TOUCH and the moment worth CELEBRATING.
+     Purple never labels a product — that is what keeps it from ever fighting
+     the GV/GTe/GT tags sitting on the same row.
+     Every value comes from the identity sheet, which in turn takes its blue,
+     navy and greys from logos.aiesec.org. Contrast was recomputed from these
+     hexes in both themes; see the v34 changelog for the two deliberate
+     exceptions and the one correction. */
+
+  --background: #f5f5f5;
   --foreground: #0a2540;
   --card: #ffffff;
   --card-foreground: #0a2540;
   --popover: #ffffff;
   --popover-foreground: #0a2540;
-  --primary: #037ef3;
+  --primary: #7552cc;
   --primary-foreground: #ffffff;
-  --secondary: #e8eef6;
+  --secondary: #edf1f6;
   --secondary-foreground: #0a2540;
-  --muted: #eef2f7;
-  --muted-foreground: #5c6b80;
-  --accent: #e3f1fe;
-  --accent-foreground: #0a2540;
-  --destructive: #dc2626;
+  --muted: #edf1f6;
+  --muted-foreground: #52565e;
+  --accent: #efeafa;
+  --accent-foreground: #5b3ba8;
+  --destructive: #c0341f;
   --border: #dde5ee;
   --input: #dde5ee;
-  --ring: #037ef3;
+  --ring: #7552cc;
 
+  /* blue leads the charts — purple is an action colour, not a data colour */
   --chart-1: #037ef3;
-  --chart-2: #0a2540;
-  --chart-3: #52ad32;
-  --chart-4: #f48924;
-  --chart-5: #f85a40;
+  --chart-2: #7552cc;
+  --chart-3: #0f8a5f;
+  --chart-4: #a85e0b;
+  --chart-5: #52565e;
 
   --sidebar: #0a2540;
-  --sidebar-foreground: #e8eef6;
-  --sidebar-primary: #037ef3;
+  --sidebar-foreground: #edf1f6;
+  --sidebar-primary: #7552cc;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #14355c;
+  --sidebar-accent: #17355c;
   --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #14355c;
-  --sidebar-ring: #037ef3;
+  --sidebar-border: #17355c;
+  --sidebar-ring: #a78bea;
 
-  --success: #16a34a;
-  --warning: #f48924;
+  /* #16a34a is the sheet's success, but the app renders text-success as TEXT
+     and it lands at 3.02:1 on #f5f5f5 — one step darker, same hue */
+  --success: #15803d;
+  --warning: #a85e0b;
 
-  /* official AIESEC product colors */
+
+  /* THE PIPELINE, as colour. "Status dots carry the pipeline colour; only the
+     quick action is purple" — so purple appears here exactly once, on DEAL,
+     because a deal is the win. These are deliberately DEEPER than the chart
+     hues: a badge renders as text on a 15% tint of itself, where raw AIESEC
+     blue lands at 3.3:1. Every pair below clears 4.5:1 on its own tint. */
+  --stage-contacted: #0a5fbf;
+  --stage-scheduled: #8a4a08;
+  --stage-done: #116635;
+  --stage-deal: #5b3ba8;
+  --stage-oop: #a82a18;
+
+  /* the two brand colours, named, so nothing hardcodes them again */
+  --brand-blue: #037ef3;
+  --brand-purple: #7552cc;
+  --brand-glow: 117 82 204;
+
+  /* official AIESEC product colors — NOT Sodio's, frozen */
   --gv: #f85a40;
   --gt: #0cb9c1;
   --gte: #f48924;
@@ -56,41 +89,54 @@
 
 .dark {
   --background: #081b30;
-  --foreground: #e8eef6;
+  --foreground: #edf1f6;
   --card: #0d2a49;
-  --card-foreground: #e8eef6;
+  --card-foreground: #edf1f6;
   --popover: #0d2a49;
-  --popover-foreground: #e8eef6;
-  --primary: #2f96ff;
-  --primary-foreground: #ffffff;
-  --secondary: #14355c;
-  --secondary-foreground: #e8eef6;
-  --muted: #112f52;
-  --muted-foreground: #93a5bc;
-  --accent: #14355c;
-  --accent-foreground: #e8eef6;
+  --popover-foreground: #edf1f6;
+  --primary: #a78bea;
+  /* a light purple carries DARK ink, not white — white on #a78bea is 2.3:1 */
+  --primary-foreground: #241c42;
+  --secondary: #17335a;
+  --secondary-foreground: #edf1f6;
+  --muted: #17335a;
+  --muted-foreground: #a9adb5;
+  --accent: #241c42;
+  --accent-foreground: #c0aef3;
   --destructive: #ef4444;
   --border: #1b3d66;
   --input: #1b3d66;
-  --ring: #2f96ff;
+  --ring: #a78bea;
 
   --chart-1: #2f96ff;
-  --chart-2: #93a5bc;
-  --chart-3: #6cc24a;
-  --chart-4: #f48924;
-  --chart-5: #f85a40;
+  --chart-2: #a78bea;
+  --chart-3: #22c55e;
+  --chart-4: #f4a340;
+  --chart-5: #a9adb5;
 
   --sidebar: #061524;
-  --sidebar-foreground: #e8eef6;
-  --sidebar-primary: #2f96ff;
+  --sidebar-foreground: #edf1f6;
+  /* the sidebar is a dark slab in BOTH themes, so the active pill keeps the
+     mid purple and its white 700 label in both — 5.48:1 either way */
+  --sidebar-primary: #7552cc;
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: #0d2a49;
   --sidebar-accent-foreground: #ffffff;
   --sidebar-border: #0d2a49;
-  --sidebar-ring: #2f96ff;
+  --sidebar-ring: #a78bea;
 
   --success: #22c55e;
   --warning: #f4a340;
+
+  --stage-contacted: #6fb6ff;
+  --stage-scheduled: #f4a340;
+  --stage-done: #4ade80;
+  --stage-deal: #c0aef3;
+  --stage-oop: #ff8a8a;
+
+  --brand-blue: #2f96ff;
+  --brand-purple: #a78bea;
+  --brand-glow: 167 139 234;
 
   --gv: #ff7a63;
   --gt: #22d3dc;
@@ -131,6 +177,11 @@
   --color-sidebar-ring: var(--sidebar-ring);
   --color-success: var(--success);
   --color-warning: var(--warning);
+  --color-stage-contacted: var(--stage-contacted);
+  --color-stage-scheduled: var(--stage-scheduled);
+  --color-stage-done: var(--stage-done);
+  --color-stage-deal: var(--stage-deal);
+  --color-stage-oop: var(--stage-oop);
   --color-gv: var(--gv);
   --color-gt: var(--gt);
   --color-gte: var(--gte);
@@ -139,6 +190,8 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
   --font-sans: var(--font-app-sans), system-ui, sans-serif;
+  --font-display: var(--font-app-display), var(--font-app-sans), system-ui, sans-serif;
+  --font-mono: var(--font-app-mono), ui-monospace, SFMono-Regular, monospace;
 }
 
 @layer base {
@@ -275,7 +328,9 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Aurora — two soft AIESEC-blue light blobs drifting behind the login card
+/* Aurora — one AIESEC-blue blob and one Sodio-purple blob drifting behind
+   the login card. The identity calls this the ONE place the two brand colours
+   are allowed to bleed into each other
    (pure transform/opacity → GPU-composited, zero layout work) */
 .aurora::before,
 .aurora::after {
@@ -290,12 +345,12 @@
   will-change: transform;
 }
 .aurora::before {
-  background: radial-gradient(circle, #037ef3 0%, transparent 62%);
+  background: radial-gradient(circle, var(--brand-blue) 0%, transparent 62%);
   top: -18vmax;
   left: -12vmax;
 }
 .aurora::after {
-  background: radial-gradient(circle, #0cb9c1 0%, transparent 62%);
+  background: radial-gradient(circle, var(--brand-purple) 0%, transparent 62%);
   bottom: -20vmax;
   right: -14vmax;
   opacity: 0.22;
@@ -413,8 +468,8 @@ html body[data-scroll-locked] {
   }
   .kpi-card:hover {
     transform: translateY(-3px) scale(1.02);
-    box-shadow: 0 10px 28px -12px rgb(3 126 243 / 0.45);
-    border-color: rgb(3 126 243 / 0.45);
+    box-shadow: 0 10px 28px -12px rgb(var(--brand-glow) / 0.45);
+    border-color: rgb(var(--brand-glow) / 0.45);
   }
   .kpi-card .kpi-value {
     transition: color 0.2s ease, text-shadow 0.2s ease, transform 0.2s ease;
@@ -422,7 +477,7 @@ html body[data-scroll-locked] {
   }
   .kpi-card:hover .kpi-value {
     color: var(--primary);
-    text-shadow: 0 0 18px rgb(3 126 243 / 0.4);
+    text-shadow: 0 0 18px rgb(var(--brand-glow) / 0.4);
     transform: scale(1.06);
   }
   .kpi-card .kpi-label {
@@ -469,7 +524,7 @@ html body[data-scroll-locked] {
   .cursor-pointer[data-slot="card"]:hover,
   tr.cursor-pointer:hover [data-slot="card"] {
     transform: translateY(-2px);
-    box-shadow: 0 8px 24px -12px rgb(3 126 243 / 0.35);
+    box-shadow: 0 8px 24px -12px rgb(var(--brand-glow) / 0.35);
   }
   button[data-slot="button"]:active,
   a[data-slot="button"]:active {
@@ -485,8 +540,7 @@ html body[data-scroll-locked] {
 /* the walking-man asset is WHITE on transparency — tint it AIESEC blue on
    light backgrounds; dark mode keeps the white original */
 .walkman-tint {
-  filter: brightness(0) invert(38%) sepia(93%) saturate(4184%) hue-rotate(199deg)
-    brightness(99%) contrast(98%);
+  filter: url(#sodio-walk-tint);
 }
 .dark .walkman-tint {
   filter: none;
@@ -537,12 +591,26 @@ html {
   .prank-shiver { animation: none; }
 }
 
-/* 🏆 ROAD TO ACTIVATE (v33.54) — an actual road: AIESEC-blue verges, asphalt,
-   and a centre line that travels. All motion is decorative and switched off
-   for anyone who asked the OS for less of it. */
+/* 🏆 ROAD TO ACTIVATE (v33.54) — an actual road: asphalt, kerbs and a centre
+   line that travels. All motion is decorative and switched off for anyone who
+   asked the OS for less of it.
+   v34 — WHY THIS IS NOT A TWO-COLOUR GRADIENT. The first attempt ran AIESEC
+   blue straight into Sodio purple down the whole banner, which across 800px of
+   sky reads as two flat bands meeting in a muddy seam, not as one surface. A
+   NIGHT SKY works instead: the base is the identity's own navy, and the two
+   brand colours arrive as GLOWS at the ends of the journey — blue behind the
+   start where the wordmark sits, purple behind the finish gate, because purple
+   is the colour that marks the win. Same two colours, and now they mean
+   something. */
 .activate-road {
   background:
-    linear-gradient(180deg, #037EF3 0%, #0a5fd0 45%, #0A2540 100%);
+    radial-gradient(78% 130% at 96% 108%, rgb(117 82 204 / 0.62) 0%, transparent 60%),
+    radial-gradient(62% 115% at 1% -12%, rgb(3 126 243 / 0.34) 0%, transparent 64%),
+    linear-gradient(180deg, #0a2440 0%, #091d36 58%, #061524 100%);
+  transition: box-shadow 0.2s ease;
+}
+.activate-road:hover {
+  box-shadow: 0 0 28px -8px rgb(var(--brand-glow) / 0.9);
 }
 .activate-asphalt {
   background: linear-gradient(180deg, #2b3440 0%, #1b222c 100%);
@@ -577,4 +645,127 @@ html {
   background-size: 10px 10px;
   background-position: 0 0, 0 5px, 5px -5px, -5px 0;
   opacity: 0.55;
+}
+
+/* ── SODIO TYPE ─────────────────────────────────────────────────────────────
+   Familjen Grotesk for voice, Karla for work, IBM Plex Mono for facts.
+   Karla runs body copy and every table row: it is narrow for its x-height,
+   which is what keeps a nine-column accounts table readable on a laptop
+   without dropping below 14px. Lato retires — Karla keeps the same warmth at
+   tighter widths. */
+@layer base {
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.03em;
+  }
+
+  /* COLUMN HEADS ARE MONO, and so is every numeral in a table — that is what
+     makes nine columns line up. Applied once here rather than in 70 table
+     components, so a new table cannot forget. Deliberately NOT uppercased:
+     the identity's own mock is title case, and 11px mono at 0.13em tracking
+     already grows a header row without help. */
+  thead th {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.13em;
+    font-weight: 600;
+  }
+  tbody td {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* KPI numbers: display face, 700, TABULAR — so the count-up animation can
+   never make a row jitter as digit widths change. A SEPARATE rule from the
+   .kpi-value hover block above: that one is motion, this is type. */
+.kpi-value {
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+/* metadata labels and any small "fact" — 10.5px mono, the identity's floor */
+.meta-mono {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+}
+
+/* ── SODIO MOTION ───────────────────────────────────────────────────────────
+   Additive only. Nothing here replaces the existing rise-in / KPI hover /
+   goal-fill / road / confetti rules above, and every animating block is
+   reduced-motion guarded. */
+
+/* the two brand colours, as text — the one gradient the identity allows */
+.gradient-text {
+  background-image: linear-gradient(100deg, var(--brand-blue), var(--brand-purple));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* the logo tile — lifts and tilts on hover, with a slow sheen so the brand has
+   a pulse without ever asking for attention */
+.brand-mark {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 28%;
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease;
+}
+.brand-mark:hover {
+  transform: translateY(-1px) scale(1.06) rotate(-3deg);
+  box-shadow: 0 8px 22px -8px rgb(var(--brand-glow) / 0.7);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .brand-mark::after {
+    content: "";
+    position: absolute;
+    inset: -40%;
+    background: linear-gradient(
+      100deg,
+      transparent 42%,
+      rgb(255 255 255 / 0.45) 50%,
+      transparent 58%
+    );
+    transform: translateX(-120%);
+    animation: brand-sheen 7s ease-in-out infinite;
+    pointer-events: none;
+  }
+}
+@keyframes brand-sheen {
+  0%,
+  62% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(120%);
+  }
+}
+
+/* the active sidebar tab's halo — purple, because purple marks the thing you
+   are on. Was a hardcoded AIESEC-blue shadow written inline. */
+.nav-active-glow {
+  box-shadow: 0 0 18px -6px rgb(var(--brand-glow) / 0.85);
+}
+
+/* a soft brand pulse for live / today markers */
+@media (prefers-reduced-motion: no-preference) {
+  .brand-pulse {
+    animation: brand-pulse 2.4s ease-in-out infinite;
+  }
+}
+@keyframes brand-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(var(--brand-glow) / 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgb(var(--brand-glow) / 0);
+  }
 }

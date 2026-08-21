@@ -17,7 +17,7 @@ import {
  *  dialog, with the page the reporter was on attached. It lives IN the chrome
  *  (next to Refresh on desktop, next to the bell on mobile) rather than
  *  floating over content: a floating tab bottom-left sat on top of tables and
- *  fought the Blue Man for corner space.
+ *  fought the Violet Man for corner space.
  */
 export function FeedbackButton({ className }: { className?: string }) {
   const [open, setOpen] = useState(false);

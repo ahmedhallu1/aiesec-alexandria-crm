@@ -10,7 +10,9 @@ export default function manifest(): MetadataRoute.Manifest {
     display: "standalone",
     background_color: "#0A2540",
     theme_color: "#0A2540",
-    // v31: the AIESEC in Alexandria lighthouse mark (white on AIESEC blue).
+    // Sodio's own mark: the geometric S, white on AIESEC blue, with the
+    // purple node at the tail. The maskable one is full-bleed blue with the
+    // mark at 62%, inside Android's safe circle.
     // The maskable one is a separate, full-bleed file with the mark inside the
     // inner-80% safe circle — reusing the rounded any-icon got its corners
     // shaved by Android's mask.

@@ -172,7 +172,7 @@ function buildSteps(role: string, m: TourModules, fns: string[]): TourStep[] {
       openBy: '[data-tour="nav:open"]',
       target: "nav:/emails",
       title: "The Emails tab",
-      body: "Professional letters from YOUR own Gmail — layouts, your real signature, the Blue Man to draft, and every send remembered.",
+      body: "Professional letters from YOUR own Gmail — layouts, your real signature, the Violet Man to draft, and every send remembered.",
     });
   }
 
@@ -218,7 +218,7 @@ function buildSteps(role: string, m: TourModules, fns: string[]): TourStep[] {
       openBy: '[data-tour="nav:open"]',
       target: "nav:/help",
       title: "Help has the rest",
-      body: "Search anything — how-tos, FAQs, the fine print — or ask The Blue Man from there. You can replay this walkthrough from Help any time.",
+      body: "Search anything — how-tos, FAQs, the fine print — or ask The Violet Man from there. You can replay this walkthrough from Help any time.",
     }
   );
 

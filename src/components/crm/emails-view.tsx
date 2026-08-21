@@ -557,7 +557,7 @@ export function EmailsView({
                   className="h-8"
                   onClick={() => setAiOpen((o) => !o)}
                 >
-                  <Sparkles className="size-3.5" /> Blue Man
+                  <Sparkles className="size-3.5" /> Violet Man
                 </Button>
               </div>
 

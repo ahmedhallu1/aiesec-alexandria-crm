@@ -12,7 +12,7 @@
  *  broken page.
  */
 
-const BLUE = "#037EF3";
+const BLUE = "var(--chart-1)";
 const GV = "#F85A40";
 const GT = "#0CB9C1";
 const AMBER = "#F48924";
@@ -195,7 +195,7 @@ function TouchPointFlowDiagram() {
   return (
     <svg viewBox={`0 0 ${steps.length * (w + gap) - gap} 78`} role="img" aria-label="A touch point's life" className="w-full max-w-xl">
       {steps.map((s, i) => (
-        <Pill key={s.label} x={i * (w + gap)} y={y} w={w} label={s.label} color={i === 4 ? OK : "#8E44AD"} sub={s.sub} />
+        <Pill key={s.label} x={i * (w + gap)} y={y} w={w} label={s.label} color={i === 4 ? OK : "var(--primary)"} sub={s.sub} />
       ))}
       {steps.slice(0, -1).map((_, i) => (
         <Arrow key={i} x1={(i + 1) * (w + gap) - gap + 2} y1={y + 15} x2={(i + 1) * (w + gap) - 4} y2={y + 15} />

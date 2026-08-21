@@ -191,7 +191,7 @@ export function addRowLane(s: FunnelStats, r: LaneRow, w: RowWork, lane: string)
       // and "no next step" describe the account as it stands today and carry
       // no date of their own, so inside a window they answer the only
       // question they can: of the accounts ADDED in this range, how many are
-      // in that state now. (None of the three is on the KPI row; the Blue Man
+      // in that state now. (None of the three is on the KPI row; the Violet Man
       // reads `outOfProcess`.)
       if (r.out_of_process) s.outOfProcess += 1;
       if (r.contact_limit_reached) s.contactLimitFlags += 1;

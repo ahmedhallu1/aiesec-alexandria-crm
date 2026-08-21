@@ -2,10 +2,11 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { LoginForm } from "@/components/crm/login-form";
 import { ThemeToggle } from "@/components/crm/theme-toggle";
+import { SodioMark } from "@/components/crm/sodio-mark";
 
 export const metadata = {
   title: "Sign in",
-  // the LC's own lighthouse mark, same file the PWA manifest uses
+  // Sodio's own mark, the same file the PWA manifest uses
   icons: { icon: "/icons/icon-192.png", apple: "/icons/icon-192.png" },
 };
 
@@ -23,15 +24,17 @@ export default async function LoginPage({
       <ThemeToggle className="absolute right-4 top-4 z-10 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
       <div className="rise-in relative z-10 w-full max-w-md rounded-2xl bg-card p-8 shadow-2xl">
         <div className="mb-8 text-center">
-          {/* the LC's OWN logo (v31) — this page is externally reachable */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/alex-blue.png" alt="AIESEC in Alexandria" className="mx-auto mb-4 h-16 w-auto dark:hidden" />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/alex-white.png" alt="AIESEC in Alexandria" className="mx-auto mb-4 hidden h-16 w-auto dark:block" />
-          <h1 className="text-2xl font-bold text-card-foreground">
-            AIESEC <span className="text-primary">in Alexandria</span>
+          {/* Sodio leads on its own front door — the LC owns it and says so on
+              the line underneath, rather than the product being a footnote to
+              a logo. The /book pages, which real outsiders reach, still lead
+              with AIESEC in Alexandria. */}
+          <SodioMark px={64} className="brand-mark mx-auto mb-4 h-16 w-16" title="Sodio" />
+          <h1 className="font-display text-3xl font-bold tracking-tight text-card-foreground">
+            Sodio
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground"><span className="font-bold text-foreground">Sodio</span></p>
+          <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.13em] text-muted-foreground">
+            AIESEC in Alexandria
+          </p>
         </div>
 
         {/* JUST SET A PASSWORD (v33.58) — onboarding ends the session on

@@ -2,7 +2,7 @@ import "server-only";
 
 /** CV auto-analysis (v26 — Consideration module). Sends the uploaded CV to
  *  Gemini 2.5 Flash (same REST pattern as /api/assistant) and extracts the
- *  structured fields the CV pool lists and The Blue Man searches:
+ *  structured fields the CV pool lists and The Violet Man searches:
  *  name / phone / email / best-match industry / skills / summary / full text.
  *
  *  PDF + images go as inline_data; text-ish files (txt/md/html/csv…) as plain

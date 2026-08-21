@@ -16,7 +16,7 @@ export const metadata = { title: "Consideration" };
 
 /** THE CONSIDERATION MODULE (v26): International Relations calls with partner
  *  LCs abroad (screenshots on the system Drive) + the shared CV pool (private
- *  storage, Gemini-extracted fields, searchable — also by The Blue Man).
+ *  storage, Gemini-extracted fields, searchable — also by The Violet Man).
  *  v27: each member's public BOOKING LINK (/book/<slug>) — booked calls land
  *  scheduled on top of the IR log with an in-call notes dialog; the CV pool
  *  is IGT-only (companies want talent — an IGV-only VP sees just IR calls). */

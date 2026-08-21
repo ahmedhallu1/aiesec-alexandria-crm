@@ -23,7 +23,7 @@ import { MmPlanForm } from "./mm-plan-form";
 import { WhatsAppIcon } from "./icons";
 import { Hint } from "./hint";
 import {
-  AVATAR_STYLE_LABELS, AVATAR_STYLES, avatarChoices, BLUE_MAN_AVATAR,
+  AVATAR_STYLE_LABELS, AVATAR_STYLES, avatarChoices, VIOLET_MAN_AVATAR,
   buildAvatarUrl, randomAvatarSeed, type AvatarStyle,
 } from "@/lib/avatars";
 import { cn } from "@/lib/utils";
@@ -1209,32 +1209,32 @@ function AvatarDialog({
             ) : null}
           </div>
 
-          {/* Fun characters (the Blue Man first, then a classic bearded one) */}
+          {/* Fun characters (the Violet Man first, then a classic bearded one) */}
           <div>
             <p className="mb-2 text-xs font-semibold text-muted-foreground">Fun characters</p>
             <div className="grid grid-cols-4 gap-3 sm:grid-cols-6">
-              {/* The Blue Man — Sodio's mascot, white on the blue circle like
+              {/* The Violet Man — Sodio's mascot, white on the blue circle like
                   the floating assistant button (walk.png is non-square, so
                   object-contain, never object-cover) */}
               <button
                 type="button"
-                title="The Blue Man 🚶"
-                onClick={() => setSelected(BLUE_MAN_AVATAR)}
+                title="The Violet Man 🚶"
+                onClick={() => setSelected(VIOLET_MAN_AVATAR)}
                 className={cn(
                   "relative aspect-square rounded-full ring-2 transition hover:scale-105",
-                  selected === BLUE_MAN_AVATAR ? "ring-primary" : "ring-transparent"
+                  selected === VIOLET_MAN_AVATAR ? "ring-primary" : "ring-transparent"
                 )}
               >
                 <span className="flex size-full items-center justify-center overflow-hidden rounded-full bg-primary">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={BLUE_MAN_AVATAR}
-                    alt="The Blue Man"
+                    src={VIOLET_MAN_AVATAR}
+                    alt="The Violet Man"
                     className="size-full brightness-0 invert object-contain p-1"
                     loading="lazy"
                   />
                 </span>
-                {selected === BLUE_MAN_AVATAR ? (
+                {selected === VIOLET_MAN_AVATAR ? (
                   <span className="absolute -right-0.5 -top-0.5 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
                     <Check className="size-3" />
                   </span>

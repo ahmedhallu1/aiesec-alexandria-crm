@@ -51,11 +51,11 @@ export function avatarUrl(style: AvatarStyle, seed: string): string {
   return buildAvatarUrl(style, seed);
 }
 
-/** The Blue Man — Sodio's mascot as an avatar. Deliberately a SITE-RELATIVE
+/** The Violet Man — Sodio's mascot as an avatar. Deliberately a SITE-RELATIVE
  *  path (the APNG lives in /public/brand); updateAvatar whitelists this exact
  *  literal. The picker renders it inverted-white on a blue circle (like the
  *  floating assistant button); elsewhere it shows as the blue walking figure. */
-export const BLUE_MAN_AVATAR = "/brand/walk.png";
+export const VIOLET_MAN_AVATAR = "/brand/walk.png";
 
 /** Fun words for the creator's 🎲 randomize button (client-side only). */
 const RANDOM_SEED_WORDS = [

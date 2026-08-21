@@ -1,7 +1,7 @@
 /** THE HELP CENTER'S SHAPE (v33.36).
  *
  *  The Playbook grew up: /help is a searchable help center — categories,
- *  task-first articles, FAQs, diagrams, deep links, and The Blue Man wired in
+ *  task-first articles, FAQs, diagrams, deep links, and The Violet Man wired in
  *  as the AI layer. The CONTENT lives in `help-articles.ts` as plain data
  *  (no JSX), so it can be searched, rendered, and — crucially — fact-checked
  *  and regenerated without touching the machinery.
@@ -11,7 +11,7 @@
  */
 
 /** ⚠️ Bump with EVERY release — the help center must describe the live system. */
-export const HELP_VERSION = "v33.59";
+export const HELP_VERSION = "v34";
 /** The playbook's name for the same rule — kept so nothing else has to move. */
 export const PLAYBOOK_VERSION = HELP_VERSION;
 
@@ -77,12 +77,12 @@ export const HELP_CATEGORIES: HelpCategory[] = [
   {
     id: "getting-started", emoji: "🚀", title: "Getting started",
     blurb: "Signing in, your profile, notifications, and making Sodio yours.",
-    color: "#037EF3", audienceKeys: ["everyone"],
+    color: "var(--chart-1)", audienceKeys: ["everyone"],
   },
   {
     id: "raising", emoji: "🏢", title: "Raising & accounts",
     blurb: "Accounts, contacts, visits, deals, proposals and the archive.",
-    color: "#037EF3", audienceKeys: ["raising", "b2b", "b2c"],
+    color: "var(--chart-1)", audienceKeys: ["raising", "b2b", "b2c"],
   },
   {
     id: "ogx", emoji: "✈️", title: "OGX sign-ups",
@@ -99,7 +99,7 @@ export const HELP_CATEGORIES: HelpCategory[] = [
   {
     id: "touchpoints", emoji: "📅", title: "Touch points & calendar",
     blurb: "Meetings, working hours, attendance, ratings and the one calendar.",
-    color: "#8E44AD", audienceKeys: ["everyone"],
+    color: "var(--primary)", audienceKeys: ["everyone"],
   },
   {
     id: "emails-feedback", emoji: "✉️", title: "Emails & feedback",
