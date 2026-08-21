@@ -10,6 +10,7 @@ import { db } from "@/lib/supabase";
 import { env } from "@/lib/env";
 import { checkVisitTime } from "@/lib/visit-time";
 import { memberEmailProblem, memberNameProblem } from "@/lib/member-fields";
+import { mintKey } from "./api-keys";
 import {
   accountFnTargets,
   accountScope,
@@ -1880,6 +1881,48 @@ export async function stopLcTestSession(
 /** Reverses one or more audited actions from /admin (single or bulk select).
  *  Newest first, so undoing a run of edits to the same row lands on the
  *  oldest snapshot rather than a middle one. */
+/** ── API KEYS (v34.2) ───────────────────────────────────────────────────────
+ *  Issue and revoke keys for the read-only accounts endpoint. Admin tools
+ *  only — the same gate as the health page and the change journal.
+ *
+ *  The key is returned ONCE, here, and never again: only its hash is stored.
+ *  That is the whole security property, so the UI has to say so out loud. */
+export async function createApiKey(label: string): Promise<ActionResult<{ key: string }>> {
+  const viewer = await getViewer();
+  if (!canUseAdminTools(viewer)) return fail("Admin tools only.", "forbidden");
+  const clean = label.trim();
+  if (clean.length < 2) return fail("Give the key a name — you'll need it to tell keys apart.");
+  if (await sandboxSuppressed("createApiKey"))
+    return fail("Not from a test view — a real key would outlive the session.");
+
+  const { key, keyHash, prefix } = mintKey();
+  const { error } = await db()
+    .from("api_keys")
+    .insert({ label: clean, key_hash: keyHash, prefix, created_by: viewer.id });
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "api_key_created", "api_key", null, { label: clean, prefix });
+  refresh();
+  return { ok: true, data: { key } };
+}
+
+export async function revokeApiKey(id: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!canUseAdminTools(viewer)) return fail("Admin tools only.", "forbidden");
+  // a stamp, never a delete — the audit trail outlives the key
+  const { data, error } = await db()
+    .from("api_keys")
+    .update({ revoked_at: new Date().toISOString() })
+    .eq("id", id)
+    .is("revoked_at", null)
+    .select("label")
+    .maybeSingle<{ label: string }>();
+  if (error) return fail(error.message);
+  if (!data) return fail("That key is already revoked.");
+  await logAudit(viewer.id, "api_key_revoked", "api_key", id, { label: data.label });
+  refresh();
+  return { ok: true };
+}
+
 export async function undoAuditEntries(
   ids: number[]
 ): Promise<ActionResult<{ undone: number; skipped: number; failed: number }>> {

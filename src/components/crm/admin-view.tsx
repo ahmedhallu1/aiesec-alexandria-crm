@@ -17,6 +17,8 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ApiKeysCard } from "./api-keys-card";
+import type { ApiKeyRow } from "@/server/api-keys";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 
@@ -58,11 +60,13 @@ export function AdminView({
   audit,
   testMode,
   lcSession,
+  apiKeys,
 }: {
   health: SystemHealth | null;
   audit: AuditEntry[];
   testMode: { testAccounts: number; showTestData: boolean };
   lcSession: { id: string; startedAt: string; changes: number } | null;
+  apiKeys: ApiKeyRow[];
 }) {
   const [q, setQ] = useState("");
   // bulk selection over the log (v32)
@@ -134,6 +138,8 @@ export function AdminView({
       </div>
 
       <TestModeCard testMode={testMode} />
+
+      <ApiKeysCard keys={apiKeys} />
 
       {!health ? (
         <Card className="rise-in rise-in-1">
