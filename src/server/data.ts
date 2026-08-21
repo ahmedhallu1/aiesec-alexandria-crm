@@ -3267,7 +3267,7 @@ export async function getSystemHealth(): Promise<SystemHealth> {
 
   // env vars (presence only — never the values)
   checks.push({
-    label: "The Blue Man (GEMINI_API_KEY)",
+    label: "The Violet Man (GEMINI_API_KEY)",
     ok: !!process.env.GEMINI_API_KEY,
     detail: process.env.GEMINI_API_KEY ? "Configured" : "Missing",
   });
@@ -6846,7 +6846,7 @@ export async function listCvsPage(
   return { rows: (data ?? []) as CvRow[], total: count ?? 0, page };
 }
 
-/** The Blue Man's CV search (v26): the query is split into words and EVERY
+/** The Violet Man's CV search (v26): the query is split into words and EVERY
  *  word must match at least one of name / skills / industry / summary / full
  *  text. Up to 8 hits — RBAC-gated to the Consideration module. */
 export async function searchCvs(

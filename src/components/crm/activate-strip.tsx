@@ -7,13 +7,14 @@ import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { cairoToday } from "@/lib/types";
+import { walkerBox } from "./walking-man";
 
 /** 🏆 ROAD TO ACTIVATE (v33.57 — a road you walk ALONG; v33.58 — and one you
  *  can TAP to find out what you're walking towards).
  *
  *  Activate is the national conference the whole LC works towards, and the
  *  awards are decided by what this system already measures. The banner is the
- *  run up to it: a road seen from the side, the Blue Man walking it, month
+ *  run up to it: a road seen from the side, the Violet Man walking it, month
  *  posts along the verge and the finish line at the end. He stands where the
  *  LC stands — 1 August is the start line, 3 December the finish.
  *
@@ -32,17 +33,10 @@ import { cairoToday } from "@/lib/types";
 export const ACTIVATE_DAY = "2026-12-03";
 const ROAD_START = "2026-08-01";
 
-/** measured from walk.png's alpha channel — see the note above */
-const ART = { aspect: 356 / 200, left: 0.393, right: 0.596, top: 0.17, bottom: 0.835 };
-const ART_H = ART.bottom - ART.top; // 0.665 of the canvas is actual person
-const ART_CX = (ART.left + ART.right) / 2; // 0.494 of the canvas width
-
-/** Canvas box that puts a figure of `figH` with its feet at (cx, feetY). */
-function walker(cx: number, feetY: number, figH: number) {
-  const h = figH / ART_H;
-  const w = h * ART.aspect;
-  return { x: cx - w * ART_CX, y: feetY - h * ART.bottom, width: w, height: h };
-}
+/** The alpha bounds live in ONE place now (walking-man.tsx). This file used
+ *  to keep its own copy measured from a single frame, which cut the walker's
+ *  head on 4 of the 16 frames — see the note there. */
+const walker = walkerBox;
 
 const dayNum = (d: string) => Date.parse(`${d}T00:00:00Z`);
 const DAY_MS = 86_400_000;
@@ -195,7 +189,7 @@ function ActivateBrief({ days, day, total }: { days: number; day: number; total:
             ? `we have ${days} day${days === 1 ? "" : "s"} to build the case`
             : "today is the day"}
         </b>
-        . Day {day} of {total} on the road above — the Blue Man moves one step
+        . Day {day} of {total} on the road above — the Violet Man moves one step
         along it every morning, whether or not the numbers moved with him. 💙
       </p>
 
@@ -260,7 +254,7 @@ export function ActivateStrip() {
         type="button"
         onClick={() => setOpen(true)}
         aria-label={`Road to Activate — ${days} days to go. What is Activate?`}
-        className="activate-road group relative block w-full overflow-hidden rounded-xl border border-white/10 text-left transition-shadow hover:shadow-[0_0_28px_-8px_rgb(3_126_243/0.9)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+        className="activate-road group relative block w-full overflow-hidden rounded-xl border border-white/10 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
       >
         <div className="relative flex items-center gap-4 px-4 py-3 sm:px-6">
           <div className="shrink-0">
@@ -296,8 +290,8 @@ export function ActivateStrip() {
                 <stop offset="1" stopColor="#222a34" />
               </linearGradient>
               <linearGradient id="rt-done" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0" stopColor="#ffd400" stopOpacity="0.18" />
-                <stop offset="1" stopColor="#ffd400" stopOpacity="0.02" />
+                <stop offset="0" stopColor="#7552CC" stopOpacity="0.42" />
+                <stop offset="1" stopColor="#7552CC" stopOpacity="0.05" />
               </linearGradient>
               <radialGradient id="rt-shadow" cx="0.5" cy="0.5" r="0.5">
                 <stop offset="0" stopColor="#000000" stopOpacity="0.45" />
@@ -306,7 +300,7 @@ export function ActivateStrip() {
             </defs>
 
             {/* the ground beyond the far kerb */}
-            <rect x="0" y={FAR - 7} width={W} height="7" fill="#0b2f5e" />
+            <rect x="0" y={FAR - 7} width={W} height="7" fill="#0d1e38" />
             {/* the tarmac */}
             <rect x="0" y={FAR} width={W} height={NEAR - FAR} fill="url(#rt-road)" />
             {/* the stretch already walked, warmed up */}
@@ -336,7 +330,7 @@ export function ActivateStrip() {
               return (
                 <g key={p.label}>
                   <rect x={x - 1} y={FAR - 13} width="2" height="13" fill="#ffffff" fillOpacity={done ? 0.75 : 0.28} />
-                  <circle cx={x} cy={FAR - 15} r="2.6" fill={done ? "#ffd400" : "#ffffff"} fillOpacity={done ? 1 : 0.35} />
+                  <circle cx={x} cy={FAR - 15} r="2.6" fill={done ? "#A78BEA" : "#ffffff"} fillOpacity={done ? 1 : 0.35} />
                   <text
                     x={x}
                     y={FAR - 21}

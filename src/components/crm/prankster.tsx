@@ -63,7 +63,7 @@ const STUBBORN_LINES = [
 ];
 
 const AMBIENT_LINES = [
-  "The Blue Man just looked at your numbers. He said nothing. 🚶",
+  "The Violet Man just looked at your numbers. He said nothing. 🚶",
   "Sodio is quietly proud of you. Don't let it go to your head. 💙",
   "Fun fact: this toast has no purpose whatsoever. 🍞",
   "Somebody in the EB is watching this exact screen. Probably. 👀",
@@ -244,7 +244,7 @@ export function Prankster({ prankedBy }: { prankedBy?: string | null }) {
   }, [canPrank, pathname, router, showReveal]);
 
   // ── PRANK 3: AMBIENT MISCHIEF ─────────────────────────────────────────────
-  // Once in a while, on a page they're already looking at: the Blue Man
+  // Once in a while, on a page they're already looking at: the Violet Man
   // strolls past, the page shivers for a second, or a completely pointless
   // toast appears. Nothing to click, nothing to undo.
   useEffect(() => {
@@ -286,7 +286,7 @@ export function Prankster({ prankedBy }: { prankedBy?: string | null }) {
           </p>
           <p className="rounded-lg border border-primary/30 bg-primary/5 p-3">
             <b>What it will do:</b> a button that needs convincing, a tab that
-            sends you the scenic way, the Blue Man walking across your screen.
+            sends you the scenic way, the Violet Man walking across your screen.
             <br />
             <b>What it will never do:</b> touch your accounts, your numbers,
             your emails or anything you actually have to get done. Every button
@@ -309,7 +309,7 @@ export function Prankster({ prankedBy }: { prankedBy?: string | null }) {
   );
 }
 
-/** The Blue Man takes a walk across the bottom of the screen and leaves. Pure
+/** The Violet Man takes a walk across the bottom of the screen and leaves. Pure
  *  decoration: fixed, pointer-events-none, removes itself. */
 function stroll() {
   const img = document.createElement("img");

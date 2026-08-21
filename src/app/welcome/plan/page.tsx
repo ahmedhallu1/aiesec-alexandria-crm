@@ -4,6 +4,7 @@ import { peakForPlanning } from "@/lib/plan";
 import { MmPlanForm } from "@/components/crm/mm-plan-form";
 import { ThemeToggle } from "@/components/crm/theme-toggle";
 import { SkipPlanButton } from "@/components/crm/skip-plan-button";
+import { SodioMark } from "@/components/crm/sodio-mark";
 
 export const metadata = { title: "Your plan" };
 
@@ -23,10 +24,7 @@ export default async function MmPlanPage() {
       <ThemeToggle className="absolute right-4 top-4 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground" />
       <div className="w-full min-w-0 max-w-xl rounded-2xl bg-card p-5 shadow-2xl sm:p-8">
         <div className="mb-6 text-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/aiesec-blue.png" alt="AIESEC" className="mx-auto mb-3 h-8 w-auto dark:hidden" />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/aiesec-white.png" alt="AIESEC" className="mx-auto mb-3 hidden h-8 w-auto dark:block" />
+          <SodioMark px={40} className="brand-mark mx-auto mb-3 h-10 w-10" title="Sodio" />
           <h1 className="text-2xl font-bold">
             One last thing, {nickname} — your plan 🎯
           </h1>

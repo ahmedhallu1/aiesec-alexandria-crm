@@ -29,7 +29,7 @@ import { StageBadge } from "./stage-badge";
 import { ContactDialog, type ContactTarget } from "./contact-dialog";
 import { AddAccountDialog, type MemberOption } from "./add-account-dialog";
 import { DirectVisitDialog } from "./direct-visit-dialog";
-import { AskBlueMan } from "./ask-blue-man";
+import { AskVioletMan } from "./ask-violet-man";
 import { CopyNameButton } from "./copy-name-button";
 import { FileDrop } from "./file-drop";
 import { Hint } from "./hint";
@@ -1077,9 +1077,9 @@ export function AccountsView({
               : `${total.toLocaleString("en")} account${total === 1 ? "" : "s"} in your scope`}
           </p>
           {!archived ? (
-            <AskBlueMan
+            <AskVioletMan
               className="mt-1.5"
-              hint="Ask The Blue Man for insights — or accounts matching any criteria"
+              hint="Ask The Violet Man for insights — or accounts matching any criteria"
               prefill="Give me the accounts where "
             />
           ) : null}

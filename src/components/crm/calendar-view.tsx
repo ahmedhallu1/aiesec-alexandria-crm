@@ -31,7 +31,7 @@ import { fmtClock12 } from "@/lib/types";
 
 /** Distinct, readable chip colors — one per member, assigned in a stable order. */
 const MEMBER_COLORS = [
-  "#037EF3", "#F85A40", "#0CB9C1", "#F48924", "#8E44AD", "#27AE60",
+  "#037EF3", "#F85A40", "#0CB9C1", "#F48924", "#C2337F", "#27AE60",
   "#E91E8C", "#795548", "#607D8B", "#C0392B", "#3F51B5", "#00897B",
 ];
 
@@ -658,7 +658,7 @@ export function CalendarView({
                         const editable = t.canEdit && !t.cancelled;
                         const cls = cn(
                           "block w-full truncate rounded px-1.5 py-0.5 text-left text-[11px] font-semibold text-white",
-                          t.cancelled ? "bg-muted-foreground/50 line-through" : "bg-[#8E44AD]",
+                          t.cancelled ? "bg-muted-foreground/50 line-through" : "bg-primary",
                           editable && "transition-transform hover:-translate-y-px hover:shadow-sm"
                         );
                         const body = `${t.time} ${t.label}`;
@@ -841,7 +841,7 @@ export function CalendarView({
             {dayTps.map((t) => (
               <div key={t.id} className="min-w-0 rounded-lg border p-2.5">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="shrink-0 rounded-full bg-[#8E44AD]/15 px-2 py-0.5 text-xs font-bold text-[#8E44AD]">
+                  <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-xs font-bold text-primary">
                     {t.time}
                   </span>
                   <p

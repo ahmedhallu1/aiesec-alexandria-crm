@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { SodioMark } from "./sodio-mark";
 import { ThemeToggle } from "./theme-toggle";
 import { NotificationsBell } from "./notifications-bell";
 import { AutoRefresh, RefreshButton } from "./auto-refresh";
@@ -36,7 +37,7 @@ import { FeedbackButton } from "./floating-feedback";
 import { TestViewButton } from "./test-view-button";
 import type { ViewAsTarget } from "@/server/data";
 import { WalkingLoader } from "./walking-loader";
-import { BlueManChat } from "./blue-man-chat";
+import { VioletManChat } from "./violet-man-chat";
 import { PendingPrompt } from "./pending-prompt";
 import { Prankster } from "./prankster";
 import { ActivateStrip } from "./activate-strip";
@@ -346,7 +347,7 @@ export function AppShell({
             className={cn(
               "group flex min-w-0 flex-1 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground/80 transition-all hover:translate-x-0.5 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground motion-reduce:hover:translate-x-0",
               active &&
-                "bg-sidebar-primary text-sidebar-primary-foreground shadow-[0_0_18px_-6px_rgb(3_126_243/0.8)] hover:translate-x-0 hover:bg-sidebar-primary"
+                "nav-active-glow bg-sidebar-primary font-bold text-sidebar-primary-foreground hover:translate-x-0 hover:bg-sidebar-primary"
             )}
           >
             <item.icon className="size-4.5 transition-transform group-hover:scale-110 motion-reduce:group-hover:scale-100" />
@@ -578,35 +579,12 @@ export function AppShell({
         railed ? "justify-center px-0" : "px-4"
       )}
     >
-      {/* TWO MARKS, ONE SLOT (v33.8). The AIESEC wordmark is a WIDE lockup —
-          squeezed into a 3.75rem rail it shrank to an illegible smear. The
-          rail gets the walking human instead, which is the same brand at a
-          square aspect, and the two cross-fade so the collapse reads as one
-          movement rather than a pop. */}
-      {/* THE BOX MUST MATCH THE TALLEST THING IN IT (v33.28) — an h-7 span
-          holding an h-8 image bled 4px and sliced the wordmark's top edge. */}
-      <span className="relative grid h-8 shrink-0 place-items-center">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/brand/aiesec-white.png"
-          alt="AIESEC"
-          className={cn(
-            // a 4.9:1 lockup at h-7 is 137px wide — too much for a 200px row,
-            // which is what pushed the caption into being sliced
-            "col-start-1 row-start-1 h-5 w-auto transition-all duration-300",
-            railed ? "scale-90 opacity-0" : "opacity-100"
-          )}
-        />
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/brand/walk.png"
-          alt="AIESEC"
-          className={cn(
-            "walkman-tint col-start-1 row-start-1 h-8 w-8 object-contain transition-all duration-300",
-            railed ? "opacity-100" : "scale-90 opacity-0"
-          )}
-        />
-      </span>
+      {/* ONE MARK, BOTH STATES. The stock AIESEC wordmark was a 4.9:1 lockup
+          that had to CROSS-FADE into the walking man to survive the collapsed
+          rail (v33.8). Sodio's own mark is square, so it simply stays put and
+          only the text collapses — one less moving part, and the brand stays
+          legible at every width. */}
+      <SodioMark px={32} className="brand-mark h-8 w-8 shrink-0" title="Sodio" />
       <div
         className={cn(
           "min-w-0 overflow-hidden whitespace-nowrap leading-tight transition-all duration-300",
@@ -615,8 +593,12 @@ export function AppShell({
           railed ? "ml-0 w-0 opacity-0" : "flex-1 opacity-100"
         )}
       >
-        <p className="truncate text-sm font-black tracking-tight text-sidebar-foreground">Sodio</p>
-        <p className="truncate text-[10px] text-sidebar-foreground/60">AIESEC in Alexandria</p>
+        <p className="truncate font-display text-[15px] font-bold tracking-tight text-sidebar-foreground">
+          Sodio
+        </p>
+        <p className="truncate font-mono text-[10px] uppercase tracking-[0.13em] text-sidebar-foreground/55">
+          AIESEC in Alexandria
+        </p>
       </div>
     </Link>
   );
@@ -697,9 +679,10 @@ export function AppShell({
         </Sheet>
         {/* on a ≤360px phone the logo was the thing that got squeezed (v33.28) */}
         <Link prefetch={false} href={effectiveHome} className="flex min-w-0 items-center gap-2" title="Home — your workspace">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/aiesec-white.png" alt="AIESEC" className="h-5 w-auto shrink-0" />
-          <p className="truncate text-sm font-black tracking-tight text-sidebar-foreground">Sodio</p>
+          <SodioMark px={24} className="brand-mark h-6 w-6 shrink-0" title="Sodio" />
+          <p className="truncate font-display text-sm font-bold tracking-tight text-sidebar-foreground">
+            Sodio
+          </p>
         </Link>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           {viewAsTargets.length > 0 ? (
@@ -717,7 +700,7 @@ export function AppShell({
 
       {/* The bottom padding has to clear THREE things at once: the phone's home
           indicator (safe-area inset — we ship `viewport-fit=cover`, and the PWA
-          runs full-bleed), the floating Blue Man button and the draggable
+          runs full-bleed), the floating Violet Man button and the draggable
           test-view chip. 7rem + the inset keeps the last card of a page (the
           profile's cards, the dashboard's drill-down) fully readable. */}
       <main
@@ -745,9 +728,9 @@ export function AppShell({
           somebody's screen must see the real thing). */}
       {prank?.on ? <Prankster prankedBy={prank.by} /> : null}
 
-      {/* The Blue Man — Sodio's assistant (persistent per-user chats +
+      {/* The Violet Man — Sodio's assistant (persistent per-user chats +
           role/module-aware suggested questions) */}
-      <BlueManChat
+      <VioletManChat
         userEmail={user.email}
         role={user.role}
         modules={{

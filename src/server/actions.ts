@@ -3060,7 +3060,7 @@ export async function sendComposedEmail(
   return { ok: true, data: { draft: !!d.draft || files.length > 0, to: to.length } };
 }
 
-/** THE BLUE MAN, ON A LETTER (v33.24). Write it from a brief, or rework what
+/** THE VIOLET MAN, ON A LETTER (v33.24). Write it from a brief, or rework what
  *  is already in the editor — shorten it, warm it up, fix the English, turn
  *  it into Arabic. It returns HTML the editor can hold. */
 export async function draftEmailWithAi(input: {
@@ -3779,11 +3779,11 @@ export async function updateAvatar(url: string | null): Promise<ActionResult> {
   if (clean) {
     const isHttps = /^https:\/\/\S+$/i.test(clean);
     const isDataImage = /^data:image\/(png|jpe?g|webp);base64,/i.test(clean);
-    // The Blue Man mascot (BLUE_MAN_AVATAR in lib/avatars.ts) is the ONE
+    // The Violet Man mascot (VIOLET_MAN_AVATAR in lib/avatars.ts) is the ONE
     // site-relative path allowed — it's our own bundled /public asset, so a
     // strict whitelist of the exact literal, never arbitrary relative paths.
-    const isBlueMan = clean === "/brand/walk.png";
-    if (!isHttps && !isDataImage && !isBlueMan)
+    const isVioletMan = clean === "/brand/walk.png";
+    if (!isHttps && !isDataImage && !isVioletMan)
       return fail("The avatar must be an image link or an uploaded picture.");
     // ~400KB cap on uploaded images (the client already downscales to ~256px)
     if (isDataImage && clean.length > 550_000)
@@ -3845,7 +3845,7 @@ const memberSchema = z
 /** 🃏 PRANK MODE (v33.51, migration 0063).
  *
  *  The EB puts one member's Sodio in a mischievous mood — a stubborn button, a
- *  wrong turn on the way to a tab, the Blue Man strolling across the screen —
+ *  wrong turn on the way to a tab, the Violet Man strolling across the screen —
  *  for a day, a week, the peak, or until they turn it off.
  *
  *  WHAT THIS ACTION IS ALLOWED TO DO: write one timestamp. That is the whole

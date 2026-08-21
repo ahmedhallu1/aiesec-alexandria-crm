@@ -59,7 +59,7 @@ function markFirstLogin(member: Member) {
           [member.id],
           "welcome",
           "Welcome to Sodio 🎉",
-          "Sodio is yours — the Blue Man walks beside you from here."
+          "Sodio is yours — the Violet Man walks beside you from here."
         )
       );
     });
@@ -179,7 +179,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               [member.id],
               "welcome",
               "Welcome to Sodio 🎉",
-              "Sodio is yours — the Blue Man walks beside you from here."
+              "Sodio is yours — the Violet Man walks beside you from here."
             )
           );
         }

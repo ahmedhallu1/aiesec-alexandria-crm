@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { ArrowUpRight, GripVertical, Loader2, Send, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { WalkingMan } from "./walking-man";
 
 interface Msg {
   role: "user" | "assistant";
@@ -21,11 +21,14 @@ interface StoredChat {
 }
 
 const MAX_CHATS = 8;
+/** Deliberately still "blueman": renaming the key would orphan every saved
+ *  conversation on every member's device. Same call the LC made in v32.1,
+ *  when the Elevate rename kept the sodio-* keys. Invisible to users. */
 const storageKey = (email: string) => `sodio-blueman-chats:${email}`;
 
 const OPENERS = [
-  "Ahlan! I'm The Blue Man 🚶 — ask me about your accounts, your numbers, or anything AIESEC.",
-  "The Blue Man has arrived 🚶💙 What are we raising today?",
+  "Ahlan! I'm The Violet Man 🚶 — ask me about your accounts, your numbers, or anything AIESEC.",
+  "The Violet Man has arrived 🚶💙 What are we raising today?",
   "I walk, therefore I am. Also I know your pipeline. Ask away 🚶",
 ];
 
@@ -147,7 +150,7 @@ function relTime(ts: number): string {
 
 /** Very small markdown-ish renderer: **bold**, bullets, line breaks, and
  *  [label](url) links — internal ones render as tappable ACTION CHIPS (the
- *  Blue Man's smart actions), external ones as normal links. */
+ *  Violet Man's smart actions), external ones as normal links. */
 function renderLite(text: string) {
   return text.split("\n").map((line, i) => {
     const parts = line
@@ -203,7 +206,7 @@ function renderLite(text: string) {
   });
 }
 
-export function BlueManChat({
+export function VioletManChat({
   userEmail,
   role,
   modules,
@@ -284,7 +287,7 @@ export function BlueManChat({
     if (open) inputRef.current?.focus();
   }, [open]);
 
-  // "Ask the Blue Man" callouts anywhere in the app open the chat via a
+  // "Ask the Violet Man" callouts anywhere in the app open the chat via a
   // window event (optionally pre-filling a question into the CURRENT chat)
   useEffect(() => {
     const onOpen = (e: Event) => {
@@ -292,8 +295,8 @@ export function BlueManChat({
       setOpen(true);
       if (prefill) setInput(prefill);
     };
-    window.addEventListener("sodio:ask-blue-man", onOpen);
-    return () => window.removeEventListener("sodio:ask-blue-man", onOpen);
+    window.addEventListener("sodio:ask-violet-man", onOpen);
+    return () => window.removeEventListener("sodio:ask-violet-man", onOpen);
   }, []);
 
   const ask = async (text: string) => {
@@ -314,7 +317,7 @@ export function BlueManChat({
       const data = (await res.json()) as { text?: string; error?: string };
       reply = { role: "assistant", content: data.text || data.error || "Something broke 🫠" };
     } catch {
-      reply = { role: "assistant", content: "Network hiccup — the Blue Man lost signal 📶. Try again." };
+      reply = { role: "assistant", content: "Network hiccup — the Violet Man lost signal 📶. Try again." };
     }
     const done = [...next, reply];
     setMessages(done);
@@ -375,8 +378,8 @@ export function BlueManChat({
       {/* floating walking-man button */}
       <button
         onClick={() => setOpen((o) => !o)}
-        title="The Blue Man — Sodio's assistant"
-        aria-label="Open The Blue Man assistant"
+        title="The Violet Man — Sodio's assistant"
+        aria-label="Open The Violet Man assistant"
         className={cn(
           "fixed bottom-4 right-4 z-50 flex size-14 items-center justify-center rounded-full",
           "bg-primary shadow-lg shadow-primary/30 transition-transform duration-200",
@@ -384,14 +387,9 @@ export function BlueManChat({
           open && "scale-0 opacity-0"
         )}
       >
-        <Image
-          src="/brand/walk.png"
-          alt="The Blue Man"
-          width={40}
-          height={40}
-          unoptimized
-          className="brightness-0 invert"
-        />
+        {/* the FIGURE is 30px tall here; passing 40 to the raw image drew a
+            person barely half that, adrift in its own transparent canvas */}
+        <WalkingMan height={30} tone="white" alt="The Violet Man" />
       </button>
 
       {/* chat popup */}
@@ -419,16 +417,9 @@ export function BlueManChat({
           >
             <GripVertical className="size-4" />
           </div>
-          <Image
-            src="/brand/walk.png"
-            alt=""
-            width={28}
-            height={28}
-            unoptimized
-            className="brightness-0 invert"
-          />
+          <WalkingMan height={26} tone="white" />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-bold leading-tight">The Blue Man</p>
+            <p className="text-sm font-bold leading-tight">The Violet Man</p>
             <p className="text-[11px] leading-tight opacity-80">
               Sodio&apos;s assistant · knows your data + AIESEC
             </p>
@@ -571,7 +562,7 @@ export function BlueManChat({
                 ask(input);
               }
             }}
-            placeholder="Ask The Blue Man…"
+            placeholder="Ask The Violet Man…"
             className="max-h-24 min-h-9 flex-1 resize-none rounded-lg border bg-transparent px-3 py-2 text-sm outline-none focus:border-primary"
           />
           <Button type="submit" size="icon" className="size-9 shrink-0" disabled={busy || !input.trim()}>

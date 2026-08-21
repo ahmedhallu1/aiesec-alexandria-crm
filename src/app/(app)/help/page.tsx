@@ -8,7 +8,7 @@ import { HelpView } from "@/components/crm/help-view";
 export const metadata = { title: "Help" };
 
 /** THE HELP CENTER (v33.36) — the Playbook, grown up: searchable articles,
- *  FAQs, diagrams and The Blue Man as the AI layer.
+ *  FAQs, diagrams and The Violet Man as the AI layer.
  *  ⚠️ RULE unchanged: update `src/lib/help-articles.ts` (+ HELP_VERSION in
  *  help-content.ts) with every release, in the same commit. */
 export default async function HelpPage() {

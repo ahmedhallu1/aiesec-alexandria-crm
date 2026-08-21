@@ -6,12 +6,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { WalkingLoader } from "./walking-loader";
 
 const LINES = [
-  "The Blue Man is walking your module over here. He refuses to run — it's about the journey. 🚶",
+  "The Violet Man is walking your module over here. He refuses to run — it's about the journey. 🚶",
   "Your workspace is 87% vibes, 13% code right now. We're fixing the ratio.",
   "Plot twist: the ICX members thought THEY were the beta testers. It was you all along.",
   "Somewhere, Ahmed is typing very fast so this page can stop existing.",
   "Breaking news: your module is stuck in traffic on the Corniche. ETA: soon™.",
-  "We asked the Blue Man for an ETA. He just kept walking. Legend.",
+  "We asked the Violet Man for an ETA. He just kept walking. Legend.",
   "Your dashboard is still in the oven. Opening it early would deflate it, like a cheesecake.",
   "Rome wasn't built in a day. Neither was Sodio. Rome also didn't have dark mode.",
 ];

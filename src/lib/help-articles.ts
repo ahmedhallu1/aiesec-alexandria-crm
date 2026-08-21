@@ -25,16 +25,16 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "wrong page",
    "wrong tab",
    "screen shaking",
-   "blue man walking",
+   "violet man walking",
    "is it broken",
    "مقلب",
    "الزرار مش شغال"
   ],
-  "summary": "A button that needs three clicks, a tab that sends you the scenic route, a little blue man strolling past — nothing is broken, the EB just put you in a mood.",
+  "summary": "A button that needs three clicks, a tab that sends you the scenic route, a little violet man strolling past — nothing is broken, the EB just put you in a mood.",
   "blocks": [
    {
     "t": "p",
-    "md": "If Sodio has started behaving like it's in a mood — a button that ignores the first click and gets **bigger** each time, a tab that opens the wrong page and then apologises, a one-second shiver, the Blue Man walking across the bottom of your screen — **nothing is broken and nothing is lost.** Somebody in the EB switched **🃏 prank mode** on for you. The first time it happens, Sodio tells you so and names them. 💛"
+    "md": "If Sodio has started behaving like it's in a mood — a button that ignores the first click and gets **bigger** each time, a tab that opens the wrong page and then apologises, a one-second shiver, the Violet Man walking across the bottom of your screen — **nothing is broken and nothing is lost.** Somebody in the EB switched **🃏 prank mode** on for you. The first time it happens, Sodio tells you so and names them. 💛"
    },
    {
     "t": "callout",
@@ -61,8 +61,8 @@ export const HELP_ARTICLES: HelpArticle[] = [
       "A CSS animation that ends exactly where it started. Nothing moved."
      ],
      [
-      "A blue man strolls past",
-      "It's the Blue Man. He's having a walk. You can't click him and he leaves on his own."
+      "A violet man strolls past",
+      "It's the Violet Man. He's having a walk. You can't click him and he leaves on his own."
      ]
     ]
    },
@@ -416,7 +416,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "countdown",
    "blue bar",
    "banner",
-   "blue man",
+   "violet man",
    "3 december",
    "المؤتمر",
    "الجوايز",
@@ -426,7 +426,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
   "blocks": [
    {
     "t": "p",
-    "md": "That blue band at the top of every page — with the road, the walking Blue Man and a number of days — is **the road to Activate**. **Tap it.** It opens a short brief on what Activate is and links to the conference's own Instagram accounts and the shared folder, so you can see it rather than take our word for it."
+    "md": "That blue band at the top of every page — with the road, the walking Violet Man and a number of days — is **the road to Activate**. **Tap it.** It opens a short brief on what Activate is and links to the conference's own Instagram accounts and the shared folder, so you can see it rather than take our word for it."
    },
    {
     "t": "p",
@@ -450,7 +450,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
      ],
      [
       "\"day N of M\"",
-      "How far into the run-up the LC is. The Blue Man stands at exactly that point and moves one day's worth of road every morning."
+      "How far into the run-up the LC is. The Violet Man stands at exactly that point and moves one day's worth of road every morning."
      ],
      [
       "The lit posts along the verge",
@@ -470,8 +470,8 @@ export const HELP_ARTICLES: HelpArticle[] = [
  },
 
  {
-  "id": "blue-man",
-  "title": "The Blue Man — your AI sidekick",
+  "id": "violet-man",
+  "title": "The Violet Man — your AI sidekick",
   "emoji": "🚶",
   "category": "getting-started",
   "audience": "Everyone",
@@ -479,7 +479,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "everyone"
   ],
   "keywords": [
-   "blue man",
+   "violet man",
    "ai",
    "assistant",
    "chatbot",
@@ -493,15 +493,15 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "اسال",
    "ذكاء اصطناعي"
   ],
-  "summary": "The walking blue human is Sodio's AI assistant — he knows your data (only yours), live CORE numbers and the AIESEC web, answers in Arabic or English, and hands you tappable links.",
+  "summary": "The walking violet human is Sodio's AI assistant — he knows your data (only yours), live CORE numbers and the AIESEC web, answers in Arabic or English, and hands you tappable links.",
   "blocks": [
    {
     "t": "p",
-    "md": "See the walking blue human in the corner? Tap him. **The Blue Man** is Sodio's built-in assistant (powered by Gemini with Google Search grounding), and he's genuinely wired into the system: he can search your accounts and open their details, he reads the same playbook rules this help center does, and he carries a live digest from **CORE** — national rankings per product and Alexandria's own funnel — plus the official AIESEC sites. Ask him \"which of my accounts had a visit but no deal?\" or \"where does Alexandria rank nationally on iGV?\" and he'll actually know."
+    "md": "See the walking violet human in the corner? Tap him. **The Violet Man** is Sodio's built-in assistant (powered by Gemini with Google Search grounding), and he's genuinely wired into the system: he can search your accounts and open their details, he reads the same playbook rules this help center does, and he carries a live digest from **CORE** — national rankings per product and Alexandria's own funnel — plus the official AIESEC sites. Ask him \"which of my accounts had a visit but no deal?\" or \"where does Alexandria rank nationally on iGV?\" and he'll actually know."
    },
    {
     "t": "p",
-    "md": "**He only sees what YOU see.** His data context is scoped by the same permissions as the rest of Sodio — a member's Blue Man knows that member's accounts, a VP's knows the function, and consideration viewers get an extra trick: he can search the CV pool (\"CVs with C# in skills\"). He can't leak what you couldn't open yourself."
+    "md": "**He only sees what YOU see.** His data context is scoped by the same permissions as the rest of Sodio — a member's Violet Man knows that member's accounts, a VP's knows the function, and consideration viewers get an extra trick: he can search the CV pool (\"CVs with C# in skills\"). He can't leak what you couldn't open yourself."
    },
    {
     "t": "steps",
@@ -516,7 +516,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "callout",
-    "md": "You'll also spot **\"Ask The Blue Man\"** callouts around the app (accounts header, dashboard) — they open the chat pre-filled with a question about what you're looking at.",
+    "md": "You'll also spot **\"Ask The Violet Man\"** callouts around the app (accounts header, dashboard) — they open the chat pre-filled with a question about what you're looking at.",
     "tone": "info"
    },
    {
@@ -558,7 +558,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "intro",
    "overview",
    "start",
-   "blue man",
+   "violet man",
    "aiesec alexandria",
    "ايه هو سوديو",
    "البرنامج ده ايه",
@@ -613,7 +613,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "p",
-    "md": "And you're never alone in here: **The Blue Man** — the walking blue human in the corner — is Sodio's built-in AI assistant. He knows your data (only what YOU are allowed to see), the LC's playbook, and live national numbers from CORE. Stuck at 11pm? Ask him before you ask your TL. More in [The Blue Man article](/help?a=blue-man)."
+    "md": "And you're never alone in here: **The Violet Man** — the walking violet human in the corner — is Sodio's built-in AI assistant. He knows your data (only what YOU are allowed to see), the LC's playbook, and live national numbers from CORE. Stuck at 11pm? Ask him before you ask your TL. More in [The Violet Man article](/help?a=violet-man)."
    },
    {
     "t": "faq",
@@ -679,7 +679,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
      ],
      [
       "Avatar",
-      "Pick a fun character, use your Google photo, upload your own, or **🎨 Create your own** — style, seed, dice-roll, flip, gradient background. Yes, The Blue Man himself is pickable."
+      "Pick a fun character, use your Google photo, upload your own, or **🎨 Create your own** — style, seed, dice-roll, flip, gradient background. Yes, The Violet Man himself is pickable."
      ],
      [
       "Change password",
@@ -2574,7 +2574,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "سي في",
    "شركاء",
    "رفع سي في",
-   "blue man",
+   "violet man",
    "partnership"
   ],
   "summary": "The registry remembers every partner LC — country, GV/GT badges, its IR people, notes and a full history timeline — and the IGT-only CV pool reads uploaded CVs with AI.",
@@ -2597,7 +2597,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "callout",
-    "md": "**The Blue Man reads the pool.** Ask it things like *\"CVs with C# in skills\"* or *\"marketing CVs from AIESEC in Kocaeli\"* — it searches the real pool with your permissions.",
+    "md": "**The Violet Man reads the pool.** Ask it things like *\"CVs with C# in skills\"* or *\"marketing CVs from AIESEC in Kocaeli\"* — it searches the real pool with your permissions.",
     "tone": "tip"
    },
    {
@@ -3756,7 +3756,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "bcc",
    "cc",
    "attachments",
-   "blue man email",
+   "violet man email",
    "draft",
    "ازاي ابعت ايميل",
    "ايميل رسمي",
@@ -3787,11 +3787,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "p",
-    "md": "**Your signature is automatic**: name, full role title, AIESEC in Alexandria, your WhatsApp-linked number and the walking Blue Man mark — built from your membership row. Nothing to paste, nothing to forget."
+    "md": "**Your signature is automatic**: name, full role title, AIESEC in Alexandria, your WhatsApp-linked number and the walking Violet Man mark — built from your membership row. Nothing to paste, nothing to forget."
    },
    {
     "t": "callout",
-    "md": "Stuck on the words? The **Blue Man** button writes or reworks the letter — describe what you want, or ask it to shorten, warm up, or translate what you already typed. It drafts, you decide: **always read it before you send**.",
+    "md": "Stuck on the words? The **Violet Man** button writes or reworks the letter — describe what you want, or ask it to shorten, warm up, or translate what you already typed. It drafts, you decide: **always read it before you send**.",
     "tone": "tip"
    },
    {
@@ -5054,7 +5054,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "callout",
-    "md": "Unsure whether it's a bug or just how it works? Ask **The Blue Man** (the floating walking-man button) first — he knows the whole system and answers in Arabic or English.",
+    "md": "Unsure whether it's a bug or just how it works? Ask **The Violet Man** (the floating walking-man button) first — he knows the whole system and answers in Arabic or English.",
     "tone": "tip"
    },
    {

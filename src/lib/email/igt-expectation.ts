@@ -83,7 +83,7 @@ const li = (html: string) =>
   const p = (html: string) => `<p style="margin:0 0 14px 0;">${html}</p>`;
 
   const html = `
-<div style="font-family:Lato,Arial,Helvetica,sans-serif;font-size:15px;line-height:1.65;color:#1f2937;">
+<div style="font-family:Karla,Arial,Helvetica,sans-serif;font-size:15px;line-height:1.65;color:#1f2937;">
   ${p("Hello, dear future Exchange Participant,")}
   ${p(`<b>${ep},</b>`)}
   ${p("I hope this email finds you well.")}

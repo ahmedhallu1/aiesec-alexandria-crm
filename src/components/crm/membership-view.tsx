@@ -953,7 +953,7 @@ function PrankRow({ member }: { member: MemberRow }) {
                     ? ` until ${new Date(until).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
                     : " until you turn it off"
                 }.`
-              : "A stubborn button, a wrong turn on the way to a tab, the Blue Man strolling past. Never their work — and they can pause it for 10 minutes whenever they actually need to focus."}
+              : "A stubborn button, a wrong turn on the way to a tab, the Violet Man strolling past. Never their work — and they can pause it for 10 minutes whenever they actually need to focus."}
           </p>
         </div>
         <Select

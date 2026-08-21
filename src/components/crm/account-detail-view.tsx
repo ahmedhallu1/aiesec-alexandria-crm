@@ -92,7 +92,7 @@ export function AccountDetailView({
   /** everyone in the account's function — the deal opens-split picker (v22) */
   functionMembers: { id: string; label: string }[];
   autoReportVisitId: string | null;
-  /** ?open= deep link (Blue Man action chips): open a dialog on arrival */
+  /** ?open= deep link (Violet Man action chips): open a dialog on arrival */
   autoOpen: "contact" | "visit" | "deal" | "proposal" | null;
 }) {
   const pendingVisit = visits.find((v) => v.done === null) ?? null;
@@ -100,7 +100,7 @@ export function AccountDetailView({
     (autoReportVisitId && visits.find((v) => v.id === autoReportVisitId && v.done === null)) ||
     pendingVisit;
 
-  // ?open= deep links (Blue Man action chips) pre-open a dialog — only when
+  // ?open= deep links (Violet Man action chips) pre-open a dialog — only when
   // the viewer could click the button themselves (edit rights + active)
   const canAct = caps.edit && !account.out_of_process;
   // the filtered list this account was opened from (v33.10)

@@ -3,9 +3,9 @@
 import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-/** A small branded nudge that opens The Blue Man (optionally pre-filling a
+/** A small branded nudge that opens The Violet Man (optionally pre-filling a
  *  question) — dropped wherever insights are one question away (v26). */
-export function AskBlueMan({
+export function AskVioletMan({
   hint, prefill, className,
 }: {
   /** the visible suggestion, e.g. "Ask for accounts matching any criteria" */
@@ -19,7 +19,7 @@ export function AskBlueMan({
       type="button"
       onClick={() =>
         window.dispatchEvent(
-          new CustomEvent("sodio:ask-blue-man", { detail: { prefill } })
+          new CustomEvent("sodio:ask-violet-man", { detail: { prefill } })
         )
       }
       className={cn(

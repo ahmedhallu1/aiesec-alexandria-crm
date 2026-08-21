@@ -2,7 +2,7 @@ import "server-only";
 
 /** CORE (core.aiesec.org.eg) — AIESEC's analytics dashboard for the Egypt MC,
  *  but its rankings are GLOBAL (every LC in every country). Its pages are
- *  server-rendered and public, so The Blue Man can quote LIVE numbers:
+ *  server-rendered and public, so The Violet Man can quote LIVE numbers:
  *   - GLOBAL top-performing LC rankings per product & stage (approvals /
  *     realized / completes) — this is where "who is #1 in OGV" for ANY country
  *     (Türkiye, Egypt, Tunisia…) comes from;

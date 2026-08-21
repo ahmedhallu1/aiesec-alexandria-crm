@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getAccount, getViewer, listAccounts, searchCvs } from "@/server/data";
 import type { PipelineRow } from "@/server/data";
 import { canSeeCvPool } from "@/lib/rbac";
-import { BLUE_MAN_SYSTEM_PROMPT, buildAssistantContext } from "@/lib/assistant";
+import { VIOLET_MAN_SYSTEM_PROMPT, buildAssistantContext } from "@/lib/assistant";
 import { accountSlug, fmtDay } from "@/lib/types";
 
 export const maxDuration = 60;
@@ -15,7 +15,7 @@ interface ChatMessage {
 const GEMINI_URL =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
-/** v22.2: The Blue Man can LOOK THINGS UP on demand — the context only carries
+/** v22.2: The Violet Man can LOOK THINGS UP on demand — the context only carries
  *  the freshest 300 accounts of ~4000, so he searches the rest through these
  *  RBAC-scoped functions instead of guessing. */
 const FUNCTION_DECLS = [
@@ -94,7 +94,7 @@ export async function POST(req: Request) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) {
     return NextResponse.json(
-      { error: "The Blue Man is missing his GEMINI_API_KEY. Tell the IM director." },
+      { error: "The Violet Man is missing his GEMINI_API_KEY. Tell the IM director." },
       { status: 500 }
     );
   }
@@ -124,7 +124,7 @@ export async function POST(req: Request) {
     });
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
-      console.error("[blue-man] Gemini error", res.status, detail.slice(0, 500));
+      console.error("[violet-man] Gemini error", res.status, detail.slice(0, 500));
       throw Object.assign(new Error("gemini"), { status: res.status });
     }
     return res.json();
@@ -181,7 +181,7 @@ export async function POST(req: Request) {
     if (name === "getAccountDetail") {
       const nm = String(args?.name ?? "").trim();
       if (!nm) return { error: "name required" };
-      // getAccount re-checks canViewAccount — the Blue Man can never show a
+      // getAccount re-checks canViewAccount — the Violet Man can never show a
       // member something their own account page wouldn't
       const result =
         (await getAccount(viewer, accountSlug(nm))) ??
@@ -250,7 +250,7 @@ export async function POST(req: Request) {
     // tool loop: up to 3 rounds of function calls, then the final answer
     for (let round = 0; round < 4; round++) {
       const data = (await callGemini({
-        system_instruction: { parts: [{ text: `${BLUE_MAN_SYSTEM_PROMPT}\n\n${context}` }] },
+        system_instruction: { parts: [{ text: `${VIOLET_MAN_SYSTEM_PROMPT}\n\n${context}` }] },
         contents,
         tools: [{ function_declarations: functionDecls }],
         generationConfig: {
@@ -292,8 +292,8 @@ export async function POST(req: Request) {
       {
         error:
           status === 429
-            ? "The Blue Man walked too much today (free-tier limit). Try again in a minute 🚶💨"
-            : "The Blue Man tripped over a cable. Try again.",
+            ? "The Violet Man walked too much today (free-tier limit). Try again in a minute 🚶💨"
+            : "The Violet Man tripped over a cable. Try again.",
       },
       { status: 502 }
     );

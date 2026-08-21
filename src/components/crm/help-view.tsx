@@ -24,7 +24,7 @@ import { Input } from "@/components/ui/input";
  *  One page, four states driven by the URL (so every one of them is
  *  shareable): home (?nothing), search (?q=), a category (?c=), an article
  *  (?a=). Search is instant and local — the whole knowledge base ships with
- *  the page — and the escape hatch everywhere is The Blue Man, who answers
+ *  the page — and the escape hatch everywhere is The Violet Man, who answers
  *  what a static article can't.
  */
 
@@ -220,21 +220,21 @@ function Block({ b }: { b: HelpBlock }) {
   }
 }
 
-// ------------------------------------------------------------ the Blue Man
+// ------------------------------------------------------------ the Violet Man
 
 function AskAiCard({ prefill, label }: { prefill?: string; label?: string }) {
   return (
     <button
       type="button"
       onClick={() =>
-        window.dispatchEvent(new CustomEvent("sodio:ask-blue-man", { detail: { prefill } }))
+        window.dispatchEvent(new CustomEvent("sodio:ask-violet-man", { detail: { prefill } }))
       }
       className="group flex w-full items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 p-3.5 text-left transition-colors hover:border-primary/60 hover:bg-primary/10"
     >
       <span className="text-2xl">🚶</span>
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-semibold text-primary">
-          {label ?? "Ask The Blue Man"}
+          {label ?? "Ask The Violet Man"}
         </span>
         <span className="block text-xs text-muted-foreground">
           The AI that knows the whole system AND your own numbers. Arabic works
@@ -434,7 +434,7 @@ export function HelpView({ viewer }: { viewer: HelpViewer }) {
         </Card>
 
         <AskAiCard
-          label={`Still stuck? Ask The Blue Man about "${article.title}"`}
+          label={`Still stuck? Ask The Violet Man about "${article.title}"`}
           prefill={`About "${article.title}": `}
         />
 
@@ -462,7 +462,7 @@ export function HelpView({ viewer }: { viewer: HelpViewer }) {
   return (
     <div className="mx-auto max-w-4xl space-y-5">
       {/* hero */}
-      <div className="rise-in hero-animate overflow-hidden rounded-2xl border bg-gradient-to-br from-[#037EF3] via-[#0a5fd0] to-[#0A2540] p-6 text-white sm:p-8">
+      <div className="rise-in hero-animate overflow-hidden rounded-2xl border bg-gradient-to-br from-[#037EF3] to-[#7552CC] p-6 text-white sm:p-8">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="flex items-center gap-2 text-2xl font-extrabold tracking-tight sm:text-3xl">
             <BookOpen className="size-7" /> How can we help? 💙
@@ -478,7 +478,7 @@ export function HelpView({ viewer }: { viewer: HelpViewer }) {
         </div>
         <p className="mt-2 max-w-xl text-sm leading-relaxed text-white/85">
           Everything about Sodio, searchable — how-tos, FAQs and the fine
-          print, updated with every release. Can&apos;t find it? The Blue Man
+          print, updated with every release. Can&apos;t find it? The Violet Man
           reads your actual data and answers anything.
         </p>
         <div className="mt-4">{searchBox}</div>
@@ -499,8 +499,8 @@ export function HelpView({ viewer }: { viewer: HelpViewer }) {
           <AskAiCard
             label={
               hits.length > 0
-                ? `Not what you meant? Ask The Blue Man about "${urlQuery}"`
-                : `Ask The Blue Man about "${urlQuery}"`
+                ? `Not what you meant? Ask The Violet Man about "${urlQuery}"`
+                : `Ask The Violet Man about "${urlQuery}"`
             }
             prefill={urlQuery}
           />

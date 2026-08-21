@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-19 · Version: v33.59
+Last updated: 2026-08-21 · Version: v34
 
 ---
 
@@ -464,10 +464,15 @@ table and the Flags column were removed. Product/team drills remain.
 
 ## 6. UX conventions
 
-**Loading = the walking AIESEC human** (`public/brand/walk.png`, looping alpha
+**Loading = the walking human** (`public/brand/walk.png`, looping alpha
 **APNG** converted from the official brand `.mov` — WebP was dropped because
 its frame disposal stacked frames over each other; component `WalkingLoader`,
-used inside `PageSkeleton`). Motion system (all
+used inside `PageSkeleton`). The artwork is white-on-transparent and is
+recoloured to Sodio purple by the **SVG `feColorMatrix`** in `SodioSvgDefs`
+(mounted once in the root layout) — NOT by the old brightness/invert/hue-rotate
+chain, which was numerically solved for AIESEC blue and could not be re-pointed
+at a new hue. A CSS mask would also have been exact but samples the image once,
+which would freeze the walk cycle. Motion system (all
 `prefers-reduced-motion`-safe): `rise-in` entrances, KPI **count-up** numbers,
 card hover-lift, button press scale, nav-pending shimmer, and a **confetti
 burst** when a deal is recorded.
@@ -479,9 +484,17 @@ burst** when a deal is recorded.
 - `Hint` (tooltip) on every action button; first-run **Tour** dialog dynamic by
   role+function (localStorage `crm-tour-v1:<email>`).
 - Passwords always render in `PasswordInput` (eye toggle).
-- Branding: official AIESEC logos (`public/brand/`), Lato, light/dark toggle
-  (system default), `rise-in` entrance animations, branded gradient emails
-  (`src/lib/email/templates.ts`).
+- Branding: **Sodio's own identity** (v34) — "blue anchors, purple acts". The
+  geometric-S mark (`SodioMark`, inline SVG; source files in
+  `public/brand/logo/`), **Familjen Grotesk** for voice, **Karla** for work,
+  **IBM Plex Mono** for facts, AIESEC blue `#037EF3` as the anchor and Sodio
+  purple `#7552CC` as the signature. Purple NEVER labels a product — it marks
+  actions and wins only, which is what keeps it from fighting the GV/GT/GTe
+  tags on the same row. **INTERNAL emails wear the Sodio lockup; emails that
+  LEAVE the LC** (IR bookings, member-written letters in `compose.ts`, the
+  proposals) keep the AIESEC in Alexandria logo — they represent the LC to
+  someone who has never heard of Sodio. The `/book` and `/inactive` pages do
+  the same.
 - The word **"Manager"** is used in the UI for the sheet's "Stakeholder".
 
 ---
@@ -533,6 +546,10 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | Notifications kinds / broadcast | `src/server/notify.ts`, bell UI in `notifications-bell.tsx` |
 | Avatars (styles / seeds) | `src/lib/avatars.ts`; picker in `profile-view.tsx` |
 | Leader visibility (who sees which accounts) | `scopeFunctions` in `src/lib/rbac.ts` |
+| The Sodio mark (logo geometry) | `src/components/crm/sodio-mark.tsx` — and `scripts/gen-brand-assets.mjs`, which MUST be re-run so the favicon/PWA/OG rasters keep matching |
+| The palette / brand tokens | the `:root` + `.dark` blocks in `src/app/globals.css` (re-check contrast — see the v34 table) |
+| The type pairing | `src/app/layout.tsx` (next/font) + `--font-display` in the `@theme inline` block |
+| The mascot's colour | the `feColorMatrix` in `SodioSvgDefs` (`sodio-mark.tsx`) |
 | The Help center (articles/FAQs) | `src/lib/help-articles.ts` (+ bump `HELP_VERSION` in `help-content.ts`) · diagrams in `help-diagrams.tsx` |
 | Lane goal display (plan vs actual) | `lanePlan` in `getDashboard` · `PlanCard` in `dashboard-view.tsx` |
 | TL plans (who files, flow, card) | `isPlanningTl`/`needsTlPlan`/`tlPlanForProfile` in `data.ts` · `saveTlPlan` in `actions.ts` · `tl-plan-form.tsx` · `/welcome/plan-tl` |
@@ -632,6 +649,114 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-21 · v34** — **SODIO GETS ITS OWN FACE** (no migration; a
+  visual-identity pass — no RBAC, data-layer or gamification behaviour was
+  touched). The identity was designed in Claude Design and delivered as
+  `Sodio CRM visual identity.zip`; the logo SVGs it shipped now live in
+  `public/brand/logo/` and are the source of truth for every raster.
+  ① **THE PROBLEM.** The sidebar logo was literally AIESEC's stock wordmark
+  image butted against plain "Sodio" text in a different face — two typefaces
+  mashed together, no lockup, no mark of its own. The favicon and PWA icons
+  were the LC's lighthouse. One font (Lato) carried headings, KPI numbers and
+  body copy identically. The palette was AIESEC's `#037EF3` and `#0A2540` used
+  directly. A well-built product wearing someone else's clothes.
+  ② **"BLUE ANCHORS, PURPLE ACTS."** AIESEC blue `#037EF3` stays the anchor —
+  brand, links, charts. **Sodio purple `#7552CC`** is the signature: it marks
+  the thing you should TOUCH and the moment worth CELEBRATING. The rule that
+  makes it work is a negative one — **purple never labels a product** — which
+  is why it can sit on the same row as the frozen GV coral, GT cyan and GTe
+  amber without ever fighting them. Neutrals stay AIESEC's (`#52565E` and one
+  tint of it), so the identity is a SHIFT, not a repaint.
+  ③ **THE MARK.** One geometric S, drawn as two arcs on a circle grid, with a
+  single purple node at the tail — the point where a lead becomes a deal. It is
+  ONE geometry with two homes: inline SVG in `SodioMark` and rasterised by
+  `scripts/gen-brand-assets.mjs` into the favicon, the three PWA icons, the
+  Apple icon, the OG card and the email lockup. **Change one and you must
+  re-run the other.** The identity's scaling rules are implemented, not
+  decorative: the stroke GROWS as the tile shrinks (10.5 at 64px, 13 at 32px,
+  15 at 16px) and the **purple node drops below 32px**, where it turns to mud —
+  so `SodioMark` takes the size it will actually render at. `icon.png` carries
+  the favicon geometry (heavier stroke, no node) even at 512, because a browser
+  tab is only ever seen at 16–32px.
+  ④ **THREE FACES, EACH WITH A JOB.** Familjen Grotesk for voice, **Karla** for
+  work, IBM Plex Mono for facts. Lato retires — Karla keeps the same warmth at
+  tighter widths, which is what lets a nine-column accounts table stay readable
+  on a laptop without dropping below 14px. **Column heads and table numerals
+  are mono**, applied once in `@layer base` rather than in 70 table components
+  so a new table cannot forget, and `.kpi-value` gets tabular figures so the
+  count-up animation can no longer make a row jitter.
+  ⑤ **THE CONTRAST WAS COMPUTED, NOT EYEBALLED**, and it found real defects.
+  `--success` `#16a34a` is 3.02:1 on the page and the app renders
+  `text-success` as TEXT, so light mode uses `#15803d`. Dark `--primary-foreground`
+  had to become ink `#241c42` — white on `#a78bea` is 2.3:1. And the badges:
+  the app's `bg-X/15 text-X` pattern renders text on a 15% tint of ITSELF,
+  where raw AIESEC blue lands at **3.3:1** — so the pipeline got its own
+  `--stage-*` tokens, deliberately deeper than the chart hues, every one
+  clearing 4.5:1 on its own tint. **Two exceptions are the identity's own
+  choices and were left alone**: the purple active pill on the navy sidebar
+  (2.84:1 as a shape, but its white 700 label is 5.48:1) and the `#dde5ee`
+  border on the `#f5f5f5` page, which is what shipped before.
+  ⑥ **PURPLE STOPPED LABELLING STATUSES.** The stage badges had purple on
+  *Contacted* and *Visit Done* — the action colour used as a status. Purple now
+  appears exactly once on that scale, on **Deal Done**, because a deal is the
+  win.
+  ⑦ **THE MASCOT: RENAMED, RETINTED, AND NO LONGER CLIPPED.** The assistant is
+  **The Violet Man** now (was The Blue Man) — 116 mentions across 31 files, the
+  two component files renamed with them. ⚠️ The localStorage key stays
+  `sodio-blueman-chats:` on purpose: renaming it would orphan every saved
+  conversation on every member's device, the same call v32.1 made when the
+  Elevate rename kept the `sodio-*` keys.
+  On the artwork: `walk.png` is a 356×200 APNG whose figure occupies only the
+  middle fifth of the canvas, so the chat header — which asked for a 28px
+  IMAGE — drew a person about 19px tall and **6px wide**. New `WalkingMan`
+  crops the canvas so `height` means the height of the PERSON.
+  **AND THE BOUNDS HAD TO BE THE UNION ACROSS ALL 16 FRAMES.** The constants
+  this file has carried since v33.57 (`top: 0.17`) were measured from ONE
+  frame; measured per-frame with PIL, the figure actually spans y 31–167 while
+  frame 0 spans 34–167, because he rises and falls through the stride. Cropping
+  to one frame's box cut his HEAD on frames 5, 6, 13 and 14 and shaved the feet
+  on rounding — exactly what the floor reported. `WALK_ART` is now that union
+  plus a margin, exported from ONE place and imported by the Road to Activate
+  walker, which had its own stale copy. Colour is an SVG `feColorMatrix`
+  (exact, alpha-preserving so the walk cycle survives) rather than the old
+  brightness/invert/hue-rotate chain, which had been solved for AIESEC blue.
+  The identity's sheet tints him blue on light; **the LC asked for violet.**
+  ⑧ **THE EMAILS ARE SPLIT BY WHO IS TALKING.** All ~40 templates funnel through
+  one `shell`/`emailHeader`/`button`, so rebranding those carried the identity
+  everywhere at once: the Sodio lockup on a navy→purple header, a blue→purple
+  accent bar and a **purple primary button**. But an email to an IR abroad is
+  AIESEC in Alexandria talking to a stranger who has never heard of Sodio, so
+  `externalEmailLayout` keeps the LC's lighthouse — as do the member-written
+  letters in `compose.ts` and the proposals. `scripts/preview-emails.ts`
+  renders a representative set to HTML for review without sending anything.
+  ⑨ **AND THE BRAND STOPPED BEING HARDCODED.** `--brand-blue`, `--brand-purple`
+  and `--brand-glow` are new tokens, so the login aurora (one blue blob, one
+  purple — the identity calls this the ONE place the two are allowed to bleed),
+  the KPI hover glow, the card-hover shadow and the active-tab halo all read
+  from one place instead of four copies of `rgb(3 126 243 / …)`.
+  ⑨½ **THE THREE THINGS THE FLOOR CAUGHT AFTER THE FIRST PASS:**
+  · **The loading boxes looked like an error.** `Skeleton` was `bg-accent`, and
+  `--accent` is now the identity's PURPLE SURFACE — meant for accent chips, not
+  for a page full of pulsing purple blocks. It is `bg-muted`, the neutral
+  surface, which is what it always meant.
+  · **The Road to Activate was a muddy seam.** Running AIESEC blue straight
+  into Sodio purple down 800px of sky reads as two flat bands meeting, not as
+  one surface. It is a NIGHT SKY now: the identity's navy as the base, with the
+  two brand colours arriving as GLOWS at the ends of the journey — blue behind
+  the start where the wordmark sits, purple behind the finish gate, because
+  purple is the colour that marks the win. The travelled stretch of road and a
+  passed month-post carry that same purple instead of the old yellow.
+  · **The emails were violet with blue leaking through.** The internal shell had
+  gone purple but the callout rules, the password box, the section headings and
+  the "Open the CRM" link were still AIESEC blue, and two callouts were GT
+  cyan. All violet now; the ONLY blue left in an internal email is the
+  blue→purple accent bar under the header, which is the deliberate bleed.
+  The **social/WhatsApp preview** was blue-dominant and is now violet-led, the
+  same night treatment as the road.
+  ⑩ **VERIFIED**: 244 tests pass, `tsc --noEmit` clean, production build green,
+  lint unchanged from baseline. Checked in a real browser in light AND dark at
+  1280px and 375px, plus the rendered emails.
 
 - **2026-08-19 · v33.59** — **THE CORRECTIONS ON v33.58, AND THE HOSTING BILL
   MEASURED PROPERLY** (no migration).

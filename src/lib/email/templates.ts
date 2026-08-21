@@ -14,20 +14,27 @@ import { fmtClock12, ROLE_BLURBS } from "@/lib/types";
  *  white mark on the navy header, served from the public /brand folder (which
  *  the proxy exempts), so it loads for anyone — no auth, no CID attachment.
  */
-const LOGO_URL = `${env.appUrl}/brand/alex-white.png`;
+/** WHO IS TALKING DECIDES WHICH MARK GOES ON TOP.
+ *  An INTERNAL email is Sodio talking to the LC's own people, so it wears the
+ *  Sodio lockup. An EXTERNAL one — an IR abroad booking a call — is AIESEC in
+ *  Alexandria talking to a stranger who has never heard of Sodio, so it keeps
+ *  the LC's own logo and never mentions the CRM at all. */
+const SODIO_LOCKUP = `${env.appUrl}/brand/sodio-email-lockup.png`;
+const ALEX_LOGO = `${env.appUrl}/brand/alex-white.png`;
 
 /** The banded header both layouts share. */
-function emailHeader(tag?: string): string {
+function emailHeader(opts: { external?: boolean } = {}): string {
+  const external = opts.external === true;
   return `
         <tr>
-          <td style="background-color:#0A2540;background-image:linear-gradient(135deg,#0A2540 0%,#0d3a6e 55%,#037EF3 145%);border-radius:16px 16px 0 0;padding:28px 32px 24px;" align="center">
-            <img src="${LOGO_URL}" width="230" alt="AIESEC in Alexandria"
-                 style="display:block;width:230px;max-width:70%;height:auto;border:0;outline:none;text-decoration:none;">
-            ${tag ? `<div style="margin-top:12px;color:#9db8d4;font-size:11px;letter-spacing:2px;text-transform:uppercase;">${tag}</div>` : ""}
+          <td style="background-color:#0A2540;background-image:linear-gradient(135deg,#0A2540 0%,#1c2f5c 55%,#7552CC 150%);border-radius:16px 16px 0 0;padding:28px 32px 24px;" align="center">
+            <img src="${external ? ALEX_LOGO : SODIO_LOCKUP}" width="${external ? 230 : 240}"
+                 alt="${external ? "AIESEC in Alexandria" : "Sodio — AIESEC in Alexandria"}"
+                 style="display:block;width:${external ? 230 : 240}px;max-width:72%;height:auto;border:0;outline:none;text-decoration:none;">
           </td>
         </tr>
         <tr>
-          <td style="height:5px;background-image:linear-gradient(90deg,#037EF3,#0CB9C1 45%,#F48924 75%,#F85A40);font-size:0;line-height:0;">&nbsp;</td>
+          <td style="height:5px;background-image:linear-gradient(90deg,#037EF3,#7552CC);font-size:0;line-height:0;">&nbsp;</td>
         </tr>`;
 }
 
@@ -40,19 +47,19 @@ function shell(opts: { preheader?: string; header: string; body: string; footer:
   <meta name="color-scheme" content="light">
   <meta name="supported-color-schemes" content="light">
 </head>
-<body style="margin:0;padding:0;background-color:#eef3fa;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;">
+<body style="margin:0;padding:0;background-color:#eef0f4;font-family:Karla,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;">
   ${opts.preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${opts.preheader}</div>` : ""}
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#eef3fa;padding:30px 12px;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#eef0f4;padding:30px 12px;">
     <tr><td align="center">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;border-collapse:separate;">
         ${opts.header}
         <tr>
-          <td style="background-color:#ffffff;padding:34px 34px 30px;border-radius:0 0 16px 16px;color:#12263f;font-size:15px;line-height:1.7;">
+          <td style="background-color:#ffffff;padding:34px 34px 30px;border-radius:0 0 16px 16px;color:#0A2540;font-size:15px;line-height:1.7;">
             ${opts.body}
           </td>
         </tr>
         <tr>
-          <td style="padding:18px 32px 4px;color:#5c6b80;font-size:12px;text-align:center;line-height:1.7;">
+          <td style="padding:18px 32px 4px;color:#52565E;font-size:12px;text-align:center;line-height:1.7;">
             ${opts.footer}
           </td>
         </tr>
@@ -67,10 +74,10 @@ function shell(opts: { preheader?: string; header: string; body: string; footer:
 export function emailLayout(opts: { preheader?: string; body: string }): string {
   return shell({
     preheader: opts.preheader,
-    header: emailHeader("Sodio"),
+    header: emailHeader(),
     body: opts.body,
     footer: `Sent automatically by Sodio · AIESEC in Alexandria ·
-            <a href="${env.appUrl}" style="color:#037EF3;text-decoration:none;font-weight:bold;">Open the CRM</a><br>
+            <a href="${env.appUrl}" style="color:#5B3BA8;text-decoration:none;font-weight:bold;">Open the CRM</a><br>
             <span style="color:#93a5bc;">This system is built for you — reply with feedback anytime. 💙</span>`,
   });
 }
@@ -80,7 +87,7 @@ export function emailLayout(opts: { preheader?: string; body: string }): string 
 export function externalEmailLayout(opts: { preheader?: string; body: string }): string {
   return shell({
     preheader: opts.preheader,
-    header: emailHeader(),
+    header: emailHeader({ external: true }),
     body: opts.body,
     footer: `AIESEC in Alexandria · Egypt<br>
             <span style="color:#93a5bc;">The international platform for young people to explore and develop their potential.</span>`,
@@ -89,15 +96,15 @@ export function externalEmailLayout(opts: { preheader?: string; body: string }):
 
 export function button(label: string, url: string): string {
   return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0;"><tr>
-    <td style="background-color:#037EF3;background-image:linear-gradient(135deg,#037EF3,#0a66d0);border-radius:10px;box-shadow:0 2px 6px rgba(3,126,243,0.28);">
+    <td style="background-color:#7552CC;background-image:linear-gradient(135deg,#7552CC,#5B3BA8);border-radius:10px;box-shadow:0 2px 6px rgba(117,82,204,0.30);">
       <a href="${url}" style="display:inline-block;padding:14px 32px;color:#ffffff;font-weight:bold;text-decoration:none;font-size:14px;letter-spacing:0.3px;">${label} →</a>
     </td></tr></table>`;
 }
 
 function row(label: string, value: string, rawHtml = false): string {
   return `<tr>
-    <td style="padding:10px 14px;background:#eef3fa;font-weight:600;color:#0A2540;white-space:nowrap;border-bottom:2px solid #ffffff;vertical-align:top;">${label}</td>
-    <td style="padding:10px 14px;background:#f7f9fc;border-bottom:2px solid #ffffff;color:#12263f;">${rawHtml ? value : escapeHtml(value)}</td>
+    <td style="padding:10px 14px;background:#EDF1F6;font-weight:600;color:#0A2540;white-space:nowrap;border-bottom:2px solid #ffffff;vertical-align:top;">${label}</td>
+    <td style="padding:10px 14px;background:#F7F8FA;border-bottom:2px solid #ffffff;color:#0A2540;">${rawHtml ? value : escapeHtml(value)}</td>
   </tr>`;
 }
 
@@ -109,7 +116,7 @@ export function detailsTable(
   opts: { html?: boolean } = {}
 ): string {
   const filled = rows.filter(([, v]) => v != null && v !== "");
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;border-radius:10px;overflow:hidden;margin:18px 0;border:1px solid #e3ebf5;">
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;border-radius:10px;overflow:hidden;margin:18px 0;border:1px solid #DDE5EE;">
     ${filled.map(([l, v]) => row(l, v as string, opts.html)).join("")}
   </table>`;
 }
@@ -205,7 +212,7 @@ export function welcomeEmail(member: {
       body: `
         <h1 style="margin:0 0 16px;font-size:22px;color:#0A2540;">Welcome aboard, ${escapeHtml(first)}!</h1>
         <p>Your account on <b>Sodio</b> — the CRM of AIESEC in Alexandria — is active. ${workspace.intro}</p>
-        <p style="border-left:4px solid #037EF3;background:#f0f7ff;border-radius:0 8px 8px 0;padding:12px 16px;font-weight:600;">
+        <p style="border-left:4px solid #7552CC;background:#EFEAFA;border-radius:0 8px 8px 0;padding:12px 16px;font-weight:600;">
           ${escapeHtml(workspace.blurb)}
         </p>
         ${detailsTable([
@@ -438,7 +445,7 @@ export function newPasswordEmail(opts: {
         <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Here you go, ${escapeHtml(opts.memberFirstName)} 🔑</h1>
         <p>You asked for a new Sodio password. Use this one to sign in:</p>
         <p style="margin:20px 0;text-align:center;">
-          <span style="display:inline-block;background:#f0f7ff;border:2px dashed #037EF3;border-radius:12px;padding:14px 26px;font-family:Consolas,Menlo,monospace;font-size:20px;font-weight:bold;letter-spacing:1px;color:#0A2540;">${escapeHtml(opts.password)}</span>
+          <span style="display:inline-block;background:#EFEAFA;border:2px dashed #7552CC;border-radius:12px;padding:14px 26px;font-family:Consolas,Menlo,monospace;font-size:20px;font-weight:bold;letter-spacing:1px;color:#0A2540;">${escapeHtml(opts.password)}</span>
         </p>
         <p>Your old password (if you had one) still works too — nothing breaks
         until <i>you</i> change it. You can set a password you'll remember from
@@ -506,7 +513,7 @@ export function feedbackThanksEmail(opts: {
       body: `
         <h1 style="margin:0 0 16px;font-size:22px;color:#0A2540;">Thank you, ${escapeHtml(opts.memberFirstName)}! 🎉</h1>
         <p>Your feedback was heard, taken seriously, and <b>applied</b>:</p>
-        <p style="border-left:4px solid #0CB9C1;background:#f0fdfd;border-radius:0 8px 8px 0;padding:12px 16px;font-style:italic;">
+        <p style="border-left:4px solid #7552CC;background:#EFEAFA;border-radius:0 8px 8px 0;padding:12px 16px;font-style:italic;">
           "${escapeHtml(opts.feedbackSnippet)}"
         </p>
         <p>Sodio is built for you, by you — keep it coming. 💙</p>
@@ -682,7 +689,7 @@ export function lcShoutoutEmail(opts: {
       body: `
         <h2 style="margin:0 0 10px;">You got a shout-out${opts.firstName ? `, ${escapeHtml(opts.firstName)}` : ""}! 🎉</h2>
         <p style="margin:0 0 6px;color:#5c6b80;">From <b>${escapeHtml(opts.from)}</b>:</p>
-        <p style="border-left:4px solid #0CB9C1;background:#f0fdfd;border-radius:0 8px 8px 0;padding:14px 16px;font-size:16px;font-style:italic;">
+        <p style="border-left:4px solid #7552CC;background:#EFEAFA;border-radius:0 8px 8px 0;padding:14px 16px;font-size:16px;font-style:italic;">
           “${escapeHtml(opts.message)}”
         </p>
         <p style="margin:16px 0 0;">Keep doing what you're doing — people notice. 💙</p>`,
@@ -711,7 +718,7 @@ export function gridTable(
       return `<tr>${r
         .map((c, ci) => {
           const base = `padding:6px 9px;font-size:13px;border-bottom:1px solid #eef3fa;${ci === 0 ? `text-align:left;${indent ? "padding-left:24px;color:#5c6b80;" : ""}` : "text-align:center;"}`;
-          const weight = bold ? "font-weight:bold;background:#f0f7ff;" : "";
+          const weight = bold ? "font-weight:bold;background:#EFEAFA;" : "";
           return `<td style="${base}${weight}">${escapeHtml(String(c))}</td>`;
         })
         .join("")}</tr>`;
@@ -748,8 +755,8 @@ export function periodReportEmail(opts: {
       body: `
         <h2 style="margin:0 0 4px;">${escapeHtml(opts.functionLabel)} · ${kindLabel}</h2>
         <p style="margin:0 0 14px;color:#5c6b80;">${escapeHtml(opts.periodLabel)}</p>
-        ${opts.planLine ? `<p style="border-left:4px solid #037EF3;background:#f0f7ff;border-radius:0 8px 8px 0;padding:12px 16px;font-weight:600;">${escapeHtml(opts.planLine)}</p>` : ""}
-        <p style="margin:18px 0 4px;font-size:13px;font-weight:800;letter-spacing:0.6px;text-transform:uppercase;color:#037EF3;">Function totals</p>
+        ${opts.planLine ? `<p style="border-left:4px solid #7552CC;background:#EFEAFA;border-radius:0 8px 8px 0;padding:12px 16px;font-weight:600;">${escapeHtml(opts.planLine)}</p>` : ""}
+        <p style="margin:18px 0 4px;font-size:13px;font-weight:800;letter-spacing:0.6px;text-transform:uppercase;color:#5B3BA8;">Function totals</p>
         ${detailsTable(
           opts.kpis.map(([l, v, note]) => [
             l,
@@ -759,17 +766,17 @@ export function periodReportEmail(opts: {
           ]) as [string, string][],
           { html: true }
         )}
-        <p style="margin:22px 0 4px;font-size:13px;font-weight:800;letter-spacing:0.6px;text-transform:uppercase;color:#037EF3;">The waterfall — every team, every person</p>
+        <p style="margin:22px 0 4px;font-size:13px;font-weight:800;letter-spacing:0.6px;text-transform:uppercase;color:#5B3BA8;">The waterfall — every team, every person</p>
         <p style="margin:0 0 6px;color:#5c6b80;font-size:13px;">Bold rows are team totals; the rows under them are that team's people.</p>
         ${gridTable(opts.waterfallHeaders, opts.waterfallRows, { boldRows: opts.boldRows, indentCol0: opts.indentRows })}
         ${
           opts.mmPlanLines && opts.mmPlanLines.length > 0
-            ? `<p style="margin:22px 0 4px;font-size:13px;font-weight:800;letter-spacing:0.6px;text-transform:uppercase;color:#037EF3;">MM plans this period</p>
+            ? `<p style="margin:22px 0 4px;font-size:13px;font-weight:800;letter-spacing:0.6px;text-transform:uppercase;color:#5B3BA8;">MM plans this period</p>
                <ul style="margin:6px 0;padding-left:20px;">${opts.mmPlanLines.map((l) => `<li style="margin:5px 0;">${escapeHtml(l)}</li>`).join("")}</ul>`
             : ""
         }
         ${button("Open the dashboard", opts.dashboardUrl)}
-        <p style="margin:14px 0 0;color:#5c6b80;font-size:13px;">Numbers cover ${escapeHtml(opts.periodLabel)} only. Questions? Ask The Blue Man. 🔵</p>`,
+        <p style="margin:14px 0 0;color:#5c6b80;font-size:13px;">Numbers cover ${escapeHtml(opts.periodLabel)} only. Questions? Ask The Violet Man. 🔵</p>`,
     }),
   };
 }
@@ -1240,7 +1247,7 @@ export function irRescheduleRequestEmail(opts: {
         (${escapeHtml(opts.partnerLc)}) and asked to move it.</p>
         ${
           opts.reason
-            ? `<p style="border-left:4px solid #037EF3;background:#f0f7ff;border-radius:0 8px 8px 0;padding:12px 16px;margin:16px 0;"><b>Their reason:</b> ${escapeHtml(opts.reason)}</p>`
+            ? `<p style="border-left:4px solid #7552CC;background:#EFEAFA;border-radius:0 8px 8px 0;padding:12px 16px;margin:16px 0;"><b>Their reason:</b> ${escapeHtml(opts.reason)}</p>`
             : ""
         }
         <p>Pick whichever new time suits you from their live availability — it
@@ -1345,7 +1352,7 @@ export function lcSharedFeedbackEmail(opts: {
       <h2 style="margin:0 0 12px;font-size:20px;">Shared with you</h2>
       <p><b>${escapeHtml(opts.sharedBy)}</b> passed you ${escapeHtml(opts.kind)} from the LC
          feedback inbox, because it needs you.</p>
-      <blockquote style="margin:14px 0;padding:10px 14px;border-left:3px solid #037EF3;background:#f8fafc;color:#0f172a;white-space:pre-wrap;">${escapeHtml(opts.message)}</blockquote>
+      <blockquote style="margin:14px 0;padding:10px 14px;border-left:3px solid #7552CC;background:#f8fafc;color:#0f172a;white-space:pre-wrap;">${escapeHtml(opts.message)}</blockquote>
       ${opts.note ? `<p style="white-space:pre-wrap;"><b>${escapeHtml(opts.sharedBy)} adds:</b> ${escapeHtml(opts.note)}</p>` : ""}
       <p style="color:#64748b;font-size:13px;margin-top:16px;">
         Who wrote it is not shown — feedback can be filed anonymously, and
@@ -1369,7 +1376,7 @@ export function lcFeedbackHandledEmail(opts: {
       <h2 style="margin:0 0 12px;font-size:20px;">Thank you for speaking up</h2>
       <p>Hi ${escapeHtml(opts.name)} — the feedback you filed has been handled by
          <b>${escapeHtml(opts.handledBy)}</b>.</p>
-      <blockquote style="margin:14px 0;padding:10px 14px;border-left:3px solid #037EF3;background:#f8fafc;color:#0f172a;white-space:pre-wrap;">${escapeHtml(opts.original)}</blockquote>
+      <blockquote style="margin:14px 0;padding:10px 14px;border-left:3px solid #7552CC;background:#f8fafc;color:#0f172a;white-space:pre-wrap;">${escapeHtml(opts.original)}</blockquote>
       ${opts.note ? `<p style="white-space:pre-wrap;"><b>What happened:</b> ${escapeHtml(opts.note)}</p>` : ""}
       <p style="color:#64748b;font-size:13px;margin-top:16px;">
         Your name was never shown to anyone if you filed this anonymously —
@@ -1410,7 +1417,7 @@ export function touchPointFeedbackNudgeEmail(opts: {
         <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">How was it? ⭐</h1>
         <p>You were at <b>${escapeHtml(opts.label)}</b> — ${escapeHtml(opts.whenLabel)},
         run by ${escapeHtml(opts.ownerName)}. Tell us how it went.</p>
-        <p style="border-left:4px solid #037EF3;background:#f5faff;border-radius:0 8px 8px 0;padding:14px 16px;">
+        <p style="border-left:4px solid #7552CC;background:#EFEAFA;border-radius:0 8px 8px 0;padding:14px 16px;">
           <b>It is one tap.</b> Five stars, pick one, done. No form, no essay,
           no &quot;describe your experience in 200 words&quot;. There is a box
           for a note if you have something to say — and it is genuinely
