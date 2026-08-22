@@ -33,7 +33,8 @@ import { availabilityIssues } from "@/lib/availability";
 import { cn } from "@/lib/utils";
 import { CountryInput } from "./country-input";
 import {
-  ColumnFilter, FilterSelect, PageSizePicker, resizableCellStyle, ResizableHead,
+  ColumnFilter,
+  DateRangeFilter, FilterSelect, PageSizePicker, resizableCellStyle, ResizableHead,
   SortHeader, TableSettings, useTableColumns, useTableSort, type TableColumn,
 } from "./data-table-kit";
 import { FileDrop } from "./file-drop";
@@ -3184,6 +3185,19 @@ function IrCallsTab({
     },
   };
   const callFunnel = (colKey: string) => {
+    // the "When" column is a DATE, so its funnel is a range rather than a
+    // pick-list (v34.7). Calls can legitimately be in the future, so unlike
+    // the accounts list this one is NOT clamped to today.
+    if (colKey === "when") {
+      return (
+        <DateRangeFilter
+          label="Called from → to"
+          from={filters.from ?? ""}
+          to={filters.to ?? ""}
+          onChange={({ from, to }) => onFilter({ from, to })}
+        />
+      );
+    }
     const f = callFunnels[colKey];
     if (!f || f.options.length === 0) return null;
     return (

@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApiKeysCard } from "./api-keys-card";
+import { ImPromptCard } from "./im-prompt-card";
 import type { ApiKeyRow } from "@/server/api-keys";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -108,6 +109,8 @@ export function AdminView({
       </div>
 
       <TestModeCard testMode={testMode} />
+
+      <ImPromptCard />
 
       <ApiKeysCard keys={apiKeys} origin={origin} />
 

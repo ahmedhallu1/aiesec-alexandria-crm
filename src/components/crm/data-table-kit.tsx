@@ -585,6 +585,92 @@ export function FilterSelect({
   );
 }
 
+/** A DATE COLUMN FILTERS BY RANGE (v34.7).
+ *
+ *  Every other column got its funnel in v33.3 — "if it is a column, you filter
+ *  it from the column" — but the date columns were left out, because a date is
+ *  not a pick-list. The funnel opens a from → to pair instead, which is what
+ *  anyone looking at a date column actually wants.
+ *
+ *  Both ends are optional: from alone is "since", to alone is "until". */
+export function DateRangeFilter({
+  label,
+  from,
+  to,
+  onChange,
+  max,
+}: {
+  label: string;
+  from: string;
+  to: string;
+  onChange: (next: { from: string; to: string }) => void;
+  /** clamp — accounts cannot be created in the future, calls can */
+  max?: string;
+}) {
+  const active = !!from || !!to;
+  const summary = from && to ? `${from} → ${to}` : from ? `since ${from}` : to ? `until ${to}` : "";
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={active ? `${label}: ${summary} — change` : `Filter by ${label}`}
+          title={active ? `${label}: ${summary}` : `Filter by ${label}`}
+          className={cn(
+            "relative inline-flex size-5 shrink-0 items-center justify-center rounded transition-colors",
+            active
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground/50 hover:bg-muted hover:text-foreground"
+          )}
+        >
+          <Filter className={cn("size-3", active && "fill-current")} />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-60 p-2">
+        <DropdownMenuLabel className="flex items-center justify-between gap-2 px-1 text-xs">
+          <span>{label}</span>
+          {active ? (
+            <button
+              type="button"
+              className="font-medium text-primary hover:underline"
+              onClick={() => onChange({ from: "", to: "" })}
+            >
+              Clear
+            </button>
+          ) : null}
+        </DropdownMenuLabel>
+        {/* the menu must not close on the first click INSIDE a date input —
+            Radix treats it as a selection otherwise */}
+        <div className="grid gap-2 px-1 pb-1" onKeyDown={(e) => e.stopPropagation()}>
+          <label className="grid gap-1 text-[11px] text-muted-foreground">
+            From
+            <input
+              type="date"
+              value={from}
+              max={to || max}
+              onChange={(e) => onChange({ from: e.target.value, to })}
+              onSelect={(e) => e.stopPropagation()}
+              className="h-8 rounded-md border bg-background px-2 text-sm text-foreground"
+            />
+          </label>
+          <label className="grid gap-1 text-[11px] text-muted-foreground">
+            To
+            <input
+              type="date"
+              value={to}
+              min={from || undefined}
+              max={max}
+              onChange={(e) => onChange({ from, to: e.target.value })}
+              onSelect={(e) => e.stopPropagation()}
+              className="h-8 rounded-md border bg-background px-2 text-sm text-foreground"
+            />
+          </label>
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function ColumnFilter({
   label,
   value,

@@ -30,6 +30,7 @@ import { ContactDialog, type ContactTarget } from "./contact-dialog";
 import { AddAccountDialog, type MemberOption } from "./add-account-dialog";
 import { DirectVisitDialog } from "./direct-visit-dialog";
 import { AskVioletMan } from "./ask-violet-man";
+import { DateRangeFilter } from "./data-table-kit";
 import { ActionDot } from "./action-dot";
 import { CopyNameButton } from "./copy-name-button";
 import { FileDrop } from "./file-drop";
@@ -812,6 +813,19 @@ export function AccountsView({
           />
         );
       }
+      // a date column filters by RANGE, not by a pick-list (v34.7). The bar
+      // still carries the same two inputs — this is the funnel next to the
+      // column, which is where everyone looks for it.
+      case "created_at":
+        return (
+          <DateRangeFilter
+            label="Date added"
+            from={filters.from}
+            to={filters.to}
+            max={today}
+            onChange={({ from, to }) => setParams({ from, to })}
+          />
+        );
       case "stage":
         return archived
           ? null

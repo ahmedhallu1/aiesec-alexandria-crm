@@ -25,6 +25,75 @@ export const dynamic = "force-dynamic";
  *  that asks twice for a four-second job is an inbox people filter.
  *
  *  Cancelled points are skipped: there was no session to rate. */
+
+/** THE IN-APP RATING PROMPT FOR **LC** TOUCH POINTS (v34.7).
+ *
+ *  The evening email above asks everybody; this asks the LC-wide sessions
+ *  again, in the app, SEVEN HOURS after the session itself — long enough that
+ *  it is over and they have an opinion, close enough that they still remember
+ *  it. LC scope only: a team meeting is its own crew's business, and blocking
+ *  seventy people over one is how a prompt becomes something people click past.
+ *
+ *  It rides `pending_prompts`, so somebody who never opens Sodio that evening
+ *  still meets it next time rather than the window passing in silence. The
+ *  skip ladder is that table's `reminders` — see server/prompts.ts.
+ *
+ *  Runs inside this cron on purpose: Vercel is at its invocation ceiling and
+ *  this needs no schedule of its own. The 7h mark is therefore a FLOOR, not an
+ *  alarm — the prompt appears at the next run after it passes. */
+async function fileLcRatingPrompts(): Promise<string[]> {
+  const filed: string[] = [];
+  const sevenHoursAgo = new Date(Date.now() - 7 * 3600_000).toISOString();
+  // a generous floor so a failed run still catches yesterday's sessions
+  const since = new Date(Date.now() - 4 * 24 * 3600_000).toISOString();
+  const { data, error } = await db()
+    .from("touch_points")
+    .select("*")
+    .eq("status", "scheduled")
+    .eq("scope", "lc")
+    .lte("starts_at", sevenHoursAgo)
+    .gte("starts_at", since)
+    .order("starts_at");
+  if (error) {
+    console.error("[tp-rating-prompt] query failed:", error.message);
+    return filed;
+  }
+
+  for (const tp of (data ?? []) as TouchPointRow[]) {
+    const audience = await touchPointAudience(tp);
+    if (audience.length === 0) continue;
+
+    // never ask twice: not somebody who already rated it, and not somebody
+    // who already has (or had) a prompt for it — including one they skipped
+    // for good, which is the whole point of the ladder
+    const [{ data: rated }, { data: existing }] = await Promise.all([
+      db().from("lc_feedback").select("author_id").eq("touch_point_id", tp.id),
+      db().from("pending_prompts").select("member_id").eq("kind", "touchpoint_rating").eq("ref_id", tp.id),
+    ]);
+    const done = new Set<string>([
+      ...((rated ?? []).map((r) => r.author_id as string).filter(Boolean)),
+      ...((existing ?? []).map((r) => r.member_id as string)),
+    ]);
+    const targets = audience.filter((m) => !done.has(m.id));
+    if (targets.length === 0) continue;
+
+    const name = touchPointName(tp);
+    const { error: insErr } = await db().from("pending_prompts").insert(
+      targets.map((m) => ({
+        member_id: m.id,
+        kind: "touchpoint_rating",
+        ref_id: tp.id,
+        title: `How was ${name}?`,
+        body: cairoWhen(tp.starts_at),
+        link: null,
+      }))
+    );
+    if (insErr) console.error("[tp-rating-prompt] insert failed:", insErr.message);
+    else filed.push(`${name} → ${targets.length}`);
+  }
+  return filed;
+}
+
 export async function GET(req: NextRequest) {
   if (!env.cronSecret || req.nextUrl.searchParams.get("key") !== env.cronSecret) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -50,8 +119,9 @@ export async function GET(req: NextRequest) {
   }
   const points = (data ?? []) as TouchPointRow[];
   if (points.length === 0) {
+    const prompts = await fileLcRatingPrompts();
     await markCronRun("touch-point-feedback");
-    return NextResponse.json({ ok: true, asked: [], skipped: [] });
+    return NextResponse.json({ ok: true, asked: [], skipped: [], prompts });
   }
 
   const tmCc = await tmLeadEmails();
@@ -128,7 +198,11 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  const prompts = await fileLcRatingPrompts();
   await markCronRun("touch-point-feedback");
-  console.log(`[tp-feedback] ${today}: asked ${asked.length}, skipped ${skipped.length}`);
-  return NextResponse.json({ ok: true, asked, skipped, errors });
+  console.log(
+    `[tp-feedback] ${today}: asked ${asked.length}, skipped ${skipped.length}, ` +
+      `rating prompts filed for ${prompts.length} LC session(s)`
+  );
+  return NextResponse.json({ ok: true, asked, skipped, errors, prompts });
 }
