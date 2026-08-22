@@ -24,6 +24,7 @@ import type {
   PartnerLcDetail,
   BookingIssue, BookingIssueField,
   CvRow, IrAvailabilityRow, IrCallRow, MyIrBooking, PartnerLc,
+  IrSlotRequest,
 } from "@/server/data";
 import { IR_ROLES, normalizePhone, fmtDateTime } from "@/lib/types";
 import { phoneExample } from "@/lib/dial-codes";
@@ -40,6 +41,7 @@ import { Hint } from "./hint";
 import { WalkingLoader } from "./walking-loader";
 import { WhatsAppIcon } from "./icons";
 import { Badge } from "@/components/ui/badge";
+import { IrSlotRequestsCard } from "./ir-slot-requests-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -2067,6 +2069,7 @@ export function ConsiderationView({
   callFilters, callOptions,
   partnershipTargets = [],
   handoverTargets = [],
+  slotRequests = [],
 }: {
   tab: "calls" | "cvs" | "expectation" | "lcs";
   /** ?lc=<id> — the LC the log linked to, scrolled to and outlined */
@@ -2087,6 +2090,7 @@ export function ConsiderationView({
   partnershipTargets?: PartnershipTarget[];
   /** who a booked IR call may be handed to (v33.58) — the consideration crew */
   handoverTargets?: PartnershipTarget[];
+  slotRequests?: IrSlotRequest[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -2180,6 +2184,10 @@ export function ConsiderationView({
         ) : tab === "expectation" && viewer.showExpectation ? (
           <IgtExpectationTab />
         ) : tab === "calls" || !viewer.showCvs ? (
+          <>
+          {/* asks for times this host never opened — answered before anything
+              else on the tab, because the IR is waiting on a person */}
+          <IrSlotRequestsCard requests={slotRequests} showHost={viewer.isVp} />
           <IrCallsTab
             pageSize={pageSize}
             pageSizeOptions={pageSizeOptions}
@@ -2206,6 +2214,7 @@ export function ConsiderationView({
               })
             }
           />
+          </>
         ) : (
           <CvsTab
             pageSize={pageSize}

@@ -7096,6 +7096,73 @@ export interface BookingSlot {
   label: string;
 }
 
+export interface IrSlotRequest {
+  id: string;
+  lcName: string;
+  country: string | null;
+  bookerName: string;
+  bookerRole: string | null;
+  bookerEmail: string;
+  bookerPhone: string | null;
+  /** the instant asked for, ISO */
+  requestedAt: string;
+  /** Cairo label for the crew, and the IR's own clock when we know it */
+  cairoLabel: string;
+  theirLabel: string | null;
+  minutes: number;
+  note: string | null;
+  hostId: string;
+  hostName: string;
+  createdAt: string;
+}
+
+/** PENDING "can we do another time?" ASKS (v34.5). Scoped the way every other
+ *  IR read is: your own by default, the whole floor for a VP/Director/LCP —
+ *  a lead has to be able to answer for somebody who is away. */
+export async function listIrSlotRequests(viewer: Viewer): Promise<IrSlotRequest[]> {
+  if (!_hasConsiderationAccess(viewer)) return [];
+  let q = db()
+    .from("ir_slot_requests")
+    .select(
+      "id, lc_name, country, booker_name, booker_role, booker_email, booker_phone, " +
+        "requested_at, duration_minutes, note, member_id, created_at, " +
+        "booker_tz, host:members!ir_slot_requests_member_id_fkey(name)"
+    )
+    .eq("status", "pending")
+    .order("requested_at");
+  // a lead answers for whoever is away; everyone else sees their own
+  const isLead =
+    viewer.isAdmin ||
+    viewer.role === "LCP" ||
+    ((viewer.role === "LCVP" || viewer.role === "Director") &&
+      _hasConsiderationAccess(viewer));
+  if (!isLead) q = q.eq("member_id", viewer.id);
+  const { data, error } = await q;
+  if (error) {
+    console.error("[ir-requests] list failed:", error.message);
+    return [];
+  }
+  const { whenLabelInZone } = await import("@/lib/timezones");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[]).map((r) => ({
+    id: r.id,
+    lcName: r.lc_name,
+    country: r.country,
+    bookerName: r.booker_name,
+    bookerRole: r.booker_role,
+    bookerEmail: r.booker_email,
+    bookerPhone: r.booker_phone,
+    requestedAt: r.requested_at,
+    cairoLabel: whenLabelInZone(r.requested_at, "Africa/Cairo"),
+    theirLabel: r.booker_tz ? whenLabelInZone(r.requested_at, r.booker_tz) : null,
+    minutes: r.duration_minutes,
+    note: r.note,
+    hostId: r.member_id,
+    hostName: r.host?.name ?? "",
+    createdAt: r.created_at,
+  }));
+}
+
 export interface BookingDay {
   date: string; // Cairo YYYY-MM-DD
   label: string; // "Sat, Aug 2"

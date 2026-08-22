@@ -8210,6 +8210,382 @@ export async function bookIrCall(input: {
   return { ok: true, data: { memberName, whenLabel: theirLabel ?? whenLabel, meetLink } };
 }
 
+/** ── "NONE OF THESE TIMES WORK" (v34.5) ─────────────────────────────────────
+ *
+ *  The booking page can only offer what the host has already opened, so a
+ *  consideration member with no availability left — or none that suits an IR
+ *  eight zones away — was a dead end, and the LC lost the conversation to
+ *  whatever the IR did next.
+ *
+ *  An IR can now ASK for a time that does not exist. This validates exactly
+ *  what the booking page validates (a public endpoint trusts nothing), then
+ *  files a request and tells the host. NOTHING IS BOOKED HERE: the host's
+ *  calendar stays theirs, and accepting is a deliberate act — see
+ *  respondToIrSlotRequest. */
+export async function requestIrSlot(input: {
+  slug: string;
+  /** the instant they are asking for, ISO */
+  startIso: string;
+  lcName: string;
+  bookerEmail: string;
+  bookerPhone: string;
+  country?: string | null;
+  bookerName?: string | null;
+  bookerRole?: string | null;
+  tz?: string | null;
+  note?: string | null;
+}): Promise<ActionResult<{ memberName: string; whenLabel: string }>> {
+  const plain = bookingPlain;
+  const slug = plain(input.slug, 40).toLowerCase();
+  if (!BOOKING_SLUG_RE.test(slug)) return fail("This booking link is not valid.");
+
+  const lcName = plain(input.lcName, 120);
+  if (!lcName) return fail("Tell us your LC's name first.");
+  const bookerEmail = plain(input.bookerEmail, 200).toLowerCase();
+  if (!bookerEmail || !EMAIL_RE.test(bookerEmail))
+    return fail("We need a valid email — that is where the answer goes.");
+  {
+    const { emailDomainIssue } = await import("@/lib/email-check");
+    const issue = await emailDomainIssue(bookerEmail);
+    if (issue) return fail(issue);
+  }
+  const bookerName = plain(input.bookerName, 100);
+  if (!bookerName) return fail("Tell us your name.");
+  const bookerRole = plain(input.bookerRole, 40);
+  if (!isKnownIrRole(bookerRole)) return fail("Pick your role in your LC.");
+  const phoneRaw = plain(input.bookerPhone, 40);
+  if (!phoneRaw) return fail("We need your WhatsApp number so we can reach you.");
+  const phoneCheck = normalizePhone(phoneRaw);
+  if (!phoneCheck.ok || !phoneCheck.value.startsWith("+"))
+    return fail("Add your number with its country code, e.g. +20 10 1234 5678.");
+  const bookerPhone = phoneCheck.value;
+
+  const { COUNTRIES } = await import("@/lib/countries");
+  const { resolveCountry, isValidZone, whenLabelInZone } = await import("@/lib/timezones");
+  const country = resolveCountry(plain(input.country, 60), COUNTRIES);
+  const bookerTz = isValidZone(input.tz) ? String(input.tz) : null;
+
+  const start = new Date(String(input.startIso ?? ""));
+  if (!input.startIso || Number.isNaN(start.getTime()))
+    return fail("Pick the date and time you'd like.");
+  // asking for a time that has already gone is always a mistake
+  if (start.getTime() < Date.now() + 60 * 60 * 1000)
+    return fail("Pick a time at least an hour from now.");
+  // and a request a year out is noise, not a plan
+  if (start.getTime() > Date.now() + 120 * 24 * 60 * 60 * 1000)
+    return fail("Pick a time within the next few months.");
+
+  if (await sandboxSuppressed("public IR slot request"))
+    return fail("Sandbox test view is active in this browser — exit it to test this.");
+  const throttled = await bookingThrottle();
+  if (throttled) return throttled;
+
+  const { data: settings } = await db()
+    .from("ir_booking_settings")
+    .select("member_id, slug, slot_minutes, active")
+    .ilike("slug", slug)
+    .maybeSingle<{ member_id: string; slug: string; slot_minutes: number; active: boolean }>();
+  if (!settings?.active) return fail("This booking link is not active.");
+  const { data: owner } = await db()
+    .from("members")
+    .select("id, name, email, fallback_email, is_active")
+    .eq("id", settings.member_id)
+    .maybeSingle<{ id: string; name: string; email: string | null; fallback_email: string | null; is_active: boolean }>();
+  if (!owner?.is_active) return fail("This booking link is not active.");
+
+  // a host drowning in open asks is the same problem the booking cap solves
+  const { count: openCount } = await db()
+    .from("ir_slot_requests")
+    .select("id", { count: "exact", head: true })
+    .eq("member_id", owner.id)
+    .eq("status", "pending");
+  if ((openCount ?? 0) >= 15)
+    return fail(`${owner.name} has a lot of open requests right now — try again in a few days.`);
+
+  const lc = await findPartnerLcByNormalizedName(lcName);
+  const startIso = start.toISOString();
+  const theirLabel = bookerTz ? whenLabelInZone(startIso, bookerTz) : null;
+  const cairoLabel = whenLabelInZone(startIso, "Africa/Cairo");
+
+  const { error } = await db().from("ir_slot_requests").insert({
+    member_id: owner.id,
+    partner_lc_id: lc?.id ?? null,
+    lc_name: lc?.name ?? lcName,
+    booker_name: bookerName,
+    booker_role: bookerRole,
+    booker_email: bookerEmail,
+    booker_phone: bookerPhone,
+    booker_tz: bookerTz,
+    country,
+    note: plain(input.note, 1000) || null,
+    requested_at: startIso,
+    duration_minutes: settings.slot_minutes,
+  });
+  if (error) {
+    // the partial unique index: the same person asking for the same slot twice
+    if (error.code === "23505")
+      return fail("You've already asked for that time — you'll hear back by email.");
+    return fail("Could not send the request — try again.");
+  }
+
+  // tell the host: a request nobody sees is worse than no request at all
+  const { notifyMembers } = await import("./notify");
+  await notifyMembers(
+    [owner.id],
+    "info",
+    `📅 ${lc?.name ?? lcName} asked for a time you don't have open`,
+    `${bookerName} asked for ${cairoLabel} — accept it or decline with a reason.`,
+    null,
+    "/consideration"
+  );
+  const to = [owner.email, owner.fallback_email].filter(Boolean) as string[];
+  if (to.length > 0) {
+    const { irSlotRequestedEmail } = await import("@/lib/email/templates");
+    await sendEmail({
+      to,
+      ...irSlotRequestedEmail({
+        memberFirstName: owner.name.split(" ")[0],
+        lcName: lc?.name ?? lcName,
+        country,
+        bookerName,
+        bookerRole,
+        bookerEmail,
+        bookerPhone,
+        cairoLabel,
+        theirLabel,
+        note: plain(input.note, 1000) || null,
+        consideractionUrl: `${env.appUrl}/consideration`,
+      }),
+    }).catch((e) => console.error("[ir-request] host email failed:", e));
+  }
+
+  await logAudit(null, "ir_slot_requested", "ir_slot_request", null, {
+    lc: lc?.name ?? lcName,
+    when: cairoLabel,
+    host: owner.name,
+  });
+  return { ok: true, data: { memberName: owner.name, whenLabel: theirLabel ?? cairoLabel } };
+}
+
+interface IrSlotRequestRow {
+  id: string;
+  member_id: string;
+  partner_lc_id: string | null;
+  lc_name: string;
+  booker_name: string;
+  booker_role: string | null;
+  booker_email: string;
+  booker_phone: string | null;
+  booker_tz: string | null;
+  country: string | null;
+  note: string | null;
+  requested_at: string;
+  duration_minutes: number;
+  status: "pending" | "accepted" | "declined";
+}
+
+/** ACCEPT OR DECLINE A REQUESTED TIME (v34.5).
+ *
+ *  Accepting turns the request into a REAL booked call — same row, same
+ *  calendar event, same Meet link, same confirmation the IR would have got
+ *  from the normal page — so from the IR's side nothing about it is special.
+ *  Declining tells them, with whatever the host wants to say, and points them
+ *  back at the times that ARE open.
+ *
+ *  Only the host, or a consideration VP/Director/LCP: it is that person's
+ *  calendar the yes lands on. */
+export async function respondToIrSlotRequest(
+  id: string,
+  decision: "accept" | "decline",
+  comment?: string | null
+): Promise<ActionResult<{ meetLink: string | null }>> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+
+  const { data: req } = await db()
+    .from("ir_slot_requests")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle<IrSlotRequestRow>();
+  if (!req) return fail("That request no longer exists.");
+  if (req.status !== "pending") return fail(`This request was already ${req.status}.`);
+  if (req.member_id !== viewer.id && !isConsiderationLead(viewer))
+    return fail("Only the host, or a VP/Director, can answer this.", "forbidden");
+
+  const note = (comment ?? "").trim().slice(0, 1000) || null;
+  const { whenLabelInZone } = await import("@/lib/timezones");
+  const theirLabel = req.booker_tz ? whenLabelInZone(req.requested_at, req.booker_tz) : null;
+  const cairoLabel = whenLabelInZone(req.requested_at, "Africa/Cairo");
+
+  // ── DECLINE ───────────────────────────────────────────────────────────
+  if (decision === "decline") {
+    const { error } = await db()
+      .from("ir_slot_requests")
+      .update({ status: "declined", responded_at: new Date().toISOString(), response_comment: note })
+      .eq("id", id)
+      .eq("status", "pending");
+    if (error) return fail(error.message);
+
+    const { data: settings } = await db()
+      .from("ir_booking_settings")
+      .select("slug")
+      .eq("member_id", req.member_id)
+      .maybeSingle<{ slug: string }>();
+    const { irSlotDeclinedEmail } = await import("@/lib/email/templates");
+    await sendEmail({
+      to: [req.booker_email],
+      ...irSlotDeclinedEmail({
+        bookerName: req.booker_name,
+        memberName: viewer.id === req.member_id ? viewer.name : req.lc_name,
+        whenLabel: theirLabel ?? cairoLabel,
+        comment: note,
+        bookingUrl: `${env.appUrl}/book/${settings?.slug ?? ""}`,
+      }),
+    }).catch((e) => console.error("[ir-request] decline email failed:", e));
+
+    await logAudit(viewer.id, "ir_slot_declined", "ir_slot_request", id, {
+      lc: req.lc_name, when: cairoLabel,
+    });
+    refresh();
+    return { ok: true, data: { meetLink: null } };
+  }
+
+  // ── ACCEPT ────────────────────────────────────────────────────────────
+  const { data: owner } = await db()
+    .from("members")
+    .select("id, name, google_refresh_token, functions, sub_functions")
+    .eq("id", req.member_id)
+    .maybeSingle<{
+      id: string; name: string; google_refresh_token: string | null;
+      functions: string[] | null; sub_functions: string[] | null;
+    }>();
+  if (!owner) return fail("The host is no longer on the membership.");
+
+  // the LC may not have existed when they asked (they typed a new name)
+  let lcId = req.partner_lc_id;
+  let lcName = req.lc_name;
+  if (!lcId) {
+    const found = await findPartnerLcByNormalizedName(req.lc_name);
+    if (found) { lcId = found.id; lcName = found.name; }
+    else {
+      const ins = await db()
+        .from("partner_lcs")
+        .insert({ name: req.lc_name, country: req.country, timezone: req.booker_tz })
+        .select("id, name")
+        .maybeSingle<{ id: string; name: string }>();
+      if (ins.data) { lcId = ins.data.id; lcName = ins.data.name; }
+    }
+  }
+
+  const manageToken = crypto.randomBytes(16).toString("hex");
+  const { data: created, error } = await db()
+    .from("ir_calls")
+    .insert({
+      partner_lc_id: lcId,
+      partner_lc_name: lcName,
+      called_at: req.requested_at,
+      status: "scheduled",
+      booker_name: req.booker_name,
+      booker_role: req.booker_role,
+      booker_email: req.booker_email,
+      booker_phone: req.booker_phone,
+      manage_token: manageToken,
+      booked_at: new Date().toISOString(),
+      duration_minutes: req.duration_minutes,
+      booker_tz: req.booker_tz,
+      booker_note: req.note,
+      product: irProductForMember(owner),
+      member_id: owner.id,
+      member_name: owner.name,
+    })
+    .select("id")
+    .single();
+  if (error) {
+    // the same partial unique index the public path hits: this host already
+    // has a scheduled call at that exact time
+    if (error.code === "23505")
+      return fail("You already have a call booked at that time — decline this one instead.");
+    return fail("Could not book it — try again.");
+  }
+
+  // best-effort calendar + Meet, exactly as the public booking path does: the
+  // owner's own calendar first, the IM mailbox when they have no live grant
+  let meetLink: string | null = null;
+  const description =
+    `AIESEC IR call.\nPartner LC: ${lcName}${req.country ? ` (${req.country})` : ""}` +
+    `\nBooked by: ${req.booker_name} · ${req.booker_phone ?? ""} <${req.booker_email}>` +
+    `\nHost: ${owner.name}, AIESEC in Alexandria.` +
+    (req.note ? `\n\nWhat they'd like to talk about:\n${req.note}` : "");
+  try {
+    const { createIrCallEvent, createIrCallEventOnMailbox } = await import("@/lib/google/calendar");
+    const start = new Date(req.requested_at);
+    const ev = owner.google_refresh_token
+      ? await createIrCallEvent(owner.google_refresh_token, {
+          partnerLc: lcName, start, minutes: req.duration_minutes,
+          attendeeEmail: req.booker_email, guestsCanInvite: true, description,
+        }).catch((e) => {
+          console.error("[ir-request] owner calendar failed, trying mailbox:", e);
+          return null;
+        })
+      : null;
+    const onMailbox = ev
+      ? null
+      : await createIrCallEventOnMailbox({
+          partnerLc: lcName, start, minutes: req.duration_minutes,
+          attendeeEmail: req.booker_email, ownerEmail: null, description,
+        }).catch((e) => {
+          console.error("[ir-request] mailbox calendar failed:", e);
+          return null;
+        });
+    const made = ev ?? onMailbox;
+    if (made) {
+      meetLink = made.meetLink ?? null;
+      await db()
+        .from("ir_calls")
+        .update({
+          calendar_event_id: made.id,
+          meet_link: made.meetLink ?? null,
+          event_calendar: ev ? "owner" : "mailbox",
+        })
+        .eq("id", created.id);
+    }
+  } catch (e) {
+    console.error("[ir-request] calendar failed:", e);
+  }
+
+  await db()
+    .from("ir_slot_requests")
+    .update({
+      status: "accepted",
+      responded_at: new Date().toISOString(),
+      response_comment: note,
+      ir_call_id: created.id,
+    })
+    .eq("id", id);
+
+  // the IR gets the SAME confirmation the public page would have sent
+  const { irBookingConfirmEmail } = await import("@/lib/email/templates");
+  await sendEmail({
+    to: [req.booker_email],
+    ...irBookingConfirmEmail({
+      bookerName: req.booker_name,
+      memberName: owner.name,
+      partnerLc: lcName,
+      whenLabel: theirLabel ?? cairoLabel,
+      cairoLabel: theirLabel ? cairoLabel : null,
+      slotMinutes: req.duration_minutes,
+      meetLink,
+      manageUrl: `${env.appUrl}/book/manage/${manageToken}`,
+    }),
+  }).catch((e) => console.error("[ir-request] confirm email failed:", e));
+
+  await logAudit(viewer.id, "ir_slot_accepted", "ir_slot_request", id, {
+    lc: lcName, when: cairoLabel, call: created.id,
+  });
+  refresh();
+  return { ok: true, data: { meetLink } };
+}
+
 /** The in-call notes: demand domains + "when are your B2C campaigns?" + free
  *  notes + screenshot — saving flips a SCHEDULED call to 'completed'. Only
  *  the call's owner or a VP/Director/LCP. */

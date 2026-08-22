@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-22 · Version: v34.3
+Last updated: 2026-08-22 · Version: v34.5
 
 ---
 
@@ -649,6 +649,39 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-22 · v34.5** — **"NONE OF THESE TIMES WORK"** (migration **0065
+  applied**: `ir_slot_requests`).
+  The public booking page could only ever offer what a host had already opened,
+  so a consideration member with no availability left — or none that suited an
+  IR eight zones away — was a dead end, and the LC lost the conversation to
+  whatever that IR did next.
+  ① **THE IR ASKS FOR A TIME THAT DOES NOT EXIST.** "None of these times work?"
+  under the slot grid swaps it for a date and time **in their own zone**, and
+  files a request. `requestIrSlot` validates exactly what the booking path
+  validates — a public endpoint trusts nothing: the email's DOMAIN, a phone
+  with a country code, a known IR role, the country against the real list, the
+  sandbox guard and the per-IP throttle. It also refuses a time inside the next
+  hour or past a few months, and a partial unique index means the same person
+  asking twice for the same slot gets told so rather than filling a queue.
+  ② **NOTHING IS BOOKED BY IT.** The host's calendar stays theirs: the request
+  is a bell plus an email, and it appears at the top of their IR-calls tab.
+  **Accepting** turns it into a real call through the same machinery as any
+  other booking — the row, the calendar event on their own calendar (the IM
+  mailbox when they have no live grant, the v33.19 tier-2 path), the Meet link
+  and the identical confirmation the public page would have sent, manage token
+  included. **Declining** emails the IR with whatever the host typed, word for
+  word, and points them back at the times that ARE open. A lead sees the whole
+  floor's asks so somebody who is away can still be answered for.
+  ③ **THE LOCAL TIME IS CONVERTED TWO-PASS**, not with `new Date("…T…")` —
+  that parses in the BROWSER's zone, which is the exact bug the zone picker
+  exists to avoid for anyone on a VPN or a second clock. Verified by
+  round-tripping seven zones including both European DST folds and Egypt's own
+  spring-forward: every one reads back as the time that was typed.
+  ⚠️ Deliberately NOT done: `bookIrCall` was left alone. It is a public,
+  load-bearing endpoint and the accept path duplicates its tail rather than
+  refactoring it mid-session — the two flows genuinely differ (one validates
+  against offered slots, one is an explicit override by the host).
 
 - **2026-08-22 · v34.3** — **THE MOBILE PASS, AND ONE FEATURE DELETED**
   (no migration).
