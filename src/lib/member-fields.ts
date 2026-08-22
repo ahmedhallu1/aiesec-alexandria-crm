@@ -57,3 +57,32 @@ export function memberEmailProblem(raw: string | null | undefined, label: string
   if (!looksLikeEmail(v)) return `${label} doesn't look like an email address.`;
   return null;
 }
+
+/** THE ONE PLACE THAT DECIDES A MEMBER'S STATUS.
+ *
+ *  The Status column rendered three states — active / never signed in /
+ *  inactive — while its funnel offered a fourth, "Left the LC", that the
+ *  column never showed and that matched nobody. Worse, the filter carried an
+ *  extra AND keyed on the picks (`!!left_at === picks.includes("left")`), so
+ *  ticking it did not ADD rows, it replaced them: Active + Left the LC
+ *  returned zero.
+ *
+ *  A filter must offer exactly what its column shows, so both now read this. */
+export type MemberStatus = "active" | "never" | "inactive" | "left";
+
+export function memberStatus(m: {
+  is_active: boolean;
+  first_login_at?: string | null;
+  left_at?: string | null;
+}): MemberStatus {
+  if (m.left_at) return "left";
+  if (!m.is_active) return "inactive";
+  return m.first_login_at ? "active" : "never";
+}
+
+export const MEMBER_STATUS_LABEL: Record<MemberStatus, string> = {
+  active: "Active",
+  never: "Never signed in",
+  inactive: "Inactive",
+  left: "Left the LC",
+};

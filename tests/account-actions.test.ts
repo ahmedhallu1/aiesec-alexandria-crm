@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountActions, podioDueDay, type ActionableAccount } from "@/lib/account-actions";
+import { accountActions, podioDueDay, worstTone, type ActionableAccount } from "@/lib/account-actions";
 
 const TODAY = "2026-08-22";
 const base: ActionableAccount = {
@@ -38,12 +38,32 @@ describe("what an account is waiting for", () => {
     expect(podioDueDay({ ...base, podio_update_enabled: false })).toBeNull();
   });
 
-  it("marks an overdue refresh urgent and a same-day one not", () => {
+  it("colours each action by WHAT it is: a lost visit is red, a Podio refresh amber", () => {
     const on = { podio_update_enabled: true, podio_update_every_days: 14 };
-    const late = accountActions({ ...base, ...on, podio_updated_at: "2026-07-01T00:00:00Z" }, TODAY);
-    expect(late.find((a) => a.kind === "podio_update")?.urgent).toBe(true);
-    const dueToday = accountActions({ ...base, ...on, podio_updated_at: "2026-08-08T00:00:00Z" }, TODAY);
-    expect(dueToday.find((a) => a.kind === "podio_update")?.urgent).toBe(false);
+    const podio = accountActions({ ...base, ...on, podio_updated_at: "2026-07-01T00:00:00Z" }, TODAY);
+    expect(podio.find((a) => a.kind === "podio_update")?.tone).toBe("amber");
+    const visit = accountActions(
+      { ...base, visit_id: "v1", visit_done: null, visit_date: "2026-08-20" },
+      TODAY
+    );
+    expect(visit.find((a) => a.kind === "visit_report")?.tone).toBe("red");
+  });
+
+  it("the dot shows the LOUDEST open action", () => {
+    expect(worstTone([{ kind: "podio_check", label: "", tone: "muted" }])).toBe("muted");
+    expect(
+      worstTone([
+        { kind: "podio_check", label: "", tone: "muted" },
+        { kind: "podio_update", label: "", tone: "amber" },
+      ])
+    ).toBe("amber");
+    expect(
+      worstTone([
+        { kind: "podio_update", label: "", tone: "amber" },
+        { kind: "visit_report", label: "", tone: "red" },
+      ])
+    ).toBe("red");
+    expect(worstTone([])).toBe("muted");
   });
 
   it("only asks for a Podio check on an OWNED account — the pool would drown it", () => {

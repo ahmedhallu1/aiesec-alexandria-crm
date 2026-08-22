@@ -19,12 +19,27 @@ export type AccountActionKind =
   | "next_step"
   | "no_response";
 
+/** The dot's colour is the KIND, not a generic urgency flag — a visit nobody
+ *  reported is a different problem from a Podio refresh coming due, and the
+ *  floor reads them as different problems. red = something is wrong now,
+ *  amber = it is due, muted = a background nudge. */
+export type ActionTone = "red" | "amber" | "muted";
+
 export interface AccountAction {
   kind: AccountActionKind;
   /** what the member should do, in their words */
   label: string;
-  /** true = overdue / blocking, false = a nudge. Drives the dot's colour. */
-  urgent: boolean;
+  tone: ActionTone;
+}
+
+const TONE_RANK: Record<ActionTone, number> = { red: 0, amber: 1, muted: 2 };
+
+/** The loudest tone among the open actions — that is the dot you see. */
+export function worstTone(actions: AccountAction[]): ActionTone {
+  return actions.reduce<ActionTone>(
+    (worst, a) => (TONE_RANK[a.tone] < TONE_RANK[worst] ? a.tone : worst),
+    "muted"
+  );
 }
 
 /** Only the fields we actually read — so list rows, detail rows and tests can
@@ -72,14 +87,14 @@ export function accountActions(
   // a visit whose day has passed and was never reported: the funnel is
   // counting a visit nobody can prove happened
   if (a.visit_id && a.visit_done == null && a.visit_date && a.visit_date < today)
-    out.push({ kind: "visit_report", label: "Visit needs a report", urgent: true });
+    out.push({ kind: "visit_report", label: "Visit needs a report", tone: "red" });
 
   const due = podioDueDay(a);
   if (due && due <= today)
     out.push({
       kind: "podio_update",
       label: due < today ? "Podio update overdue" : "Podio update due today",
-      urgent: due < today,
+      tone: "amber",
     });
 
   // never submitted, and no request state either — nobody has checked Podio.
@@ -87,16 +102,16 @@ export function accountActions(
   // filter excludes them: nobody is going to submit a name that has not been
   // given to anyone, and the pool would drown every real signal.
   if (a.responsible_id && !a.requested_podio && !a.request_state)
-    out.push({ kind: "podio_check", label: "Not checked on Podio yet", urgent: false });
+    out.push({ kind: "podio_check", label: "Not checked on Podio yet", tone: "muted" });
 
   if (a.next_step_missing)
-    out.push({ kind: "next_step", label: "No next step set", urgent: true });
+    out.push({ kind: "next_step", label: "No next step set", tone: "amber" });
 
   if ((a.no_response_attempts ?? 0) >= 3)
     out.push({
       kind: "no_response",
       label: "3 unanswered attempts — decide or archive",
-      urgent: true,
+      tone: "red",
     });
 
   return out;

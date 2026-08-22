@@ -231,9 +231,9 @@ export function LcFeedbackView({
       </div>
 
       <Card className="rise-in rise-in-1">
-        <CardContent className="grid gap-4 pt-5">
+        <CardContent className="grid min-w-0 gap-4 pt-5">
           {/* ------------------------------------------------ who it's about */}
-          <div className="grid gap-2">
+          <div className="grid min-w-0 gap-2">
             {touchPoints.length > 0 ? (
               <div className="flex flex-wrap items-center gap-2">
                 <Label className="mr-1">What is it about?</Label>
@@ -263,7 +263,12 @@ export function LcFeedbackView({
             {aboutTouchPoint ? (
               <>
                 <Select value={touchPointId} onValueChange={setTouchPointId}>
-                  <SelectTrigger className="w-full">
+                  {/* min-w-0 ON THE TRIGGER (v33.59's lesson): a grid item's
+                      automatic minimum size is its own min-content width, and
+                      that beats w-full. This label is a whole touch point —
+                      team, date and time — so on a 375px screen it forced the
+                      card wider than the viewport. */}
+                  <SelectTrigger className="w-full min-w-0">
                     <SelectValue placeholder="Pick a past touch point…" />
                   </SelectTrigger>
                   <SelectContent>

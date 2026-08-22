@@ -1,6 +1,6 @@
 "use client";
 
-import { accountActions, type ActionableAccount } from "@/lib/account-actions";
+import { accountActions, worstTone, type ActionableAccount } from "@/lib/account-actions";
 import { Hint } from "./hint";
 import { cn } from "@/lib/utils";
 
@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 export function ActionDot({ row, className }: { row: ActionableAccount; className?: string }) {
   const actions = accountActions(row);
   if (actions.length === 0) return null;
-  const urgent = actions.some((a) => a.urgent);
+  const tone = worstTone(actions);
   return (
     <Hint
       label={
@@ -36,8 +36,14 @@ export function ActionDot({ row, className }: { row: ActionableAccount; classNam
         role="img"
         aria-label={`Action required: ${actions.map((a) => a.label).join(", ")}`}
         className={cn(
-          "inline-block size-2 shrink-0 rounded-full ring-2 ring-background",
-          urgent ? "bg-primary" : "bg-warning",
+          // smaller and unringed: this sits beside the account name on every
+          // row, and a ringed violet dot read as an alarm on all of them
+          "inline-block size-1.5 shrink-0 rounded-full",
+          tone === "red"
+            ? "bg-destructive"
+            : tone === "amber"
+              ? "bg-warning"
+              : "bg-muted-foreground/40",
           className
         )}
       />
