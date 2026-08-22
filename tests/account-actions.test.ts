@@ -66,11 +66,9 @@ describe("what an account is waiting for", () => {
     expect(worstTone([])).toBe("muted");
   });
 
-  it("only asks for a Podio check on an OWNED account — the pool would drown it", () => {
-    expect(kinds({ requested_podio: false, request_state: null })).toContain("podio_check");
-    expect(kinds({ requested_podio: false, request_state: null, responsible_id: null }))
-      .not.toContain("podio_check");
-    expect(kinds({ requested_podio: false, request_state: "Approved" })).not.toContain("podio_check");
+  it("never dots an unchecked-on-Podio account — that fired on nearly everything", () => {
+    expect(kinds({ requested_podio: false, request_state: null })).not.toContain("podio_check");
+    expect(kinds({ requested_podio: false, request_state: null, responsible_id: null })).toEqual([]);
   });
 
   it("flags a missing next step and three unanswered attempts", () => {

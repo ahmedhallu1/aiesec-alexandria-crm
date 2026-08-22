@@ -15,6 +15,7 @@ import { cairoToday, podioDefaultDays, type AccountFunction } from "@/lib/types"
 export type AccountActionKind =
   | "visit_report"
   | "podio_update"
+  /** retired from the dot in v34.6 — kept so old callers still typecheck */
   | "podio_check"
   | "next_step"
   | "no_response";
@@ -97,12 +98,10 @@ export function accountActions(
       tone: "amber",
     });
 
-  // never submitted, and no request state either — nobody has checked Podio.
-  // UNOWNED accounts are excluded for the same reason the server's needs_podio
-  // filter excludes them: nobody is going to submit a name that has not been
-  // given to anyone, and the pool would drown every real signal.
-  if (a.responsible_id && !a.requested_podio && !a.request_state)
-    out.push({ kind: "podio_check", label: "Not checked on Podio yet", tone: "muted" });
+  // NOT-CHECKED-ON-PODIO IS NOT A DOT (v34.6). It was the muted grey one, and
+  // it fired on almost every account — which is the definition of a signal
+  // that tells you nothing. The 🔎 "Needs Podio checking" filter is still the
+  // queue for that work; the dot is for the things that are actually late.
 
   if (a.next_step_missing)
     out.push({ kind: "next_step", label: "No next step set", tone: "amber" });

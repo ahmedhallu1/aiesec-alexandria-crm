@@ -50,3 +50,21 @@ as $$
 $$;
 
 revoke execute on function public.bump_api_key_use(uuid) from anon, authenticated;
+
+-- ── v34.6: a key is SCOPED, not all-or-nothing ────────────────────────────
+-- "Issue a key for which accounts exactly, and what access." A key now names
+-- the FUNCTIONS it may read and how much of each account it gets back, so the
+-- MR bot that only needs to dedupe names cannot be repurposed into a lead
+-- list. `expires_at` and `rate_per_hour` exist because this endpoint runs on a
+-- Hobby plan already at its CPU ceiling — see the route for the ETag + cache.
+alter table api_keys
+  add column if not exists functions        text[]      not null default '{IGV,IGT,B2B,BD}',
+  add column if not exists fields           text        not null default 'names',
+  add column if not exists include_archived boolean     not null default true,
+  add column if not exists expires_at       timestamptz,
+  add column if not exists rate_per_hour    int         not null default 120;
+
+do $$ begin
+  alter table api_keys add constraint api_keys_fields_chk
+    check (fields in ('names', 'pipeline', 'contacts'));
+exception when duplicate_object then null; end $$;

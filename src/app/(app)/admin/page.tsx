@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getRealViewer, getSystemHealth, listRecentAudit } from "@/server/data";
 import { listApiKeys } from "@/server/api-keys";
 import { db } from "@/lib/supabase";
+import { env } from "@/lib/env";
 import { canUseAdminTools } from "@/lib/rbac";
 import { AdminView } from "@/components/crm/admin-view";
 
@@ -56,6 +57,7 @@ export default async function AdminPage() {
         lcRow ? { id: lcRow.id, startedAt: lcRow.started_at, changes: lcChanges } : null
       }
       apiKeys={apiKeys}
+      origin={env.appUrl}
     />
   );
 }
