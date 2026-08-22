@@ -11,6 +11,7 @@ import { env } from "@/lib/env";
 import { checkVisitTime } from "@/lib/visit-time";
 import { memberEmailProblem, memberNameProblem } from "@/lib/member-fields";
 import { mintKey } from "./api-keys";
+import { API_FIELDS, API_FUNCTIONS } from "@/lib/api-scope";
 import {
   accountFnTargets,
   accountScope,
@@ -1887,20 +1888,55 @@ export async function stopLcTestSession(
  *
  *  The key is returned ONCE, here, and never again: only its hash is stored.
  *  That is the whole security property, so the UI has to say so out loud. */
-export async function createApiKey(label: string): Promise<ActionResult<{ key: string }>> {
+export async function createApiKey(input: {
+  label: string;
+  /** which account functions this key may read — scope is the key's, not the
+   *  request's, so a names-only MR bot can never be talked into more */
+  functions: string[];
+  fields: "names" | "pipeline" | "contacts";
+  includeArchived: boolean;
+  /** YYYY-MM-DD, or "" for a key that does not expire */
+  expiresOn?: string | null;
+  ratePerHour?: number;
+}): Promise<ActionResult<{ key: string }>> {
   const viewer = await getViewer();
   if (!canUseAdminTools(viewer)) return fail("Admin tools only.", "forbidden");
-  const clean = label.trim();
+  const clean = input.label.trim();
   if (clean.length < 2) return fail("Give the key a name — you'll need it to tell keys apart.");
   if (await sandboxSuppressed("createApiKey"))
     return fail("Not from a test view — a real key would outlive the session.");
 
+  const functions = (input.functions ?? []).filter((f) =>
+    (API_FUNCTIONS as readonly string[]).includes(f)
+  );
+  if (functions.length === 0) return fail("Pick at least one function this key can read.");
+  if (!(API_FIELDS as string[]).includes(input.fields))
+    return fail("Pick what the key is allowed to see.");
+  const rate = Math.min(2000, Math.max(10, Math.round(input.ratePerHour ?? 120)));
+  let expiresAt: string | null = null;
+  if (input.expiresOn) {
+    const d = new Date(`${input.expiresOn}T23:59:59Z`);
+    if (Number.isNaN(d.getTime())) return fail("That expiry date isn't a date.");
+    if (d.getTime() <= Date.now()) return fail("Pick an expiry in the future.");
+    expiresAt = d.toISOString();
+  }
+
   const { key, keyHash, prefix } = mintKey();
-  const { error } = await db()
-    .from("api_keys")
-    .insert({ label: clean, key_hash: keyHash, prefix, created_by: viewer.id });
+  const { error } = await db().from("api_keys").insert({
+    label: clean,
+    key_hash: keyHash,
+    prefix,
+    created_by: viewer.id,
+    functions,
+    fields: input.fields,
+    include_archived: input.includeArchived,
+    expires_at: expiresAt,
+    rate_per_hour: rate,
+  });
   if (error) return fail(error.message);
-  await logAudit(viewer.id, "api_key_created", "api_key", null, { label: clean, prefix });
+  await logAudit(viewer.id, "api_key_created", "api_key", null, {
+    label: clean, prefix, functions: functions.join(","), fields: input.fields,
+  });
   refresh();
   return { ok: true, data: { key } };
 }

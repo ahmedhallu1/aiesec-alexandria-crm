@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-22 · Version: v34.5
+Last updated: 2026-08-22 · Version: v34.6
 
 ---
 
@@ -649,6 +649,40 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-22 · v34.6** — **THE API GETS A SCOPE, AND ITS OWN DOCS**
+  (migration **0064b applied**: scope columns on `api_keys`).
+  ① **A KEY IS ISSUED FOR SOMETHING SPECIFIC.** It names the **functions** it
+  may read (IGV / IGT / B2B / BD / B2C), how much of each account it gets back
+  — `names` (name + normalized, enough to dedupe and nothing else) ·
+  `pipeline` (+ function, product, owner, dates) · `contacts` (+ phones,
+  emails, links) — whether the archive and blacklist are included, an optional
+  expiry and an hourly ceiling. **Scope is the KEY's, never the request's**:
+  there is no query parameter that widens it, so a names-only MR bot cannot be
+  talked into returning a lead list. Verified against the live database with
+  two real keys: a names-only IGV key returned 831 records carrying exactly
+  `name` and `normalized`, a contacts key returned 4,450 across four functions
+  with the full shape.
+  ② **AND IT DOESN'T COST VERCEL ANYTHING.** The plan is already past its CPU
+  allowance, so: a **module-memory snapshot** shared by every key with a 5-min
+  TTL (module memory, NOT `unstable_cache` — `revalidatePath("/", "layout")`
+  runs on ~94 write paths and would evict it continuously, the v33.46 lesson);
+  an **ETag**, so a well-behaved client gets a `304` with a zero-byte body
+  (measured); and a per-key hourly limit through the same atomic bucket RPC the
+  public booking page uses, failing OPEN so a broken counter can never take the
+  API down.
+  ③ **`GET /api/v1/docs` IS THE WHOLE THING IN ONE MARKDOWN FILE**, served as a
+  download and written for the way people actually integrate — hand it to an AI
+  and let it write the client. It states THAT key's own scope, so "why am I not
+  getting phone numbers" answers itself.
+  ④ **THE UNCHECKED-ON-PODIO DOT IS GONE.** It was the muted grey one and it
+  fired on nearly every account, which is the definition of a signal that tells
+  you nothing. The 🔎 Needs-Podio-checking filter is still the queue for that
+  work.
+  ⚠️ `API_FIELD_LABEL` lives in `src/lib/api-scope.ts`, not in
+  `server/api-keys.ts`: the admin card is a client component and importing a
+  VALUE from a `server-only` module fails the build (a type-only import is
+  fine). That is the whole reason the file exists.
 
 - **2026-08-22 · v34.5** — **"NONE OF THESE TIMES WORK"** (migration **0065
   applied**: `ir_slot_requests`).

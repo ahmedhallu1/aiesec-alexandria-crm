@@ -61,12 +61,14 @@ export function AdminView({
   testMode,
   lcSession,
   apiKeys,
+  origin,
 }: {
   health: SystemHealth | null;
   audit: AuditEntry[];
   testMode: { testAccounts: number; showTestData: boolean };
   lcSession: { id: string; startedAt: string; changes: number } | null;
   apiKeys: ApiKeyRow[];
+  origin: string;
 }) {
   const [q, setQ] = useState("");
 
@@ -107,7 +109,7 @@ export function AdminView({
 
       <TestModeCard testMode={testMode} />
 
-      <ApiKeysCard keys={apiKeys} />
+      <ApiKeysCard keys={apiKeys} origin={origin} />
 
       {!health ? (
         <Card className="rise-in rise-in-1">
