@@ -720,6 +720,11 @@ export interface PendingPromptRow {
   title: string;
   body: string | null;
   link: string | null;
+  /** IM prompts only (v34.7): the author decides what comes back, and
+   *  whether it can be waved away at all. Filled in by openPendingPrompt. */
+  responseKind?: "none" | "acknowledge" | "rating" | "text" | null;
+  responseLabel?: string | null;
+  dismissible?: boolean;
 }
 
 /** The oldest unresolved must-do prompt for this member (the blocking dialog
@@ -743,6 +748,39 @@ export async function openPendingPrompt(memberId: string): Promise<PendingPrompt
     }
     const row = data ?? null;
     if (!row) return null;
+    // an IM prompt carries its author's settings — what to capture and
+    // whether it may be skipped. A prompt whose parent was switched off (or
+    // deleted) resolves itself rather than blocking the app forever.
+    if (row.kind === "im_prompt" && row.ref_id) {
+      const { data: parent } = await db()
+        .from("im_prompts")
+        .select("response_kind, response_label, dismissible, active")
+        .eq("id", row.ref_id)
+        .maybeSingle<{
+          response_kind: "none" | "acknowledge" | "rating" | "text";
+          response_label: string | null;
+          dismissible: boolean;
+          active: boolean;
+        }>();
+      if (!parent || !parent.active) {
+        await db().from("pending_prompts").update({ resolved: true }).eq("id", row.id);
+        continue;
+      }
+      return {
+        ...row,
+        responseKind: parent.response_kind,
+        responseLabel: parent.response_label,
+        dismissible: parent.dismissible,
+      };
+    }
+    // a rating prompt for a CANCELLED session is not worth asking about
+    if (row.kind === "touchpoint_rating" && row.ref_id) {
+      const tp = await getTouchPoint(row.ref_id);
+      if (!tp || tp.status !== "scheduled") {
+        await db().from("pending_prompts").update({ resolved: true }).eq("id", row.id);
+        continue;
+      }
+    }
     if (row.kind === "attendance" && row.ref_id) {
       const tp = await getTouchPoint(row.ref_id);
       // cancelled (or gone) → nothing can ever be recorded for it

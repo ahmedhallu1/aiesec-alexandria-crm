@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-22 · Version: v34.6
+Last updated: 2026-08-22 · Version: v34.7
 
 ---
 
@@ -649,6 +649,48 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-22 · v34.7** — **TWO PROMPTS AND A DATE FUNNEL** (migration
+  **0066 applied**: `im_prompts`, `im_prompt_responses`).
+  ① **THE IM DIRECTOR CAN SAY SOMETHING TO THE LC.** A card on `/admin`
+  composes a prompt the floor meets the next time they open Sodio — a dialog,
+  not an email nobody reads. Everything is the author's: who sees it (everyone
+  / functions / roles / named people), what comes back (**nothing** ·
+  **acknowledge** · a **1–5 rating** · **a sentence**, with your own question
+  above the control), and whether it can be waved away at all. Responses land
+  in `im_prompt_responses`, and a SKIP is recorded too — the director should
+  see who never engaged, not a silent gap.
+  ② **LC TOUCH POINTS ASK FOR THEIR RATING, 7 HOURS LATER.** Long enough that
+  it is over and they have an opinion, close enough that they remember it. **LC
+  scope only** — a team meeting is its own crew's business, and blocking
+  seventy people over one is how a prompt becomes something people click past.
+  The rating writes the SAME `lc_feedback` row the Feedback page writes, so
+  there is one rating in one place.
+  ③ **BOTH RIDE `pending_prompts` (0031), AND THE SKIP LADDER IS ITS
+  `reminders` COLUMN** — no new table, no new mechanism. Skip once and it says
+  the feedback matters and returns TOMORROW; skip a second time and it retires
+  for good. Because the count lives on the row and not in localStorage, it
+  survives a new device and a cleared browser. The prompt is filed by the cron
+  and shown on next open, so somebody who never opens Sodio that evening still
+  meets it rather than the window passing in silence.
+  ④ **NO NEW CRON.** The pass runs inside the existing daily
+  `touch-point-feedback` job, because Vercel is at its invocation ceiling. The
+  7-hour mark is therefore a FLOOR, not an alarm: the prompt appears at the
+  next run after it passes. The reader self-heals — a prompt whose parent was
+  switched off, or whose session was cancelled, resolves itself instead of
+  blocking the app forever (the v29.2 stranded-prompt lesson).
+  ⑤ **DATE COLUMNS FILTER BY RANGE.** Every other column got its funnel in
+  v33.3 — "if it is a column, you filter it from the column" — but the date
+  columns were skipped, because a date is not a pick-list. `DateRangeFilter`
+  opens a from → to pair instead: on the accounts list's **Date added**
+  (clamped to today, since an account cannot be created in the future) and on
+  the IR call log's **When** (deliberately NOT clamped — a call can be in the
+  future). Both ends are optional: from alone reads "since", to alone "until".
+  ⚠️ Verified against the live database: an `im_prompt` was filed for the
+  admin's own account, walked through both rungs of the ladder (first skip →
+  `reminders 1`, unresolved; second → resolved AND a skip row recorded), then
+  deleted. The touch-point pass was NOT observed firing — no LC session has run
+  in the last four days, so it correctly has nothing to file.
 
 - **2026-08-22 · v34.6** — **THE API GETS A SCOPE, AND ITS OWN DOCS**
   (migration **0064b applied**: scope columns on `api_keys`).
