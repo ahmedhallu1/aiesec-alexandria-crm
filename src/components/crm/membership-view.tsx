@@ -25,6 +25,7 @@ import { normalizePhone,
   SUB_FUNCTIONS,
   type MemberRole,
 } from "@/lib/types";
+import { MEMBER_STATUS_LABEL, memberStatus } from "@/lib/member-fields";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -120,12 +121,15 @@ const COL_FILTERS: Record<
   status: {
     key: "status",
     label: "Status",
-    options: () => [
-      { value: "active", label: "Active" },
-      { value: "inactive", label: "Inactive" },
-      // people removed from the sheet — the archive (v33.7)
-      { value: "left", label: "Left the LC" },
-    ],
+    // THE FUNNEL OFFERS WHAT THE COLUMN SHOWS (v34.4). It used to offer
+    // "Left the LC" — a label this column never renders, and one that could
+    // not match anybody: nobody in the LC has left_at set. Worse, picking it
+    // ALSO emptied whatever else was ticked (see matchesCols below).
+    options: () =>
+      (["active", "never", "inactive"] as const).map((v) => ({
+        value: v,
+        label: MEMBER_STATUS_LABEL[v],
+      })),
   },
 };
 
@@ -137,7 +141,8 @@ const MEMBER_SORTERS: Record<string, (m: MemberRow) => string | number | null> =
   sub: (m) => (m.sub_functions.length ? m.sub_functions.join(", ") : null),
   manager: (m) => m.stakeholder_name,
   // rank so asc reads active → never signed in → inactive
-  status: (m) => (!m.is_active ? 2 : m.first_login_at ? 0 : 1),
+  status: (m) =>
+    ({ active: 0, never: 1, inactive: 2, left: 3 } as const)[memberStatus(m)],
 };
 
 export function MembershipView({ members, teams }: { members: MemberRow[]; teams: TeamRegistryRow[] }) {
@@ -160,11 +165,16 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
     anyOf(colFilter.fn, (v) => (m.functions ?? []).includes(v)) &&
     anyOf(colFilter.sub, (v) => (m.sub_functions ?? []).includes(v)) &&
     anyOf(colFilter.manager, (v) => (m.stakeholder_name ?? "") === v) &&
-    anyOf(colFilter.status, (v) =>
-      v === "active" ? m.is_active : v === "left" ? !!m.left_at : !m.is_active
-    ) &&
-    // people who LEFT are archived: out of the list unless you ask for them
-    (!!m.left_at === (colFilter.status ?? "").split(",").includes("left"));
+    // ONE COLUMN'S PICKS ARE AN **OR** — ticking a second option ADDS its rows,
+    // it does not replace the first. This clause used to be followed by
+    //     (!!m.left_at === picks.includes("left"))
+    // which is an equality, not a filter: ticking "Left the LC" flipped it to
+    // "ONLY people who left", so Active + Left returned 0 instead of both.
+    // That is the shape to watch for — an extra AND that is keyed on the picks.
+    anyOf(colFilter.status, (v) => memberStatus(m) === v) &&
+    // people removed from the sheet are archived — out of the list always, and
+    // NOT tied to what is ticked above
+    memberStatus(m) !== "left";
 
   const byCols = members.filter(matchesCols);
   const shown = needle
