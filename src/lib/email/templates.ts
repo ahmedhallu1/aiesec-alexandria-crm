@@ -922,6 +922,74 @@ export function ogtExpectationEmail(opts: {
 
 /** Sent to the booking link's OWNER the moment an IR abroad books a slot on
  *  /book/<slug> — who booked, which LC, when (Cairo), jump to /consideration. */
+/** A TIME THE HOST NEVER OPENED (v34.5) — to the host, internally. */
+export function irSlotRequestedEmail(opts: {
+  memberFirstName: string;
+  lcName: string;
+  country: string | null;
+  bookerName: string;
+  bookerRole: string;
+  bookerEmail: string;
+  bookerPhone: string;
+  cairoLabel: string;
+  theirLabel: string | null;
+  note: string | null;
+  consideractionUrl: string;
+}) {
+  return {
+    subject: `📅 ${opts.lcName} asked for a time you don't have open`,
+    html: emailLayout({
+      preheader: `${opts.bookerName} would like ${opts.cairoLabel} — accept or decline.`,
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Someone asked for another time 📅</h1>
+        <p>Hey ${escapeHtml(opts.memberFirstName)} — <b>${escapeHtml(opts.bookerName)}</b> from
+        <b>${escapeHtml(opts.lcName)}</b> opened your booking link and none of the times you have
+        open worked for them, so they asked for this one instead. <b>Nothing is booked</b> — your
+        calendar is untouched until you say yes.</p>
+        ${detailsTable([
+          ["They asked for", `${opts.cairoLabel} (Cairo)`],
+          ["Their local time", opts.theirLabel],
+          ["Partner LC", opts.country ? `${opts.lcName} (${opts.country})` : opts.lcName],
+          ["Who", `${opts.bookerName} — ${opts.bookerRole}`],
+          ["Email", opts.bookerEmail],
+          ["WhatsApp", opts.bookerPhone],
+          ["What they'd like to talk about", opts.note],
+        ])}
+        <p>Accept it and it becomes a normal booked call — calendar invite, Meet link, the lot.
+        Decline it and they get told, with whatever you want to say to them.</p>
+        ${button("Open the requests", opts.consideractionUrl)}`,
+    }),
+  };
+}
+
+/** The answer, to the IR — external: they have never heard of Sodio. */
+export function irSlotDeclinedEmail(opts: {
+  bookerName: string;
+  memberName: string;
+  whenLabel: string;
+  comment: string | null;
+  bookingUrl: string;
+}) {
+  return {
+    subject: `About your requested time with ${opts.memberName}`,
+    html: externalEmailLayout({
+      preheader: `${opts.memberName} can't make ${opts.whenLabel} — here are the times they do have.`,
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">That time doesn't work, sorry 🙏</h1>
+        <p>Hi ${escapeHtml(opts.bookerName)} — thanks for asking. <b>${escapeHtml(opts.memberName)}</b>
+        can't do <b>${escapeHtml(opts.whenLabel)}</b>.</p>
+        ${
+          opts.comment
+            ? `<p style="border-left:4px solid #7552CC;background:#EFEAFA;border-radius:0 8px 8px 0;padding:12px 16px;"><b>They said:</b> ${escapeHtml(opts.comment)}</p>`
+            : ""
+        }
+        <p>The times they DO have open are on the same page you used — pick any of them and
+        you're booked straight away.</p>
+        ${button("See their open times", opts.bookingUrl)}`,
+    }),
+  };
+}
+
 export function irCallBookedEmail(opts: {
   memberFirstName: string;
   partnerLc: string;

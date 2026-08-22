@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { CalendarCheck2, Clock, Globe2, Mail, Phone, Video, Loader2 } from "lucide-react";
-import { bookIrCall } from "@/server/actions";
+import { bookIrCall, requestIrSlot } from "@/server/actions";
 import type { BookingDay } from "@/server/data";
 import { IR_ROLES, normalizeLcName, normalizePhone } from "@/lib/types";
 import { phoneExample } from "@/lib/dial-codes";
@@ -92,7 +92,15 @@ export function BookingView({
 }) {
   const [pending, start] = useTransition();
   const [dayIdx, setDayIdx] = useState(0);
+  const [asked, setAsked] = useState<string | null>(null);
   const [slotIso, setSlotIso] = useState<string | null>(null);
+  /** ASKING FOR A TIME THAT ISN'T OFFERED (v34.5). The page can only show what
+   *  the host has opened, so an IR whose evening never lines up with Cairo used
+   *  to hit a dead end. `asking` swaps the slot grid for a date + time of their
+   *  own; the host is emailed and answers yes or no. Nothing is auto-booked. */
+  const [asking, setAsking] = useState(false);
+  const [askDate, setAskDate] = useState("");
+  const [askTime, setAskTime] = useState("");
   // THE PAGE IS DRAWN IN THE VISITOR'S OWN TIME ZONE (v33.22).
   //
   // It used to render Cairo time with a footnote, which is how an IR books
@@ -221,6 +229,70 @@ export function BookingView({
       if (res.ok && res.data) setDone(res.data);
       else if (!res.ok) toast.error(res.error);
     });
+
+  /** Their local date+time → the real instant, read in the zone the page is
+   *  drawn in. Never `new Date("...")` on a bare local string: that is parsed
+   *  in the BROWSER's zone, which is exactly the bug the zone picker exists to
+   *  avoid for anyone using a VPN or a second clock. */
+  const askIso = useMemo(() => {
+    if (!askDate || !askTime) return null;
+    const guess = new Date(`${askDate}T${askTime}:00Z`);
+    if (Number.isNaN(guess.getTime())) return null;
+    // shift by the zone's offset at that moment (two-pass, like cairoToUtc)
+    const off = (d: Date) => {
+      const s = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz, hour12: false,
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
+      }).formatToParts(d).reduce<Record<string, string>>((a, x) => ((a[x.type] = x.value), a), {});
+      const asUtc = Date.UTC(+s.year, +s.month - 1, +s.day, +s.hour, +s.minute, +s.second);
+      return asUtc - d.getTime();
+    };
+    const once = new Date(guess.getTime() - off(guess));
+    return new Date(guess.getTime() - off(once)).toISOString();
+  }, [askDate, askTime, tz]);
+
+  const sendRequest = () =>
+    start(async () => {
+      if (!askIso) {
+        toast.error("Pick the date and time you'd like.");
+        return;
+      }
+      if (!lcName.trim() || !emailOk || !phoneOk || !bookerName.trim() || !bookerRole) {
+        toast.error("Fill in your name, role, LC, email and WhatsApp number first.");
+        return;
+      }
+      const res = await requestIrSlot({
+        slug,
+        startIso: askIso,
+        lcName,
+        bookerEmail: email.trim(),
+        bookerPhone: phoneCheck.value,
+        country: country || null,
+        bookerName: bookerName.trim(),
+        bookerRole,
+        note: note.trim() || null,
+        tz,
+      });
+      if (res.ok && res.data) setAsked(res.data.whenLabel);
+      else if (!res.ok) toast.error(res.error);
+    });
+
+  if (asked) {
+    return (
+      <div className="rise-in relative z-10 w-full max-w-md rounded-2xl bg-card p-8 text-center shadow-2xl">
+        <BrandHeader />
+        <div className="mx-auto mb-3 flex size-14 items-center justify-center rounded-full bg-primary/15">
+          <CalendarCheck2 className="size-7 text-primary" />
+        </div>
+        <h1 className="text-2xl font-bold text-card-foreground">Asked ✅</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {memberName} has been sent your request for <b>{asked}</b>. They&apos;ll reply to{" "}
+          <b>{email.trim()}</b> either way — nothing is booked until they say yes.
+        </p>
+      </div>
+    );
+  }
 
   if (done) {
     return (
@@ -529,6 +601,66 @@ export function BookingView({
               )}
               {slot && day ? `Book ${day.label} · ${slot.label}` : "Pick a slot to book"}
             </Button>
+
+            {/* NONE OF THESE WORK (v34.5). The grid can only ever show what
+                {memberName} has opened; an IR whose only free evening never
+                lines up with Cairo had nowhere to go from here. They ask for a
+                time instead, and the host answers — nothing is booked by this. */}
+            <div className="mt-4 border-t pt-4">
+              {!asking ? (
+                <button
+                  type="button"
+                  onClick={() => setAsking(true)}
+                  className="text-sm font-medium text-primary underline underline-offset-4 hover:opacity-80"
+                >
+                  None of these times work? Ask for another one
+                </button>
+              ) : (
+                <div className="grid gap-2">
+                  <p className="text-sm font-semibold text-card-foreground">
+                    Ask {memberName} for a different time
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    In your own time zone. They&apos;ll get an email and reply either way —
+                    nothing is booked unless they say yes.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      type="date"
+                      value={askDate}
+                      min={new Date().toISOString().slice(0, 10)}
+                      onChange={(e) => setAskDate(e.target.value)}
+                    />
+                    <Input
+                      type="time"
+                      value={askTime}
+                      onChange={(e) => setAskTime(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      className="h-10 flex-1"
+                      onClick={sendRequest}
+                      disabled={
+                        pending ||
+                        !askIso ||
+                        !lcName.trim() ||
+                        !emailOk ||
+                        !phoneOk ||
+                        !bookerName.trim() ||
+                        !bookerRole
+                      }
+                    >
+                      {pending ? <Loader2 className="size-4 animate-spin" /> : null}
+                      Send the request
+                    </Button>
+                    <Button variant="ghost" className="h-10" onClick={() => setAsking(false)}>
+                      Back to the times
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </>
       )}
