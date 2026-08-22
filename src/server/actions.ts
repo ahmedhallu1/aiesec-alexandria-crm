@@ -8,6 +8,9 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/supabase";
 import { env } from "@/lib/env";
+import { checkVisitTime } from "@/lib/visit-time";
+import { memberEmailProblem, memberNameProblem } from "@/lib/member-fields";
+import { mintKey } from "./api-keys";
 import {
   accountFnTargets,
   accountScope,
@@ -1878,66 +1881,61 @@ export async function stopLcTestSession(
 /** Reverses one or more audited actions from /admin (single or bulk select).
  *  Newest first, so undoing a run of edits to the same row lands on the
  *  oldest snapshot rather than a middle one. */
-export async function undoAuditEntries(
-  ids: number[]
-): Promise<ActionResult<{ undone: number; skipped: number; failed: number }>> {
-  const { getRealViewer } = await import("./data");
-  const real = await getRealViewer();
-  if (!real.isAdmin) return fail("Only the admin can undo actions.", "forbidden");
-  if (!ids?.length) return fail("Nothing selected.");
-  if (ids.length > 50) return fail("Undo at most 50 entries at a time.");
+/** ── API KEYS (v34.2) ───────────────────────────────────────────────────────
+ *  Issue and revoke keys for the read-only accounts endpoint. Admin tools
+ *  only — the same gate as the health page and the change journal.
+ *
+ *  The key is returned ONCE, here, and never again: only its hash is stored.
+ *  That is the whole security property, so the UI has to say so out loud. */
+export async function createApiKey(label: string): Promise<ActionResult<{ key: string }>> {
+  const viewer = await getViewer();
+  if (!canUseAdminTools(viewer)) return fail("Admin tools only.", "forbidden");
+  const clean = label.trim();
+  if (clean.length < 2) return fail("Give the key a name — you'll need it to tell keys apart.");
+  if (await sandboxSuppressed("createApiKey"))
+    return fail("Not from a test view — a real key would outlive the session.");
 
-  const { data: rows } = await db()
-    .from("audit_log")
-    .select("id, action, change_set, undone_at")
-    .in("id", ids)
-    .order("id", { ascending: false });
-
-  const { rollbackChangeSet } = await import("./sandbox");
-  let undone = 0;
-  let skipped = 0;
-  let failed = 0;
-  for (const r of (rows ?? []) as {
-    id: number;
-    action: string;
-    change_set: string | null;
-    undone_at: string | null;
-  }[]) {
-    // nothing to replay: pre-v32 entries, already-undone ones, and actions
-    // that never touched a journaled table (a sign-in, a report send…)
-    if (!r.change_set || r.undone_at) {
-      skipped++;
-      continue;
-    }
-    const res = await rollbackChangeSet(r.change_set);
-    if (res.undone === 0 && res.failed === 0) {
-      skipped++;
-      continue;
-    }
-    if (res.failed > 0) failed++;
-    if (res.undone > 0) {
-      undone++;
-      await db()
-        .from("audit_log")
-        .update({ undone_at: new Date().toISOString(), undone_by: real.id })
-        .eq("id", r.id);
-    }
-  }
-  await logAudit(real.id, "audit_undo", "system", null, {
-    requested: ids.length,
-    undone,
-    skipped,
-    failed,
-  });
+  const { key, keyHash, prefix } = mintKey();
+  const { error } = await db()
+    .from("api_keys")
+    .insert({ label: clean, key_hash: keyHash, prefix, created_by: viewer.id });
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "api_key_created", "api_key", null, { label: clean, prefix });
   refresh();
-  return { ok: true, data: { undone, skipped, failed } };
+  return { ok: true, data: { key } };
 }
 
-// ================================================================== bulk operations
+export async function revokeApiKey(id: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!canUseAdminTools(viewer)) return fail("Admin tools only.", "forbidden");
+  // a stamp, never a delete — the audit trail outlives the key
+  const { data, error } = await db()
+    .from("api_keys")
+    .update({ revoked_at: new Date().toISOString() })
+    .eq("id", id)
+    .is("revoked_at", null)
+    .select("label")
+    .maybeSingle<{ label: string }>();
+  if (error) return fail(error.message);
+  if (!data) return fail("That key is already revoked.");
+  await logAudit(viewer.id, "api_key_revoked", "api_key", id, { label: data.label });
+  refresh();
+  return { ok: true };
+}
 
-/** Archive many accounts at once (same rules as one-by-one: RBAC + business
- *  logic run PER ACCOUNT via setOutOfProcess — a row the viewer can't edit
- *  just counts as failed, it never blocks the rest). */
+/** THE AUDIT-LOG UNDO IS GONE (v34.3).
+ *
+ *  `undoAuditEntries` replayed an action's journal rows in reverse, matched to
+ *  the audit row by `change_set`. It could never match: logAudit mints a
+ *  change_set for the audit row and recordUndo mints its own for the same
+ *  request, so the two sets never intersected. Measured against production
+ *  before removing it — 0 of 11,130 audit rows had a single replayable row.
+ *
+ *  It is deleted rather than repaired because a rollback engine that
+ *  half-works corrupts data, and nothing has ever depended on this one. The
+ *  audit LOG stays: it is the record, and it is accurate. The sandbox and
+ *  LC-test-session rollback is a different mechanism — it keys on
+ *  `session_id`, not `change_set` — and is untouched. */
 export async function bulkArchiveAccounts(
   ids: string[],
   reason: string
@@ -2361,6 +2359,10 @@ export async function logContact(
   const visitScheduled = status === "Visit Scheduled";
   if (visitScheduled && (!scheduledDate || !scheduledTime))
     return fail("Pick the date and time of the visit.");
+  if (visitScheduled) {
+    const when = checkVisitTime(scheduledTime);
+    if (!when.ok) return fail(when.error);
+  }
   // the visit lands on the RESPONSIBLE's calendar — fail BEFORE the attempt
   // row is written, or an unbookable visit leaves a phantom contact behind
   if (visitScheduled && !account.responsible_id)
@@ -2649,6 +2651,12 @@ export async function scheduleVisit(
   const parsed = visitSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0].message);
   const { accountId, visitDate, visitTime, notes } = parsed.data;
+
+  // nobody takes a visit at 4 in the morning — that is a slipped AM/PM, not a
+  // plan. Checked here because logContact and the direct-visit form both book
+  // through this function, so one guard covers all three doors.
+  const when = checkVisitTime(visitTime);
+  if (!when.ok) return fail(when.error);
 
   const account = await loadAccount(accountId);
   if (!account || !canEditAccount(viewer, account))
@@ -3810,7 +3818,16 @@ export async function updateAvatar(url: string | null): Promise<ActionResult> {
 const memberSchema = z
   .object({
     id: z.string().uuid().nullish(),
-    name: z.string().trim().min(2, "Name is required."),
+    // SHAPE, not just length. "Name is required" passed an @aiesec.net
+    // address straight through, and that address then became the member's
+    // display name on every leaderboard and in every email that greets them.
+    name: z
+      .string()
+      .trim()
+      .superRefine((v, ctx) => {
+        const problem = memberNameProblem(v);
+        if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
+      }),
     // email is OPTIONAL since v24 — phone-only members sign in with their
     // number (both fields) until the AIESEC email lands
     email: z
@@ -3818,6 +3835,10 @@ const memberSchema = z
       .trim()
       .toLowerCase()
       .refine((v) => v === "" || EMAIL_RE.test(v), "That email doesn't look valid.")
+      .superRefine((v, ctx) => {
+        const problem = memberEmailProblem(v, "the AIESEC Mail");
+        if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
+      })
       .nullish(),
     phone: phoneField,
     role: z.enum(MEMBER_ROLES as [MemberRole, ...MemberRole[]]),

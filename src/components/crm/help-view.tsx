@@ -251,7 +251,7 @@ function AskAiCard({ prefill, label }: { prefill?: string; label?: string }) {
 export function HelpView({ viewer }: { viewer: HelpViewer }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [, startNav] = useTransition();
+  const [navPending, startNav] = useTransition();
 
   const keys = useMemo(() => viewerAudienceKeys(viewer), [viewer]);
   const articleId = searchParams.get("a");
@@ -261,13 +261,32 @@ export function HelpView({ viewer }: { viewer: HelpViewer }) {
   const [forMe, setForMe] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // one navigation helper: URL is the state, so every view is shareable
+  /** One navigation helper: the URL is the state, so every view is shareable.
+   *
+   *  WHY THIS SCROLLS. Opening a help topic felt like a dead click, and adding
+   *  a loading shimmer did not help — because there is nothing to load. Every
+   *  article is bundled into the page, so `router.replace` swaps the view in
+   *  the same frame; the shimmer has no time to appear. The real problem was
+   *  `scroll: false`: the content changed and the PAGE DID NOT MOVE, so
+   *  someone scrolled halfway down a list of categories tapped a topic and saw
+   *  the same screen. Moving to the top IS the feedback here.
+   *
+   *  Typing in the search box passes `scroll: false` — yanking the page to the
+   *  top on every keystroke would be its own kind of broken. */
   const go = useCallback(
-    (patch: Record<string, string | null>) => {
+    (patch: Record<string, string | null>, opts: { scroll?: boolean } = {}) => {
       const p = new URLSearchParams(searchParams.toString());
       for (const [k, v] of Object.entries(patch)) {
         if (v === null || v === "") p.delete(k);
         else p.set(k, v);
+      }
+      if (opts.scroll !== false && typeof window !== "undefined") {
+        window.scrollTo({
+          top: 0,
+          behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+            ? "auto"
+            : "smooth",
+        });
       }
       startNav(() => router.replace(`/help${p.size ? `?${p}` : ""}`, { scroll: false }));
     },
@@ -277,7 +296,7 @@ export function HelpView({ viewer }: { viewer: HelpViewer }) {
   // the search box writes the URL debounced — back button = previous search
   useEffect(() => {
     const t = setTimeout(() => {
-      if (query !== urlQuery) go({ q: query || null, a: null, c: null });
+      if (query !== urlQuery) go({ q: query || null, a: null, c: null }, { scroll: false });
     }, 250);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -389,7 +408,7 @@ export function HelpView({ viewer }: { viewer: HelpViewer }) {
       .filter((x) => x.category === article.category && x.id !== article.id)
       .slice(0, 4);
     return (
-      <div className="mx-auto max-w-3xl space-y-4">
+      <div className={cn("mx-auto max-w-3xl space-y-4", navPending && "nav-pending")}>
         <div className="flex flex-wrap items-center gap-2 rise-in">
           <button
             type="button"
@@ -460,7 +479,7 @@ export function HelpView({ viewer }: { viewer: HelpViewer }) {
   const catArticles = category ? visible.filter((a) => a.category === category.id) : [];
 
   return (
-    <div className="mx-auto max-w-4xl space-y-5">
+    <div className={cn("mx-auto max-w-4xl space-y-5", navPending && "nav-pending")}>
       {/* hero */}
       <div className="rise-in hero-animate overflow-hidden rounded-2xl border bg-gradient-to-br from-[#037EF3] to-[#7552CC] p-6 text-white sm:p-8">
         <div className="flex flex-wrap items-center gap-2">

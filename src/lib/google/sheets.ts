@@ -5,6 +5,7 @@ import { sandboxSuppressed } from "@/server/sandbox";
 import {
   normalizePhone, LC_FUNCTIONS, SUB_FUNCTIONS } from "@/lib/types";
 import type { Member, MemberRole } from "@/lib/types";
+import { memberNameProblem } from "@/lib/member-fields";
 
 /** Google Sheets mirror layer.
  *
@@ -307,7 +308,12 @@ function parseSheetRow(row: string[], cols: ColumnMap): SheetMemberRow | null {
   // one ROW, and the only place it can be caught is here: a cell that clearly
   // belongs to a different column means the row is misaligned, and importing
   // it does more damage than skipping it.
+  // a NAME cell holding an address or a phone number is the same class of
+  // mistake, and it is the one that shows: the value becomes the member's
+  // display name on every leaderboard and in the greeting of every email.
+  const nameProblem = memberNameProblem(name);
   const looksShifted =
+    !!nameProblem ||
     // an email in the phone column, or a phone in the email column
     !!cleanPhone?.includes("@") ||
     (!!cleanEmail && !cleanEmail.includes("@") && /\d{7,}/.test(cleanEmail)) ||
@@ -317,7 +323,9 @@ function parseSheetRow(row: string[], cols: ColumnMap): SheetMemberRow | null {
     (!!role?.trim() && parseRole(role) === "Member" && !/member/i.test(role));
   if (looksShifted) {
     console.error(
-      `[sheets] "${name.trim()}" looks like a SHIFTED row — email/phone/role/function ` +
+      `[sheets] "${name.trim()}" looks like a SHIFTED row — ` +
+        (nameProblem ? `the NAME cell is wrong (${nameProblem}) — ` : "") +
+        `email/phone/role/function ` +
         `don't line up with their columns, so it was skipped rather than imported ` +
         `wrong. Check that row in the Membership sheet. ` +
         `(email=${JSON.stringify(cleanEmail)} phone=${JSON.stringify(cleanPhone)} ` +

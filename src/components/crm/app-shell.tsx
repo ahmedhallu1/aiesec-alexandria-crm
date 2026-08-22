@@ -679,7 +679,7 @@ export function AppShell({
         </Sheet>
         {/* on a ≤360px phone the logo was the thing that got squeezed (v33.28) */}
         <Link prefetch={false} href={effectiveHome} className="flex min-w-0 items-center gap-2" title="Home — your workspace">
-          <SodioMark px={24} className="brand-mark h-6 w-6 shrink-0" title="Sodio" />
+          <SodioMark px={32} className="brand-mark size-7 shrink-0" title="Sodio" />
           <p className="truncate font-display text-sm font-bold tracking-tight text-sidebar-foreground">
             Sodio
           </p>

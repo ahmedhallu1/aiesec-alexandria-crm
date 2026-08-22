@@ -156,7 +156,7 @@ const LINKS: { label: string; note: string; href: string; kind: "ig" | "drive" }
 
 function ActivateBrief({ days, day, total }: { days: number; day: number; total: number }) {
   return (
-    <div className="grid gap-4 text-sm">
+    <div className="grid gap-4 text-sm [overflow-wrap:anywhere]">
       <p>
         <b>Activate is AIESEC in Egypt&apos;s national conference.</b> Every LC in
         the country sends delegates to the same hall for a few days — sessions,
@@ -256,7 +256,10 @@ export function ActivateStrip() {
         aria-label={`Road to Activate — ${days} days to go. What is Activate?`}
         className="activate-road group relative block w-full overflow-hidden rounded-xl border border-white/10 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
       >
-        <div className="relative flex items-center gap-4 px-4 py-3 sm:px-6">
+        {/* justify-between matters on a PHONE: the road between these two blocks
+            is hidden below sm, and both blocks are shrink-0, so without it they
+            bunched at the left and left the right half of the banner empty. */}
+        <div className="relative flex items-center justify-between gap-3 px-4 py-3 sm:gap-4 sm:px-6">
           <div className="shrink-0">
             <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/55">
               Road to
@@ -394,7 +397,9 @@ export function ActivateStrip() {
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
+        {/* p-6 on a 375px screen leaves the brief ~295px and it read as cut off;
+            the padding relaxes on a phone and tightens back up from sm. */}
+        <DialogContent className="max-h-[90dvh] overflow-y-auto p-4 sm:max-w-lg sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-xl">🏆 What is Activate?</DialogTitle>
             <DialogDescription>

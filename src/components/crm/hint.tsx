@@ -23,7 +23,9 @@ export function Hint({
   side = "top",
   children,
 }: {
-  label: string;
+  /** ReactNode, not string: a few hints list several lines (the accounts
+   *  list's action dot names every thing the row is waiting for). */
+  label: React.ReactNode;
   side?: "top" | "bottom" | "left" | "right";
   children: React.ReactNode;
 }) {

@@ -9,6 +9,7 @@ import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import {
   accountsAssignedEmail,
+  podioUpdateDigestEmail,
   irBookingConfirmEmail,
   newPasswordEmail,
   streakNagEmail,
@@ -37,6 +38,18 @@ const samples: [string, { subject: string; html: string }][] = [
   })],
   ["04-new-password", newPasswordEmail({ memberFirstName: "Mariam", password: "sodio-4821-fox" })],
   ["05-streak-nag", streakNagEmail({ firstName: "Nada", streak: 9 })],
+  ["07-podio-digest", podioUpdateDigestEmail({
+    firstName: "Mariam",
+    stillPending: [
+      { name: "Elite Hospital", fn: "IGV", url: "https://sodio.vercel.app/accounts/elite-hospital", daysOverdue: 11, everyDays: 14 },
+    ],
+    due: [
+      { name: "Hadana Moves", fn: "IGV", url: "https://sodio.vercel.app/accounts/hadana-moves", daysOverdue: 0, everyDays: 14 },
+      { name: "Softa Solutions", fn: "BD", url: "https://sodio.vercel.app/accounts/softa-solutions", daysOverdue: 3, everyDays: 14 },
+      { name: "Mamma Mia", fn: "B2C", url: "https://sodio.vercel.app/accounts/mamma-mia", daysOverdue: 0, everyDays: 14 },
+    ],
+    accountsUrl: "https://sodio.vercel.app/accounts",
+  })],
   ["06-ir-booking-external", irBookingConfirmEmail({
     bookerName: "Ensar Yilmaz", memberName: "Dai Mohamed", partnerLc: "AIESEC in İstanbul Asia",
     whenLabel: "Thu, 28 Aug 2026 · 4:00 PM (Istanbul)",

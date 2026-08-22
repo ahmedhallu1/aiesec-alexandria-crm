@@ -527,70 +527,88 @@ export function feedbackThanksEmail(opts: {
 
 /** B2C (v23): the account's Podio-refresh date arrived — sent to the
  *  responsible MM and the B2C VP/Director, once per cycle. */
-export function podioUpdateDueEmail(opts: {
-  accountName: string;
-  /** the account's function — the copy names it ("IGV accounts…") */
-  accountFunction: string;
-  everyDays: number;
-  /** 0 = due today; >0 = this many days overdue */
+/** ONE EMAIL, EVERY ACCOUNT THAT IS DUE (v34.1).
+ *
+ *  This used to send one email PER ACCOUNT, to the responsible AND every
+ *  VP/Director of the function. A member holding twenty due accounts got
+ *  twenty emails on the same morning, and the leaders got everyone's — which
+ *  is how a reminder becomes a filter rule. Now it is a digest, and it goes to
+ *  the person who can actually act on it: the owner.
+ *
+ *  Accounts arrive in two groups because they are two different asks — "this
+ *  is due" and "we said this a week ago". */
+export interface PodioDueAccount {
+  name: string;
+  fn: string;
+  url: string;
+  /** 0 = due today; >0 = this many days late */
   daysOverdue: number;
-  responsibleName: string | null;
-  accountUrl: string;
-  /** true = the week-later firmer nag (the first reminder went unanswered) */
-  secondReminder?: boolean;
+  everyDays: number;
+}
+
+export function podioUpdateDigestEmail(opts: {
+  firstName: string;
+  /** first reminder of this cycle */
+  due: PodioDueAccount[];
+  /** reminded a week ago, still pending */
+  stillPending: PodioDueAccount[];
+  accountsUrl: string;
 }) {
-  const late = opts.daysOverdue > 0;
-  if (opts.secondReminder) {
-    return {
-      subject: `⏰ Second reminder — "${opts.accountName}" is STILL not updated on Podio`,
-      html: emailLayout({
-        preheader: `A week since the first reminder and "${opts.accountName}" is still pending on Podio`,
-        body: `
-          <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">A week later — still pending ⏰</h1>
-          <p>We reminded you <b>a week ago</b> and <b>${escapeHtml(opts.accountName)}</b>
-          still hasn't been refreshed on Podio — it's now
-          <b>${opts.daysOverdue} day${opts.daysOverdue === 1 ? "" : "s"} overdue</b>.
-          Stale Podio records hurt the whole entity's pipeline, so please handle it today.</p>
-          ${detailsTable([
-            ["Account", opts.accountName],
-            ["Function", opts.accountFunction],
-            ["Responsible", opts.responsibleName ?? "Unassigned"],
-            ["Cadence", `every ${opts.everyDays} days`],
-            ["Status", `${opts.daysOverdue} day(s) overdue — second reminder`],
-          ])}
-          <p>Update it on Podio, then hit <b>"Updated on Podio"</b> on the account —
-          that resets the countdown and stops these emails.</p>
-          ${button("Open the account", opts.accountUrl)}`,
-      }),
-    };
-  }
+  const total = opts.due.length + opts.stillPending.length;
+  const n = (arr: PodioDueAccount[]) => arr.length;
+  const worst = Math.max(0, ...[...opts.due, ...opts.stillPending].map((a) => a.daysOverdue));
+
+  // gridTable escapes every cell, and each row here carries a real link — so
+  // this builds its own rows, escaping the NAME and nothing else.
+  const list = (rows: PodioDueAccount[]) => `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+           style="font-size:14px;border-radius:10px;overflow:hidden;margin:14px 0;border:1px solid #DDE5EE;">
+      ${rows
+        .map(
+          (a, i) => `<tr>
+        <td style="padding:10px 14px;background:${i % 2 ? "#F7F8FA" : "#ffffff"};border-bottom:1px solid #EDF1F6;">
+          <a href="${a.url}" style="color:#5B3BA8;font-weight:700;text-decoration:none;">${escapeHtml(a.name)}</a>
+          <div style="color:#52565E;font-size:12px;">${escapeHtml(a.fn)} · every ${a.everyDays} days</div>
+        </td>
+        <td style="padding:10px 14px;background:${i % 2 ? "#F7F8FA" : "#ffffff"};border-bottom:1px solid #EDF1F6;text-align:right;white-space:nowrap;color:${a.daysOverdue > 0 ? "#A82A18" : "#52565E"};font-weight:600;">
+          ${a.daysOverdue > 0 ? `${a.daysOverdue} day${a.daysOverdue === 1 ? "" : "s"} late` : "due today"}
+        </td>
+      </tr>`
+        )
+        .join("")}
+    </table>`;
+
+  const subject =
+    n(opts.stillPending) > 0
+      ? `⏰ ${total} account${total === 1 ? "" : "s"} still waiting for a Podio update`
+      : worst > 0
+        ? `🔄 ${total} account${total === 1 ? "" : "s"} due on Podio — ${worst} day${worst === 1 ? "" : "s"} late`
+        : `🔄 ${total} account${total === 1 ? "" : "s"} due for a Podio update`;
+
   return {
-    subject: late
-      ? `⏰ "${opts.accountName}" is ${opts.daysOverdue} day${opts.daysOverdue === 1 ? "" : "s"} late on Podio`
-      : `🔄 Time to update "${opts.accountName}" on Podio`,
+    subject,
     html: emailLayout({
-      preheader: `${opts.accountFunction} accounts refresh on Podio every ${opts.everyDays} days — this one is due`,
+      preheader: `${total} of your account${total === 1 ? "" : "s"} need refreshing on Podio`,
       body: `
-        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">${late ? "This one slipped ⏰" : "Podio refresh time 🔄"}</h1>
-        <p>${escapeHtml(opts.accountFunction)} accounts are kept alive on Podio — this one gets refreshed
-        <b>every ${opts.everyDays} days</b>, and <b>${escapeHtml(opts.accountName)}</b>
-        ${late ? `is <b>${opts.daysOverdue} day${opts.daysOverdue === 1 ? "" : "s"} overdue</b>` : "is due <b>today</b>"}.</p>
-        ${detailsTable([
-          ["Account", opts.accountName],
-          ["Function", opts.accountFunction],
-          ["Responsible", opts.responsibleName ?? "Unassigned"],
-          ["Cadence", `every ${opts.everyDays} days`],
-          ["Status", late ? `${opts.daysOverdue} day(s) overdue` : "due today"],
-        ])}
-        <p>Update it on Podio, then hit <b>"Updated on Podio"</b> on the account —
-        that resets the countdown for the next cycle.</p>
-        ${button("Open the account", opts.accountUrl)}`,
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Podio refresh — ${total} account${total === 1 ? "" : "s"} 🔄</h1>
+        <p>Hey ${escapeHtml(opts.firstName)} — these are yours, and they are due a refresh on
+        Podio. Update each one there, then hit <b>"Updated on Podio"</b> on the account:
+        that resets its countdown and stops the reminder.</p>
+        ${
+          n(opts.stillPending) > 0
+            ? `<p style="border-left:4px solid #7552CC;background:#EFEAFA;border-radius:0 8px 8px 0;padding:12px 16px;font-weight:600;">
+                 ⏰ ${n(opts.stillPending)} of these were already flagged a week ago and are still pending.
+               </p>${list(opts.stillPending)}`
+            : ""
+        }
+        ${n(opts.due) > 0 ? (n(opts.stillPending) > 0 ? `<p style="margin:22px 0 4px;font-size:13px;font-weight:800;letter-spacing:0.6px;text-transform:uppercase;color:#5B3BA8;">Also due now</p>` : "") + list(opts.due) : ""}
+        ${button("Open my accounts", opts.accountsUrl)}
+        <p style="color:#52565E;font-size:13px;">One email a day, however many accounts are due —
+        never one per account.</p>`,
     }),
   };
 }
 
-/** v24: a leader bulk-assigned accounts to this member — the heads-up mail
- *  (sent only when the leader ticks "email them" in the reassign popup). */
 export function accountsAssignedEmail(opts: {
   memberName: string;
   managerName: string;
@@ -708,7 +726,7 @@ export function gridTable(
   const th = headers
     .map(
       (h, i) =>
-        `<th style="padding:7px 9px;background:#0d3a6e;color:#ffffff;font-size:12px;text-align:${i === 0 ? "left" : "center"};white-space:nowrap;">${escapeHtml(h)}</th>`
+        `<th style="padding:7px 9px;background:#0A2540;color:#ffffff;font-size:12px;text-align:${i === 0 ? "left" : "center"};white-space:nowrap;">${escapeHtml(h)}</th>`
     )
     .join("");
   const body = rows

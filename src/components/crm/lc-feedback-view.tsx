@@ -232,38 +232,6 @@ export function LcFeedbackView({
 
       <Card className="rise-in rise-in-1">
         <CardContent className="grid gap-4 pt-5">
-          {/* ------------------------------------------ positive/negative */}
-          {/* A TOUCH POINT IS RATED, NOT PRAISED OR REPORTED (v33.33). Neither
-              "shout-out" nor "concern" fits a session: "good but too long" is
-              not a complaint about a person and not applause for one. */}
-          <div className={cn("grid gap-2", aboutTouchPoint && "hidden")}>
-            <div className="inline-flex w-fit items-center gap-1 rounded-full border bg-muted p-1">
-              {([
-                { val: true, label: "🎉 Shout-out" },
-                { val: false, label: "😟 Concern" },
-              ] as const).map((t) => (
-                <button
-                  key={t.label}
-                  type="button"
-                  onClick={() => setPositive(t.val)}
-                  className={cn(
-                    "rounded-full px-4 py-1.5 text-sm font-medium transition-colors",
-                    positive === t.val
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {positive
-                ? "They'll get it as a notification + email."
-                : "Goes to a private inbox only the LCP and TM read — never to the person."}
-            </p>
-          </div>
-
           {/* ------------------------------------------------ who it's about */}
           <div className="grid gap-2">
             {touchPoints.length > 0 ? (
@@ -439,6 +407,46 @@ export function LcFeedbackView({
             </div>
               </>
             )}
+          </div>
+
+
+          {/* ORDER MATTERS HERE (v34.3). Shout-out/Concern used to come first
+              — and then hid itself the moment you picked a touch point,
+              because a session is RATED, not praised or reported. So the first
+              control on the form was the one that might not apply, and
+              choosing a touch point made it vanish upward. Ask WHAT it is
+              about first; the tone toggle follows only when a tone is the
+              right question. */}
+          {/* ------------------------------------------ positive/negative */}
+          {/* A TOUCH POINT IS RATED, NOT PRAISED OR REPORTED (v33.33). Neither
+              "shout-out" nor "concern" fits a session: "good but too long" is
+              not a complaint about a person and not applause for one. */}
+          <div className={cn("grid gap-2", aboutTouchPoint && "hidden")}>
+            <div className="inline-flex w-fit items-center gap-1 rounded-full border bg-muted p-1">
+              {([
+                { val: true, label: "🎉 Shout-out" },
+                { val: false, label: "😟 Concern" },
+              ] as const).map((t) => (
+                <button
+                  key={t.label}
+                  type="button"
+                  onClick={() => setPositive(t.val)}
+                  className={cn(
+                    "rounded-full px-4 py-1.5 text-sm font-medium transition-colors",
+                    positive === t.val
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {positive
+                ? "They'll get it as a notification + email."
+                : "Goes to a private inbox only the LCP and TM read — never to the person."}
+            </p>
           </div>
 
           {/* --------------------------------------------------- message */}

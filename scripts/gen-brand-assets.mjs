@@ -64,9 +64,12 @@ await png(icon(), 180, `${REPO}/src/app/apple-icon.png`);
 await sharp(Buffer.from(maskable)).resize(512, 512).png({ compressionLevel: 9 })
   .toFile(`${REPO}/public/icons/icon-maskable-512.png`);
 
-// the browser tab is only ever seen at 16–32px, so icon.png carries the
-// FAVICON geometry — heavier stroke, no node — even though the file is 512.
-await png(icon({ stroke: 14, rx: 15, node: false }), 512, `${REPO}/src/app/icon.png`);
+// THE TAB CARRIES THE DOT TOO. The identity drops the node below 32px because
+// it muddies, and this file first shipped the no-node favicon geometry for
+// that reason — but the result was a browser tab showing a different mark from
+// the sidebar, which the LC noticed immediately. One mark everywhere wins:
+// the stroke is still thickened for small sizes, the node stays.
+await png(icon({ stroke: 12.5, rx: 16, node: true }), 512, `${REPO}/src/app/icon.png`);
 
 // ── the OG social card ────────────────────────────────────────────────────
 const MARK = 128, MX = (1200 - MARK) / 2, MY = 128;

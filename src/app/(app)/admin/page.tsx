@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getRealViewer, getSystemHealth, listRecentAudit } from "@/server/data";
+import { listApiKeys } from "@/server/api-keys";
 import { db } from "@/lib/supabase";
 import { canUseAdminTools } from "@/lib/rbac";
 import { AdminView } from "@/components/crm/admin-view";
@@ -16,7 +17,7 @@ export default async function AdminPage() {
   const { cookies } = await import("next/headers");
   const showTestData = (await cookies()).get("sodio-test-mode")?.value === "1";
 
-  const [health, audit, { count: testCount }, lcRow] = await Promise.all([
+  const [health, audit, { count: testCount }, lcRow, apiKeys] = await Promise.all([
     getSystemHealth().catch(() => null),
     // the anonymous-author resolution is ADMIN_EMAILS only, and it reads the
     // REAL viewer — a test view can never be used to unmask someone (v33.30)
@@ -33,6 +34,7 @@ export default async function AdminPage() {
     )
       .then((r) => r.data)
       .catch(() => null),
+    listApiKeys().catch(() => []),
   ]);
 
   // how much that session would roll back — shown on the stop button
@@ -53,6 +55,7 @@ export default async function AdminPage() {
       lcSession={
         lcRow ? { id: lcRow.id, startedAt: lcRow.started_at, changes: lcChanges } : null
       }
+      apiKeys={apiKeys}
     />
   );
 }

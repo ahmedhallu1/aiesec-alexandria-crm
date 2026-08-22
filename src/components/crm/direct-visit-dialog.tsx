@@ -12,6 +12,7 @@ import {
   type AccountContact, type AccountFunction,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { VisitTimeNote } from "./visit-time-note";
 import { ContactsEditor, contactsValid } from "./contacts-editor";
 import { useAccountNameCheck } from "./use-account-name-check";
 import { Button } from "@/components/ui/button";
@@ -391,6 +392,7 @@ export function DirectVisitDialog({
                   />
                 </div>
               </div>
+              {nextDate ? <VisitTimeNote time={nextTime} /> : null}
               {outcome === "revisit" ? (
                 <p className="text-xs text-muted-foreground">
                   {nextDate && nextTime
