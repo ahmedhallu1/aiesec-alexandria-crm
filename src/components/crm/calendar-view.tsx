@@ -611,7 +611,7 @@ export function CalendarView({
       ) : null}
 
       {/* month grid (≥sm) */}
-      <Card className="hidden rise-in rise-in-2 sm:block">
+      <Card className="hidden rise-in rise-in-2 py-0 sm:block">
         <CardContent className="p-2 sm:p-3">
           <div className="grid grid-cols-7 gap-1">
             {DAY_NAMES.map((d) => (

@@ -701,7 +701,14 @@ function PartnerLcsTab({
             >
               <CardHeader className="pb-2">
                 <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-                  <span className="min-w-0 flex-1 break-words" dir="auto">{lc.name}</span>
+                  {/* THE NAME OWNS A ROW ON A PHONE. With `flex-1` beside six
+                      `shrink-0` badges and buttons, a 375px card left the name
+                      a sliver and `break-words` then snapped "AIESEC in ABC"
+                      one or two characters per line. Full width below sm, back
+                      to sharing the row from sm up. */}
+                  <span className="w-full min-w-0 break-words sm:w-auto sm:flex-1" dir="auto">
+                    {lc.name}
+                  </span>
                   {lc.country ? (
                     <Badge variant="secondary" className="font-normal">{lc.country}</Badge>
                   ) : null}

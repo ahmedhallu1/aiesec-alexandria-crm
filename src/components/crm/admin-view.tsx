@@ -5,13 +5,13 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Activity, AlertTriangle, CheckCircle2, Database, FlaskConical, Loader2,
-  ScrollText, Search, Trash2, Undo2, XCircle,
+  ScrollText, Search, Trash2, XCircle,
 } from "lucide-react";
 import { fmtDateTime } from "@/lib/types";
 import type { SystemHealth, AuditEntry } from "@/server/data";
 import {
   removeTestData, seedTestAccounts, setTestDataVisibility, startLcTestSession,
-  stopLcTestSession, undoAuditEntries,
+  stopLcTestSession,
 } from "@/server/actions";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -69,10 +69,6 @@ export function AdminView({
   apiKeys: ApiKeyRow[];
 }) {
   const [q, setQ] = useState("");
-  // bulk selection over the log (v32)
-  const [picked, setPicked] = useState<Set<number>>(new Set());
-  const [undoing, startUndo] = useTransition();
-  const router = useRouter();
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -83,34 +79,6 @@ export function AdminView({
       )
     );
   }, [q, audit]);
-
-  // only entries that actually have journal rows can be reversed
-  const undoableShown = shown.filter((a) => a.undoable > 0);
-  const pickedUndoable = [...picked].filter((id) =>
-    audit.some((a) => a.id === id && a.undoable > 0)
-  );
-  const toggle = (id: number) =>
-    setPicked((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  const runUndo = (ids: number[]) =>
-    startUndo(async () => {
-      const res = await undoAuditEntries(ids);
-      if (!res.ok) { toast.error(res.error); return; }
-      const { undone, skipped, failed } = res.data!;
-      if (undone === 0 && failed === 0) toast.info("Nothing to undo in that selection.");
-      else if (failed > 0)
-        toast.warning(`Undid ${undone} action${undone === 1 ? "" : "s"}, ${failed} partly failed — check the rows.`);
-      else
-        toast.success(
-          `Undid ${undone} action${undone === 1 ? "" : "s"}${skipped ? ` · ${skipped} skipped` : ""}.`
-        );
-      setPicked(new Set());
-      router.refresh();
-    });
 
   const allGreen = health?.checks.every((c) => c.ok) ?? false;
 
@@ -254,47 +222,16 @@ export function AdminView({
               />
             </div>
           </CardTitle>
-          {/* bulk bar — appears once something reversible is selected */}
-          <div className="flex flex-wrap items-center gap-2 pt-1">
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8"
-              disabled={undoableShown.length === 0}
-              onClick={() =>
-                setPicked(
-                  pickedUndoable.length === undoableShown.length
-                    ? new Set()
-                    : new Set(undoableShown.map((a) => a.id))
-                )
-              }
-            >
-              {pickedUndoable.length === undoableShown.length && undoableShown.length > 0
-                ? "Clear"
-                : `Select undoable (${undoableShown.length})`}
-            </Button>
-            {pickedUndoable.length > 0 ? (
-              <Button
-                size="sm"
-                variant="destructive"
-                className="h-8"
-                disabled={undoing}
-                onClick={() => runUndo(pickedUndoable)}
-              >
-                {undoing ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Undo2 className="size-4" />
-                )}
-                Undo {pickedUndoable.length} action{pickedUndoable.length === 1 ? "" : "s"}
-              </Button>
-            ) : null}
-            <p className="text-xs text-muted-foreground">
-              Undo replays an action&apos;s row changes in reverse. Actions from
-              before this release, and ones that touched nothing reversible
-              (sign-ins, sent reports), have nothing to replay.
-            </p>
-          </div>
+          {/* THE UNDO WAS REMOVED (v34.3), NOT HIDDEN.
+              It could never reverse anything. `logAudit` mints a change_set
+              for the audit row and the undo journal mints its OWN for the same
+              request, so the two never joined: measured against production,
+              0 of 11,130 audit rows had a single replayable journal row. The
+              button offered a guarantee the system could not keep, and the
+              failure mode of a rollback engine that half-works is corrupted
+              data. The LOG stays — it is the record, and it is accurate. The
+              sandbox / LC-test rollback is a different mechanism (it keys on
+              session_id, not change_set) and still works. */}
         </CardHeader>
         <CardContent className="space-y-1">
           {shown.length === 0 ? (
@@ -307,20 +244,9 @@ export function AdminView({
                 key={a.id}
                 className={cn(
                   "flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg px-2 py-1.5 text-sm odd:bg-muted/30",
-                  picked.has(a.id) && "bg-primary/10 odd:bg-primary/10",
                   a.undoneAt && "opacity-60"
                 )}
               >
-                <input
-                  type="checkbox"
-                  className="size-4 shrink-0 accent-[var(--primary)] disabled:opacity-30"
-                  checked={picked.has(a.id)}
-                  disabled={a.undoable === 0}
-                  aria-label={
-                    a.undoable === 0 ? "Nothing to undo for this action" : `Select ${a.action}`
-                  }
-                  onChange={() => toggle(a.id)}
-                />
                 <span className={cn("font-semibold", ACTION_TONE[a.action] ?? "text-foreground")}>
                   {a.action}
                 </span>
@@ -352,18 +278,6 @@ export function AdminView({
                 <span className="ml-auto shrink-0 text-xs text-muted-foreground">
                   {fmtDateTime(a.createdAt)}
                 </span>
-                {a.undoable > 0 ? (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 shrink-0 px-2 text-xs"
-                    disabled={undoing}
-                    onClick={() => runUndo([a.id])}
-                    title={`Reverse ${a.undoable} row change${a.undoable === 1 ? "" : "s"}`}
-                  >
-                    <Undo2 className="size-3.5" /> Undo
-                  </Button>
-                ) : null}
               </div>
             ))
           )}

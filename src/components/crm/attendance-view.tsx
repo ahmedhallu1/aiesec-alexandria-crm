@@ -900,19 +900,26 @@ export function AttendanceView({
 
       {/* ---------------- the numbers ---------------- */}
       <div className="grid grid-cols-2 gap-2 rise-in rise-in-1 sm:grid-cols-6">
-        <Card className="col-span-2 sm:col-span-1">
-          <CardContent className="p-3">
-            <p className="text-xs text-muted-foreground">Attendance rate</p>
-            <p className="text-2xl font-bold tabular-nums text-primary">{totals.rate}%</p>
+        {/* `Card` ships with py-6 gap-6, so a KPI whose CardContent is p-3
+            rendered as 48px of dead space wrapped around small text — big
+            boxes, tiny characters, which is exactly how it looked on a phone.
+            py-0 hands the spacing back to the content. */}
+        <Card className="col-span-2 py-0 sm:col-span-1">
+          <CardContent className="px-3 py-2.5">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Attendance rate
+            </p>
+            <p className="kpi-value text-3xl font-bold tabular-nums text-primary">{totals.rate}%</p>
           </CardContent>
         </Card>
         {kpi.map((k) => (
-          <Card key={k.label}>
-            <CardContent className="p-3">
-              <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                <k.icon className="size-3.5" /> {k.label}
+          <Card key={k.label} className="py-0">
+            <CardContent className="px-3 py-2.5">
+              <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <k.icon className="size-3.5 shrink-0" />
+                <span className="min-w-0 truncate">{k.label}</span>
               </p>
-              <p className="text-2xl font-bold tabular-nums">{k.value}</p>
+              <p className="kpi-value text-3xl font-bold tabular-nums">{k.value}</p>
             </CardContent>
           </Card>
         ))}

@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-22 · Version: v34.1
+Last updated: 2026-08-22 · Version: v34.3
 
 ---
 
@@ -649,6 +649,56 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-22 · v34.3** — **THE MOBILE PASS, AND ONE FEATURE DELETED**
+  (no migration).
+  ① **THE HELP PAGE STILL LOOKED DEAD, AND THE SHIMMER WAS NEVER THE FIX.**
+  v34.1 gave help-view its pending flag; the report came back unchanged. The
+  reason is that there is NOTHING TO LOAD — every article is bundled into the
+  page, so `router.replace` swaps the view in the same frame and a loading
+  state has no time to appear. The actual bug was `scroll: false`: the content
+  changed and THE PAGE DID NOT MOVE, so someone scrolled halfway down a list of
+  categories tapped a topic and saw the same screen. `go()` now scrolls to the
+  top for any view change (and deliberately not while typing in the search
+  box). And `.nav-pending`, which was a 55% dim and nothing else, gained a thin
+  brand-coloured bar across the top — the convention browsers already taught
+  people to read.
+  ② **`Card` SHIPS WITH `py-6 gap-6`**, so every compact KPI whose CardContent
+  was `p-3` rendered as 48px of dead space wrapped around small text: big
+  boxes, tiny characters, exactly how it looked on a phone. `py-0` hands the
+  spacing back to the content, on the dashboard KPI cards, the attendance row
+  and the calendar grid; labels went to 11px uppercase and the numbers up a
+  size.
+  ③ **THE PARTNER-LC NAMES WERE STACKING ONE CHARACTER PER LINE.** The name had
+  `flex-1` beside six `shrink-0` badges and buttons, so a 375px card left it a
+  sliver and `break-words` then snapped "AIESEC in ABC" vertically. It takes a
+  full row below `sm` and shares the row from `sm` up.
+  ④ **THE ROAD TO ACTIVATE WAS EMPTY DOWN ITS RIGHT SIDE ON A PHONE.** The road
+  itself is `hidden sm:block`, and the two remaining blocks are both
+  `shrink-0`, so with nothing between them they bunched at the left. One
+  `justify-between`. The brief dialog also drops to `p-4` below `sm` — `p-6` on
+  a 375px screen left it ~295px and it read as cut off.
+  ⑤ **THE HOME SCREEN AND THE SIDEBAR SHOWED DIFFERENT MARKS.** The mobile top
+  bar rendered at 24px, and the identity's own rule drops the purple node below
+  32px — so the logo the LC sees most had no dot. The node now holds down to
+  28px (it still reads there), the top bar renders at 32, and **the favicon
+  carries the dot too**: one mark everywhere beat the sheet's small-size rule,
+  checked at 16/24/32/48px before shipping.
+  ⑥ **THE FEEDBACK FORM ASKED THE WRONG QUESTION FIRST.** Shout-out/Concern was
+  the first control and then HID ITSELF the moment you picked "A touch point",
+  because a session is rated, not praised or reported. "What is it about?" now
+  comes first and the tone toggle follows only when a tone is the right
+  question.
+  ⑦ **THE AUDIT-LOG UNDO IS DELETED, NOT HIDDEN.** ⚠️ It could never undo
+  anything. `logAudit` mints a `change_set` for the audit row and `recordUndo`
+  mints its OWN for the same request, so the two never joined — measured
+  against production before touching it: **0 of 11,130 audit rows had a single
+  replayable journal row**, and it has been that way since v32. Repairing a
+  rollback engine nobody has ever successfully run is how you corrupt data, so
+  the button, the checkboxes, the bulk bar and `undoAuditEntries` are gone. The
+  LOG stays — it is the record and it is accurate — and the **sandbox /
+  LC-test-session rollback is untouched**: it keys on `session_id`, not
+  `change_set`, and it works.
 
 - **2026-08-22 · v34.1** — **SEVEN FROM THE FLOOR, AFTER THE IDENTITY SHIPPED**
   (no migration).

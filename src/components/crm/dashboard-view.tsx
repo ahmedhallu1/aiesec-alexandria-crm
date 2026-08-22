@@ -482,9 +482,9 @@ const TM_FN_BAR: Record<string, string> = {
 function TmPanel({ stats }: { stats: import("@/server/tm-stats").TmStats }) {
   const kpi = (label: string, value: string | number, sub?: string) => {
     const card = (
-      <Card className="kpi-card rise-in h-full" title={sub}>
-        <CardContent className="flex h-full flex-col justify-between gap-2 px-4 py-3.5">
-          <p className="kpi-label break-words text-xs font-bold uppercase tracking-wide text-muted-foreground">
+      <Card className="kpi-card rise-in h-full py-0" title={sub}>
+        <CardContent className="flex h-full flex-col justify-between gap-1.5 px-3 py-2.5 sm:px-4 sm:py-3.5">
+          <p className="kpi-label break-words text-[11px] font-bold uppercase tracking-wide text-muted-foreground sm:text-xs">
             {label}
           </p>
           <p className="kpi-value text-3xl font-black leading-none tabular-nums xl:text-4xl">
@@ -818,9 +818,9 @@ function ConsiderationPanel({ stats }: { stats: import("@/server/data").Consider
   // the hover hint — a 2-up phone grid never clips the number
   const kpi = (label: string, value: number, sub?: string, suffix?: string) => {
     const card = (
-      <Card className="kpi-card rise-in h-full" title={sub}>
-        <CardContent className="flex h-full flex-col justify-between gap-2 px-4 py-3.5">
-          <p className="kpi-label break-words text-xs font-bold uppercase tracking-wide text-muted-foreground">
+      <Card className="kpi-card rise-in h-full py-0" title={sub}>
+        <CardContent className="flex h-full flex-col justify-between gap-1.5 px-3 py-2.5 sm:px-4 sm:py-3.5">
+          <p className="kpi-label break-words text-[11px] font-bold uppercase tracking-wide text-muted-foreground sm:text-xs">
             {label}
           </p>
           <p className="kpi-value text-3xl font-black leading-none tabular-nums xl:text-4xl">

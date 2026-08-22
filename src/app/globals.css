@@ -498,10 +498,43 @@ html body[data-scroll-locked] {
 }
 
 /* Route-transition shimmer for pending navigations */
+/* WAITING HAS TO LOOK LIKE WAITING. This was a 55% dim and nothing else,
+   which on a phone mid-scroll is easy to miss entirely — the report was
+   "clicking shows nothing". The dim stays (it tells you the page is inert)
+   and a thin brand-coloured bar now runs across the top, which is the
+   convention every browser already taught people to read. */
 .nav-pending {
   opacity: 0.55;
   transition: opacity 0.15s ease;
   pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .nav-pending::after {
+    content: "";
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 3px;
+    z-index: 60;
+    pointer-events: none;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      var(--primary) 45%,
+      var(--primary) 55%,
+      transparent 100%
+    );
+    animation: nav-bar 0.9s ease-in-out infinite;
+  }
+}
+@keyframes nav-bar {
+  from {
+    transform: translateX(-60%);
+  }
+  to {
+    transform: translateX(60%);
+  }
 }
 
 /* Celebration burst (deal recorded) */

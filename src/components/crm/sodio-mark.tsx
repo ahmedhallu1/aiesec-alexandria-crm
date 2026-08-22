@@ -38,7 +38,10 @@ export function SodioMark({
   title?: string;
 }) {
   const stroke = strokeFor(px);
-  const node = px >= 32;
+  // the identity says the node drops below 32px. In practice it still reads
+  // at 28 — and the mobile top bar sits right there, so holding the line at
+  // 32 left the home screen showing a different mark from the sidebar.
+  const node = px >= 28;
   const strokeColor = tone === "tile" ? "#FFFFFF" : tone === "white" ? "#FFFFFF" : "#037EF3";
   return (
     <svg
@@ -49,7 +52,7 @@ export function SodioMark({
     >
       {title ? <title>{title}</title> : null}
       {/* clear space on every side equals the corner radius — never crop tighter */}
-      {tone === "tile" ? <rect width="64" height="64" rx={px >= 32 ? 18 : 15} fill="#037EF3" /> : null}
+      {tone === "tile" ? <rect width="64" height="64" rx={px >= 28 ? 18 : 15} fill="#037EF3" /> : null}
       <path d={S_PATH} fill="none" stroke={strokeColor} strokeWidth={stroke} strokeLinecap="round" />
       {node ? <circle cx="23.5" cy="52.5" r="5.25" fill="#7552CC" /> : null}
     </svg>

@@ -1923,66 +1923,19 @@ export async function revokeApiKey(id: string): Promise<ActionResult> {
   return { ok: true };
 }
 
-export async function undoAuditEntries(
-  ids: number[]
-): Promise<ActionResult<{ undone: number; skipped: number; failed: number }>> {
-  const { getRealViewer } = await import("./data");
-  const real = await getRealViewer();
-  if (!real.isAdmin) return fail("Only the admin can undo actions.", "forbidden");
-  if (!ids?.length) return fail("Nothing selected.");
-  if (ids.length > 50) return fail("Undo at most 50 entries at a time.");
-
-  const { data: rows } = await db()
-    .from("audit_log")
-    .select("id, action, change_set, undone_at")
-    .in("id", ids)
-    .order("id", { ascending: false });
-
-  const { rollbackChangeSet } = await import("./sandbox");
-  let undone = 0;
-  let skipped = 0;
-  let failed = 0;
-  for (const r of (rows ?? []) as {
-    id: number;
-    action: string;
-    change_set: string | null;
-    undone_at: string | null;
-  }[]) {
-    // nothing to replay: pre-v32 entries, already-undone ones, and actions
-    // that never touched a journaled table (a sign-in, a report send…)
-    if (!r.change_set || r.undone_at) {
-      skipped++;
-      continue;
-    }
-    const res = await rollbackChangeSet(r.change_set);
-    if (res.undone === 0 && res.failed === 0) {
-      skipped++;
-      continue;
-    }
-    if (res.failed > 0) failed++;
-    if (res.undone > 0) {
-      undone++;
-      await db()
-        .from("audit_log")
-        .update({ undone_at: new Date().toISOString(), undone_by: real.id })
-        .eq("id", r.id);
-    }
-  }
-  await logAudit(real.id, "audit_undo", "system", null, {
-    requested: ids.length,
-    undone,
-    skipped,
-    failed,
-  });
-  refresh();
-  return { ok: true, data: { undone, skipped, failed } };
-}
-
-// ================================================================== bulk operations
-
-/** Archive many accounts at once (same rules as one-by-one: RBAC + business
- *  logic run PER ACCOUNT via setOutOfProcess — a row the viewer can't edit
- *  just counts as failed, it never blocks the rest). */
+/** THE AUDIT-LOG UNDO IS GONE (v34.3).
+ *
+ *  `undoAuditEntries` replayed an action's journal rows in reverse, matched to
+ *  the audit row by `change_set`. It could never match: logAudit mints a
+ *  change_set for the audit row and recordUndo mints its own for the same
+ *  request, so the two sets never intersected. Measured against production
+ *  before removing it — 0 of 11,130 audit rows had a single replayable row.
+ *
+ *  It is deleted rather than repaired because a rollback engine that
+ *  half-works corrupts data, and nothing has ever depended on this one. The
+ *  audit LOG stays: it is the record, and it is accurate. The sandbox and
+ *  LC-test-session rollback is a different mechanism — it keys on
+ *  `session_id`, not `change_set` — and is untouched. */
 export async function bulkArchiveAccounts(
   ids: string[],
   reason: string
