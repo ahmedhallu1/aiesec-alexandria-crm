@@ -78,8 +78,31 @@ export function emailLayout(opts: { preheader?: string; body: string }): string 
     body: opts.body,
     footer: `Sent automatically by Sodio · AIESEC in Alexandria ·
             <a href="${env.appUrl}" style="color:#5B3BA8;text-decoration:none;font-weight:bold;">Open the CRM</a><br>
-            <span style="color:#93a5bc;">This system is built for you — reply with feedback anytime. 💙</span>`,
+            <span style="color:#93a5bc;">This system is built for you — reply with feedback anytime. 💜</span>`,
   });
+}
+
+/** THE "MADE BY 2.0" CREDIT (v34.8).
+ *
+ *  It rides emails that LEAVE the LC — IR bookings, the proposals, the letters
+ *  members write to enablers — because those are the ones seen by people
+ *  outside it. It deliberately does NOT ride internal mail: the sidebar
+ *  already carries the credit on every page the LC's own members look at, and
+ *  repeating it in forty automated emails a day is noise, not attribution.
+ *
+ *  The light mark is dark ink on transparent, which is what a white email
+ *  body needs (the sidebar's dark one would vanish here).
+ *
+ *  ⚠️ `2.0-light.png` lives in /public/brand, which the proxy exempts, so it
+ *  loads with no session — the same reason the logos above are served that way. */
+export function madeBy20(): string {
+  return `<div style="margin-top:14px;">
+      <a href="http://elevate2point0.com/" style="display:inline-block;text-decoration:none;color:#93a5bc;font-size:11px;">
+        <span style="vertical-align:middle;">Made by</span>
+        <img src="${env.appUrl}/brand/2.0-light.png" alt="2.0" height="14"
+             style="height:14px;width:auto;vertical-align:middle;margin-left:4px;border:0;opacity:0.75;">
+      </a>
+    </div>`;
 }
 
 /** The layout for emails that leave the LC — IRs abroad booking calls (v29).
@@ -90,7 +113,8 @@ export function externalEmailLayout(opts: { preheader?: string; body: string }):
     header: emailHeader({ external: true }),
     body: opts.body,
     footer: `AIESEC in Alexandria · Egypt<br>
-            <span style="color:#93a5bc;">The international platform for young people to explore and develop their potential.</span>`,
+            <span style="color:#93a5bc;">The international platform for young people to explore and develop their potential.</span>
+            ${madeBy20()}`,
   });
 }
 
@@ -507,7 +531,7 @@ export function feedbackThanksEmail(opts: {
   feedbackSnippet: string;
 }) {
   return {
-    subject: "Your feedback just made Sodio better 💙",
+    subject: "Your feedback just made Sodio better 💜",
     html: emailLayout({
       preheader: "Thank you from the IM team",
       body: `
@@ -516,7 +540,7 @@ export function feedbackThanksEmail(opts: {
         <p style="border-left:4px solid #7552CC;background:#EFEAFA;border-radius:0 8px 8px 0;padding:12px 16px;font-style:italic;">
           "${escapeHtml(opts.feedbackSnippet)}"
         </p>
-        <p>Sodio is built for you, by you — keep it coming. 💙</p>
+        <p>Sodio is built for you, by you — keep it coming. 💜</p>
         ${button("Open Sodio", env.appUrl)}`,
     }),
   };
@@ -701,7 +725,7 @@ export function lcShoutoutEmail(opts: {
   message: string;
 }): { subject: string; html: string } {
   return {
-    subject: `💙 ${opts.from} appreciated you!`,
+    subject: `💜 ${opts.from} appreciated you!`,
     html: emailLayout({
       preheader: "Someone in the LC has something nice to say about you.",
       body: `
@@ -710,7 +734,7 @@ export function lcShoutoutEmail(opts: {
         <p style="border-left:4px solid #7552CC;background:#EFEAFA;border-radius:0 8px 8px 0;padding:14px 16px;font-size:16px;font-style:italic;">
           “${escapeHtml(opts.message)}”
         </p>
-        <p style="margin:16px 0 0;">Keep doing what you're doing — people notice. 💙</p>`,
+        <p style="margin:16px 0 0;">Keep doing what you're doing — people notice. 💜</p>`,
     }),
   };
 }
@@ -1512,7 +1536,7 @@ export function touchPointFeedbackNudgeEmail(opts: {
         <p style="font-size:26px;line-height:1;margin:0 0 12px;">⭐⭐⭐⭐⭐</p>
         ${button("Rate it (seriously, four seconds)", opts.feedbackUrl)}
         <p style="color:#5c6b80;font-size:13px;">Open Feedback → pick <b>A touch point</b> → tap the stars. It goes to TM and the LCP, never to the person who ran it as a complaint about them — a session is a session.</p>
-        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">Already rated it? You are a legend and this email is not for you. 💙</p>`,
+        <p style="color:#5c6b80;font-size:13px;margin-bottom:0;">Already rated it? You are a legend and this email is not for you. 💜</p>`,
     }),
   };
 }

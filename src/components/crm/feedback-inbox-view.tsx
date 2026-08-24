@@ -58,7 +58,7 @@ export function FeedbackInboxView({ items }: { items: FeedbackItem[] }) {
     start(async () => {
       const res = await thankFeedback(thankTarget.id);
       if (res.ok) {
-        toast.success("💙 Thank-you sent — bell notification + email");
+        toast.success("💜 Thank-you sent — bell notification + email");
         setThankTarget(null);
         router.refresh();
       } else toast.error(res.error);
@@ -208,7 +208,7 @@ export function FeedbackInboxView({ items }: { items: FeedbackItem[] }) {
       <Dialog open={!!thankTarget} onOpenChange={(o) => !o && setThankTarget(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>💙 Send the thank-you?</DialogTitle>
+            <DialogTitle>💜 Send the thank-you?</DialogTitle>
             <DialogDescription>
               <b>{thankTarget?.member?.name}</b> gets a
               bell notification next time they open Sodio AND a branded email —

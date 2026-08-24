@@ -1105,6 +1105,15 @@ export const adminWhatsAppLink = (text: string) =>
 export const PODIO_FORM_URL =
   process.env.NEXT_PUBLIC_PODIO_FORM_URL ?? "https://podio.com/webforms/25879454/1936053";
 
+/** THE AMS WORKSPACE ITSELF — where a submitted request actually lives and
+ *  where its state (Checking / Approved / Rejected) is read off (v34.8).
+ *  The form above is where you SUBMIT a company; this is where you go to see
+ *  what happened to it. They are two different places and the account page
+ *  used to link to neither. Overridable via NEXT_PUBLIC_PODIO_AMS_URL. */
+export const PODIO_AMS_URL =
+  process.env.NEXT_PUBLIC_PODIO_AMS_URL ??
+  "https://podio.com/aiesecglobal/ams-for-aiesec-in-egypt";
+
 /** The Podio check link. Podio web-forms have their OWN live "does this company
  *  exist?" search field, so we just open the form (no query prefill). */
 export function podioCheckUrl(_name: string): string | null {

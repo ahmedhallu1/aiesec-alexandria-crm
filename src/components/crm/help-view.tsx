@@ -467,7 +467,7 @@ export function HelpView({ viewer }: { viewer: HelpViewer }) {
         ) : null}
 
         <p className="pb-4 text-center text-xs text-muted-foreground">
-          Wrong or unclear? Say it on <Link prefetch={false} href="/feedback" className="font-medium text-primary hover:underline">Feedback</Link> — it reaches the IM team directly. 💙
+          Wrong or unclear? Say it on <Link prefetch={false} href="/feedback" className="font-medium text-primary hover:underline">Feedback</Link> — it reaches the IM team directly. 💜
         </p>
       </div>
     );
@@ -484,7 +484,7 @@ export function HelpView({ viewer }: { viewer: HelpViewer }) {
       <div className="rise-in hero-animate overflow-hidden rounded-2xl border bg-gradient-to-br from-[#037EF3] to-[#7552CC] p-6 text-white sm:p-8">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="flex items-center gap-2 text-2xl font-extrabold tracking-tight sm:text-3xl">
-            <BookOpen className="size-7" /> How can we help? 💙
+            <BookOpen className="size-7" /> How can we help? 💜
           </h1>
           <Badge className="border-white/30 bg-white/15 text-white">{HELP_VERSION}</Badge>
           <button
@@ -600,7 +600,7 @@ export function HelpView({ viewer }: { viewer: HelpViewer }) {
           <p className="pb-4 text-center text-xs text-muted-foreground">
             Sodio Help · {HELP_VERSION} — updated with every release. Something
             wrong or missing? Tell us on{" "}
-            <Link prefetch={false} href="/feedback" className="font-medium text-primary hover:underline">Feedback</Link>. 💙
+            <Link prefetch={false} href="/feedback" className="font-medium text-primary hover:underline">Feedback</Link>. 💜
           </p>
         </>
       ) : null}

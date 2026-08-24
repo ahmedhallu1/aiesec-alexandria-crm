@@ -5,6 +5,7 @@ import { db } from "@/lib/supabase";
 import { env } from "@/lib/env";
 import { sendEmail } from "@/lib/google/gmail";
 import { streakNagEmail } from "@/lib/email/templates";
+import { resolveMemberSettings } from "@/lib/member-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,8 @@ interface MmRow {
   sub_functions: string[] | null;
   /** date → "YYYY-MM-DD" via PostgREST */
   streak_reminded_on: string | null;
+  /** their own preferences blob (0067) — the nag EMAIL is opt-out */
+  settings: unknown;
 }
 
 /** OGV contact streaks (v27) — the end-of-day guardian, daily 17:00 UTC
@@ -37,7 +40,7 @@ export async function GET(req: NextRequest) {
   // the streak game's audience: active OGV Team Leaders / Coordinators / Members
   const membersRes = await db()
     .from("members")
-    .select("id, name, email, role, functions, sub_functions, streak_reminded_on")
+    .select("id, name, email, role, functions, sub_functions, streak_reminded_on, settings")
     .eq("is_active", true)
     .in("role", ["Team Leader", "Coordinator", "Member"]);
   if (membersRes.error) {
@@ -112,7 +115,9 @@ export async function GET(req: NextRequest) {
         null,
         "/signups"
       );
-      if (m.email) {
+      // the BELL always fires — the streak is theirs and losing it silently
+      // would be the worst outcome. The EMAIL is a preference (v34.8).
+      if (m.email && resolveMemberSettings(m.settings).emailStreakNag !== false) {
         const mail = streakNagEmail({
           firstName: name.split(" ")[0] || name,
           streak,

@@ -38,8 +38,10 @@ interface Prompt {
   dismissible?: boolean;
 }
 
-/** Five taps, no scale to interpret. Same control as the Feedback page. */
-function Stars({ value, onPick }: { value: number; onPick: (n: number) => void }) {
+/** Five taps, no scale to interpret. Same control as the Feedback page.
+ *  Exported so the admin's prompt PREVIEW (im-prompt-preview.tsx) renders the
+ *  identical widget rather than a lookalike that can drift from it. */
+export function Stars({ value, onPick }: { value: number; onPick: (n: number) => void }) {
   const [hover, setHover] = useState(0);
   return (
     <div className="flex items-center gap-1" onMouseLeave={() => setHover(0)}>
@@ -126,7 +128,7 @@ export function PendingPrompt() {
       setOpen(false);
       if (res.comingBack) {
         toast.info(
-          "Your feedback is crucial to us 💙 — we'll ask once more tomorrow, then leave it."
+          "Your feedback is crucial to us 💜 — we'll ask once more tomorrow, then leave it."
         );
       }
     });
@@ -139,7 +141,7 @@ export function PendingPrompt() {
         return;
       }
       setOpen(false);
-      toast.success("Thank you — that's it, four seconds. 💙");
+      toast.success("Thank you — that's it, four seconds. 💜");
     });
 
   const submitAnswer = () =>
@@ -150,7 +152,7 @@ export function PendingPrompt() {
         return;
       }
       setOpen(false);
-      toast.success("Sent — thank you. 💙");
+      toast.success("Sent — thank you. 💜");
     });
 
   if (!prompt) return null;
@@ -178,8 +180,13 @@ export function PendingPrompt() {
             {prompt.title}
           </DialogTitle>
           <DialogDescription dir="auto" className="whitespace-pre-wrap">
-            {prompt.body ??
-              "This one has been waiting a while — it takes a minute, and then it's gone."}
+            {/* an IM prompt's TITLE is usually the whole message (v34.8) — the
+                detail box is optional, so there is nothing to apologise for
+                when it is empty. The nudge line belongs to the must-dos. */}
+            {prompt.body ||
+              (isIm
+                ? ""
+                : "This one has been waiting a while — it takes a minute, and then it's gone.")}
           </DialogDescription>
         </DialogHeader>
 
@@ -247,8 +254,8 @@ export function PendingPrompt() {
         </DialogFooter>
         <p className="text-center text-[11px] text-muted-foreground">
           {isRating || isIm
-            ? "Skip and we ask once more tomorrow — then never again. 💙"
-            : "One postponement a day — after that Sodio asks again. 💙"}
+            ? "Skip and we ask once more tomorrow — then never again. 💜"
+            : "One postponement a day — after that Sodio asks again. 💜"}
         </p>
       </DialogContent>
     </Dialog>

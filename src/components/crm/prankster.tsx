@@ -64,7 +64,7 @@ const STUBBORN_LINES = [
 
 const AMBIENT_LINES = [
   "The Violet Man just looked at your numbers. He said nothing. 🚶",
-  "Sodio is quietly proud of you. Don't let it go to your head. 💙",
+  "Sodio is quietly proud of you. Don't let it go to your head. 💜",
   "Fun fact: this toast has no purpose whatsoever. 🍞",
   "Somebody in the EB is watching this exact screen. Probably. 👀",
   "Achievement unlocked: 🏆 Clicked A Thing",
@@ -282,7 +282,7 @@ export function Prankster({ prankedBy }: { prankedBy?: string | null }) {
         <div className="space-y-3 text-sm leading-relaxed">
           <p>
             Nothing is broken. {prankedBy ? <b>{prankedBy}</b> : <b>Someone in the EB</b>}{" "}
-            switched <b>prank mode</b> on for you, and Sodio is now in a mood. 🚶💙
+            switched <b>prank mode</b> on for you, and Sodio is now in a mood. 🚶💜
           </p>
           <p className="rounded-lg border border-primary/30 bg-primary/5 p-3">
             <b>What it will do:</b> a button that needs convincing, a tab that

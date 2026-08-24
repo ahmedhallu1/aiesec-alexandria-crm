@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-22 · Version: v34.7
+Last updated: 2026-08-24 · Version: v34.9
 
 ---
 
@@ -56,8 +56,10 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0055_touch_point_rating` → `0056_touch_point_members` →
 `0057_touch_point_feedback_nudge` → `0058_ir_max_per_day` →
 `0059_lc_partnerships` → `0060_ir_per_day_overrides` →
-`0061_touch_point_location` → `0062_close_rls_gaps` → `0063_prank_mode`
-(**all applied**, 0046–0063 during v33.22–v33.51).
+`0061_touch_point_location` → `0062_close_rls_gaps` → `0063_prank_mode` →
+`0064_api_keys` → `0065_ir_slot_requests` → `0066_im_prompts` →
+`0067_member_settings`
+(**all applied**, 0046–0063 during v33.22–v33.51, 0064–0067 during v34.5–v34.8).
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way; **8 columns since v33.53**: Name · Email ·
@@ -574,6 +576,12 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | Nightly backup (tables, retention, destinations) | `src/server/backup.ts` · `/api/cron/backup` |
 | Security headers / CSP | `next.config.ts` |
 | Tests | `tests/*.test.ts` (Vitest — `npm test`) |
+| Proposal decks (which PDF, defaults, size budget) | `src/lib/proposal-pdfs.ts` (pure, client-safe) · files in `proposals/` · `createProposalDraft` in `actions.ts` |
+| Import columns (per function, examples, template) | `src/lib/import-columns.ts` (pure) · `import-view.tsx` — ⚠️ mirrors `createAccount`'s rules, pinned by `tests/import-columns.test.ts` |
+| A member's own settings (shape, defaults, search index) | `src/lib/member-settings.ts` (pure) · reader `src/server/member-settings.ts` · `saveMySetting` in `actions.ts` · `settings-panel.tsx` |
+| What "this week" means to the Violet Man | `src/lib/ask-period.ts` (pure) · the `getNumbers` tool in `src/app/api/assistant/route.ts` |
+| IM prompt defaults (response-label fallback, shared by server + preview) | `src/lib/im-prompt.ts` (pure) · preview UI `im-prompt-preview.tsx` · composer `im-prompt-card.tsx` |
+| The OG / link-preview card (and its 2.0 credit) | `scripts/gen-brand-assets.mjs` — re-run it after touching the mark, exactly like the favicon/PWA rasters |
 | Feedback categories | `FEEDBACK_CATEGORIES` in `types.ts` |
 | LC people feedback | `submitLcFeedback` in `actions.ts` · `lc-feedback-view.tsx` · inbox via `listLcFeedback` |
 | Function defaults (shape + what unset means) | `src/lib/function-settings.ts` (pure) · reader `src/server/function-settings.ts` · `saveFunctionSettings` in `actions.ts` · card in `profile-view.tsx` |
@@ -649,6 +657,192 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-24 · v34.9** — **THE LINK PREVIEW GETS THE CREDIT, THE ADMIN CAN
+  SEE THE PROMPT FIRST, AND A GITHUB OUTAGE GOT CHASED DOWN TO ITS SOURCE**
+  (no migration).
+  ① **"MADE BY 2.0" IS ON THE LINK-PREVIEW CARD.** `og-card.png` — the image
+  WhatsApp/iMessage/Slack render when a `sodio.vercel.app` or `/book/<slug>`
+  link is pasted — is the first thing an IR abroad or a partner ever sees of
+  Sodio, and it was the one external-facing surface the v34.8 credit pass
+  missed (the emails got it; this is a static raster the same script has
+  generated since v31, not an email). `scripts/gen-brand-assets.mjs` now
+  embeds `2.0-dark.png` (the light-ink variant, for the card's navy) as a data
+  URI inside the SVG it rasterizes — there is no vector source for the mark,
+  so this is the same trick `og-card.png` already used for nothing until now.
+  Regenerated and diffed: **only `og-card.png` changed**, byte-identical
+  otherwise to the five other rasters the script writes (icons, apple-icon,
+  the email lockup) — confirmed with `git diff --stat`.
+  ② **THE ADMIN CAN PREVIEW A PROMPT BEFORE IT REACHES 80 PEOPLE.** "Say
+  something to the LC" (v34.7) composed a blocking dialog blind — no way to
+  see the title/body/response-control combination as a member would meet it
+  until it had already gone out. A **Preview** button next to Send opens
+  `ImPromptPreviewDialog`, which renders the *exact* thing `PendingPrompt`
+  renders for an `im_prompt` row — same fallback copy for an empty body, same
+  button labels, and the identical **`Stars` widget, exported from
+  `pending-prompt.tsx` and imported rather than re-implemented**, so the
+  rating control cannot silently drift between "what admin saw" and "what the
+  LC gets." The response-label default ("How would you rate this?" / "Your
+  answer") moved out of `server/prompts.ts` into a new pure `lib/im-prompt.ts`
+  that BOTH the server action and the preview import — one function, not two
+  copies that could disagree. **The preview never touches the server**: Skip
+  and Send are inert (a toast says what the real button would do, then
+  closes) — a real click would need to answer a `pending_prompts` row that
+  was never filed, so faking that would either impersonate the admin's own
+  answer or silently do nothing on a control that looks live either way.
+  Verified in a browser end to end: typed a title, switched to "Ask for a 1–5
+  rating," opened the preview, picked 3 stars on the real widget, clicked
+  Skip, watched it close with the inert toast and nothing sent. 9 new tests
+  pin that both files import the shared function (not private copies) and
+  that the preview carries no import of the real `answerImPrompt` /
+  `skipPrompt` actions.
+  ③ **THE "GITHUB AUTOMATION IS DOWN" REPORT WAS GITHUB'S OWN OUTAGE, ALREADY
+  RESOLVED — NOT A BUG HERE.** The cancelled `Sheet imports` run at 13:37 UTC
+  on 2026-08-24 sat with **zero executed steps for its whole ~15-minute
+  lifetime** before being cancelled — it never got a runner. GitHub's status
+  page confirms an official incident, **"Actions delays in starting runs,"
+  investigated 13:56–14:34 UTC that same day** — squarely inside the window.
+  `crons.yml`, a completely separate workflow with no shared concurrency
+  group, ran anomalously long (9m36s vs its usual ~1min) in the same window,
+  which is what you'd expect from a platform-wide runner-provisioning
+  slowdown and not from anything in either workflow's own config. The system
+  **self-healed exactly as designed**: `imports.yml`'s `concurrency: group:
+  sheet-imports, cancel-in-progress: false` allows one running + one pending
+  run per group, so once the queue backed up past that, the stuck pending run
+  was cancelled in favour of the next tick rather than blocking forever; the
+  very next run (14:25) succeeded, and both import scripts are idempotent
+  with an unchanged-since check, so nothing was lost — the missed window
+  just got picked up whole on the next successful tick. All runs since are
+  green. No code was changed for this item because there was nothing here to
+  fix.
+  ⚠️ **Ship rule, made literal for this session going forward**: every
+  finished change in this thread now goes straight through commit → merge to
+  `main` → push → `vercel deploy --prod`, without pausing to ask first — the
+  standing instruction this file has carried at the top since it was created.
+  **393 tests** (384 before, 9 added), tsc clean, production build green, lint
+  byte-identical to baseline.
+
+- **2026-08-24 · v34.8** — **THE PROPOSAL SENDS ITSELF, THE IMPORT ASKS THE
+  RIGHT QUESTIONS, AND EVERYONE GETS SETTINGS** (migration **0067 applied**:
+  `members.settings`, `im_prompts.body` nullable).
+  ① **THE B2B PROPOSAL EXISTS, AND THE EMAIL GOES OUT.** B2B accounts have
+  defaulted to attaching NOTHING since v20 for the plain reason that no B2B
+  deck existed. One does now (`proposals/B2B.pdf`), so the attachment set is
+  DERIVED from the email being written — a B2B partnership email carries the
+  B2B proposal, an iGV email the iGV deck — and any of the four can be ticked
+  on top. BD keeps its empty default: its Talent-Solutions pitch has no deck.
+  And the email **SENDS by default** rather than landing in drafts, from the
+  member's own Gmail, so the reply comes back to them; drafting is one switch
+  away for when they want to re-read it or add a file. ⚠️ The "remember to
+  attach your files" reminder is written to the SENDER — on a send-now it
+  would go to the company, so it exists only on the draft path, and the extra-
+  attachments field hides itself when Send-now is on.
+  ⚠️ **The deck arrived at 26 MB and could never have been emailed**: Gmail
+  refuses over 25 MB and weighs the message AFTER base64 (+4/3), so 26 MB is
+  35 MB on the wire. Its eight full-page 3780×2127 backgrounds were stored
+  LOSSLESS at 300 DPI on a 907×510pt page; re-encoded to JPEG at 2000px it is
+  **8.4 MB**, verified visually against the original side by side, text layer
+  byte-identical. The remaining three decks are still 9–12 MB each, so all
+  four together (39 MB) do NOT fit — `attachmentTooBig` says so in the popup
+  with the running total, and the server refuses it, instead of letting Google
+  reject a send the member can do nothing about. **The three older decks were
+  deliberately NOT recompressed** — they are the LC's own documents and
+  nobody asked; the same treatment would bring them to ~3 MB if wanted.
+  ⚠️ `sendMemberEmail` had no attachment support at all — it and
+  `createMemberDraft` were two copies of the same MIME assembly and only the
+  draft one had ever learned about attachments, so "send it now" would
+  silently have dropped the PDF. One `rawMessage` builder now serves both.
+  ② **THE IMPORT ASKS FOR YOUR OWN COLUMNS.** The screen was written for IGV
+  and IGT and then quietly reused by everyone: a **B2C member was shown a
+  Product column they have no product for, an Industry column their accounts
+  do not carry at all, and NO column for the one field a B2C account cannot
+  exist without — its Type**. The header line under the upload box read
+  "Function (IGV/IGT)" to a BD crew, and there was no worked example anywhere,
+  which is why so many uploads came back rejected a row at a time. The columns
+  are now ONE description in `lib/import-columns`, keyed by the functions the
+  member may actually import into, and the screen, the header matcher, the row
+  validator and a new **Download template** button (their columns + one filled
+  example row) all read it — so a field cannot appear in the table but be
+  missing from the template, or be demanded by the server and never asked for.
+  A column that does not apply to a row's function is DROPPED rather than
+  written, so an Industry cell can no longer land on a B2C account (which
+  `createAccount` never cleared). Values resolve tolerantly ("courses" →
+  Courses, "teacher" → GTe, "skill up" → Skill Up!) and the guide is CARDS on
+  a phone, table from `sm` up — the v33.50 lesson. **Verified end to end in a
+  browser**: a B2C import of a file carrying Industry and Product columns
+  produced exactly Name · Type · Phone · Email · Website · Social · Comment ·
+  Responsible, matched all three Type spellings, dropped the blank row, kept a
+  quoted comma intact and flagged the bad email. 38 tests, including one that
+  reads `createAccount` itself so the two cannot drift.
+  ③ **⚙️ MY SETTINGS** (0067 `members.settings`, a jsonb blob — the per-PERSON
+  twin of `function_settings`, and one blob for the same reason: a store that
+  needs a migration per toggle is a store nobody adds toggles to). A
+  **searchable** panel on the profile, searching descriptions as well as
+  titles because people type the complaint, not the feature — "too many
+  emails" finds the email toggles, and it folds Arabic hamza/alef like the
+  Help centre. Four optional emails (the crew-wide visit heads-up, period
+  reports, shout-outs, the streak nag) plus the bell half of the visit
+  fan-out. **Every default is exactly the pre-0067 behaviour**, and a stored
+  blob only overrides keys it really carries, so a member who never opens it
+  cannot tell it exists. Rows for the phone, password, avatar and function
+  defaults JUMP to the card that owns them and flash it rather than building a
+  second editor to drift from the first.
+  ⚠️ **THE RULE, and it is the v33.32 rule: a dead toggle is worse than no
+  toggle.** Every switch is read on a real send path, pinned by a test that
+  greps the send paths for each key. And **the must-do emails are listed as
+  permanently on WITH the reason** — visit follow-ups, attendance, Podio
+  digests, password resets, anything reaching an IR — rather than omitted: a
+  settings page that hides what it cannot change teaches people it is
+  incomplete.
+  ⚠️ `resolveVisitRecipients` returned parallel `announceIds` and
+  `announceEmails` that were **NOT index-aligned** (a member with no address
+  is in the first and absent from the second). The opt-out wanted to zip them
+  and would have mailed the wrong people; it returns one `{id, email}[]` now,
+  so the alignment is structural. The audit row also stopped over-reporting —
+  it logs who was actually belled and actually mailed.
+  ④ **THE VIOLET MAN'S DATES, FIXED AT THE ROOT.** He answered "how many
+  visits did I schedule this week" with numbers that were simply wrong, and
+  the cause was not the prompt: **nothing in his context had a date in it.**
+  The KPI block is all-time, the 150 account lines carry no dates, and there
+  was no tool that could count over a window — so he had to invent a number,
+  and did. Now: today and every resolved window are IN the context, the KPI
+  block is labelled ALL-TIME in as many words, and a **`getNumbers` tool runs
+  the REAL `getDashboard`** — the same function the dashboard page calls, the
+  same per-KPI date rules, the same RBAC scope — so his answer and the screen
+  cannot disagree. He passes a period by NAME; an unknown one is REFUSED
+  rather than falling back to an unbounded window, which is the exact failure
+  being removed. ⚠️ **The week starts on SATURDAY** (the LC's week since v12) —
+  a Sunday-start "this week" would put Saturday's work in the wrong bucket.
+  `lib/ask-period` is pure and has 24 tests over the edges that only happen
+  twice a year: DST, leap days, January belonging to the peak that started
+  last August, and last_sprint crossing a month boundary.
+  ⑤ **THE ADMIN'S PROMPT NEEDS ONE FIELD, NOT THREE.** Title AND body AND a
+  caption for the rating control, for what is usually one sentence ("Peak
+  review is on Sunday"). The title is the message; the body is optional and
+  the caption falls back per kind ("How would you rate this?" / "Your
+  answer"). The prompt dialog stops apologising for an empty body on an IM
+  prompt — that line belongs to the must-dos.
+  ⑥ **PODIO'S TWO LABELS ARE TWO DOORS.** "Requested on Podio?" links to the
+  national submission web-form; **"Podio state" links to the AMS workspace**
+  (`PODIO_AMS_URL`) where the state is actually read off. They are different
+  places and the card linked to neither.
+  ⑦ **THE HEART IS PURPLE.** 41 blue hearts across 21 files — internal emails,
+  the confetti on a recorded deal, the bell, the Help centre, the Violet Man's
+  own greeting — are 💜. The internal email templates were ALREADY purple by
+  colour (15 × `#7552CC` against one deliberate `#037EF3`, the blue→purple
+  accent bar); the emoji was the visible leak, which is exactly what was
+  reported.
+  ⑧ **"MADE BY 2.0" RIDES THE EMAILS THAT LEAVE THE LC** — IR bookings and
+  reschedules, both proposals, and the letters members write to enablers from
+  the Emails tab. It deliberately does NOT ride internal mail: the sidebar
+  already carries the credit on every page an LC member looks at, and
+  repeating it in forty automated emails a day is noise, not attribution.
+  Verified by rendering all ten sample emails: the six internal ones carry the
+  Sodio lockup and no credit, the four external ones carry the LC's own logo
+  and the credit.
+  Help centre: **2 new articles** (⚙️ Settings, 📥 Import a list of accounts) +
+  the proposal article rewritten; the Violet Man teaches all of it.
+  **384 tests** (272 before), tsc clean, production build green, lint byte-identical to baseline.
 
 - **2026-08-22 · v34.7** — **TWO PROMPTS AND A DATE FUNNEL** (migration
   **0066 applied**: `im_prompts`, `im_prompt_responses`).

@@ -7,7 +7,7 @@ import { Footprints, Loader2 } from "lucide-react";
 import { logDirectVisit } from "@/server/actions";
 import {
   ACCOUNT_TYPES, B2C_TYPES, DIRECT_VISIT_OUTCOMES, IGT_SUB_PRODUCTS,
-  IGV_PROJECTS, INDUSTRIES, OOP_REASONS, PODIO_FORM_URL,
+  IGV_PROJECTS, INDUSTRIES, OOP_REASONS, PODIO_AMS_URL, PODIO_FORM_URL,
   cairoToday,
   type AccountContact, type AccountFunction,
 } from "@/lib/types";
@@ -320,7 +320,16 @@ export function DirectVisitDialog({
 
           {canSetRequestState ? (
             <div className="grid gap-1.5">
-              <Label>Podio request state</Label>
+              <Label>
+                <a
+                  href={PODIO_AMS_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="hover:text-primary hover:underline"
+                >
+                  Podio request state ↗
+                </a>
+              </Label>
               <Select value={requestState || undefined} onValueChange={setRequestState}>
                 <SelectTrigger><SelectValue placeholder="Not set" /></SelectTrigger>
                 <SelectContent>

@@ -16,6 +16,8 @@ import {
   visitAnnouncementEmail,
   welcomeEmail,
 } from "@/lib/email/templates";
+import { proposalDraft } from "@/lib/email/proposal";
+import { composedEmail, memberSignature } from "@/lib/email/compose";
 
 const out = process.argv[2] ?? "/tmp/sodio-emails";
 mkdirSync(out, { recursive: true });
@@ -57,6 +59,32 @@ const samples: [string, { subject: string; html: string }][] = [
     meetLink: "https://meet.google.com/abc-defg-hij",
     manageUrl: "https://sodio.vercel.app/book/manage/demo-token",
   })],
+  // ── the three EXTERNAL surfaces (v34.8): they wear the LC's own logo, not
+  // the Sodio one, and they now carry the "Made by 2.0" credit
+  ["08-proposal-b2b", proposalDraft({
+    product: "B2B", companyName: "Hadana Moves", sector: "Marketing",
+    customNote: null, attachmentsNote: null, sendNow: true,
+    memberName: "Hana Wael", memberPhone: "+201012345678",
+    memberEmail: "hana@aiesec.net",
+  })],
+  ["09-proposal-igv", proposalDraft({
+    product: "iGV", companyName: "Elite Hospital", sector: "Healthcare",
+    customNote: "We spoke to Dr. Salma at reception last week.",
+    attachmentsNote: null, sendNow: true,
+    memberName: "Youssef Atya", memberPhone: "+201098765432",
+    memberEmail: "youssef@aiesec.net",
+  })],
+  ["10-member-letter", {
+    subject: "Following up on our conversation",
+    html: composedEmail({
+      bodyHtml: "<p>Dear Ms. Mona,</p><p>Thank you for the call yesterday — as promised, here is a short summary of what Global Talent could look like for your team.</p>",
+      signature: memberSignature({
+        name: "Hana Wael", title: "Business Development Manager",
+        email: "hana@aiesec.net", phone: "+201012345678",
+      }),
+      layout: "branded",
+    }),
+  }],
 ];
 
 const index: string[] = [];

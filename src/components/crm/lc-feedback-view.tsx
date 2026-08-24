@@ -216,7 +216,7 @@ export function LcFeedbackView({
       {/* ------------------------------------------------------- header */}
       <div className="flex flex-wrap items-start justify-between gap-3 rise-in">
         <div>
-          <h1 className="text-2xl font-bold">Feedback 💙</h1>
+          <h1 className="text-2xl font-bold">Feedback 💜</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Appreciate someone, raise a concern, or <b>rate a touch point</b>
             you were part of. A shout-out reaches the person directly;
@@ -460,7 +460,7 @@ export function LcFeedbackView({
               {aboutTouchPoint
                 ? "Anything to add? (optional)"
                 : positive
-                  ? "What did they do? 💙"
+                  ? "What did they do? 💜"
                   : "What's the concern?"}
             </Label>
             <Textarea
@@ -646,7 +646,7 @@ function LcFeedbackInbox({
 
           {shown.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              Nothing here — quiet LC, happy LC. 💙
+              Nothing here — quiet LC, happy LC. 💜
             </p>
           ) : (
             <div className="grid gap-3">

@@ -121,6 +121,72 @@ function encodeHeader(value: string): string {
     : `=?UTF-8?B?${Buffer.from(value).toString("base64")}?=`;
 }
 
+export interface MailAttachment {
+  filename: string;
+  mimeType: string;
+  contentBase64: string;
+}
+
+/** ONE RFC822 BUILDER FOR BOTH THE DRAFT AND THE SEND PATH (v34.8).
+ *
+ *  These were two copies of the same MIME assembly, and only the draft copy
+ *  ever learned about attachments — which is why "send the proposal now"
+ *  could not exist until this was shared: sending it would silently have
+ *  dropped the PDF the member asked for. */
+function rawMessage(opts: {
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  replyTo?: string;
+  subject: string;
+  html: string;
+  attachments?: MailAttachment[];
+}): string {
+  const headers = [
+    `To: ${opts.to.join(", ")}`,
+    ...(opts.cc?.length ? [`Cc: ${opts.cc.join(", ")}`] : []),
+    // BCC is a real header on the OUTGOING message — Gmail strips it from
+    // every delivered copy, which is the whole point of it (v33.25)
+    ...(opts.bcc?.length ? [`Bcc: ${opts.bcc.join(", ")}`] : []),
+    ...(opts.replyTo ? [`Reply-To: ${opts.replyTo}`] : []),
+    `Subject: ${encodeHeader(opts.subject)}`,
+    "MIME-Version: 1.0",
+  ];
+  const body = Buffer.from(opts.html).toString("base64");
+
+  if (!opts.attachments?.length) {
+    return (
+      [...headers, 'Content-Type: text/html; charset="UTF-8"', "Content-Transfer-Encoding: base64"].join("\r\n") +
+      "\r\n\r\n" +
+      body
+    );
+  }
+
+  const boundary = `crm_${Date.now().toString(36)}`;
+  const parts = [
+    ...headers,
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    "",
+    `--${boundary}`,
+    'Content-Type: text/html; charset="UTF-8"',
+    "Content-Transfer-Encoding: base64",
+    "",
+    body,
+  ];
+  for (const a of opts.attachments) {
+    parts.push(
+      `--${boundary}`,
+      `Content-Type: ${a.mimeType}; name="${encodeHeader(a.filename)}"`,
+      `Content-Disposition: attachment; filename="${encodeHeader(a.filename)}"`,
+      "Content-Transfer-Encoding: base64",
+      "",
+      a.contentBase64
+    );
+  }
+  parts.push(`--${boundary}--`);
+  return parts.join("\r\n");
+}
+
 
 /** Creates a DRAFT in the MEMBER's own Gmail (gmail.compose scope from their
  *  Google sign-in). The member reviews and hits send themselves. Optional
@@ -132,7 +198,7 @@ export async function createMemberDraft(
     cc?: string[];
     subject: string;
     html: string;
-    attachments?: { filename: string; mimeType: string; contentBase64: string }[];
+    attachments?: MailAttachment[];
   }
 ): Promise<string | null> {
   if (await sandboxSuppressed(`gmail draft "${opts.subject}"`)) return "sandbox";
@@ -140,47 +206,7 @@ export async function createMemberDraft(
   oauth2.setCredentials({ refresh_token: refreshToken });
   const gmail = google.gmail({ version: "v1", auth: oauth2 });
 
-  const addrHeaders = [
-    `To: ${opts.to}`,
-    ...(opts.cc?.length ? [`Cc: ${opts.cc.join(", ")}`] : []),
-    `Subject: ${encodeHeader(opts.subject)}`,
-    "MIME-Version: 1.0",
-  ];
-
-  let message: string;
-  if (opts.attachments && opts.attachments.length > 0) {
-    const boundary = `crm_${Date.now().toString(36)}`;
-    const parts = [
-      ...addrHeaders,
-      `Content-Type: multipart/mixed; boundary="${boundary}"`,
-      "",
-      `--${boundary}`,
-      'Content-Type: text/html; charset="UTF-8"',
-      "Content-Transfer-Encoding: base64",
-      "",
-      Buffer.from(opts.html).toString("base64"),
-    ];
-    for (const a of opts.attachments) {
-      parts.push(
-        `--${boundary}`,
-        `Content-Type: ${a.mimeType}; name="${a.filename}"`,
-        `Content-Disposition: attachment; filename="${a.filename}"`,
-        "Content-Transfer-Encoding: base64",
-        "",
-        a.contentBase64
-      );
-    }
-    parts.push(`--${boundary}--`);
-    message = parts.join("\r\n");
-  } else {
-    const headers = [
-      ...addrHeaders,
-      'Content-Type: text/html; charset="UTF-8"',
-      "Content-Transfer-Encoding: base64",
-    ];
-    message =
-      headers.join("\r\n") + "\r\n\r\n" + Buffer.from(opts.html).toString("base64");
-  }
+  const message = rawMessage({ ...opts, to: [opts.to] });
 
   const res = await gmail.users.drafts.create({
     userId: "me",
@@ -196,27 +222,22 @@ export async function createMemberDraft(
  *  message goes straight out via users.messages.send. */
 export async function sendMemberEmail(
   refreshToken: string,
-  opts: { to: string[]; cc?: string[]; bcc?: string[]; subject: string; html: string }
+  opts: {
+    to: string[];
+    cc?: string[];
+    bcc?: string[];
+    subject: string;
+    html: string;
+    /** v34.8 — the proposal email can now go out with its PDF straight away */
+    attachments?: MailAttachment[];
+  }
 ): Promise<string | null> {
   if (await sandboxSuppressed(`gmail send "${opts.subject}"`)) return "sandbox";
   const oauth2 = new google.auth.OAuth2(env.googleClientId, env.googleClientSecret);
   oauth2.setCredentials({ refresh_token: refreshToken });
   const gmail = google.gmail({ version: "v1", auth: oauth2 });
 
-  const message =
-    [
-      `To: ${opts.to.join(", ")}`,
-      ...(opts.cc?.length ? [`Cc: ${opts.cc.join(", ")}`] : []),
-      // BCC is a real header on the OUTGOING message — Gmail strips it from
-      // every delivered copy, which is the whole point of it (v33.25)
-      ...(opts.bcc?.length ? [`Bcc: ${opts.bcc.join(", ")}`] : []),
-      `Subject: ${encodeHeader(opts.subject)}`,
-      "MIME-Version: 1.0",
-      'Content-Type: text/html; charset="UTF-8"',
-      "Content-Transfer-Encoding: base64",
-    ].join("\r\n") +
-    "\r\n\r\n" +
-    Buffer.from(opts.html).toString("base64");
+  const message = rawMessage(opts);
 
   const res = await gmail.users.messages.send({
     userId: "me",

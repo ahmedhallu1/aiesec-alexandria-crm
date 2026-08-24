@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  Archive, ArchiveRestore, ArrowLeft, CalendarPlus, CheckCircle2, FileText, Loader2, Mail,
+  Archive, ArchiveRestore, ArrowLeft, CalendarPlus, CheckCircle2, ExternalLink, FileText,
+  Loader2, Mail,
   MessageSquareText, Paperclip, Pencil, Phone, Pin, PinOff, Plus, RotateCcw, Sparkles, Trophy,
   Upload, X,
   XCircle,
@@ -25,7 +26,7 @@ import type { AccountFunction, ContactAttempt, ContactMethod, Visit } from "@/li
 import {
   ACCOUNT_TYPES, B2C_CONTRACT_FORM_URL, B2C_TYPES,
   fmtClock12, fmtDateTime, IGT_SUB_PRODUCTS, IGV_PROJECTS, INDUSTRIES,
-  OOP_REASONS,
+  OOP_REASONS, PODIO_AMS_URL, PODIO_FORM_URL,
   VISIT_RESULTS, podioDefaultDays, productBadge,
 } from "@/lib/types";
 import type { AccountContact } from "@/lib/types";
@@ -963,10 +964,22 @@ function PodioCard({
     <Card>
       <CardHeader><CardTitle className="text-base">Podio (AMS)</CardTitle></CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium">Requested on Podio?</p>
-            <p className="text-xs text-muted-foreground">Filled by the account owner</p>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            {/* the label IS the door: submitting a company happens on the
+                national web-form, and hunting for that link is the reason
+                names sat unsubmitted (v34.8) */}
+            <a
+              href={PODIO_FORM_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-sm font-medium hover:text-primary hover:underline"
+            >
+              Requested on Podio? <ExternalLink className="size-3.5 shrink-0" />
+            </a>
+            <p className="text-xs text-muted-foreground">
+              Filled by the account owner · opens the submission form
+            </p>
           </div>
           <Switch
             checked={requested}
@@ -975,8 +988,17 @@ function PodioCard({
           />
         </div>
         <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-medium">Podio state</p>
+          <div className="min-w-0">
+            {/* …and the state is READ off the AMS workspace, which is a
+                different place from the form entirely */}
+            <a
+              href={PODIO_AMS_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-sm font-medium hover:text-primary hover:underline"
+            >
+              Podio state <ExternalLink className="size-3.5 shrink-0" />
+            </a>
             <p className="text-xs text-muted-foreground">
               Set by TL / Coordinator / VP · Rejected = archived
             </p>

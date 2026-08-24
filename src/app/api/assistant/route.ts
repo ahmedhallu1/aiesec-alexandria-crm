@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
-import { getAccount, getViewer, listAccounts, searchCvs } from "@/server/data";
-import type { PipelineRow } from "@/server/data";
+import { getAccount, getDashboard, getViewer, listAccounts, searchCvs } from "@/server/data";
+import type { AccountFilters, PipelineRow } from "@/server/data";
 import { canSeeCvPool } from "@/lib/rbac";
 import { VIOLET_MAN_SYSTEM_PROMPT, buildAssistantContext } from "@/lib/assistant";
+import {
+  PERIOD_HELP, PERIOD_KEYS, cairoDay, resolvePeriod, type PeriodKey,
+} from "@/lib/ask-period";
 import { accountSlug, fmtDay } from "@/lib/types";
 
 export const maxDuration = 60;
@@ -47,6 +50,45 @@ const FUNCTION_DECLS = [
       type: "object",
       properties: { question: { type: "string" } },
       required: ["question"],
+    },
+  },
+  {
+    // ── THE DATE TOOL (v34.8) ────────────────────────────────────────────
+    // The one fix that matters for "how many visits did I book this week".
+    // The context is all-time and the account lines carry no dates, so the
+    // model had nothing to count with and produced a plausible number. This
+    // runs the REAL dashboard read — same function the dashboard page calls,
+    // same per-KPI date rules, same RBAC scope — so his answer and the
+    // screen cannot disagree.
+    name: "getNumbers",
+    description:
+      "THE ONLY correct way to answer any question about a TIME PERIOD (today, this week, last month, this sprint, a date range…). Returns the real funnel numbers — market research, contacted, visits booked, visits done, deals, opens — counted over that window, each KPI on its own date, scoped to what this user may see. NEVER answer a dated question from the all-time KPI block; call this instead. Always repeat the returned `window` label back to the user.",
+    parameters: {
+      type: "object",
+      properties: {
+        period: {
+          type: "string",
+          enum: [...PERIOD_KEYS],
+          description: Object.entries(PERIOD_HELP)
+            .map(([k, v]) => `${k}: ${v}`)
+            .concat("custom: an explicit from/to (only when the user named real dates)")
+            .join(" · "),
+        },
+        from: { type: "string", description: "custom only — YYYY-MM-DD, inclusive" },
+        to: { type: "string", description: "custom only — YYYY-MM-DD, inclusive" },
+        whose: {
+          type: "string",
+          enum: ["me", "my_team", "everyone"],
+          description:
+            "'me' when the user says I/my/mine (the default for a personal question), 'my_team' for their team, 'everyone' for their whole visible scope.",
+        },
+        lane: {
+          type: "string",
+          description:
+            "Optional lane to narrow to: all, IGV, IGT, IGTa, IGTe, B2B, BD, B2C. Omit for everything they can see.",
+        },
+      },
+      required: ["period"],
     },
   },
 ];
@@ -223,6 +265,64 @@ export async function POST(req: Request) {
       };
     }
     if (name === "webInfo") return { answer: await webInfo(String(args?.question ?? "")) };
+    if (name === "getNumbers") {
+      // an unknown period name must NOT quietly become "all time" — that is
+      // the exact failure this tool exists to remove
+      const raw = String(args?.period ?? "");
+      const period = (PERIOD_KEYS as readonly string[]).includes(raw)
+        ? (raw as PeriodKey)
+        : null;
+      if (!period) {
+        return {
+          error: `Unknown period "${raw}". Use one of: ${PERIOD_KEYS.join(", ")}.`,
+        };
+      }
+      const win = resolvePeriod(period, cairoDay(), {
+        from: args?.from ?? null,
+        to: args?.to ?? null,
+      });
+
+      const whose = ["me", "my_team", "everyone"].includes(String(args?.whose))
+        ? String(args.whose)
+        : "everyone";
+      // getDashboard applies these itself and re-checks the viewer's scope, so
+      // "my team" can never resolve to a team this member cannot see
+      const filters: AccountFilters = {
+        from: win.from ?? undefined,
+        to: win.to ?? undefined,
+      };
+      if (whose === "me") filters.responsibleId = viewer.id;
+      if (whose === "my_team") filters.teamId = viewer.id;
+
+      const laneRaw = String(args?.lane ?? "").trim();
+      const lane =
+        laneRaw && /^(all|IGV|IGT|IGTa|IGTe|B2B|BD|B2C)$/i.test(laneRaw) ? laneRaw : undefined;
+
+      try {
+        const d = await getDashboard(viewer, filters, lane);
+        return {
+          window: win.label,
+          from: win.from ?? "(no start — all time)",
+          to: win.to ?? "(no end — all time)",
+          whose:
+            whose === "me" ? `${viewer.name}'s own accounts`
+            : whose === "my_team" ? `${viewer.name}'s team`
+            : "everything this user can see",
+          lane: lane ?? "everything in scope",
+          marketResearch: d.total.mr,
+          contacted: d.total.contacted,
+          visitsBooked: d.total.visitScheduled,
+          visitsDone: d.total.visitDone,
+          deals: d.total.deals,
+          opens: d.total.slots,
+          counted_on:
+            "research = day the account was added · contacted = day of the contact attempt · visitsBooked = day the visit was booked · visitsDone = the visit's own date · deals & opens = the day the deal was signed",
+        };
+      } catch (e) {
+        console.error("[violet-man] getNumbers failed:", e);
+        return { error: "Couldn't read the numbers for that window. Say so — do not estimate." };
+      }
+    }
     if (name === "searchCvs") {
       // searchCvs re-checks canSeeCvPool server-side too (IGT-only since v27)
       if (!canSeeCvPool(viewer))

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Megaphone, Send } from "lucide-react";
+import { Eye, Megaphone, Send } from "lucide-react";
 import { createImPrompt } from "@/server/prompts";
 import { LC_FUNCTIONS, MEMBER_ROLES } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { ImPromptPreviewDialog } from "./im-prompt-preview";
 
 /** SAY SOMETHING TO THE LC, AND OPTIONALLY HEAR BACK.
  *
@@ -47,6 +48,7 @@ export function ImPromptCard() {
   const [audience, setAudience] = useState<(typeof AUDIENCES)[number]["v"]>("all");
   const [picked, setPicked] = useState<string[]>([]);
   const [dismissible, setDismissible] = useState(true);
+  const [previewing, setPreviewing] = useState(false);
   const [pending, start] = useTransition();
 
   const options: string[] =
@@ -82,17 +84,31 @@ export function ImPromptCard() {
         </p>
       </CardHeader>
       <CardContent className="grid gap-3">
-        <Input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Title — e.g. “Peak review is on Sunday”"
-        />
-        <Textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          rows={4}
-          placeholder="What do you want them to know or do?"
-        />
+        {/* ONE required field. Everything under it is optional — a heads-up is
+            usually one sentence, and three boxes for one sentence is how a
+            feature stops being used (v34.8). */}
+        <div className="grid gap-1.5">
+          <Label className="text-xs">What you want to say *</Label>
+          <Input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="e.g. “Peak review is on Sunday”"
+          />
+        </div>
+        <div className="grid gap-1.5">
+          <Label className="text-xs">
+            More detail
+            <span className="ml-1 font-normal text-muted-foreground">
+              — optional, skip it if the line above says it all
+            </span>
+          </Label>
+          <Textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={3}
+            placeholder="Anything they need beyond the headline…"
+          />
+        </div>
 
         <div className="grid gap-1.5">
           <Label className="text-xs">Who sees it</Label>
@@ -141,7 +157,11 @@ export function ImPromptCard() {
             <Input
               value={responseLabel}
               onChange={(e) => setResponseLabel(e.target.value)}
-              placeholder="The question above the box — e.g. “How ready do you feel?”"
+              placeholder={
+                responseKind === "rating"
+                  ? "Optional question above the stars — default: “How would you rate this?”"
+                  : "Optional question above the box — default: “Your answer”"
+              }
             />
           ) : null}
         </div>
@@ -156,10 +176,34 @@ export function ImPromptCard() {
           <Switch checked={dismissible} onCheckedChange={setDismissible} />
         </div>
 
-        <Button onClick={send} disabled={pending || title.trim().length < 2 || body.trim().length < 2}>
-          <Send className="size-4" /> Send it
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            className="shrink-0"
+            onClick={() => setPreviewing(true)}
+            disabled={title.trim().length < 2}
+          >
+            <Eye className="size-4" /> Preview
+          </Button>
+          <Button className="flex-1" onClick={send} disabled={pending || title.trim().length < 2}>
+            <Send className="size-4" /> Send it
+          </Button>
+        </div>
       </CardContent>
+
+      {/* SHOW ME HOW IT LOOKS (v34.9). The composer wrote a title, an optional
+          body and picked a response kind blind — this renders the exact
+          dialog an LC member meets, sharing the real Stars widget and the
+          real fallback copy, so nothing here can drift from the real thing. */}
+      <ImPromptPreviewDialog
+        open={previewing}
+        onOpenChange={setPreviewing}
+        title={title}
+        body={body}
+        responseKind={responseKind}
+        responseLabel={responseLabel}
+        dismissible={dismissible}
+      />
     </Card>
   );
 }

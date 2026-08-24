@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-const PIECES = ["🎉", "🎊", "⭐", "💙", "🏆", "✨"];
+const PIECES = ["🎉", "🎊", "⭐", "💜", "🏆", "✨"];
 
 interface Piece {
   emoji: string;

@@ -2585,8 +2585,12 @@ async function resolveVisitRecipients(
   /** v33.42 — a MOVE is not news to a function, only to the people who
    *  answer for the visit; a new booking still reaches the floor. */
   kind: "new" | "moved" = "new"
-): Promise<{ attendeeEmails: string[]; announceIds: string[]; announceEmails: string[] }> {
-  const empty = { attendeeEmails: [], announceIds: [], announceEmails: [] };
+): Promise<{ attendeeEmails: string[]; announce: { id: string; email: string | null }[] }> {
+  // ⚠️ ONE ARRAY, NOT TWO (v34.8). This returned parallel `announceIds` and
+  // `announceEmails`, and they were NOT index-aligned — a member with no
+  // address is in the first and absent from the second. Anything zipping them
+  // (the per-member opt-out below wanted to) would mail the wrong people.
+  const empty = { attendeeEmails: [], announce: [] };
   if (!responsible || !isRaisingMember(responsible)) return empty;
 
   type Row = {
@@ -2655,8 +2659,7 @@ async function resolveVisitRecipients(
       ? byId.get(responsible.stakeholder_id) ?? null
       : null;
   const tlId = ownTl?.role === "Team Leader" ? ownTl.id : null;
-  const announceIds: string[] = [];
-  const announceEmails: string[] = [];
+  const announce: { id: string; email: string | null }[] = [];
   for (const m of members) {
     if (m.role === "LCP") continue; // the LCP never gets operational mail
     if (m.id === responsible.id || m.id === viewerId) continue; // they get the direct notice
@@ -2671,11 +2674,10 @@ async function resolveVisitRecipients(
     } else if (m.role !== "Member") {
       continue; // a new booking reaches the MEMBERS, not the other MMs
     }
-    announceIds.push(m.id);
-    if (m.email) announceEmails.push(m.email);
+    announce.push({ id: m.id, email: m.email || null });
   }
 
-  return { attendeeEmails: [...attendees], announceIds, announceEmails };
+  return { attendeeEmails: [...attendees], announce };
 }
 
 export async function scheduleVisit(
@@ -2887,11 +2889,28 @@ export async function scheduleVisit(
 
   // function-wide fan-out: the account's OWN raising crew get an FYI email AND
   // an in-app notification (no calendar reminder for them)
-  if (announce && recipients.announceIds.length > 0) {
+  let belled = 0;
+  let mailed = 0;
+  if (announce && recipients.announce.length > 0) {
     const responsibleName =
       responsible?.name || account.responsible_name;
+    // WHO STILL WANTS THIS (v34.8). It is the highest-volume message in the
+    // system — 521 in one week — and it is pure FYI, so a member may switch
+    // off the email, the bell, or both from their own settings. Their OWN
+    // visit, their calendar invite and every follow-up asking them to report
+    // one are untouched: those are not preferences.
+    const { memberSettingsFor } = await import("@/server/member-settings");
+    const prefs = await memberSettingsFor(recipients.announce.map((a) => a.id));
+    const bellIds = recipients.announce
+      .filter((a) => prefs.get(a.id)?.bellVisitAnnouncements !== false)
+      .map((a) => a.id);
+    const announceEmails = recipients.announce
+      .filter((a) => a.email && prefs.get(a.id)?.emailVisitAnnouncements !== false)
+      .map((a) => a.email as string);
+    belled = bellIds.length;
+    mailed = announceEmails.length;
     await notifyMembers(
-      recipients.announceIds,
+      bellIds,
       "visit_announcement",
       announceAsMove
         ? `🗓️ ${product} visit moved — ${account.name}`
@@ -2901,7 +2920,7 @@ export async function scheduleVisit(
         : `${responsibleName} booked a visit with ${account.name} on ${visitDate} at ${visitTime.slice(0, 5)}.`,
       viewer.id
     );
-    if (recipients.announceEmails.length > 0) {
+    if (announceEmails.length > 0) {
       const { visitAnnouncementEmail } = await import("@/lib/email/templates");
       const mail = visitAnnouncementEmail({
         responsibleName,
@@ -2913,7 +2932,7 @@ export async function scheduleVisit(
         accountUrl: `${env.appUrl}/accounts/${slug}`,
         moved: announceAsMove,
       });
-      sendEmail({ to: [env.gmailSender || viewer.email || ""].filter(Boolean), bcc: recipients.announceEmails, ...mail }).catch(
+      sendEmail({ to: [env.gmailSender || viewer.email || ""].filter(Boolean), bcc: announceEmails, ...mail }).catch(
         (e) => console.error("[visits] announcement email failed:", e)
       );
     }
@@ -2921,8 +2940,10 @@ export async function scheduleVisit(
 
   await logAudit(viewer.id, "schedule_visit", "account", accountId, {
     visitDate, visitTime, inviteSent, calendarLinked,
-    // the real number — the log used to claim a fan-out that may not have run
-    announced: announce ? recipients.announceIds.length : 0,
+    // the REAL numbers — the log used to claim a fan-out that may not have
+    // run, and since v34.8 a member can opt out of either half of it
+    announced: belled,
+    announcedByEmail: mailed,
     ...(pending ? { rescheduled: true, announcedAsMove: announceAsMove } : {}),
   });
   await stampWork(viewer.id, "visit_scheduled"); // v29: counts towards working hours
@@ -3849,6 +3870,52 @@ export async function updateAvatar(url: string | null): Promise<ActionResult> {
   return { ok: true };
 }
 
+// ================================================================== my settings
+
+/** SAVE ONE OF MY OWN SETTINGS (v34.8).
+ *
+ *  One key per call, because the panel saves as you flip rather than behind a
+ *  Save button — a settings page with a Save button is a settings page people
+ *  leave half-changed.
+ *
+ *  It is deliberately a MERGE into the existing blob, not a replace: two tabs
+ *  open on the same profile must not be able to undo each other's toggles.
+ *  Only keys the shape actually declares are accepted, so a stale client (or
+ *  a hand-crafted call) cannot stuff arbitrary JSON onto a member row. */
+export async function saveMySetting(
+  key: string,
+  value: boolean
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const { MEMBER_SETTINGS_DEFAULTS, resolveMemberSettings } =
+    await import("@/lib/member-settings");
+  if (!Object.prototype.hasOwnProperty.call(MEMBER_SETTINGS_DEFAULTS, key))
+    return fail("That isn't a setting.");
+  if (typeof value !== "boolean") return fail("That setting is on or off.");
+
+  const { data: row } = await db()
+    .from("members")
+    .select("settings")
+    .eq("id", viewer.id)
+    .maybeSingle<{ settings: unknown }>();
+
+  const merged = { ...resolveMemberSettings(row?.settings), [key]: value };
+  await snapshotForUndo("members", viewer.id); // sandbox test view: roll back on exit
+  const { error } = await db()
+    .from("members")
+    .update({ settings: merged })
+    .eq("id", viewer.id);
+  if (error)
+    return fail(
+      error.message.includes("settings")
+        ? "Your settings need migration 0067 — ask the IM team to run it."
+        : error.message
+    );
+  await logAudit(viewer.id, "member_setting", "member", viewer.id, { key, value });
+  refresh();
+  return { ok: true };
+}
+
 // ================================================================== membership (EB + admin)
 
 const memberSchema = z
@@ -4713,29 +4780,33 @@ const proposalSchema = z.object({
   sector: z.string().trim().nullish(),
   customNote: z.string().trim().nullish(),
   attachmentsNote: z.string().trim().nullish(),
-  /** attach the official per-product proposal PDF (proposals/<product>.pdf) */
-  attachProposal: z.boolean().nullish(),
   /** B2B/BD raise for the whole ICX — the email body is written for THIS
    *  product ("B2B" = the general all-programs partnership email, "BD" = the
    *  talent-solutions pitch of aiesec.org.eg/partner.html) */
   bodyProduct: z.enum(["iGV", "iGTa", "iGTe", "B2B", "BD"]).nullish(),
-  /** B2B: which official product PDFs to attach (any of the three) */
-  attachProducts: z.array(z.enum(["iGV", "iGTa", "iGTe"])).nullish(),
+  /** WHICH OFFICIAL DECKS RIDE ALONG (v34.8). One list for every function —
+   *  it used to be a boolean for IGV/IGT and a separate array for B2B, which
+   *  is two ways of saying the same thing and is why B2B could never attach
+   *  its own proposal. `null` means "whatever the body's default is". */
+  attachPdfs: z.array(z.enum(["B2B", "iGV", "iGTa", "iGTe"])).nullish(),
+  /** SEND IT NOW from the member's own Gmail instead of leaving a draft
+   *  (v34.8 — this is the default; drafting is the opt-out). */
+  sendNow: z.boolean().nullish(),
 });
 
-/** ICX Proposal Email: builds the product-specific outreach draft and places
- *  it in the MEMBER's own Gmail drafts (gmail.compose from their Google
- *  sign-in). The member reviews, attaches files if needed, and sends it —
- *  the email goes out from THEIR address. */
+/** ICX Proposal Email: builds the product-specific outreach email and either
+ *  SENDS it straight from the member's own Gmail (the default since v34.8) or
+ *  leaves it as a draft for them to review first. Either way it goes out from
+ *  THEIR address, on their gmail.compose grant. */
 export async function createProposalDraft(
   input: z.infer<typeof proposalSchema>
-): Promise<ActionResult<{ product: string }>> {
+): Promise<ActionResult<{ product: string; sent: boolean }>> {
   const viewer = await getViewer();
   const parsed = proposalSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0].message);
   const {
     accountId, recipientEmail, sector, customNote,
-    attachmentsNote, attachProposal, bodyProduct, attachProducts,
+    attachmentsNote, bodyProduct, attachPdfs, sendNow,
   } = parsed.data;
 
   const account = await loadAccount(accountId);
@@ -4762,38 +4833,45 @@ export async function createProposalDraft(
         ? account.product === "GTe" ? "iGTe" : "iGTa"
         : (bodyProduct ?? (account.function === "BD" ? "BD" : "B2B"));
 
+  const send = sendNow !== false; // send-now is the default (v34.8)
+
   const { proposalDraft } = await import("@/lib/email/proposal");
+  const { defaultProposalPdfs, proposalPdfFile, attachmentTooBig } =
+    await import("@/lib/proposal-pdfs");
   const draft = proposalDraft({
     product,
     companyName: account.name,
     sector: sector || account.industry || account.sub_product || null,
     customNote: customNote || null,
-    attachmentsNote: attachmentsNote || null,
+    // a hand-added attachment can only exist on a draft — on a send-now there
+    // is no moment in which to add it, so the note (and its reminder line)
+    // simply is not part of that email
+    attachmentsNote: send ? null : attachmentsNote || null,
     memberName: viewer.name,
     memberPhone: viewer.phone,
     memberEmail: viewer.email ?? "",
+    sendNow: send,
   });
 
-  // which official PDFs to attach: B2B picks any of the three; BD sends NO
-  // ready attachments; others attach their own product's PDF when switched on
-  const wanted: ("iGV" | "iGTa" | "iGTe")[] =
-    account.function === "BD"
-      ? []
-      : account.function === "B2B"
-        ? [...new Set(attachProducts ?? [])]
-        : attachProposal && product !== "B2B" && product !== "BD"
-          ? [product]
-          : [];
+  // WHICH OFFICIAL DECKS RIDE ALONG — the member's picks when they made any,
+  // otherwise the deck that matches the email they're actually sending.
+  const wanted = [...new Set(attachPdfs ?? defaultProposalPdfs(product))];
+  // Gmail weighs the message AFTER base64 (+4/3) and refuses over 25 MB. All
+  // four decks is 39 MB raw, so this is reachable from the UI — and Google's
+  // own refusal is not something the member can act on.
+  const tooBig = attachmentTooBig(wanted);
+  if (tooBig) return fail(tooBig);
 
   const attachments: { filename: string; mimeType: string; contentBase64: string }[] = [];
   if (wanted.length > 0) {
     const { readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
     for (const p of wanted) {
+      const { path, filename } = proposalPdfFile(p);
       try {
-        const pdf = await readFile(join(process.cwd(), "proposals", `${p}.pdf`));
+        const pdf = await readFile(join(process.cwd(), "proposals", path));
         attachments.push({
-          filename: `AIESEC Alexandria — ${p} Proposal.pdf`,
+          filename,
           mimeType: "application/pdf",
           contentBase64: pdf.toString("base64"),
         });
@@ -4806,30 +4884,38 @@ export async function createProposalDraft(
   }
 
   try {
-    const { createMemberDraft } = await import("@/lib/google/gmail");
-    const draftId = await createMemberDraft(viewer.google_refresh_token, {
-      to: recipientEmail,
-      subject: draft.subject,
-      html: draft.html,
-      attachments,
-    });
-    if (!draftId) return fail("Google didn't accept the draft — try again.");
+    const { createMemberDraft, sendMemberEmail } = await import("@/lib/google/gmail");
+    const id = send
+      ? await sendMemberEmail(viewer.google_refresh_token, {
+          to: [recipientEmail],
+          subject: draft.subject,
+          html: draft.html,
+          attachments,
+        })
+      : await createMemberDraft(viewer.google_refresh_token, {
+          to: recipientEmail,
+          subject: draft.subject,
+          html: draft.html,
+          attachments,
+        });
+    if (!id) return fail(`Google didn't accept the ${send ? "email" : "draft"} — try again.`);
   } catch (e) {
-    console.error("[proposal] draft failed:", e);
+    console.error(`[proposal] ${send ? "send" : "draft"} failed:`, e);
     return fail(
-      "Couldn't create the draft. Sign out and sign in with Google again to refresh your access, then retry."
+      `Couldn't ${send ? "send it" : "create the draft"}. Sign out and sign in with Google again to refresh your access, then retry.`
     );
   }
 
-  // proposal drafted → mark the flag the sheet mirrors track
+  // proposal out (or drafted) → mark the flag the sheet mirrors track
   await db().from("accounts").update({ proposal_sent: true }).eq("id", accountId);
   await stampWork(viewer.id, "proposal_email"); // v33.18: counts towards working hours
-  await logAudit(viewer.id, "proposal_draft", "account", accountId, {
+  await logAudit(viewer.id, send ? "proposal_sent" : "proposal_draft", "account", accountId, {
     product,
     to: recipientEmail,
+    attached: wanted,
   });
   refresh(accountId);
-  return { ok: true, data: { product } };
+  return { ok: true, data: { product, sent: send } };
 }
 
 // ================================================================== notifications
@@ -4996,7 +5082,7 @@ export async function thankFeedback(feedbackId: string): Promise<ActionResult> {
   await notifyMembers(
     [f.member.id],
     "thanks",
-    "Your feedback made Sodio better 💙",
+    "Your feedback made Sodio better 💜",
     `The IM team applied your feedback — thank you for building Sodio with us! ("${f.message.slice(0, 120)}")`,
     viewer.id
   );
@@ -5289,7 +5375,7 @@ export async function submitLcFeedback(input: {
     await notifyMembers(
       targets.map((t) => t.id),
       "lc_feedback",
-      `💙 ${from} appreciated you!`,
+      `💜 ${from} appreciated you!`,
       message.slice(0, 300),
       input.anonymous ? null : viewer.id
     );
@@ -5299,7 +5385,14 @@ export async function submitLcFeedback(input: {
     // the group when there IS a group, so nothing pretends to be personal
     // that isn't; a single recipient still gets their own name.
     const { lcShoutoutEmail } = await import("@/lib/email/templates");
-    const withMail = targets.filter((t) => t.email);
+    // …and a member may switch the shout-out EMAIL off in their own settings
+    // (v34.8). The bell above already told them, so nobody misses being
+    // appreciated — some people just don't want it in their inbox.
+    const { memberSettingsFor } = await import("@/server/member-settings");
+    const shoutPrefs = await memberSettingsFor(targets.map((t) => t.id));
+    const withMail = targets.filter(
+      (t) => t.email && shoutPrefs.get(t.id)?.emailShoutouts !== false
+    );
     if (withMail.length === 1) {
       const t = withMail[0];
       const mail = lcShoutoutEmail({ firstName: t.name.split(" ")[0], from, message });

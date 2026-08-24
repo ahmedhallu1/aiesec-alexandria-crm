@@ -65,7 +65,7 @@ export function FeedbackForm({
         toast.success(
           anonymous
             ? "Sent! Your secret is safe with us 🎭"
-            : "Thank you! Your contribution reached the IM team 💙"
+            : "Thank you! Your contribution reached the IM team 💜"
         );
         setMessage("");
         setAnonymous(false);

@@ -304,7 +304,7 @@ export function OgtMailView({
       });
       if (res.ok) {
         toast.success(
-          "Draft created! Open your Gmail Drafts to review it and hit send yourself. 💙"
+          "Draft created! Open your Gmail Drafts to review it and hit send yourself. 💜"
         );
         setReview(null);
         cachePreview(null);

@@ -1,5 +1,6 @@
-import { escapeHtml } from "./templates";
+import { escapeHtml, madeBy20 } from "./templates";
 import { env } from "@/lib/env";
+import type { ProposalProduct } from "@/lib/proposal-pdfs";
 
 /** ICX Proposal Email — generates the ready-to-review company outreach draft,
  *  matching the LC's original proposal-tool design (card layout, "why this
@@ -9,7 +10,12 @@ import { env } from "@/lib/env";
  *  variant pointing at aiesec.org/partners. The draft lands in the MEMBER's
  *  own Gmail, they review and send. No company-logo section by design. */
 
-export type ProposalProduct = "iGTa" | "iGTe" | "iGV" | "B2B" | "BD";
+// the deck set lives in its own import-free module so the CLIENT dialog can
+// read it without pulling this file's template tree into the browser bundle
+export type { ProposalProduct, ProposalPdf } from "@/lib/proposal-pdfs";
+export {
+  PROPOSAL_PDFS, PROPOSAL_PDF_LABEL, defaultProposalPdfs, proposalPdfFile,
+} from "@/lib/proposal-pdfs";
 
 export interface ProposalInput {
   product: ProposalProduct;
@@ -20,6 +26,10 @@ export interface ProposalInput {
   memberName: string;
   memberPhone: string | null;
   memberEmail: string;
+  /** v34.8 — the email is going OUT right now, not into drafts. The
+   *  "remember to attach your files" reminder is written to the SENDER and
+   *  must never reach the company, so it only exists on the draft path. */
+  sendNow?: boolean;
 }
 
 const BLUE = "#037EF3"; // AIESEC official brand blue — the ONE accent color
@@ -263,7 +273,7 @@ export function proposalDraft(input: ProposalInput): { subject: string; html: st
     ${callout(`<b>Meeting request:</b> ${p.meeting(company)}`)}
 
     ${
-      input.attachmentsNote
+      input.attachmentsNote && !input.sendNow
         ? `<p style="margin:0 0 14px;"><i>Attached: ${escapeHtml(input.attachmentsNote)}</i></p>
            <p style="margin:0 0 14px;color:#c2410c;"><b>[⚠ Reminder for you: attach the file(s) before sending, then delete this line]</b></p>`
         : ""
@@ -287,6 +297,8 @@ export function proposalDraft(input: ProposalInput): { subject: string; html: st
   </td></tr>
 
 </table>
+<!-- this email leaves the LC, so it carries the 2.0 credit (v34.8) -->
+<div style="text-align:center;padding:4px 0 2px;">${madeBy20()}</div>
 </td></tr></table>
 </div>`;
 

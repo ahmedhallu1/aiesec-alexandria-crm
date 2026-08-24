@@ -28,7 +28,7 @@ const storageKey = (email: string) => `sodio-blueman-chats:${email}`;
 
 const OPENERS = [
   "Ahlan! I'm The Violet Man 🚶 — ask me about your accounts, your numbers, or anything AIESEC.",
-  "The Violet Man has arrived 🚶💙 What are we raising today?",
+  "The Violet Man has arrived 🚶💜 What are we raising today?",
   "I walk, therefore I am. Also I know your pipeline. Ask away 🚶",
 ];
 

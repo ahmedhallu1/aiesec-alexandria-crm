@@ -20,6 +20,8 @@ import { ADMIN_EMAIL, adminWhatsAppLink, cleanPhone, FUNCTION_COLORS, normalizeP
 import type { MmPlanData, PersonCard, TlPlanData } from "@/server/data";
 import { TlPlanForm } from "./tl-plan-form";
 import { MmPlanForm } from "./mm-plan-form";
+import { SettingsPanel } from "./settings-panel";
+import type { MemberSettings, SettingsContext } from "@/lib/member-settings";
 import { WhatsAppIcon } from "./icons";
 import { Hint } from "./hint";
 import {
@@ -71,8 +73,14 @@ export function ProfileView({
   mmPlan,
   viewAs,
   fnSettings = [],
+  settings,
+  settingsContext,
 }: {
   member: ProfileInfo;
+  /** the member's own preferences, defaults filled in (v34.8) */
+  settings: MemberSettings;
+  /** which optional settings rows are worth showing this person */
+  settingsContext: SettingsContext;
   /** the functions this viewer LEADS (v33.32) — empty for everyone else */
   fnSettings?: FunctionSettingsCard[];
   /** the viewer's people (TL → team · VP/Director → function · LCP → EB) */
@@ -170,9 +178,10 @@ export function ProfileView({
             ))}
           </div>
           <button
+            id="profile-avatar"
             type="button"
             onClick={() => setAvatarOpen(true)}
-            className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+            className="mt-1 inline-flex scroll-mt-24 items-center gap-1 text-xs font-medium text-primary hover:underline"
           >
             <Sparkles className="size-3" /> Change avatar
           </button>
@@ -189,7 +198,7 @@ export function ProfileView({
 
       <div className="grid gap-4 md:grid-cols-2">
         {/* Editable */}
-        <Card>
+        <Card id="profile-info" className="scroll-mt-24">
           <CardHeader>
             <CardTitle className="text-base">My info</CardTitle>
           </CardHeader>
@@ -283,7 +292,7 @@ export function ProfileView({
       </div>
 
       {/* Password */}
-      <Card>
+      <Card id="profile-password" className="scroll-mt-24">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <KeyRound className="size-4 text-muted-foreground" /> Change password
@@ -358,8 +367,10 @@ export function ProfileView({
         </Card>
       ) : null}
 
+      <SettingsPanel settings={settings} context={settingsContext} />
+
       {fnSettings.length > 0 ? (
-        <Card>
+        <Card id="profile-function-defaults" className="scroll-mt-24">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <SlidersHorizontal className="size-4 text-muted-foreground" />
@@ -502,7 +513,7 @@ export function ProfileView({
 
       {/* system feedback moved here from the sidebar (v21) — the sidebar's
           "LC Feedback" is about PEOPLE; this one is about Sodio itself */}
-      <Card>
+      <Card id="profile-feedback" className="scroll-mt-24">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <MessageSquareHeart className="size-4 text-muted-foreground" /> System feedback
@@ -511,7 +522,7 @@ export function ProfileView({
         <CardContent className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">
             Found a bug? Want a feature? Tell the IM team — every report makes
-            Sodio better. 💙
+            Sodio better. 💜
           </p>
           <Button asChild variant="outline" size="sm">
             <Link prefetch={false} href="/feedback">Give feedback</Link>

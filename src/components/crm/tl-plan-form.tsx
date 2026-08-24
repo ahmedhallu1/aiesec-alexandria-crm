@@ -51,7 +51,7 @@ export function TlPlanForm({
         return;
       }
       if (mode === "welcome") {
-        toast.success("Plan saved — go raise those opens! 💙");
+        toast.success("Plan saved — go raise those opens! 💜");
         router.replace("/");
       } else {
         toast.success("Plan updated 🎯");

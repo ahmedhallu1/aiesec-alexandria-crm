@@ -47,9 +47,9 @@ const KIND_ICON: Record<string, string> = {
   visit: "🗓️",
   visit_announcement: "📢",
   followup: "📝",
-  thanks: "💙",
+  thanks: "💜",
   broadcast: "📣",
-  lc_feedback: "💙",
+  lc_feedback: "💜",
   report: "📊",
   info: "🔔",
 };

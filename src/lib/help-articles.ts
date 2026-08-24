@@ -8,6 +8,218 @@ import type { HelpArticle } from "./help-content";
  */
 export const HELP_ARTICLES: HelpArticle[] = [
  {
+  "id": "my-settings",
+  "title": "Settings — everything that's yours to change",
+  "emoji": "⚙️",
+  "category": "getting-started",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "settings",
+   "preferences",
+   "too many emails",
+   "unsubscribe",
+   "stop emails",
+   "notifications",
+   "mute",
+   "quiet",
+   "email volume",
+   "opt out",
+   "dark mode",
+   "theme",
+   "الاعدادات",
+   "اشعارات",
+   "ايميلات كتير",
+   "اوقف الايميلات"
+  ],
+  "summary": "One searchable panel on your Profile: which emails you get, what reaches the bell, how Sodio looks, and a shortcut to everything else about you.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Everything you can change about *your own* Sodio now lives in one place: **Profile → Settings**. It has a search box at the top, and it searches the descriptions as well as the titles — so type the problem, not the feature name. *\"too many emails\"*, *\"password\"*, *\"dark\"*, *\"اشعارات\"* all find the right row. Switches save the moment you flip them; there is no Save button."
+   },
+   {
+    "t": "steps",
+    "title": "Get less email",
+    "items": [
+     "Go to **Profile** → scroll to **Settings**.",
+     "Search **emails**.",
+     "Turn off whichever ones you don't want. The bell still tells you — you're only switching off the inbox copy."
+    ]
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Setting",
+     "What it turns off"
+    ],
+    "rows": [
+     [
+      "“A visit was booked” emails",
+      "The crew-wide heads-up when *anyone* in your function books a visit. Your OWN visits, your calendar invites and the follow-up asking you to report one are untouched."
+     ],
+     [
+      "Sprint & month reports",
+      "The waterfall report your function gets when a period closes. It's still on the dashboard."
+     ],
+     [
+      "Shout-out emails",
+      "🎉 when someone appreciates you. The bell still says so — some people just don't want it in the inbox."
+     ],
+     [
+      "Streak reminder email",
+      "🔥 the evening nudge before your contacting streak dies (OGX). The bell still fires."
+     ],
+     [
+      "“A visit was booked” on the bell",
+      "The same crew-wide heads-up, in the notifications panel."
+     ]
+    ]
+   },
+   {
+    "t": "callout",
+    "tone": "warn",
+    "md": "**Some emails cannot be switched off, and the panel says so with the reason.** Reporting a visit you booked, an attendance must-do, a Podio refresh coming due, a password reset, a confirmation going to an IR abroad — those are commitments to other people, not preferences. Nobody can turn them off, including the IM team."
+   },
+   {
+    "t": "p",
+    "md": "The panel also holds **your phone, backup Gmail, password and profile picture** — those rows don't duplicate the controls, they jump you to the card that owns them and flash it, so there's only ever one place a field is edited. **Theme** and **how the accounts list looks on a phone** are marked *this browser*: they're remembered on the device you set them on, not on your account."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "I turned an email off and still got one.",
+      "a": "Check it was the same kind. The crew-wide \"a visit was booked\" heads-up and the follow-up asking YOU to report YOUR visit are two different emails, and only the first is optional — the second is how the LC knows a visit happened."
+     },
+     {
+      "q": "Can I change my name, role, function or team here?",
+      "a": "No — those come from the Membership sheet, which is the source of truth for the whole LC. The Settings rows for them tell you that and point at the WhatsApp link to get it fixed at the source."
+     },
+     {
+      "q": "Why did my theme not follow me to my phone?",
+      "a": "Theme and the mobile list style are saved in the browser, not on your account — the panel labels them \"this browser\". Set them once per device."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "import-accounts",
+  "title": "Import a list of accounts",
+  "emoji": "📥",
+  "category": "raising",
+  "audience": "Raising crews (IGV · IGT · B2B/BD · B2C)",
+  "audienceKeys": [
+   "raising",
+   "b2b",
+   "b2c"
+  ],
+  "keywords": [
+   "import",
+   "bulk",
+   "upload",
+   "csv",
+   "xlsx",
+   "excel",
+   "market research",
+   "template",
+   "columns",
+   "sheet",
+   "استيراد",
+   "رفع ملف",
+   "اكسيل"
+  ],
+  "summary": "Upload a .csv or .xlsx of market research. The columns you're asked for are YOUR function's, each with a worked example — and there's a template to start from.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "**Raising → Import** takes a `.csv` or `.xlsx` with a header row and turns it into accounts. Every row passes exactly the same checks as a hand-added account, so duplicates and archived names are blocked automatically — and you review everything on screen *before* anything enters the system."
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**Start from the template.** The **Download template** button gives you a file with exactly your columns and one filled-in example row. Fill it in, upload it back, done — no guessing at the layout."
+   },
+   {
+    "t": "steps",
+    "title": "Import a file",
+    "items": [
+     "**Raising → Import** → **Download template** (or use your own file — the headings are matched loosely).",
+     "Fill it in. Only **Name** is always required; the rest depends on your function, and the guide on the page shows a real example for every column.",
+     "**Choose file**. Anything that needs fixing is flagged on its row — a bad phone, a bad email, a missing required field — and the Import button waits until it's clean.",
+     "**Import**. Each row reports back: imported, or the exact reason it was blocked."
+    ]
+   },
+   {
+    "t": "p",
+    "md": "**The columns follow YOUR access.** You are only asked for what your own function actually uses, and a column your function doesn't carry is ignored even if the file has one — so an Industry column on a B2C import is simply dropped rather than written onto the account."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "If you work…",
+     "You're asked for",
+     "Required"
+    ],
+    "rows": [
+     [
+      "IGV",
+      "Project, Type, Industry",
+      "Name + **Project**"
+     ],
+     [
+      "IGT",
+      "Product (GTa/GTe), Sub product",
+      "Name + **Product**"
+     ],
+     [
+      "B2B / BD",
+      "Type, Industry",
+      "Name"
+     ],
+     [
+      "B2C",
+      "Type only — Courses / Events / Student activities",
+      "Name + **Type**"
+     ],
+     [
+      "Two functions",
+      "The union of both, plus a **Function** column to say which row is which",
+      "Whatever each row's function needs"
+     ]
+    ]
+   },
+   {
+    "t": "p",
+    "md": "Everyone also gets Name, Phone, Email, Website, Social link and Comment, and leaders get a **Responsible** column. Values are matched forgivingly: *courses* finds **Courses**, *teacher* finds **GTe**, *skill up* finds **Skill Up!**, and Egyptian phone numbers are normalised for you. Headings are matched loosely too — *Account Name*, *company*, *PHONE NUMBER*, *E-mail*, *Notes*, *Owner* all land where they should."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "How many rows can I import at once?",
+      "a": "500. Split a bigger file — and remember every row runs the full duplicate and archive check, so a big import takes a moment."
+     },
+     {
+      "q": "My file has extra columns Sodio doesn't know.",
+      "a": "They're ignored. Nothing breaks, nothing is stored."
+     },
+     {
+      "q": "Can I assign rows to other people?",
+      "a": "Only if you're a Team Leader or above. Put their full name in a Responsible column, or set it per row on screen. Anyone else's rows land with them."
+     },
+     {
+      "q": "A row was blocked after upload — why?",
+      "a": "The reason is printed on the row: usually the name already exists, or it's in the archive (the archive IS the blacklist, so those names never come back). Fix the name or drop the row and import the rest."
+     }
+    ]
+   }
+  ]
+ },
+ {
   "id": "prank-mode",
   "title": "🃏 Prank mode (someone got you)",
   "emoji": "🃏",
@@ -545,7 +757,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
  {
   "id": "what-is-sodio",
   "title": "What is Sodio?",
-  "emoji": "💙",
+  "emoji": "💜",
   "category": "getting-started",
   "audience": "Everyone",
   "audienceKeys": [
@@ -1590,14 +1802,14 @@ export const HELP_ARTICLES: HelpArticle[] = [
   "blocks": [
    {
     "t": "p",
-    "md": "Every raising account has a **Proposal email** button. Fill the popup — recipient, sector, an optional custom note — and Sodio creates a ready-to-send **draft in your own Gmail**. The email goes out from *your* address once you review and send it; Sodio is the stationery, not the sender. The account is marked `proposal_sent`, and nothing else moves — sending a proposal never changes ownership or stage."
+    "md": "Every raising account has a **Proposal email** button. Fill the popup — recipient, sector, an optional custom note — and Sodio **sends it straight from your own Gmail**. It leaves *your* address, so the reply comes back to you and the email sits in your Sent folder; Sodio is the stationery, not the sender. Want to re-read it first, or add a file of your own? Turn **Send it now** off and it waits in your drafts instead. Either way the account is marked `proposal_sent` and nothing else moves — a proposal never changes ownership or stage."
    },
    {
     "t": "steps",
     "items": [
      "Open the account → **Proposal email**. The product (iGV / iGTa / iGTe / B2B) is auto-detected and the company prefilled.",
-     "Optionally flip **Attach the official proposal** to bundle the per-product PDF. IGV/IGT prefill their own product's PDF; **B2B/BD start with nothing attached** — you opt in per product.",
-     "Create the draft, then open **Gmail**: review, attach anything extra, and hit send."
+     "Check the **proposals to attach**. The deck follows the email you're writing — a B2B email carries the **B2B proposal**, an iGV email the iGV deck — and you can tick any of the four on top. The popup shows the total MB, because an email can only carry about 17 MB of attachments.",
+     "**Send it now** is on by default — hit the button and it's gone. Turn it off to leave a draft instead, then open **Gmail** to review, add your own files, and send."
     ],
     "title": "Send one"
    },
@@ -1614,11 +1826,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
      ],
      [
       "B2B",
-      "A **general all-programs** variant linking to aiesec.org/partners by default — you can still pick a specific product's body. Signed Business Development Manager."
+      "A **general all-programs** variant linking to aiesec.org/partners by default, with the **B2B proposal PDF attached** — you can still pick a specific product's body, and the deck follows it. Signed Business Development Manager."
      ],
      [
       "BD",
-      "The **Talent Solutions** pitch — and no PDFs attach by default."
+      "The **Talent Solutions** pitch — and nothing attaches, because there is no BD deck. You can still tick one of the four by hand."
      ],
      [
       "B2C",
@@ -3157,7 +3369,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "callout",
-    "md": "**The reminder ladder is real.** If a session sits unrecorded, the responsible recorder gets one email per day (late evening Cairo time). After **three reminders**, Sodio greets them with a blocking prompt on next open that won't go away until the sheet is filled. Just fill it. 💙",
+    "md": "**The reminder ladder is real.** If a session sits unrecorded, the responsible recorder gets one email per day (late evening Cairo time). After **three reminders**, Sodio greets them with a blocking prompt on next open that won't go away until the sheet is filled. Just fill it. 💜",
     "tone": "warn"
    },
    {
@@ -3349,7 +3561,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "callout",
-    "md": "**It always travels the quiet path.** Whatever the score, the rating lands privately in the inbox read by the people who run the LC's sessions — **TM and the LCP** — never as a shout-out to whoever booked it. A 5-star meeting doesn't email anyone \"💙 someone appreciated you\"; a person is never scored, only the session. The inbox shows ★★★★☆ beside the row.",
+    "md": "**It always travels the quiet path.** Whatever the score, the rating lands privately in the inbox read by the people who run the LC's sessions — **TM and the LCP** — never as a shout-out to whoever booked it. A 5-star meeting doesn't email anyone \"💜 someone appreciated you\"; a person is never scored, only the session. The inbox shows ★★★★☆ beside the row.",
     "tone": "info"
    },
    {
@@ -3903,7 +4115,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
  {
   "id": "lc-feedback",
   "title": "Shout-outs, concerns & touch-point ratings (LC feedback)",
-  "emoji": "💙",
+  "emoji": "💜",
   "category": "emails-feedback",
   "audience": "Everyone",
   "audienceKeys": [

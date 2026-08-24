@@ -5,6 +5,7 @@ import { sendEmail } from "@/lib/google/gmail";
 import { periodReportEmail } from "@/lib/email/templates";
 import { buildFunctionReport, buildOgxReport, markCronRun } from "@/server/data";
 import { notifyMembers } from "@/server/notify";
+import { resolveMemberSettings } from "@/lib/member-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -177,19 +178,37 @@ export async function GET(req: NextRequest) {
           continue;
         }
 
-        await sendEmail({
-          to: [env.gmailSender],
-          bcc: report.recipients,
-          ...mail,
-        });
-
-        // bell for the crew too (link → dashboard)
+        // WHO STILL WANTS THE EMAIL (v34.8). The report is resolved by
+        // ADDRESS, so the opt-out has to be resolved by address too — the
+        // bell below is unaffected either way, which is the point: the
+        // numbers still reach everyone, just not always by inbox.
         const { data: crewRows } = await db()
           .from("members")
-          .select("id, email")
+          .select("id, email, settings")
           .in("email", report.recipients);
+        const crew = (crewRows ?? []) as {
+          id: string; email: string | null; settings: unknown;
+        }[];
+        const optedOut = new Set(
+          crew
+            .filter((m) => resolveMemberSettings(m.settings).emailPeriodReports === false)
+            .map((m) => (m.email ?? "").toLowerCase())
+        );
+        const mailTo = report.recipients.filter(
+          (e) => !optedOut.has(e.toLowerCase())
+        );
+
+        if (mailTo.length > 0) {
+          await sendEmail({
+            to: [env.gmailSender],
+            bcc: mailTo,
+            ...mail,
+          });
+        }
+
+        // bell for the crew too (link → dashboard) — everyone, always
         await notifyMembers(
-          (crewRows ?? []).map((m) => m.id),
+          crew.map((m) => m.id),
           "report",
           `📊 ${report.functionLabel} ${period.kind} report is out`,
           period.label,
@@ -199,7 +218,7 @@ export async function GET(req: NextRequest) {
 
         await db().from("app_settings").upsert({
           key: settingKey,
-          value: { sentAt: new Date().toISOString(), recipients: report.recipients.length },
+          value: { sentAt: new Date().toISOString(), recipients: mailTo.length },
           updated_at: new Date().toISOString(),
         });
         sent.push(settingKey);

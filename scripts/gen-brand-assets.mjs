@@ -27,7 +27,7 @@
 import { createRequire } from "module";
 import { fileURLToPath } from "url";
 import { dirname, resolve } from "path";
-import { writeFileSync } from "fs";
+import { readFileSync, writeFileSync } from "fs";
 const sharp = createRequire(import.meta.url)("sharp");
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -72,6 +72,7 @@ await sharp(Buffer.from(maskable)).resize(512, 512).png({ compressionLevel: 9 })
 await png(icon({ stroke: 12.5, rx: 16, node: true }), 512, `${REPO}/src/app/icon.png`);
 
 // ── the OG social card ────────────────────────────────────────────────────
+const logo20DataUri = `data:image/png;base64,${readFileSync(`${REPO}/public/brand/2.0-dark.png`).toString("base64")}`;
 const MARK = 128, MX = (1200 - MARK) / 2, MY = 128;
 const og = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
   <defs>
@@ -97,6 +98,17 @@ const og = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" vi
   <text x="600" y="462" text-anchor="middle" font-family="IBM Plex Mono" font-weight="600"
         font-size="26" letter-spacing="3.4" fill="#C0AEF3">AIESEC IN ALEXANDRIA</text>
   <rect x="556" y="506" width="88" height="4" rx="2" fill="#C0AEF3"/>
+  <!-- "Made by 2.0" (v34.9) — every other surface someone outside the LC sees
+       (external emails, the composed-letter footer) carries this credit now;
+       the link-preview card — the first thing an IR abroad sees when a
+       booking link lands in WhatsApp — was the one place it was still
+       missing. Embedded as a raster (no vector source for the mark exists)
+       at native 2:1, the light-ink-on-dark variant to sit on the card's navy. -->
+  <g transform="translate(600 560)">
+    <text x="-6" y="6" text-anchor="end" font-family="IBM Plex Mono" font-weight="500"
+          font-size="15" fill="#93A5BC">Made by</text>
+    <image x="4" y="-9" width="56" height="28" href="${logo20DataUri}"/>
+  </g>
 </svg>`;
 await sharp(Buffer.from(og)).png({ compressionLevel: 9 }).toFile(`${REPO}/public/brand/og-card.png`);
 

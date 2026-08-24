@@ -1,5 +1,5 @@
 import { env } from "@/lib/env";
-import { escapeHtml } from "./templates";
+import { escapeHtml, madeBy20 } from "./templates";
 
 /** THE MEMBER'S OWN LETTERS (v33.24).
  *
@@ -150,6 +150,9 @@ export function composedEmail(opts: {
 <body style="margin:0;padding:0;background:${opts.layout === "plain" ? "#ffffff" : "#f4f7fb"};font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${opts.layout === "plain" ? "#ffffff" : "#f4f7fb"};padding:26px 12px;">
     <tr><td align="center">${inner}</td></tr>
+    <!-- a member's letter goes to someone OUTSIDE the LC — enablers, EPs,
+         partner entities — so it carries the 2.0 credit (v34.8) -->
+    <tr><td align="center" style="padding-top:10px;">${madeBy20()}</td></tr>
   </table>
 </body>
 </html>`;

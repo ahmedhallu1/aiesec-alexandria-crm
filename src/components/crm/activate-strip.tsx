@@ -190,7 +190,7 @@ function ActivateBrief({ days, day, total }: { days: number; day: number; total:
             : "today is the day"}
         </b>
         . Day {day} of {total} on the road above — the Violet Man moves one step
-        along it every morning, whether or not the numbers moved with him. 💙
+        along it every morning, whether or not the numbers moved with him. 💜
       </p>
 
       <div className="grid gap-2">

@@ -15,7 +15,7 @@ export default async function FeedbackPage() {
         <p className="mt-1 text-sm text-muted-foreground">
           This system is built for <b>YOU</b> — every bug you report and every
           idea you share makes it better and more reliable for you and the whole
-          LC. Your feedback is a real contribution to building it. 💙
+          LC. Your feedback is a real contribution to building it. 💜
         </p>
       </div>
       <FeedbackForm showInboxLink={canSeeFeedbackInbox(viewer)} />

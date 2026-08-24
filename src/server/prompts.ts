@@ -4,6 +4,7 @@ import { db } from "@/lib/supabase";
 import { getViewer } from "@/server/data";
 import { canUseAdminTools } from "@/lib/rbac";
 import { cairoToday } from "@/lib/types";
+import { defaultResponseLabel } from "@/lib/im-prompt";
 
 /** ── PROMPTS THAT ASK FOR SOMETHING BACK (v34.7) ────────────────────────────
  *
@@ -153,7 +154,8 @@ export async function rateTouchPointFromPrompt(
 /** Compose a prompt for the LC. IM director / admin tools only. */
 export async function createImPrompt(input: {
   title: string;
-  body: string;
+  /** optional since v34.8 — the title is often the whole message */
+  body?: string;
   responseKind: "none" | "acknowledge" | "rating" | "text";
   responseLabel?: string | null;
   audience: "all" | "function" | "role" | "picked";
@@ -163,9 +165,14 @@ export async function createImPrompt(input: {
   const viewer = await getViewer();
   if (!canUseAdminTools(viewer)) return { ok: false, error: "Admin tools only." };
   const title = input.title.trim();
-  const body = input.body.trim();
+  // ONE MANDATORY FIELD (v34.8). It used to be three — a title, a body, AND a
+  // question above the rating control — for what is often a single sentence
+  // ("Peak review is on Sunday", "How ready do you feel?"). Three boxes to
+  // fill for one sentence is how a feature stops being used. The title is the
+  // sentence; everything under it is optional and falls back to something
+  // sensible rather than being demanded.
+  const body = (input.body ?? "").trim();
   if (title.length < 2) return { ok: false, error: "Give it a title." };
-  if (body.length < 2) return { ok: false, error: "Write what you want them to see." };
   if (input.audience !== "all" && input.audienceValues.length === 0)
     return { ok: false, error: "Pick who it goes to." };
 
@@ -174,9 +181,12 @@ export async function createImPrompt(input: {
     .insert({
       created_by: viewer.id,
       title,
-      body,
+      body: body || null,
       response_kind: input.responseKind,
-      response_label: (input.responseLabel ?? "").trim() || null,
+      // no question typed → the control asks the obvious one for its kind, so
+      // the prompt never renders a bare box with nothing above it
+      response_label:
+        (input.responseLabel ?? "").trim() || defaultResponseLabel(input.responseKind),
       audience: input.audience,
       audience_values: input.audienceValues,
       dismissible: input.dismissible,
@@ -212,7 +222,7 @@ export async function createImPrompt(input: {
       kind: "im_prompt",
       ref_id: prompt.id,
       title,
-      body,
+      body: body || null,
       link: null,
     }))
   );

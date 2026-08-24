@@ -32,7 +32,7 @@ export function touchPointInviteEmail(opts: Base) {
           ["Where", opts.location ?? null],
           ["Note", opts.note ?? null],
         ])}
-        <p>Attendance is taken afterwards — being there is the whole point. 💙</p>
+        <p>Attendance is taken afterwards — being there is the whole point. 💜</p>
         ${button("See it on your calendar", `${env.appUrl}/calendar`)}`,
     }),
   };

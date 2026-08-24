@@ -84,7 +84,7 @@ export function MmPlanForm({
         return;
       }
       if (mode === "welcome") {
-        toast.success("Plan saved — go get those approvals! 💙");
+        toast.success("Plan saved — go get those approvals! 💜");
         router.replace("/");
       } else {
         toast.success("Plan updated 🎯");
