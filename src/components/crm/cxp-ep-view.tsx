@@ -77,18 +77,63 @@ export function CxpEpView({
   const [pending, startTransition] = useTransition();
   const [busy, setBusy] = useState<string | null>(null);
   const inputs = useRef<Record<string, HTMLInputElement | null>>({});
-  const [stageFilter, setStageFilter] = useState("");
-  const [stateFilter, setStateFilter] = useState("");
+  const [colFilter, setColFilter] = useState<Record<string, string>>({});
+
+  /** What a document row presents to each column's filter. */
+  const docFilterValue = (d: EpDocRow, key: string): string => {
+    switch (key) {
+      case "stage":
+        return d.stageKey;
+      case "document":
+        return d.requirementName;
+      case "due":
+        // grouped, because a filter listing 26 distinct dates is a list
+        return d.dueDate || d.window ? "dated" : "no date";
+      case "state":
+        return d.uploaded ? "have" : "missing";
+      default:
+        return "";
+    }
+  };
+
+  const docLabel = (key: string, v: string) => {
+    if (key === "stage") return STAGE_BY_KEY[v as CxpStageKey] ?? v;
+    if (key === "state") return v === "have" ? "Collected" : "Missing";
+    if (key === "due") return v === "dated" ? "Has a deadline" : "No fixed date";
+    return v;
+  };
+
+  /** Options per column, from the rows themselves. */
+  const docOptions = useMemo(() => {
+    const out: Record<string, { value: string; label: string }[]> = {};
+    for (const key of ["stage", "document", "due", "state"]) {
+      const seen = new Set<string>();
+      for (const d of docs) {
+        const v = docFilterValue(d, key);
+        if (v) seen.add(v);
+      }
+      out[key] = [...seen]
+        .sort((a, b) =>
+          key === "stage"
+            ? CXP_STAGE_KEYS.indexOf(a as CxpStageKey) - CXP_STAGE_KEYS.indexOf(b as CxpStageKey)
+            : a.localeCompare(b)
+        )
+        .map((v) => ({ value: v, label: docLabel(key, v) }));
+    }
+    return out;
+     
+  }, [docs]);
 
   const filtered = useMemo(() => {
-    const stages = multi(stageFilter);
-    const states = multi(stateFilter);
     return docs.filter((d) => {
-      if (stages.length && !stages.includes(d.stageKey)) return false;
-      if (states.length && !states.includes(d.uploaded ? "have" : "missing")) return false;
+      for (const [key, raw] of Object.entries(colFilter)) {
+        const picked = multi(raw);
+        if (picked.length && !picked.includes(docFilterValue(d, key))) return false;
+      }
       return true;
     });
-  }, [docs, stageFilter, stateFilter]);
+     
+  }, [docs, colFilter]);
 
   const { sorted, sortKey, dir, toggle } = useTableSort(filtered, {
     stage: (d: EpDocRow) => CXP_STAGE_KEYS.indexOf(d.stageKey),
@@ -172,23 +217,19 @@ export function CxpEpView({
         <Badge variant="outline">
           {have}/{docs.length} collected
         </Badge>
-        <div className="ml-auto flex flex-wrap gap-2">
-          <ColumnFilter
-            label="Stage"
-            value={stageFilter}
-            onChange={setStageFilter}
-            options={CXP_STAGE_KEYS.map((k) => ({ value: k, label: STAGE_BY_KEY[k] }))}
-          />
-          <ColumnFilter
-            label="State"
-            value={stateFilter}
-            onChange={setStateFilter}
-            options={[
-              { value: "missing", label: "Missing" },
-              { value: "have", label: "Collected" },
-            ]}
-          />
-        </div>
+        <span className="text-xs text-muted-foreground">
+          {filtered.length} of {docs.length} shown
+        </span>
+        {Object.values(colFilter).some(Boolean) ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto h-7 text-xs"
+            onClick={() => setColFilter({})}
+          >
+            Clear filters
+          </Button>
+        ) : null}
       </div>
 
       <div className="overflow-x-auto rounded-lg border">
@@ -204,12 +245,25 @@ export function CxpEpView({
                 ] as [string, string][]
               ).map(([key, label]) => (
                 <TableHead key={key}>
-                  <SortHeader
-                    label={label}
-                    active={sortKey === key}
-                    dir={sortKey === key ? dir : null}
-                    onClick={() => toggle(key)}
-                  />
+                  <div className="flex items-center gap-1">
+                    <SortHeader
+                      label={label}
+                      active={sortKey === key}
+                      dir={sortKey === key ? dir : null}
+                      onClick={() => toggle(key)}
+                    />
+                    {(docOptions[key]?.length ?? 0) > 1 ? (
+                      <ColumnFilter
+                        label={label}
+                        value={colFilter[key] ?? ""}
+                        options={docOptions[key]}
+                        onChange={(v) =>
+                          setColFilter((prev) => ({ ...prev, [key]: v }))
+                        }
+                        allLabel={`All ${label.toLowerCase()}`}
+                      />
+                    ) : null}
+                  </div>
                 </TableHead>
               ))}
             </TableRow>

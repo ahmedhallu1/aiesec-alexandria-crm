@@ -1,8 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Table,
@@ -85,8 +87,10 @@ export function CxpWeeklyView({
   side: CxpSide | null;
   sides: CxpSide[];
 }) {
-  const [fnFilter, setFnFilter] = useState("");
-  const [bucketFilter, setBucketFilter] = useState("");
+  const router = useRouter();
+  // opening an EP is a navigation — show that the click landed
+  const [navPending, startNav] = useTransition();
+  const [colFilter, setColFilter] = useState<Record<string, string>>({});
   const cols = useTableColumns("cxp-weekly", COLUMNS);
 
   const allItems = useMemo(
@@ -94,15 +98,53 @@ export function CxpWeeklyView({
     [eps]
   );
 
+  /** What an item presents to each column's filter. */
+  const itemValue = (i: WeeklyItem, key: string): string => {
+    switch (key) {
+      case "ep":
+        return i.epName || i.epOppId;
+      case "requirement":
+        return i.requirementName;
+      case "stage":
+        return i.stageKey;
+      case "due":
+        return i.dueDate ?? "no date";
+      case "bucket":
+        return i.bucket;
+      default:
+        return "";
+    }
+  };
+
+  const itemLabel = (key: string, v: string) =>
+    key === "bucket" ? (BUCKET_LABEL[v as WeeklyItem["bucket"]] ?? v) : v;
+
+  const options = useMemo(() => {
+    const out: Record<string, { value: string; label: string }[]> = {};
+    for (const c of COLUMNS) {
+      const seen = new Set<string>();
+      for (const i of allItems) {
+        const v = itemValue(i, c.key);
+        if (v) seen.add(v);
+      }
+      out[c.key] = [...seen]
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+        .map((v) => ({ value: v, label: itemLabel(c.key, v) }));
+    }
+    return out;
+     
+  }, [allItems]);
+
   const filtered = useMemo(() => {
-    const fns = multi(fnFilter);
-    const buckets = multi(bucketFilter);
     return allItems.filter((i) => {
-      if (fns.length && !fns.includes(i.function)) return false;
-      if (buckets.length && !buckets.includes(i.bucket)) return false;
+      for (const [key, raw] of Object.entries(colFilter)) {
+        const picked = multi(raw);
+        if (picked.length && !picked.includes(itemValue(i, key))) return false;
+      }
       return true;
     });
-  }, [allItems, fnFilter, bucketFilter]);
+     
+  }, [allItems, colFilter]);
 
   const { sorted, sortKey, dir, toggle } = useTableSort(filtered, SORTERS);
 
@@ -213,40 +255,47 @@ export function CxpWeeklyView({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <ColumnFilter
-          label="Function"
-          value={fnFilter}
-          onChange={setFnFilter}
-          options={summaries.map((s) => ({ value: s.function, label: s.function }))}
-        />
-        <ColumnFilter
-          label="State"
-          value={bucketFilter}
-          onChange={setBucketFilter}
-          options={[
-            { value: "overdue", label: "Overdue" },
-            { value: "current", label: "Due this week" },
-            { value: "ongoing", label: "Always owed" },
-          ]}
-        />
-        <span className="ml-auto text-xs text-muted-foreground">
-          {filtered.length} document(s)
+        <span className="text-xs text-muted-foreground">
+          {filtered.length} of {allItems.length} document(s)
         </span>
-        <TableSettings columns={cols} />
+        {Object.values(colFilter).some(Boolean) ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => setColFilter({})}
+          >
+            Clear filters
+          </Button>
+        ) : null}
+        <TableSettings columns={cols} className="ml-auto" />
       </div>
 
-      <div className="overflow-x-auto rounded-lg border">
+      <div className={cn("overflow-x-auto rounded-lg border", navPending && "nav-pending")}>
         <Table>
           <TableHeader>
             <TableRow>
               {cols.visible.map((c) => (
                 <TableHead key={c.key}>
-                  <SortHeader
-                    label={c.label}
-                    active={sortKey === c.key}
-                    dir={sortKey === c.key ? dir : null}
-                    onClick={() => toggle(c.key)}
-                  />
+                  <div className="flex items-center gap-1">
+                    <SortHeader
+                      label={c.label}
+                      active={sortKey === c.key}
+                      dir={sortKey === c.key ? dir : null}
+                      onClick={() => toggle(c.key)}
+                    />
+                    {(options[c.key]?.length ?? 0) > 1 ? (
+                      <ColumnFilter
+                        label={c.label}
+                        value={colFilter[c.key] ?? ""}
+                        options={options[c.key]}
+                        onChange={(v) =>
+                          setColFilter((prev) => ({ ...prev, [c.key]: v }))
+                        }
+                        allLabel={`All ${c.label.toLowerCase()}`}
+                      />
+                    ) : null}
+                  </div>
                 </TableHead>
               ))}
             </TableRow>
@@ -263,7 +312,15 @@ export function CxpWeeklyView({
               </TableRow>
             ) : (
               sorted.map((i) => (
-                <TableRow key={`${i.epOppId}|${i.stageKey}|${i.requirementKey}`}>
+                <TableRow
+                  key={`${i.epOppId}|${i.stageKey}|${i.requirementKey}`}
+                  onClick={() =>
+                    startNav(() =>
+                      router.push(`/cxp/ep/${encodeURIComponent(i.epOppId)}`)
+                    )
+                  }
+                  className="cursor-pointer"
+                >
                   {cols.visible.map((c) => (
                     <TableCell key={c.key}>{cell(i, c.key)}</TableCell>
                   ))}
@@ -284,6 +341,7 @@ function cell(i: WeeklyItem, key: string): React.ReactNode {
         <Link prefetch={false}
           href={`/cxp/ep/${encodeURIComponent(i.epOppId)}`}
           className="font-medium hover:underline"
+          onClick={(e) => e.stopPropagation()}
         >
           {i.epName || i.epOppId}
         </Link>
