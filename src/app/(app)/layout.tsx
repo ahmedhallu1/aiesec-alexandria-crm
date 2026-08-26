@@ -8,6 +8,7 @@ import {
   canManageMembership, canSeePlanning, canUseAdminTools, canUseMailboxTab,
   isB2C, isTmCore, seesEveryLane,
 } from "@/lib/rbac";
+import { hasCxpAccess } from "@/lib/cxp/rbac";
 import { signOut } from "@/lib/auth";
 import { AppShell } from "@/components/crm/app-shell";
 import { ComingSoon } from "@/components/crm/coming-soon";
@@ -60,6 +61,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const b2cCic = isB2C(viewer);
   // the Consideration module (v26): IR calls + the CV pool
   const consideration = hasConsiderationAccess(viewer);
+  // the CXP module (v35): ECB submission tracking for all four product
+  // functions, gated per SIDE — see src/lib/cxp/rbac.ts for the rules
+  const cxp = hasCxpAccess(viewer);
   const membership = canManageMembership(viewer);
   const planning = canSeePlanning(viewer);
   // OGT & OGV VPs/Directors (+ LCP/admin): the Expectation-Setting mail composer
@@ -91,6 +95,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     ...(planning ? ["/planning"] : []),
     ...(ogx || b2cCic ? ["/signups"] : []),
     ...(consideration ? ["/consideration"] : []),
+    ...(cxp ? ["/cxp"] : []),
     ...(dashboard ? ["/dashboard"] : []),
     ...(ogtMail ? ["/ogt-mail"] : []),
   ];
@@ -157,6 +162,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         signups: ogx || b2cCic,
         consideration,
         mailbox,
+        cxp,
       }}
       signOutAction={async () => {
         "use server";

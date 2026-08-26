@@ -24,6 +24,7 @@ import {
   BookOpen,
   Activity,
   Target,
+  ClipboardCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -53,7 +54,7 @@ interface ShellProps {
     /** may open Health & Logs and the test view (v33) */
     adminTools: boolean;
   };
-  nav: { raising: boolean; dashboard: boolean; tm: boolean; membership: boolean; planning: boolean; ogtMail: boolean; signups: boolean; consideration: boolean; calendar: boolean; mailbox: boolean };
+  nav: { raising: boolean; dashboard: boolean; tm: boolean; membership: boolean; planning: boolean; ogtMail: boolean; signups: boolean; consideration: boolean; calendar: boolean; mailbox: boolean; cxp: boolean };
   signOutAction: () => Promise<void>;
   /** the admin's test-view pool — empty for everyone else (v33.42) */
   viewAsTargets?: ViewAsTarget[];
@@ -117,6 +118,10 @@ export function AppShell({
     ...(nav.consideration
       ? [{ href: "/consideration", label: "Consideration", icon: Globe2 }]
       : []),
+    // v35 — the ECB submission module, migrated from the standalone Internal
+    // Auditing System. Sits beside Consideration: on the ICX side it is the
+    // same crew's work, one step further down the EP's journey.
+    ...(nav.cxp ? [{ href: "/cxp", label: "CXP", icon: ClipboardCheck }] : []),
     // non-raising lane owners: the Dashboard sits right after the module they
     // actually work in (Sign-ups / Consideration), never above it
     ...(nav.dashboard && !nav.raising ? [dashboardItem] : []),

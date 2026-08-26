@@ -119,3 +119,35 @@ select cron.schedule(
 --    To go back (GitHub down, secrets rotated), re-run the two cron.schedule
 --    calls above and disable the workflow.
 -- ===================================================================
+
+-- ============================================================ CXP module (v35)
+-- APPLIED 2026-08-26 against https://sodio.vercel.app (jobids 25/26/27, active).
+-- Kept here as the reproducible record — re-running is safe only after
+-- cron.unschedule(), since cron.schedule() with an existing name errors.
+-- The ECB submission tracking migrated out of the standalone Internal Auditing
+-- System. ORDER MATTERS: the sync must land before the reminder reads it, or
+-- the email quotes yesterday's missing-document counts.
+
+-- Hourly at :20 — mirror the ECB SubTool tabs into cxp_ep_records
+select cron.schedule(
+  'cxp-sync',
+  '20 * * * *',
+  $$ select net.http_get(url := '<APP_URL>/api/cron/cxp-sync?key=<CRON_SECRET>') $$
+);
+
+-- Hourly at :35 — index documents dropped straight into Drive (after the sync,
+-- which is what tells it which EPs exist)
+select cron.schedule(
+  'cxp-drive-scan',
+  '35 * * * *',
+  $$ select net.http_get(url := '<APP_URL>/api/cron/cxp-drive-scan?key=<CRON_SECRET>') $$
+);
+
+-- Daily 08:00 UTC (10:00/11:00 Cairo) — the weekly submission reminder.
+-- Runs every day but SENDS only when tomorrow is an ECB deadline (6/13/20/27),
+-- i.e. on the 5th, 12th, 19th and 26th. Same gate the old system used.
+select cron.schedule(
+  'cxp-reminders',
+  '0 8 * * *',
+  $$ select net.http_get(url := '<APP_URL>/api/cron/cxp-reminders?key=<CRON_SECRET>') $$
+);
