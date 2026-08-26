@@ -21,6 +21,8 @@ import { CXP_STAGE_KEYS, STAGE_BY_KEY, type CxpStageKey } from "@/lib/cxp/types"
 import { Button } from "@/components/ui/button";
 import { uploadCxpFile } from "@/server/cxp-actions";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+import { Check, Copy, UploadCloud } from "lucide-react";
 
 /** One row of the EP's document checklist. */
 export interface EpDocRow {
@@ -76,8 +78,21 @@ export function CxpEpView({
 }) {
   const [pending, startTransition] = useTransition();
   const [busy, setBusy] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
   const inputs = useRef<Record<string, HTMLInputElement | null>>({});
   const [colFilter, setColFilter] = useState<Record<string, string>>({});
+
+  const copy = (value: string, label: string) => async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(value);
+      toast.success(`Copied ${label}.`);
+      setTimeout(() => setCopied((c) => (c === value ? null : c)), 1200);
+    } catch {
+      toast.error("Could not copy — your browser blocked clipboard access.");
+    }
+  };
 
   /** What a document row presents to each column's filter. */
   const docFilterValue = (d: EpDocRow, key: string): string => {
@@ -160,41 +175,81 @@ export function CxpEpView({
     });
   };
 
+  // ONE FIELD, whichever side populated it. The parser only ever fills one of
+  // hostLc/homeLc (OGX -> hostLc, ICX -> homeLc) — showing both as separate
+  // boxes meant one was always an empty box next to a full one, which is
+  // exactly the "some barely visible" complaint.
+  const partnerLc = header.side === "OGX" ? header.hostLc : header.homeLc;
+  const partnerLcLabel = header.side === "OGX" ? "Hosting entity" : "Sending LC";
+
+  // EVERY FACT IN ONE EVEN GRID. Four separate Card components of the same
+  // fixed height LOOK even, but adding a fact meant either a fifth box that
+  // broke the grid or burying it in the subtitle (opportunity name, the
+  // partner LC — both were invisible before this). One grid, one row height,
+  // every field the same size as its neighbour; a missing value reads as "—",
+  // never as a differently-sized box.
+  const infoFields: [string, string | null][] = [
+    ["Product", header.product || null],
+    ["Status", header.status || null],
+    [partnerLcLabel, partnerLc],
+    ["Opportunity", header.opportunityName],
+    ["Approved", header.approvalDate],
+    ["Arrival (flight)", header.arrivalDate],
+    ["Start", header.startDate],
+    ["End", header.endDate],
+  ];
+
   return (
     <div className="grid gap-5">
       <div>
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-2xl font-bold">{header.epName || header.epOppId}</h1>
+          {header.epName ? (
+            <button
+              type="button"
+              onClick={copy(header.epName, "EP name")}
+              title="Copy name"
+              className="rounded p-1 text-muted-foreground/70 transition hover:bg-muted hover:text-foreground"
+            >
+              {copied === header.epName ? (
+                <Check className="h-4 w-4 text-emerald-600" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
+            </button>
+          ) : null}
           <Badge variant="secondary">{header.function}</Badge>
-          {header.product ? <Badge variant="outline">{header.product}</Badge> : null}
           {header.needsReview ? <Badge variant="outline">needs review</Badge> : null}
         </div>
-        <p className="text-sm text-muted-foreground">
+        <button
+          type="button"
+          onClick={copy(header.epOppId, "EP/OPP ID")}
+          title="Click to copy"
+          className="inline-flex items-center gap-1 rounded px-1 -mx-1 font-mono text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground"
+        >
           {header.epOppId}
-          {header.opportunityName ? ` · ${header.opportunityName}` : ""}
-          {header.status ? ` · ${header.status}` : ""}
-        </p>
+          {copied === header.epOppId ? (
+            <Check className="h-3 w-3 text-emerald-600" />
+          ) : (
+            <Copy className="h-3 w-3 opacity-50" />
+          )}
+        </button>
       </div>
 
-      {/* THE DATES THAT DRIVE EVERY DEADLINE — surfaced because when a
-          deadline looks wrong, one of these is the reason */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {(
-          [
-            ["Approved", header.approvalDate],
-            ["Arrival (flight)", header.arrivalDate],
-            ["Start", header.startDate],
-            ["End", header.endDate],
-          ] as [string, string | null][]
-        ).map(([label, value]) => (
-          <Card key={label}>
-            <CardContent className="p-4">
+      {/* THE FACTS THAT DRIVE EVERY DEADLINE, and everything else about the
+          EP — one even grid instead of separate boxes of separate sizes */}
+      <Card>
+        <CardContent className="grid grid-cols-2 gap-x-4 gap-y-4 p-4 sm:grid-cols-4">
+          {infoFields.map(([label, value]) => (
+            <div key={label} className="min-w-0">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
-              <p className="mt-1 text-lg font-semibold">{value ?? "—"}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+              <p className="mt-1 truncate text-sm font-semibold" title={value ?? undefined}>
+                {value ?? "—"}
+              </p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
       {/* THE ECB'S OWN COMMENTS — what to correct, not just what is absent */}
       {header.comments.length > 0 ? (
@@ -269,74 +324,105 @@ export function CxpEpView({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sorted.map((d) => (
-              <TableRow key={`${d.stageKey}|${d.requirementKey}`}>
-                <TableCell className="text-xs text-muted-foreground">{d.stage}</TableCell>
-                <TableCell>
-                  <span className="font-medium">{d.requirementName}</span>
-                  <p className="text-xs text-muted-foreground">{d.criteria}</p>
-                </TableCell>
-                <TableCell className="text-xs">
-                  {d.window ?? d.dueDate ?? (
-                    <span className="text-muted-foreground">no fixed date</span>
-                  )}
-                  {d.basedOn ? (
-                    <p className="text-[10px] text-muted-foreground">from {d.basedOn}</p>
-                  ) : null}
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-2">
-                    {d.uploaded ? (
-                      d.fileUrl ? (
-                        <a
-                          href={d.fileUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-sm font-medium text-emerald-600 hover:underline"
-                        >
-                          View
-                        </a>
-                      ) : (
-                        <Badge variant="secondary">collected</Badge>
-                      )
-                    ) : (
-                      <Badge variant="destructive">missing</Badge>
+            {sorted.map((d) => {
+              const rowKey = `${d.stageKey}|${d.requirementKey}`;
+              return (
+                <TableRow
+                  key={rowKey}
+                  className={cn(dragOver === rowKey && "bg-primary/5")}
+                  // THE WHOLE ROW IS A DROP TARGET when editable — drag a file
+                  // from Finder/Explorer straight onto its requirement, no
+                  // need to find the Attach button first.
+                  onDragOver={
+                    canEdit
+                      ? (e) => {
+                          e.preventDefault();
+                          setDragOver(rowKey);
+                        }
+                      : undefined
+                  }
+                  onDragLeave={canEdit ? () => setDragOver((k) => (k === rowKey ? null : k)) : undefined}
+                  onDrop={
+                    canEdit
+                      ? (e) => {
+                          e.preventDefault();
+                          setDragOver(null);
+                          const f = e.dataTransfer.files?.[0];
+                          if (f) attach(d, f);
+                        }
+                      : undefined
+                  }
+                >
+                  <TableCell className="text-xs text-muted-foreground">{d.stage}</TableCell>
+                  <TableCell>
+                    <span className="font-medium">{d.requirementName}</span>
+                    <p className="text-xs text-muted-foreground">{d.criteria}</p>
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    {d.window ?? d.dueDate ?? (
+                      <span className="text-muted-foreground">no fixed date</span>
                     )}
-                    {canEdit ? (
-                      <>
-                        <input
-                          ref={(el) => {
-                            inputs.current[`${d.stageKey}|${d.requirementKey}`] = el;
-                          }}
-                          type="file"
-                          className="hidden"
-                          onChange={(e) => {
-                            const f = e.target.files?.[0];
-                            if (f) attach(d, f);
-                            e.target.value = "";
-                          }}
-                        />
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                          disabled={pending}
-                          onClick={() =>
-                            inputs.current[`${d.stageKey}|${d.requirementKey}`]?.click()
-                          }
-                        >
-                          {busy === `${d.stageKey}|${d.requirementKey}`
-                            ? "Uploading…"
-                            : d.uploaded
-                              ? "Replace"
-                              : "Attach"}
-                        </Button>
-                      </>
+                    {d.basedOn ? (
+                      <p className="text-[10px] text-muted-foreground">from {d.basedOn}</p>
                     ) : null}
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      {d.uploaded ? (
+                        d.fileUrl ? (
+                          <a
+                            href={d.fileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm font-medium text-emerald-600 hover:underline"
+                          >
+                            View
+                          </a>
+                        ) : (
+                          <Badge variant="secondary">collected</Badge>
+                        )
+                      ) : dragOver === rowKey ? (
+                        <Badge variant="outline" className="border-primary text-primary">
+                          <UploadCloud className="mr-1 h-3 w-3" />
+                          Drop to attach
+                        </Badge>
+                      ) : (
+                        <Badge variant="destructive">missing</Badge>
+                      )}
+                      {canEdit ? (
+                        <>
+                          <input
+                            ref={(el) => {
+                              inputs.current[rowKey] = el;
+                            }}
+                            type="file"
+                            className="hidden"
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (f) attach(d, f);
+                              e.target.value = "";
+                            }}
+                          />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            disabled={pending}
+                            onClick={() => inputs.current[rowKey]?.click()}
+                          >
+                            {busy === rowKey
+                              ? "Uploading…"
+                              : d.uploaded
+                                ? "Replace"
+                                : "Attach"}
+                          </Button>
+                        </>
+                      ) : null}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </div>

@@ -2,6 +2,7 @@ import "server-only";
 import { db } from "@/lib/supabase";
 import { getViewer } from "./data";
 import {
+  canRunCxpOps,
   canViewCxpFunction,
   cxpDefaultFunction,
   cxpDefaultSide,
@@ -51,6 +52,8 @@ export async function cxpAccess(): Promise<{
   sides: CxpSide[];
   defaultSide: CxpSide | null;
   defaultFunction: CxpFunction | null;
+  /** may this viewer build/regenerate the weekly folder + ZIP? */
+  canOps: boolean;
 }> {
   const viewer = await getViewer();
   return {
@@ -59,6 +62,7 @@ export async function cxpAccess(): Promise<{
     sides: cxpSides(viewer),
     defaultSide: cxpDefaultSide(viewer),
     defaultFunction: cxpDefaultFunction(viewer),
+    canOps: canRunCxpOps(viewer),
   };
 }
 

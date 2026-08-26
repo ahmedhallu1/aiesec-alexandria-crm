@@ -87,7 +87,7 @@ export function diffDays(a: string, b: string): number {
 
 // --------------------------------------------------------------- the engine
 
-interface DeadlineInputs {
+export interface DeadlineInputs {
   epOppId: string;
   function: CxpFunction;
   stageKey: CxpStageKey;

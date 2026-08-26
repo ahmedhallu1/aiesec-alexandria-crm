@@ -297,7 +297,8 @@ export async function runWeeklyReminders(opts: {
   };
 }
 
-async function loadStatusMap(): Promise<Record<string, { uploaded: boolean }>> {
+/** Shared with cxp-digest.ts — one query, not two copies of it. */
+export async function loadStatusMap(): Promise<Record<string, { uploaded: boolean }>> {
   const { data } = await db()
     .from("cxp_requirement_status")
     .select("ep_opp_id, stage_key, requirement_key, uploaded");

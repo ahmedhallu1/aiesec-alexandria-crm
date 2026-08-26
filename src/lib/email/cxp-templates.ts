@@ -96,12 +96,19 @@ export function cxpSubmissionReminderEmail(opts: {
  *  notifications are composed by Google, so they could never carry the LC's
  *  branding — which is exactly the complaint that started this migration.
  *
- *  This is the branded replacement: one digest per person, listing the
- *  documents falling due, instead of N unbranded calendar pings. The calendar
- *  events stay where they are; this rides alongside them.
+ *  This is the branded replacement: ONE DIGEST PER FUNCTION PER DAY, listing
+ *  every document falling due, instead of N unbranded calendar pings. Not per
+ *  person — CXP EPs carry no "responsible member" field, so the audience is
+ *  the same one the submission reminder already uses: that function's VP(s)
+ *  plus the CXP leadership of its side. The calendar events stay where they
+ *  are; this rides alongside them.
  */
 export function cxpDocumentDigestEmail(opts: {
-  firstName: string;
+  /** e.g. "IGV" — mirrors the submission reminder's subject so the same
+   *  Gmail filter that catches one catches both */
+  functionLabel: string;
+  /** who this digest addresses — "IGV team", "the OGT crew" */
+  audienceLabel: string;
   items: {
     function: CxpFunction;
     epName: string;
@@ -113,13 +120,17 @@ export function cxpDocumentDigestEmail(opts: {
   }[];
   epUrlFor: (epOppId: string) => string;
 }): { subject: string; html: string } {
-  const overdue = opts.items.filter((i) => i.overdue);
+  // `overdue` on the item marks the DAY-OF touch (its due date is today) —
+  // the urgent half of the two reminders the old calendar events sent. It is
+  // not a running "still missing" tracker: a document nobody acted on simply
+  // does not resurface after today, same as the calendar never re-fired.
+  const dueToday = opts.items.filter((i) => i.overdue);
   const soon = opts.items.filter((i) => !i.overdue);
 
   const subject =
-    overdue.length > 0
-      ? `[ECB] ${overdue.length} overdue document(s) — and ${soon.length} due soon`
-      : `[ECB] ${soon.length} document(s) due soon`;
+    dueToday.length > 0
+      ? `[ECB] ${opts.functionLabel} — ${dueToday.length} due today, ${soon.length} due soon`
+      : `[ECB] ${opts.functionLabel} — ${soon.length} document(s) due soon`;
 
   const section = (
     label: string,
@@ -144,8 +155,8 @@ export function cxpDocumentDigestEmail(opts: {
       preheader: `${opts.items.length} ECB document(s) need collecting.`,
       body: `
         <h2 style="margin:0 0 4px;">Documents to collect</h2>
-        <p style="margin:0 0 14px;color:#5c6b80;">Hi ${escapeHtml(opts.firstName)} — here is what the ECB is waiting on.</p>
-        ${section("Overdue", "#C0392B", overdue)}
+        <p style="margin:0 0 14px;color:#5c6b80;">Hi ${escapeHtml(opts.audienceLabel)} — here is what the ECB is waiting on today.</p>
+        ${section("Due today", "#C0392B", dueToday)}
         ${section("Due soon", "#5B3BA8", soon)}
         ${button("Open CXP", `${env.appUrl}/cxp`)}
         <p style="margin:14px 0 0;color:#5c6b80;font-size:13px;">

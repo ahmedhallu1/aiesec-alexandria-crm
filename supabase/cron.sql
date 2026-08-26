@@ -143,6 +143,16 @@ select cron.schedule(
   $$ select net.http_get(url := '<APP_URL>/api/cron/cxp-drive-scan?key=<CRON_SECRET>') $$
 );
 
+-- Daily 06:00 UTC (08:00/09:00 Cairo) — the branded daily document digest,
+-- replacing the old per-document Google Calendar notifications. One email per
+-- function that has something due today (see src/lib/cxp/digest.ts). Rides
+-- the SAME 1 Sep cutover as every other CXP email.
+select cron.schedule(
+  'cxp-document-digest',
+  '0 6 * * *',
+  $$ select net.http_get(url := '<APP_URL>/api/cron/cxp-document-digest?key=<CRON_SECRET>') $$
+);
+
 -- Daily 08:00 UTC (10:00/11:00 Cairo) — the weekly submission reminder.
 -- Runs every day but SENDS only when tomorrow is an ECB deadline (6/13/20/27),
 -- i.e. on the 5th, 12th, 19th and 26th. Same gate the old system used.

@@ -3,6 +3,8 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { Check, Copy } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -107,6 +109,25 @@ function optionLabel(colKey: string, value: string): string {
   return value;
 }
 
+/** Copy some text to the clipboard, with a toast and a brief checkmark.
+ *  `navigator.clipboard` needs a secure context, which the deployed app always
+ *  is — but a courteous try/catch beats a dead button on an odd browser. */
+function useCopy() {
+  const [copied, setCopied] = useState<string | null>(null);
+  const copy = (value: string, label: string) => async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(value);
+      toast.success(`Copied ${label}.`);
+      setTimeout(() => setCopied((c) => (c === value ? null : c)), 1200);
+    } catch {
+      toast.error("Could not copy — your browser blocked clipboard access.");
+    }
+  };
+  return { copied, copy };
+}
+
 export function CxpEpsView({
   rows,
   sides,
@@ -193,6 +214,7 @@ export function CxpEpsView({
 
   const epHref = (r: CxpEpSummary) => `/cxp/ep/${encodeURIComponent(r.epOppId)}`;
   const openEp = (r: CxpEpSummary) => startNav(() => router.push(epHref(r)));
+  const { copied, copy } = useCopy();
 
   return (
     <div className="grid gap-4">
@@ -208,7 +230,10 @@ export function CxpEpsView({
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-2">
+      {/* title on the left, the month toggle on the top RIGHT — it was
+          previously buried between the title and the search box, which read
+          as an odd place for the single most-clicked control on the page */}
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h2 className="text-lg font-semibold">
             {scope === "previous" ? "Last month — still incomplete" : "This month's submissions"}
@@ -216,7 +241,6 @@ export function CxpEpsView({
           <p className="text-xs text-muted-foreground">{monthLabel}</p>
         </div>
 
-        {/* THE MONTH TOGGLE — the old past-month view, behind a button */}
         <Link
           prefetch={false}
           href={href({ scope: scope === "previous" ? "current" : "previous" })}
@@ -237,12 +261,16 @@ export function CxpEpsView({
             )}
           </Button>
         </Link>
+      </div>
 
+      {/* search on the LEFT; everything else that acts on the visible set
+          (count, clear, columns, page size) grouped on the right */}
+      <div className="flex flex-wrap items-center gap-2">
         <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search EP or ID…"
-          className="h-8 w-full max-w-56 text-sm sm:ml-auto"
+          className="h-8 w-full max-w-56 text-sm"
         />
         {anyFilter ? (
           <Button
@@ -257,19 +285,13 @@ export function CxpEpsView({
             Clear filters
           </Button>
         ) : null}
-        <TableSettings columns={cols} />
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs text-muted-foreground">
           {filtered.length} of {rows.length} EP(s)
         </span>
-        <PageSizePicker
-          value={pageSize}
-          options={PAGE_SIZES}
-          onChange={setPageSize}
-          className="ml-auto"
-        />
+        <div className="ml-auto flex items-center gap-2">
+          <PageSizePicker value={pageSize} options={PAGE_SIZES} onChange={setPageSize} />
+          <TableSettings columns={cols} />
+        </div>
       </div>
 
       <div className={cn("overflow-x-auto rounded-lg border", navPending && "nav-pending")}>
@@ -323,7 +345,9 @@ export function CxpEpsView({
                   className="cursor-pointer"
                 >
                   {cols.visible.map((c) => (
-                    <TableCell key={c.key}>{cell(r, c.key, epHref(r))}</TableCell>
+                    <TableCell key={c.key}>
+                      {cell(r, c.key, epHref(r), copy, copied)}
+                    </TableCell>
                   ))}
                 </TableRow>
               ))
@@ -335,27 +359,67 @@ export function CxpEpsView({
   );
 }
 
-function cell(r: CxpEpSummary, key: string, href: string): React.ReactNode {
+type CopyFn = (value: string, label: string) => (e: React.MouseEvent) => Promise<void>;
+
+function cell(
+  r: CxpEpSummary,
+  key: string,
+  href: string,
+  copy: CopyFn,
+  copied: string | null
+): React.ReactNode {
   switch (key) {
     case "ep":
       return (
-        <Link
-          prefetch={false}
-          href={href}
-          className="font-medium hover:underline"
-          // the row handler already navigates — don't do it twice
-          onClick={(e) => e.stopPropagation()}
-        >
-          {r.epName || "—"}
+        <div className="flex items-center gap-1">
+          <Link
+            prefetch={false}
+            href={href}
+            className="font-medium hover:underline"
+            // the row handler already navigates — don't do it twice
+            onClick={(e) => e.stopPropagation()}
+          >
+            {r.epName || "—"}
+          </Link>
+          {r.epName ? (
+            <button
+              type="button"
+              onClick={copy(r.epName, "EP name")}
+              title="Copy name"
+              className="shrink-0 rounded p-0.5 text-muted-foreground/70 transition hover:bg-muted hover:text-foreground"
+            >
+              {copied === r.epName ? (
+                <Check className="h-3 w-3 text-emerald-600" />
+              ) : (
+                <Copy className="h-3 w-3" />
+              )}
+            </button>
+          ) : null}
           {r.needsReview ? (
-            <Badge variant="outline" className="ml-2 text-[10px]">
+            <Badge variant="outline" className="text-[10px]">
               needs review
             </Badge>
           ) : null}
-        </Link>
+        </div>
       );
     case "id":
-      return <span className="text-xs text-muted-foreground">{r.epOppId}</span>;
+      // CLICK TO COPY — the whole cell is the control, since the ID is
+      // otherwise never typed anywhere, only pasted
+      return (
+        <button
+          type="button"
+          onClick={copy(r.epOppId, "EP/OPP ID")}
+          title="Click to copy"
+          className="inline-flex items-center gap-1 rounded px-1 -mx-1 font-mono text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground"
+        >
+          {r.epOppId}
+          {copied === r.epOppId ? (
+            <Check className="h-3 w-3 text-emerald-600" />
+          ) : (
+            <Copy className="h-3 w-3 opacity-50" />
+          )}
+        </button>
+      );
     case "function":
       return <Badge variant="secondary">{r.function}</Badge>;
     case "product":
@@ -363,7 +427,16 @@ function cell(r: CxpEpSummary, key: string, href: string): React.ReactNode {
     case "stage":
       return <span className="text-sm">{r.stage}</span>;
     case "status":
-      return <span className="text-sm text-muted-foreground">{r.status || "—"}</span>;
+      // CLAMPED: an un-clamped EXPA status string was one of the two things
+      // making some rows towering boxes next to barely-there empty ones
+      return (
+        <span
+          className="line-clamp-2 max-w-48 text-sm text-muted-foreground"
+          title={r.status || undefined}
+        >
+          {r.status || "—"}
+        </span>
+      );
     case "docs":
       return (
         <span
@@ -384,10 +457,18 @@ function cell(r: CxpEpSummary, key: string, href: string): React.ReactNode {
         </span>
       );
     case "comment":
-      // the ECB's own note is the single most actionable cell here: it says
-      // what to CORRECT, not just what is absent
+      // THE OTHER SOURCE OF UNEVEN ROWS: the ECB's comment is free text and
+      // some run to several sentences. It is the single most actionable cell
+      // here — it says what to CORRECT — so it stays visible, just clamped
+      // to two lines with the full text on hover/title instead of stretching
+      // the row to fit.
       return r.comment ? (
-        <span className="text-xs text-amber-700 dark:text-amber-400">{r.comment}</span>
+        <span
+          className="line-clamp-2 max-w-64 text-xs text-amber-700 dark:text-amber-400"
+          title={r.comment}
+        >
+          {r.comment}
+        </span>
       ) : (
         <span className="text-xs text-muted-foreground">—</span>
       );

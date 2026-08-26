@@ -3,6 +3,8 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { toast } from "sonner";
+import { Download, FolderOpen } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,8 +26,9 @@ import {
   type TableColumn,
 } from "./data-table-kit";
 import { cn } from "@/lib/utils";
+import { buildCxpWeeklyFolder, buildCxpWeeklyZip } from "@/server/cxp-actions";
 import type { WeeklyEp, WeeklyItem, WeeklySummary } from "@/lib/cxp/weekly";
-import type { CxpSide, CxpWeeklyDeadline } from "@/lib/cxp/types";
+import type { CxpFunction, CxpSide, CxpWeeklyDeadline } from "@/lib/cxp/types";
 
 /**
  * THE WEEKLY BOARD.
@@ -78,6 +81,7 @@ export function CxpWeeklyView({
   eps,
   side,
   sides,
+  canOps,
 }: {
   deadlines: CxpWeeklyDeadline[];
   selected: string;
@@ -86,12 +90,49 @@ export function CxpWeeklyView({
   eps: Record<string, WeeklyEp[]>;
   side: CxpSide | null;
   sides: CxpSide[];
+  /** may this viewer build the weekly Drive folder / ZIP for these functions? */
+  canOps: boolean;
 }) {
   const router = useRouter();
   // opening an EP is a navigation — show that the click landed
   const [navPending, startNav] = useTransition();
   const [colFilter, setColFilter] = useState<Record<string, string>>({});
   const cols = useTableColumns("cxp-weekly", COLUMNS);
+
+  // THE DOWNLOAD BUTTONS. `folderUrls`/`zipUrls` remember the last link
+  // returned for THIS deadline — switching weeks clears them rather than
+  // showing a stale link for a different week (the old board's bug: past
+  // weeks' links vanished on switch; this is the opposite mistake, and just
+  // as wrong, so state is keyed by `${fn}|${selected}`).
+  const [busy, setBusy] = useState<string | null>(null);
+  const [links, setLinks] = useState<Record<string, string>>({});
+  // `opsPending` isn't read directly — `busy` already drives each button's own
+  // label — but it stays a named binding rather than a discarded destructure,
+  // per the house rule pinned in tests/nav-pending.test.ts.
+  const [opsPending, startOps] = useTransition();
+  void opsPending;
+
+  const runOp = (
+    fn: CxpFunction,
+    kind: "folder" | "zip",
+    action: (fn: CxpFunction, deadline: string) => Promise<{ ok: boolean; message: string; url?: string }>
+  ) => {
+    const key = `${fn}|${kind}`;
+    setBusy(key);
+    startOps(async () => {
+      const r = await action(fn, selected);
+      setBusy(null);
+      if (r.ok) {
+        toast.success(r.message);
+        if (r.url) {
+          setLinks((prev) => ({ ...prev, [`${fn}|${kind}|${selected}`]: r.url! }));
+          window.open(r.url, "_blank", "noopener,noreferrer");
+        }
+      } else {
+        toast.error(r.message);
+      }
+    });
+  };
 
   const allItems = useMemo(
     () => Object.values(eps).flatMap((list) => list.flatMap((e) => e.items)),
@@ -249,6 +290,47 @@ export function CxpWeeklyView({
                   <Badge variant="outline">{s.ongoingCount} always owed</Badge>
                 ) : null}
               </div>
+
+              {/* THE SUBMISSION DOWNLOAD — the piece the old board led with.
+                  Not shown for a past week: those are read from the recorded
+                  snapshot, and there is nothing here to bundle. */}
+              {canOps && !isPast ? (
+                <div className="mt-3 flex gap-2 border-t pt-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 flex-1 text-xs"
+                    disabled={busy === `${s.function}|zip`}
+                    onClick={() => runOp(s.function, "zip", buildCxpWeeklyZip)}
+                  >
+                    <Download className="mr-1 h-3.5 w-3.5" />
+                    {busy === `${s.function}|zip` ? "Building…" : "Download ZIP"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 flex-1 text-xs"
+                    disabled={busy === `${s.function}|folder`}
+                    onClick={() => runOp(s.function, "folder", buildCxpWeeklyFolder)}
+                  >
+                    <FolderOpen className="mr-1 h-3.5 w-3.5" />
+                    {busy === `${s.function}|folder` ? "Building…" : "Open folder"}
+                  </Button>
+                </div>
+              ) : null}
+              {(links[`${s.function}|zip|${selected}`] || links[`${s.function}|folder|${selected}`]) ? (
+                <p className="mt-1.5 text-[10px] text-muted-foreground">
+                  Opened in a new tab.{" "}
+                  <a
+                    href={links[`${s.function}|zip|${selected}`] || links[`${s.function}|folder|${selected}`]}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline"
+                  >
+                    Open again
+                  </a>
+                </p>
+              ) : null}
             </CardContent>
           </Card>
         ))}
