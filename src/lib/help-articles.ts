@@ -1708,7 +1708,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "ازاي اسجل ديل",
    "اوبنز"
   ],
-  "summary": "Accounts can close many deals over time — each one records its opens per product, can split credit across members, and BD deals carry money instead.",
+  "summary": "Accounts can close many deals over time — each one records its opens per product, can be raised for IGV or IGT whichever you personally work, can split credit across members, and BD deals carry money instead.",
   "blocks": [
    {
     "t": "p",
@@ -1718,8 +1718,9 @@ export const HELP_ARTICLES: HelpArticle[] = [
     "t": "steps",
     "items": [
      "Open the account and hit **Deal signed** (or **New deal** if it's not the first).",
-     "Enter the opens **per product**: an IGV account signs IGV opens, an IGT account splits GTa + GTe, and a **B2B/BD account can mix all three** — those per-product opens feed the IGV/IGTa/IGTe dashboard lanes.",
-     "Optionally flip **Split the opens between members** to share the credit — pick anyone in the account's function and give each their share (the splits must sum exactly; the server checks). Default is 100% to the Responsible.",
+     "On an IGV or IGT account, answer **\"These opens were raised for\"** first — IGV or IGT. It starts on the account's own, and you only change it when the enabler bought the *other* programme (see below).",
+     "Enter the opens **per product**: an IGV open is an IGV open, an IGT one splits GTa + GTe, and a **B2B/BD account can mix all three** — those per-product opens feed the IGV/IGTa/IGTe dashboard lanes.",
+     "Optionally flip **Split the opens between members** to share the credit — on an ICX account you can pick from **both** the IGV and the IGT crew, and give each their share (the splits must sum exactly; the server checks). Default is 100% to the Responsible.",
      "Attach the contract now or later, save, enjoy the confetti."
     ],
     "title": "Record it"
@@ -1733,7 +1734,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     "rows": [
      [
       "IGV / IGT",
-      "Opens per product; splits optional."
+      "Which of the two the opens were **raised for**, then the opens per product; splits optional."
      ],
      [
       "B2B",
@@ -1748,6 +1749,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
       "No details at all: the popup links the contract Google Form and offers one **Deal signed** button. No opens, no splits, no amount."
      ]
     ]
+   },
+   {
+    "t": "p",
+    "md": "**They bought the other programme? Say so.** IGV and IGT knock on the same doors, and the enabler decides. You walk in as IGT, they say no to a teacher and yes to a volunteer — that is an **IGV open**, raised by you. Set *These opens were raised for* to **IGV** and three things happen at once: the opens count as IGV (they feed the IGV lane and the IGV VP's numbers), **the account moves to IGV** so it stops sitting in the wrong VP's pipeline, and a line saying exactly that is written onto the account's history. **You keep the account and you keep the opens** — whichever function you personally work. It works the other way round too, and it works on the Details card *before* the deal: switch **Function** there mid-conversation and the proposal email, the product badge and the pipeline all follow."
    },
    {
     "t": "p",
@@ -1772,6 +1777,14 @@ export const HELP_ARTICLES: HelpArticle[] = [
      {
       "q": "Does a deal close the account?",
       "a": "No. Accounts keep working after a deal — many partners sign again next month."
+     },
+     {
+      "q": "I'm IGT and my enabler took an IGV open. Do I lose it?",
+      "a": "No. Pick **IGV** under *These opens were raised for* — the open counts for IGV, the account moves to IGV, and both stay yours. You do not have to be in a function to hold its opens."
+     },
+     {
+      "q": "The account left my VP's dashboard after I recorded the deal. Is that a bug?",
+      "a": "No — that's the move doing its job. An account whose opens are IGV belongs in IGV's pipeline; the account's own history says when it moved and who moved it. Switch **Function** back on the Details card if it was picked by mistake."
      }
     ]
    }
@@ -1798,18 +1811,18 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "ميل للشركة",
    "عرض شراكة"
   ],
-  "summary": "The Proposal email button builds a branded, product-aware pitch as a draft in YOUR Gmail — you review, attach, and hit send from your own address.",
+  "summary": "The Proposal email button builds a branded, product-aware pitch and sends it from YOUR own Gmail — with a See-it-first preview of the exact letter, inside Sodio.",
   "blocks": [
    {
     "t": "p",
-    "md": "Every raising account has a **Proposal email** button. Fill the popup — recipient, sector, an optional custom note — and Sodio **sends it straight from your own Gmail**. It leaves *your* address, so the reply comes back to you and the email sits in your Sent folder; Sodio is the stationery, not the sender. Want to re-read it first, or add a file of your own? Turn **Send it now** off and it waits in your drafts instead. Either way the account is marked `proposal_sent` and nothing else moves — a proposal never changes ownership or stage."
+    "md": "Every raising account has a **Proposal email** button. Fill the popup — recipient, sector, an optional custom note — and Sodio **sends it straight from your own Gmail**. It leaves *your* address, so the reply comes back to you and the email sits in your Sent folder; Sodio is the stationery, not the sender. Want to read it before it goes? **See it first** renders the exact letter the company will receive, right there in Sodio, with **Send** underneath it — no trip to Gmail, no drafts folder to forget about. The account is marked `proposal_sent` and nothing else moves — a proposal never changes ownership or stage."
    },
    {
     "t": "steps",
     "items": [
      "Open the account → **Proposal email**. The product (iGV / iGTa / iGTe / B2B) is auto-detected and the company prefilled.",
      "Check the **proposals to attach**. The deck follows the email you're writing — a B2B email carries the **B2B proposal**, an iGV email the iGV deck — and you can tick any of the four on top. The popup shows the total MB, because an email can only carry about 17 MB of attachments.",
-     "**Send it now** is on by default — hit the button and it's gone. Turn it off to leave a draft instead, then open **Gmail** to review, add your own files, and send."
+     "Not sure about the wording? Hit **See it first** — the same code that sends builds the preview, so what you read is exactly what lands in their inbox. Then **Send it now** from the preview, or *Keep editing*."
     ],
     "title": "Send one"
    },
@@ -1822,7 +1835,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     "rows": [
      [
       "IGV / IGTa / IGTe",
-      "That product's pitch, AIESEC blue, signed as Global Volunteer / Talent / Teacher Manager."
+      "That product's pitch, in the LC's colours, signed as Global Volunteer / Talent / Teacher Manager."
      ],
      [
       "B2B",
@@ -1840,7 +1853,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "callout",
-    "md": "If draft creation fails with a permissions error, your Google grant predates the `gmail.compose` scope — **sign in with Google once** and try again.",
+    "md": "If sending fails with a permissions error, your Google grant predates the `gmail.compose` scope — **sign in with Google once** and try again.",
     "tone": "warn"
    },
    {
@@ -1855,8 +1868,16 @@ export const HELP_ARTICLES: HelpArticle[] = [
       "a": "No. It's a normal email from your own Gmail, sitting in your Sent folder, with replies coming back to you."
      },
      {
-      "q": "Can I edit the email before it goes?",
-      "a": "Yes — that's the whole point of it landing as a draft. Nothing is sent until you press send in Gmail."
+      "q": "Can I see the email before it goes?",
+      "a": "Yes — **See it first**. It shows the exact letter, subject and attachment list, without leaving Sodio; **Send it now** is right under the preview."
+     },
+     {
+      "q": "Where did \"leave it in my Gmail drafts\" go?",
+      "a": "Gone in v34.10. It existed so you could re-read the letter first — but it did that by sending you out to Gmail, and the proposal usually stayed there unsent. **See it first** does the reading; the send is one click away in the same popup."
+     },
+     {
+      "q": "Can I change the wording itself?",
+      "a": "The pitch body is the LC's standard one, per product. What's yours is the **custom note** — it drops into the email above the meeting request. For a letter written from scratch, use the [Emails](/emails) tab instead."
      }
     ]
    }
@@ -3969,6 +3990,8 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "cc",
    "attachments",
    "violet man email",
+   "write with ai",
+   "ai email",
    "draft",
    "ازاي ابعت ايميل",
    "ايميل رسمي",
@@ -3999,11 +4022,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "p",
-    "md": "**Your signature is automatic**: name, full role title, AIESEC in Alexandria, your WhatsApp-linked number and the walking Violet Man mark — built from your membership row. Nothing to paste, nothing to forget."
+    "md": "**Your signature is automatic**: name, your full role title, AIESEC in Alexandria, your WhatsApp-linked number and the AIESEC human mark — built from your membership row. Nothing to paste, nothing to forget. **It names every function you hold** (v34.10) — someone who is Director of two things signs as both, and CXP says which side, ICX or OGX. If yours reads wrong, the fix is your **Functions / Sub functions** on the membership row, not the email."
    },
    {
     "t": "callout",
-    "md": "Stuck on the words? The **Violet Man** button writes or reworks the letter — describe what you want, or ask it to shorten, warm up, or translate what you already typed. It drafts, you decide: **always read it before you send**.",
+    "md": "Stuck on the words? The **✨ Write with AI** button writes or reworks the letter — describe what you want, or ask it to shorten, warm up, or translate what you already typed. (It used to be labelled \"Violet Man\", which named the assistant instead of saying what the button does.) It drafts, you decide: **always read it before you send**.",
     "tone": "tip"
    },
    {
@@ -4036,6 +4059,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
       "a": "No. Recipients, subject, body, layout and template are all restored when you come back. Only `Start again` clears them."
      }
     ]
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**What your email looks like (v34.10)**: the **AIESEC in Alexandria logo** sits on top of every email Sodio sends — yours and the automatic ones, inside the LC and outside it. The frame under it is the LC's purple, and the bottom of every email carries **\"Powered by Sodio\"** with **\"Made by 2.0\"** in smaller type beneath. You don't set any of it; it's the house style."
    },
    {
     "t": "p",

@@ -1,5 +1,5 @@
 import { env } from "@/lib/env";
-import { escapeHtml, madeBy20 } from "./templates";
+import { BRAND, escapeHtml, sodioCredit } from "./templates";
 
 /** THE MEMBER'S OWN LETTERS (v33.24).
  *
@@ -14,8 +14,12 @@ import { escapeHtml, madeBy20 } from "./templates";
  *  own words, and a real signature block underneath.
  */
 
-const NAVY = "#0A2540";
-const BLUE = "#037EF3";
+/** The house palette (v34.10) — Sodio's purple is the frame colour on every
+ *  layout now; AIESEC blue stays only where it labels AIESEC itself. */
+const NAVY = BRAND.navy;
+const PURPLE = BRAND.purple;
+const PURPLE_DEEP = BRAND.purpleDeep;
+const BLUE = "#037EF3"; // AIESEC's own blue — links to aiesec.org, nothing else
 
 /** The signature the LC actually uses — name, the full role title, the entity,
  *  the site, a WhatsApp-linked number, the address, and the two AIESEC lines.
@@ -30,7 +34,7 @@ export function memberSignature(m: {
   return `
 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:26px 0 0;font-family:'Segoe UI',Arial,Helvetica,sans-serif;">
   <tr>
-    <td style="padding-right:20px;vertical-align:top;border-left:3px solid ${BLUE};padding-left:16px;">
+    <td style="padding-right:20px;vertical-align:top;border-left:3px solid ${PURPLE};padding-left:16px;">
       <div style="font-size:15px;font-weight:800;color:${NAVY};">${escapeHtml(m.name)}</div>
       <div style="font-size:13px;color:#41526b;margin-top:2px;">${escapeHtml(m.title)}</div>
       <div style="font-size:13px;font-weight:700;font-style:italic;color:${NAVY};margin-top:2px;">AIESEC in Alexandria.</div>
@@ -76,12 +80,12 @@ export const EMAIL_LAYOUTS: LayoutOption[] = [
   {
     key: "branded",
     label: "Branded card",
-    hint: "The house look — logo, AIESEC colour band, white card. The safe default.",
+    hint: "The house look — the LC logo, the Sodio colour band, a white card. The safe default.",
   },
   {
     key: "banner",
     label: "Bold banner",
-    hint: "A navy header with the white logo across it. For announcements and invitations.",
+    hint: "A navy-to-purple header with the white logo across it. For announcements and invitations.",
   },
   {
     key: "letterhead",
@@ -112,18 +116,18 @@ export function composedEmail(opts: {
         return `<table role="presentation" width="640" cellpadding="0" cellspacing="0"
              style="max-width:640px;width:100%;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #dfe8f2;">
         <tr>
-          <td align="center" style="background-color:${NAVY};background-image:linear-gradient(135deg,${NAVY} 0%,#0d3a6e 55%,${BLUE} 145%);padding:30px 34px;">
+          <td align="center" style="background-color:${NAVY};background-image:linear-gradient(135deg,${NAVY} 0%,#2c2a5e 55%,${PURPLE} 130%);padding:30px 34px;">
             <img src="${env.appUrl}/brand/alex-white.png" alt="AIESEC in Alexandria" width="240"
                  style="display:block;width:240px;max-width:72%;height:auto;border:0;">
           </td>
         </tr>
-        <tr><td style="height:5px;background-image:linear-gradient(90deg,${BLUE},#0CB9C1 45%,#F48924 75%,#F85A40);font-size:0;line-height:0;">&nbsp;</td></tr>
+        <tr><td style="height:5px;background-image:linear-gradient(90deg,${PURPLE_DEEP},${PURPLE} 45%,#A78BEA);font-size:0;line-height:0;">&nbsp;</td></tr>
         <tr><td style="padding:28px 34px 32px;color:#12263f;font-size:15px;line-height:1.75;">${body}</td></tr>
       </table>`;
       case "letterhead":
         return `<table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;background:#ffffff;">
         <tr>
-          <td style="padding:30px 36px 14px;border-bottom:2px solid ${BLUE};">
+          <td style="padding:30px 36px 14px;border-bottom:2px solid ${PURPLE};">
             <img src="${env.appUrl}/brand/alex-blue.png" alt="AIESEC in Alexandria" width="200"
                  style="display:block;width:200px;max-width:58%;height:auto;border:0;">
           </td>
@@ -132,7 +136,7 @@ export function composedEmail(opts: {
       </table>`;
       default:
         return `<table role="presentation" width="640" cellpadding="0" cellspacing="0"
-             style="max-width:640px;width:100%;background:#ffffff;border:1px solid #dfe8f2;border-top:5px solid ${BLUE};border-radius:14px;">
+             style="max-width:640px;width:100%;background:#ffffff;border:1px solid #e4e2f0;border-top:5px solid ${PURPLE};border-radius:14px;">
         <tr>
           <td style="padding:26px 34px 0;">
             <img src="${env.appUrl}/brand/alex-blue.png" alt="AIESEC in Alexandria" width="180"
@@ -151,8 +155,8 @@ export function composedEmail(opts: {
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${opts.layout === "plain" ? "#ffffff" : "#f4f7fb"};padding:26px 12px;">
     <tr><td align="center">${inner}</td></tr>
     <!-- a member's letter goes to someone OUTSIDE the LC — enablers, EPs,
-         partner entities — so it carries the 2.0 credit (v34.8) -->
-    <tr><td align="center" style="padding-top:10px;">${madeBy20()}</td></tr>
+         partner entities — so "Sodio" is a name here, never a link (v34.10) -->
+    <tr><td align="center" style="padding-top:10px;">${sodioCredit()}</td></tr>
   </table>
 </body>
 </html>`;
@@ -373,25 +377,62 @@ is marked absent for a reason we already knew about.</p>
   }
 ];
 
-/** The role line under the name. Uses the person's real function + role
- *  rather than the CRM's internal wording. */
-export function signatureTitle(role: string, functions: string[]): string {
-  const fn = functions[0] ?? "";
-  const full: Record<string, string> = {
-    IGV: "Incoming Global Volunteer",
-    IGT: "Incoming Global Talent & Teacher",
-    OGV: "Outgoing Global Volunteer",
-    OGT: "Outgoing Global Talent & Teacher",
-    B2B: "Business Development",
-    BD: "Business Development",
-    B2C: "Business to Customer",
-    TM: "Talent Management",
-    "F&L": "Finance & Legality",
-    IM: "Information Management",
-    CXP: "Customer Experience",
-  };
-  const area = full[fn] ?? fn;
+const FUNCTION_TITLES: Record<string, string> = {
+  IGV: "Incoming Global Volunteer",
+  IGT: "Incoming Global Talent & Teacher",
+  OGV: "Outgoing Global Volunteer",
+  OGT: "Outgoing Global Talent & Teacher",
+  B2B: "Business Development",
+  BD: "Business Development",
+  B2C: "Business to Customer",
+  TM: "Talent Management",
+  "F&L": "Finance & Legality",
+  IM: "Information Management",
+  CXP: "Customer Experience",
+};
+
+/** THE ROLE LINE UNDER THE NAME — ALL of it (v34.10).
+ *
+ *  It used to read `functions[0]` and stop, so anyone holding two functions
+ *  signed off as only one of them: the Director of IM *and* of CXP ICX signed
+ *  every letter as IM alone. A member's row already carries the whole list;
+ *  the signature just wasn't reading past the first entry.
+ *
+ *  CXP is the one function that needs qualifying, because it has two sides
+ *  that are genuinely different jobs — the ICX side (incoming EPs) and the OGX
+ *  side (outgoing). `sides` comes from the CXP module's own resolver rather
+ *  than from a raw sub-function string, so "ICX" here always means the CXP
+ *  side and never Sodio's legacy raising tag of the same name. */
+export function signatureTitle(
+  role: string,
+  functions: string[],
+  opts: { cxpSides?: string[] } = {}
+): string {
   if (role === "LCP") return "Local Committee President";
+
+  const cxpSuffix = (opts.cxpSides ?? []).length
+    ? ` (${(opts.cxpSides ?? []).join(" & ")})`
+    : "";
+  const areas = [
+    ...new Set(
+      (functions ?? [])
+        .map((f) => {
+          const label = FUNCTION_TITLES[f] ?? f;
+          return f === "CXP" ? `${label}${cxpSuffix}` : label;
+        })
+        .filter(Boolean)
+    ),
+  ];
+  // two functions read as one title — "Director of X & Y" — because the role
+  // is one: a member's row holds a single `role` column, so it never needs
+  // "Director of X and Team Leader of Y"
+  const area =
+    areas.length === 0
+      ? ""
+      : areas.length === 1
+        ? areas[0]
+        : `${areas.slice(0, -1).join(", ")} & ${areas[areas.length - 1]}`;
+
   if (role === "LCVP") return `Local Committee Vice President of ${area}`;
   if (role === "Director") return `Director of ${area}`;
   if (role === "Team Leader") return `Team Leader — ${area}`;

@@ -172,7 +172,7 @@ function buildSteps(role: string, m: TourModules, fns: string[]): TourStep[] {
       openBy: '[data-tour="nav:open"]',
       target: "nav:/emails",
       title: "The Emails tab",
-      body: "Professional letters from YOUR own Gmail — layouts, your real signature, the Violet Man to draft, and every send remembered.",
+      body: "Professional letters from YOUR own Gmail — layouts, your real signature, Write with AI to draft it, and every send remembered.",
     });
   }
 

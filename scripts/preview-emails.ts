@@ -16,8 +16,8 @@ import {
   visitAnnouncementEmail,
   welcomeEmail,
 } from "@/lib/email/templates";
-import { proposalDraft } from "@/lib/email/proposal";
-import { composedEmail, memberSignature } from "@/lib/email/compose";
+import { proposalEmail } from "@/lib/email/proposal";
+import { composedEmail, memberSignature, signatureTitle } from "@/lib/email/compose";
 
 const out = process.argv[2] ?? "/tmp/sodio-emails";
 mkdirSync(out, { recursive: true });
@@ -59,18 +59,17 @@ const samples: [string, { subject: string; html: string }][] = [
     meetLink: "https://meet.google.com/abc-defg-hij",
     manageUrl: "https://sodio.vercel.app/book/manage/demo-token",
   })],
-  // ── the three EXTERNAL surfaces (v34.8): they wear the LC's own logo, not
-  // the Sodio one, and they now carry the "Made by 2.0" credit
-  ["08-proposal-b2b", proposalDraft({
+  // ── the three EXTERNAL surfaces: since v34.10 EVERY email wears the LC's
+  // own logo, and the credit line under it reads "Powered by Sodio · Made by 2.0"
+  ["08-proposal-b2b", proposalEmail({
     product: "B2B", companyName: "Hadana Moves", sector: "Marketing",
-    customNote: null, attachmentsNote: null, sendNow: true,
+    customNote: null,
     memberName: "Hana Wael", memberPhone: "+201012345678",
     memberEmail: "hana@aiesec.net",
   })],
-  ["09-proposal-igv", proposalDraft({
+  ["09-proposal-igv", proposalEmail({
     product: "iGV", companyName: "Elite Hospital", sector: "Healthcare",
     customNote: "We spoke to Dr. Salma at reception last week.",
-    attachmentsNote: null, sendNow: true,
     memberName: "Youssef Atya", memberPhone: "+201098765432",
     memberEmail: "youssef@aiesec.net",
   })],
@@ -79,8 +78,9 @@ const samples: [string, { subject: string; html: string }][] = [
     html: composedEmail({
       bodyHtml: "<p>Dear Ms. Mona,</p><p>Thank you for the call yesterday — as promised, here is a short summary of what Global Talent could look like for your team.</p>",
       signature: memberSignature({
-        name: "Hana Wael", title: "Business Development Manager",
-        email: "hana@aiesec.net", phone: "+201012345678",
+        name: "Ahmed Hallul",
+        title: signatureTitle("Director", ["IM", "CXP"], { cxpSides: ["ICX"] }),
+        email: "ahmedhallul@aiesec.net", phone: "+201012345678",
       }),
       layout: "branded",
     }),

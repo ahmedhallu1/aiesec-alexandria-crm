@@ -32,6 +32,7 @@ import {
   canManageArchive,
   commentLabel,
   master,
+  openTargetFunctions,
   reassignTargetScope,
 } from "@/lib/rbac";
 import {
@@ -1065,7 +1066,17 @@ export async function removeArchivedEntry(id: string): Promise<ActionResult> {
  *  IGV accounts sign IGV opens; IGT accounts split IGTa + IGTe; B2B accounts
  *  mix all three (e.g. 3 IGV + 2 IGTe + 1 IGTa). Totals live on the account.
  *  BD deals' MOS is MONEY: the amount (EGP) is required (+ optional other
- *  benefits) and opens are optional extras. */
+ *  benefits) and opens are optional extras.
+ *
+ *  v34.10 — THE CROSS-FUNCTION OPEN. IGV and IGT knock on the same doors, and
+ *  the enabler decides which programme they actually buy: an IGT member gets
+ *  told "no teacher, but I'd take a volunteer", and what gets signed is an IGV
+ *  open. `raisedFor` records THAT — the programme the enabler bought, not the
+ *  one the raiser works. The opens land in the IGV lane (they always did, via
+ *  the per-product split), and the ACCOUNT follows them: it becomes an IGV
+ *  account, so the IGV VP inherits it and the IGT VP's numbers stop carrying a
+ *  company that is not theirs. The raiser keeps it and keeps the credit —
+ *  they are the one who closed it. */
 export async function recordDeal(
   accountId: string,
   breakdown: { igv?: number; igta?: number; igte?: number },
@@ -1073,9 +1084,13 @@ export async function recordDeal(
   extras?: { amount?: number; benefits?: string },
   /** v22: optionally split the opens across members (e.g. 3 to the owner,
    *  3 to whoever helped close) — every recipient must be in the account's
-   *  function and the splits must add up to the deal's opens exactly. */
-  allocations?: { memberId: string; igv?: number; igta?: number; igte?: number }[]
-): Promise<ActionResult<{ deals: number; slots: number; dealId: string }>> {
+   *  function (or, on a cross-function open, either side of it) and the
+   *  splits must add up to the deal's opens exactly. */
+  allocations?: { memberId: string; igv?: number; igta?: number; igte?: number }[],
+  /** v34.10: the function this deal's opens were raised FOR — the account's
+   *  own unless the enabler bought the sibling programme instead. */
+  raisedFor?: string
+): Promise<ActionResult<{ deals: number; slots: number; dealId: string; movedTo?: string }>> {
   const viewer = await getViewer();
   const account = await loadAccount(accountId);
   if (!account || !canEditAccount(viewer, account))
@@ -1083,15 +1098,27 @@ export async function recordDeal(
   if (account.out_of_process)
     return fail("This account is archived — bring it back in process first.");
 
+  // WHICH PROGRAMME WAS ACTUALLY SOLD. Only IGV↔IGT can cross; B2B and BD
+  // already mix all three products inside one deal, and B2C carries no opens.
+  const openTargets = openTargetFunctions(account);
+  const soldAs = (raisedFor ?? account.function) as AccountFunction;
+  if (!openTargets.includes(soldAs))
+    return fail(
+      `An open on a ${account.function} account can't be raised for ${soldAs}.`
+    );
+  /** null on a normal deal; the sibling function when the enabler bought the
+   *  other programme (and the account is about to follow the open there) */
+  const movedTo = soldAs !== account.function ? soldAs : null;
+
   const clamp = (n?: number) => Math.max(0, Math.round(n ?? 0));
   let igv = clamp(breakdown.igv);
   let igta = clamp(breakdown.igta);
   let igte = clamp(breakdown.igte);
   const amount = Math.max(0, Math.round(extras?.amount ?? 0));
-  if (account.function === "IGV") {
+  if (soldAs === "IGV") {
     igta = 0; igte = 0;
     if (igv < 1) return fail("How many IGV opens were signed?");
-  } else if (account.function === "IGT") {
+  } else if (soldAs === "IGT") {
     igv = 0;
     if (igta + igte < 1) return fail("Split the opens across IGTa / IGTe (at least 1).");
   } else if (account.function === "BD") {
@@ -1124,11 +1151,14 @@ export async function recordDeal(
       allocRows.reduce((s, a) => s + a[k], 0);
     if (sum("slots_igv") !== igv || sum("slots_igta") !== igta || sum("slots_igte") !== igte)
       return fail("The split must add up to the deal's opens exactly.");
+    // ON A CROSS-FUNCTION OPEN BOTH CREWS QUALIFY (v34.10): the IGT member who
+    // walked in and the IGV member who may have helped close are equally real,
+    // and refusing one of them is what pushed the whole thing off the record.
     const { listFunctionMembers } = await import("./data");
-    const crew = await listFunctionMembers(account.function);
-    const crewIds = new Set(crew.map((m) => m.id));
+    const crews = await Promise.all(openTargets.map((f) => listFunctionMembers(f)));
+    const crewIds = new Set(crews.flat().map((m: { id: string }) => m.id));
     if (ids.some((id) => !crewIds.has(id)))
-      return fail(`Opens can only be assigned to ${account.function} members.`);
+      return fail(`Opens can only be assigned to ${openTargets.join(" or ")} members.`);
   } else if (cleanSlots > 0) {
     if (!account.responsible_id)
       return fail("This account has no responsible yet — choose who the opens go to.");
@@ -1192,21 +1222,57 @@ export async function recordDeal(
     slots_igta_count: (account.slots_igta_count ?? 0) + igta,
     slots_igte_count: (account.slots_igte_count ?? 0) + igte,
   };
+  // THE ACCOUNT FOLLOWS THE OPEN (v34.10). IGV and IGT share one uniqueness
+  // world ("ICX"), so no name re-check is needed here the way a move to
+  // BD/B2C would need one — this can only ever be a relabel inside that world.
+  // fnSpecificReset clears what belonged to the old programme; an IGT deal
+  // needs a product, and the split says which one (GTa when it's a tie —
+  // teaching is the exception, not the default).
+  const move = movedTo
+    ? {
+        function: movedTo,
+        ...fnSpecificReset(movedTo),
+        ...(movedTo === "IGT" ? { product: igte > igta ? "GTe" : "GTa" } : {}),
+        // the v33.19 nicety, kept: a teaching company crossing to IGV lands on
+        // the teaching project rather than on nothing
+        ...(movedTo === "IGV" && account.product === "GTe"
+          ? { project: "Global Classroom" }
+          : {}),
+      }
+    : {};
   await snapshotForUndo("accounts", accountId);
   const { error: updateError } = await db()
     .from("accounts")
-    .update(totals)
+    .update({ ...totals, ...move })
     .eq("id", accountId);
   if (updateError) return fail(updateError.message);
 
+  // A MOVE HAS TO BE READABLE ON THE ACCOUNT, not only in the audit log — the
+  // VP who loses the row and the VP who gains it both open the page first.
+  if (movedTo) {
+    await db().from("account_comments").insert({
+      account_id: accountId,
+      member_id: viewer.id,
+      author_label: commentLabel(viewer),
+      body: `🔁 Opened as ${movedTo}, not ${account.function} — ${cleanSlots} open${cleanSlots === 1 ? "" : "s"} recorded for ${movedTo}, and the account moved to ${movedTo} with it.`,
+    });
+  }
+
   await logAudit(viewer.id, "deal", "account", accountId, {
     slots: cleanSlots, igv, igta, igte,
+    raisedFor: soldAs,
+    ...(movedTo ? { movedFrom: account.function, movedTo } : {}),
   });
   await stampWork(viewer.id, "deal"); // v29: counts towards working hours
   refresh(accountId);
   return {
     ok: true,
-    data: { deals: totals.deals_count, slots: totals.slots_count, dealId: inserted.id },
+    data: {
+      deals: totals.deals_count,
+      slots: totals.slots_count,
+      dealId: inserted.id,
+      ...(movedTo ? { movedTo } : {}),
+    },
   };
 }
 
@@ -2979,12 +3045,18 @@ async function mailboxSender(): Promise<
       ),
     };
   const { memberSignature, signatureTitle } = await import("@/lib/email/compose");
+  // EVERY function this person holds signs the letter (v34.10) — and CXP says
+  // which side, resolved by the CXP module itself rather than guessed from a
+  // sub-function string
+  const { cxpSides } = await import("@/lib/cxp/rbac");
   return {
     viewer,
     token: me.google_refresh_token,
     signature: memberSignature({
       name: viewer.name,
-      title: signatureTitle(me.role, me.functions ?? []),
+      title: signatureTitle(me.role, me.functions ?? [], {
+        cxpSides: (me.functions ?? []).includes("CXP") ? cxpSides(viewer) : [],
+      }),
       email: me.email,
       phone: me.phone,
     }),
@@ -4769,17 +4841,12 @@ export async function importAccountsBulk(
   return { ok: true, data: { results, created } };
 }
 
-// ================================================================== proposal drafts
+// ================================================================== proposal emails
 
-const proposalSchema = z.object({
+const proposalBase = {
   accountId: z.string().uuid(),
-  recipientEmail: z
-    .string()
-    .trim()
-    .refine((v) => EMAIL_RE.test(v), "A valid recipient email is required."),
   sector: z.string().trim().nullish(),
   customNote: z.string().trim().nullish(),
-  attachmentsNote: z.string().trim().nullish(),
   /** B2B/BD raise for the whole ICX — the email body is written for THIS
    *  product ("B2B" = the general all-programs partnership email, "BD" = the
    *  talent-solutions pitch of aiesec.org.eg/partner.html) */
@@ -4789,38 +4856,42 @@ const proposalSchema = z.object({
    *  is two ways of saying the same thing and is why B2B could never attach
    *  its own proposal. `null` means "whatever the body's default is". */
   attachPdfs: z.array(z.enum(["B2B", "iGV", "iGTa", "iGTe"])).nullish(),
-  /** SEND IT NOW from the member's own Gmail instead of leaving a draft
-   *  (v34.8 — this is the default; drafting is the opt-out). */
-  sendNow: z.boolean().nullish(),
+};
+
+const proposalSchema = z.object({
+  ...proposalBase,
+  recipientEmail: z
+    .string()
+    .trim()
+    .refine((v) => EMAIL_RE.test(v), "A valid recipient email is required."),
 });
 
-/** ICX Proposal Email: builds the product-specific outreach email and either
- *  SENDS it straight from the member's own Gmail (the default since v34.8) or
- *  leaves it as a draft for them to review first. Either way it goes out from
- *  THEIR address, on their gmail.compose grant. */
-export async function createProposalDraft(
-  input: z.infer<typeof proposalSchema>
-): Promise<ActionResult<{ product: string; sent: boolean }>> {
-  const viewer = await getViewer();
-  const parsed = proposalSchema.safeParse(input);
-  if (!parsed.success) return fail(parsed.error.issues[0].message);
-  const {
-    accountId, recipientEmail, sector, customNote,
-    attachmentsNote, bodyProduct, attachPdfs, sendNow,
-  } = parsed.data;
+/** The preview needs no recipient — you are looking at the letter, not
+ *  addressing it. */
+const proposalPreviewSchema = z.object(proposalBase);
 
-  const account = await loadAccount(accountId);
+/** THE ONE BUILDER (v34.10). The preview and the send call this, so what the
+ *  member looked at is byte-for-byte what the company receives — a preview
+ *  that renders from a second code path is a preview of nothing. */
+async function buildProposal(
+  viewer: Viewer,
+  input: z.infer<typeof proposalPreviewSchema>
+): Promise<
+  | { error: ActionResult<never> }
+  | {
+      account: PipelineRow;
+      product: "iGV" | "iGTa" | "iGTe" | "B2B" | "BD";
+      subject: string;
+      html: string;
+    }
+> {
+  const account = await loadAccount(input.accountId);
   if (!account || !canEditAccount(viewer, account))
-    return fail("You are not allowed to work on this account.", "forbidden");
+    return { error: fail("You are not allowed to work on this account.", "forbidden") };
   // B2C partners get no proposal emails (v23) — their flow is Podio + the
   // contract form, not the ICX proposal pitch
   if (account.function === "B2C")
-    return fail("B2C accounts don't send proposal emails.");
-
-  if (!viewer.google_refresh_token)
-    return fail(
-      "Your Google access is missing — sign out, then sign in with Google once to grant it (it also powers your calendar reminders)."
-    );
+    return { error: fail("B2C accounts don't send proposal emails.") };
 
   // the email body is written for one product. B2B/BD accounts raise for the
   // whole ICX, so the member picks the product — or keeps their general
@@ -4831,31 +4902,72 @@ export async function createProposalDraft(
       ? "iGV"
       : account.function === "IGT"
         ? account.product === "GTe" ? "iGTe" : "iGTa"
-        : (bodyProduct ?? (account.function === "BD" ? "BD" : "B2B"));
+        : (input.bodyProduct ?? (account.function === "BD" ? "BD" : "B2B"));
 
-  const send = sendNow !== false; // send-now is the default (v34.8)
-
-  const { proposalDraft } = await import("@/lib/email/proposal");
-  const { defaultProposalPdfs, proposalPdfFile, attachmentTooBig } =
-    await import("@/lib/proposal-pdfs");
-  const draft = proposalDraft({
+  const { proposalEmail } = await import("@/lib/email/proposal");
+  const built = proposalEmail({
     product,
     companyName: account.name,
-    sector: sector || account.industry || account.sub_product || null,
-    customNote: customNote || null,
-    // a hand-added attachment can only exist on a draft — on a send-now there
-    // is no moment in which to add it, so the note (and its reminder line)
-    // simply is not part of that email
-    attachmentsNote: send ? null : attachmentsNote || null,
+    sector: input.sector || account.industry || account.sub_product || null,
+    customNote: input.customNote || null,
     memberName: viewer.name,
     memberPhone: viewer.phone,
     memberEmail: viewer.email ?? "",
-    sendNow: send,
   });
+  return { account, product, subject: built.subject, html: built.html };
+}
+
+/** WHAT THE COMPANY WILL SEE, inside Sodio (v34.10).
+ *
+ *  This replaced "leave it in my Gmail drafts". The draft existed so the
+ *  member could read the letter before it went — but it did that by sending
+ *  them out of Sodio into Gmail, where most of them never came back and the
+ *  proposal sat unsent. Reading it happens here now, in a panel, and the send
+ *  is one click away in the same dialog. */
+export async function previewProposalEmail(
+  input: z.infer<typeof proposalPreviewSchema>
+): Promise<ActionResult<{ subject: string; html: string; product: string }>> {
+  const viewer = await getViewer();
+  const parsed = proposalPreviewSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0].message);
+  const built = await buildProposal(viewer, parsed.data);
+  if ("error" in built) return built.error;
+  return {
+    ok: true,
+    data: { subject: built.subject, html: built.html, product: built.product },
+  };
+}
+
+/** ICX Proposal Email: builds the product-specific outreach email and SENDS
+ *  it from the member's own Gmail, on their gmail.send grant, so the reply
+ *  comes back to them and it sits in their own Sent folder.
+ *
+ *  v34.10 — there is no draft path any more. It existed so the member could
+ *  read the letter first; `previewProposalEmail` does that without leaving
+ *  Sodio, and without a half-finished proposal rotting in a drafts folder. */
+export async function sendProposalEmail(
+  input: z.infer<typeof proposalSchema>
+): Promise<ActionResult<{ product: string; sent: boolean }>> {
+  const viewer = await getViewer();
+  const parsed = proposalSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0].message);
+  const { accountId, recipientEmail } = parsed.data;
+
+  if (!viewer.google_refresh_token)
+    return fail(
+      "Your Google access is missing — sign out, then sign in with Google once to grant it (it also powers your calendar reminders)."
+    );
+
+  const built = await buildProposal(viewer, parsed.data);
+  if ("error" in built) return built.error;
+  const { product } = built;
+
+  const { defaultProposalPdfs, proposalPdfFile, attachmentTooBig } =
+    await import("@/lib/proposal-pdfs");
 
   // WHICH OFFICIAL DECKS RIDE ALONG — the member's picks when they made any,
   // otherwise the deck that matches the email they're actually sending.
-  const wanted = [...new Set(attachPdfs ?? defaultProposalPdfs(product))];
+  const wanted = [...new Set(parsed.data.attachPdfs ?? defaultProposalPdfs(product))];
   // Gmail weighs the message AFTER base64 (+4/3) and refuses over 25 MB. All
   // four decks is 39 MB raw, so this is reachable from the UI — and Google's
   // own refusal is not something the member can act on.
@@ -4883,39 +4995,35 @@ export async function createProposalDraft(
     }
   }
 
+  if (await sandboxSuppressed("send a proposal email"))
+    return fail("Sandbox test view is active — exit it to send real email.");
+
   try {
-    const { createMemberDraft, sendMemberEmail } = await import("@/lib/google/gmail");
-    const id = send
-      ? await sendMemberEmail(viewer.google_refresh_token, {
-          to: [recipientEmail],
-          subject: draft.subject,
-          html: draft.html,
-          attachments,
-        })
-      : await createMemberDraft(viewer.google_refresh_token, {
-          to: recipientEmail,
-          subject: draft.subject,
-          html: draft.html,
-          attachments,
-        });
-    if (!id) return fail(`Google didn't accept the ${send ? "email" : "draft"} — try again.`);
+    const { sendMemberEmail } = await import("@/lib/google/gmail");
+    const id = await sendMemberEmail(viewer.google_refresh_token, {
+      to: [recipientEmail],
+      subject: built.subject,
+      html: built.html,
+      attachments,
+    });
+    if (!id) return fail("Google didn't accept the email — try again.");
   } catch (e) {
-    console.error(`[proposal] ${send ? "send" : "draft"} failed:`, e);
+    console.error("[proposal] send failed:", e);
     return fail(
-      `Couldn't ${send ? "send it" : "create the draft"}. Sign out and sign in with Google again to refresh your access, then retry.`
+      "Couldn't send it. Sign out and sign in with Google again to refresh your access, then retry."
     );
   }
 
-  // proposal out (or drafted) → mark the flag the sheet mirrors track
+  // proposal out → mark the flag the sheet mirrors track
   await db().from("accounts").update({ proposal_sent: true }).eq("id", accountId);
   await stampWork(viewer.id, "proposal_email"); // v33.18: counts towards working hours
-  await logAudit(viewer.id, send ? "proposal_sent" : "proposal_draft", "account", accountId, {
+  await logAudit(viewer.id, "proposal_sent", "account", accountId, {
     product,
     to: recipientEmail,
     attached: wanted,
   });
   refresh(accountId);
-  return { ok: true, data: { product, sent: send } };
+  return { ok: true, data: { product, sent: true } };
 }
 
 // ================================================================== notifications

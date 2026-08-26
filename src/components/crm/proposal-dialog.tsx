@@ -2,8 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { ExternalLink, FileText, Loader2, Send } from "lucide-react";
-import { createProposalDraft } from "@/server/actions";
+import { ExternalLink, Eye, FileText, Loader2, Send } from "lucide-react";
+import { previewProposalEmail, sendProposalEmail } from "@/server/actions";
 import type { PipelineRow } from "@/server/data";
 import {
   PROPOSAL_PDFS, PROPOSAL_PDF_LABEL, PROPOSAL_PDF_MB, attachmentTooBig,
@@ -16,7 +16,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -25,10 +24,12 @@ import { cn } from "@/lib/utils";
 
 /** ICX Proposal Email — one popup, prefilled from the account.
  *
- *  v34.8: it SENDS by default. Leaving a draft nobody opens was the common
- *  outcome, so "Send it now" is the default and drafting is one switch away
- *  for the times the member wants to re-read it first. Either way it leaves
- *  their OWN Gmail, so the reply comes back to them.
+ *  v34.10: it SENDS, full stop. The old switch offered "leave it in my Gmail
+ *  drafts" for the member who wanted to read it first — which sent them out of
+ *  Sodio to do the reading, and the proposal usually never came back. Reading
+ *  it is now a button in this same dialog: **See it first** renders the exact
+ *  HTML the company will receive, in a panel, with the send still one click
+ *  away underneath. No Gmail trip, no drafts folder, no redirect.
  *
  *  The attachment set follows the email you're writing: the B2B partnership
  *  email carries the B2B proposal, an iGV email carries the iGV deck, and any
@@ -67,37 +68,46 @@ export function ProposalDialog({
 
   const oversized = attachmentTooBig(attachPdfs);
 
-  const [sendNow, setSendNow] = useState(true);
-  const [attachmentsNote, setAttachmentsNote] = useState("");
-  const [done, setDone] = useState<{ sent: boolean } | null>(null);
+  const [done, setDone] = useState(false);
+  const [preview, setPreview] = useState<{ subject: string; html: string } | null>(null);
   const [pending, start] = useTransition();
+  const [previewing, startPreview] = useTransition();
 
   const productLabel =
     product === "B2B" ? "general (all-programs)"
     : product === "BD" ? "BD (talent solutions)"
     : product;
 
+  /** the fields both the preview and the send are built from — one object, so
+   *  the two can never drift apart */
+  const draftInput = {
+    accountId: account.id,
+    sector: sector || null,
+    customNote: customNote || null,
+    bodyProduct: isB2B ? bodyProduct : null,
+    attachPdfs,
+  };
+
+  const showPreview = () =>
+    startPreview(async () => {
+      const res = await previewProposalEmail(draftInput);
+      if (res.ok && res.data) setPreview(res.data);
+      else toast.error(res.ok ? "Couldn't render the preview." : res.error);
+    });
+
   const submit = () =>
     start(async () => {
-      const res = await createProposalDraft({
-        accountId: account.id,
-        recipientEmail,
-        sector: sector || null,
-        customNote: customNote || null,
-        attachmentsNote: sendNow ? null : attachmentsNote || null,
-        bodyProduct: isB2B ? bodyProduct : null,
-        attachPdfs,
-        sendNow,
-      });
+      const res = await sendProposalEmail({ ...draftInput, recipientEmail });
       if (res.ok) {
-        setDone({ sent: !!res.data?.sent });
+        setPreview(null);
+        setDone(true);
       } else {
         toast.error(res.error);
       }
     });
 
   const close = (o: boolean) => {
-    if (!o) setDone(null);
+    if (!o) { setDone(false); setPreview(null); }
     onOpenChange(o);
   };
 
@@ -107,33 +117,18 @@ export function ProposalDialog({
       : "";
 
   return (
+    <>
     <Dialog open={open} onOpenChange={close}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
         {done ? (
           <>
             <DialogHeader>
-              <div className="mx-auto mb-1 text-5xl">{done.sent ? "🚀" : "📬"}</div>
-              <DialogTitle className="text-center">
-                {done.sent ? "Sent — it's on its way" : "Draft ready in YOUR Gmail"}
-              </DialogTitle>
+              <div className="mx-auto mb-1 text-5xl">🚀</div>
+              <DialogTitle className="text-center">Sent — it&apos;s on its way</DialogTitle>
               <DialogDescription className="text-center leading-relaxed">
-                {done.sent ? (
-                  <>
-                    The {productLabel} proposal for <b>{account.name}</b> just went out
-                    to <b>{recipientEmail}</b>{attachedLabel}, from your own address —
-                    so their reply lands in <b>your</b> inbox.
-                  </>
-                ) : (
-                  <>
-                    The {productLabel} proposal for <b>{account.name}</b> is waiting in
-                    your drafts{attachedLabel}.{" "}
-                    <b>
-                      Open it, review every line
-                      {attachmentsNote ? ", add your extra file(s)" : ""}, and hit send
-                    </b>{" "}
-                    — it goes out from your own address.
-                  </>
-                )}
+                The {productLabel} proposal for <b>{account.name}</b> just went out
+                to <b>{recipientEmail}</b>{attachedLabel}, from your own address —
+                so their reply lands in <b>your</b> inbox.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter className="gap-2 sm:justify-center">
@@ -142,16 +137,12 @@ export function ProposalDialog({
               </Button>
               <Button asChild>
                 <a
-                  href={
-                    done.sent
-                      ? "https://mail.google.com/mail/u/0/#sent"
-                      : "https://mail.google.com/mail/u/0/#drafts"
-                  }
+                  href="https://mail.google.com/mail/u/0/#sent"
                   target="_blank"
                   rel="noreferrer"
                 >
                   <ExternalLink className="size-4" />
-                  {done.sent ? "See it in Sent" : "Open Gmail drafts"}
+                  See it in Sent
                 </a>
               </Button>
             </DialogFooter>
@@ -163,18 +154,10 @@ export function ProposalDialog({
                 <FileText className="size-5 text-primary" /> Proposal email · {productLabel}
               </DialogTitle>
               <DialogDescription>
-                {sendNow ? (
-                  <>
-                    Sends the <b>{productLabel}</b> outreach email to{" "}
-                    <b>{account.name}</b> straight from <b>your own Gmail</b>.
-                  </>
-                ) : (
-                  <>
-                    Puts the <b>{productLabel}</b> outreach draft for{" "}
-                    <b>{account.name}</b> in <b>your own Gmail</b> — you review and
-                    send it yourself.
-                  </>
-                )}
+                Sends the <b>{productLabel}</b> outreach email to{" "}
+                <b>{account.name}</b> straight from <b>your own Gmail</b>. Want to
+                read it first? <b>See it first</b> shows you the exact letter,
+                right here.
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-3">
@@ -267,45 +250,25 @@ export function ProposalDialog({
                   </p>
                 ) : null}
               </div>
-
-              <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">Send it now</p>
-                  <p className="text-xs text-muted-foreground">
-                    {sendNow
-                      ? "Goes out immediately from your Gmail."
-                      : "Off — it waits in your drafts so you can add files or re-read it."}
-                  </p>
-                </div>
-                <Switch checked={sendNow} onCheckedChange={setSendNow} />
-              </div>
-
-              {/* only a DRAFT has a moment in which to add your own files */}
-              {!sendNow ? (
-                <div className="grid gap-1.5">
-                  <Label>Extra attachments you plan to add yourself</Label>
-                  <Input
-                    value={attachmentsNote}
-                    onChange={(e) => setAttachmentsNote(e.target.value)}
-                    placeholder="e.g. case study — the draft reminds you to attach it"
-                  />
-                </div>
-              ) : null}
             </div>
-            <DialogFooter>
+            <DialogFooter className="gap-2 sm:justify-between">
+              {/* reading it before it goes is a BUTTON, not a detour through
+                  Gmail drafts (v34.10) */}
+              <Button variant="outline" onClick={showPreview} disabled={previewing || pending}>
+                {previewing ? (
+                  <><Loader2 className="size-4 animate-spin" /> Rendering…</>
+                ) : (
+                  <><Eye className="size-4" /> See it first</>
+                )}
+              </Button>
               <Button
                 onClick={submit}
                 disabled={pending || !recipientEmail.includes("@") || !!oversized}
               >
                 {pending ? (
-                  <>
-                    <Loader2 className="size-4 animate-spin" />
-                    {sendNow ? "Sending…" : "Creating draft…"}
-                  </>
-                ) : sendNow ? (
-                  <><Send className="size-4" /> Send it now</>
+                  <><Loader2 className="size-4 animate-spin" /> Sending…</>
                 ) : (
-                  "Create draft in my Gmail"
+                  <><Send className="size-4" /> Send it now</>
                 )}
               </Button>
             </DialogFooter>
@@ -313,5 +276,40 @@ export function ProposalDialog({
         )}
       </DialogContent>
     </Dialog>
+
+    {/* ------- exactly what the company will see, without leaving Sodio ------- */}
+    <Dialog open={!!preview} onOpenChange={(o) => { if (!o) setPreview(null); }}>
+      <DialogContent className="max-h-[92dvh] overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="px-6 pt-6">
+          <DialogTitle>Exactly what they&apos;ll get</DialogTitle>
+          <DialogDescription className="break-words">
+            Subject: <b>{preview?.subject}</b>
+            {attachPdfs.length > 0 ? <> · {attachPdfs.join(", ")} attached</> : null}
+          </DialogDescription>
+        </DialogHeader>
+        <iframe
+          title="Proposal email preview"
+          srcDoc={preview?.html ?? ""}
+          sandbox=""
+          className="h-[62vh] w-full border-0 bg-white"
+        />
+        <DialogFooter className="gap-2 px-6 pb-6 sm:justify-between">
+          <Button variant="outline" onClick={() => setPreview(null)}>
+            Keep editing
+          </Button>
+          <Button
+            onClick={submit}
+            disabled={pending || !recipientEmail.includes("@") || !!oversized}
+          >
+            {pending ? (
+              <><Loader2 className="size-4 animate-spin" /> Sending…</>
+            ) : (
+              <><Send className="size-4" /> Send it to {recipientEmail || "…"}</>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

@@ -14,27 +14,41 @@ import { fmtClock12, ROLE_BLURBS } from "@/lib/types";
  *  white mark on the navy header, served from the public /brand folder (which
  *  the proxy exempts), so it loads for anyone — no auth, no CID attachment.
  */
-/** WHO IS TALKING DECIDES WHICH MARK GOES ON TOP.
- *  An INTERNAL email is Sodio talking to the LC's own people, so it wears the
- *  Sodio lockup. An EXTERNAL one — an IR abroad booking a call — is AIESEC in
- *  Alexandria talking to a stranger who has never heard of Sodio, so it keeps
- *  the LC's own logo and never mentions the CRM at all. */
-const SODIO_LOCKUP = `${env.appUrl}/brand/sodio-email-lockup.png`;
+/** ONE MARK ON TOP, ALWAYS: AIESEC IN ALEXANDRIA (v34.10).
+ *
+ *  It used to be two — the Sodio lockup on internal mail, the LC's logo on
+ *  external. That made the same LC look like two organisations depending on
+ *  who was being written to, and it put a tool's name where the entity's
+ *  belongs. Every email is the LC talking, so every email wears the LC's mark
+ *  and Sodio takes the credit line at the bottom instead, where a tool belongs.
+ *  The frame around it is Sodio's own colour (#7552CC), which is what makes an
+ *  LC email recognisable as one sent from here. */
 const ALEX_LOGO = `${env.appUrl}/brand/alex-white.png`;
 
-/** The banded header both layouts share. */
-function emailHeader(opts: { external?: boolean } = {}): string {
-  const external = opts.external === true;
+/** SODIO'S IDENTITY, IN EMAIL-SAFE HEX. Kept as constants so a re-tint is one
+ *  edit and never a search for a hardcoded blue. */
+export const BRAND = {
+  navy: "#0A2540",
+  purple: "#7552CC",
+  purpleDeep: "#5B3BA8",
+  purpleSoft: "#A78BEA",
+  tint: "#EFEAFA",
+  ink: "#0A2540",
+  grey: "#52565E",
+  faint: "#8E97A6",
+} as const;
+
+/** The banded header every layout shares. */
+function emailHeader(): string {
   return `
         <tr>
-          <td style="background-color:#0A2540;background-image:linear-gradient(135deg,#0A2540 0%,#1c2f5c 55%,#7552CC 150%);border-radius:16px 16px 0 0;padding:28px 32px 24px;" align="center">
-            <img src="${external ? ALEX_LOGO : SODIO_LOCKUP}" width="${external ? 230 : 240}"
-                 alt="${external ? "AIESEC in Alexandria" : "Sodio — AIESEC in Alexandria"}"
-                 style="display:block;width:${external ? 230 : 240}px;max-width:72%;height:auto;border:0;outline:none;text-decoration:none;">
+          <td style="background-color:${BRAND.navy};background-image:linear-gradient(135deg,${BRAND.navy} 0%,#2c2a5e 55%,${BRAND.purple} 130%);border-radius:16px 16px 0 0;padding:28px 32px 24px;" align="center">
+            <img src="${ALEX_LOGO}" width="230" alt="AIESEC in Alexandria"
+                 style="display:block;width:230px;max-width:72%;height:auto;border:0;outline:none;text-decoration:none;">
           </td>
         </tr>
         <tr>
-          <td style="height:5px;background-image:linear-gradient(90deg,#037EF3,#7552CC);font-size:0;line-height:0;">&nbsp;</td>
+          <td style="height:5px;background-image:linear-gradient(90deg,${BRAND.purpleDeep},${BRAND.purple} 45%,${BRAND.purpleSoft});font-size:0;line-height:0;">&nbsp;</td>
         </tr>`;
 }
 
@@ -76,31 +90,37 @@ export function emailLayout(opts: { preheader?: string; body: string }): string 
     preheader: opts.preheader,
     header: emailHeader(),
     body: opts.body,
-    footer: `Sent automatically by Sodio · AIESEC in Alexandria ·
-            <a href="${env.appUrl}" style="color:#5B3BA8;text-decoration:none;font-weight:bold;">Open the CRM</a><br>
-            <span style="color:#93a5bc;">This system is built for you — reply with feedback anytime. 💜</span>`,
+    footer: `AIESEC in Alexandria ·
+            <a href="${env.appUrl}" style="color:${BRAND.purpleDeep};text-decoration:none;font-weight:bold;">Open the CRM</a><br>
+            <span style="color:${BRAND.faint};">This system is built for you — reply with feedback anytime. 💜</span>
+            ${sodioCredit({ crmLink: true })}`,
   });
 }
 
-/** THE "MADE BY 2.0" CREDIT (v34.8).
+/** THE CREDIT LINE — "Powered by Sodio", and "Made by 2.0" under it (v34.10).
  *
- *  It rides emails that LEAVE the LC — IR bookings, the proposals, the letters
- *  members write to enablers — because those are the ones seen by people
- *  outside it. It deliberately does NOT ride internal mail: the sidebar
- *  already carries the credit on every page the LC's own members look at, and
- *  repeating it in forty automated emails a day is noise, not attribution.
+ *  The LC's mark is at the top of every email now, so this is where the two
+ *  names behind it go: the tool that sent it, and the studio that built the
+ *  tool. Two lines, the second one deliberately smaller — attribution, not a
+ *  signature. It rides EVERY email, internal and external alike, which is
+ *  what makes it a credit rather than an ad shown only to strangers.
  *
- *  The light mark is dark ink on transparent, which is what a white email
- *  body needs (the sidebar's dark one would vanish here).
+ *  `crmLink` is off for mail leaving the LC: a company that just got a
+ *  proposal has no business being pointed at the LC's internal CRM, so out
+ *  there "Sodio" is a name, not a door.
  *
  *  ⚠️ `2.0-light.png` lives in /public/brand, which the proxy exempts, so it
  *  loads with no session — the same reason the logos above are served that way. */
-export function madeBy20(): string {
-  return `<div style="margin-top:14px;">
-      <a href="http://elevate2point0.com/" style="display:inline-block;text-decoration:none;color:#93a5bc;font-size:11px;">
+export function sodioCredit(opts: { crmLink?: boolean } = {}): string {
+  const sodio = opts.crmLink
+    ? `<a href="${env.appUrl}" style="color:${BRAND.purpleDeep};text-decoration:none;font-weight:700;">Sodio</a>`
+    : `<span style="color:${BRAND.purpleDeep};font-weight:700;">Sodio</span>`;
+  return `<div style="margin-top:14px;line-height:1.45;">
+      <div style="font-size:12px;color:${BRAND.faint};">Powered by ${sodio}</div>
+      <a href="http://elevate2point0.com/" style="display:inline-block;margin-top:2px;text-decoration:none;color:#A6AEBB;font-size:10px;">
         <span style="vertical-align:middle;">Made by</span>
-        <img src="${env.appUrl}/brand/2.0-light.png" alt="2.0" height="14"
-             style="height:14px;width:auto;vertical-align:middle;margin-left:4px;border:0;opacity:0.75;">
+        <img src="${env.appUrl}/brand/2.0-light.png" alt="2.0" height="12"
+             style="height:12px;width:auto;vertical-align:middle;margin-left:4px;border:0;opacity:0.75;">
       </a>
     </div>`;
 }
@@ -110,17 +130,17 @@ export function madeBy20(): string {
 export function externalEmailLayout(opts: { preheader?: string; body: string }): string {
   return shell({
     preheader: opts.preheader,
-    header: emailHeader({ external: true }),
+    header: emailHeader(),
     body: opts.body,
     footer: `AIESEC in Alexandria · Egypt<br>
-            <span style="color:#93a5bc;">The international platform for young people to explore and develop their potential.</span>
-            ${madeBy20()}`,
+            <span style="color:${BRAND.faint};">The international platform for young people to explore and develop their potential.</span>
+            ${sodioCredit()}`,
   });
 }
 
 export function button(label: string, url: string): string {
   return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0;"><tr>
-    <td style="background-color:#7552CC;background-image:linear-gradient(135deg,#7552CC,#5B3BA8);border-radius:10px;box-shadow:0 2px 6px rgba(117,82,204,0.30);">
+    <td style="background-color:${BRAND.purple};background-image:linear-gradient(135deg,${BRAND.purple},${BRAND.purpleDeep});border-radius:10px;box-shadow:0 2px 6px rgba(117,82,204,0.30);">
       <a href="${url}" style="display:inline-block;padding:14px 32px;color:#ffffff;font-weight:bold;text-decoration:none;font-size:14px;letter-spacing:0.3px;">${label} →</a>
     </td></tr></table>`;
 }

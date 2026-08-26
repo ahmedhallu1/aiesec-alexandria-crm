@@ -6,6 +6,7 @@ import {
 } from "@/server/data";
 import {
   accountFnTargets, accountScope, canEditAccount, canEditRequestState, canReassignAccount,
+  openTargetFunctions,
 } from "@/lib/rbac";
 import { AccountDetailView } from "@/components/crm/account-detail-view";
 
@@ -54,15 +55,24 @@ export default async function AccountPage({
   // LCP-level viewers get the same freedom on any account.
   const wideTargets =
     account.responsible_id == null || accountScope(viewer).kind === "all";
-  const [reassignTargets, functionMembers] = await Promise.all([
+  // THE DEAL OPENS-SPLIT PICKER (v34.10). On an ICX account that is BOTH
+  // crews: IGV and IGT knock on the same doors, so the person who opened it
+  // and the person who closed it are not always in the same function — which
+  // is the whole point of a cross-function open.
+  const openFns = openTargetFunctions(account);
+  const [reassignTargets, ...crews] = await Promise.all([
     canReassignAccount(viewer, account)
       ? listReassignTargets(viewer, account.function, {
           anyRaisingFunction: wideTargets,
         })
       : Promise.resolve([]),
-    // the deal opens-split picker: everyone in the account's function
-    canEdit ? listFunctionMembers(account.function) : Promise.resolve([]),
+    ...openFns.map((f) =>
+      canEdit ? listFunctionMembers(f) : Promise.resolve([])
+    ),
   ]);
+  const openCrews = Object.fromEntries(
+    openFns.map((f, i) => [f, crews[i] ?? []])
+  ) as Record<string, { id: string; label: string }[]>;
   // the current responsible must always be present so the select shows them
   // (imported accounts can be UNASSIGNED — nothing to unshift then)
   if (
@@ -85,7 +95,7 @@ export default async function AccountPage({
       visits={visits}
       comments={comments}
       deals={deals}
-      functionMembers={functionMembers}
+      openCrews={openCrews}
       caps={{
         edit: canEditAccount(viewer, account),
         reassign: canReassignAccount(viewer, account),

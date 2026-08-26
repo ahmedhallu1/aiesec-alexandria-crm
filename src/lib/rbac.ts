@@ -337,21 +337,60 @@ export function canEditAccount(v: Viewer, a: AccountLike): boolean {
   return a.responsible_id != null && scope.ids.includes(a.responsible_id);
 }
 
+/** THE ICX SIBLING (v34.10).
+ *
+ *  IGV and IGT sell to the SAME door. A raiser walks into a language school
+ *  as IGT, the enabler says no to a teacher and yes to a volunteer, and the
+ *  open that gets signed is an IGV one — raised by an IGT member, on an
+ *  account labelled IGT. Until now the CRM had no way to say that: the
+ *  account could only be flipped by someone who works both functions, which
+ *  the member on the call is not, so the open was either recorded against the
+ *  wrong programme or lost.
+ *
+ *  So an ICX raiser may move their OWN account between IGV and IGT. Nothing
+ *  is taken from anyone (`canEditAccount` still gates it, and the account
+ *  keeps its responsible), and nothing is created either — this deliberately
+ *  does NOT widen `allowedAccountFunctions`, so an IGT member still cannot
+ *  ADD an IGV account out of nowhere. It only lets an account they already
+ *  own follow what the enabler actually bought. */
+const ICX_SIBLINGS: AccountFunction[] = ["IGV", "IGT"];
+
 /** Which functions this viewer may RELABEL an account between (v33.19).
  *
  *  The B2B↔BD flip (v33.15) was the first case of a general rule: whoever
  *  may EDIT an account and works BOTH its current function and the target
  *  may move it — "I work IGV and IGT" is the same situation as the B2B/BD
- *  crew's two labels. LCP-level viewers (incl. F&L) span all five. Archived
- *  rows move through revive/reassign instead. Returns [] when no move is
- *  possible; otherwise the full set the picker should offer (incl. the
- *  current function, so the select renders its value). */
+ *  crew's two labels. LCP-level viewers (incl. F&L) span all five. v34.10
+ *  adds the ICX sibling above: an IGV or IGT account may always cross to the
+ *  other one, by whoever owns it. Archived rows move through revive/reassign
+ *  instead. Returns [] when no move is possible; otherwise the full set the
+ *  picker should offer (incl. the current function, so the select renders its
+ *  value). */
 export function accountFnTargets(v: Viewer, a: AccountLike): AccountFunction[] {
   if (a.out_of_process) return [];
   if (!canEditAccount(v, a)) return [];
   const allowed = allowedAccountFunctions(v);
-  if (!allowed.includes(a.function as AccountFunction)) return [];
-  return allowed.length >= 2 ? allowed : [];
+  // THE MOVE MUST BE REVERSIBLE. An IGT member who pushed an account to IGV
+  // no longer holds its current function, and the plain `allowed.includes`
+  // gate would strand it there — so an ICX raiser keeps the pair on any ICX
+  // row they own, whichever side of it the row is sitting on today.
+  const worksIcx = allowed.some((f) => ICX_SIBLINGS.includes(f));
+  const icxRow = ICX_SIBLINGS.includes(a.function as AccountFunction);
+  const crossable = icxRow && worksIcx;
+  if (!crossable && !allowed.includes(a.function as AccountFunction)) return [];
+  const targets = crossable
+    ? [...new Set([...allowed, ...ICX_SIBLINGS])]
+    : allowed;
+  return targets.length >= 2 ? targets : [];
+}
+
+/** The function an open may be RAISED FOR on this account (v34.10) — the
+ *  account's own, plus its ICX sibling. B2B and BD already mix all three
+ *  products in one deal, so they need no widening; B2C carries no opens. */
+export function openTargetFunctions(a: { function: string }): AccountFunction[] {
+  return ICX_SIBLINGS.includes(a.function as AccountFunction)
+    ? [...ICX_SIBLINGS]
+    : [a.function as AccountFunction];
 }
 
 /** Responsibility: Team Leaders choose between themselves and their members;

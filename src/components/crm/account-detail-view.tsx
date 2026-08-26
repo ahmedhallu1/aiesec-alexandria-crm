@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -78,7 +78,7 @@ const methodIcon = {
 
 export function AccountDetailView({
   account, attempts, visits, comments, deals, caps, reassignTargets,
-  functionMembers, autoReportVisitId, autoOpen, viewerId, viewerName,
+  openCrews, autoReportVisitId, autoOpen, viewerId, viewerName,
 }: {
   account: PipelineRow;
   /** the signed-in member — lets them TAKE an unowned account in one click */
@@ -91,8 +91,10 @@ export function AccountDetailView({
   deals: DealWithMember[];
   caps: Caps;
   reassignTargets: { id: string; label: string }[];
-  /** everyone in the account's function — the deal opens-split picker (v22) */
-  functionMembers: { id: string; label: string }[];
+  /** the crews an open on this account can be split across, keyed by function
+   *  (v34.10 — an ICX account carries BOTH, since IGV and IGT sell to the same
+   *  door and either side may have closed it) */
+  openCrews: Record<string, { id: string; label: string }[]>;
   autoReportVisitId: string | null;
   /** ?open= deep link (Violet Man action chips): open a dialog on arrival */
   autoOpen: "contact" | "visit" | "deal" | "proposal" | null;
@@ -360,7 +362,7 @@ export function AccountDetailView({
         dealNumber={account.deals_count + 1}
         responsibleId={account.responsible_id}
         responsibleLabel={account.responsible_name}
-        functionMembers={functionMembers}
+        openCrews={openCrews}
         open={dealOpen}
         onOpenChange={setDealOpen}
       />
@@ -620,7 +622,9 @@ function DetailsCard({
           </Select>
           {fnTouched && form.fn !== account.function ? (
             <p className="text-[11px] text-muted-foreground">
-              Saving moves this account (and its numbers) to the {form.fn} lane.
+              Saving moves this account (and its numbers) to the {form.fn} lane
+              — it stays yours, and so do its opens. Use this when the enabler
+              turned out to want {form.fn}, not {account.function}.
             </p>
           ) : null}
         </div>
@@ -1976,9 +1980,12 @@ function DealEditDialog({
   const mixed = fn === "B2B" || fn === "BD";
   const isBD = fn === "BD";
   const isB2C = fn === "B2C";
-  const showIgv = fn === "IGV" || mixed;
-  const showIgta = fn === "IGT" || mixed;
-  const showIgte = fn === "IGT" || mixed;
+  // a product field also shows when THIS deal already carries opens of it —
+  // the same rule the money fields follow below, and the one that keeps an
+  // IGT deal editable after its account crossed to IGV (v34.10)
+  const showIgv = fn === "IGV" || mixed || (deal.slots_igv ?? 0) > 0;
+  const showIgta = fn === "IGT" || mixed || (deal.slots_igta ?? 0) > 0;
+  const showIgte = fn === "IGT" || mixed || (deal.slots_igte ?? 0) > 0;
   // B2C deals carry no details; a custom split locks the opens
   const opensEditable = !isB2C && !customSplit;
   // money fields: BD's MOS — also shown when the deal already carries an
@@ -2049,7 +2056,18 @@ function DealEditDialog({
             </p>
           ) : null}
           {opensEditable ? (
-            <div className={cn("grid gap-3", mixed ? "grid-cols-3" : showIgta ? "grid-cols-2" : "grid-cols-1")}>
+            <div
+              className={cn(
+                "grid gap-3",
+                // count what is actually rendered: a deal recorded before its
+                // account crossed can show all three without being B2B
+                [showIgv, showIgta, showIgte].filter(Boolean).length >= 3
+                  ? "grid-cols-3"
+                  : [showIgv, showIgta, showIgte].filter(Boolean).length === 2
+                    ? "grid-cols-2"
+                    : "grid-cols-1"
+              )}
+            >
               {showIgv ? numField(isBD ? "IGV (optional)" : "IGV", "text-gv", igv, setIgv) : null}
               {showIgta ? numField(isBD ? "IGTa (optional)" : "IGTa", "text-gt", igta, setIgta) : null}
               {showIgte ? numField(isBD ? "IGTe (optional)" : "IGTe", "text-gte", igte, setIgte) : null}
@@ -2440,9 +2458,16 @@ function OopDialog({
 }
 
 /** Records a deal's opens PER PRODUCT. IGV accounts sign IGV opens; IGT accounts
- *  split IGTa + IGTe; B2B accounts mix all three (e.g. 3 IGV + 2 IGTe + 1 IGTa). */
+ *  split IGTa + IGTe; B2B accounts mix all three (e.g. 3 IGV + 2 IGTe + 1 IGTa).
+ *
+ *  v34.10 — AND WHICHEVER OF THE TWO THE ENABLER ACTUALLY BOUGHT. On an IGV or
+ *  IGT account the first thing this asks is which programme was signed, because
+ *  that is the thing that changed during the meeting: you walked in as IGT, they
+ *  said no to a teacher and yes to a volunteer, and what you are recording is an
+ *  IGV open. Saying so here moves the open into the IGV lane and the account
+ *  with it — you keep both. */
 function DealDialog({
-  accountId, fn, dealNumber, responsibleId, responsibleLabel, functionMembers,
+  accountId, fn, dealNumber, responsibleId, responsibleLabel, openCrews,
   open, onOpenChange,
 }: {
   accountId: string;
@@ -2450,12 +2475,26 @@ function DealDialog({
   dealNumber: number;
   responsibleId: string | null;
   responsibleLabel: string | null;
-  /** everyone in the account's function — the opens-split picker (v22) */
-  functionMembers: { id: string; label: string }[];
+  /** the crews the opens can be split across, keyed by function (v34.10) */
+  openCrews: Record<string, { id: string; label: string }[]>;
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
   const router = useRouter();
+  // WHICH PROGRAMME WAS SOLD. Only IGV↔IGT can cross — B2B/BD already mix all
+  // three products inside one deal, and B2C carries no opens at all.
+  const crossable = fn === "IGV" || fn === "IGT";
+  const [soldAs, setSoldAs] = useState<"IGV" | "IGT">(fn === "IGV" ? "IGV" : "IGT");
+  const effFn = crossable ? soldAs : fn;
+  const crossed = crossable && soldAs !== fn;
+  // on an ICX account either crew may hold a share of the open
+  const functionMembers = useMemo(() => {
+    const seen = new Set<string>();
+    return Object.values(openCrews)
+      .flat()
+      .filter((m) => (seen.has(m.id) ? false : (seen.add(m.id), true)));
+  }, [openCrews]);
+
   const [igv, setIgv] = useState(fn === "IGV" ? "1" : "0");
   const [igta, setIgta] = useState("0");
   const [igte, setIgte] = useState("0");
@@ -2472,13 +2511,14 @@ function DealDialog({
     { memberId: string; igv: string; igta: string; igte: string }[]
   >([]);
 
-  // which product fields to show for this account
+  // which product fields to show — for the programme being SOLD, not for the
+  // label the account happens to carry right now
   const mixed = fn === "B2B" || fn === "BD"; // both raise for the whole ICX
   const isBD = fn === "BD"; // BD's MOS is money — opens are optional extras
   const isB2C = fn === "B2C"; // B2C deals carry NO details (v23)
-  const showIgv = fn === "IGV" || mixed;
-  const showIgta = fn === "IGT" || mixed;
-  const showIgte = fn === "IGT" || mixed;
+  const showIgv = effFn === "IGV" || mixed;
+  const showIgta = effFn === "IGT" || mixed;
+  const showIgte = effFn === "IGT" || mixed;
   // v31: a BD deal is money first — the per-product opens breakdown hides
   // behind a switch (OFF by default), so the usual BD prompt is just
   // amount + benefits. Every other function still needs its opens.
@@ -2532,7 +2572,8 @@ function DealDialog({
               igta: Number(r.igta) || 0,
               igte: Number(r.igte) || 0,
             }))
-          : undefined
+          : undefined,
+        crossable ? soldAs : undefined
       );
       if (res.ok) {
         toast.success(
@@ -2540,6 +2581,11 @@ function DealDialog({
             ? `🎉 Deal #${res.data?.deals} recorded — ${res.data?.slots} total open${res.data?.slots === 1 ? "" : "s"} with this account!`
             : `🎉 Deal #${res.data?.deals} recorded with this account!`
         );
+        if (res.data?.movedTo)
+          toast.info(
+            `This account is now ${res.data.movedTo} — the opens went to ${res.data.movedTo}, so the account followed them. It's still yours.`,
+            { duration: 7000 }
+          );
         // contracts are optional — the deal is already saved even if this fails,
         // and files can always be added later from the deal's history entry
         if (files.length > 0 && res.data?.dealId) {
@@ -2548,6 +2594,7 @@ function DealDialog({
           else toast.error(`The deal is saved, but the contract upload failed: ${up.error} You can upload it any time from the deal in History.`);
         }
         setCelebrate(true);
+        setSoldAs(fn === "IGV" ? "IGV" : "IGT");
         setIgv(fn === "IGV" ? "1" : "0"); setIgta("0"); setIgte("0"); setNote(""); setFiles([]);
         setAmount(""); setBenefits(""); setOpensDetail(false);
         setSplitOn(false); setSplitRows([]);
@@ -2577,13 +2624,61 @@ function DealDialog({
                 ? "BD deals are measured in MONEY: the amount (EGP) and any other benefits. Flip the opens switch only if this deal carried opens too."
                 : mixed
                   ? "How many opens were signed in THIS deal, per product? e.g. 3 IGV · 2 IGTe · 1 IGTa."
-                  : fn === "IGT"
+                  : effFn === "IGT"
                     ? "Split this deal's opens across IGTa and IGTe."
                     : "How many IGV opens were signed in THIS deal?"}
             {" "}Accounts can close more deals later — every one is counted.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
+          {/* WHAT DID THEY ACTUALLY BUY (v34.10). IGV and IGT walk through the
+              same door, and the enabler picks — an IGT raiser who is told "no
+              teacher, but I'd host a volunteer" records an IGV open here, and
+              the account follows it into IGV. */}
+          {crossable ? (
+            <div className="grid gap-1.5">
+              <Label>These opens were raised for</Label>
+              <div className="grid grid-cols-2 gap-1.5">
+                {(["IGV", "IGT"] as const).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => {
+                      setSoldAs(f);
+                      // the fields swap, so the numbers under them must not
+                      // survive the swap and be recorded against the wrong one
+                      setIgv(f === "IGV" ? "1" : "0");
+                      setIgta("0");
+                      setIgte("0");
+                      setSplitOn(false);
+                      setSplitRows([]);
+                    }}
+                    className={cn(
+                      "rounded-lg border px-3 py-2 text-sm font-semibold transition-colors",
+                      soldAs === f
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-muted text-muted-foreground hover:border-primary/50"
+                    )}
+                  >
+                    {f === "IGV" ? "IGV — Global Volunteer" : "IGT — Talent / Teacher"}
+                    {f === fn ? (
+                      <span className="ms-1 text-[10px] font-normal opacity-75">
+                        (this account)
+                      </span>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+              {crossed ? (
+                <p className="rounded-lg border border-primary/40 bg-primary/5 p-2.5 text-xs leading-relaxed">
+                  <b>They bought {soldAs}, not {fn}.</b> These opens are recorded
+                  as <b>{soldAs}</b> opens, and this account moves to {soldAs}
+                  with them — so {soldAs}&apos;s numbers carry it from now on and{" "}
+                  {fn}&apos;s stop. It stays yours, and so do the opens.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           {isB2C ? (
             <div className="rounded-lg border border-primary/40 bg-primary/5 p-4 text-sm">
               <p className="font-semibold">📄 Contract form first</p>

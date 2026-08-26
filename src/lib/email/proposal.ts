@@ -1,14 +1,16 @@
-import { escapeHtml, madeBy20 } from "./templates";
+import { BRAND, escapeHtml, sodioCredit } from "./templates";
 import { env } from "@/lib/env";
 import type { ProposalProduct } from "@/lib/proposal-pdfs";
 
-/** ICX Proposal Email — generates the ready-to-review company outreach draft,
+/** ICX Proposal Email — builds the company outreach email the member sends
+ *  from their own Gmail (v34.10: it always SENDS; the old "leave it in drafts"
+ *  path is gone, replaced by an in-app preview of this exact HTML),
  *  matching the LC's original proposal-tool design (card layout, "why this
  *  could be a strong fit" callout, opportunity snapshot + AIESEC cards,
- *  meeting request). ONE brand color for every product (AIESEC blue #037EF3);
+ *  meeting request). ONE brand color for every product (Sodio purple #7552CC);
  *  only the CONTENT changes per function. "B2B" is the general all-programs
- *  variant pointing at aiesec.org/partners. The draft lands in the MEMBER's
- *  own Gmail, they review and send. No company-logo section by design. */
+ *  variant pointing at aiesec.org/partners. It goes out from the MEMBER's own
+ *  address, so the reply lands with them. No company-logo section by design. */
 
 // the deck set lives in its own import-free module so the CLIENT dialog can
 // read it without pulling this file's template tree into the browser bundle
@@ -22,18 +24,17 @@ export interface ProposalInput {
   companyName: string;
   sector: string | null;
   customNote: string | null;
-  attachmentsNote: string | null;
   memberName: string;
   memberPhone: string | null;
   memberEmail: string;
-  /** v34.8 — the email is going OUT right now, not into drafts. The
-   *  "remember to attach your files" reminder is written to the SENDER and
-   *  must never reach the company, so it only exists on the draft path. */
-  sendNow?: boolean;
 }
 
-const BLUE = "#037EF3"; // AIESEC official brand blue — the ONE accent color
-const NAVY = "#0A2540";
+/** ONE accent colour for every product — Sodio's purple since v34.10, so a
+ *  proposal is recognisably from the same house as every other LC email.
+ *  AIESEC blue stays for the links that point at AIESEC's own sites. */
+const BLUE = BRAND.purple;
+const LINK = "#037EF3"; // AIESEC's own blue — aiesec.org links only
+const NAVY = BRAND.navy;
 
 interface Pitch {
   programName: string;
@@ -203,11 +204,11 @@ const PITCHES: Record<ProposalProduct, Pitch> = {
 /** Left-accent callout box (same style as the original proposal tool). */
 function callout(inner: string): string {
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:22px 0;"><tr>
-    <td style="border-left:4px solid ${BLUE};background:#f0f7ff;border-radius:0 10px 10px 0;padding:16px 20px;color:${NAVY};font-size:14px;line-height:1.7;">${inner}</td>
+    <td style="border-left:4px solid ${BLUE};background:#f4f1fc;border-radius:0 10px 10px 0;padding:16px 20px;color:${NAVY};font-size:14px;line-height:1.7;">${inner}</td>
   </tr></table>`;
 }
 
-export function proposalDraft(input: ProposalInput): { subject: string; html: string } {
+export function proposalEmail(input: ProposalInput): { subject: string; html: string } {
   const p = PITCHES[input.product];
   const company = escapeHtml(input.companyName);
   const sector = input.sector ? escapeHtml(input.sector) : null;
@@ -228,7 +229,9 @@ export function proposalDraft(input: ProposalInput): { subject: string; html: st
   <tr><td style="padding:22px 32px;border-bottom:1px solid #e8eef6;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
       <td align="left" style="vertical-align:middle;">
-        <img src="${env.appUrl}/brand/aiesec-blue.png" alt="AIESEC" height="34" style="height:34px;display:block;border:0;">
+        <!-- the LC lockup is 716×408, nearly three times taller in ratio than
+             the old AIESEC wordmark that sat here — 34px made it unreadable -->
+        <img src="${env.appUrl}/brand/alex-blue.png" alt="AIESEC in Alexandria" height="56" style="height:56px;width:auto;display:block;border:0;">
       </td>
       <td align="right" style="vertical-align:middle;">${programBadge}</td>
     </tr></table>
@@ -272,15 +275,8 @@ export function proposalDraft(input: ProposalInput): { subject: string; html: st
 
     ${callout(`<b>Meeting request:</b> ${p.meeting(company)}`)}
 
-    ${
-      input.attachmentsNote && !input.sendNow
-        ? `<p style="margin:0 0 14px;"><i>Attached: ${escapeHtml(input.attachmentsNote)}</i></p>
-           <p style="margin:0 0 14px;color:#c2410c;"><b>[⚠ Reminder for you: attach the file(s) before sending, then delete this line]</b></p>`
-        : ""
-    }
-
     <p style="margin:0 0 16px;">${p.moreLabel}:
-      <a href="${p.moreUrl}" style="color:${BLUE};font-weight:bold;text-decoration:underline;">${p.moreUrl.replace("https://", "")}</a>
+      <a href="${p.moreUrl}" style="color:${LINK};font-weight:bold;text-decoration:underline;">${p.moreUrl.replace("https://", "")}</a>
     </p>
 
     <p style="margin:0;">We look forward to the possibility of collaborating with you.</p>
@@ -289,7 +285,7 @@ export function proposalDraft(input: ProposalInput): { subject: string; html: st
       <td style="border-top:1px solid #e8eef6;padding-top:18px;font-size:14px;line-height:1.7;">
         <b style="color:${NAVY};">${escapeHtml(input.memberName)}</b><br>
         ${p.signatureTitle}<br>
-        <a href="https://aiesec.org.eg/" style="color:${BLUE};font-weight:bold;text-decoration:underline;">AIESEC in Alexandria</a>
+        <a href="https://aiesec.org.eg/" style="color:${LINK};font-weight:bold;text-decoration:underline;">AIESEC in Alexandria</a>
         ${input.memberPhone && waDigits ? `<br><a href="https://wa.me/${waDigits}" style="color:${BLUE};text-decoration:underline;">${escapeHtml(input.memberPhone)}</a>` : ""}
         <br>${escapeHtml(input.memberEmail)}
       </td>
@@ -297,8 +293,8 @@ export function proposalDraft(input: ProposalInput): { subject: string; html: st
   </td></tr>
 
 </table>
-<!-- this email leaves the LC, so it carries the 2.0 credit (v34.8) -->
-<div style="text-align:center;padding:4px 0 2px;">${madeBy20()}</div>
+<!-- this email leaves the LC: "Sodio" is a name out here, never a link (v34.10) -->
+<div style="text-align:center;padding:4px 0 2px;">${sodioCredit()}</div>
 </td></tr></table>
 </div>`;
 

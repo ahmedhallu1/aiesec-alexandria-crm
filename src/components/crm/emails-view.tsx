@@ -543,7 +543,7 @@ export function EmailsView({
                 {tool("Numbered list", <ListOrdered className="size-3.5" />, () => exec("insertOrderedList"))}
                 {tool("Quote", <Quote className="size-3.5" />, () =>
                   insertHtml(
-                    '<blockquote style="margin:12px 0;padding:8px 16px;border-left:3px solid #037EF3;background:#f2f7fd;color:#41526b;">Quoted text</blockquote>'
+                    '<blockquote style="margin:12px 0;padding:8px 16px;border-left:3px solid #7552CC;background:#f4f1fc;color:#41526b;">Quoted text</blockquote>'
                   )
                 )}
                 {tool("Link the selected text", <Link2 className="size-3.5" />, () => {
@@ -551,13 +551,16 @@ export function EmailsView({
                   if (url) exec("createLink", url);
                 })}
                 {tool("Insert an AIESEC logo", <ImageIcon className="size-3.5" />, () => setImagesOpen(true))}
+                {/* v34.10: the button says what it DOES. "Violet Man" is the
+                    assistant's name, which told nobody who hadn't already met
+                    him that this is the button that writes the email. */}
                 <Button
                   size="sm"
                   variant={aiOpen ? "default" : "outline"}
                   className="h-8"
                   onClick={() => setAiOpen((o) => !o)}
                 >
-                  <Sparkles className="size-3.5" /> Violet Man
+                  <Sparkles className="size-3.5" /> Write with AI
                 </Button>
               </div>
 

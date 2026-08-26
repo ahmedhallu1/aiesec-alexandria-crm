@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-24 · Version: v34.9
+Last updated: 2026-08-27 · Version: v34.10
 
 ---
 
@@ -285,12 +285,15 @@ mutation through a `can*` predicate, **server-side**.
   `toggleCommentArchive`, RBAC = `canEditAccount`) — archiving unpins it and
   hides it behind an **"Archived (n)"** toggle on the comments card; numbering
   runs over the FULL list so `#n` never shifts.
-- **ICX Proposal Email** (`src/lib/email/proposal.ts` + `createProposalDraft`):
+- **ICX Proposal Email** (`src/lib/email/proposal.ts` + `sendProposalEmail` /
+  `previewProposalEmail`, both built by the private `buildProposal()` so the
+  preview cannot drift from the send):
   the "Proposal email" button on every account opens a popup (recipient,
-  sector, custom note, attachments note — product auto-detected iGV/iGTa/iGTe,
-  company prefilled). It creates a ready-to-send DRAFT **in the member's own
-  Gmail** via their `gmail.compose` grant; the UI reminds them to review,
-  attach files and hit send (email goes out from THEIR address). An
+  sector, custom note — product auto-detected iGV/iGTa/iGTe, company
+  prefilled). It **SENDS from the member's own Gmail** on their
+  `gmail.compose` grant (v34.10 — the "leave it as a draft" option is gone;
+  **See it first** renders the exact letter in an `iframe srcDoc` inside
+  Sodio, with Send underneath it and no redirect). An
   **"Attach the official proposal"** switch adds the per-product PDF from
   `proposals/<iGV|iGTa|iGTe>.pdf` (bundled via `outputFileTracingIncludes`;
   missing file → clear error). Sets `proposal_sent` on the account. Members
@@ -492,11 +495,14 @@ burst** when a deal is recorded.
   **IBM Plex Mono** for facts, AIESEC blue `#037EF3` as the anchor and Sodio
   purple `#7552CC` as the signature. Purple NEVER labels a product — it marks
   actions and wins only, which is what keeps it from fighting the GV/GT/GTe
-  tags on the same row. **INTERNAL emails wear the Sodio lockup; emails that
-  LEAVE the LC** (IR bookings, member-written letters in `compose.ts`, the
-  proposals) keep the AIESEC in Alexandria logo — they represent the LC to
-  someone who has never heard of Sodio. The `/book` and `/inactive` pages do
-  the same.
+  tags on the same row. **EVERY email wears the AIESEC in Alexandria logo**
+  (v34.10 — internal and external alike; the split header is gone, because the
+  same LC looking like two organisations depending on the recipient was the
+  problem), on a navy→purple header, with **"Powered by Sodio" + "Made by 2.0"**
+  as the footer credit on all of it (`sodioCredit()` in `templates.ts`;
+  `crmLink: false` on anything leaving the LC, so "Sodio" is a name out there
+  and never a door into an internal system). The `/book` and `/inactive` pages
+  wear the LC logo for the same reason.
 - The word **"Manager"** is used in the UI for the sheet's "Stakeholder".
 
 ---
@@ -576,7 +582,7 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | Nightly backup (tables, retention, destinations) | `src/server/backup.ts` · `/api/cron/backup` |
 | Security headers / CSP | `next.config.ts` |
 | Tests | `tests/*.test.ts` (Vitest — `npm test`) |
-| Proposal decks (which PDF, defaults, size budget) | `src/lib/proposal-pdfs.ts` (pure, client-safe) · files in `proposals/` · `createProposalDraft` in `actions.ts` |
+| Proposal decks (which PDF, defaults, size budget) | `src/lib/proposal-pdfs.ts` (pure, client-safe) · files in `proposals/` · `sendProposalEmail` in `actions.ts` |
 | Import columns (per function, examples, template) | `src/lib/import-columns.ts` (pure) · `import-view.tsx` — ⚠️ mirrors `createAccount`'s rules, pinned by `tests/import-columns.test.ts` |
 | A member's own settings (shape, defaults, search index) | `src/lib/member-settings.ts` (pure) · reader `src/server/member-settings.ts` · `saveMySetting` in `actions.ts` · `settings-panel.tsx` |
 | What "this week" means to the Violet Man | `src/lib/ask-period.ts` (pure) · the `getNumbers` tool in `src/app/api/assistant/route.ts` |
@@ -657,6 +663,82 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-27 · v34.10** — **ONE LOGO ON EVERY EMAIL, A SIGNATURE THAT NAMES
+  EVERY JOB, A PROPOSAL YOU CAN READ WITHOUT LEAVING, AND THE OPEN THAT
+  BELONGS TO THE OTHER FUNCTION** (no migration).
+  ① **EVERY EMAIL WEARS THE LC'S MARK, AND SODIO TAKES THE FOOTER.** Since
+  v29 there were two headers: the Sodio lockup on internal mail, the AIESEC in
+  Alexandria logo on external. That made the same LC look like two
+  organisations depending on who was being written to, and it put a tool's
+  name where the entity's belongs. `emailHeader()` no longer takes an
+  `external` flag — **`alex-white.png` heads every email**, on a navy→purple
+  gradient with a purple band under it, and the credit moved to the bottom as
+  `sodioCredit()`: **"Powered by Sodio"**, and under it in smaller type
+  **"Made by 2.0"** (the mark, linked to elevate2point0.com). It replaces
+  `madeBy20()`, which only rode outbound mail; the credit is now on all of it,
+  which is what makes it a credit rather than an ad shown to strangers only.
+  `crmLink` is false on anything leaving the LC — out there "Sodio" is a name,
+  never a door into an internal system. The frame colour followed: a new
+  exported `BRAND` object in `templates.ts` holds the palette, and
+  `compose.ts` (all four member layouts) + `proposal.ts` re-tinted from AIESEC
+  blue to **Sodio purple `#7552CC`**, keeping blue only for links that point
+  at AIESEC's own sites and leaving the GV/GTa/GTe product colours frozen.
+  The proposal's header logo also swapped from the generic AIESEC wordmark to
+  the LC lockup — and its height went 34px → 56px, because `alex-blue.png` is
+  716×408 against the wordmark's 1265×259 and at 34px it rendered as an
+  unreadable smudge. Checked by rendering all ten samples through
+  `scripts/preview-emails.ts` and looking at them.
+  ② **THE SIGNATURE READ `functions[0]` AND STOPPED.** Anyone holding two
+  functions signed off as one of them — the Director of IM *and* of CXP ICX
+  signed every letter as IM alone. `signatureTitle` now maps the WHOLE list
+  ("Director of Information Management & Customer Experience (ICX)"), and CXP
+  carries its side because ICX and OGX are genuinely different jobs. The side
+  comes from the CXP module's own `cxpSides(viewer)` resolver, NOT from a raw
+  `sub_functions` string — "ICX" in that column is also Sodio's legacy
+  catch-all for raising, and guessing would have mislabelled raisers. The role
+  stays singular (a member row holds one `role`), so two functions read as one
+  title joined with "&".
+  ③ **THE PROPOSAL'S DRAFT OPTION BECAME A PREVIEW.** "Leave it in my Gmail
+  drafts" existed so a member could re-read the letter before it went — but it
+  did that by sending them OUT of Sodio, and the proposal usually stayed in
+  the drafts folder unsent. It is gone. `createProposalDraft` →
+  **`sendProposalEmail`** (always sends), plus **`previewProposalEmail`**,
+  and both are built by one new private `buildProposal()` so the preview
+  cannot drift from what is sent. The popup renders it in an `iframe srcDoc`
+  with `sandbox=""` — the same pattern `/emails` has used since v33.25 — with
+  **Send** underneath the preview and no redirect anywhere. `ProposalInput`
+  lost `sendNow` and `attachmentsNote` (the "remember to attach your files"
+  reminder line only ever existed on the draft path), and `proposalDraft()`
+  is now honestly named `proposalEmail()`.
+  ④ **THE CROSS-FUNCTION OPEN (IGV ↔ IGT).** From the floor: an IGT member
+  approached an enabler as IGT, was refused, offered IGV instead and was
+  accepted — so an **IGV** open got signed, by an IGT member, on an account
+  labelled IGT. The CRM had no way to say that: `recordDeal` zeroed `igv` on
+  an IGT account, and only someone who works BOTH functions could relabel the
+  account. Now `recordDeal` takes **`raisedFor`**, the Record-deal popup asks
+  **"These opens were raised for"** first on any IGV/IGT account, and picking
+  the sibling does three things at once — the opens are recorded as that
+  programme's (they already fed its lane: `laneWorkSlots`/`laneAllocSlots`
+  attribute by PRODUCT, not by the account's function), **the account moves to
+  that function** through the existing `fnSpecificReset` path, and a comment
+  saying so is written onto the account so both VPs can read it. The rule is
+  *follows the latest open*, chosen deliberately over "becomes B2B". **The
+  raiser keeps the account and the opens** — `canEditAccount` is by
+  `responsible_id`, so nothing is taken. `accountFnTargets` gained the ICX
+  sibling so the same move can happen BEFORE the deal from Details → Function,
+  and — the part that needed care — it is gated on *working either ICX
+  function*, not on working the account's current one, so a move to IGV can be
+  moved back. `allowedAccountFunctions` was deliberately NOT widened: an IGT
+  member still cannot CREATE an IGV account, only move one they already own.
+  The opens-split picker on an ICX account now offers both crews (the account
+  page loads both), and `DealEditDialog` shows a product field whenever the
+  deal already carries opens of it, so an IGT deal stays editable after its
+  account crossed. IGV/IGT share one name-uniqueness world ("ICX"), so the
+  move needs no re-check. 17 new tests in `tests/cross-function-opens.test.ts`.
+  ⑤ **"VIOLET MAN" ON THE COMPOSER IS NOW "✨ WRITE WITH AI".** The button
+  named the assistant instead of saying what it does, so nobody who hadn't
+  already met him knew it was the button that writes the email.
 
 - **2026-08-24 · v34.9** — **THE LINK PREVIEW GETS THE CREDIT, THE ADMIN CAN
   SEE THE PROMPT FIRST, AND A GITHUB OUTAGE GOT CHASED DOWN TO ITS SOURCE**
@@ -3473,7 +3555,7 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
   on any future day's panel. `src/server/calendar-items.ts` +
   `calendar-item-dialog.tsx`.
   ⑥ **Answered**: a TL sending a proposal email does NOT move the account —
-  `createProposalDraft` writes `proposal_sent` only; the only ownership
+  `sendProposalEmail` writes `proposal_sent` only; the only ownership
   writer is the explicit reassign/claim picker.
 
 - **2026-08-06 · v33.15** — **THE PRODUCTION-INCIDENTS BATCH** (8 issues
