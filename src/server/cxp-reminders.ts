@@ -31,9 +31,71 @@ import { CXP_FUNCTIONS, type CxpEpRecord, type CxpFunction } from "@/lib/cxp/typ
 
 export type EmailMode = "dry-run" | "beta" | "production";
 
-export function emailMode(): EmailMode {
+/** THE EMAIL CUTOVER DATE (set by the CXP directors: 1 September 2026).
+ *
+ *  The module went live in August, but the OLD auditing system kept sending
+ *  the submission reminders — so until this date the new one must resolve
+ *  everything and send NOTHING, or every VP gets two emails per deadline.
+ *
+ *  A DATE, NOT A CHECKLIST ITEM. Flipping an env var on the right morning is
+ *  the kind of thing that gets forgotten or done a day early, so the switch is
+ *  in the code where it can be tested. `CXP_EMAIL_GO_LIVE` overrides it, which
+ *  is how the date is moved (or how a test pins it) without a deploy.
+ *
+ *  The ECB deadlines are the 6th, 13th, 20th and 27th, and a reminder goes out
+ *  the day before. So the last deadline before the cutover is 27 Aug (mailed
+ *  the 26th, by the old system) and the first after it is 6 Sep (mailed the
+ *  5th, by this one). The handover falls in the gap between two cycles — no
+ *  deadline is covered twice, and none is missed. */
+export const CXP_EMAIL_GO_LIVE_DEFAULT = "2026-09-01";
+
+export function emailGoLiveDate(): string {
+  const raw = (process.env.CXP_EMAIL_GO_LIVE ?? "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : CXP_EMAIL_GO_LIVE_DEFAULT;
+}
+
+/** What CXP_EMAIL_MODE asks for, before the date gate is applied. */
+export function configuredEmailMode(): EmailMode {
   const raw = (process.env.CXP_EMAIL_MODE ?? "").toLowerCase();
   return raw === "production" || raw === "beta" ? raw : "dry-run";
+}
+
+export interface ResolvedMode {
+  mode: EmailMode;
+  /** what the env asked for, when the gate overrode it */
+  configured: EmailMode;
+  /** true while we are before the cutover date */
+  heldBack: boolean;
+  goLive: string;
+  reason?: string;
+}
+
+/** THE ONE PLACE THAT DECIDES WHETHER MAIL LEAVES THE BUILDING.
+ *
+ *  Before the cutover the answer is dry-run no matter what the env says — a
+ *  mis-set variable cannot start mailing people early. On or after it, the env
+ *  decides as normal, so `production` set today simply starts working on the
+ *  1st with nobody touching anything. */
+export function resolveEmailMode(today: string = cxpToday()): ResolvedMode {
+  const configured = configuredEmailMode();
+  const goLive = emailGoLiveDate();
+  if (today < goLive) {
+    return {
+      mode: "dry-run",
+      configured,
+      heldBack: true,
+      goLive,
+      reason:
+        `Held back until the ${goLive} cutover — the standalone auditing system ` +
+        `still owns these reminders, so nothing is sent from here yet.`,
+    };
+  }
+  return { mode: configured, configured, heldBack: false, goLive };
+}
+
+/** Back-compat alias for the resolved mode. */
+export function emailMode(): EmailMode {
+  return resolveEmailMode().mode;
 }
 
 export interface ReminderOutcome {
@@ -51,6 +113,11 @@ export interface ReminderRun {
   ran: boolean;
   deadline: string | null;
   mode: EmailMode;
+  /** what CXP_EMAIL_MODE asks for — differs from `mode` while held back */
+  configuredMode: EmailMode;
+  /** true while we are before the cutover date */
+  heldBack: boolean;
+  goLive: string;
   results: ReminderOutcome[];
   message: string;
 }
@@ -63,8 +130,10 @@ export async function runWeeklyReminders(opts: {
   only?: CxpFunction | null;
   dryRun?: boolean;
 } = {}): Promise<ReminderRun> {
-  const mode: EmailMode = opts.dryRun ? "dry-run" : emailMode();
   const today = cxpToday();
+  const resolved = resolveEmailMode(today);
+  // an explicit ?dry=1 can only ever make it SAFER, never the reverse
+  const mode: EmailMode = opts.dryRun ? "dry-run" : resolved.mode;
 
   // THE GATE. Without it this would mail four VPs every single morning.
   const gate = opts.deadline
@@ -75,6 +144,9 @@ export async function runWeeklyReminders(opts: {
       ran: false,
       deadline: null,
       mode,
+      configuredMode: resolved.configured,
+      heldBack: resolved.heldBack,
+      goLive: resolved.goLive,
       results: [],
       message: "No ECB deadline tomorrow — nothing to send.",
     };
@@ -155,7 +227,11 @@ export async function runWeeklyReminders(opts: {
     let reason: string | undefined;
 
     if (mode === "dry-run") {
-      reason = "CXP_EMAIL_MODE=dry-run — resolved recipients, sent nothing.";
+      // say WHY: "held back until the cutover" and "someone set dry-run" are
+      // very different situations to read in a log three weeks from now
+      reason = resolved.heldBack
+        ? resolved.reason
+        : "CXP_EMAIL_MODE=dry-run — resolved recipients, sent nothing.";
     } else if (to.length === 0) {
       status = "blocked";
       reason = `No valid recipients for ${fn}. ${
@@ -211,8 +287,13 @@ export async function runWeeklyReminders(opts: {
     ran: true,
     deadline,
     mode,
+    configuredMode: resolved.configured,
+    heldBack: resolved.heldBack,
+    goLive: resolved.goLive,
     results,
-    message: `Reminder run for ${deadline} (mode=${mode}).`,
+    message: resolved.heldBack
+      ? `Reminder run for ${deadline} — held back until ${resolved.goLive}; nothing sent.`
+      : `Reminder run for ${deadline} (mode=${mode}).`,
   };
 }
 
