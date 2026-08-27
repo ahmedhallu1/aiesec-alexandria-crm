@@ -6,7 +6,14 @@ export default function manifest(): MetadataRoute.Manifest {
     short_name: "Sodio",
     description:
       "Sodio — the ICX CRM of AIESEC in Alexandria. Accounts, visits and pipelines.",
+    // THE ANDROID APP READS THIS FILE (v35). Bubblewrap generates the Play
+    // build straight from the manifest, so `id` and `scope` stop being
+    // cosmetic: `scope` is what the TWA treats as "still the app" (anything
+    // outside it opens in a browser tab instead), and `id` is the stable
+    // identity that survives start_url ever changing.
+    id: "/",
     start_url: "/",
+    scope: "/",
     display: "standalone",
     background_color: "#0A2540",
     theme_color: "#0A2540",

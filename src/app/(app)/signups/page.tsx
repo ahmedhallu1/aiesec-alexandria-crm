@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import {
   b2cCicAccess, b2cCicCallerTargets,
-  cicCallerTargets, getViewer, listSignupLogs, listSignupsPage, ogxPlanCard, seesB2cCicQueue, seesCicQueue,
+  cicCallerTargets, cicFirstCallerOptions, getViewer, listSignupLogs, listSignupsPage, ogxPlanCard, seesB2cCicQueue, seesCicQueue,
   signupFilterOptions, signupReassignTargets,
   signupViewsFor,
   streakStats,
@@ -61,6 +61,7 @@ export default async function SignupsPage({
         assigned: sp.assigned,
         campaign: sp.campaign,
         cicMine: sp.cicMine === "1",
+        firstCaller: sp.firstCaller,
         // validated in listSignupsPage, which also understands a comma list
         phone: sp.phone,
         q: sp.q,
@@ -73,6 +74,13 @@ export default async function SignupsPage({
     ogxPlanCard(viewer),
     streakStats(viewer, sp.streak),
   ]);
+
+  // WHO MADE THE FIRST CALL (v34.11) — the CIC funnel's people. Read only on
+  // the CIC tab: every other view pays nothing for a filter it doesn't carry.
+  const firstCallers =
+    result.view === "cic"
+      ? await cicFirstCallerOptions(viewer, fnAll ? null : activeFn)
+      : [];
 
   const isLeader = viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
   // CIC (v33.19) is handed out by MMs and above — Coordinators included, who
@@ -124,6 +132,7 @@ export default async function SignupsPage({
       activeView={result.view}
       views={signupViewsFor(viewer)}
       filterOptions={await signupFilterOptions(viewer, activeFn)}
+      firstCallers={firstCallers}
       fns={fns}
       activeFn={activeFn}
       fnAll={fnAll}
@@ -154,6 +163,7 @@ export default async function SignupsPage({
         assigned: sp.assigned ?? "",
         campaign: sp.campaign ?? "",
         cicMine: sp.cicMine ?? "",
+        firstCaller: sp.firstCaller ?? "",
         program: sp.program ?? "",
         status: sp.status ?? "",
         potential: sp.potential ?? "",

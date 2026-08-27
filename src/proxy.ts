@@ -28,6 +28,11 @@ export const config = {
     // not excluded, so each one woke the proxy: an auth check, a function
     // invocation, and a billable one, to decide that a favicon may be shown
     // to a stranger. They show up in the production logs by name.
-    "/((?!api/auth|api/cron|api/v1|login|inactive|book|_next/static|_next/image|favicon.ico|icon.png|apple-icon.png|opengraph-image|icons|brand|manifest.webmanifest|robots.txt|sitemap.xml|\\.well-known).*)",
+    //
+    // AND `sw.js` (v35). A service worker is fetched by the BROWSER, not by a
+    // signed-in navigation, so the proxy would have 307'd it to /login and
+    // registration would have failed with "the script has an unsupported MIME
+    // type" — push would simply never have worked, with nothing saying why.
+    "/((?!api/auth|api/cron|api/v1|login|inactive|book|privacy|_next/static|_next/image|favicon.ico|icon.png|apple-icon.png|opengraph-image|icons|brand|manifest.webmanifest|sw.js|robots.txt|sitemap.xml|\\.well-known).*)",
   ],
 };

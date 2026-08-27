@@ -101,6 +101,9 @@ export interface SettingEntry {
      *  second control over the same field */
     | { type: "jump"; target: string; cta: string }
     | { type: "external"; href: string; cta: string }
+    /** the browser's own notification permission + this device's push
+     *  subscription — a capability, not a stored preference (v35) */
+    | { type: "push" }
     /** something that cannot be turned off, listed with the reason */
     | { type: "locked"; reason: string };
   /** hidden unless this holds — module-specific rows shouldn't clutter
@@ -240,6 +243,18 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
       "The same crew-wide heads-up, in the notifications panel. Your own visits always appear.",
     keywords: ["bell", "notification", "visit", "announcement", "اشعار"],
     kind: { type: "toggle", key: "bellVisitAnnouncements" },
+  },
+  {
+    id: "push-device",
+    section: "notifications",
+    label: "Notifications on this phone or laptop",
+    description:
+      "The same bell, delivered to the device — so an account handed to you, a visit booked or a prompt waiting reaches you without Sodio being open. Turn it on wherever you want to be reached; each device is separate. The Android app uses this exact switch.",
+    keywords: [
+      "push", "notification", "phone", "mobile", "android", "app", "alerts",
+      "اشعارات", "تنبيهات", "موبايل",
+    ],
+    kind: { type: "push" },
   },
   {
     id: "bell-everything-else",

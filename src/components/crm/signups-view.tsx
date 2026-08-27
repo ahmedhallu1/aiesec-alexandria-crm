@@ -609,7 +609,9 @@ function signupColumns(fn: OgxFunction, view: string): TableColumn[] {
     // raising list. Removing the Contact BUTTON took these with it by
     // accident; they are the part people actually use.
     { key: "contact", label: "Quick actions" },
-    { key: "assigned", label: "Assigned" },
+    // ON THE CIC QUEUE THE ASSIGNEE *IS* THE FIRST CALLER (v34.11) — named so
+    // it reads as the counterpart of "2nd caller" two columns over
+    { key: "assigned", label: cic ? "1st caller" : "Assigned" },
     { key: "contacted", label: "Contacted" },
     { key: "interested", label: "Interested" },
     // CIC (v33.19) — the SECOND call, kept beside the first so the two are
@@ -803,11 +805,15 @@ function SignupContactPrompt({
 export function SignupsView({
   rows, total, page, pageSize, pageSizeOptions, activeView, views, fns, activeFn, fnAll = false,
   targets, cicTargets, b2cTargets, loadLogs, planCard, streak, viewer, filters, filterOptions,
+  firstCallers = [],
 }: {
   rows: SignupListRow[];
   /** every value each filterable column holds across the WHOLE set — a filter
    *  built from the visible page could only offer what happened to be on it */
   filterOptions: Record<string, string[]>;
+  /** CIC tab only — the people who made the FIRST call, by member id. Empty
+   *  everywhere else, and for anyone who doesn't see the whole queue. */
+  firstCallers?: { value: string; label: string }[];
   total: number;
   page: number;
   pageSize: number;
@@ -834,6 +840,8 @@ export function SignupsView({
     personStatus?: string; assigned?: string; campaign?: string;
     /** CIC tab only — "the second calls handed to me" */
     cicMine?: string;
+    /** CIC tab only — first-caller member ids (comma list) */
+    firstCaller?: string;
     interested: string; contacted: string; phone: string; sort: string; dir: string;
   };
 }) {
@@ -1114,6 +1122,16 @@ export function SignupsView({
           [...SIGNUP_STATUSES.map((st) => [st, st] as [string, string]), ["none", "— None yet"]],
           (v) => setParams({ potential: v || null, status: null }));
       case "assigned": {
+        // ON THE CIC QUEUE, "assigned" MEANS THE FIRST CALLER (v34.11) — and
+        // it filters by PERSON, not by the stored name: the trackers hold two
+        // spellings of the same caller, so a name pick dropped half their rows.
+        if (cicView && firstCallers.length > 0)
+          return pick(
+            "1st caller",
+            filters.firstCaller ?? "",
+            firstCallers.map((o) => [o.value, o.label] as [string, string]),
+            (v) => setParams({ firstCaller: v || null })
+          );
         // v33.14 — who holds it, straight from what's on the page
         const seen = filterOptions.assigned_name ?? [];
         return seen.length > 0
@@ -1746,7 +1764,7 @@ export function SignupsView({
             {viewer.b2cOnly ? (
               <button
                 type="button"
-                onClick={() => setParams({ fn: null, program: null })}
+                onClick={() => setParams({ fn: null, program: null, firstCaller: null })}
                 className={cn(
                   "rounded-md px-3 py-1 text-sm font-semibold transition-colors",
                   fnAll ? "bg-background shadow" : "text-muted-foreground"
@@ -1759,7 +1777,7 @@ export function SignupsView({
               <button
                 key={f}
                 type="button"
-                onClick={() => setParams({ fn: f, program: null })}
+                onClick={() => setParams({ fn: f, program: null, firstCaller: null })}
                 className={cn(
                   "rounded-md px-3 py-1 text-sm font-semibold transition-colors",
                   activeFn === f && !fnAll ? "bg-background shadow" : "text-muted-foreground"
@@ -1777,7 +1795,7 @@ export function SignupsView({
             <button
               key={v}
               type="button"
-              onClick={() => setParams({ view: v })}
+              onClick={() => setParams({ view: v, firstCaller: null })}
               className={cn(
                 "rounded-full border px-3 py-1 text-sm font-medium transition-colors",
                 activeView === v
@@ -1840,6 +1858,26 @@ export function SignupsView({
             Potential · Phone) live on the COLUMN HEADERS now. The mobile
             card view has no header to hang them on, so it keeps the chips. */}
         <div className="contents md:hidden">
+        {cicView && firstCallers.length > 0 ? (
+          <Select
+            value={
+              firstCallers.some((o) => o.value === filters.firstCaller)
+                ? filters.firstCaller!
+                : "all"
+            }
+            onValueChange={(v) => setParams({ firstCaller: v === "all" ? null : v })}
+          >
+            <SelectTrigger className="h-9 w-40"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Any 1st caller</SelectItem>
+              {firstCallers.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
         <Select
           value={filters.batch || "all"}
           onValueChange={(v) => setParams({ batch: v === "all" ? null : v })}

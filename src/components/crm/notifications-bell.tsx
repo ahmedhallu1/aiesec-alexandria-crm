@@ -258,7 +258,8 @@ function BroadcastDialog({
             <Megaphone className="size-5 text-primary" /> Message the LC
           </DialogTitle>
           <DialogDescription>
-            Lands in the bell of everyone you pick — optionally as an email too.
+            Lands in the bell of everyone you pick — and on the phone of anyone
+            who has turned notifications on (v35), optionally as an email too.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">

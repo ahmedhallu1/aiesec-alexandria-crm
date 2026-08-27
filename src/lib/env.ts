@@ -13,6 +13,21 @@ export const env = {
   serviceAccountKeyBase64: process.env.GOOGLE_SERVICE_ACCOUNT_KEY_BASE64 ?? "",
   driveFolderId: process.env.DRIVE_FOLDER_ID ?? "",
   cronSecret: process.env.CRON_SECRET ?? "",
+  // WEB PUSH (v35) — the bell on the phone, and the Android app's notification
+  // channel (the TWA delegates the site's web push to its own tray). The
+  // public half is NEXT_PUBLIC_* because the browser needs it to subscribe;
+  // the private half signs the request to the push service and never leaves
+  // the server. Absent = push is simply off, and the health card says so.
+  vapidPublicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "",
+  vapidPrivateKey: process.env.VAPID_PRIVATE_KEY ?? "",
+  vapidSubject: process.env.VAPID_SUBJECT ?? "",
+  /** SHA-256 signing-certificate fingerprints allowed to open Sodio without
+   *  browser chrome (Digital Asset Links). Play App Signing's fingerprint goes
+   *  here once the first bundle is uploaded — see /.well-known/assetlinks.json */
+  androidFingerprints: (process.env.ANDROID_CERT_FINGERPRINTS ?? "")
+    .split(",")
+    .map((f) => f.trim().toUpperCase())
+    .filter(Boolean),
   adminEmails: (process.env.ADMIN_EMAILS ?? "")
     .split(",")
     .map((e) => e.trim().toLowerCase())

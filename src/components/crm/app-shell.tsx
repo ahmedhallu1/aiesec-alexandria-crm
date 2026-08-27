@@ -41,6 +41,7 @@ import { WalkingLoader } from "./walking-loader";
 import { VioletManChat } from "./violet-man-chat";
 import { PendingPrompt } from "./pending-prompt";
 import { Prankster } from "./prankster";
+import { PushSync } from "./push-toggle";
 import { ActivateStrip } from "./activate-strip";
 
 interface ShellProps {
@@ -726,6 +727,12 @@ export function AppShell({
       {/* v29: the must-do prompt — after three ignored reminders it meets the
           member here, on every app open, until the record lands */}
       <PendingPrompt />
+
+      {/* v35: keeps the push worker registered (which is also how a new
+          version of it gets picked up) and re-registers a device whose
+          endpoint has rotated. It NEVER asks for permission — that needs a
+          real click, and it lives on the ⚙ My settings row. */}
+      <PushSync />
 
       {/* 🃏 v33.51 — mounted ONLY for a member the EB has put in a mood, and
           only while it lasts. Everything it does is cosmetic and self-

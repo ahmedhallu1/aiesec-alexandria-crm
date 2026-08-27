@@ -8,6 +8,84 @@ import type { HelpArticle } from "./help-content";
  */
 export const HELP_ARTICLES: HelpArticle[] = [
  {
+  "id": "phone-notifications",
+  "title": "Sodio on your phone — the app, and notifications",
+  "emoji": "📱",
+  "category": "getting-started",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "app",
+   "android",
+   "play store",
+   "install",
+   "phone",
+   "mobile",
+   "notification",
+   "notifications",
+   "push",
+   "alerts",
+   "بالتليفون",
+   "تطبيق",
+   "اشعارات",
+   "تنبيهات",
+   "اندرويد"
+  ],
+  "summary": "Sodio's bell can reach your phone even when Sodio isn't open — and the Android app is the same Sodio in an app icon.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Sodio's bell has always rung **inside a tab you already had open**, which is why anything urgent had to travel by email. It doesn't any more: turn notifications on and everything that lands on the bell — an account handed to you, a visit booked, a CIC call passed your way, a prompt waiting — arrives on your phone or laptop like any other notification."
+   },
+   {
+    "t": "steps",
+    "title": "Turn it on (30 seconds)",
+    "items": [
+     "Open **Profile → ⚙ Settings**.",
+     "Search **notifications** — or scroll to the 🔔 section.",
+     "Flip **“Notifications on this phone or laptop”**. Your browser asks for permission; say yes.",
+     "Press **Test it**. One should arrive within a second or two. If it does, the whole thing works."
+    ]
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**It's per DEVICE, not per account.** Turning it on on your phone does nothing to your laptop, and vice versa — turn it on wherever you actually want to be reached. Turning it off is the same switch, and it deletes the device straight away."
+   },
+   {
+    "t": "p",
+    "md": "**The Android app is the same thing wearing an app icon.** It isn't a separate copy of Sodio and it can never be out of date: it shows sodio.vercel.app full-screen, so every release reaches it the moment it goes live — there is nothing to update from a store. Its notifications are these notifications, in the phone's own tray."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Nothing arrives, but I turned it on.",
+      "a": "Check the phone's own settings for Sodio (or Chrome) — a system-level \"block notifications\" beats anything in-app. Then come back to Settings and press Test it: it tells you which half is failing. If the row says \"Blocked in this browser\", the permission was denied and it has to be re-allowed in the browser's site settings first."
+     },
+     {
+      "q": "I'm on an iPhone.",
+      "a": "Safari only delivers notifications to a site that has been **added to the Home Screen**. Open Sodio in Safari, Share → Add to Home Screen, open it from there, and the switch will work. There is no iPhone app in the App Store."
+     },
+     {
+      "q": "Will it wake me up at 3 AM?",
+      "a": "It can — a notification goes out when the thing happens, and some of Sodio's jobs run overnight. If that becomes a problem, use your phone's own Do Not Disturb, and tell the IM team: quiet hours can be built."
+     },
+     {
+      "q": "Can the LC see whether I turned it on?",
+      "a": "The admin health page shows how MANY devices are registered, as a count. Turning it off is not reported to anyone."
+     },
+     {
+      "q": "Do I still get the emails?",
+      "a": "Yes — nothing about email changed. If you want fewer of those, the same Settings panel has the email switches."
+     }
+    ]
+   }
+  ]
+ },
+ {
   "id": "my-settings",
   "title": "Settings — everything that's yours to change",
   "emoji": "⚙️",

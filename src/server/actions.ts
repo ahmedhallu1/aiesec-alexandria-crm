@@ -3988,6 +3988,107 @@ export async function saveMySetting(
   return { ok: true };
 }
 
+// ================================================================== push notifications (v35)
+
+/** The device's own subscription — an endpoint plus the two keys the payload
+ *  is encrypted to. The browser mints all three; nothing here is typed by a
+ *  human, so the validation is a shape check against a hostile caller. */
+const pushSubSchema = z.object({
+  endpoint: z.string().url().max(2000),
+  p256dh: z.string().min(8).max(500),
+  auth: z.string().min(4).max(500),
+  userAgent: z.string().max(300).nullish(),
+});
+
+/** REGISTER THIS DEVICE FOR PUSH (v35).
+ *
+ *  One row per device, keyed by the endpoint — so the same person's laptop,
+ *  phone and installed app are three rows, and re-enabling on a device that
+ *  already had one just refreshes it. An endpoint that turns up under a new
+ *  member is RE-HOMED rather than duplicated: that is a shared phone with a
+ *  second person signing in, and the notifications must follow whoever is
+ *  signed in now. */
+export async function savePushSubscription(
+  input: z.infer<typeof pushSubSchema>
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  // a test view must never bind the ADMIN's phone to the member they are
+  // impersonating — every notification for that member would land on it
+  if (viewer.impersonated)
+    return fail("You're in a test view — exit it before turning on notifications.", "forbidden");
+  const parsed = pushSubSchema.safeParse(input);
+  if (!parsed.success) return fail("That subscription doesn't look right.");
+  const s = parsed.data;
+
+  const { error } = await db()
+    .from("push_subscriptions")
+    .upsert(
+      {
+        member_id: viewer.id,
+        endpoint: s.endpoint,
+        p256dh: s.p256dh,
+        auth: s.auth,
+        user_agent: s.userAgent ?? null,
+        last_seen_at: new Date().toISOString(),
+      },
+      { onConflict: "endpoint" }
+    );
+  if (error)
+    return fail(
+      error.message.includes("push_subscriptions")
+        ? "Phone notifications need migration 0069 — ask the IM team to run it."
+        : error.message
+    );
+  await logAudit(viewer.id, "push_subscribe", "member", viewer.id, {
+    device: s.userAgent ?? null,
+  });
+  return { ok: true };
+}
+
+/** Turning it off on this device. The row is DELETED rather than flagged: a
+ *  subscription is a live capability, and keeping a disabled one around is
+ *  how you eventually push to somebody who asked you not to. */
+export async function removePushSubscription(endpoint: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (typeof endpoint !== "string" || endpoint.length < 8 || endpoint.length > 2000)
+    return fail("That subscription doesn't look right.");
+  // scoped to the caller: an endpoint is guessable in principle, and nobody
+  // gets to unsubscribe somebody else's phone
+  const { error } = await db()
+    .from("push_subscriptions")
+    .delete()
+    .eq("endpoint", endpoint)
+    .eq("member_id", viewer.id);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "push_unsubscribe", "member", viewer.id);
+  return { ok: true };
+}
+
+/** "Send me one now" — the only way to know it actually works before waiting
+ *  for something real to happen. Goes to the caller's own devices and nobody
+ *  else's, and deliberately does NOT go through `notifyMembers`: a test must
+ *  not leave a row on the bell. */
+export async function sendTestPush(): Promise<ActionResult<{ sent: number }>> {
+  const viewer = await getViewer();
+  if (viewer.impersonated)
+    return fail("You're in a test view — exit it first.", "forbidden");
+  const { sendPushToMembers, pushConfigured } = await import("./push");
+  if (!pushConfigured())
+    return fail("Push isn't configured yet — the VAPID keys are missing.");
+  const res = await sendPushToMembers([viewer.id], {
+    title: "\u{1F49C} Sodio",
+    body: "That worked \u2014 this is how Sodio will reach you.",
+    url: "/profile",
+  });
+  if (res.sent === 0)
+    return fail(
+      res.gone > 0
+        ? "This device's subscription had expired \u2014 turn notifications off and on again."
+        : "Nothing was delivered. Check that notifications are allowed for Sodio."
+    );
+  return { ok: true, data: { sent: res.sent } };
+}
+
 // ================================================================== membership (EB + admin)
 
 const memberSchema = z

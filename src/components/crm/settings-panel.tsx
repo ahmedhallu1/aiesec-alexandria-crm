@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { PushToggle } from "@/components/crm/push-toggle";
 import { cn } from "@/lib/utils";
 
 /** MY SETTINGS — one panel, searchable (v34.8).
@@ -171,6 +172,11 @@ function SettingRow({
               this browser
             </Badge>
           ) : null}
+          {k.type === "push" ? (
+            <Badge variant="outline" className="text-[10px] font-normal">
+              this device
+            </Badge>
+          ) : null}
         </p>
         <p className="text-xs leading-relaxed text-muted-foreground">{entry.description}</p>
       </div>
@@ -182,6 +188,8 @@ function SettingRow({
             onCheckedChange={(v) => onToggle(k.key, v)}
             aria-label={entry.label}
           />
+        ) : k.type === "push" ? (
+          <PushToggle label={entry.label} />
         ) : k.type === "theme" ? (
           <ThemePicker />
         ) : k.type === "localChoice" ? (

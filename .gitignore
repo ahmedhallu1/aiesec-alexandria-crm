@@ -40,3 +40,13 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 backups/
+
+# the Android (TWA) build — the PROJECT is generated from android/twa-manifest.json
+# by `bubblewrap update`, so only that file and the runbook are worth keeping.
+# ⚠️ THE KEYSTORE AND ITS PASSWORD ARE NEVER COMMITTED. Anyone holding both can
+# sign an update to Sodio. (It is the UPLOAD key, not the app-signing key —
+# Play can reset it if it is ever lost, which is the whole point of Play App
+# Signing — but it is still a credential.)
+/android/*
+!/android/twa-manifest.json
+!/android/README.md

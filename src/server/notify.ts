@@ -62,4 +62,33 @@ export async function notifyMembers(
   } catch (e) {
     console.error("[notify] failed:", e);
   }
+
+  // AND ON THE PHONE (v35). Every notification Sodio already files now also
+  // goes out as a web push — which is the SAME channel the Android app uses,
+  // because the Play build is a TWA and its notifications are these ones
+  // delegated to its tray. Hooked HERE and nowhere else, so a new caller gets
+  // phone delivery by writing a bell notification, exactly as before: there is
+  // no second list of "things that also push" to keep in step.
+  //
+  // Best-effort, and deliberately after the insert: the bell is the record,
+  // the push is a courtesy. `sendPushToMembers` re-checks the sandbox and
+  // returns quietly when no VAPID keys are configured.
+  try {
+    const { sendPushToMembers } = await import("./push");
+    const deliver = () =>
+      sendPushToMembers(ids, { title, body, url: link ?? "/" }).catch((e) =>
+        console.error("[notify] push failed:", e)
+      );
+    // Next's `after()` keeps the response fast — but it only exists inside a
+    // request, and this module is also reached from the import scripts, so a
+    // failure to schedule falls back to just awaiting it.
+    try {
+      const { after } = await import("next/server");
+      after(deliver);
+    } catch {
+      await deliver();
+    }
+  } catch (e) {
+    console.error("[notify] push unavailable:", e);
+  }
 }

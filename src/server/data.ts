@@ -3289,6 +3289,41 @@ export async function getSystemHealth(): Promise<SystemHealth> {
     ok: !!process.env.GEMINI_API_KEY,
     detail: process.env.GEMINI_API_KEY ? "Configured" : "Missing",
   });
+  // PHONE NOTIFICATIONS (v35) — configured, and how far they actually reach.
+  // "Configured" alone would be a green tick over a channel nobody has turned
+  // on, so the detail is the reach: devices, and the PEOPLE behind them.
+  try {
+    const configured = !!env.vapidPublicKey && !!env.vapidPrivateKey;
+    if (!configured) {
+      checks.push({
+        label: "Phone notifications (VAPID)",
+        ok: false,
+        detail: "Missing — set NEXT_PUBLIC_VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY",
+      });
+    } else {
+      const { data: subs } = await db()
+        .from("push_subscriptions")
+        .select("member_id")
+        .limit(5000);
+      const rows = (subs ?? []) as { member_id: string }[];
+      const people = new Set(rows.map((r) => r.member_id)).size;
+      const { count: active } = await db()
+        .from("members")
+        .select("id", { head: true, count: "exact" })
+        .eq("is_active", true);
+      checks.push({
+        label: "Phone notifications (VAPID)",
+        ok: true,
+        detail:
+          rows.length === 0
+            ? "Configured — no device has turned them on yet"
+            : `${rows.length} device(s) · ${people} of ${active ?? "?"} members reachable`,
+      });
+    }
+  } catch (e) {
+    checks.push({ label: "Phone notifications (VAPID)", ok: false, detail: `${e}` });
+  }
+
   checks.push({
     label: "Cron secret (CRON_SECRET)",
     ok: !!env.cronSecret,
@@ -4860,6 +4895,12 @@ export interface SignupFilters {
   campaign?: string;
   /** CIC view only — narrow the queue to the second calls handed to ME */
   cicMine?: boolean;
+  /** CIC view only — WHO MADE THE FIRST CALL, by member id (comma list).
+   *  Ids and not the stored name, which is what the `assigned` funnel matches:
+   *  the trackers hold two spellings of the same person ("Ahmed kadry" and
+   *  "Ahmed Kadry", 7 rows each), so a name pick silently drops half of their
+   *  work. See `cicFirstCallerOptions`. */
+  firstCaller?: string;
   /** rows with a missing/unusable phone (null, empty or "deleted…") */
   /** "missing" = no usable number · "has" = a number exists. A comma list
    *  ("has,missing") is accepted and means "either" — see the reader. */
@@ -4952,6 +4993,81 @@ export async function signupFilterOptions(
       return out;
     },
     ["signup-filter-options", fn],
+    { revalidate: 300 }
+  );
+  return read();
+}
+
+/** THE CIC POOL, as a predicate (v34.11): held by a real member, the first
+ *  call ANSWERED (Yes or No — either way it happened), no status yet. Read by
+ *  the queue itself AND by the 1st-caller funnel's option list, so the funnel
+ *  can never offer somebody with nothing in the queue. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function cicPoolFilter<T extends { not: any; neq: any; is: any }>(q: T): T {
+  return q
+    .not("assigned_to", "is", null)
+    .not("contact_status", "is", null)
+    .neq("contact_status", "")
+    .is("status", null);
+}
+
+/** WHO MADE THE FIRST CALL — the CIC queue's own funnel (v34.11).
+ *
+ *  The first assignee was already ON the queue (the "Assigned" column IS the
+ *  first caller), but the only way to narrow by them was the name-string
+ *  funnel every other view uses, and a stored name is a snapshot: the same
+ *  person appears under two spellings, so picking one dropped the other half
+ *  of their rows. This lists PEOPLE, by id, labelled with the member's CURRENT
+ *  name — one option per human however many ways the tracker typed them.
+ *
+ *  Offered only to whoever sees the WHOLE queue. Below an MM the CIC view is
+ *  just the second calls handed to you, and a funnel over other people's
+ *  first callers would mostly return nothing.
+ */
+export async function cicFirstCallerOptions(
+  viewer: Viewer,
+  fn?: OgxFunction | null
+): Promise<{ value: string; label: string }[]> {
+  const fns = _ogxFunctions(viewer);
+  const b2cOnly = fns.length === 0 && b2cCicAccess(viewer);
+  if (fns.length === 0 && !b2cOnly) return [];
+  if (!(b2cOnly ? seesB2cCicQueue(viewer) : seesCicQueue(viewer))) return [];
+  const scope: OgxFunction[] = b2cOnly ? ["OGT", "OGV"] : fns;
+  // B2C's queue spans BOTH sides until a side chip is pressed — the option
+  // list has to span it too, or half the callers are unreachable
+  const want = fn && scope.includes(fn) ? [fn] : scope;
+
+  const { unstable_cache } = await import("next/cache");
+  const read = unstable_cache(
+    async () => {
+      const { data } = await cicPoolFilter(
+        db().from("signups").select("assigned_to, assigned_name").in("fn", want)
+      ).limit(5000);
+      const rows = (data ?? []) as {
+        assigned_to: string | null;
+        assigned_name: string | null;
+      }[];
+      const byId = new Map<string, string>();
+      for (const r of rows) {
+        if (!r.assigned_to) continue;
+        if (!byId.get(r.assigned_to)) byId.set(r.assigned_to, (r.assigned_name ?? "").trim());
+      }
+      if (byId.size === 0) return [];
+      const { data: people } = await db()
+        .from("members")
+        .select("id, name")
+        .in("id", [...byId.keys()]);
+      for (const m of (people ?? []) as { id: string; name: string | null }[]) {
+        // the member's name today beats whatever spelling the sheet stored —
+        // a caller who has since left keeps their snapshot rather than
+        // vanishing from the funnel while their rows sit in the queue
+        if (m.name?.trim()) byId.set(m.id, m.name.trim());
+      }
+      return [...byId.entries()]
+        .map(([value, label]) => ({ value, label: label || "—" }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+    },
+    ["cic-first-callers", want.join(",")],
     { revalidate: 300 }
   );
   return read();
@@ -5191,11 +5307,7 @@ export async function listSignupsPage(
       //     The old rule matched "y%" only, so every "No" sat in nobody's
       //     queue — the exact rows a second call exists for.
       //   · no status yet, and not out of process.
-      q = q
-        .not("assigned_to", "is", null)
-        .not("contact_status", "is", null)
-        .neq("contact_status", "")
-        .is("status", null);
+      q = cicPoolFilter(q);
       // a member below MM only ever sees their own second calls; an MM can
       // ask for the same view with the 🙋 Mine chip. For B2C both cases mean
       // "sign-ups whose open B2C call is mine" — resolved to ids up front.
@@ -5299,6 +5411,14 @@ export async function listSignupsPage(
         );
       else if (names.length === 1) q = q.eq("assigned_name", names[0]);
       else if (names.length > 1) q = q.in("assigned_name", names);
+    }
+    // WHO MADE THE FIRST CALL (v34.11) — the CIC funnel. By member id, so two
+    // spellings of one person are one pick; a hand-typed value that isn't an
+    // id is dropped rather than sent to the database.
+    {
+      const ids = pickList(filters.firstCaller).filter((v) => UUID_RE.test(v));
+      if (ids.length === 1) q = q.eq("assigned_to", ids[0]);
+      else if (ids.length > 1) q = q.in("assigned_to", ids);
     }
     {
       const picks = pickList(filters.campaign);

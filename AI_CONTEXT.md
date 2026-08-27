@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-27 · Version: v34.10
+Last updated: 2026-08-27 · Version: v35
 
 ---
 
@@ -29,6 +29,7 @@ the blueprint for future OGX/other-function modules.
 | | |
 |---|---|
 | Live URL | https://sodio.vercel.app (+ aiesec-alexandria-crm.vercel.app; **elevate-alex.vercel.app was removed in v32.1**) |
+| Android | **Google Play, package `app.sodio.crm`** (v35) — a Bubblewrap **TWA** around the live URL, so every deploy reaches every phone with no store review. Built from `android/twa-manifest.json`; runbook in `android/README.md`. Verified by `/.well-known/assetlinks.json`, which reads `ANDROID_CERT_FINGERPRINTS` |
 | Repo | github.com/ahmedhallu1/aiesec-alexandria-crm (private) |
 | Vercel project | `aiesec-alexandria-crm` (scope `ahmedhallu1s-projects`) — deploy with `vercel deploy --prod` |
 | Stack | Next.js 16 (App Router, Turbopack) · React 19 · Tailwind v4 · shadcn/ui · Supabase (Postgres, project `iesrpuuoduxtihuaqfic`) |
@@ -58,8 +59,9 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0059_lc_partnerships` → `0060_ir_per_day_overrides` →
 `0061_touch_point_location` → `0062_close_rls_gaps` → `0063_prank_mode` →
 `0064_api_keys` → `0065_ir_slot_requests` → `0066_im_prompts` →
-`0067_member_settings`
-(**all applied**, 0046–0063 during v33.22–v33.51, 0064–0067 during v34.5–v34.8).
+`0067_member_settings` → `0068_cxp_module` → `0069_push_subscriptions`
+(**all applied**, 0046–0063 during v33.22–v33.51, 0064–0067 during v34.5–v34.8,
+0069 during v35).
 
 **Google Drive sheets (deliberately FEW — flag columns instead of per-product
 sheets):** `CRM — Membership` (two-way; **8 columns since v33.53**: Name · Email ·
@@ -602,6 +604,12 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | The Activate banner (brief, road, walker) | `src/components/crm/activate-strip.tsx` (`ACTIVATE_DAY`, `roadDays`, `monthPosts`, `LINKS`) |
 | Link prefetching / Vercel invocations | `prefetch={false}` on every `<Link>` (see the note at the sidebar nav in `app-shell.tsx`) · the proxy matcher in `src/proxy.ts` · pinned by `tests/link-prefetch.test.ts` |
 | What EVERY page view costs (per-request reads) | `src/app/(app)/layout.tsx` · the module-memory cache in `src/server/function-settings.ts` · `hasFiledPlan` in `data.ts` |
+| Phone notifications (sending) | `src/server/push.ts` — hooked into `notifyMembers` in `src/server/notify.ts` and NOWHERE else |
+| Phone notifications (the device side) | `public/sw.js` · `src/lib/push-client.ts` · `PushToggle`/`PushSync` in `push-toggle.tsx` · `savePushSubscription`/`sendTestPush` in `actions.ts` |
+| The Android app (shell: name, icon, splash, colours) | `android/twa-manifest.json` — then `bubblewrap update && bubblewrap build`, bump `appVersionCode`. A WEB change needs none of this |
+| Why the app shows a URL bar | `src/app/.well-known/assetlinks.json/route.ts` + `ANDROID_CERT_FINGERPRINTS` (it is Play's app-signing SHA-256, NOT the local upload key's) |
+| The privacy policy (required by Play) | `src/app/privacy/page.tsx` — public route, must stay in the proxy matcher's exclusion list |
+| The CIC 1st-caller filter | `cicFirstCallerOptions` + `cicPoolFilter` in `data.ts` · `firstCaller` in `SignupFilters` · the `assigned` case in `columnFilter` (signups-view) |
 
 ---
 
@@ -663,6 +671,101 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-27 · v35** — **THE BELL REACHES THE PHONE, AND SODIO GETS AN APP**
+  (migration **0069 applied**: `push_subscriptions`).
+  ① **THE BELL ONLY EVER RANG INSIDE AN OPEN TAB.** Sodio has had in-app
+  notifications since v8 and no way to reach anybody who wasn't looking at it —
+  which is *why* everything urgent had to travel by email, and email volume is
+  the thing the floor complains about. Web Push closes that: a member turns it
+  on at **Profile → ⚙ Settings → "Notifications on this phone or laptop"** and
+  everything Sodio already puts on the bell arrives on the device. **Hooked
+  into `notifyMembers` and nowhere else** — one line, at the single choke point
+  every notification in the system already passes through — so there is no
+  second list of "things that also push" to fall out of step, and a feature
+  written next year gets phone delivery by writing a bell notification exactly
+  as it does today. It is per **DEVICE**, not per member (phone and laptop are
+  separate rows keyed by the push endpoint), off until switched on, and the row
+  carries a **Test it** button, because "did that work?" is otherwise
+  unanswerable until something real happens. Delivery is best-effort and runs
+  in `after()`: the bell is the record, the push is a courtesy, and a push
+  service having a bad minute must never fail the action that raised it. A
+  404/410 back from an endpoint **deletes** the row rather than retrying it
+  forever — the only way the count of reachable devices stays honest.
+  ⚠️ **No per-member kind-by-kind controls and no quiet hours** — deliberately
+  not built, not forgotten. The switch is all-or-nothing per device today; if
+  an overnight cron starts waking people, quiet hours is the next thing to
+  build, and the v34.8 rule applies to it (a dead toggle is worse than no
+  toggle).
+  ② **THE ADMIN CONSOLE FOR SENDING ONE IS THE ONE THAT ALREADY EXISTED.**
+  "Send a message" on the bell (v8) composes to everyone / a function / a role
+  / hand-picked people and calls `notifyMembers` — so it reached phones the
+  moment ① landed, with no second composer to drift from it. Its description
+  now says so. The /admin health card gained the other half of "managing"
+  them: configured or not, **how many devices, and how many of the LC those
+  devices actually belong to** — because a green tick over a channel nobody
+  has turned on tells you nothing.
+  ③ **THE ANDROID APP IS A TWA, WHICH IS THE WHOLE POINT.** `app.sodio.crm` on
+  Play is a Trusted Web Activity around sodio.vercel.app: not a copy of Sodio,
+  not a webview wrapper — Sodio, full-screen, in an app icon. **Every deploy
+  reaches every phone the moment it lands**, with no store review between a fix
+  and the floor, no second UI to keep in step, and no version that can be
+  behind; only a change to the SHELL (name, icon, splash, colours) is ever
+  re-uploaded. Its notifications are ①'s, delegated to the app's own tray
+  (`enableNotifications: true`), so there is no FCM key and no second sender.
+  Generated from `android/twa-manifest.json`; the project itself is gitignored
+  build output. Runbook: `android/README.md`.
+  ④ **THREE THINGS THAT WOULD HAVE BROKEN IT SILENTLY, AND ONE THAT ALREADY
+  HAD.** A service worker is fetched by the BROWSER, not by a signed-in
+  navigation, so `src/proxy.ts` would have 307'd `/sw.js` to `/login` and
+  registration would have died on the MIME type — push simply never working,
+  with nothing saying why. `.well-known` was already exempt; `/privacy` had to
+  be added too. And **`public/.well-known/assetlinks.json` has been in the repo
+  since the FIRST COMMIT carrying the literal string
+  `REPLACE_WITH_PLAY_CONSOLE_SIGNING_CERT_SHA256_WHEN_PUBLISHING` and the
+  package `net.aiesec.alexandria.crm`** — a file whose entire job is to remove
+  the app's address bar, which could never have done it, and which silently
+  shadowed the new route because a static file in `public/` wins. Deleted. The
+  route reads `ANDROID_CERT_FINGERPRINTS` instead, and returns an empty array
+  when unset — "this site vouches for no app", which is true, rather than a
+  broken claim. ⚠️ **The fingerprint that matters is PLAY APP SIGNING's, not
+  the local upload key's**, and it does not exist until the first bundle has
+  been uploaded. That ordering is the single most common cause of "the app
+  looks like a website".
+  ⑤ **A PRIVACY POLICY, BECAUSE PLAY WILL NOT LIST WITHOUT ONE** — `/privacy`,
+  public (a policy behind a sign-in wall is not one anybody can read before
+  deciding to sign in), written from what the system actually does: the tables
+  it holds, the Google scopes it asks for, the three processors it runs on.
+  ⚠️ It is a statement the LC is making, not boilerplate — **read it before
+  submitting the listing**, and update it in the same commit as anything that
+  changes what Sodio collects.
+  ⑥ **⚠️ PRODUCTION IS 14 DAYS AWAY, NOT TODAY.** The Play account is a
+  **personal** one, so Google requires closed testing with **12 opted-in
+  testers for 14 continuous days** before it unlocks production, and the clock
+  does not start until the twelfth tester opts in. **Internal testing** (up to
+  100 testers, live in minutes) has none of that and is a legitimate end state
+  for a private LC tool. Both paths are written out in `android/README.md`.
+  ⑦ **THE CIC QUEUE FILTERS BY THE FIRST CALLER.** The queue always showed the
+  first assignee — that column *is* the first caller — but the only way to
+  narrow by them was the name-string funnel every other view uses, and a stored
+  name is a snapshot: production holds **"Ahmed kadry" and "Ahmed Kadry", 7
+  rows each, one person, one member id**, so the funnel offered him twice and
+  either pick dropped half his work. The CIC view's column now reads
+  **1st caller** (the counterpart of "2nd caller" two columns over) and filters
+  by **member id**, labelled with the member's name TODAY — one option per
+  human however many ways the tracker typed them. Its options come from the CIC
+  pool itself, through `cicPoolFilter`, the predicate the queue is built from
+  and now shares, so the funnel can never offer somebody with nothing in the
+  queue. It spans BOTH OGX sides when no side chip is pressed, which is the
+  B2C crew's default view and would otherwise have hidden half the callers.
+  Offered only to whoever sees the whole queue; below an MM the CIC tab is just
+  the calls handed to you. A chip above the cards on a phone — the v33.50
+  lesson, a header funnel is unreachable where there is no header.
+  **24 new tests** (`push-and-twa.test.ts`, `cic-first-caller.test.ts`) pinning
+  the failures that are invisible from the inside: the proxy exemptions, the
+  push hook, the no-caching rule in the worker, the TWA manifest agreeing with
+  what the site serves, and the 1st-caller filter matching an id rather than a
+  name. **602 tests**, tsc clean, production build green.
 
 - **2026-08-27 · v34.10** — **ONE LOGO ON EVERY EMAIL, A SIGNATURE THAT NAMES
   EVERY JOB, A PROPOSAL YOU CAN READ WITHOUT LEAVING, AND THE OPEN THAT
