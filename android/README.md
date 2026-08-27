@@ -29,10 +29,28 @@ edit it.
 
 ---
 
+## 0.5 · The toolchain
+
+Bubblewrap brings its own JDK and Android SDK — no system Java needed.
+
+**Already done on this machine:** JDK 17 (Temurin 17.0.11+9) is installed at
+`~/.bubblewrap/jdk/jdk-17.0.11+9`, and `~/.bubblewrap/config.json` points at it.
+
+**Still to do:** the Android SDK. It is a separate download and its installer
+asks you to accept **Google's Android SDK licence**, which is yours to accept,
+not a machine's:
+
+```bash
+npx @bubblewrap/cli doctor      # answer Yes to the Android SDK prompt
+```
+
+That fills in `androidSdkPath` in `~/.bubblewrap/config.json`. Everything below
+needs it.
+
 ## 1 · Create the upload key (once, ever)
 
 ```bash
-~/.bubblewrap/jdk/*/Contents/Home/bin/keytool -genkeypair -v \
+~/.bubblewrap/jdk/jdk-17.0.11+9/Contents/Home/bin/keytool -genkeypair -v \
   -keystore android/sodio-upload.keystore -alias sodio \
   -keyalg RSA -keysize 2048 -validity 10000 \
   -dname "CN=Sodio, OU=IM, O=AIESEC in Alexandria, L=Alexandria, C=EG"
