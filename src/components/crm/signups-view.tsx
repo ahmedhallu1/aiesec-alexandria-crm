@@ -19,9 +19,12 @@ import {
   setSignupPotential, updateCicContact, updateReferralDetails, updateSignupContact,
   updateSignupVpFields,
 } from "@/server/actions";
-import type { OgxPlanCard, SignupDetail, SignupListRow, StreakStats } from "@/server/data";
+import type {
+  OgxPlanCard, SignupCicCall, SignupDetail, SignupListRow, StreakStats,
+} from "@/server/data";
 import {
   fmtDateTime, SIGNUP_STATUSES,
+  B2C_CALL_OUTCOMES, b2cOutcomeLabel, b2cOutcomeReached,
   type OgxFunction, type SignupLog, type SignupRow,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -101,9 +104,23 @@ const PROGRAM_COLORS: { key: string; label: string; color: string }[] = [
 ];
 
 /** "GV New" / "GV" → GV red, GTa → teal, GTe → orange; unmatched OGT rows
- *  fall back to the generic GT teal, OGV rows to the GV red. */
+ *  fall back to the generic GT teal, OGV rows to the GV red.
+ *
+ *  ⚠️ THE LONG FORMS HAVE TO BE MATCHED EXPLICITLY (v35.1). The abbreviation
+ *  test is `includes("gv")`, and **"global volunteer" does not contain the
+ *  letters "gv"** — so the 31 referral rows, which store the programme's full
+ *  name, fell through to the raw-value branch and rendered a wide red
+ *  "Global Volunteer" pill in a column of tidy GV/GTa/GTe badges. Same word,
+ *  two different-looking rows, which is exactly how it was reported. */
+const PROGRAM_WORDS: [RegExp, string][] = [
+  [/global\s*volunteer/, "gv"],
+  [/global\s*talent/, "gta"],
+  [/global\s*teacher/, "gte"],
+];
+
 function programColor(program: string | null, fn: OgxFunction): { label: string; color: string } {
-  const p = (program ?? "").toLowerCase();
+  let p = (program ?? "").toLowerCase();
+  for (const [re, key] of PROGRAM_WORDS) if (re.test(p)) p = key;
   for (const { key, label, color } of PROGRAM_COLORS)
     if (p.includes(key)) return { label, color };
   if (program) return { label: program, color: fn === "OGV" ? "#F85A40" : "#0CB9C1" };
@@ -622,7 +639,7 @@ function signupColumns(fn: OgxFunction, view: string): TableColumn[] {
     // B2C CIC (v33.29) — the SELLING call, side-tagged so the log always says
     // which side rang. Off everywhere but the CIC view.
     { key: "cic_b2c", label: "B2C caller", defaultHidden: !cic },
-    { key: "cic_b2c_contacted", label: "B2C called", defaultHidden: !cic },
+    { key: "cic_b2c_contacted", label: "B2C outcome", defaultHidden: !cic },
     { key: "cic_b2c_interested", label: "B2C interested", defaultHidden: !cic },
     { key: "person_status", label: "Person status", defaultHidden: !pool },
     { key: "campaign", label: "Campaign", defaultHidden: !pool },
@@ -680,6 +697,66 @@ function ContactLinks({
     >
       {children}
     </span>
+  );
+}
+
+/** ⏰ "RING ME AT FOUR" (v35.1) — the one call outcome that is an appointment.
+ *
+ *  A call-back with no time is a note nobody acts on, so the time is asked for
+ *  here and the caller is nudged when it falls due (the reminder rides the
+ *  visit-followups pass, so it lands at the next tick after the time — a
+ *  floor, not an alarm). Recording the next outcome clears the appointment. */
+function CallBackDialog({
+  call, name, onClose, onSaved,
+}: {
+  call: SignupCicCall;
+  name: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  // default: an hour from now, rounded to the next five minutes
+  const initial = (() => {
+    const d = new Date(Date.now() + 60 * 60 * 1000);
+    d.setMinutes(Math.ceil(d.getMinutes() / 5) * 5, 0, 0);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  })();
+  const [when, setWhen] = useState(call.call_back_at ? call.call_back_at.slice(0, 16) : initial);
+  const [pending, start] = useTransition();
+
+  const save = () =>
+    start(async () => {
+      // the input is LOCAL wall-clock; Date turns it into the right instant
+      const iso = new Date(when).toISOString();
+      const res = await updateB2cCic(call.id, { outcome: "call_back", callBackAt: iso });
+      if (res.ok) {
+        toast.success("⏰ Call back saved — you'll get a reminder when it's due");
+        onSaved();
+      } else toast.error(res.error);
+    });
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>⏰ Call {name} back</DialogTitle>
+          <DialogDescription>
+            When did they ask you to ring? You&apos;ll get a notification then —
+            on your phone too, if you have those switched on.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-1.5">
+          <Label>When</Label>
+          <Input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} />
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={pending}>Cancel</Button>
+          <Button onClick={save} disabled={pending || !when}>
+            {pending ? "Saving…" : "Save the call back"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -855,6 +932,9 @@ export function SignupsView({
   // v31: opening WhatsApp / a call / an email asks to log it right after
   const [quickContact, setQuickContact] =
     useState<{ row: SignupRow; channel: Channel } | null>(null);
+  // "ring me at four" needs a time, or the reminder has nothing to fire on
+  const [callBack, setCallBack] =
+    useState<{ call: SignupCicCall; name: string } | null>(null);
 
   // bulk selection (TL/VP/Director/LCP-admin): assign to a member or send
   // back to the pool — the archived view is read-only, no selection there
@@ -1309,6 +1389,26 @@ export function SignupsView({
       } else toast.error(res.error);
     });
 
+  /** Recording an outcome. A call-back goes through the dialog below, which
+   *  supplies the time the reminder needs. */
+  const inlineB2cOutcome = (r: SignupListRow, outcome: string, callBackAt?: string) =>
+    start(async () => {
+      const open = openB2c(r);
+      if (!open) return;
+      const res = await updateB2cCic(open.id, {
+        outcome: outcome || null,
+        ...(callBackAt ? { callBackAt } : {}),
+      });
+      if (res.ok) {
+        toast.success(
+          outcome === "call_back"
+            ? "⏰ Call back saved — you'll get a reminder when it's due"
+            : "Outcome recorded"
+        );
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
   const inlineB2c = (r: SignupListRow, field: "contactStatus" | "interested", v: string) =>
     start(async () => {
       const open = openB2c(r);
@@ -1561,18 +1661,63 @@ export function SignupsView({
         );
       }
       case "cic_b2c_contacted": {
+        // WHAT HAPPENED, NOT "CALLED YES/NO" (v35.1). Busy, rang out, dead
+        // number and "ring me later" are four different situations with four
+        // different next moves, and the old control called them all "No".
         const open = openB2c(r);
         const canRec = open && (open.caller_id === viewer.id || viewer.canB2cCic);
-        return canRec
-          ? inlineYnSelect(r, "contactStatus", open.contact_status, (v) =>
-              inlineB2c(r, "contactStatus", v))
-          : yn(latestB2c(r)?.contact_status ?? null);
+        const shown = (open ?? latestB2c(r)) ?? null;
+        if (!canRec || !open)
+          return shown?.outcome ? (
+            <span className="whitespace-nowrap text-xs">
+              {b2cOutcomeLabel(shown.outcome)}
+              {shown.outcome === "call_back" && shown.call_back_at ? (
+                <span className="block text-[10px] text-muted-foreground">
+                  {fmtDateTime(shown.call_back_at)}
+                </span>
+              ) : null}
+            </span>
+          ) : (
+            yn(shown?.contact_status ?? null)
+          );
+        return (
+          <Select
+            value={open.outcome ?? "__none"}
+            onValueChange={(v) => {
+              if (v === "call_back") {
+                // an appointment needs a time — ask for it rather than
+                // recording a call-back nobody will be reminded about
+                setCallBack({ call: open, name: r.name });
+                return;
+              }
+              inlineB2cOutcome(r, v === "__none" ? "" : v);
+            }}
+          >
+            <SelectTrigger
+              className="h-7 w-[9.5rem] text-xs"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <SelectValue placeholder="—" />
+            </SelectTrigger>
+            <SelectContent onClick={(e) => e.stopPropagation()}>
+              <SelectItem value="__none">—</SelectItem>
+              {B2C_CALL_OUTCOMES.map((o) => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        );
       }
       case "cic_b2c_interested": {
         const open = openB2c(r);
         const canRec = open && (open.caller_id === viewer.id || viewer.canB2cCic);
+        // an opinion only exists when they actually picked up
+        const reached = b2cOutcomeReached((open ?? latestB2c(r))?.outcome);
+        if (canRec && open && !open.outcome) return <span className="text-muted-foreground">—</span>;
+        if (canRec && !reached)
+          return <span className="text-xs text-muted-foreground">n/a</span>;
         return canRec
-          ? inlineYnSelect(r, "interested", open.interested, (v) =>
+          ? inlineYnSelect(r, "interested", open!.interested, (v) =>
               inlineB2c(r, "interested", v))
           : yn(latestB2c(r)?.interested ?? null);
       }
@@ -1645,9 +1790,19 @@ export function SignupsView({
         // anyone who may work the sign-up or is its VP (v33.32.2). The same
         // shape the raising list has carried since v33.17.
         const all = r.comments_all ?? [];
+        // THE B2C CALLER COMMENTS FROM THE LIST TOO (v35.1). They are neither
+        // the owner nor a VP, so the two flags above are false for them — but
+        // on the CIC queue the row's own calls say whether this one is theirs,
+        // and that is already loaded for this view. No extra query.
+        const canB2cComment =
+          cicView &&
+          (viewer.canB2cCic ||
+            (r.cic_calls ?? []).some((c) => c.side === "B2C" && c.caller_id === viewer.id));
         const addBtn =
-          r.can_work || r.can_vp ? (
-            <Hint label="Add a comment — right from the list">
+          r.can_work || r.can_vp || canB2cComment ? (
+            <Hint label={canB2cComment && !r.can_work && !r.can_vp
+              ? "Add a B2C comment — stays in Sodio, never written to the OGX tracker"
+              : "Add a comment — right from the list"}>
               <Button
                 type="button"
                 variant="ghost"
@@ -1666,14 +1821,16 @@ export function SignupsView({
           return <span className="inline-flex items-center gap-1">—{addBtn}</span>;
         const newestFirst = [...all].reverse();
         const full = newestFirst
-          .map((c) => `${c.author_name}${c.author_class === "vp" ? " (VP)" : ""}: ${c.body}`)
+          .map((c) => `${c.author_name}${
+            c.author_class === "vp" ? " (VP)" : c.author_class === "b2c" ? " (B2C)" : ""
+          }: ${c.body}`)
           .join("\n\n");
         return (
           <span className="flex items-start gap-1">
             <span dir="auto" title={full} className="block min-w-0 flex-1 space-y-0.5">
               {newestFirst.slice(0, 2).map((c) => (
                 <span key={c.id} className="block truncate text-xs leading-tight">
-                  {c.author_class === "vp" ? "🎖 " : ""}
+                  {c.author_class === "vp" ? "🎖 " : c.author_class === "b2c" ? "🛍 " : ""}
                   {c.body}
                 </span>
               ))}
@@ -2368,6 +2525,14 @@ export function SignupsView({
           onOpenDetail={() => openDetail(quickContact.row.id)}
         />
       ) : null}
+      {callBack ? (
+        <CallBackDialog
+          call={callBack.call}
+          name={callBack.name}
+          onClose={() => setCallBack(null)}
+          onSaved={() => { setCallBack(null); router.refresh(); }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -2593,6 +2758,10 @@ function SignupDetailDialog({
 
   const memberComments = detail.comments.filter((c) => c.author_class === "member");
   const vpComments = detail.comments.filter((c) => c.author_class === "vp");
+  // B2C's own thread (v35.1) — the selling call's notes, kept apart from the
+  // OGX log because they are a different conversation with the same person,
+  // and deliberately never written to the OGX tracker's cells
+  const b2cComments = detail.comments.filter((c) => c.author_class === "b2c");
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) { setOopMode(false); setComment(""); setCountry(null); onClose(); } }}>
@@ -3005,13 +3174,32 @@ function SignupDetailDialog({
               ))}
             </div>
           ) : null}
-          {detail.canWork || detail.canVp ? (
+          {b2cComments.length > 0 ? (
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-warning">B2C</p>
+              {b2cComments.map((c) => (
+                <div key={c.id} className="rounded-lg border border-warning/40 bg-warning/5 p-2.5 text-sm" dir="auto">
+                  <p className="mb-0.5 text-xs text-muted-foreground">
+                    {c.author_name} · {fmtDateTime(c.created_at)}
+                  </p>
+                  <p className="whitespace-pre-wrap break-words" dir="auto">{c.body}</p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {detail.canWork || detail.canVp || detail.canB2c ? (
             <div className="flex items-end gap-2">
               <Textarea
                 rows={2}
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
-                placeholder={detail.canVp ? "VP comment — lands in the VP Comment cell" : "Comment — lands in the Comment cell"}
+                placeholder={
+                  detail.canWork || detail.canVp
+                    ? detail.canVp
+                      ? "VP comment — lands in the VP Comment cell"
+                      : "Comment — lands in the Comment cell"
+                    : "B2C comment — stays in Sodio, never written to the OGX tracker"
+                }
                 className="flex-1"
               />
               <Button

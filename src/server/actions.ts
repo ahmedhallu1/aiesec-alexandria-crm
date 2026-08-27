@@ -56,6 +56,8 @@ import {
   upsertMailboxVisitEvent,
 } from "@/lib/google/calendar";
 import {
+  B2C_CALL_OUTCOMES,
+  b2cOutcomeReached,
   accountSlug,
   B2C_TYPES,
   cleanPhone,
@@ -68,6 +70,7 @@ import {
   isKnownIrRole,
   irProductForMember,
   normalizeLcName,
+  normalizeName,
   LC_FUNCTIONS,
   MEMBER_ROLES,
   normalizePhone,
@@ -77,7 +80,9 @@ import {
   VISIT_RESULTS,
   URL_RE,
 } from "@/lib/types";
-import type { AccountContact, AccountFunction, Member, MemberRole, Visit } from "@/lib/types";
+import type {
+  AccountContact, AccountFunction, DealContract, Member, MemberRole, Visit,
+} from "@/lib/types";
 import { cairoToday } from "@/lib/types";
 
 export type ActionResult<T = undefined> =
@@ -2346,6 +2351,108 @@ export async function updateDeal(
   return { ok: true };
 }
 
+/** CANCEL A DEAL (v35.1) — the counterpart of editing one.
+ *
+ *  A deal could be corrected since v33.19 and never taken back, so a deal
+ *  recorded on the wrong account, or one that fell through after signing, sat
+ *  in the funnel forever inflating the account, the lane and somebody's opens.
+ *
+ *  ⚠️ IT DELETES THE ROW rather than flagging it cancelled, and that is the
+ *  deliberate choice. Deals are read in seventeen places — the account header,
+ *  the pipeline stage, lane slots, per-member allocations, the leaderboards,
+ *  the period reports, the Drive mirror — and a `cancelled_at` flag that one
+ *  of them forgot to filter is a number that is quietly wrong forever. A
+ *  cancelled deal is not a deal. What survives is the part a human reads: a
+ *  comment on the account saying exactly what was cancelled and by whom, plus
+ *  the audit row.
+ */
+export async function cancelDeal(
+  dealId: string,
+  reason?: string | null
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const { data: deal } = await db()
+    .from("deals")
+    .select("*")
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .eq("id", dealId).maybeSingle<any>();
+  if (!deal) return fail("That deal no longer exists.");
+  const account = await loadAccount(deal.account_id);
+  if (!account || !canEditAccount(viewer, account))
+    return fail("You are not allowed to edit this account's deals.", "forbidden");
+  // same authority as editing one: its owner, their leaders, or LCP-level
+  const lcpLevel = accountScope(viewer).kind === "all";
+  const isLead = viewer.role === "LCVP" || viewer.role === "Director";
+  if (deal.member_id !== viewer.id && !lcpLevel && !isLead)
+    return fail("Only the deal's owner, their leaders or the LCP can cancel it.", "forbidden");
+
+  const why = (reason ?? "").replace(/\s+/g, " ").trim().slice(0, 300);
+  const opens = [
+    deal.slots_igv ? `${deal.slots_igv} IGV` : null,
+    deal.slots_igta ? `${deal.slots_igta} IGTa` : null,
+    deal.slots_igte ? `${deal.slots_igte} IGTe` : null,
+  ].filter(Boolean).join(" · ");
+
+  // the contract files go with it — no foreign key reaches the bucket
+  const paths = ((deal.contracts ?? []) as DealContract[])
+    .map((c) => c?.path)
+    .filter((p): p is string => typeof p === "string" && p.length > 0);
+  if (paths.length > 0) {
+    try {
+      await db().storage.from("contracts").remove(paths);
+    } catch (e) {
+      console.error("[cancel-deal] contract cleanup failed:", e);
+    }
+  }
+
+  await snapshotForUndo("deals", dealId);
+  const { error } = await db().from("deals").delete().eq("id", dealId);
+  if (error) return fail(error.message);
+
+  // THE COUNTERS ARE DERIVED — recompute from what is left, exactly as an
+  // opens edit does. Dropping to zero deals also drops the account's stage
+  // back out of "Deal Done", because the pipeline view reads deals_count.
+  const { data: sums } = await db()
+    .from("deals")
+    .select("slots, slots_igv, slots_igta, slots_igte")
+    .eq("account_id", deal.account_id);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const all = (sums ?? []) as any[];
+  const agg = (k: string) => all.reduce((n, d) => n + (d[k] ?? 0), 0);
+  await db()
+    .from("accounts")
+    .update({
+      slots_count: agg("slots"),
+      slots_igv_count: agg("slots_igv"),
+      slots_igta_count: agg("slots_igta"),
+      slots_igte_count: agg("slots_igte"),
+      deals_count: all.length,
+    })
+    .eq("id", deal.account_id);
+
+  // the record a human will actually look for
+  const { data: cancelNote } = await db().from("account_comments").insert({
+    account_id: deal.account_id,
+    member_id: viewer.id,
+    author_label: commentLabel(viewer),
+    body: `❌ Deal cancelled by ${viewer.name}${
+      opens ? ` — ${opens}` : ""
+    }${deal.amount ? ` · EGP ${Number(deal.amount).toLocaleString()}` : ""}${
+      why ? `. Reason: ${why}` : "."
+    }`,
+  }).select("id").single<{ id: string }>();
+  if (cancelNote) await recordUndo("account_comments", cancelNote.id, "insert");
+
+  await logAudit(viewer.id, "deal_cancel", "account", deal.account_id, {
+    deal: dealId,
+    slots: deal.slots ?? 0,
+    amount: deal.amount ?? null,
+    reason: why || null,
+  });
+  refresh(deal.account_id);
+  return { ok: true };
+}
+
 /** Pin/unpin a comment — pinned comments are highlighted and surface as a 📌
  *  on the accounts list so nobody contacts the account without seeing it. */
 export async function toggleCommentPin(
@@ -4567,6 +4674,159 @@ export async function bulkDeleteArchived(
   await logAudit(viewer.id, "bulk_delete_archived", "account", null, { count: deleted });
   refresh();
   return { ok: true, data: { deleted, failed: ids.length - deleted } };
+}
+
+/** WHAT IS ACTUALLY ON THIS ACCOUNT (v35.1) — read before offering to delete
+ *  it, so the dialog can say "this is empty, go ahead" or "this will destroy
+ *  6 contacts and 2 deals" rather than asking for a blind yes. */
+export async function accountDeletionCheck(accountId: string): Promise<
+  ActionResult<{
+    name: string;
+    contacts: number;
+    visits: number;
+    deals: number;
+    comments: number;
+    clean: boolean;
+    /** may the VIEWER delete it, given what is on it */
+    allowed: boolean;
+    /** true when it has history and the viewer is not a VP/Director/LCP */
+    needsVp: boolean;
+  }>
+> {
+  const viewer = await getViewer();
+  const account = await loadAccount(accountId);
+  if (!account || !canEditAccount(viewer, account))
+    return fail("You are not allowed to edit this account.", "forbidden");
+  const count = async (table: string) => {
+    const { count: n } = await db()
+      .from(table)
+      .select("id", { head: true, count: "exact" })
+      .eq("account_id", accountId);
+    return n ?? 0;
+  };
+  const [contacts, visits, deals, comments] = await Promise.all([
+    count("contact_attempts"), count("visits"), count("deals"), count("account_comments"),
+  ]);
+  const clean = contacts + visits + deals + comments === 0;
+  const isVp = viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
+  return {
+    ok: true,
+    data: {
+      name: account.name,
+      contacts, visits, deals, comments,
+      clean,
+      allowed: clean || isVp,
+      needsVp: !clean && !isVp,
+    },
+  };
+}
+
+/** DELETE AN ACCOUNT ENTIRELY (v35.1) — for the one it was built for: a name
+ *  typed wrongly, seconds ago, that should never have existed.
+ *
+ *  ARCHIVING IS NOT THIS. An archived account is a decision the LC made about
+ *  a real business ("not interested", "financial issues") and it is the
+ *  blacklist — it stops the name being re-added. A typo is not a decision, and
+ *  leaving it in the archive blocks the CORRECT spelling from ever being
+ *  entered. That is why this exists and why it is separate.
+ *
+ *  THE RULE (the user's call, v35.1): an account with NOTHING on it — no
+ *  contacts, no visits, no deals, no comments — can be deleted by anyone who
+ *  may edit it, because there is nothing to destroy. The moment it carries any
+ *  history, deleting it destroys somebody's recorded work, so it takes a
+ *  VP/Director/LCP **and** the account's name typed out in full.
+ *
+ *  The delete cascades in the DATABASE (contact_attempts, visits,
+ *  account_comments, deals → deal_allocations are all ON DELETE CASCADE), so
+ *  this is one atomic statement rather than a loop that can half-finish.
+ */
+export async function deleteAccount(
+  accountId: string,
+  /** the account's name, typed by the member — required only when it has history */
+  confirmName?: string | null
+): Promise<ActionResult<{ name: string }>> {
+  const viewer = await getViewer();
+  const account = await loadAccount(accountId);
+  if (!account || !canEditAccount(viewer, account))
+    return fail("You are not allowed to edit this account.", "forbidden");
+
+  // a permanent delete cannot be journaled faithfully — the children are gone
+  // — so it has no place in a session that promises to undo everything (v32)
+  if (viewer.sandbox)
+    return fail("Deleting an account is disabled in the sandbox test view — it can't be undone on exit.");
+  {
+    const { lcTestSession } = await import("./sandbox");
+    if (await lcTestSession())
+      return fail(
+        "Deleting an account is disabled while an LC testing session is running — a cascade delete can't be rolled back when the session ends."
+      );
+  }
+
+  const check = await accountDeletionCheck(accountId);
+  if (!check.ok || !check.data) return check.ok ? fail("Couldn't read the account.") : check;
+  const { clean, contacts, visits, deals, comments } = check.data;
+  if (!clean) {
+    const isVp = viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
+    if (!isVp)
+      return fail(
+        `"${account.name}" has history on it (${contacts} contact(s), ${visits} visit(s), ${deals} deal(s), ${comments} comment(s)). Deleting it would destroy that record, so it takes a VP, Director or the LCP — or archive it instead.`,
+        "forbidden"
+      );
+    if (normalizeName(confirmName ?? "") !== normalizeName(account.name))
+      return fail("Type the account's name exactly to confirm the delete.");
+  }
+
+  // the calendar first — an event for an account that no longer exists is a
+  // meeting nobody can explain, and after the row is gone we cannot find it
+  const { data: pending } = await db()
+    .from("visits")
+    .select("*")
+    .eq("account_id", accountId)
+    .is("done", null)
+    .maybeSingle<Visit>();
+  if (pending?.calendar_event_id) {
+    const { data: owner } = await db()
+      .from("members")
+      .select("google_refresh_token")
+      .eq("id", pending.member_id)
+      .maybeSingle<{ google_refresh_token: string | null }>();
+    await deleteVisitEvent(owner?.google_refresh_token ?? null, pending.calendar_event_id).catch(() => {});
+    await deleteMailboxVisitEvent(pending.calendar_event_id).catch(() => {});
+  }
+  // clear the next-step follow-up event while the account still exists
+  await db().from("accounts").update({ next_step_date: null }).eq("id", accountId);
+  await syncNextStepReminder(accountId).catch(() => {});
+
+  // CONTRACT FILES ARE NOT ROWS and no foreign key reaches them — a cascade
+  // would leave them in the bucket forever, attached to nothing.
+  const { data: dealRows } = await db()
+    .from("deals")
+    .select("contracts")
+    .eq("account_id", accountId);
+  const paths = ((dealRows ?? []) as { contracts: DealContract[] | null }[])
+    .flatMap((d) => d.contracts ?? [])
+    .map((c) => c?.path)
+    .filter((p): p is string => typeof p === "string" && p.length > 0);
+  if (paths.length > 0) {
+    try {
+      await db().storage.from("contracts").remove(paths);
+    } catch (e) {
+      // an orphaned blob is untidy, not dangerous — never block the delete on it
+      console.error("[delete-account] contract cleanup failed:", e);
+    }
+  }
+
+  const { error } = await db().from("accounts").delete().eq("id", accountId);
+  if (error) return fail(error.message);
+
+  await logAudit(viewer.id, "delete_account", "account", accountId, {
+    name: account.name,
+    function: account.function,
+    had_history: !clean,
+    contacts, visits, deals, comments,
+  });
+  refresh();
+  return { ok: true, data: { name: account.name } };
 }
 
 // ============================================================ B2C podio updates (v23)
@@ -6823,7 +7083,10 @@ export async function addSignupReferral(input: {
       interested,
       status,
       sub_product: fn === "OGT" ? clean(input.subProduct, 20) : null,
-      program: fn === "OGV" ? "Global Volunteer" : clean(input.subProduct, 20),
+      // THE TRACKER'S OWN VOCABULARY (v35.1). This wrote "Global Volunteer"
+      // while every imported OGV row says "GV"/"GV New", so referrals rendered
+      // a different-looking badge from their neighbours on the same list.
+      program: fn === "OGV" ? "GV" : clean(input.subProduct, 20),
       referral: clean(input.referredBy, 120),
       campaign: "Referral",
       signed_up_at: now.toISOString().slice(0, 10),
@@ -7250,16 +7513,25 @@ export async function bulkAssignB2cCic(
 /** The B2C caller records THEIR call — never the OGX funnel. */
 export async function updateB2cCic(
   callRowId: string,
-  input: { contactStatus?: string | null; interested?: string | null; note?: string | null }
+  input: {
+    /** v35.1 — the real field. `contactStatus` is derived from it. */
+    outcome?: string | null;
+    /** ISO instant — required when the outcome is "call back" */
+    callBackAt?: string | null;
+    contactStatus?: string | null;
+    interested?: string | null;
+    note?: string | null;
+  }
 ): Promise<ActionResult> {
   const viewer = await getViewer();
   const { data: row } = await db()
     .from("signup_cic_calls")
-    .select("id, signup_id, side, caller_id, caller_name, contact_status, interested, note")
+    .select("id, signup_id, side, caller_id, caller_name, contact_status, interested, note, outcome")
     .eq("id", callRowId)
     .maybeSingle<{
       id: string; signup_id: string; side: string; caller_id: string | null;
-      caller_name: string; contact_status: string | null; interested: string | null; note: string | null;
+      caller_name: string; contact_status: string | null; interested: string | null;
+      note: string | null; outcome: string | null;
     }>();
   if (!row || row.side !== "B2C") return fail("That B2C call no longer exists.");
   const { seesB2cCicQueue } = await import("./data");
@@ -7271,7 +7543,34 @@ export async function updateB2cCic(
     return /^y/i.test(t) ? "Yes" : /^n/i.test(t) ? "No" : t;
   };
   const update: Record<string, unknown> = {};
-  if (input.contactStatus !== undefined) {
+  // THE OUTCOME IS THE FIELD NOW (v35.1) — "Called: Yes/No" was one question
+  // covering four different situations. `contact_status` is written from it so
+  // every existing reader (the B2C card, called/open counts) keeps working.
+  if (input.outcome !== undefined) {
+    const next = input.outcome === null || input.outcome === "" ? null : String(input.outcome);
+    if (next && !B2C_CALL_OUTCOMES.some((o) => o.value === next))
+      return fail("Pick one of the call outcomes.");
+    await logSignupChange(viewer, row.signup_id, "cic_b2c_outcome", row.outcome, next);
+    update.outcome = next;
+    update.contact_status = next ? (b2cOutcomeReached(next) ? "Yes" : "No") : null;
+    // only an ANSWERED call can carry an opinion — clear a stale one rather
+    // than leaving "interested: Yes" on a number that turned out to be dead
+    if (next && !b2cOutcomeReached(next)) update.interested = null;
+    if (next === "call_back") {
+      const when = (input.callBackAt ?? "").trim();
+      const t = when ? Date.parse(when) : NaN;
+      if (!Number.isFinite(t)) return fail("When should they be called back?");
+      if (t < Date.now() - 60_000) return fail("Pick a time in the future for the call back.");
+      if (t > Date.now() + 1000 * 60 * 60 * 24 * 120)
+        return fail("That call back is more than four months away — pick a nearer time.");
+      update.call_back_at = new Date(t).toISOString();
+      update.call_back_reminded_at = null; // a new time is a new reminder
+    } else {
+      update.call_back_at = null;
+      update.call_back_reminded_at = null;
+    }
+  }
+  if (input.contactStatus !== undefined && input.outcome === undefined) {
     const next = clean(input.contactStatus);
     await logSignupChange(viewer, row.signup_id, "cic_b2c_contacted", row.contact_status, next);
     update.contact_status = next;
@@ -7319,6 +7618,25 @@ export async function clearB2cCic(callRowId: string): Promise<ActionResult> {
 
 /** Comment log: members/MMs land in the Comment cell, VPs (VP/Director/LCP/
  *  admin) in the VP Comment cell — each cell holds the organized log. */
+/** Is this viewer on the B2C side of THIS sign-up (v35.1)?
+ *
+ *  True for the caller the sign-up was handed to, and for anyone who runs the
+ *  B2C queue. Deliberately narrower than "works B2C": a B2C member with no
+ *  call on this row has no business writing on it. */
+async function b2cCallerOnSignup(viewer: Viewer, signupId: string): Promise<boolean> {
+  const { b2cCicAccess, seesB2cCicQueue } = await import("./data");
+  if (!b2cCicAccess(viewer)) return false;
+  if (seesB2cCicQueue(viewer)) return true;
+  const { data } = await db()
+    .from("signup_cic_calls")
+    .select("id")
+    .eq("signup_id", signupId)
+    .eq("side", "B2C")
+    .eq("caller_id", viewer.id)
+    .limit(1);
+  return (data ?? []).length > 0;
+}
+
 export async function addSignupComment(id: string, body: string): Promise<ActionResult> {
   const viewer = await getViewer();
   const signup = await loadSignup(id);
@@ -7326,8 +7644,16 @@ export async function addSignupComment(id: string, body: string): Promise<Action
   if (signup.out_of_process)
     return fail("This sign-up is archived (Out of Process) — revive it first.");
   const isVpClass = canEditSignupVpFields(viewer, signup);
-  if (!isVpClass && !canWorkSignup(viewer, signup))
+  const worksIt = isVpClass || canWorkSignup(viewer, signup);
+  // THE B2C CALLER GETS A VOICE ON THE ROW (v35.1). B2C rings the same
+  // sign-up to sell a course, and until now had nowhere to write down what was
+  // said — so the selling context lived in WhatsApp while the row itself
+  // looked untouched. They are neither the owner nor a VP, so they were
+  // refused outright. They comment in their OWN class.
+  const b2cOnly = !worksIt && (await b2cCallerOnSignup(viewer, id));
+  if (!worksIt && !b2cOnly)
     return fail("You are not allowed to comment on this sign-up.", "forbidden");
+  const authorClass = worksIt ? (isVpClass ? "vp" : "member") : "b2c";
   const clean = (body ?? "").trim();
   if (!clean) return fail("Write the comment first.");
   const { data: inserted, error } = await db()
@@ -7336,7 +7662,7 @@ export async function addSignupComment(id: string, body: string): Promise<Action
       signup_id: id,
       author_id: viewer.id,
       author_name: viewer.name,
-      author_class: isVpClass ? "vp" : "member",
+      author_class: authorClass,
       body: clean,
     })
     .select("id")
@@ -7344,8 +7670,12 @@ export async function addSignupComment(id: string, body: string): Promise<Action
   if (error) return fail(error.message);
   if (inserted) await recordUndo("signup_comments", inserted.id, "insert");
   await db().from("signups").update(touchSignup()).eq("id", id);
-  await logAudit(viewer.id, "signup_comment", "signup", id);
-  pushSignupToSheet(id);
+  await logAudit(viewer.id, "signup_comment", "signup", id, { class: authorClass });
+  // ⚠️ A B2C COMMENT NEVER TOUCHES THE OGX TRACKER. That sheet's Comment and
+  // VP Comment cells belong to the OGX crew's own log; the write-back only
+  // knows the "member" and "vp" classes, so a b2c row is invisible to it
+  // anyway — this just stops a pointless write to somebody else's sheet.
+  if (authorClass !== "b2c") pushSignupToSheet(id);
   stampSignupActivity(viewer); // commenting = today's streak saved
   await stampWork(viewer.id, "signup_comment"); // v29: counts towards working hours
   refresh();

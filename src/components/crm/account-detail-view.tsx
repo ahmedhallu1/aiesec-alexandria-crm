@@ -8,7 +8,7 @@ import {
   Archive, ArchiveRestore, ArrowLeft, CalendarPlus, CheckCircle2, ExternalLink, FileText,
   Loader2, Mail,
   MessageSquareText, Paperclip, Pencil, Phone, Pin, PinOff, Plus, RotateCcw, Sparkles, Trophy,
-  Upload, X,
+  Trash2, Upload, X,
   XCircle,
 } from "lucide-react";
 import {
@@ -17,6 +17,7 @@ import {
   scheduleVisit, setOutOfProcess, setPodioUpdateCadence, setPodioUpdateEnabled,
   renameAccount,
   toggleCommentPin, toggleCommentArchive, updateAccount, updateAccountContacts,
+  accountDeletionCheck, cancelDeal, deleteAccount,
   updateComment, updateContactAttempt, updateDeal,
 } from "@/server/actions";
 import type {
@@ -129,6 +130,7 @@ export function AccountDetailView({
   const reportVisit = visits.find((v) => v.id === reportVisitId && v.done === null) ?? null;
   const [contractsOpen, setContractsOpen] = useState(false);
   const [oopOpen, setOopOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [dealOpen, setDealOpen] = useState(autoOpen === "deal" && canAct);
   const [proposalOpen, setProposalOpen] = useState(autoOpen === "proposal" && canAct);
 
@@ -280,6 +282,24 @@ export function AccountDetailView({
             ) : caps.reassign ? (
               <ReviveButton accountId={account.id} />
             ) : null}
+            {/* DELETING IS NOT ARCHIVING (v35.1). Archiving is a decision about
+                a real business and it blocks the name for good; a typo is not a
+                decision, and leaving it archived blocks the CORRECT spelling
+                from ever being entered. Quiet by design — it is the rarer of
+                the two and the one you cannot undo. */}
+            {caps.edit ? (
+              <Hint label="Delete it entirely — for an account added by mistake">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-muted-foreground hover:text-destructive"
+                  onClick={() => setDeleteOpen(true)}
+                  aria-label="Delete this account"
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              </Hint>
+            ) : null}
           </>
         ) : null}
         </div>
@@ -355,6 +375,13 @@ export function AccountDetailView({
       ) : null}
       <ContractsDialog deals={deals} open={contractsOpen} onOpenChange={setContractsOpen} />
       <OopDialog accountId={account.id} open={oopOpen} onOpenChange={setOopOpen} />
+      {deleteOpen ? (
+        <DeleteAccountDialog
+          accountId={account.id}
+          name={account.name}
+          onOpenChange={setDeleteOpen}
+        />
+      ) : null}
       <ProposalDialog account={account} open={proposalOpen} onOpenChange={setProposalOpen} />
       <DealDialog
         accountId={account.id}
@@ -1999,6 +2026,12 @@ function DealEditDialog({
   const [benefits, setBenefits] = useState(deal.benefits ?? "");
   const [note, setNote] = useState(deal.note ?? "");
   const [pending, start] = useTransition();
+  // CANCELLING IS NOT EDITING (v35.1). A deal recorded on the wrong account,
+  // or one that fell through after signing, had no way out and sat in the
+  // funnel forever. Two steps inside this dialog rather than a stray button:
+  // the second says exactly what is about to stop counting.
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
 
   const nIgv = showIgv ? Math.max(0, Number(igv) || 0) : (deal.slots_igv ?? 0);
   const nIgta = showIgta ? Math.max(0, Number(igta) || 0) : (deal.slots_igta ?? 0);
@@ -2030,12 +2063,72 @@ function DealEditDialog({
       } else toast.error(res.error);
     });
 
+  const doCancel = () =>
+    start(async () => {
+      const res = await cancelDeal(deal.id, cancelReason);
+      if (res.ok) {
+        toast.success("Deal cancelled — the account's totals have been recalculated");
+        onOpenChange(false);
+        router.refresh();
+      } else toast.error(res.error);
+    });
+
   const numField = (label: string, colorClass: string, value: string, onChange: (v: string) => void) => (
     <div className="grid gap-1.5">
       <Label className={colorClass}>{label} opens</Label>
       <Input type="number" min={0} inputMode="numeric" value={value} onChange={(e) => onChange(e.target.value)} />
     </div>
   );
+
+  if (cancelling) {
+    const opens = [
+      deal.slots_igv ? `${deal.slots_igv} IGV` : null,
+      deal.slots_igta ? `${deal.slots_igta} IGTa` : null,
+      deal.slots_igte ? `${deal.slots_igte} IGTe` : null,
+    ].filter(Boolean).join(" \u00b7 ");
+    return (
+      <Dialog open onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>⚠️ Cancel deal #{dealNo}?</DialogTitle>
+            <DialogDescription>
+              It stops counting everywhere — the account&apos;s totals, the
+              lane&apos;s opens and the owner&apos;s own numbers all
+              recalculate. A note saying you cancelled it stays on the account.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2 text-sm">
+            <div className="rounded-md border border-destructive/40 bg-destructive/5 p-2.5">
+              {opens ? <p><b>{opens}</b> opens</p> : null}
+              {deal.amount ? <p>EGP {Number(deal.amount).toLocaleString()}</p> : null}
+              {!opens && !deal.amount ? <p>This deal carries no opens or amount.</p> : null}
+              {(deal.contracts ?? []).length > 0 ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {(deal.contracts ?? []).length} contract file(s) will be deleted too.
+                </p>
+              ) : null}
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Why? (optional)</Label>
+              <Input
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="e.g. recorded on the wrong account"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setCancelling(false)} disabled={pending}>
+              Keep it
+            </Button>
+            <Button variant="destructive" onClick={doCancel} disabled={pending}>
+              {pending ? "Cancelling…" : "Cancel the deal"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
@@ -2104,7 +2197,15 @@ function DealEditDialog({
             <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. summer peak bulk deal" />
           </div>
         </div>
-        <DialogFooter>
+        <DialogFooter className="sm:justify-between">
+          <Button
+            variant="ghost"
+            className="text-destructive hover:text-destructive"
+            onClick={() => setCancelling(true)}
+            disabled={pending}
+          >
+            <XCircle className="size-4" /> Cancel this deal
+          </Button>
           <Button onClick={submit} disabled={pending || !totalOk}>
             {pending ? "Saving…" : "Save changes"}
           </Button>
@@ -2451,6 +2552,131 @@ function OopDialog({
           <Button variant="destructive" onClick={submit} disabled={pending || reason.trim().length < 2}>
             {pending ? "Saving…" : "Confirm"}
           </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** DELETE AN ACCOUNT ENTIRELY (v35.1).
+ *
+ *  It asks the server what is actually ON the account before saying anything,
+ *  so the warning is specific rather than generic: "nothing has been logged on
+ *  it" and "this destroys 6 contacts and 2 deals" deserve different words and
+ *  different friction. An account with history also has to have its name typed
+ *  out — the standard guard for the one action nothing can undo.
+ */
+function DeleteAccountDialog({
+  accountId, name, onOpenChange,
+}: {
+  accountId: string;
+  name: string;
+  onOpenChange: (o: boolean) => void;
+}) {
+  const router = useRouter();
+  const [info, setInfo] = useState<{
+    contacts: number; visits: number; deals: number; comments: number;
+    clean: boolean; allowed: boolean; needsVp: boolean;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [typed, setTyped] = useState("");
+  const [pending, start] = useTransition();
+
+  useEffect(() => {
+    let alive = true;
+    accountDeletionCheck(accountId).then((res) => {
+      if (!alive) return;
+      if (res.ok && res.data) setInfo(res.data);
+      else setError(res.ok ? "Couldn't read the account." : res.error);
+    });
+    return () => { alive = false; };
+  }, [accountId]);
+
+  const norm = (v: string) => v.trim().toLowerCase().replace(/\s+/g, " ");
+  const nameOk = info?.clean || norm(typed) === norm(name);
+
+  const submit = () =>
+    start(async () => {
+      const res = await deleteAccount(accountId, typed);
+      if (res.ok) {
+        toast.success(`"${name}" deleted`);
+        onOpenChange(false);
+        // the account no longer exists — its page would 404
+        router.push("/accounts");
+      } else toast.error(res.error);
+    });
+
+  const history = info
+    ? [
+        info.contacts ? `${info.contacts} contact${info.contacts > 1 ? "s" : ""}` : null,
+        info.visits ? `${info.visits} visit${info.visits > 1 ? "s" : ""}` : null,
+        info.deals ? `${info.deals} deal${info.deals > 1 ? "s" : ""}` : null,
+        info.comments ? `${info.comments} comment${info.comments > 1 ? "s" : ""}` : null,
+      ].filter(Boolean).join(" \u00b7 ")
+    : "";
+
+  return (
+    <Dialog open onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>🗑️ Delete “{name}”?</DialogTitle>
+          <DialogDescription>
+            This is <b>not</b> archiving. Archiving keeps the account and blocks
+            the name for good; deleting removes it as though it was never added,
+            which is what you want for one entered by mistake.
+          </DialogDescription>
+        </DialogHeader>
+
+        {error ? (
+          <p className="text-sm text-destructive">{error}</p>
+        ) : !info ? (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" /> Checking what&apos;s on it…
+          </p>
+        ) : info.needsVp ? (
+          <div className="space-y-2 text-sm">
+            <p className="rounded-md border border-warning/50 bg-warning/10 p-2.5">
+              This account carries <b>{history}</b>. Deleting it would destroy
+              that record, so it takes a <b>VP, Director or the LCP</b>.
+            </p>
+            <p className="text-muted-foreground">
+              If it&apos;s finished rather than wrong, archive it instead — that
+              keeps the history and takes it out of the pipeline.
+            </p>
+          </div>
+        ) : info.clean ? (
+          <p className="rounded-md border border-destructive/40 bg-destructive/5 p-2.5 text-sm">
+            Nothing has been logged on it — no contacts, visits, deals or
+            comments. It disappears for good, and the name becomes free to add
+            again.
+          </p>
+        ) : (
+          <div className="grid gap-2 text-sm">
+            <p className="rounded-md border border-destructive/40 bg-destructive/5 p-2.5">
+              This destroys <b>{history}</b> along with it. Nothing can bring it
+              back.
+            </p>
+            <div className="grid gap-1.5">
+              <Label>Type the account&apos;s name to confirm</Label>
+              <Input
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                placeholder={name}
+                dir="auto"
+              />
+            </div>
+          </div>
+        )}
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
+            Keep it
+          </Button>
+          {info?.allowed ? (
+            <Button variant="destructive" onClick={submit} disabled={pending || !nameOk}>
+              {pending ? "Deleting…" : "Delete for good"}
+            </Button>
+          ) : null}
         </DialogFooter>
       </DialogContent>
     </Dialog>

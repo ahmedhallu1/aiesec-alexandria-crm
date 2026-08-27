@@ -325,7 +325,11 @@ export interface SignupComment {
   signup_id: string;
   author_id: string | null;
   author_name: string;
-  author_class: "member" | "vp";
+  /** "member" and "vp" are the OGX log's two classes and map to the tracker's
+   *  Comment / VP Comment cells. "b2c" (v35.1) is the SELLING side's own
+   *  thread on the same person: it lives only in Sodio — the sheet write-back
+   *  knows the first two and ignores this one. */
+  author_class: "member" | "vp" | "b2c";
   body: string;
   created_at: string;
 }
@@ -800,6 +804,37 @@ export function normalizeName(name: string): string {
 }
 
 // ------------------------------------------------------------------ validation
+
+/** WHAT HAPPENED ON A B2C SELLING CALL (v35.1).
+ *
+ *  "Called: Yes / No" answered a question nobody was asking. Busy and no
+ *  answer mean try again; out of service means the number is dead and trying
+ *  again is wasted work; call back is an appointment the person asked for.
+ *  Only ANSWERED means the conversation happened — which is why "Interested"
+ *  only makes sense there.
+ *
+ *  ⚠️ The stored `contact_status` is DERIVED from this (`answered` → "Yes",
+ *  everything else → "No") so every pre-0070 reader — the B2C dashboard card,
+ *  the called/open counts, the CIC columns — keeps meaning what it meant.
+ */
+export const B2C_CALL_OUTCOMES = [
+  { value: "answered", label: "✅ Answered", hint: "They picked up — record what they said" },
+  { value: "busy", label: "📵 Busy", hint: "The line was busy — worth another try" },
+  { value: "no_answer", label: "🔕 Didn't answer", hint: "It rang out" },
+  { value: "out_of_service", label: "🚫 Out of service", hint: "The number is dead — trying again won't help" },
+  { value: "call_back", label: "⏰ Call back", hint: "They asked you to ring at another time" },
+] as const;
+
+export type B2cCallOutcome = (typeof B2C_CALL_OUTCOMES)[number]["value"];
+
+export function b2cOutcomeLabel(v: string | null | undefined): string | null {
+  return B2C_CALL_OUTCOMES.find((o) => o.value === v)?.label ?? null;
+}
+
+/** The only outcome that means the conversation actually happened. */
+export function b2cOutcomeReached(v: string | null | undefined): boolean {
+  return v === "answered";
+}
 
 /** Egyptian HOTLINE / short code — 5 digits starting with 1 (16123, 19016).
  *  Businesses print these instead of a landline, so a member copying the

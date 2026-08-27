@@ -5233,6 +5233,11 @@ export interface SignupCicCall {
   contact_status: string | null;
   interested: string | null;
   note: string | null;
+  /** v35.1 — what actually happened on the call (B2C). `contact_status` is
+   *  derived from it, so both are present and never disagree. */
+  outcome: string | null;
+  /** the appointment, when the outcome is "call back" */
+  call_back_at: string | null;
   created_at: string;
 }
 
@@ -5512,7 +5517,7 @@ export async function listSignupsPage(
   if (view === "cic" && rows.length > 0) {
     const { data: calls } = await db()
       .from("signup_cic_calls")
-      .select("id, signup_id, side, caller_id, caller_name, assigned_by_name, assigned_at, contact_status, interested, note, created_at")
+      .select("id, signup_id, side, caller_id, caller_name, assigned_by_name, assigned_at, contact_status, interested, note, outcome, call_back_at, created_at")
       .in("signup_id", rows.map((r) => r.id))
       .order("created_at", { ascending: false });
     const byId = new Map<string, SignupCicCall[]>();
@@ -5557,6 +5562,10 @@ export interface SignupDetail {
   canVp: boolean;
   /** may move the sign-up along the pipeline — MMs and above (v33.14) */
   canSetStatus: boolean;
+  /** the B2C side of this row (v35.1): the caller it was handed to, or
+   *  whoever runs the B2C queue. They may leave a B2C comment — their own
+   *  class, which never reaches the OGX tracker's cells. */
+  canB2c: boolean;
 }
 
 export async function getSignupDetail(
@@ -5594,8 +5603,24 @@ export async function getSignupDetail(
       : Promise.resolve({ data: null }),
   ]);
   const { canWorkSignup } = await import("@/lib/rbac");
+  // the B2C side of this row — the same test the comment action re-runs
+  let canB2c = false;
+  if (b2cCicAccess(viewer)) {
+    if (seesB2cCicQueue(viewer)) canB2c = true;
+    else {
+      const { data: mine } = await db()
+        .from("signup_cic_calls")
+        .select("id")
+        .eq("signup_id", id)
+        .eq("side", "B2C")
+        .eq("caller_id", viewer.id)
+        .limit(1);
+      canB2c = (mine ?? []).length > 0;
+    }
+  }
   return {
     signup: data,
+    canB2c,
     comments: (comments ?? []) as SignupComment[],
     assignedLabel: assigned.data
       ? assigned.data.name

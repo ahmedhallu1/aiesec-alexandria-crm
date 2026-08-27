@@ -47,6 +47,8 @@ export interface VisitFollowupResult {
   forgottenChecked: number;
   nagged: number;
   bounces: { checked: number; flagged: number };
+  /** B2C call-backs that came due and were nudged (v35.1) */
+  callBacks: number;
 }
 
 /** Reminders go to the responsible member AND their team leader (manager)
@@ -203,6 +205,18 @@ export async function runVisitFollowups(): Promise<VisitFollowupResult> {
     console.error("[cron] bounce watch failed:", e);
   }
 
+  // B2C CALL-BACKS (v35.1) — "ring me at four" is an appointment the person
+  // themselves asked for, and it was being kept in somebody's head. It rides
+  // this tick rather than earning a cron of its own: the project is already at
+  // its invocation ceiling (v34.7), so the time is a FLOOR, not an alarm — the
+  // nudge lands at the next pass after it falls due.
+  let callBacks = 0;
+  try {
+    callBacks = await runB2cCallBacks();
+  } catch (e) {
+    console.error("[cron] b2c call-backs failed:", e);
+  }
+
   await markCronRun("visit-followups");
   return {
     checked: pending?.length ?? 0,
@@ -210,5 +224,58 @@ export async function runVisitFollowups(): Promise<VisitFollowupResult> {
     forgottenChecked: forgotten?.length ?? 0,
     nagged,
     bounces,
+    callBacks,
   };
+}
+
+interface CallBackRow {
+  id: string;
+  signup_id: string;
+  caller_id: string | null;
+  caller_name: string;
+  call_back_at: string;
+  signup: { name: string; phone: string | null } | null;
+}
+
+/** Nudge the B2C caller when a call-back they promised comes due.
+ *
+ *  The bell is the delivery — it reaches the phone too since v35 — and it
+ *  deep-links to the CIC queue. Stamped once so a call-back that stays open
+ *  does not nag every pass; the caller resolves it by recording the next
+ *  outcome, which clears the appointment. */
+async function runB2cCallBacks(): Promise<number> {
+  const { data } = await db()
+    .from("signup_cic_calls")
+    .select("id, signup_id, caller_id, caller_name, call_back_at, signup:signups(name, phone)")
+    .eq("side", "B2C")
+    .eq("outcome", "call_back")
+    .is("call_back_reminded_at", null)
+    .lte("call_back_at", new Date().toISOString())
+    .limit(200);
+  const rows = (data ?? []) as unknown as CallBackRow[];
+  let nudged = 0;
+  for (const row of rows) {
+    if (!row.caller_id) continue;
+    const who = row.signup?.name ?? "someone";
+    try {
+      await notifyMembers(
+        [row.caller_id],
+        "followup",
+        `⏰ Call ${who} back`,
+        `You said you'd ring ${who} around now${row.signup?.phone ? ` — ${row.signup.phone}` : ""}.`,
+        null,
+        "/signups?view=cic&cicMine=1"
+      );
+      // stamped only AFTER the nudge is actually out, so a failure retries on
+      // the next pass instead of going silent (the v34.1 Podio-digest lesson)
+      await db()
+        .from("signup_cic_calls")
+        .update({ call_back_reminded_at: new Date().toISOString() })
+        .eq("id", row.id);
+      nudged++;
+    } catch (e) {
+      console.error(`[cron] call-back nudge ${row.id} failed:`, e);
+    }
+  }
+  return nudged;
 }
