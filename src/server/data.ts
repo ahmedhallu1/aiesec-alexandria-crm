@@ -6270,6 +6270,12 @@ export interface LcPartnershipInfo {
   /** YYYY-MM-DD */
   partnershipDate: string | null;
   irName: string | null;
+  /** WHERE ON THE ROAD IT IS (v35.1) — the furthest of what a human set and
+   *  what the IR calls prove. null = nothing has happened yet. */
+  stage: import("@/lib/partnership-stage").PartnershipStage | null;
+  /** Sodio worked this out from the calls rather than a person setting it —
+   *  the control says so, so nobody wonders why it moved on its own */
+  stageAuto: boolean;
 }
 
 export interface PartnerLcDetail extends PartnerLc {
@@ -6402,7 +6408,7 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
       const { data } = await db()
         .from("lc_partnerships")
         .select(
-          "id, partner_lc_id, product, status, assigned_to, partnership_date, ir_name, " +
+          "id, partner_lc_id, product, status, assigned_to, partnership_date, ir_name, stage, " +
             "assigned:members!lc_partnerships_assigned_to_fkey(name), " +
             "maker:members!lc_partnerships_made_by_fkey(name)"
         )
@@ -6419,18 +6425,40 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
       return (data ?? []) as any[];
     })().catch(() => []),
   ]);
+  // THE STAGE IS DERIVED, NOT STORED WHOLE (v35.1): the human's half comes
+  // from the row, the two call stages from the LC's own calls, and the card
+  // shows whichever is further along. Computed here, where the calls are
+  // already in hand — no extra query, and no chance of the queue and the card
+  // disagreeing.
+  const { effectiveStage, stageIsAutomatic } = await import("@/lib/partnership-stage");
+  const callsByLc = new Map<string, { status: string; product: string | null }[]>();
+  for (const c of calls) {
+    if (!c.partner_lc_id) continue;
+    const list = callsByLc.get(c.partner_lc_id) ?? [];
+    list.push({ status: c.status, product: c.product });
+    callsByLc.set(c.partner_lc_id, list);
+  }
   const partnershipsByLc = new Map<string, LcPartnershipInfo[]>();
   for (const r of partnershipRows) {
     const list = partnershipsByLc.get(r.partner_lc_id) ?? [];
+    const done = r.status === "done";
+    const stageInput = {
+      manual: r.stage ?? null,
+      calls: callsByLc.get(r.partner_lc_id) ?? [],
+      product: (r.product === "GT" ? "GT" : "GV") as "GV" | "GT",
+      done,
+    };
     list.push({
       id: r.id,
       product: r.product as IrProduct,
-      status: r.status === "done" ? "done" : "pending",
+      status: done ? "done" : "pending",
       assignedToId: r.assigned_to ?? null,
       assignedToName: r.assigned?.name ?? null,
       madeByName: r.maker?.name ?? null,
       partnershipDate: r.partnership_date ?? null,
       irName: r.ir_name ?? null,
+      stage: effectiveStage(stageInput),
+      stageAuto: stageIsAutomatic(stageInput),
     });
     partnershipsByLc.set(r.partner_lc_id, list);
   }
@@ -6588,7 +6616,9 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
  *  pool; the action re-validates against the same list. */
 export async function listConsiderationCrew(
   viewer: Viewer
-): Promise<{ id: string; name: string; role: string; managerId: string | null }[]> {
+): Promise<
+  { id: string; name: string; role: string; managerId: string | null; fns: string[] }[]
+> {
   if (!_hasConsiderationAccess(viewer)) return [];
   const { data } = await db()
     .from("members")
@@ -6606,6 +6636,13 @@ export async function listConsiderationCrew(
       name: m.name as string,
       role: m.role as string,
       managerId: (m.stakeholder_id as string | null) ?? null,
+      // WHICH ICX FUNCTION THEY WORK (v35.1) — what "my function" means when
+      // an MM hands out a target. Every consideration member carries exactly
+      // one of IGV/IGT today; both columns are read because the LC files the
+      // product under Function and the side under Sub Function.
+      fns: [...(m.functions ?? []), ...(m.sub_functions ?? [])].filter(
+        (f: string) => f === "IGV" || f === "IGT"
+      ),
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }

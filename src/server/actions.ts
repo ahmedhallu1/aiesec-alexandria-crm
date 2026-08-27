@@ -10609,10 +10609,28 @@ export async function addPartnerLcComment(input: {
 // ------------------------------------------------- 🤝 LC partnerships (v33.38)
 
 
-/** Who may a partnership be handed to / credited to (v33.39, one matrix for
- *  assign AND record-for): lead → the whole crew · TL → self + own team, or
- *  the whole crew when their function's defaults open cross-team targets ·
- *  Coordinator → self. */
+/** WHO MAY A PARTNERSHIP BE HANDED TO / CREDITED TO — one matrix for assign
+ *  AND record-for.
+ *
+ *  WIDENED IN v35.1, on the floor's own report. An MM's reach was their own
+ *  TEAM, which is not how the consideration floor works: an LC is approached
+ *  by whoever is free, and an IGV MM watching an IGV target could not hand it
+ *  to an IGV member on somebody else's team. So an MM now reaches **their own
+ *  ICX function** — every consideration member working IGV, or IGT, as they
+ *  do. `partnershipCrossTeam` in the function's defaults keeps its meaning by
+ *  moving up a level: with it on, the MM reaches the WHOLE crew, both
+ *  functions.
+ *
+ *  AND A MEMBER MAY TAKE ONE THEMSELVES (v35.1). Setting your own target and
+ *  walking the road to it is the point of the process; needing an MM to file
+ *  it first is friction with no safety in it. A Member reaches exactly
+ *  themselves — never anybody else.
+ *
+ *  · lead (VP/Director/LCP/admin) → the whole crew
+ *  · TL / Coordinator → their own ICX function (or the whole crew, per the
+ *    function's defaults)
+ *  · Member → themselves only
+ */
 async function resolvePartnershipTarget(
   viewer: Viewer,
   memberId: string
@@ -10630,32 +10648,38 @@ async function resolvePartnershipTarget(
       ) as ActionResult<never>,
     };
   if (isConsiderationLead(viewer)) return { target };
-  if (!["Team Leader", "Coordinator"].includes(viewer.role))
+
+  // a Member takes one themselves and nothing else
+  if (!["Team Leader", "Coordinator"].includes(viewer.role)) {
+    if (target.id === viewer.id) return { target };
     return {
       error: fail(
-        "Only MMs, VPs/Directors or the LCP hand out partnership targets.",
+        "You can take a partnership target yourself — handing one to somebody else is an MM's call.",
         "forbidden"
       ) as ActionResult<never>,
     };
-  let mine =
-    target.id === viewer.id ||
-    (viewer.role === "Team Leader" && target.managerId === viewer.id);
-  // cross-team targets are the FUNCTION's call (v33.39, function defaults)
-  if (!mine && viewer.role === "Team Leader") {
-    const { functionSettingsFor } = await import("./function-settings");
-    for (const fn of icxFunctions(viewer)) {
-      if ((await functionSettingsFor(fn)).partnershipCrossTeam) {
-        mine = true;
-        break;
+  }
+
+  let mine = target.id === viewer.id;
+  if (!mine) {
+    // THEIR FUNCTION, not their team (v35.1)
+    const myFns = icxFunctions(viewer);
+    mine = target.fns.some((f) => myFns.includes(f as (typeof myFns)[number]));
+    // and the whole crew when the function's defaults say so
+    if (!mine) {
+      const { functionSettingsFor } = await import("./function-settings");
+      for (const fn of myFns) {
+        if ((await functionSettingsFor(fn)).partnershipCrossTeam) {
+          mine = true;
+          break;
+        }
       }
     }
   }
   if (!mine)
     return {
       error: fail(
-        viewer.role === "Team Leader"
-          ? "A Team Leader hands targets to their own team — unless your function's defaults open cross-team targets."
-          : "A Coordinator can only take a target themselves.",
+        `${target.name} works another function — targets stay inside yours unless your function's defaults open them up.`,
         "forbidden"
       ) as ActionResult<never>,
     };
@@ -10849,8 +10873,19 @@ export async function assignLcPartnership(input: {
     return fail("Partnerships are disabled in the sandbox test view.");
   if (input.product !== "GV" && input.product !== "GT")
     return fail("Pick the programme — GV or GT.");
-  if (!isConsiderationLead(viewer) && !["Team Leader", "Coordinator"].includes(viewer.role))
-    return fail("Only MMs, VPs/Directors or the LCP hand out partnership targets.", "forbidden");
+  // A MEMBER MAY TAKE ONE THEMSELVES (v35.1) — the role gate used to stop
+  // here, so setting your own target needed an MM to file it for you. Who may
+  // target WHOM is `resolvePartnershipTarget`'s job, and it refuses a Member
+  // pointing at anybody but themselves.
+  if (
+    !isConsiderationLead(viewer) &&
+    !["Team Leader", "Coordinator"].includes(viewer.role) &&
+    input.memberId !== viewer.id
+  )
+    return fail(
+      "You can take a partnership target yourself — handing one to somebody else is an MM's call.",
+      "forbidden"
+    );
 
   const picked = await resolvePartnershipTarget(viewer, input.memberId);
   if ("error" in picked) return picked.error;
@@ -10966,6 +11001,88 @@ export async function clearLcPartnershipTarget(id: string): Promise<ActionResult
   if (!error && before) await recordUndo("lc_partnerships", id, "delete", before);
   if (error) return fail(error.message);
   await logAudit(viewer.id, "lc_partnership_target_cleared", "partner_lc", id, {});
+  revalidatePath("/consideration");
+  return { ok: true };
+}
+
+/** MOVE A TARGET ALONG THE ROAD (v35.1).
+ *
+ *  Five stages: contacted → answered → IR call scheduled → IR call done →
+ *  WhatsApp group made. Two of them Sodio works out for itself from the LC's
+ *  IR calls, so this only ever writes the HUMAN's half; the card shows
+ *  whichever is further along, which is what makes automatic movement forward
+ *  only. Setting the last stage is not done here — the group being made IS
+ *  the partnership, and that goes through `recordLcPartnership`, which is
+ *  where the crediting, the anchoring IR and the refusals already live.
+ */
+export async function setLcPartnershipStage(
+  id: string,
+  stage: string | null
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (!hasConsiderationAccess(viewer)) return considerationFail();
+  if (viewer.sandbox)
+    return fail("Partnerships are disabled in the sandbox test view.");
+  const { isPartnershipStage, stageLabel } = await import("@/lib/partnership-stage");
+  const next = stage === null || stage === "" ? null : stage;
+  if (next !== null && !isPartnershipStage(next)) return fail("That isn't one of the stages.");
+  if (next === "group_made")
+    return fail(
+      "The WhatsApp group IS the partnership — record it from the LC card so it counts and gets credited."
+    );
+
+  const { data: row } = await db()
+    .from("lc_partnerships")
+    .select("id, status, assigned_to, assigned_by, stage, partner_lc_id, product")
+    .eq("id", id)
+    .maybeSingle<{
+      id: string; status: string; assigned_to: string | null; assigned_by: string | null;
+      stage: string | null; partner_lc_id: string; product: string;
+    }>();
+  if (!row) return fail("That target no longer exists.");
+  if (row.status === "done")
+    return fail("This partnership is already made — the road ends there.");
+  // whoever holds it, whoever handed it out, or a lead: the same three who
+  // may hand it back
+  const allowed =
+    isConsiderationLead(viewer) ||
+    row.assigned_to === viewer.id ||
+    row.assigned_by === viewer.id;
+  if (!allowed)
+    return fail("Only the member holding this target, the MM who set it, or a VP can move it.", "forbidden");
+
+  await snapshotForUndo("lc_partnerships", id);
+  const { error } = await db()
+    .from("lc_partnerships")
+    .update({
+      stage: next,
+      stage_by: next ? viewer.id : null,
+      stage_at: next ? new Date().toISOString() : null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+  if (error) return fail(error.message);
+
+  // the member holding it hears about a move somebody ELSE made — it is their
+  // road, and an MM nudging it forward is news
+  if (row.assigned_to && row.assigned_to !== viewer.id && next) {
+    const { data: lc } = await db()
+      .from("partner_lcs").select("name").eq("id", row.partner_lc_id)
+      .maybeSingle<{ name: string }>();
+    const { notifyMembers } = await import("./notify");
+    await notifyMembers(
+      [row.assigned_to],
+      "info",
+      `🤝 ${lc?.name ?? "A partner LC"} — ${stageLabel(next)}`,
+      `${viewer.name} moved your ${row.product} partnership target to "${stageLabel(next)}".`,
+      viewer.id,
+      "/consideration"
+    );
+  }
+
+  await logAudit(viewer.id, "lc_partnership_stage", "partner_lc", row.partner_lc_id, {
+    partnership: id, from: row.stage, to: next,
+  });
   revalidatePath("/consideration");
   return { ok: true };
 }

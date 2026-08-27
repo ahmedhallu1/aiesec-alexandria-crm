@@ -78,3 +78,41 @@ describe("every real-world account name resolves at its own URL", () => {
     });
   }
 });
+
+/** CASE NEVER MAKES TWO ACCOUNTS (v35.1).
+ *
+ *  Reported from the floor as "Sodio's own duplicate check is case-sensitive".
+ *  Checked against production first and it is not: `normalized_name` is a
+ *  generated, lower-cased column (4,501 accounts, zero mismatches), the query
+ *  is an ILIKE on top of that, and a mixed-case name finds the row. So this is
+ *  a RATCHET rather than a fix — the property is already true and these
+ *  assertions fail the moment anything in the chain stops folding case.
+ *
+ *  The Podio check is a different thing entirely and keeps its own matching:
+ *  it asks a third party about their data, not Sodio about ours.
+ */
+describe("the duplicate check ignores case", () => {
+  const pairs: [string, string][] = [
+    ["Gamal", "gamal"],
+    ["GAMAL", "GaMaL"],
+    ["INNOVA STEM EDU", "innova stem edu"],
+    ["Hadana Moves", "hadana moves"],
+    ["i-Fikra Software Company", "I-FIKRA SOFTWARE COMPANY"],
+    ["Omama_Burgerhouse", "omama_burgerhouse"],
+  ];
+  for (const [a, b] of pairs) {
+    it(`treats ${JSON.stringify(a)} and ${JSON.stringify(b)} as one name`, () => {
+      // the stored key is identical…
+      expect(normalizeName(a)).toBe(normalizeName(b));
+      // …the URL is identical…
+      expect(accountSlug(a)).toBe(accountSlug(b));
+      // …and the pattern built from one matches the other's stored value
+      expect(ilike(slugLikePattern(decodeURIComponent(accountSlug(a))), normalizeName(b))).toBe(true);
+    });
+  }
+
+  it("still tells genuinely different names apart", () => {
+    expect(normalizeName("Gamal")).not.toBe(normalizeName("Gamall"));
+    expect(accountSlug("gamal cafe")).not.toBe(accountSlug("gamal cafes"));
+  });
+});

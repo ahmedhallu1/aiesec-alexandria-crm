@@ -62,17 +62,24 @@ export default async function ConsiderationPage({
     to: sp.callto,
   };
 
-  // 🤝 partnership targets (v33.38): who the viewer may hand one to —
-  // lead → the whole crew · TL → self + own team · Coordinator → self
-  const canAssignPartnerships =
-    viewer.isAdmin ||
-    ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(viewer.role);
+  // 🤝 PARTNERSHIP TARGETS — who the viewer may hand one to. WIDENED in
+  // v35.1: an MM reaches their whole ICX FUNCTION rather than their own team
+  // (an LC is approached by whoever is free, and an IGV MM could not hand an
+  // IGV target to an IGV member on another team), and a MEMBER may take one
+  // themselves — setting your own target and walking the road to it is the
+  // point of the process. The picker below must offer exactly what
+  // `resolvePartnershipTarget` allows: never more, never less.
+  const canAssignPartnerships = hasConsiderationAccess(viewer);
   const isLead =
     viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
 
   // 🤝 HAND-OVER (v33.58) — the same MM-and-above gate as partnership targets:
   // a Member holds their calls, an MM redistributes them.
-  const canHandOverCalls = canAssignPartnerships;
+  // handing a booked CALL to somebody else stays an MM-and-above act — it
+  // moves a commitment off one person's calendar onto another's
+  const canHandOverCalls =
+    viewer.isAdmin ||
+    ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(viewer.role);
   const [lcs, calls, cvs, booking, callOptions, crewAll, handoverTargets, slotRequests] = await Promise.all([
     listPartnerLcDetails(viewer),
     listIrCalls(viewer, tab === "calls" ? page : 0, pageSize, undefined, callFilters),
@@ -103,13 +110,18 @@ export default async function ConsiderationPage({
   const crossTeam = icxFunctions(viewer).some(
     (fn) => fnSetting(viewer, fn).partnershipCrossTeam
   );
+  const myFns = icxFunctions(viewer);
+  const isMm = ["Team Leader", "Coordinator"].includes(viewer.role);
   const partnershipTargets = isLead
     ? crewAll
-    : viewer.role === "Team Leader"
+    : isMm
       ? crossTeam
         ? crewAll
-        : crewAll.filter((m) => m.id === viewer.id || m.managerId === viewer.id)
-      : crewAll.filter((m) => m.id === viewer.id);
+        : crewAll.filter(
+            (m) => m.id === viewer.id || m.fns.some((f) => myFns.includes(f as (typeof myFns)[number]))
+          )
+      : // a Member takes one themselves and nothing else
+        crewAll.filter((m) => m.id === viewer.id);
   // the record form's product defaults to the member's own side
   const icx = icxFunctions(viewer);
   const defaultProduct: "GV" | "GT" | null =
@@ -147,6 +159,10 @@ export default async function ConsiderationPage({
           viewer.isAdmin ||
           ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(viewer.role),
         canAssignPartnerships,
+        // MM AND ABOVE — the acts that touch SOMEBODY ELSE's target: handing
+        // one out, clearing it, moving it along. Taking one yourself needs
+        // only `canAssignPartnerships` (v35.1).
+        canTargetOthers: isLead || isMm,
         canHandOverCalls,
         defaultProduct,
       }}

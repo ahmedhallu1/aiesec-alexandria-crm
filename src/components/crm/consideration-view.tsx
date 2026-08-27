@@ -15,7 +15,7 @@ import {
   addPartnerLcContact, createIgtExpectationDraft, deleteIrCall, deletePartnerLc,
   getCvFileUrl,
   previewIgtExpectationMail,
-  assignLcPartnership, clearLcPartnershipTarget,
+  assignLcPartnership, clearLcPartnershipTarget, setLcPartnershipStage,
   recordIrCall, recordLcPartnership, requestCvUpload, sendIgtExpectationMail,
   reassignIrCall, requestIrReschedule, rerunCvExtraction, saveIrBookingSettings,
   updateCvFields, updateIrBookerEmail, updatePartnerLc,
@@ -23,9 +23,12 @@ import {
 import type {
   PartnerLcDetail,
   BookingIssue, BookingIssueField,
-  CvRow, IrAvailabilityRow, IrCallRow, MyIrBooking, PartnerLc,
+  CvRow, IrAvailabilityRow, IrCallRow, LcPartnershipInfo, MyIrBooking, PartnerLc,
   IrSlotRequest,
 } from "@/server/data";
+import {
+  PARTNERSHIP_STAGES, stageLabel, stageRank,
+} from "@/lib/partnership-stage";
 import { IR_ROLES, normalizePhone, fmtDateTime } from "@/lib/types";
 import { phoneExample } from "@/lib/dial-codes";
 import { whenLabelInZone } from "@/lib/timezones";
@@ -159,6 +162,8 @@ interface ViewerInfo {
   canManageLcs: boolean;
   /** MMs and above hand out 🎯 partnership targets (v33.38) */
   canAssignPartnerships: boolean;
+  /** may act on SOMEBODY ELSE's target — hand out, clear, move (v35.1) */
+  canTargetOthers: boolean;
   /** MMs and above may hand a booked IR call to another host (v33.58) */
   canHandOverCalls: boolean;
   /** the record form's product default — the viewer's own side, when single */
@@ -673,7 +678,7 @@ function PartnerLcsTab({
         initialProduct={recordProduct ?? viewer.defaultProduct}
         targets={partnershipTargets}
         viewerId={viewer.id}
-        canAssign={viewer.canAssignPartnerships}
+        canAssign={viewer.canTargetOthers}
       />
       <AssignPartnershipDialog
         open={assignOpen}
@@ -790,7 +795,7 @@ function PartnerLcsTab({
                         >
                           <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-400">
                             🎯 {pp.product} → {pp.assignedToName ?? "—"}
-                            {viewer.canAssignPartnerships || pp.assignedToId === viewer.id ? (
+                            {viewer.canTargetOthers || pp.assignedToId === viewer.id ? (
                               <button
                                 type="button"
                                 className="ml-0.5 opacity-70 hover:opacity-100"
@@ -813,6 +818,20 @@ function PartnerLcsTab({
                     )}
                   </div>
                 ) : null}
+                {/* 🛣️ THE ROAD (v35.1) — a target used to be one bit of
+                    information ("exists", then "done"), which told the person
+                    holding it nothing and the MM watching it less. The two
+                    call stages are Sodio's own, read off the LC's IR calls. */}
+                {(lc.partnerships ?? [])
+                  .filter((pp) => pp.status === "pending")
+                  .map((pp) => (
+                    <PartnershipRoad
+                      key={`road-${pp.id}`}
+                      p={pp}
+                      canMove={viewer.canTargetOthers || pp.assignedToId === viewer.id}
+                      onMoved={() => router.refresh()}
+                    />
+                  ))}
               </CardHeader>
               <CardContent className="space-y-1.5">
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -2062,6 +2081,81 @@ function AssignPartnershipDialog({
 }
 
 // ------------------------------------------------------------------ main view
+
+/** 🛣️ WHERE A PARTNERSHIP TARGET HAS GOT TO (v35.1).
+ *
+ *  Five stages, shown as the road they are: the ones behind you filled in,
+ *  the one you are on marked, the rest waiting. Two of them Sodio sets from
+ *  the LC's own IR calls — the control says so rather than letting a stage
+ *  appear to move by itself.
+ *
+ *  The last stage is not offered here: the WhatsApp group IS the partnership,
+ *  so it goes through "Record it", which is where the crediting and the
+ *  anchoring IR already live.
+ */
+function PartnershipRoad({
+  p, canMove, onMoved,
+}: {
+  p: LcPartnershipInfo;
+  canMove: boolean;
+  onMoved: () => void;
+}) {
+  const [pending, start] = useTransition();
+  const rank = stageRank(p.stage);
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 pt-1.5">
+      <span className="text-[11px] font-medium text-muted-foreground">
+        {p.product} road:
+      </span>
+      <span className="flex items-center gap-1">
+        {PARTNERSHIP_STAGES.map((st, i) => (
+          <Hint key={st.value} label={`${st.label} — ${st.hint}`}>
+            <span
+              className={cn(
+                "h-1.5 w-5 rounded-full transition-colors",
+                i <= rank ? "bg-primary" : "bg-muted"
+              )}
+            />
+          </Hint>
+        ))}
+      </span>
+      {canMove ? (
+        <Select
+          value={p.stage ?? "__none"}
+          onValueChange={(v) =>
+            start(async () => {
+              const res = await setLcPartnershipStage(p.id, v === "__none" ? null : v);
+              if (res.ok) { toast.success("Moved along 🛣️"); onMoved(); }
+              else toast.error(res.error);
+            })
+          }
+          disabled={pending}
+        >
+          <SelectTrigger className="h-6 w-[11.5rem] text-[11px]">
+            <SelectValue placeholder="Not started" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__none">Not started</SelectItem>
+            {PARTNERSHIP_STAGES.filter((st) => st.value !== "group_made").map((st) => (
+              <SelectItem key={st.value} value={st.value}>{st.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : (
+        <span className="text-[11px] text-muted-foreground">
+          {stageLabel(p.stage) ?? "Not started"}
+        </span>
+      )}
+      {p.stageAuto ? (
+        <Hint label="Sodio set this from the IR calls on this LC — pick a further stage to override it">
+          <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            auto
+          </span>
+        </Hint>
+      ) : null}
+    </div>
+  );
+}
 
 export function ConsiderationView({
   pageSize,

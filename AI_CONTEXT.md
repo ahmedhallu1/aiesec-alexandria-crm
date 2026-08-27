@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-27 · Version: v35
+Last updated: 2026-08-28 · Version: v35.1
 
 ---
 
@@ -59,7 +59,8 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0059_lc_partnerships` → `0060_ir_per_day_overrides` →
 `0061_touch_point_location` → `0062_close_rls_gaps` → `0063_prank_mode` →
 `0064_api_keys` → `0065_ir_slot_requests` → `0066_im_prompts` →
-`0067_member_settings` → `0068_cxp_module` → `0069_push_subscriptions`
+`0067_member_settings` → `0068_cxp_module` → `0069_push_subscriptions` → `0070_b2c_cic_outcomes` →
+`0071_partnership_stage`
 (**all applied**, 0046–0063 during v33.22–v33.51, 0064–0067 during v34.5–v34.8,
 0069 during v35).
 
@@ -609,6 +610,10 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | The Android app (shell: name, icon, splash, colours) | `android/twa-manifest.json` — then `bubblewrap update && bubblewrap build`, bump `appVersionCode`. A WEB change needs none of this |
 | Why the app shows a URL bar | `src/app/.well-known/assetlinks.json/route.ts` + `ANDROID_CERT_FINGERPRINTS` (it is Play's app-signing SHA-256, NOT the local upload key's) |
 | The privacy policy (required by Play) | `src/app/privacy/page.tsx` — public route, must stay in the proxy matcher's exclusion list |
+| The road to a partnership (stages, auto-detection) | `src/lib/partnership-stage.ts` (pure) · `listPartnerLcDetails` in `data.ts` derives it · `setLcPartnershipStage` in `actions.ts` · `PartnershipRoad` in `consideration-view.tsx` |
+| Who may hand out / move a partnership target | `resolvePartnershipTarget` in `actions.ts` · the `partnershipTargets` narrowing in `consideration/page.tsx` (the two must agree) |
+| B2C call outcomes + the call-back reminder | `B2C_CALL_OUTCOMES` in `types.ts` · `updateB2cCic` in `actions.ts` · `runB2cCallBacks` in `server/cron/visit-followups.ts` |
+| Deleting an account / cancelling a deal | `deleteAccount` + `accountDeletionCheck` + `cancelDeal` in `actions.ts` · the dialogs in `account-detail-view.tsx` |
 | The CIC 1st-caller filter | `cicFirstCallerOptions` + `cicPoolFilter` in `data.ts` · `firstCaller` in `SignupFilters` · the `assigned` case in `columnFilter` (signups-view) |
 
 ---
@@ -671,6 +676,107 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-08-28 · v35.1** — **SEVEN FROM THE FLOOR** (migrations **0070 +
+  0071 applied**: B2C call outcomes, the partnership stage).
+  ① **"GLOBAL VOLUNTEER" IS NOT A DIFFERENT PROGRAMME FROM "GV".** The badge
+  matched abbreviations with `includes("gv")` — and **"global volunteer" does
+  not contain the letters "gv"** — so the 31 REFERRAL rows, the only ones that
+  store the programme's full name, fell through to the raw-value branch and
+  rendered a wide red "Global Volunteer" pill in a column of tidy GV/GTa/GTe
+  badges. Same programme, two different-looking rows on one list, which is
+  exactly how it was reported. The long forms are matched explicitly now,
+  `addSignupReferral` writes the tracker's own "GV", and the 31 rows were
+  backfilled (they carry `source='referral'`, so nothing syncs to a sheet).
+  ② **AN ACCOUNT CAN BE DELETED, NOT JUST ARCHIVED.** Archiving is a decision
+  about a real business and it doubles as the blacklist — it stops the name
+  ever being re-added. **A typo is not a decision**, and archiving one blocks
+  the CORRECT spelling from ever being entered, which is why "just archive it"
+  was never the answer. The rule (the user's call): an account with **nothing**
+  on it — no contacts, visits, deals or comments — is deleted by anyone who may
+  edit it, because there is nothing to destroy; the moment it carries history
+  it takes a **VP/Director/LCP and the name typed out in full**. The dialog
+  asks the server what is actually on the account first, so it says "nothing
+  has been logged on it" or "this destroys 6 contacts and 2 deals" rather than
+  a generic warning. The database cascades (contacts, visits, comments, deals →
+  allocations), so it is one atomic statement; **contract blobs are removed by
+  hand** because no foreign key reaches a storage bucket. Refused in the
+  sandbox and during an LC test session — a cascade cannot be rolled back.
+  ③ **AND A DEAL CAN BE CANCELLED.** It could be corrected since v33.19 and
+  never taken back, so a deal recorded on the wrong account — or one that fell
+  through after signing — sat in the funnel forever inflating the account, the
+  lane and somebody's personal opens. ⚠️ **It DELETES the row rather than
+  flagging it cancelled, deliberately**: deals are read in seventeen places
+  (the account header, the pipeline stage, lane slots, allocations, the
+  leaderboards, the period reports, the Drive mirror), and a `cancelled_at`
+  that one of them forgot to filter is a number that is quietly wrong forever.
+  A cancelled deal is not a deal. What survives is the part a human reads — a
+  comment on the account naming the opens, the amount and the reason, plus the
+  audit row. The counters recompute from what is left, so an account dropping
+  to zero deals also drops back out of "Deal Done".
+  ④ **B2C HAS A VOICE ON THE SIGN-UP.** B2C rings the same person to sell a
+  course and had **nowhere to write down what was said** — `addSignupComment`
+  refused them outright, because they are neither the owner nor a VP, so the
+  selling context lived in WhatsApp while the row looked untouched. They
+  comment in their own class (`author_class = 'b2c'`), shown as its own thread,
+  from the detail dialog AND from the CIC list's ➕. ⚠️ **It never reaches the
+  OGX tracker's Comment cells**: that log belongs to the OGX crew, and the
+  sheet write-back only knows "member" and "vp" — the push is skipped anyway
+  rather than relying on that.
+  ⑤ **WHAT ACTUALLY HAPPENED ON A B2C CALL** (0070). "Called: Yes / No" was one
+  question covering four situations with four different next moves: **Answered
+  · Busy · Didn't answer · Out of service · Call back**. Busy and no-answer
+  mean try again, out of service means the number is dead and trying again is
+  wasted work, and a call back is an appointment the person themselves asked
+  for. `contact_status` is now WRITTEN FROM the outcome (`answered` → Yes,
+  everything else → No) so the B2C dashboard card, the called count and the
+  open-calls count keep meaning what they meant and pre-0070 rows still read
+  correctly. "Interested" is offered only when they picked up, and a stale one
+  is cleared when the outcome says the call never happened. **A call-back asks
+  for a time and nudges the caller when it falls due** — it rides the existing
+  visit-followups pass rather than earning a cron (the invocation ceiling,
+  v34.7), so the time is a FLOOR, not an alarm, and the stamp lands only after
+  the nudge is out so a failure retries.
+  ⑥ **THE ROAD TO A PARTNERSHIP** (0071). A target was one bit of information —
+  it existed, then one day it was "done" — which told the member holding it
+  nothing and the MM watching it less. It is a process, and the floor already
+  describes it the same way: **contacted → answered → IR call scheduled → IR
+  call done → WhatsApp group made**, and the last one IS the partnership.
+  **Two of the five are facts Sodio already holds**: an IR call with that LC
+  for that programme IS "scheduled", a completed one IS "done", so nobody types
+  them. ⚠️ **`stage` stores only the HUMAN's half** — the call stages are
+  derived at read time from `ir_calls` (in `listPartnerLcDetails`, where the
+  calls are already in hand: no extra query, and no way for the card and the
+  queue to disagree) and the card shows **whichever is further along**. That is
+  what makes automatic movement forward only: a cancelled call can never drag a
+  partnership backwards, and a human can always push ahead of the calls. Said
+  plainly, because it is the trade: a manual stage BELOW what the calls prove
+  does not stick. Setting the last stage is refused here on purpose — the group
+  being made goes through `recordLcPartnership`, where the crediting, the
+  anchoring IR and the refusals already live. 16 tests pin the merge.
+  ⑦ **AN MM'S REACH IS THEIR FUNCTION, AND A MEMBER CAN TARGET THEMSELVES.**
+  Handing out a partnership target was limited to the MM's own TEAM, which is
+  not how the consideration floor works — an LC is approached by whoever is
+  free, and an IGV MM watching an IGV target could not hand it to an IGV member
+  on somebody else's team. An MM now reaches every consideration member working
+  **their own ICX function**; `partnershipCrossTeam` keeps its meaning by moving
+  up a level (with it on, the whole crew, both functions). And a **Member may
+  take a target themselves** — setting your own and walking the road to it is
+  the point of the process, and needing an MM to file it first was friction
+  with no safety in it. A Member reaches exactly themselves: acting on somebody
+  else's target (handing out, clearing, moving) is a separate capability
+  (`canTargetOthers`), so the buttons offer exactly what the server allows.
+  ⑧ **CASE SENSITIVITY: CHECKED, AND THE ACCOUNT CHECK IS ALREADY CORRECT.**
+  Reported as "Sodio's own duplicate check is case-sensitive". Verified against
+  production before changing anything: `normalized_name` is a generated,
+  lower-cased column (**4,501 accounts, zero mismatches**; the blacklist's 39
+  rows likewise), the lookup is an ILIKE on top of it, and a mixed-case name
+  finds the row. So "Gamal" and "gamal" are already one name. **6 new
+  assertions pin it as a ratchet** rather than a fix, and the Podio check keeps
+  its own matching — it asks a third party about THEIR data. ⚠️ The screen where
+  this was seen is still unknown; if a case variant really got through
+  somewhere, that path needs finding rather than assuming.
+  **618 tests** (602 before), tsc clean, production build green.
 
 - **2026-08-27 · v35** — **THE BELL REACHES THE PHONE, AND SODIO GETS AN APP**
   (migration **0069 applied**: `push_subscriptions`).
