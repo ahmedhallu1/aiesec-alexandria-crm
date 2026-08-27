@@ -692,6 +692,12 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
   service having a bad minute must never fail the action that raised it. A
   404/410 back from an endpoint **deletes** the row rather than retrying it
   forever — the only way the count of reachable devices stays honest.
+  **The one opt-out that already existed carries over for free**: the
+  highest-volume message in the system — the crew-wide "a visit was booked"
+  FYI, 521 in a week — is filtered by `bellVisitAnnouncements` BEFORE
+  `notifyMembers` is called, so a member who switched that bell off does not
+  get it on their phone either. That is a property of hooking at the choke
+  point rather than at each call site.
   ⚠️ **No per-member kind-by-kind controls and no quiet hours** — deliberately
   not built, not forgotten. The switch is all-or-nothing per device today; if
   an overnight cron starts waking people, quiet hours is the next thing to

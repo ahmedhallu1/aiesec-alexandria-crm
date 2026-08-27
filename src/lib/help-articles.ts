@@ -70,6 +70,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
       "a": "Safari only delivers notifications to a site that has been **added to the Home Screen**. Open Sodio in Safari, Share → Add to Home Screen, open it from there, and the switch will work. There is no iPhone app in the App Store."
      },
      {
+      "q": "It's too many notifications.",
+      "a": "The crew-wide \"a visit was booked\" heads-up is the loudest thing Sodio sends, and it is already optional: Settings → search **visit** → turn off the BELL one, and it stops reaching your phone too. Everything else on the bell is something that is actually yours to do."
+     },
+     {
       "q": "Will it wake me up at 3 AM?",
       "a": "It can — a notification goes out when the thing happens, and some of Sodio's jobs run overnight. If that becomes a problem, use your phone's own Do Not Disturb, and tell the IM team: quiet hours can be built."
      },
