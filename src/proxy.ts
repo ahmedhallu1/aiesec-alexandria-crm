@@ -33,6 +33,9 @@ export const config = {
     // signed-in navigation, so the proxy would have 307'd it to /login and
     // registration would have failed with "the script has an unsupported MIME
     // type" — push would simply never have worked, with nothing saying why.
-    "/((?!api/auth|api/cron|api/v1|login|inactive|book|privacy|_next/static|_next/image|favicon.ico|icon.png|apple-icon.png|opengraph-image|icons|brand|manifest.webmanifest|sw.js|robots.txt|sitemap.xml|\\.well-known).*)",
+    //
+    // AND `/delete-account` (v35.1) — Play requires a public URL describing
+    // how to request account deletion; it must be reachable with no session.
+    "/((?!api/auth|api/cron|api/v1|login|inactive|book|privacy|delete-account|_next/static|_next/image|favicon.ico|icon.png|apple-icon.png|opengraph-image|icons|brand|manifest.webmanifest|sw.js|robots.txt|sitemap.xml|\\.well-known).*)",
   ],
 };
