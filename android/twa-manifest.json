@@ -4,7 +4,6 @@
   "name": "Sodio — AIESEC in Alexandria",
   "launcherName": "Sodio",
   "display": "standalone",
-  "orientation": "default",
   "themeColor": "#0A2540",
   "themeColorDark": "#0A2540",
   "navigationColor": "#0A2540",
@@ -37,11 +36,13 @@
   "isMetaQuest": false,
   "fullScopeUrl": "https://sodio.vercel.app/",
   "minSdkVersion": 21,
+  "orientation": "default",
   "fingerprints": [],
   "additionalTrustedOrigins": [],
   "retainedBundles": [],
   "protocolHandlers": [],
   "fileHandlers": [],
   "launchHandlerClientMode": "auto",
+  "displayOverride": [],
   "appVersion": "1.0.0"
 }

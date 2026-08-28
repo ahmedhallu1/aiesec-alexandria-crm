@@ -29,25 +29,26 @@ edit it.
 
 ---
 
-## 0.5 · The toolchain
+## 0.5 · The toolchain — DONE
 
-Bubblewrap brings its own JDK and Android SDK — no system Java needed.
+Bubblewrap brings its own JDK and Android SDK; no system Java is involved.
+Both are installed (`~/.bubblewrap/jdk/jdk-17.0.11+9` and
+`~/.bubblewrap/android_sdk`, ~1.1 GB), and `~/.bubblewrap/config.json` points
+at them. Nothing to do here again on this machine.
 
-**Already done on this machine:** JDK 17 (Temurin 17.0.11+9) is installed at
-`~/.bubblewrap/jdk/jdk-17.0.11+9`, and `~/.bubblewrap/config.json` points at it.
+## 1 · The upload key — DONE (2026-08-28)
 
-**Still to do:** the Android SDK. It is a separate download and its installer
-asks you to accept **Google's Android SDK licence**, which is yours to accept,
-not a machine's:
+`android/sodio-upload.keystore`, alias `sodio`, RSA 2048, 10,000 days. Its
+password is in `.env.local` as `BUBBLEWRAP_KEYSTORE_PASSWORD` —
+**move it into a password manager**; the keystore and the env file are both
+gitignored and neither is backed up anywhere.
 
-```bash
-npx @bubblewrap/cli doctor      # answer Yes to the Android SDK prompt
-```
+Its own fingerprint (SHA-256), which is in the assetlinks list so a locally
+built APK also opens without an address bar:
 
-That fills in `androidSdkPath` in `~/.bubblewrap/config.json`. Everything below
-needs it.
+    2C:35:22:84:27:F0:02:A9:42:A8:67:9C:B4:E7:83:CB:EB:F6:28:35:5E:4C:92:24:B6:8A:8D:AF:9E:40:7C:B2
 
-## 1 · Create the upload key (once, ever)
+<details><summary>How it was made, if it ever has to be made again</summary>
 
 ```bash
 ~/.bubblewrap/jdk/jdk-17.0.11+9/Contents/Home/bin/keytool -genkeypair -v \
@@ -56,22 +57,48 @@ needs it.
   -dname "CN=Sodio, OU=IM, O=AIESEC in Alexandria, L=Alexandria, C=EG"
 ```
 
-It asks for a password twice. **Put that password in your password manager
-now.** It is not in this repo and it is not recoverable from anywhere else.
+It asks for a password twice (or pass `-storepass`/`-keypass`).
 
 > If it is ever lost: Play App Signing means this is only the *upload* key, so
 > Google can reset it from Play Console rather than the app being orphaned.
 > That is a support round-trip, not a catastrophe — but don't rely on it.
 
+</details>
+
+## 1.5 · Accept the Android SDK licence (once, yours to accept)
+
+`bubblewrap doctor` downloads the SDK's *command-line tools* but installs no
+platform and no build-tools — those need Google's **Android SDK Terms and
+Conditions** accepted first, which is an agreement in your name, not a
+machine's. Without it the build fails inside `SdkHandler.initTarget` with a
+stack trace and no readable reason.
+
+```bash
+yes | ~/.bubblewrap/android_sdk/tools/bin/sdkmanager --sdk_root="$HOME/.bubblewrap/android_sdk" --licenses
+~/.bubblewrap/android_sdk/tools/bin/sdkmanager --sdk_root="$HOME/.bubblewrap/android_sdk" "platforms;android-36" "build-tools;36.0.0"
+```
+
+(`android-36` is what `android/app/build.gradle` compiles against — if that
+ever changes, install the matching platform.)
+
 ## 2 · Build the bundle
 
 ```bash
-export BUBBLEWRAP_KEYSTORE_PASSWORD='…'   # what you just chose
-export BUBBLEWRAP_KEY_PASSWORD="$BUBBLEWRAP_KEYSTORE_PASSWORD"
 cd android
-npx @bubblewrap/cli update      # regenerates the project from twa-manifest.json
-npx @bubblewrap/cli build       # → app-release-bundle.aab  (+ app-release-signed.apk)
+export BUBBLEWRAP_KEYSTORE_PASSWORD=$(grep '^BUBBLEWRAP_KEYSTORE_PASSWORD=' ../.env.local | cut -d= -f2-)
+export BUBBLEWRAP_KEY_PASSWORD="$BUBBLEWRAP_KEYSTORE_PASSWORD"
+npx @bubblewrap/cli update --skipVersionUpgrade   # regenerate from twa-manifest.json
+npx @bubblewrap/cli build --skipPwaValidation     # → app-release-bundle.aab (+ .apk)
 ```
+
+⚠️ **`update` without `--skipVersionUpgrade` PROMPTS for a version name** and
+writes whatever it is given straight into `twa-manifest.json` — answer it
+carelessly (or pipe anything into it) and the app's version becomes that
+string. Use the flag unless you actually mean to bump the version, and bump it
+in the file instead.
+
+⚠️ **The first `build` takes 10–20 minutes** — Gradle downloads its own
+toolchain (~400 MB) before it compiles anything. Later builds are a minute.
 
 `app-release-bundle.aab` is what Play wants. The `.apk` is for sideloading onto
 a phone to check it before anyone else sees it.
