@@ -8,6 +8,246 @@ import type { HelpArticle } from "./help-content";
  */
 export const HELP_ARTICLES: HelpArticle[] = [
  {
+  "id": "delete-an-account",
+  "title": "Delete an account (and cancel a deal)",
+  "emoji": "🗑️",
+  "category": "raising",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "raising",
+   "mm",
+   "eb"
+  ],
+  "keywords": [
+   "delete",
+   "remove account",
+   "typo",
+   "cancel deal",
+   "undo deal",
+   "wrong account",
+   "mistake",
+   "حذف",
+   "مسح",
+   "الغاء"
+  ],
+  "summary": "A typo is not a decision — an account with nothing on it can be deleted outright, and a deal recorded by mistake can be taken back.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "**Archiving and deleting are not the same thing.** Archiving is a decision about a real business, and it doubles as the blacklist — it stops that name ever being added again. That is right for *Not interested*, and completely wrong for a name you simply spelled incorrectly: archiving a typo blocks the CORRECT spelling from ever being entered."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "**An account with nothing on it** — no contacts, no visits, no deals, no comments — can be deleted by anyone who may edit it. There is nothing to destroy.",
+     "**An account that carries history** takes a VP, Director or the LCP, and you have to type the name out in full to confirm.",
+     "The dialog asks the server what is actually on the account first, so it tells you *\"nothing has been logged on it\"* or *\"this destroys 6 contacts and 2 deals\"* — never a generic warning."
+    ]
+   },
+   {
+    "t": "callout",
+    "tone": "warn",
+    "md": "**Deleting is permanent and it cascades** — contacts, visits, comments, deals and their opens splits all go with it. It is refused inside a test view and during an LC test session, because a cascade cannot be rolled back."
+   },
+   {
+    "t": "p",
+    "md": "**Cancelling a deal** is the smaller cousin. A deal recorded on the wrong account, or one that fell through after signing, used to sit in the funnel forever inflating the account, the lane and somebody's personal opens. Open the deal in the account's History and cancel it."
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "A cancelled deal is **deleted**, not flagged — deals are read in seventeen places, and a \"cancelled\" flag that one of them forgot to filter is a number that stays quietly wrong forever. What survives is the part a human reads: a comment on the account naming the opens, the amount and the reason, plus the audit row. The counters recompute, so an account dropping to zero deals also drops back out of *Deal Done*."
+   }
+  ]
+ },
+ {
+  "id": "cross-function-opens",
+  "title": "An open raised for the other programme",
+  "emoji": "🔀",
+  "category": "raising",
+  "audience": "IGV & IGT raisers",
+  "audienceKeys": [
+   "raising",
+   "mm"
+  ],
+  "keywords": [
+   "cross function",
+   "igv igt",
+   "raised for",
+   "wrong function",
+   "move account",
+   "swap product",
+   "opens",
+   "نقل"
+  ],
+  "summary": "Approached them as IGT, got an IGV open instead? Record it as what it is — the account follows the latest open, and you keep it.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "It happens on the floor all the time: you approach an enabler as **IGT**, they say no, you offer **IGV** instead and they sign. The open is genuinely an IGV one, raised by an IGT member, on an account labelled IGT."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "On any IGV or IGT account, the Record-deal popup asks **\"These opens were raised for\"** first.",
+     "Pick the sibling programme and three things happen at once: the opens are recorded as **that** programme's, the **account moves** to that function, and a comment saying so is written on the account so both VPs can read it.",
+     "You can also move it BEFORE the deal, from **Details → Function**."
+    ]
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**You keep the account and you keep the opens.** Nothing is taken from you — editing rights follow the responsible, which is still you. The rule is simply *the account follows the latest open*. You still cannot CREATE an account in a function you don't work; you can only move one you already own."
+   }
+  ]
+ },
+ {
+  "id": "say-something-to-the-lc",
+  "title": "Say something to the whole LC",
+  "emoji": "📣",
+  "category": "leaders",
+  "audience": "IM admin",
+  "audienceKeys": [
+   "admin",
+   "eb"
+  ],
+  "keywords": [
+   "prompt",
+   "announcement",
+   "ask the lc",
+   "survey",
+   "rating",
+   "im prompt",
+   "broadcast",
+   "اعلان",
+   "استبيان"
+  ],
+  "summary": "A message the floor meets the next time they open Sodio — and, if you want, an answer back from each of them.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "An email nobody reads is not an announcement. A card on [/admin](/admin) composes a **prompt**: a dialog the floor meets the next time they open Sodio."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "**Who sees it** — everyone, particular functions, particular roles, or named people.",
+     "**What comes back** — nothing at all, an acknowledgement, a **1–5 rating**, or **a sentence**, with your own question above the control.",
+     "**Whether it can be waved away** at all.",
+     "**Preview it first.** The preview renders exactly what a member will meet, using the same rating widget they will use. Skip and Send are inert in it — a real click would have to answer a prompt that was never filed."
+    ]
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**A skip is recorded too.** You should be able to see who never engaged, rather than a silent gap. Skipping once says the feedback matters and returns tomorrow; skipping twice retires it for good — and because the count lives on the row, that survives a new phone and a cleared browser."
+   }
+  ]
+ },
+ {
+  "id": "api-keys",
+  "title": "Letting another tool read Sodio",
+  "emoji": "🔌",
+  "category": "leaders",
+  "audience": "IM admin",
+  "audienceKeys": [
+   "admin"
+  ],
+  "keywords": [
+   "api",
+   "api key",
+   "integration",
+   "export",
+   "developer",
+   "docs",
+   "scope",
+   "بيانات"
+  ],
+  "summary": "A read-only key, issued for something specific — which functions, how much of each account, and how often.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Another tool (a market-research bot, a dashboard, a script) can read Sodio through a key you issue on [/admin](/admin). A key is issued **for something specific** and can never be talked into more."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "You choose",
+     "Options"
+    ],
+    "rows": [
+     [
+      "Functions it may read",
+      "IGV · IGT · B2B · BD · B2C"
+     ],
+     [
+      "How much of each account",
+      "**names** (name only — enough to dedupe) · **pipeline** (+ function, product, owner, dates) · **contacts** (+ phones, emails, links)"
+     ],
+     [
+      "Whether the archive and blacklist are included",
+      "yes / no"
+     ],
+     [
+      "An expiry, and an hourly ceiling",
+      "optional"
+     ]
+    ]
+   },
+   {
+    "t": "callout",
+    "tone": "warn",
+    "md": "**Scope belongs to the KEY, never to the request.** There is no query parameter that widens it, so a names-only research bot cannot be persuaded to return a lead list."
+   },
+   {
+    "t": "p",
+    "md": "`GET /api/v1/docs` returns the whole thing as one Markdown file, written to be handed to an AI that will write the client for you — and it states **that key's own scope**, so \"why am I not getting phone numbers\" answers itself."
+   }
+  ]
+ },
+ {
+  "id": "ir-slot-requests",
+  "title": "\"None of these times work\"",
+  "emoji": "⏰",
+  "category": "consideration",
+  "audience": "Consideration",
+  "audienceKeys": [
+   "consideration",
+   "mm"
+  ],
+  "keywords": [
+   "slot request",
+   "booking",
+   "no times",
+   "reschedule",
+   "ir call",
+   "availability",
+   "other time",
+   "مواعيد"
+  ],
+  "summary": "An IR eight time zones away can ask for a time you never opened — and you accept or decline it without losing the conversation.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Your booking page can only ever offer what you opened. An IR with none of your hours free — or none that suit them eight zones away — used to be a dead end, and the LC lost the conversation to whatever they did next."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Under the slot grid they now see **\"None of these times work?\"**, which swaps the grid for a date and time **in their own zone**.",
+     "That files a **request**. It books nothing: your calendar stays yours. It arrives as a bell and an email, and sits at the top of your IR-calls tab.",
+     "**Accept** and it becomes a real call through the same machinery as any booking — the row, the calendar event, the Meet link, and the identical confirmation the public page would have sent.",
+     "**Decline** and the IR is emailed whatever you typed, word for word, and pointed back at the times that ARE open."
+    ]
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "A lead sees the whole floor's requests, so somebody who is away can still be answered for. The same person asking twice for the same slot is told so, rather than filling your queue."
+   }
+  ]
+ },
+ {
   "id": "phone-notifications",
   "title": "Sodio on your phone — the app, and notifications",
   "emoji": "📱",
@@ -640,7 +880,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "مش عارف ادخل",
    "الباسورد"
   ],
-  "summary": "First sign-in is Google-only with your AIESEC email; after onboarding you can use email OR phone + password — and phone-only members have their own door.",
+  "summary": "Type your email or phone, press Continue, and Sodio shows you the one way to sign in that actually works for you — you don't have to know which it is.",
   "blocks": [
    {
     "t": "callout",
@@ -649,7 +889,37 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "p",
-    "md": "Short version: **the very first time, sign in with Google** using your @aiesec.net address. That one Google sign-in also grants Sodio your calendar and Gmail-drafts access, which is what powers visit reminders and proposal drafts later. Onboarding then asks you to set a password — after that, email **or** phone + password works, and Google always works too."
+    "md": "**You no longer have to know which door is yours.** The sign-in page asks one thing — your AIESEC email, or your phone number — and when you press **Continue** it works out who you are and shows only the way in that will actually work. It greets you by name, so a mistyped address is caught before you have typed a password. Got the wrong person? **Not you?** takes you straight back."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "What Sodio says",
+     "What it means",
+     "What you do"
+    ],
+    "rows": [
+     [
+      "\"This is your first sign-in\"",
+      "You have an @aiesec.net address and have never signed in",
+      "Use Google, once. It also grants the calendar and Gmail access behind visit reminders and proposal emails. You pick a password straight after"
+     ],
+     [
+      "\"Welcome back, <name>\" + a password box",
+      "You already have a password",
+      "Type it. Google still works as a second option underneath"
+     ],
+     [
+      "\"You don't have an AIESEC email on the list yet\"",
+      "Your @aiesec.net hasn't been added yet — about a fifth of the LC",
+      "Your phone number is your password too. It is already filled in — just press Sign in"
+     ],
+     [
+      "\"We can't find that\"",
+      "Nothing on the membership sheet matches what you typed",
+      "Sodio tells you WHICH kind of mistake it looks like — a personal Gmail, a typo, or a number that isn't listed — and gives you the IM team's WhatsApp"
+     ]
+    ]
    },
    {
     "t": "steps",
@@ -4759,6 +5029,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
     "md": "There is no `Set goal` button anywhere in Sodio, on purpose. Goals come from planning: the **lane goal** is the VP planning sheet (imported as plan cells), the **team goal** is the Team Leader's own filed plan, and every MM files a personal plan. Progress is drawn against real numbers automatically."
    },
    {
+    "t": "callout",
+    "tone": "warn",
+    "md": "**A filed plan is private to the person who filed it (v36).** Until now every member of a team was shown their Team Leader's plan — their target and their shortfall — on their own dashboard, every day. That is a number between an MM and whoever reviews them, and there is nothing a member can do with it. You now see **only your own** plan. The Violet Man will not read out somebody else's either, and if you ask him he will say so.\n\nThe **function's** goal is a different thing and is untouched: it is what the whole crew is chasing together, and everybody still sees it."
+   },
+   {
     "t": "table",
     "headers": [
      "Card",
@@ -5197,13 +5472,13 @@ export const HELP_ARTICLES: HelpArticle[] = [
   "blocks": [
    {
     "t": "p",
-    "md": "Ninety percent of login problems are one of four things. Find yours below — each has a 20-second fix."
+    "md": "**Most of these stopped being possible in v36.** The sign-in page now asks who you are first and then shows only the door that works for you, so \"I used the wrong one\" is no longer a thing you can do. What is left is below — and whatever the problem, the page itself will now tell you which one it is rather than giving you the same sentence every time."
    },
    {
     "t": "steps",
     "items": [
-     "**First time ever?** Your first sign-in is **Google only** (with your @aiesec.net account) — it also grants the calendar and Gmail access that power your reminders and proposal drafts. Onboarding then asks you to set a password.",
-     "**No AIESEC email yet?** Sign in with your **phone number in BOTH fields** (identifier and password). That door closes the moment you set a password — after that, use phone + your password.",
+     "**First time ever?** Sodio will say so and offer you Google — with your @aiesec.net account. That one sign-in also grants the calendar and Gmail access behind your reminders and proposal emails. You pick a password immediately afterwards, and Sodio then signs you out ON PURPOSE so you use it once while it is fresh.",
+     "**No AIESEC email yet?** Type your phone number and press Continue — Sodio recognises you and fills the password in for you, because your number IS your password until your address lands. That door closes the moment you set a password of your own.",
      "**Typing on an Arabic keyboard?** That's fine — Sodio translates Arabic digits (٠١٢ and ۰۱۲) to the normal ones automatically. If it still says your number doesn't exist, check for a typo or a missing digit.",
      "**Forgot your password?** Use the forgot-password link — Sodio **emails you a fresh password** right away. Your old one keeps working until you change it, so nobody gets locked out mid-reset."
     ],
@@ -5421,16 +5696,25 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "restore",
    "audit"
   ],
-  "summary": "Health checks, the audit log with undo, LC test sessions, view-as modes and the nightly backups — what each admin tool does and its sharp edges.",
+  "summary": "Health checks, the activity console (search, filter and export every action ever taken), LC test sessions, view-as modes and the nightly backups.",
   "blocks": [
    {
     "t": "p",
-    "md": "[/admin](/admin) is the cockpit: **Health** (DB, storage buckets, env keys, every cron's last run with freshness colors, today's table counts) and the **audit log** — searchable, with every action carrying a **change set** (one server-action call = one uuid), so a multi-row action reads as one event."
+    "md": "[/admin](/admin) is the cockpit: **Health** (DB, storage buckets, env keys, every cron's last run with freshness colors, today's table counts) and the **activity console** — every action anyone has ever taken in Sodio, searchable properly."
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**The console searches the WHOLE log, not the last page.** Until v36 it fetched the newest 80 actions and filtered them in your browser — so it could not find anything older than that, and said \"Nothing matches\" when the truth was that it had never looked. Filtering, searching and paging now happen in the database. Narrow by **person**, **action**, **thing**, **kind** (data · sign-in · admin · access · integration · security), **outcome** (went through · refused · failed) and a **date range** — then export what you are looking at as CSV. The filters live in the URL, so a filtered view is a link you can send to someone."
+   },
+   {
+    "t": "p",
+    "md": "Two things every row now carries that it did not before. **What changed** — a field edit records `industry: Software → Marketing`, not just the fact that something moved. And **who really did it**: an action taken inside a test view is credited to the member you are impersonating (by design), so the row reads *by Ahmed · acting as Hana* rather than looking like Hana did it herself."
    },
    {
     "t": "steps",
     "items": [
-     "**Undo from the logs:** each journaled entry has an Undo button; checkboxes + the bulk bar undo many at once. Entries with nothing to replay (sign-ins, sent reports, pre-journal rows) show a disabled checkbox instead of lying to you.",
+     "**There is no Undo on the log, and there should not be.** It was removed in v34.3 after being measured: it could never reverse anything (0 of 11,130 entries had a replayable journal row), because the audit row and the undo journal minted separate change sets that never joined. A rollback button that half-works corrupts data. The LOG is the record, and it is accurate — the LC test session's rollback is a different mechanism and still works.",
      "**LC test session:** open one session for the whole LC — everyone's writes are journaled, and stopping it rolls them all back or keeps them. **Warning below — read it.**",
      "**View-as (Test view):** pick any member from your profile and the whole app behaves as them. Default is **🧪 Sandbox** — every mutation journaled and rolled back on exit, with emails/notifications/calendar/sheet write-backs suppressed. Flip to **⚡ Real** and actions are genuine and attributed to that member. The audit records view_as start/stop under YOUR name either way, and /admin always reads your real session — a test view can never unmask anonymous feedback."
     ],
