@@ -6772,48 +6772,11 @@ async function loadSignup(id: string): Promise<SignupRow | null> {
 
 /** After every sign-up mutation: reload row + comments and push the workflow
  *  cells back to the tracker sheet ("as fast as possible" two-way sync). */
-/** Mirrors one sign-up back to the tracker sheet — AFTER the response.
- *
- *  THIS USED TO BLOCK EVERY EDIT (v33.11). Ticking "Contacted", setting
- *  Interested, saving a comment: each awaited a full Google Sheets round trip
- *  — locate the row by EP ID in a tab read, then write it — before the member
- *  saw anything happen. Three DB reads and a Sheets call for one checkbox is
- *  why "any action on OGX is very slow".
- *
- *  The sheet is a MIRROR, not the source of truth: Sodio owns the workflow
- *  fields once a row is touched. So the write belongs after the response, not
- *  in front of it. `after()` keeps the lambda alive to finish it — a bare
- *  floating promise can be frozen mid-flight on Vercel. */
-function pushSignupToSheet(id: string): void {
-  after(async () => {
-    try {
-      await pushSignupToSheetNow(id);
-    } catch (e) {
-      console.error("[signups] deferred sheet write failed:", id, e);
-    }
-  });
-}
-
-async function pushSignupToSheetNow(id: string): Promise<void> {
-  const signup = await loadSignup(id);
-  if (!signup) return;
-  const [{ data: comments }, assigned] = await Promise.all([
-    db().from("signup_comments").select("*").eq("signup_id", id).order("created_at"),
-    signup.assigned_to
-      ? db()
-          .from("members")
-          .select("name")
-          .eq("id", signup.assigned_to)
-          .maybeSingle<{ name: string }>()
-      : Promise.resolve({ data: null }),
-  ]);
-  const { writeSignupBack } = await import("@/lib/google/signups");
-  await writeSignupBack(
-    signup,
-    (comments ?? []) as SignupComment[],
-    assigned.data ? assigned.data.name : signup.assigned_name
-  ).catch((e) => console.error("[signups] write-back failed:", e));
-}
+// The single-row sheet writer is GONE (v36). It was called from seven edit
+// paths and each call was a tab read + a verify + a write — three Google round
+// trips for one dropdown change, on a plan already past its CPU allowance.
+// `exportDirtySignups` in src/lib/google/signups.ts mirrors everything on the
+// hour instead, in one batch per tab, exactly as raising has done since v11.
 
 const touchSignup = (extra: Record<string, unknown> = {}) => ({
   sodio_touched: true,
@@ -6891,7 +6854,6 @@ export async function claimSignup(id: string): Promise<ActionResult> {
   if (!claimed?.length)
     return fail("Someone already took this one — refresh the list.");
   await logAudit(viewer.id, "signup_claim", "signup", id, { ep_id: signup.ep_id });
-  pushSignupToSheet(id);
   stampSignupActivity(viewer); // claiming = today's streak saved
   await stampWork(viewer.id, "signup_claim"); // v29: counts towards working hours
   refresh();
@@ -6989,7 +6951,6 @@ export async function reassignSignup(
     to: target?.id ?? null,
     reset: Object.keys(reset).length > 0,
   });
-  if (!opts?.skipSheetPush) pushSignupToSheet(id);
   if (!opts?.skipRefresh) refresh();
   return { ok: true };
 }
@@ -7156,7 +7117,6 @@ export async function updateSignupContact(
   if (input.interested !== undefined)
     await logSignupChange(viewer, id, "interested", signup.interested ?? null, clean(input.interested));
   await logAudit(viewer.id, "signup_contact", "signup", id, input);
-  pushSignupToSheet(id);
   stampSignupActivity(viewer); // contact update = today's streak saved
   await stampWork(viewer.id, "signup_contact"); // v29: counts towards working hours
   refresh();
@@ -7907,7 +7867,9 @@ export async function addSignupComment(id: string, body: string): Promise<Action
   // VP Comment cells belong to the OGX crew's own log; the write-back only
   // knows the "member" and "vp" classes, so a b2c row is invisible to it
   // anyway — this just stops a pointless write to somebody else's sheet.
-  if (authorClass !== "b2c") pushSignupToSheet(id);
+  // v36: nothing is pushed here any more — `updated_at` marks the row and the
+  // hourly sheets-export mirrors it (see exportDirtySignups). A b2c comment
+  // never reaches the tracker either way: that log is the OGX crew's.
   stampSignupActivity(viewer); // commenting = today's streak saved
   await stampWork(viewer.id, "signup_comment"); // v29: counts towards working hours
   refresh();
@@ -7956,7 +7918,6 @@ export async function setSignupPotential(
     to: next,
   });
   // the push stamps Time Stamp etc. — the status cell itself stays system-only
-  pushSignupToSheet(id);
   refresh();
   return { ok: true };
 }
@@ -7993,7 +7954,6 @@ export async function updateSignupVpFields(
   if (error) return fail(error.message);
   await stampWork(viewer.id, "signup_vp_fields"); // v33.18
   await logAudit(viewer.id, "signup_vp_fields", "signup", id, input);
-  pushSignupToSheet(id);
   refresh();
   return { ok: true };
 }
@@ -8111,7 +8071,6 @@ export async function setSignupOop(id: string, reason: string): Promise<ActionRe
     .eq("id", id);
   if (error) return fail(error.message);
   await logAudit(viewer.id, "signup_oop", "signup", id, { reason });
-  pushSignupToSheet(id);
   refresh();
   return { ok: true };
 }
@@ -8147,7 +8106,6 @@ export async function reviveSignup(id: string): Promise<ActionResult> {
     .eq("id", id);
   if (error) return fail(error.message);
   await logAudit(viewer.id, "signup_revive", "signup", id);
-  pushSignupToSheet(id);
   refresh();
   return { ok: true };
 }

@@ -3250,6 +3250,22 @@ function SignupDetailDialog({
           </div>
         ) : null}
 
+        {/* ⚠️ v36 — THE B2C CALL, WHICH THIS DIALOG HAD NO WAY TO RECORD.
+            Reported from the floor: "the cic for b2c doesn't have any outcome,
+            just a comment nothing else". A B2C caller opening the sign-up they
+            were handed got a comment box and nothing else — so the one thing
+            they came to write down (what actually happened on the call) could
+            only be done from the CIC list's inline cells, and not at all from
+            the person they were looking at. It sits ABOVE Comments, because it
+            is the reason they opened this. */}
+        {detail.canB2c ? (
+          <B2cCallSection
+            call={detail.b2cCall}
+            history={detail.b2cHistory}
+            onDone={() => { onChanged(detail.signup.id); router.refresh(); }}
+          />
+        ) : null}
+
         {/* comments — the organized two-class log */}
         <div className="space-y-2">
           <p className="text-sm font-semibold">Comments</p>
@@ -3332,5 +3348,135 @@ function SignupDetailDialog({
         </Button>
       </DialogContent>
     </Dialog>
+  );
+}
+
+
+/** RECORDING THE B2C CALL FROM THE SIGN-UP ITSELF (v36).
+ *
+ *  ⚠️ It never touches the OGX funnel. `updateB2cCic` writes `contact_status`
+ *  FROM the outcome onto the CALL row (v35.1) — the sign-up's own Contacted
+ *  and Interested belong to the OGX crew and stay theirs. That isolation is
+ *  the whole reason B2C has its own call row rather than sharing one. */
+function B2cCallSection({
+  call, history, onDone,
+}: {
+  call: SignupCicCall | null;
+  history: SignupCicCall[];
+  onDone: () => void;
+}) {
+  const [pending, start] = useTransition();
+  const [outcome, setOutcome] = useState("answered");
+  const [interested, setInterested] = useState("__unset");
+  const [callBack, setCallBack] = useState("");
+  const [note, setNote] = useState("");
+  const needsTime = outcome === "call_back";
+  const reached = b2cOutcomeReached(outcome);
+
+  const save = () =>
+    start(async () => {
+      if (!call) return;
+      if (needsTime && !callBack) { toast.error("Pick when to call them back."); return; }
+      const res = await updateB2cCic(call.id, {
+        outcome,
+        ...(needsTime ? { callBackAt: new Date(callBack).toISOString() } : {}),
+        // "Interested" is only a real answer when they picked up (v35.1 ⑤)
+        ...(reached && interested !== "__unset" ? { interested } : {}),
+        ...(note.trim() ? { note: note.trim() } : {}),
+      });
+      if (!res.ok) { toast.error(res.error); return; }
+      toast.success(
+        needsTime ? "⏰ Call back saved — you'll be reminded" : "B2C call recorded 🛍"
+      );
+      onDone();
+    });
+
+  const done = history.filter((c) => c.outcome || c.contact_status);
+
+  return (
+    <div className="space-y-2 rounded-lg border border-warning/40 bg-warning/5 p-3">
+      <p className="text-sm font-semibold text-warning">🛍 Your B2C call</p>
+      {call ? (
+        <>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-1.5">
+              <Label className="text-xs">What happened?</Label>
+              <Select value={outcome} onValueChange={setOutcome}>
+                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {B2C_CALL_OUTCOMES.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {/* only offered when they actually picked up — "interested" is not
+                an answer a busy signal can give (v35.1 ⑤) */}
+            {reached ? (
+              <div className="grid gap-1.5">
+                <Label className="text-xs">Interested?</Label>
+                <Select value={interested} onValueChange={setInterested}>
+                  <SelectTrigger className="h-9"><SelectValue placeholder="—" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__unset">— not yet</SelectItem>
+                    <SelectItem value="Yes">Yes</SelectItem>
+                    <SelectItem value="No">No</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+          </div>
+          {needsTime ? (
+            <div className="grid gap-1.5">
+              <Label className="text-xs">When should you call back?</Label>
+              <Input
+                type="datetime-local"
+                className="h-9"
+                value={callBack}
+                onChange={(e) => setCallBack(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Cairo time. You&apos;ll be nudged once it falls due — a floor, not an alarm.
+              </p>
+            </div>
+          ) : null}
+          <Textarea
+            rows={2}
+            dir="auto"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="What was said on the call…"
+          />
+          <p className="text-xs text-muted-foreground">
+            This is your selling call — it stays on your own log and never moves
+            their OGX funnel.
+          </p>
+          <Button size="sm" onClick={save} disabled={pending}>
+            {pending ? <Loader2 className="size-4 animate-spin" /> : <Phone className="size-4" />}
+            Record it
+          </Button>
+        </>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          {done.length > 0
+            ? "No open B2C call on this one — the calls below are already recorded."
+            : "No B2C call has been handed out for this sign-up yet."}
+        </p>
+      )}
+
+      {done.length > 0 ? (
+        <div className="space-y-1 border-t border-warning/30 pt-2">
+          {done.map((c) => (
+            <p key={c.id} className="text-xs text-muted-foreground" dir="auto">
+              <b className="text-foreground">{c.caller_name}</b>{" "}
+              {b2cOutcomeLabel(c.outcome) ?? (c.contact_status === "Yes" ? "✅ Answered" : "— no answer")}
+              {c.interested ? ` · interested: ${c.interested}` : ""}
+              {c.call_back_at ? ` · call back ${fmtDateTime(c.call_back_at)}` : ""}
+              {c.note ? ` — ${c.note}` : ""}
+            </p>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }

@@ -649,10 +649,50 @@ export async function writeSignupsBackBatch(entries: SignupBackEntry[]): Promise
       }
     }
     if (data.length > 0) {
-      await sheets.spreadsheets.values.batchUpdate({
-        spreadsheetId: cfg.spreadsheetId,
-        requestBody: { valueInputOption: "RAW", data },
-      });
+      try {
+        await sheets.spreadsheets.values.batchUpdate({
+          spreadsheetId: cfg.spreadsheetId,
+          requestBody: { valueInputOption: "RAW", data },
+        });
+      } catch (e) {
+        // ⚠️ ONE PROTECTED CELL MUST NOT LOSE THE WHOLE BATCH (v36).
+        //
+        // A `values.batchUpdate` is all-or-nothing: Google refuses the entire
+        // request with "You are trying to edit a protected cell or object" and
+        // names only the offending index, so a single protected column on one
+        // tracker tab silently costs every other row in the run. Found by
+        // actually running the hourly mirror against the live sheet, which
+        // failed on `data[9]` — the LC has protected ranges on their tracker,
+        // and they are entitled to.
+        //
+        // So the batch is the FAST PATH and the per-cell walk is the fallback:
+        // the writable cells still land, the protected ones are recorded as
+        // missed, and the caller gets a list rather than an exception. That
+        // also stops the watermark advancing over rows that never made it.
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn(`[signups] batch write to ${cfg.tab} refused (${msg}) — falling back per cell`);
+        const blocked = new Set<string>();
+        for (const d of data) {
+          try {
+            await sheets.spreadsheets.values.update({
+              spreadsheetId: cfg.spreadsheetId,
+              range: d.range,
+              valueInputOption: "RAW",
+              requestBody: { values: d.values },
+            });
+          } catch {
+            // the row this cell belongs to did not fully mirror
+            blocked.add(d.range.replace(/[A-Z]+(\d+)$/, "$1"));
+          }
+        }
+        // map the blocked SHEET ROWS back to the ep_ids that own them, so the
+        // caller can say which sign-ups are behind rather than just "some"
+        for (const e of group) {
+          const rowIdx = rowByEp.get(e.signup.ep_id);
+          if (rowIdx !== undefined && blocked.has(String(rowIdx + 1)))
+            missed.push(e.signup.ep_id);
+        }
+      }
     }
   }
   return missed;
@@ -703,4 +743,104 @@ export async function writeSignupBack(
     spreadsheetId: cfg.spreadsheetId,
     requestBody: { valueInputOption: "RAW", data },
   });
+}
+
+/** THE HOURLY MIRROR — SIGN-UP EDITS STOPPED PAYING FOR GOOGLE (v36).
+ *
+ *  Every OGX edit used to push its own row to the tracker. It was already
+ *  deferred with `after()`, so it did not block the RESPONSE — but it still
+ *  ran inside the request's lifetime, and each push is a tab read plus a
+ *  verify plus a write, three Google round trips for one dropdown change. A
+ *  member working a list of thirty sign-ups paid ninety of them, and on the
+ *  plan this LC is on that is measured in CPU seconds (v33.59).
+ *
+ *  ⚠️ AND NOBODY WAS READING THE OTHER END. The tracker sheets are worked in
+ *  Sodio now; the write-back exists so the OGX crew's own spreadsheet stays a
+ *  true mirror, which is an HOURLY need, not a per-keystroke one. Raising has
+ *  worked exactly this way since v11 — edits are instant, `sheets-export`
+ *  mirrors on the hour.
+ *
+ *  DIRTINESS IS `updated_at`, so this needs no new column and no flag anybody
+ *  has to remember to set: every mutation already touches it. The watermark
+ *  lives in `app_settings`.
+ *
+ *  ⚠️ A FAILED RUN DOES NOT ADVANCE IT — the throw happens before the upsert,
+ *  so the same rows are retried next hour rather than silently dropped, which
+ *  is the one way a mirror goes quietly wrong.
+ *
+ *  ⚠️ INDIVIDUAL MISSES DO advance it, deliberately, and are RETURNED instead.
+ *  The two reasons a single row misses are permanent: its ep_id is not in the
+ *  tracker at all (a referral, or a row the crew deleted), or its cells are
+ *  PROTECTED — the LC does protect ranges on their sheet, which is their
+ *  right. Holding the watermark for those would stall every later edit behind
+ *  a row that can never be written. They come back in `missed` so the failure
+ *  is visible in the cron's own response rather than inferred.
+ *
+ *  The window overlaps by a minute on purpose: `updated_at` is set by the
+ *  database clock and read here against another, and re-writing a row that was
+ *  already correct costs nothing.
+ */
+export async function exportDirtySignups(
+  limit = 2000
+): Promise<{ pushed: number; missed: string[]; since: string | null }> {
+  const { db } = await import("@/lib/supabase");
+  const KEY = "signups:last-export";
+
+  const { data: mark } = await db()
+    .from("app_settings")
+    .select("value")
+    .eq("key", KEY)
+    .maybeSingle<{ value: { at?: string } | null }>();
+  const since = mark?.value?.at ?? null;
+
+  let q = db()
+    .from("signups")
+    .select("*")
+    // only rows Sodio owns the workflow fields of — an untouched tracker row
+    // has nothing of ours to mirror back (v25's ownership rule)
+    .eq("sodio_touched", true)
+    .order("updated_at", { ascending: true })
+    .limit(limit);
+  if (since) q = q.gt("updated_at", new Date(Date.parse(since) - 60_000).toISOString());
+  const { data: rows, error } = await q;
+  if (error) throw new Error(`signup export read failed: ${error.message}`);
+  const signups = (rows ?? []) as SignupRow[];
+  if (signups.length === 0) return { pushed: 0, missed: [], since };
+
+  // comments and the assignee label, for every row in one pass each
+  const ids = signups.map((s) => s.id);
+  const memberIds = [...new Set(signups.map((s) => s.assigned_to).filter(Boolean))] as string[];
+  const [{ data: allComments }, { data: members }] = await Promise.all([
+    db().from("signup_comments").select("*").in("signup_id", ids).order("created_at"),
+    memberIds.length > 0
+      ? db().from("members").select("id, name").in("id", memberIds)
+      : Promise.resolve({ data: [] as { id: string; name: string }[] }),
+  ]);
+  const byId = new Map<string, SignupComment[]>();
+  for (const c of (allComments ?? []) as SignupComment[]) {
+    const list = byId.get(c.signup_id) ?? [];
+    list.push(c);
+    byId.set(c.signup_id, list);
+  }
+  const nameOf = new Map(
+    ((members ?? []) as { id: string; name: string }[]).map((m) => [m.id, m.name])
+  );
+
+  const missed = await writeSignupsBackBatch(
+    signups.map((s) => ({
+      signup: s,
+      comments: byId.get(s.id) ?? [],
+      assignedDisplay: s.assigned_to ? (nameOf.get(s.assigned_to) ?? s.assigned_name) : s.assigned_name,
+    }))
+  );
+
+  // the watermark is the NEWEST row we just wrote — advanced only now, after
+  // the batch actually returned
+  const newest = signups[signups.length - 1]?.updated_at ?? since;
+  if (newest)
+    await db()
+      .from("app_settings")
+      .upsert({ key: KEY, value: { at: newest }, updated_at: new Date().toISOString() });
+
+  return { pushed: signups.length - missed.length, missed, since };
 }

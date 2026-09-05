@@ -79,6 +79,23 @@ try {
   } else {
     const { exportAllSheets } = await import("../src/lib/google/sheets.ts");
     await exportAllSheets();
+    // ⚠️ v36 — THE SIGN-UP MIRROR RUNS HERE TOO. Sign-up edits stopped pushing
+    // their own row (three Google round trips per dropdown change); this is
+    // the hourly batch that replaced them. It must be in BOTH runners — this
+    // one and the Vercel route — or whichever one the LC is actually using
+    // would silently stop mirroring OGX while still reporting success.
+    // It never fails the raising export above, which is the older contract.
+    let signups = null;
+    try {
+      const { exportDirtySignups } = await import("../src/lib/google/signups.ts");
+      signups = await exportDirtySignups();
+      console.log(
+        `sheets-export: sign-ups mirrored — ${signups.pushed} pushed` +
+          (signups.missed.length ? `, ${signups.missed.length} missed (${signups.missed.slice(0, 5).join(", ")})` : "")
+      );
+    } catch (e) {
+      console.error("sheets-export: sign-up mirror FAILED:", e?.message ?? e);
+    }
     // the health page reads these stamps — keep them truthful wherever the
     // job ran. runVisitFollowups writes its own; this one has none of its own.
     const { markCronRun } = await import("../src/server/data.ts");

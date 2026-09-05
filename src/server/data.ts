@@ -5987,6 +5987,21 @@ export interface SignupDetail {
    *  whoever runs the B2C queue. They may leave a B2C comment — their own
    *  class, which never reaches the OGX tracker's cells. */
   canB2c: boolean;
+  /** ⚠️ v36 — THE B2C CALL ITSELF, which the dialog had no way to reach.
+   *
+   *  Reported from the floor: "the cic for b2c doesn't have any outcome, just
+   *  a comment nothing else". `canB2c` said the viewer was a B2C caller and
+   *  the dialog then offered them a comment box and nothing else — so the one
+   *  thing they opened it to record (what happened on the call) could only be
+   *  done from the CIC list's inline cells, and not at all from the sign-up
+   *  they were looking at.
+   *
+   *  This is the OPEN call they may record: theirs, or any open one if they
+   *  run the queue. Null when there is none — a B2C MM reading somebody
+   *  else's finished call gets the history, not a form. */
+  b2cCall: SignupCicCall | null;
+  /** every B2C call on this row, newest first — the history under the form */
+  b2cHistory: SignupCicCall[];
 }
 
 export async function getSignupDetail(
@@ -6039,9 +6054,36 @@ export async function getSignupDetail(
       canB2c = (mine ?? []).length > 0;
     }
   }
+  // v36 — the B2C calls on this row. Read only for somebody who has a B2C
+  // stake in it; the OGX crew's dialog is unchanged and pays nothing.
+  let b2cCall: SignupCicCall | null = null;
+  let b2cHistory: SignupCicCall[] = [];
+  if (canB2c) {
+    const { data: calls } = await db()
+      .from("signup_cic_calls")
+      .select(
+        "id, signup_id, side, caller_id, caller_name, assigned_by_name, assigned_at, contact_status, interested, note, outcome, call_back_at, created_at"
+      )
+      .eq("signup_id", id)
+      .eq("side", "B2C")
+      .order("created_at", { ascending: false });
+    b2cHistory = (calls ?? []) as SignupCicCall[];
+    // "open" = nothing recorded yet, and mine to record. Mirrors
+    // updateB2cCic's own gate so the form can never offer a save it refuses.
+    b2cCall =
+      b2cHistory.find(
+        (c) =>
+          !c.outcome &&
+          !c.contact_status &&
+          (c.caller_id === viewer.id || seesB2cCicQueue(viewer))
+      ) ?? null;
+  }
+
   return {
     signup: data,
     canB2c,
+    b2cCall,
+    b2cHistory,
     comments: (comments ?? []) as SignupComment[],
     assignedLabel: assigned.data
       ? assigned.data.name
