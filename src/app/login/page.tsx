@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { authErrorMessage } from "@/lib/login-routing";
 import { LoginForm } from "@/components/crm/login-form";
 import { ThemeToggle } from "@/components/crm/theme-toggle";
 import { SodioMark } from "@/components/crm/sodio-mark";
@@ -59,21 +60,27 @@ export default async function LoginPage({
                 keeps happening, ask your VP or the IM team.
               </>
             ) : (
-              <>
-                Sign-in failed. If Google showed an error before this, sign out of
-                your other Google accounts (or use a private window) and try once
-                more — then tell the IM team if it persists.
-              </>
+              // Every other Auth.js failure used to collapse into one sentence,
+              // so neither the member nor the IM team could tell a broken
+              // configuration from a browser with four Google accounts in it.
+              // The wording lives in login-routing.ts and is shared with the
+              // password path, so both doors describe the same failure the
+              // same way.
+              authErrorMessage(error)
             )}
           </div>
         ) : null}
 
         <LoginForm />
 
+        {/* v36: the page no longer needs to EXPLAIN the rules, because it
+            applies them — you type who you are and it shows the one door that
+            is yours. What is left is the single fact somebody who cannot get
+            in needs: whether they are supposed to be here at all. */}
         <p className="mt-6 text-center text-xs text-muted-foreground">
-          Access is limited to AIESEC in Alexandria members listed in the
-          membership sheet. First login is with Google (it connects your
-          calendar) — then you set a password and can use either.
+          Only AIESEC in Alexandria members on the membership sheet can sign in.
+          If you&apos;ve just joined and Sodio doesn&apos;t know you yet, ask your
+          VP to add you — it takes a minute.
         </p>
         <a
           href="http://elevate2point0.com/"

@@ -158,8 +158,19 @@ export function OnboardingForm({
         ) : null}
       </div>
 
+      {/* ⚠️ THE BUTTON USED TO LIE (v36 fix). Since v33.58 this action ends the
+          session on purpose — the member signs straight back in with the
+          password they have just invented, so it is used once while they still
+          remember it. That is a good rule, but the button said "Save & enter
+          Sodio" and then signed them OUT, which reads as being kicked out of a
+          system they were told they had just joined. The warning belongs
+          BEFORE the click, not only in the green banner they meet afterwards. */}
+      <p className="text-xs text-muted-foreground">
+        Next: Sodio will ask you to sign in with the password you just chose —
+        that&apos;s deliberate, so you use it once while it&apos;s fresh.
+      </p>
       <Button size="lg" onClick={submit} disabled={!ready || pending}>
-        {pending ? "Saving…" : "Save & enter Sodio"}
+        {pending ? "Saving…" : "Save my password & sign in"}
       </Button>
     </div>
   );
