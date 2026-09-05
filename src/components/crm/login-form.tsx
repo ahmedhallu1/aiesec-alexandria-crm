@@ -113,6 +113,13 @@ export function LoginForm() {
           onClick={() => {
             setRoute(null);
             setIdentifyError(null);
+            // ⚠️ CLEAR IT. Keeping the old value looks helpful and is the
+            // opposite: the field is refocused, so the next keystroke lands
+            // wherever the caret happens to be and the member ends up
+            // submitting "olduser@aiesec.netnewuser@aiesec.net" without
+            // noticing. Caught by actually clicking it. Somebody who pressed
+            // "Not you?" has already said this is not their identifier.
+            setIdentifier("");
           }}
         >
           Not you?
