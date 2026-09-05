@@ -1167,6 +1167,28 @@ export function quickActions(contacts: AccountContact[] | null | undefined): {
 // ------------------------------------------------------------------ function colors
 // Official AIESEC product colors (logos.aiesec.org):
 // GV #F85A40 · GTa (Global Talent) teal #0CB9C1 · GTe (Global Teacher) orange #F48924
+/** Who may be named as somebody's Manager (the sheet's "Stakeholder").
+ *
+ *  ⚠️ v36 — A COORDINATOR IS NOT ON THIS LIST, deliberately. A Coordinator is
+ *  an MM with **no team**: they carry their own accounts and their own numbers
+ *  and nobody reports to them. Sodio gave them no team treatment anywhere — no
+ *  team drill row, no team leaderboard, no team plan, no touch-point booking
+ *  scope — while still offering them in the Manager picker, so the one thing
+ *  you COULD do was file somebody under a Coordinator and have that person
+ *  quietly vanish from every team view. A plain Member has never been eligible
+ *  (v24).
+ *
+ *  ⚠️ IT LIVES HERE, NOT IN google/sheets.ts, because the membership editor is
+ *  a CLIENT component and must offer exactly what the server will accept. A
+ *  value imported from sheets.ts would drag googleapis into the browser bundle
+ *  — the same trap v34.6 hit with API_FIELD_LABEL. One list, both sides. */
+export const MANAGER_ROLES: readonly string[] = [
+  "LCP",
+  "LCVP",
+  "Director",
+  "Team Leader",
+];
+
 export const FUNCTION_COLORS: Record<string, { bg: string; text: string }> = {
   IGV: { bg: "bg-gv/15", text: "text-gv" },
   OGV: { bg: "bg-gv/15", text: "text-gv" },

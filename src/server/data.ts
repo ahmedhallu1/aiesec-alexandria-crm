@@ -2370,6 +2370,25 @@ export async function getDashboard(
     planOwnerId = viewer.id;
     planScopeIds = new Set([viewer.id]);
   }
+  // ⚠️ v36 — A PLAN IS A PERSON'S OWN COMMITMENT, AND ONLY THEY SEE IT.
+  //
+  // `planOwnerId` above resolves to the TEAM LEADER whenever the viewer's
+  // manager files a plan — so every member of that team was served their
+  // manager's target and their manager's shortfall on their own dashboard,
+  // every day. That is a private number between an MM and the person who
+  // reviews them: a member cannot act on it, and watching a manager sit at
+  // 4/15 is not context, it is exposure. The client did carry an `isOwnPlan`
+  // flag, but it only changed the WORDING — the numbers were already in the
+  // payload, so it was never a gate.
+  //
+  // The FUNCTION's shared goal is untouched and still shows to the whole lane
+  // (`lanePlan`). That distinction is the whole rule: a function's goal is
+  // something the crew is chasing together and v33.52 exists precisely because
+  // members had no goal to see; one person's filed plan is not.
+  if (planOwnerId !== viewer.id) {
+    planOwnerId = null;
+    planScopeIds = null;
+  }
   if (planOwnerId && planScopeIds) {
     const month = monthOf();
     // the filed plan is MONTHLY; the window it is judged against follows the

@@ -18,6 +18,7 @@ import { normalizePhone,
   EMAIL_RE,
   FUNCTION_COLORS,
   LC_FUNCTIONS,
+  MANAGER_ROLES,
   MEMBER_ROLES,
   PHONE_RE,
   PRANK_OPTIONS,
@@ -400,8 +401,15 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
         member={editing}
         open={!!editing || adding}
         stakeholderOptions={members
-          // a plain Member is never anyone's manager (v24 rule)
-          .filter((m) => m.is_active && m.id !== editing?.id && m.role !== "Member")
+          // ONE list, shared with the server (v36). This used to exclude only
+          // a plain Member, so a COORDINATOR was still offered — and filing
+          // somebody under one made them vanish from every team view, because
+          // a Coordinator holds no team. `relinkStakeholders` reads the same
+          // MANAGER_ROLES, so the picker can no longer offer a manager the
+          // import would silently overwrite half an hour later.
+          .filter(
+            (m) => m.is_active && m.id !== editing?.id && MANAGER_ROLES.includes(m.role)
+          )
           .map((m) => m.name)}
         onOpenChange={(o) => {
           if (!o) { setEditing(null); setAdding(false); }

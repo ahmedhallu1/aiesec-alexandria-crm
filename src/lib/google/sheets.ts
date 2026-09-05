@@ -3,7 +3,7 @@ import { db } from "@/lib/supabase";
 import { env, requireEnv } from "@/lib/env";
 import { sandboxSuppressed } from "@/server/sandbox";
 import {
-  normalizePhone, LC_FUNCTIONS, SUB_FUNCTIONS } from "@/lib/types";
+  normalizePhone, LC_FUNCTIONS, SUB_FUNCTIONS, MANAGER_ROLES } from "@/lib/types";
 import type { Member, MemberRole } from "@/lib/types";
 import { memberNameProblem } from "@/lib/member-fields";
 
@@ -396,7 +396,11 @@ export function defaultManagerId(m: LinkableMember, all: LinkableMember[]): stri
 
 /** Roles that can BE someone's manager — a plain Member never manages anyone
  *  (common sense, enforced on import AND in the editor since v24). */
-export const MANAGER_ROLES: readonly string[] = ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"];
+// The Manager pick-list lives in types.ts so the CLIENT-side membership editor
+// can offer exactly what this server-side relink will accept — see the comment
+// there for why a Coordinator is not on it. Re-exported here because callers
+// have imported it from this module since v24.
+export { MANAGER_ROLES };
 
 /** Resolves "Stakeholder" (Manager) names to member ids (by name),
  *  falling back to the default manager chain when the cell is empty or names
