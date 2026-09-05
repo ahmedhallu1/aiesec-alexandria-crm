@@ -294,11 +294,23 @@ export async function resolvePdpFilingTargets(
     };
   };
 
-  // a process owner still sees THEIR OWN cascade first — the whole LC is the
-  // fallback for unsticking somebody else's, not their daily list
-  const pool = processOwner ? allowed : directs;
-  const mms = pool.filter(memberIsMm).map(toTarget);
-  const others = pool.filter((m) => !memberIsMm(m)).map(toTarget);
+  // ⚠️ "MY PEOPLE" IS ALWAYS THE VIEWER'S OWN DIRECT REPORTS, INCLUDING TM'S.
+  //
+  // The first cut handed a process owner `allowed` — everyone they MAY file
+  // for, which for TM, the LCP and the admin is the entire active LC. Checked
+  // against production before changing it: that is **79 people** under a card
+  // headed "My people", of whom perhaps three actually report to them. A list
+  // that long is not a to-do list, it is a directory with a misleading title,
+  // and the one it hides is the handful of conversations that leader genuinely
+  // owes this month.
+  //
+  // Being ABLE to file for anyone is a separate capability and it is
+  // unaffected (`canFilePdpFor` still says yes, and `savePdp` still accepts
+  // it) — that is the unsticking case, reached from the LC-wide list where the
+  // person you are unsticking is actually visible. `processOwner` is returned
+  // so the UI can offer it there rather than here.
+  const mms = directs.filter(memberIsMm).map(toTarget);
+  const others = directs.filter((m) => !memberIsMm(m)).map(toTarget);
   return { mms, others, processOwner };
 }
 

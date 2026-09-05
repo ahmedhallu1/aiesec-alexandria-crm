@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { notifyMembers } from "@/server/notify";
 import { cairoDayIso, markCronRun } from "@/server/data";
+import { runPdpNags } from "@/server/pdp";
 import { db } from "@/lib/supabase";
 import { env } from "@/lib/env";
 import { sendEmail } from "@/lib/google/gmail";
@@ -247,6 +248,29 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // ⚠️ THE PDP LADDER RIDES THIS JOB, IT DOES NOT GET ITS OWN (v36).
+  //
+  // Vercel is at its invocation ceiling — the same reason v34.7 put the
+  // touch-point rating pass inside an existing cron rather than scheduling a
+  // tenth one. It belongs here specifically: this route already IS the "TM is
+  // chasing you" job, it already runs once a Cairo day, and the PDP ladder is
+  // the same three-nags-then-a-prompt shape.
+  //
+  // The deadline is therefore a FLOOR, not an alarm: the nag goes out on the
+  // first run after it passes. It never throws — a PDP round is not worth
+  // failing the attendance chase over — so its errors are reported alongside,
+  // not merged into, this job's own.
+  let pdp: Awaited<ReturnType<typeof runPdpNags>> = {
+    ok: true, cycle: null, nagged: [], prompted: [], errors: [],
+  };
+  try {
+    pdp = await runPdpNags();
+  } catch (e) {
+    pdp.ok = false;
+    pdp.errors.push(e instanceof Error ? e.message : String(e));
+    console.error("[attendance-reminders] PDP nags failed:", e);
+  }
+
   await markCronRun("attendance-reminders");
-  return NextResponse.json({ ok: true, computed, nagged, prompted, errors });
+  return NextResponse.json({ ok: true, computed, nagged, prompted, errors, pdp });
 }

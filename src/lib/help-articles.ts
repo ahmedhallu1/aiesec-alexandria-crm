@@ -8,6 +8,104 @@ import type { HelpArticle } from "./help-content";
  */
 export const HELP_ARTICLES: HelpArticle[] = [
  {
+  "id": "pdp-and-o2o",
+  "title": "Your PDP and your one-on-one",
+  "emoji": "📋",
+  "category": "touchpoints",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "pdp",
+   "o2o",
+   "one on one",
+   "one-on-one",
+   "development plan",
+   "personal development",
+   "goal",
+   "weekly steps",
+   "review",
+   "tm",
+   "خطة",
+   "تطوير",
+   "اجتماع"
+  ],
+  "summary": "The monthly conversation with your leader — a skill to build, a target to hit, last month's numbers, and four weekly steps you tick off yourself.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Every month your leader sits down with you, looks at last month's numbers **with** you, and you agree what to work on. It used to live in a Google Sheet in their Drive — which meant that if you wanted to remember what you agreed, you had to ask them. It is in Sodio now, under **PDP & O2O**."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "**The conversation (O2O)** — a few short questions your leader asks. TM writes them, and can change them without a release.",
+     "**🌱 The skill** — one soft skill you want to build this month. Not a KPI: the thing you'd like to be better at.",
+     "**🎯 The month's target** — your number, whatever your function counts: opens, approvals, partnerships.",
+     "**🔎 The gap** — Sodio reads last month's funnel and points at the thinnest step. It is a suggestion; you two were in the room and it wasn't.",
+     "**Four weekly steps** under each of those, because a goal with no steps is a wish."
+    ]
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**You tick your own steps off.** The plan is your leader's to write; the doing is yours, and a plan you can't mark progress on is a document. Your leader can tick one too — a step is often confirmed in the next one-on-one rather than alone."
+   },
+   {
+    "t": "p",
+    "md": "**Last month's numbers are read for you, not typed.** They come from the same place the dashboard reads, and they are FROZEN into the plan when it is filed — so the gap it names keeps matching the steps you agreed against it, instead of quietly moving underneath you."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Who",
+     "What they see"
+    ],
+    "rows": [
+     [
+      "You",
+      "Your own plan, your weekly steps, and every plan filed for you before"
+     ],
+     [
+      "Your leader",
+      "Yours, plus everyone who reports to them — and how many each of THEM then owes"
+     ],
+     [
+      "Their leader",
+      "The same, one level up: a VP coaches their MMs on the coaching they are doing"
+     ],
+     [
+      "TM & the LCP",
+      "Who has filed and who has not — names and states, never the contents"
+     ]
+    ]
+   },
+   {
+    "t": "callout",
+    "tone": "warn",
+    "md": "**A PDP says out loud what somebody is not good at yet, so who can read one is deliberately narrow** — narrower than the rest of the TM module. The LC-wide list TM sees is names and states only; opening any individual plan still goes through the same gate."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "The deadline passed and Sodio is nagging me",
+      "a": "Three days of a bell and an email, then a dialog when you next open Sodio — and **you can skip it**. A development conversation nagged into existence is not one worth having. Skip twice and it stops for good; the people waiting for theirs are still waiting, which is the honest thing for it to say."
+     },
+     {
+      "q": "I'm a Coordinator with nobody under me",
+      "a": "Then you owe nobody a PDP, and one is still filed FOR you. A Coordinator is an MM with no team — you carry your own numbers, so your plan is about your own numbers."
+     },
+     {
+      "q": "My leader hasn't filed mine",
+      "a": "It is theirs to start — it is a conversation, not a form you get sent. If the month is nearly gone, ask them; TM can see who is outstanding and can file it if your leader has gone quiet."
+     }
+    ]
+   }
+  ]
+ },
+ {
   "id": "delete-an-account",
   "title": "Delete an account (and cancel a deal)",
   "emoji": "🗑️",

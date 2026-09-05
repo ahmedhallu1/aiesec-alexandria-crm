@@ -11,7 +11,15 @@ import { usePathname, useRouter } from "next/navigation";
  *  client navigation and non-raising viewers get a BLANK screen (and the
  *  "soon" gate's bounce-to-"/" would loop). "/" matches exactly, never as a
  *  prefix. */
-const ALWAYS_ALLOWED = ["/", "/profile", "/feedback", "/help", "/playbook", "/lc-feedback"];
+/** v36 — /pdp joins them. A development plan is not a module: every member of
+ *  the LC has one filed for them, whatever function they are in and whether or
+ *  not that function's CRM module exists yet. Gating it behind a module would
+ *  hide somebody's own plan from them — which is precisely the half of this
+ *  process the Google Sheets already failed to give a member, since the sheet
+ *  lived in their leader's Drive. The PAGE still gates server-side. */
+const ALWAYS_ALLOWED = [
+  "/", "/profile", "/feedback", "/help", "/playbook", "/lc-feedback", "/pdp",
+];
 
 /** Client-side switch used by the (app) layout for members whose function has
  *  no module: allowed routes render normally, everything else shows "Soon".

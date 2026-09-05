@@ -159,17 +159,23 @@ export function PendingPrompt() {
 
   const isRating = prompt.kind === "touchpoint_rating";
   const isIm = prompt.kind === "im_prompt";
+  // v36 — a PDP nag. It has the shape of a must-do (a link to go and do the
+  // thing) but it is SKIPPABLE, deliberately: a one-on-one is a conversation
+  // to arrange with another human, not a form to fill in on the spot, and a
+  // leader who cannot dismiss it will learn to click past whatever appears in
+  // this dialog — which would cost the attendance must-dos their authority too.
+  const isPdp = prompt.kind === "pdp";
   const wants = prompt.responseKind ?? "none";
   // an attendance prompt is a must-do and has never been skippable; an IM
   // prompt is skippable only if its author allowed it
-  const canSkip = isRating || (isIm && prompt.dismissible !== false);
+  const canSkip = isRating || isPdp || (isIm && prompt.dismissible !== false);
 
   return (
     <Dialog
       open={open}
       onOpenChange={(v) => {
         if (v) return;
-        if (isRating || isIm) doSkip();
+        if (isRating || isIm || isPdp) doSkip();
         else snooze();
       }}
     >
@@ -225,9 +231,13 @@ export function PendingPrompt() {
           ) : null}
           {!isRating && !isIm ? (
             <>
-              <Button variant="ghost" onClick={snooze}>
-                Later today
-              </Button>
+              {/* a PDP prompt already has Skip; a second "later" button on the
+                  same dialog is two ways to do nothing */}
+              {isPdp ? null : (
+                <Button variant="ghost" onClick={snooze}>
+                  Later today
+                </Button>
+              )}
               <Button
                 onClick={() => {
                   setOpen(false);
@@ -253,7 +263,7 @@ export function PendingPrompt() {
           ) : null}
         </DialogFooter>
         <p className="text-center text-[11px] text-muted-foreground">
-          {isRating || isIm
+          {isRating || isIm || isPdp
             ? "Skip and we ask once more tomorrow — then never again. 💜"
             : "One postponement a day — after that Sodio asks again. 💜"}
         </p>

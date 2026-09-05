@@ -13,6 +13,8 @@ export type NotificationKind =
   | "lc_feedback"
   | "podio_update"
   | "report"
+  /** v36 — a PDP filed for you, or the deadline chasing you */
+  | "pdp"
   | "info";
 
 /** Writes in-app notifications. Best-effort: failures are logged, never thrown

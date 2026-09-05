@@ -25,6 +25,7 @@ import {
   Activity,
   Target,
   ClipboardCheck,
+  ClipboardList,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -133,6 +134,14 @@ export function AppShell({
     ...(nav.membership ? [{ href: "/membership", label: "Membership", icon: Users }] : []),
     // v29: attendance is everybody's — own history, plus whatever you record
     { href: "/attendance", label: "Attendance", icon: CalendarCheck2 },
+    // v36 — one-on-ones and development plans, beside Attendance because both
+    // are the TM process as it lands on a person. Deliberately NOT gated in
+    // the nav: a Member with nobody under them still has their OWN plan to
+    // read and their own weekly steps to tick, which is the half the Google
+    // Sheets never gave them (the sheet lived in their leader's Drive). The
+    // PAGE gates itself server-side and sends away only somebody the process
+    // does not touch at all.
+    { href: "/pdp", label: "PDP & O2O", icon: ClipboardList },
     // v33.24 — writing to partners, EPs and other LCs, with the LC's look
     ...(nav.mailbox ? [{ href: "/emails", label: "Emails", icon: MailPlus }] : []),
     { href: "/help", label: "Help", icon: BookOpen },

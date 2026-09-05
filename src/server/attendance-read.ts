@@ -789,6 +789,25 @@ export async function openPendingPrompt(memberId: string): Promise<PendingPrompt
         continue;
       }
     }
+    // ⚠️ v36 — A PDP PROMPT WHOSE ROUND IS OVER MUST RESOLVE ITSELF.
+    //
+    // The OLDEST unresolved prompt masks every later one (that is what makes
+    // this a queue), so a prompt pointing at a cycle that was closed — or
+    // deleted — would block its owner's whole app forever, with no screen
+    // anywhere able to answer it. That is the v29.2 stranded-prompt bug, and
+    // every kind added since has had to carry its own branch for exactly this
+    // reason. `ref_id` is the CYCLE.
+    if (row.kind === "pdp" && row.ref_id) {
+      const { data: cycle } = await db()
+        .from("pdp_cycles")
+        .select("active")
+        .eq("id", row.ref_id)
+        .maybeSingle<{ active: boolean }>();
+      if (!cycle || !cycle.active) {
+        await db().from("pending_prompts").update({ resolved: true }).eq("id", row.id);
+        continue;
+      }
+    }
     return row;
   }
   return null;
