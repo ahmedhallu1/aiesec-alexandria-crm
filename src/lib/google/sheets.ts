@@ -1039,7 +1039,16 @@ export async function exportAllSheets(): Promise<void> {
   // Function / Product / Archived? columns are the filter flags.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const productLabel = (a: any): string =>
-    a.function === "IGT" ? (a.product ? `I${a.product}` : "IGT") : a.function;
+    // ⚠️ v36 — AN UNCLAIMED ROW GETS A WORD, NOT A BLANK CELL. The research
+    // pool carries no function until somebody claims it, and an empty cell
+    // under a header reading "Function" is indistinguishable from a broken
+    // export — which is exactly the kind of thing that gets reported as "the
+    // sheet stopped working". It says what is true instead.
+    a.function == null
+      ? "Unclaimed"
+      : a.function === "IGT"
+        ? (a.product ? `I${a.product}` : "IGT")
+        : a.function;
 
   // BD deals' MOS is money — total EGP per account. Pre-migration-0015 the
   // select returns an error (never throws) and the column just stays empty.
@@ -1053,7 +1062,8 @@ export async function exportAllSheets(): Promise<void> {
 
   await safe("CRM — Raising Accounts", () => overwriteSheet(
     "CRM — Raising Accounts",
-    ["Account Name", "Function (IGV/IGT/B2B)", "Product", "Sub Product", "Project (IGV)",
+    ["Account Name", "Function (IGV/IGT/B2B/BD/B2C · Unclaimed = nobody has taken it yet)",
+      "Product", "Sub Product", "Project (IGV)",
      "Account Type", "Industry", "Responsible", "Team", "Stage", "Archived?", "Archive Reason",
      "Contacts", "Requested? (Podio)", "Request State", "Proposal Sent?", "Visit Date",
      "Visit Done?", "Deals", "Total Slots", "IGV Slots", "IGTa Slots", "IGTe Slots",

@@ -34,7 +34,10 @@ const TTL_MS = 5 * 60 * 1000;
 
 type Row = {
   name: string;
-  function: string;
+  /** v36 — null for the unclaimed research pool: nobody has decided which
+   *  function it belongs to yet, and a client that dedupes on names needs to
+   *  see it regardless. Serialised as null, never guessed. */
+  function: string | null;
   archived: boolean;
   product: string | null;
   responsible: string | null;
@@ -67,7 +70,7 @@ async function allRows(): Promise<Row[]> {
       if (!r.name) continue;
       rows.push({
         name: r.name as string,
-        function: r.function as string,
+        function: (r.function as string | null) ?? null,
         archived: !!r.out_of_process,
         product: (r.product as string) ?? null,
         responsible: ((r.responsible as { name?: string } | null)?.name) ?? null,
@@ -162,7 +165,15 @@ export async function GET(req: NextRequest) {
   const allowed = new Set([...key.functions, "BLACKLIST"]);
   const seen = new Map<string, Row>();
   for (const r of rows) {
-    if (!allowed.has(r.function)) continue;
+    // ⚠️ v36 — THE UNCLAIMED POOL IS NOT DROPPED. `allowed.has(null)` is false,
+    // so a function-less research row silently fell out of every response —
+    // including a names-only key whose entire job is duplicate detection,
+    // which would then have told an integration a name was free when Sodio
+    // already holds it. Nobody has decided which function these belong to; a
+    // key scoped to ANY raising function should still see them, and the shape
+    // reports `function: null` rather than guessing one.
+    const poolRow = r.function == null && !r.archived;
+    if (!poolRow && !(r.function && allowed.has(r.function))) continue;
     if (r.archived && !key.includeArchived) continue;
     const norm = normalizeName(r.name);
     if (norm && !seen.has(norm)) seen.set(norm, r);
