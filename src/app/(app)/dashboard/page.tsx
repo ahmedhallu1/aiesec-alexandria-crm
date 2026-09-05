@@ -1,12 +1,13 @@
 import {
   b2cCicStats, considerationStats, getViewer, getDashboard, listVisibleMembers,
-  listTeamFilterOptions, memberWorksFunction, ogxDashboard, streakStats } from "@/server/data";
+  listTeamFilterOptions, memberWorksFunction, ogxDashboard, streakStats,
+  type OgxLane } from "@/server/data";
 import type { AccountFilters } from "@/server/data";
 import {
   considerationFunctions, accountScope, icxFunctions, isB2B, isB2C,
   isBd, isTmCore, ogxLanes, raisingFunctions, seesEveryLane } from "@/lib/rbac";
 import { tmStats } from "@/server/tm-stats";
-import { memberIsB2C, teamLabel, type OgxFunction } from "@/lib/types";
+import { memberIsB2C, teamLabel } from "@/lib/types";
 import { DashboardView, type DashboardScopeView } from "@/components/crm/dashboard-view";
 
 export const metadata = { title: "Dashboard" };
@@ -85,6 +86,12 @@ export default async function DashboardPage({
   // OGX (v28): OGT / OGV sign-up funnel lanes. `ogxLanes` adds the overseers
   // WITHOUT granting them the sign-ups module itself.
   const ogxFns = ogxLanes(viewer);
+  // v36 — ALL OGX, the counterpart of All ICX. OGT and OGV have been separate
+  // lanes since v28 with no way to see them together, so nobody could answer
+  // "how is OGX doing" without adding two screens up by hand. Offered only
+  // when the viewer actually has both sides — a one-sided "All" is just the
+  // side, with a label that overstates it.
+  if (ogxFns.length > 1) views.push({ key: "OGX", label: "All OGX" });
   for (const f of ogxFns) views.push({ key: f, label: f });
   // TM (v33.17): the LC through TM's eyes — attendance, plan compliance,
   // plan-vs-actual. TM core only (the people who run touch points + records).
@@ -105,9 +112,9 @@ export default async function DashboardPage({
   // CONS_* / OGT / OGV are pseudo-lanes — getDashboard never receives them:
   // it runs on the viewer's first REAL account lane (or "all", which for a
   // pure-OGX viewer scopes to their own — empty — accounts and returns fast)
-  const SPECIAL_LANES = new Set(["CONS", "CONS_IGV", "CONS_IGT", "OGT", "OGV", "TM"]);
+  const SPECIAL_LANES = new Set(["CONS", "CONS_IGV", "CONS_IGT", "OGT", "OGV", "OGX", "TM"]);
   const baseLane = views.find((v) => !SPECIAL_LANES.has(v.key))?.key ?? "all";
-  const isOgxLane = activeFn === "OGT" || activeFn === "OGV";
+  const isOgxLane = activeFn === "OGT" || activeFn === "OGV" || activeFn === "OGX";
   const consLane: "IGV" | "IGT" | null =
     activeFn === "CONS_IGV" ? "IGV" : activeFn === "CONS_IGT" ? "IGT" : null;
 
@@ -126,7 +133,7 @@ export default async function DashboardPage({
         })
       : Promise.resolve(null),
     isOgxLane
-      ? ogxDashboard(viewer, activeFn as OgxFunction, {
+      ? ogxDashboard(viewer, activeFn as OgxLane, {
           from: params.from || undefined,
           to: params.to || undefined,
           team: params.team || undefined,

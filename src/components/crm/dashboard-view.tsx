@@ -1133,6 +1133,55 @@ function OgxPanel({
           the numbers have been imported since v21. It renders whether or not
           any MM has filed, which is what "the goal isn't appearing" was. */}
       {data.lanePlan ? <OgxLanePlan fn={data.fn} plan={data.lanePlan} /> : null}
+
+      {/* v36 — ON "ALL OGX", THE TWO SIDES STAY LEGIBLE INSIDE THE TOTAL.
+          An aggregate that only shows one merged funnel answers "how is OGX
+          doing" and hides the answer to "which side needs me", which is the
+          question an OGX leader actually opens this page with. The rows add up
+          to the KPIs above them exactly — the split follows the same filters. */}
+      {data.bySide && data.bySide.length > 1 ? (
+        <Card className="rise-in rise-in-2">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Both sides</CardTitle>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <table className="w-full min-w-[34rem] text-sm">
+              <thead>
+                <tr className="border-b text-left font-mono text-[11px] uppercase text-muted-foreground">
+                  <th className="py-1.5 pr-3 font-normal">Side</th>
+                  <th className="py-1.5 pr-3 text-right font-normal">Sign-ups</th>
+                  <th className="py-1.5 pr-3 text-right font-normal">Contacted</th>
+                  <th className="py-1.5 pr-3 text-right font-normal">Interested</th>
+                  <th className="py-1.5 pr-3 text-right font-normal">Applied</th>
+                  <th className="py-1.5 pr-3 text-right font-normal">Accepted</th>
+                  <th className="py-1.5 text-right font-normal">Approved 🏆</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.bySide.map((s) => (
+                  <tr key={s.fn} className="border-b last:border-0">
+                    <td className="py-1.5 pr-3">
+                      <button
+                        type="button"
+                        className="font-medium underline-offset-2 hover:text-primary hover:underline"
+                        onClick={() => onScope(s.fn)}
+                      >
+                        {s.fn}
+                      </button>
+                    </td>
+                    <td className="py-1.5 pr-3 text-right font-mono tabular-nums">{s.total.signups}</td>
+                    <td className="py-1.5 pr-3 text-right font-mono tabular-nums">{s.total.contacted}</td>
+                    <td className="py-1.5 pr-3 text-right font-mono tabular-nums">{s.total.interested}</td>
+                    <td className="py-1.5 pr-3 text-right font-mono tabular-nums">{s.total.applied}</td>
+                    <td className="py-1.5 pr-3 text-right font-mono tabular-nums">{s.total.accepted}</td>
+                    <td className="py-1.5 text-right font-mono font-semibold tabular-nums">{s.total.approved}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      ) : null}
       {data.plan ? <OgxPlanBar fn={data.fn} plan={data.plan} /> : null}
       {data.needsOwnPlan ? (
         <Card className="rise-in rise-in-2 border-amber-500/50 bg-amber-500/5">

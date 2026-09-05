@@ -6221,8 +6221,16 @@ export interface OgxDashboardFilters {
   member?: string;
 }
 
+/** v36 — "OGX" is the AGGREGATE lane: OGV and OGT together, the way ICX has
+ *  had All-ICX since v9. Every other value is one side. */
+export type OgxLane = OgxFunction | "OGX";
+
 export interface OgxDashboardData {
-  fn: OgxFunction;
+  fn: OgxLane;
+  /** v36 — on the aggregate lane, the same funnel per side, so the two stay
+   *  legible inside it. Null on a single-side lane, where it would only
+   *  repeat `total`. */
+  bySide: { fn: OgxFunction; total: OgxFunnel }[] | null;
   total: OgxFunnel;
   /** how many of the sign-ups in this snapshot are ORGANIC REFERRALS (v33.32)
    *  — they count in every number above; this says how much of it they are */
@@ -6320,6 +6328,8 @@ function addOgxRow(
 }
 
 interface OgxDashSignup {
+  /** v36 — which OGX side this row is, so the aggregate lane can split by it */
+  fn?: string | null;
   /** which tracker tab it came from — 'referral' means we created it (v33.32) */
   source?: string | null;
   assigned_to: string | null;
@@ -6342,21 +6352,29 @@ interface OgxDashSignup {
  *  shape everything; the member filter scopes the KPI totals only. */
 export async function ogxDashboard(
   viewer: Viewer,
-  fn: OgxFunction,
+  lane: OgxLane,
   filters: OgxDashboardFilters = {}
 ): Promise<OgxDashboardData | null> {
   // the DASHBOARD is open to the LC-wide overseers too (v32) — `ogxLanes`,
   // not `ogxFunctions`, which still gates the sign-ups module itself
-  if (!_ogxLanes(viewer).includes(fn)) return null;
+  const lanes = _ogxLanes(viewer);
+  // ⚠️ "OGX" MEANS EVERY SIDE THIS VIEWER MAY SEE, not a hard-coded pair.
+  // Somebody who only oversees OGV asking for the aggregate gets OGV: an
+  // aggregate that quietly included a side they cannot see would be a scope
+  // leak wearing a friendly label, and one that returned null would be a chip
+  // that does nothing.
+  const fns: OgxFunction[] = lane === "OGX" ? lanes : lanes.includes(lane) ? [lane] : [];
+  if (fns.length === 0) return null;
+  const aggregate = lane === "OGX";
 
   const [rows, memberRes] = await Promise.all([
     fetchAll<OgxDashSignup>(() =>
       db()
         .from("signups")
         .select(
-          "assigned_to, assigned_at, contact_status, interested, status, out_of_process, signed_up_at, cic_assigned_to, cic_contact_status, cic_interested, source"
+          "fn, assigned_to, assigned_at, contact_status, interested, status, out_of_process, signed_up_at, cic_assigned_to, cic_contact_status, cic_interested, source"
         )
-        .eq("fn", fn)
+        .in("fn", fns)
         .order("id")
     ),
     db()
@@ -6373,7 +6391,7 @@ export async function ogxDashboard(
   const members = (memberRes.data ?? []) as MemberLiteRow[];
   const byId = new Map(members.map((m) => [m.id, m]));
   const inFn = (m: MemberLiteRow) =>
-    [...(m.functions ?? []), ...(m.sub_functions ?? [])].includes(fn);
+    fns.some((f) => [...(m.functions ?? []), ...(m.sub_functions ?? [])].includes(f));
 
   // the assigned member's Team Leader: themself, or their manager IF that
   // manager is a real Team Leader (the EB is never a team — raising rule)
@@ -6387,6 +6405,13 @@ export async function ogxDashboard(
   };
 
   const total = emptyOgxFunnel();
+  // v36 — the aggregate lane keeps each side's OWN funnel alongside the total,
+  // so "All OGX" does not flatten OGV and OGT into one number nobody can act
+  // on. Built only when it is asked for; on a single-side lane it would simply
+  // repeat `total`.
+  const sideTotals = new Map<string, OgxFunnel>(
+    aggregate ? fns.map((f) => [f, emptyOgxFunnel()] as [string, OgxFunnel]) : []
+  );
   let referrals = 0;
   const board = new Map<string, OgxBoardRow>();
   const mmBoard = new Map<string, OgxBoardRow>();
@@ -6465,6 +6490,15 @@ export async function ogxDashboard(
     if (!filters.member) addOgxRow(total, r);
     else if (r.assigned_to === filters.member) addOgxRow(total, r, firstOpts);
     else if (cicCounts && cicId === filters.member) addOgxRow(total, r, secondOpts);
+    // The per-side split follows the SAME three rules, member filter included —
+    // any divergence and the sides would stop adding up to the total above,
+    // which is the one property somebody reading an aggregate assumes.
+    const side = r.fn ? sideTotals.get(r.fn) : undefined;
+    if (side) {
+      if (!filters.member) addOgxRow(side, r);
+      else if (r.assigned_to === filters.member) addOgxRow(side, r, firstOpts);
+      else if (cicCounts && cicId === filters.member) addOgxRow(side, r, secondOpts);
+    }
     // organic referrals ride inside every number above — this is how many
     if (
       r.source === "referral" &&
@@ -6516,7 +6550,7 @@ export async function ogxDashboard(
     .eq("month", month.start);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const fnPlans = ((planRows ?? []) as any[]).filter((p) =>
-    [...(p.member?.functions ?? []), ...(p.member?.sub_functions ?? [])].includes(fn)
+    fns.some((f) => [...(p.member?.functions ?? []), ...(p.member?.sub_functions ?? [])].includes(f))
   );
   let plan: OgxDashboardData["plan"] = null;
   if (fnPlans.length > 0) {
@@ -6545,7 +6579,9 @@ export async function ogxDashboard(
   // sums IGTa + IGTe.
   let lanePlan: OgxDashboardData["lanePlan"] = null;
   {
-    const planFns = fn === "OGV" ? ["OGV"] : ["OGTa", "OGTe"];
+    // OGT plans as its two products (v34.1 ⑦: OGT = OGTa + OGTe, exactly as
+    // IGT = IGTa + IGTe); the aggregate is simply every side's cells together
+    const planFns = fns.flatMap((f) => (f === "OGV" ? ["OGV"] : ["OGTa", "OGTe"]));
     const [cells, sprint] = [await listPlanCells(planFns), sprintOf()];
     // the bar decides (v33.56): "This sprint" on → the sprint, else the month
     const sprintMode = filters.from === sprint.start && filters.to === sprint.end;
@@ -6614,13 +6650,16 @@ export async function ogxDashboard(
   // an OGX MM with no filed plan for this month gets told, not ignored
   const needsOwnPlan =
     (viewer.role === "Team Leader" || viewer.role === "Coordinator") &&
-    _ogxFunctions(viewer).includes(fn) &&
+    fns.some((f) => _ogxFunctions(viewer).includes(f)) &&
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     !((planRows ?? []) as any[]).some((p) => p.member_id === viewer.id);
 
   const fnMembers = members.filter((m) => inFn(m) && m.role !== "LCP");
   return {
-    fn,
+    fn: lane,
+    bySide: aggregate
+      ? fns.map((f) => ({ fn: f, total: sideTotals.get(f) ?? emptyOgxFunnel() }))
+      : null,
     total,
     referrals,
     board: [...board.values()].sort(rank),
