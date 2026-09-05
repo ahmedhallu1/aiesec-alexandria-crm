@@ -4,6 +4,7 @@ import { db } from "@/lib/supabase";
 import { sendEmail } from "@/lib/google/gmail";
 import { newPasswordEmail } from "@/lib/email/templates";
 import { notifyMembers } from "./notify";
+import { logAuth } from "./audit";
 
 /** Readable random password (no confusable characters). */
 export function generatePassword(): string {
@@ -47,13 +48,25 @@ export async function issueTempPassword(member: {
     });
     // the AIESEC address when it exists, the fallback Gmail until then (v33.29)
     const dest = member.email ?? member.fallback_email;
-    if (!dest)
+    if (!dest) {
+      await logAuth("password_issued", member.id, { reason: "no_inbox" }, "failed");
       return { ok: false, error: "No email on file — ask the IM team to add one." };
+    }
     await sendEmail({ to: [dest], ...mail });
   } catch (e) {
     console.error("[auth] password email failed:", e);
+    await logAuth("password_issued", member.id, { reason: "send_failed" }, "failed");
     return { ok: false, error: "Couldn't send the email — try again or contact the IM team." };
   }
+  // ⚠️ RECORDED, AND THE PASSWORD ITSELF NEVER IS. A fresh password being
+  // minted for somebody is exactly the event an audit trail exists for — it is
+  // the one path that hands out a working credential without the holder
+  // proving anything — but `details` is read back by whoever opens /admin, so
+  // it carries only WHICH INBOX it went to, and only whether that was the
+  // AIESEC address or the fallback. Never the password, never the address.
+  await logAuth("password_issued", member.id, {
+    sent_to: member.email ? "aiesec" : "fallback",
+  });
   await notifyMembers(
     [member.id],
     "reset",

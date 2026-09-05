@@ -3289,6 +3289,19 @@ export interface AuditEntry {
   undoable: number;
   /** set once someone has undone it, so it can't be replayed twice */
   undoneAt: string | null;
+  /** v36 — who REALLY acted, when the actor above is being impersonated in a
+   *  test view. Recording it is the entire point of the column: an action
+   *  taken during a test view is attributed to the target member (by design,
+   *  v14), and without this the log cannot tell that apart from the target
+   *  doing it themselves. */
+  realActor: string | null;
+  /** {field: [from, to]} for the keys that actually moved */
+  changed: string | null;
+  category: string;
+  outcome: string;
+  severity: string;
+  /** one human sentence, so the console is readable without parsing JSON */
+  summary: string | null;
   /** true when the action was taken inside an LC-wide testing session */
   inTestSession: boolean;
 }
@@ -4870,31 +4883,180 @@ export async function listLcFeedback(viewer: Viewer): Promise<LcFeedbackRow[]> {
 }
 
 /** Recent audit-log rows (admin page). Actor joined for a readable name. */
+/** What the console can narrow by. Every one of these is applied IN THE QUERY.
+ *
+ *  ⚠️ The old page fetched the newest 80 rows and grepped them in the BROWSER
+ *  (admin-view.tsx), so "search" could not find anything older than the last 80
+ *  actions — on a table of 14,000+ that is a search box that mostly lies. A log
+ *  you cannot search is not an audit trail, it is a recent-activity widget. */
+export interface AuditFilters {
+  actorId?: string | null;
+  action?: string | null;
+  entity?: string | null;
+  category?: string | null;
+  outcome?: string | null;
+  /** matches the summary, the action, the entity id and the details blob */
+  q?: string | null;
+  /** Cairo days, inclusive */
+  from?: string | null;
+  to?: string | null;
+}
+
+export interface AuditPage {
+  rows: AuditEntry[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+/** The values the console's funnels may offer.
+ *
+ *  ⚠️ Built from the WHOLE table, never from the rows on screen. A funnel
+ *  populated by the current page can only ever offer what happened to be on
+ *  it — so filtering to "everything by Hana" would silently exclude Hana the
+ *  moment she was not in the newest 60 actions. The same rule the accounts and
+ *  sign-ups filters already follow.
+ *
+ *  Cached in module memory for a minute: it is four cheap DISTINCT-ish reads
+ *  and the answer barely moves, but /admin is opened repeatedly while somebody
+ *  is chasing one thing. NOT `unstable_cache` — `revalidatePath("/", "layout")`
+ *  runs on ~94 write paths and would evict it continuously (the v33.46/v33.59
+ *  lesson). */
+let auditOptionsCache: { at: number; value: AuditFilterOptions } | null = null;
+
+export interface AuditFilterOptions {
+  actors: { value: string; label: string }[];
+  actions: string[];
+  entities: string[];
+  categories: string[];
+}
+
+export async function auditFilterOptions(): Promise<AuditFilterOptions> {
+  const now = Date.now();
+  if (auditOptionsCache && now - auditOptionsCache.at < 60_000)
+    return auditOptionsCache.value;
+
+  // the action/entity/category vocabularies are small and bounded (102 actions
+  // across 14k rows today), so a windowed scan of the recent past is both
+  // cheaper and more useful than a full-table distinct: an action nobody has
+  // taken in months is not worth offering.
+  const { data } = await db()
+    .from("audit_log")
+    .select("action, entity, category, actor_id")
+    .order("created_at", { ascending: false })
+    .limit(4000);
+  const rows = (data ?? []) as {
+    action: string; entity: string; category: string | null; actor_id: string | null;
+  }[];
+
+  const actorIds = [...new Set(rows.map((r) => r.actor_id).filter(Boolean))] as string[];
+  const actors: { value: string; label: string }[] = [];
+  if (actorIds.length > 0) {
+    const { data: ms } = await db()
+      .from("members")
+      .select("id, name")
+      .in("id", actorIds);
+    for (const m of (ms ?? []) as { id: string; name: string }[])
+      actors.push({ value: m.id, label: m.name });
+    actors.sort((a, b) => a.label.localeCompare(b.label));
+  }
+
+  const uniq = (xs: (string | null)[]) =>
+    [...new Set(xs.filter(Boolean) as string[])].sort();
+
+  const value: AuditFilterOptions = {
+    actors,
+    actions: uniq(rows.map((r) => r.action)),
+    entities: uniq(rows.map((r) => r.entity)),
+    // pre-0072 rows carry no category and were all plain data mutations
+    categories: uniq(rows.map((r) => r.category ?? "data")),
+  };
+  auditOptionsCache = { at: now, value };
+  return value;
+}
+
 export async function listRecentAudit(
   limit = 60,
   /** ADMIN_EMAILS only (v33.30): resolve the author behind an anonymous
    *  lc_feedback row, so a shout-out can be rewarded and a concern followed
    *  up. Everyone else with the logs page keeps seeing "system". */
-  opts: { asAdmin?: boolean } = {}
+  opts: { asAdmin?: boolean; filters?: AuditFilters; page?: number } = {}
 ): Promise<AuditEntry[]> {
-  const { data } = await db()
-    .from("audit_log")
-    .select(
-      "id, action, entity, entity_id, details, created_at, change_set, undone_at, test_session_id, actor:members!actor_id(name)"
-    )
-    .order("created_at", { ascending: false })
-    .limit(limit);
-  // pre-0033 grace: fall back to the classic columns so the log still renders
-  // (without Undo) on a database where the migration hasn't been run yet
+  return (await listAuditPage(limit, opts)).rows;
+}
+
+/** The console reader: filtered, ordered and PAGED by Postgres. */
+export async function listAuditPage(
+  pageSize = 60,
+  opts: { asAdmin?: boolean; filters?: AuditFilters; page?: number } = {}
+): Promise<AuditPage> {
+  const f = opts.filters ?? {};
+  const page = Math.max(0, opts.page ?? 0);
+
+  const build = () => {
+    let q = db()
+      .from("audit_log")
+      .select(
+        "id, action, entity, entity_id, details, created_at, change_set, undone_at, test_session_id, " +
+          "changed, category, outcome, severity, summary, ip, " +
+          "actor:members!actor_id(name), real_actor:members!real_actor_id(name)",
+        { count: "exact" }
+      );
+    if (f.actorId) q = q.eq("actor_id", f.actorId);
+    if (f.action) q = q.eq("action", f.action);
+    if (f.entity) q = q.eq("entity", f.entity);
+    if (f.category) q = q.eq("category", f.category);
+    if (f.outcome) q = q.eq("outcome", f.outcome);
+    // Cairo days → the instants that actually bound them. Half-open at the top
+    // (the v33.49 lesson: a naive UTC range loses the first 2–3 hours of a day)
+    // Cairo day bounds → UTC instants, half-open [start, end). A naive
+    // "YYYY-MM-DDT00:00:00Z" is 2–3 hours out here and would quietly drop the
+    // first evening of every range into the day before — the v33.49 lesson.
+    // Same two helpers the directory window uses, rather than a third copy.
+    if (f.from) q = q.gte("created_at", cairoToUtc(f.from, "00:00").toISOString());
+    if (f.to) q = q.lt("created_at", cairoToUtc(nextDayIso(f.to), "00:00").toISOString());
+    if (f.q && f.q.trim()) {
+      // ⚠️ THE NEEDLE IS SCRUBBED, NOT ESCAPED. PostgREST's `or` takes a
+      // comma-separated filter string, so a comma or a bracket in the search
+      // box does not fail — it silently reinterprets the whole clause as extra
+      // filters, which is the accidental version of the slug-lookup bug v33.15
+      // spent a release on. `%` and `_` are LIKE wildcards and would widen the
+      // match instead of narrowing it. All of them become spaces: a search box
+      // that ignores punctuation is expected; one that quietly changes what it
+      // searched for is not.
+      const needle = f.q.trim().replace(/[%_,().*]/g, " ").trim();
+      if (needle)
+        q = q.or(
+          [
+            `summary.ilike.%${needle}%`,
+            `action.ilike.%${needle}%`,
+            `entity.ilike.%${needle}%`,
+          ].join(",")
+        );
+    }
+    return q.order("created_at", { ascending: false });
+  };
+
+  const from = page * pageSize;
+  const { data, count } = await build().range(from, from + pageSize - 1);
+  // pre-0072/0033 grace: fall back to the classic columns so the console still
+  // renders on a database where the migration hasn't been run yet. The same
+  // three-shape ladder logAudit itself walks (src/server/audit.ts) — code and
+  // schema ship on two clocks here, because migrations are applied by hand.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let raw: any[] | null = data;
+  let total = count ?? null;
   if (!raw) {
-    const { data: legacy } = await db()
+    const { data: legacy, count: legacyCount } = await db()
       .from("audit_log")
-      .select("id, action, entity, entity_id, details, created_at, actor:members!actor_id(name)")
+      .select(
+        "id, action, entity, entity_id, details, created_at, change_set, undone_at, test_session_id, actor:members!actor_id(name)",
+        { count: "exact" }
+      )
       .order("created_at", { ascending: false })
-      .limit(limit);
+      .range(from, from + pageSize - 1);
     raw = legacy;
+    total = legacyCount ?? null;
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rows = (raw ?? []) as any[];
@@ -4928,19 +5090,31 @@ export async function listRecentAudit(
       ? anonAuthors.get(r.details.feedback_id) ?? null
       : null;
 
-  return rows.map((r) => ({
-    id: r.id,
-    action: r.action,
-    entity: r.entity,
-    actor: r.actor ? r.actor.name : anonAuthorFor(r),
-    actorAdminOnly: !r.actor && !!anonAuthorFor(r),
-    details: r.details ? JSON.stringify(r.details) : null,
-    createdAt: r.created_at,
-    changeSet: r.change_set ?? null,
-    undoable: r.undone_at || !r.change_set ? 0 : (sizes.get(r.change_set) ?? 0),
-    undoneAt: r.undone_at ?? null,
-    inTestSession: !!r.test_session_id,
-  }));
+  const one = (r: Record<string, any>) => {
+    const real = Array.isArray(r.real_actor) ? r.real_actor[0] : r.real_actor;
+    return {
+      id: r.id,
+      action: r.action,
+      entity: r.entity,
+      actor: r.actor ? r.actor.name : anonAuthorFor(r as never),
+      actorAdminOnly: !r.actor && !!anonAuthorFor(r as never),
+      realActor: real?.name ?? null,
+      details: r.details ? JSON.stringify(r.details) : null,
+      changed: r.changed ? JSON.stringify(r.changed) : null,
+      // pre-0072 rows carry none of these; they were all a completed data
+      // mutation by the named actor, which is exactly what the defaults say
+      category: r.category ?? "data",
+      outcome: r.outcome ?? "ok",
+      severity: r.severity ?? "info",
+      summary: r.summary ?? null,
+      createdAt: r.created_at,
+      changeSet: r.change_set ?? null,
+      undoable: r.undone_at || !r.change_set ? 0 : (sizes.get(r.change_set) ?? 0),
+      undoneAt: r.undone_at ?? null,
+      inTestSession: !!r.test_session_id,
+    };
+  };
+  return { rows: rows.map(one), total: total ?? rows.length, page, pageSize };
 }
 
 // ================================================================== OGX sign-ups (v25)

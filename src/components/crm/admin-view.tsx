@@ -1,14 +1,14 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  Activity, AlertTriangle, CheckCircle2, Database, FlaskConical, Loader2,
-  ScrollText, Search, Trash2, XCircle,
+  Activity, AlertTriangle, CheckCircle2, Database, FlaskConical, Loader2, Trash2, XCircle,
 } from "lucide-react";
 import { fmtDateTime } from "@/lib/types";
-import type { SystemHealth, AuditEntry } from "@/server/data";
+import type { SystemHealth, AuditEntry, AuditFilterOptions } from "@/server/data";
+import { AuditConsole } from "./audit-console";
 import {
   removeTestData, seedTestAccounts, setTestDataVisibility, startLcTestSession,
   stopLcTestSession,
@@ -20,7 +20,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApiKeysCard } from "./api-keys-card";
 import { ImPromptCard } from "./im-prompt-card";
 import type { ApiKeyRow } from "@/server/api-keys";
-import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 
 /** Small "time ago" for cron proxies. */
@@ -47,18 +46,15 @@ function cronStale(c: { note: string; lastRun: string | null }): boolean {
   return mins > 60 * 26; // daily jobs
 }
 
-const ACTION_TONE: Record<string, string> = {
-  out_of_process: "text-destructive",
-  archive_remove: "text-destructive",
-  deal: "text-success",
-  set_goal: "text-primary",
-  view_as_start: "text-warning",
-  view_as_stop: "text-warning",
-};
 
 export function AdminView({
   health,
   audit,
+  auditTotal,
+  auditPage,
+  auditPageSize,
+  auditOptions,
+  canUnmask,
   testMode,
   lcSession,
   apiKeys,
@@ -66,22 +62,16 @@ export function AdminView({
 }: {
   health: SystemHealth | null;
   audit: AuditEntry[];
+  auditTotal: number;
+  auditPage: number;
+  auditPageSize: number;
+  auditOptions: AuditFilterOptions;
+  canUnmask: boolean;
   testMode: { testAccounts: number; showTestData: boolean };
   lcSession: { id: string; startedAt: string; changes: number } | null;
   apiKeys: ApiKeyRow[];
   origin: string;
 }) {
-  const [q, setQ] = useState("");
-
-  const shown = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    if (!needle) return audit;
-    return audit.filter((a) =>
-      [a.action, a.entity, a.actor ?? "", a.details ?? ""].some((v) =>
-        v.toLowerCase().includes(needle)
-      )
-    );
-  }, [q, audit]);
 
   const allGreen = health?.checks.every((c) => c.ok) ?? false;
 
@@ -211,83 +201,18 @@ export function AdminView({
       {/* LC-wide testing session (v32) */}
       <LcSessionCard session={lcSession} />
 
-      {/* audit log */}
-      <Card className="rise-in rise-in-3">
-        <CardHeader>
-          <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-            <ScrollText className="size-4 text-muted-foreground" /> Audit log
-            <span className="text-xs font-normal text-muted-foreground">· last {audit.length} actions</span>
-            <div className="relative ml-auto">
-              <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Filter…"
-                className="h-8 w-40 pl-8"
-              />
-            </div>
-          </CardTitle>
-          {/* THE UNDO WAS REMOVED (v34.3), NOT HIDDEN.
-              It could never reverse anything. `logAudit` mints a change_set
-              for the audit row and the undo journal mints its OWN for the same
-              request, so the two never joined: measured against production,
-              0 of 11,130 audit rows had a single replayable journal row. The
-              button offered a guarantee the system could not keep, and the
-              failure mode of a rollback engine that half-works is corrupted
-              data. The LOG stays — it is the record, and it is accurate. The
-              sandbox / LC-test rollback is a different mechanism (it keys on
-              session_id, not change_set) and still works. */}
-        </CardHeader>
-        <CardContent className="space-y-1">
-          {shown.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              {audit.length === 0 ? "No audit entries yet." : "Nothing matches."}
-            </p>
-          ) : (
-            shown.map((a) => (
-              <div
-                key={a.id}
-                className={cn(
-                  "flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg px-2 py-1.5 text-sm odd:bg-muted/30",
-                  a.undoneAt && "opacity-60"
-                )}
-              >
-                <span className={cn("font-semibold", ACTION_TONE[a.action] ?? "text-foreground")}>
-                  {a.action}
-                </span>
-                <span className="text-muted-foreground">{a.entity}</span>
-                <span className="text-xs text-muted-foreground">
-                  {a.actorAdminOnly ? (
-                    <span className="font-medium text-amber-600 dark:text-amber-400">
-                      by {a.actor} 🎭 (anonymous — admin eyes only)
-                    </span>
-                  ) : (
-                    <>by {a.actor ?? "system"}</>
-                  )}
-                </span>
-                {a.inTestSession ? (
-                  <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
-                    🧪 test session
-                  </Badge>
-                ) : null}
-                {a.undoneAt ? (
-                  <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
-                    undone
-                  </Badge>
-                ) : null}
-                {a.details ? (
-                  <span dir="auto" className="min-w-0 truncate text-xs text-muted-foreground/70">
-                    {a.details}
-                  </span>
-                ) : null}
-                <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                  {fmtDateTime(a.createdAt)}
-                </span>
-              </div>
-            ))
-          )}
-        </CardContent>
-      </Card>
+      {/* THE ACTIVITY LOG IS ITS OWN CONSOLE NOW (v36).
+          It used to be 80 rows grepped in the browser, which could not see
+          past the last 80 actions on a table of 14,000+. Filtering, paging and
+          search all happen in Postgres — see AuditConsole. */}
+      <AuditConsole
+        audit={audit}
+        total={auditTotal}
+        page={auditPage}
+        pageSize={auditPageSize}
+        options={auditOptions}
+        canUnmask={canUnmask}
+      />
     </div>
   );
 }
