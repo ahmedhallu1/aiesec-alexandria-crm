@@ -199,6 +199,16 @@ export async function GET(req: NextRequest) {
           boldRows: report.boldRows,
           indentRows: report.indentRows,
           mmPlanLines: report.mmPlanLines,
+          // v36 — the consideration crew's live numbers, under the raising
+          // waterfall. Null on B2B/BD and OGX, which have no consideration
+          // side, and the section is then omitted rather than printed empty.
+          consideration: report.consideration,
+          // ⚠️ WIRED, and it very nearly was not. `coreFor` was written and
+          // then never called, so the whole national-rankings section would
+          // have been dead code shipping in every report — the kind of gap a
+          // green build cannot see, because an unused local is only a warning.
+          // One shared fetch per invocation feeds all ~20 reports (see above).
+          core: coreFor(fn),
           dashboardUrl: `${env.appUrl}/dashboard`,
         });
 

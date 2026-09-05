@@ -31,6 +31,7 @@ import {
   type Viewer,
   type AccountScope,
 } from "@/lib/rbac";
+import type { ConsiderationSection } from "@/lib/email/templates";
 import type {
   AccountComment,
   AccountFunction,
@@ -4239,6 +4240,8 @@ export async function buildOgxReport(
     boldRows,
     indentRows,
     mmPlanLines,
+    // OGX has no consideration side — the split is an ICX distinction
+    consideration: null,
   };
 }
 
@@ -4258,6 +4261,10 @@ export interface FunctionReportData {
   boldRows: number[];
   indentRows: number[];
   mmPlanLines: string[];
+  /** v36 — the OTHER half of an ICX function, in the shape
+   *  `considerationSection()` renders. Null for B2B/BD and OGX, which have no
+   *  consideration side. */
+  consideration: ConsiderationSection | null;
 }
 
 /** Builds one function's period report: function totals, plan-vs-achieved and
@@ -4284,7 +4291,40 @@ export async function buildFunctionReport(
     isB2BReport
       ? ["B2B", "BD"].some((f) => (m.functions ?? []).includes(f) || (m.sub_functions ?? []).includes(f))
       : (m.functions ?? []).includes(fnKey);
-  const crew = allMembers.filter(inFn);
+
+  /** ⚠️ A CONSIDERATION MEMBER IS NOT A RAISER WHO FAILED (v36).
+   *
+   *  This report picks its crew by `functions` alone, so every member of IGV
+   *  or IGT landed in the raising waterfall — including the ELEVEN people
+   *  (8 IGV, 3 IGT, counted in production) whose Sub Function says
+   *  Consideration and nothing else. They appeared every sprint and every
+   *  month with 0 market research, 0 contacts, 0 visits, 0 deals and 0 opens,
+   *  next to colleagues doing a different job, and there was no way to read
+   *  that except as a row of people who did nothing.
+   *
+   *  They are not idle: they book and run IR calls, reach partner LCs and
+   *  make partnerships. Those numbers exist (`considerationStats`) — they were
+   *  simply never in this email.
+   *
+   *  So the raising waterfall now covers people who actually RAISE. Somebody
+   *  carrying BOTH sub-functions stays in it — 8 members genuinely do both
+   *  jobs — and the Sub Function column is free text whose order varies
+   *  ("Consideration, Raising" and "Raising, Consideration" both exist in
+   *  production), so it is matched case-insensitively on membership, never by
+   *  position or exact string. */
+  const subs = (m: (typeof allMembers)[number]): string[] =>
+    ((m.sub_functions ?? []) as string[]).map((x) => String(x).trim().toLowerCase());
+  const considerationOnly = (m: (typeof allMembers)[number]) => {
+    const sf = subs(m);
+    // No sub-function at all means nobody has said — and historically that has
+    // meant raising, which is what the report has always assumed. Only an
+    // EXPLICIT "Consideration with no Raising" is excluded.
+    return sf.includes("consideration") && !sf.includes("raising");
+  };
+  const crew = allMembers.filter((m) => inFn(m) && !considerationOnly(m));
+  /** The other half of the same function — reported in their own section
+   *  rather than left out of the LC's picture entirely. */
+  const considerationCrew = allMembers.filter((m) => inFn(m) && considerationOnly(m));
   if (crew.length === 0) return null;
   const crewIds = new Set(crew.map((m) => m.id as string));
   const lcp = allMembers.find((m) => m.role === "LCP");
@@ -4553,8 +4593,101 @@ export async function buildFunctionReport(
     );
   }
 
+  // ---- the consideration section (v36) ------------------------------------
+  //
+  // Read from the calls themselves, not from anybody's filed plan: reviewing a
+  // person against their own target and calling it an achievement is the thing
+  // v36 removed from the members directory, and it would be no better here.
+  //
+  // ⚠️ Attributed by member ID, never by the name snapshot the call carries.
+  // `ir_calls.member_name` is a copy taken when the call was booked, and
+  // production holds the same person spelled two ways — the exact defect fixed
+  // for CIC in v35 and for renames in v33.18.
+  const considerationIds = considerationCrew.map((m) => m.id as string);
+  // people who do BOTH jobs appear in the raising waterfall AND here; the
+  // email says so, because these numbers must never be added together
+  const bothIds = crew
+    .filter((m) => subs(m).includes("consideration"))
+    .map((m) => m.id as string);
+  const sectionIds = [...new Set([...considerationIds, ...bothIds])];
+
+  let consideration: FunctionReportData["consideration"] = null;
+  if (!isB2BReport && sectionIds.length > 0) {
+    const nameOf = new Map(
+      allMembers.map((m) => [m.id as string, m.name as string])
+    );
+    const { data: callRows } = await db()
+      .from("ir_calls")
+      .select("member_id, status, called_at, partner_lc_id")
+      .in("member_id", sectionIds);
+    const calls = (callRows ?? []) as {
+      member_id: string | null; status: string | null;
+      called_at: string; partner_lc_id: string | null;
+    }[];
+    const { data: partRows } = await db()
+      .from("lc_partnerships")
+      .select("made_by, made_on")
+      .in("made_by", sectionIds);
+    const parts = (partRows ?? []) as { made_by: string | null; made_on: string | null }[];
+
+    const inWin = (iso: string | null | undefined) =>
+      !!iso && iso >= window.start && iso <= `${window.end}T23:59:59`;
+
+    const per = new Map<string, { done: number; upcoming: number; lcs: Set<string>; partnerships: number }>();
+    const bump = (id: string) =>
+      per.get(id) ?? per.set(id, { done: 0, upcoming: 0, lcs: new Set(), partnerships: 0 }).get(id)!;
+    const nowIso = new Date().toISOString();
+    for (const c of calls) {
+      if (!c.member_id || !inWin(c.called_at)) continue;
+      const b = bump(c.member_id);
+      if (c.status === "completed") b.done++;
+      else if (c.status === "scheduled" && c.called_at > nowIso) b.upcoming++;
+      if (c.partner_lc_id) b.lcs.add(c.partner_lc_id);
+    }
+    for (const pr of parts) {
+      if (!pr.made_by || !inWin(pr.made_on)) continue;
+      bump(pr.made_by).partnerships++;
+    }
+
+    const rowsC = sectionIds
+      .map((id) => {
+        const b = per.get(id);
+        return [
+          nameOf.get(id) ?? "—",
+          b?.done ?? 0,
+          b?.upcoming ?? 0,
+          b?.lcs.size ?? 0,
+          b?.partnerships ?? 0,
+        ] as (string | number)[];
+      })
+      // busiest first; somebody with nothing this period still appears, because
+      // a person missing from a report reads as a person nobody is watching
+      .sort((a, b) => (b[1] as number) - (a[1] as number));
+
+    const sum = (i: number) => rowsC.reduce((t, r) => t + (r[i] as number), 0);
+    const allLcs = new Set<string>();
+    for (const b of per.values()) for (const lc of b.lcs) allLcs.add(lc);
+
+    consideration = {
+      kpis: [
+        ["Calls done", String(sum(1))],
+        ["Still upcoming", String(sum(2))],
+        ["LCs reached", String(allLcs.size)],
+        ["🤝 Partnerships", String(sum(4))],
+      ],
+      headers: ["Person", "Calls done", "Upcoming", "LCs reached", "🤝"],
+      rows: rowsC,
+      bothCount: bothIds.length,
+      onlyCount: considerationIds.length,
+    };
+  }
+
   const recipients = [
     ...crew.map((m) => m.email as string),
+    // ⚠️ THE CONSIDERATION CREW STILL GET THE EMAIL. They were dropped from the
+    // raising waterfall, not from the function — leaving them off the report
+    // about their own floor would be a worse version of the same mistake.
+    ...considerationCrew.map((m) => m.email as string),
     ...(lcp?.email ? [lcp.email as string] : []),
   ].filter(Boolean);
 
@@ -4569,6 +4702,7 @@ export async function buildFunctionReport(
     boldRows,
     indentRows,
     mmPlanLines,
+    consideration,
   };
 }
 
