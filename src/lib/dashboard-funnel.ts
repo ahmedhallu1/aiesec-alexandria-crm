@@ -8,7 +8,10 @@
 
 /** The account columns the funnel reads. `PipelineRow` satisfies this. */
 export interface LaneRow {
-  function: string;
+  // v36: NULL = the unowned research pool — nobody has claimed it, so nobody
+  // has decided which function it belongs to. See rowInLane for what that
+  // means for the lanes.
+  function: string | null;
   product?: string | null;
   out_of_process?: boolean | null;
   contact_limit_reached?: boolean | null;
@@ -129,7 +132,17 @@ export const didAnything = (w: RowWork): boolean =>
  *  contacted, visits…). B2B accounts live in the All-ICX lane (and the B2B
  *  drill row); their opens still feed the product lanes via deal breakdowns. */
 export function rowInLane(r: LaneRow, lane: string): boolean {
-  // B2C is its own module — it never pollutes the All-ICX lane (v23)
+  // B2C is its own module — it never pollutes the All-ICX lane (v23).
+  //
+  // ⚠️ v36 — THE UNOWNED POOL (function === null) COUNTS HERE, DELIBERATELY.
+  // A research name nobody has claimed is still market research the LC did,
+  // and All-ICX is the one lane that asks "what has this LC got in front of
+  // it" rather than "what is my product's". Leaving it out would make the
+  // pool invisible on the only board where it is anybody's business.
+  // It correctly falls OUT of every product lane below, because those all
+  // compare with === and a null equals nothing — an unclaimed name has no
+  // product to be counted against, and stamping one on it is exactly the
+  // v22 mistake this release exists to undo.
   if (lane === "all") return r.function !== "B2C";
   if (lane === "IGV") return r.function === "IGV";
   if (lane === "IGT") return r.function === "IGT";

@@ -5,7 +5,6 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/supabase";
 import { dashboardCacheKey } from "@/lib/dashboard-cache";
-import { currentChangeSet } from "./change-set";
 import { env } from "@/lib/env";
 import {
   considerationFunctions,
@@ -17,6 +16,7 @@ import {
   canFilterUnassigned,
   canReassignAccount,
   canSeeUnassigned,
+  canSeeUnownedPool as _canSeeUnownedPool,
   canUseAdminTools,
   canViewAccount,
   hasRaisingAccess,
@@ -823,18 +823,45 @@ function cairoToUtcVisit(date: string, time: string | null): Date {
 
 // ------------------------------------------------------------------ scope helpers
 
+/** THE UNOWNED POOL, AS A QUERY FRAGMENT (v36).
+ *
+ *  Since 0073 a name nobody has taken carries NO FUNCTION — it belongs to no
+ *  crew until somebody claims it, and claiming is what stamps a function on
+ *  it. That is honest, and it is also why it needed saying out loud here:
+ *  EVERY scope branch below filters by function, so without an explicit
+ *  disjunct a function-less row would be visible to precisely nobody. The
+ *  229-row research pool would have vanished from the app the hour the
+ *  migration ran, with no error anywhere to say why. */
+const UNOWNED_POOL_CLAUSE = "and(responsible_id.is.null,function.is.null)";
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function applyScope<T extends { eq: any; in: any; or?: any }>(
   query: T,
   scope: AccountScope,
   /** functions whose UNASSIGNED accounts this viewer may also see (v32.4) —
-   *  nobody owns them, so anyone who may work that function can take one */
+   *  nobody owns them, so anyone who may work that function can take one.
+   *  Still needed after 0073: an unowned row that a hand-over left carrying a
+   *  function, and every archived one, keeps its label. */
   claimableFns: AccountFunction[] = [],
   /** functions this viewer may READ IN FULL because their leader opened them
    *  to this role (v33.32) — read-only: editing is still per-row scoped */
-  openFns: AccountFunction[] = []
+  openFns: AccountFunction[] = [],
+  /** `canSeeUnownedPool(viewer)` — may this viewer also see the FUNCTION-LESS
+   *  research pool? MMs and the IGV/IGT/B2B/BD leaders can; a plain Member
+   *  and the B2C crew cannot (v36, ask #9). */
+  unownedPool = false
 ): T {
-  if (scope.kind === "functions") return query.in("function", scope.fns);
+  if (scope.kind === "functions") {
+    // A LEADER'S SCOPE IS A LIST OF FUNCTIONS, AND THE POOL MATCHES NONE OF
+    // THEM. Without this the people whose whole job is DISTRIBUTING the pool
+    // — every VP and Director of IGV/IGT/B2B/BD — would be the only ones who
+    // could not see it.
+    if (unownedPool && query.or)
+      return query.or(
+        [`function.in.(${scope.fns.map((f) => `"${f}"`).join(",")})`, UNOWNED_POOL_CLAUSE].join(",")
+      );
+    return query.in("function", scope.fns);
+  }
   if (scope.kind === "members") {
     const ids = scope.ids.map((i) => `"${i}"`).join(",");
     const clauses = [`responsible_id.in.(${ids})`];
@@ -842,6 +869,7 @@ export function applyScope<T extends { eq: any; in: any; or?: any }>(
       const fns = claimableFns.map((f) => `"${f}"`).join(",");
       clauses.push(`and(responsible_id.is.null,function.in.(${fns}))`);
     }
+    if (unownedPool) clauses.push(UNOWNED_POOL_CLAUSE);
     if (openFns.length > 0) {
       const fns = openFns.map((f) => `"${f}"`).join(",");
       clauses.push(`function.in.(${fns})`);
@@ -1088,7 +1116,13 @@ async function buildAccountsQuery(
       worklistScope.kind === "members" && canSeeUnassigned(viewer)
         ? _allowedAccountFunctions(viewer)
         : [],
-      _openViewFunctions(viewer)
+      _openViewFunctions(viewer),
+      // THE FUNCTION-LESS RESEARCH POOL (v36) — asked for at BOTH scope
+      // shapes, because the people who distribute it are leaders (a
+      // `functions` scope) and MMs (a `members` one). The Podio worklist
+      // deliberately excludes unowned rows further down, so widening the
+      // scope here cannot leak the pool into that queue.
+      _canSeeUnownedPool(viewer)
     );
   // test accounts live in a parallel universe: visible ONLY in test mode
   // (admin's "Show test data" toggle or any test view)
@@ -1400,7 +1434,12 @@ async function accountCreationEntry(
 
   // ---- what it was filed as (the snapshot when we have it, else the row)
   const fn = (snapshot ? str("function") : account.function) ?? account.function;
-  const facts: [string, string][] = [["Function", fn]];
+  // AN UNOWNED RESEARCH NAME HAS NO FUNCTION AT ALL (v36) — it belongs to no
+  // crew until somebody claims it. Saying so is the honest fact; printing an
+  // empty "Function:" row would read as data we lost.
+  const facts: [string, string][] = [
+    ["Function", fn ?? "— none yet (unowned research)"],
+  ];
   const product = snapshot ? str("product") : account.product;
   const subProduct = snapshot ? str("sub_product") : account.sub_product;
   const project = snapshot ? str("project") : account.project;
@@ -1629,7 +1668,10 @@ export async function listReassignTargetsForViewer(viewer: Viewer): Promise<Memb
 
 export async function listReassignTargets(
   viewer: Viewer,
-  fn: AccountFunction,
+  // v36: NULL for the unclaimed pool. There is no incumbent function to match
+  // a target against, so the question becomes simply "who may take this" —
+  // handled below by falling through to the any-raising-function branch.
+  fn: AccountFunction | null,
   opts?: { anyRaisingFunction?: boolean }
 ): Promise<Member[]> {
   const scope = reassignTargetScope(viewer);
@@ -1640,7 +1682,13 @@ export async function listReassignTargets(
     // inside one function: an unowned company researched by IGV may belong to
     // B2C, and whoever distributes the pool needs the whole raising world in
     // the picker. The account then FOLLOWS its new owner (reassignAccount).
-    query = opts?.anyRaisingFunction
+    // ⚠️ v36: `!fn` (the unclaimed pool) takes the SAME branch as an explicit
+    // cross-function hand-out, and it must. There is no incumbent function to
+    // stay inside, so "who may receive this" is the whole raising world — and
+    // the fallthrough below would otherwise reach `contains("functions",
+    // [null])`, which matches nobody and would hand a distributing VP an empty
+    // picker with no error to explain it.
+    query = opts?.anyRaisingFunction || !fn
       ? query.or(
           `functions.ov.{${ACCOUNT_WORLD_FNS.join(",")}},sub_functions.ov.{B2B,BD,B2C}`
         )
@@ -1685,11 +1733,22 @@ export async function countUnassigned(
   if (!viewer.testMode) q = q.eq("is_test", false);
   // the count has to match exactly what the list would show: a leader sees
   // their function's unowned accounts, an MM sees the ones they may claim
-  if (scope.kind === "functions") q = q.in("function", scope.fns);
+  // THE POOL CARRIES NO FUNCTION (v36) — so the count has to ask for
+  // function-less rows explicitly, exactly as `applyScope` does, or the
+  // "— Unassigned (n)" option would read 0 while the list shows hundreds.
+  const pool = _canSeeUnownedPool(viewer);
+  const withPool = (fns: AccountFunction[]) =>
+    pool
+      ? q.or([`function.in.(${fns.map((f) => `"${f}"`).join(",")})`, "function.is.null"].join(","))
+      : q.in("function", fns);
+  if (scope.kind === "functions") q = withPool(scope.fns);
   else if (scope.kind === "members") {
     const claimable = _allowedAccountFunctions(viewer);
-    if (claimable.length === 0) return 0;
-    q = q.in("function", claimable);
+    // a viewer with neither a claimable function nor the pool has nothing to
+    // count; one with the pool alone (there is no such role today, but the
+    // predicate is not this function's to assume) still counts the pool
+    if (claimable.length === 0 && !pool) return 0;
+    q = claimable.length > 0 ? withPool(claimable) : q.is("function", null);
   }
   if (fn) q = q.eq("function", fn);
   const { count } = await q;
@@ -2170,7 +2229,14 @@ export async function getDashboard(
     if (inKpiScope(r)) addRowLane(total, r, w, lane);
 
     // product drill: IGV / IGTa / IGTe / B2B rows (account-level numbers)
-    if (inLane) {
+    //
+    // ⚠️ v36: the unowned pool (function === null) is skipped here on purpose.
+    // It reaches this point because it legitimately counts in the All-ICX
+    // funnel (see rowInLane), but this drill answers "how is each PRODUCT
+    // doing" and an unclaimed name has no product — it would open a drill row
+    // labelled with nothing, which is how the v22 mislabelling looked from the
+    // outside in the first place.
+    if (inLane && r.function) {
       const fnKey =
         r.function === "IGT" ? (r.product ? `I${r.product}` : "IGT") : r.function;
       addRowLane(getOrInit(byFunction, fnKey, fnKey), r, w, lane);
@@ -2234,6 +2300,12 @@ export async function getDashboard(
   for (const al of allocations) {
     const acc = al.deal ? rowById.get(al.deal.account_id) : undefined;
     if (!acc) continue; // outside this viewer's scope / the active filters
+    // v36: a deal cannot exist on an unclaimed account — recordDeal refuses an
+    // unassigned one (v22), and claiming stamps a function before any deal can
+    // be recorded. So a null here is not a pool row passing through, it is a
+    // broken row; skipping it keeps a bad row out of the numbers rather than
+    // crediting its opens to a lane picked by accident.
+    if (!acc.function) continue;
     const v = laneAllocSlots(al, lane, acc.function);
     if (v > 0)
       allocSlotsByMember.set(al.member_id, (allocSlotsByMember.get(al.member_id) ?? 0) + v);
@@ -3134,43 +3206,28 @@ export async function listFunctionVisits(
 
 // ------------------------------------------------------------------ audit
 
-export async function logAudit(
-  actorId: string | null,
-  action: string,
-  entity: string,
-  entityId: string | null,
-  details?: Record<string, unknown>
-) {
-  // v32: stamp the action's CHANGE SET (and the LC test session it belongs to,
-  // if one is open) so /admin can reverse exactly this action's journal rows.
-  let change_set: string | null = null;
-  let test_session_id: string | null = null;
-  try {
-    // STATIC import — a dynamic one lands in a different module instance and
-    // gets its own `cache()` memo, which is exactly how the audit rows and
-    // their journal rows ended up with different ids (v33.10)
-    const { lcTestSession } = await import("./sandbox");
-    change_set = currentChangeSet();
-    test_session_id = await lcTestSession();
-  } catch {
-    /* outside a request scope (crons, scripts) — a plain audit row is fine */
-  }
-  const base = {
-    actor_id: actorId,
-    action,
-    entity,
-    entity_id: entityId,
-    details: details ?? null,
-  };
-  const { error } = await db()
-    .from("audit_log")
-    .insert({ ...base, change_set, test_session_id });
-  // Pre-0033 grace: the undo columns may not exist yet (migrations are applied
-  // by hand in the SQL editor). Auditing must never stop because of that — fall
-  // back to the classic row, just without the undo link.
-  if (error?.code === "42703") await db().from("audit_log").insert(base);
-  else if (error) console.error("[audit] insert failed:", error.message);
-}
+/** THE AUDIT TRAIL LIVES IN `./audit` NOW (v36).
+ *
+ *  It used to be thirty lines here writing five columns. `audit_log` holds
+ *  ~14k rows across 102 actions and grows by ~350 a day, and every one of
+ *  them said only *who did what to which row* — never what changed, never
+ *  from where, and (the gap that mattered) not one authentication event in
+ *  the history of the system. That is a file's worth of behaviour, not a
+ *  helper wedged between the calendar reads and the cron stamps.
+ *
+ *  IT IS RE-EXPORTED FROM HERE ON PURPOSE. About 123 call sites across
+ *  `actions.ts`, the crons and the server modules import `logAudit` from
+ *  `@/server/data`; the five positional parameters are unchanged and
+ *  everything new arrives through an optional sixth `opts` argument, so not
+ *  one of them had to move. `diffFields`, `logAuth` and `logDenied` are
+ *  imported from `@/server/audit` directly — they are new, so there is no
+ *  history to preserve and no reason to route them through this file.
+ *
+ *  ⚠️ NO IMPORT CYCLE: `audit.ts` reaches back into `data.ts` only through a
+ *  DYNAMIC import inside `realActorId` (it needs `getRealViewer` to name the
+ *  admin behind an impersonated action). A static edge there would close the
+ *  ring at module-evaluation time. */
+export { logAudit } from "./audit";
 
 // ------------------------------------------------------------------ cron run tracking
 

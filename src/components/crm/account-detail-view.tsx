@@ -383,6 +383,12 @@ export function AccountDetailView({
         />
       ) : null}
       <ProposalDialog account={account} open={proposalOpen} onOpenChange={setProposalOpen} />
+      {/* v36: NO DEAL DIALOG ON AN UNCLAIMED ROW. A deal needs a responsible
+          to credit the opens to, and recordDeal has refused unassigned
+          accounts since v22 ("assign first"). Mounting the dialog anyway would
+          offer a form whose only possible outcome is that refusal — the row
+          has to be claimed first, which is one click away. */}
+      {account.function ? (
       <DealDialog
         accountId={account.id}
         fn={account.function}
@@ -393,6 +399,7 @@ export function AccountDetailView({
         open={dealOpen}
         onOpenChange={setDealOpen}
       />
+      ) : null}
     </div>
   );
 }
@@ -621,7 +628,11 @@ function DetailsCard({
         // a function MOVE rides the same save — sent only when the USER
         // changed it and it differs from the live value (v33.19: any pair
         // of the viewer's own functions, not just B2B↔BD)
-        ...(fnTouched && fn !== account.function && fnTargets.includes(fn)
+        // v36: `fn` is nullable now (the unclaimed pool). A move is only ever
+        // sent for a real target the viewer picked, so a null simply never
+        // qualifies — an unclaimed name gets its function by being CLAIMED,
+        // not by being edited here.
+        ...(fnTouched && fn && fn !== account.function && fnTargets.includes(fn)
           ? { function: fn }
           : {}),
       });
@@ -637,7 +648,13 @@ function DetailsCard({
         <Label className="text-xs text-muted-foreground">Function</Label>
         <div className="grid min-w-0 gap-1">
           <Select
-            value={fnTouched ? form.fn : account.function}
+            // v36: "" for an unclaimed row. In practice this picker never
+            // renders for one — accountFnTargets returns [] for a pool account
+            // (there is nothing to move it BETWEEN), so the fnTargets.length
+            // >= 2 guard above already excludes it. The fallback is here so a
+            // future change to that guard cannot hand Radix an undefined value
+            // and silently blank the control.
+            value={(fnTouched ? form.fn : account.function) ?? ""}
             onValueChange={(v) => { set("fn")(v); setFnTouched(true); }}
           >
             <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
@@ -855,6 +872,13 @@ function ContactInfoCard({
  *  firmer, a week later). */
 function PodioUpdateCard({ account, canEdit }: { account: PipelineRow; canEdit: boolean }) {
   const [pending, start] = useTransition();
+  // v36: THE UNCLAIMED POOL IS ON NOBODY'S PODIO CYCLE. This card asks a
+  // person to go and refresh a partner on Podio every N days — and an unowned
+  // research name has no person and no partner yet. The cron already skips
+  // unowned rows for the same reason (v34.1: nobody submits a name nobody has
+  // been given), so rendering the card here would be a countdown against a
+  // deadline nothing enforces.
+  if (!account.function) return null;
   const every = account.podio_update_every_days ?? podioDefaultDays(account.function);
   const [days, setDays] = useState(String(every));
   const anchor = new Date(account.podio_updated_at ?? account.created_at);
@@ -1687,8 +1711,11 @@ function TimelineCard({
   /** the account's own creation — the oldest entry of the History (v31) */
   creation: AccountCreationEntry | null;
   canEdit: boolean;
-  /** the account's function — decides which fields a deal EDIT shows (v33.19) */
-  fn: AccountFunction;
+  /** the account's function — decides which fields a deal EDIT shows (v33.19).
+   *  v36: nullable for the unclaimed pool. Such a row has no deals to edit —
+   *  recordDeal refuses an unassigned account — so the null never reaches a
+   *  product decision; it is typed honestly rather than asserted away. */
+  fn: AccountFunction | null;
   /** present when the viewer may report pending visits — makes their rows clickable */
   onReportVisit?: (visitId: string) => void;
   /** present when the viewer may MOVE a booked visit (v33.18) */
@@ -1878,7 +1905,11 @@ function TimelineCard({
           onOpenChange={(o) => { if (!o) setEditAttempt(null); }}
         />
       ) : null}
-      {editDeal ? (
+      {/* v36: `fn` is nullable for the unclaimed pool, but a DEAL cannot exist
+          on one — an unassigned account is refused by recordDeal — so having
+          an editDeal at all already implies a function. The guard states that
+          implication instead of asserting it away, and costs nothing. */}
+      {editDeal && fn ? (
         <DealEditDialog
           key={editDeal.deal.id}
           deal={editDeal.deal}

@@ -1,19 +1,28 @@
 import { describe, it, expect } from "vitest";
 import type { SignupRow } from "@/lib/types";
 import {
+  accountFnTargets,
   accountScope,
   allowedAccountFunctions,
+  bookableTouchPointScopes,
+  canBookTouchPoint,
+  canCheckPodio,
   canEditAccount,
+  canFilePdpFor,
+  canReadPdp,
   canReassignAccount,
   canEditRequestState,
   canFilterUnassigned,
   canSeeCvPool,
   canSeeLcConcerns,
   canSeeUnassigned,
+  canSeeUnownedPool,
   canEditAttendanceRowOf,
   canRecordAttendance,
   canUseMailboxTab,
+  claimTargetFunction,
   hasPodioAccess,
+  hasTmAccess,
   calendarItemScopes,
   canUseAdminTools,
   canViewAccount,
@@ -23,12 +32,17 @@ import {
   hasConsiderationAccess,
   hasRaisingAccess,
   isClaimableAccount,
+  isMm,
+  leadsTeam,
+  memberIsMm,
   ogxLanes,
   ogxFunctions,
+  openTargetFunctions,
   openViewFunctions,
   raisingFunctions,
   scopeFunctions,
   seesEveryLane,
+  worksIcxRaisingOrB2b,
   type Viewer,
 } from "@/lib/rbac";
 
@@ -65,12 +79,25 @@ const member = (over: Partial<Viewer> = {}): Viewer =>
     ...over,
   }) as Viewer;
 
-const account = (over: Partial<{ function: string; responsible_id: string | null; out_of_process: boolean }> = {}) => ({
-  function: "IGV",
-  responsible_id: "someone-else",
+const account = (
+  over: Partial<{
+    function: string | null;
+    responsible_id: string | null;
+    out_of_process: boolean;
+  }> = {}
+) => ({
+  function: "IGV" as string | null,
+  responsible_id: "someone-else" as string | null,
   out_of_process: false,
   ...over,
 });
+
+/** A ROW OF THE UNOWNED RESEARCH POOL (v36): nobody's, and carrying NO
+ *  function at all — the shape 229 live accounts took in migration 0073.
+ *  Nothing pinned this before, because every fixture in this file passed a
+ *  concrete function string, so the whole pool was untested. */
+const poolRow = (over: Partial<{ out_of_process: boolean }> = {}) =>
+  account({ function: null, responsible_id: null, ...over });
 
 // real archetypes from the LC
 const igvRaiser = member({ id: "igv1", functions: ["IGV"], sub_functions: ["Raising"] });
@@ -549,5 +576,250 @@ describe("the Emails tab belongs to everyone (v33.41)", () => {
     expect(canUseMailboxTab(igvRaiser)).toBe(true);
     expect(canUseMailboxTab(ogvMm)).toBe(true);
     expect(canUseMailboxTab(lcp)).toBe(true);
+  });
+});
+
+/** THE UNOWNED POOL CARRIES NO FUNCTION (v36, migration 0073).
+ *
+ *  Everything above passed a concrete function string, so the pool — 229 live
+ *  rows of imported market research — was the one shape the engine had never
+ *  been asked about. These pin both halves: a function-less row is still
+ *  reachable by the people who distribute it, and it never sneaks through a
+ *  test that was written assuming a function is there. */
+describe("a row nobody owns and nobody has labelled", () => {
+  const igvTl = member({ id: "tl-igv", role: "Team Leader", functions: ["IGV"], sub_functions: ["Raising"] });
+  const b2cMember = member({ id: "b2c1", role: "Member", functions: ["B2C"], sub_functions: ["B2C"] });
+
+  it("a VP can still open and work it — a function scope matches no function", () => {
+    // the regression this guards: `accountScope` hands a leader a LIST OF
+    // FUNCTIONS, and an unowned row belongs to none of them. Before the claim
+    // check was hoisted above that branch, the people whose job is to hand the
+    // pool out were the only ones locked out of it.
+    expect(canViewAccount(igvVp, poolRow())).toBe(true);
+    expect(canEditAccount(igvVp, poolRow())).toBe(true);
+    expect(canReassignAccount(igvVp, poolRow())).toBe(true);
+  });
+
+  it("an MM and a plain Member can each still take one", () => {
+    expect(isClaimableAccount(igvTl, poolRow())).toBe(true);
+    expect(isClaimableAccount(igvRaiser, poolRow())).toBe(true);
+    expect(canEditAccount(igvRaiser, poolRow())).toBe(true);
+  });
+
+  it("claiming it STAMPS THE CLAIMER'S function — there is none to keep", () => {
+    expect(claimTargetFunction(igvRaiser, poolRow())).toBe("IGV");
+    expect(claimTargetFunction(igtVp, poolRow())).toBe("IGT");
+    expect(claimTargetFunction(b2cMember, poolRow())).toBe("B2C");
+    // somebody who may create nothing claims nothing
+    expect(claimTargetFunction(ogvMm, poolRow())).toBe(null);
+  });
+
+  it("owned accounts are untouched by the hoisted claim check", () => {
+    // the claim path can only ever fire on a row with no responsible, so no
+    // owned account changed hands as a side effect of making the pool visible
+    expect(canEditAccount(igtVp, account({ function: "IGV" }))).toBe(false);
+    expect(canEditAccount(igvRaiser, account({ responsible_id: "other" }))).toBe(false);
+    expect(canReassignAccount(igvRaiser, account({ responsible_id: "other" }))).toBe(false);
+  });
+
+  it("has nothing to relabel, no product to raise for and no Podio errand", () => {
+    expect(accountFnTargets(igvVp, poolRow())).toEqual([]);
+    expect(openTargetFunctions({ function: null })).toEqual([]);
+    // v34.1's rule, carried over: nobody submits a name nobody has been given
+    expect(canCheckPodio(igvTl, poolRow())).toBe(false);
+  });
+
+  it("an ARCHIVED unowned row stays out of everything", () => {
+    expect(isClaimableAccount(igvTl, poolRow({ out_of_process: true }))).toBe(false);
+    expect(canEditAccount(igvRaiser, poolRow({ out_of_process: true }))).toBe(false);
+  });
+});
+
+describe("who sees the unowned pool (v36 — ask #9)", () => {
+  const igvTl = member({ id: "tl-igv", role: "Team Leader", functions: ["IGV"], sub_functions: ["Raising"] });
+  const igvCoord = member({ id: "co-igv", role: "Coordinator", functions: ["IGV"], sub_functions: ["Raising"] });
+  const b2bTl = member({ id: "tl-b2b", role: "Team Leader", functions: ["B2B", "BD"], sub_functions: ["BD"] });
+  const b2cCoord = member({ id: "co-b2c", role: "Coordinator", functions: ["B2C"], sub_functions: ["B2C"] });
+
+  it("MMs and the ICX/B2B leaders do", () => {
+    expect(canSeeUnownedPool(igvTl)).toBe(true);
+    expect(canSeeUnownedPool(igvCoord)).toBe(true);
+    expect(canSeeUnownedPool(b2bTl)).toBe(true);
+    expect(canSeeUnownedPool(igvVp)).toBe(true);
+    expect(canSeeUnownedPool(bdDirector)).toBe(true);
+    expect(canSeeUnownedPool(lcp)).toBe(true);
+  });
+
+  it("plain Members never do — the pool is a distribution problem", () => {
+    expect(canSeeUnownedPool(igvRaiser)).toBe(false);
+  });
+
+  it("B2C never does — its accounts are a different world (v23.2)", () => {
+    // an unowned row is ICX market research; B2C sells courses and events and
+    // has never had one, so putting the queue in front of them is only noise
+    expect(canSeeUnownedPool(b2cDirector)).toBe(false);
+    expect(canSeeUnownedPool(b2cCoord)).toBe(false);
+  });
+
+  it("neither does a consideration-only member or an OGX MM", () => {
+    expect(canSeeUnownedPool(igvConsid)).toBe(false);
+    expect(canSeeUnownedPool(ogvMm)).toBe(false);
+  });
+
+  it("the older name is the SAME rule, so the two can never drift", () => {
+    for (const v of [igvTl, igvCoord, igvVp, igvRaiser, b2cDirector, lcp]) {
+      expect(canSeeUnassigned(v)).toBe(canSeeUnownedPool(v));
+      expect(canFilterUnassigned(v)).toBe(canSeeUnownedPool(v));
+    }
+  });
+
+  it("names the crews who share the research", () => {
+    expect(worksIcxRaisingOrB2b(igvRaiser)).toBe(true);
+    expect(worksIcxRaisingOrB2b(igtVp)).toBe(true);   // a leader owns both sides
+    expect(worksIcxRaisingOrB2b(bdDirector)).toBe(true);
+    expect(worksIcxRaisingOrB2b(igvConsid)).toBe(false); // they work LCs, not companies
+    expect(worksIcxRaisingOrB2b(b2cDirector)).toBe(false);
+    expect(worksIcxRaisingOrB2b(ogvMm)).toBe(false);
+  });
+});
+
+/** A COORDINATOR IS AN MM WITH NO TEAM (v36, ask #6).
+ *
+ *  The product owner's ruling, verbatim: "Exists on the report as MM too but
+ *  with no team, cant book touch points." Two questions that used to be one. */
+describe("Coordinators", () => {
+  const coord = member({ id: "co", role: "Coordinator", functions: ["IGV"], sub_functions: ["Raising"] });
+
+  it("IS an MM — and is counted as one wherever MMs are counted", () => {
+    expect(isMm(coord)).toBe(true);
+    expect(memberIsMm({ role: "Coordinator" })).toBe(true);
+    expect(isMm(tl)).toBe(true);
+    expect(memberIsMm({ role: "Team Leader" })).toBe(true);
+  });
+
+  it("is not something anyone else is", () => {
+    for (const v of [igvRaiser, igvVp, b2cDirector, lcp, pureAdmin]) {
+      expect(isMm(v)).toBe(false);
+    }
+  });
+
+  it("NEVER leads a team — no team card, no rollup, no leaderboard row", () => {
+    expect(leadsTeam(coord)).toBe(false);
+    expect(leadsTeam(tl)).toBe(true);
+    // a leader's team IS the function; they lead no team in this sense
+    expect(leadsTeam(igvVp)).toBe(false);
+    expect(leadsTeam(lcp)).toBe(false);
+  });
+
+  it("a Team Leader with nobody under them still leads a team (the SEAT)", () => {
+    // two of the LC's fourteen TLs have no reports today; emptiness is a
+    // different question, asked with teamMemberIds.length
+    const emptyTl = member({ id: "tl-empty", role: "Team Leader", functions: ["OGT"], teamMemberIds: [] });
+    expect(leadsTeam(emptyTl)).toBe(true);
+  });
+
+  it("BOOKS NO TOUCH POINT — deliberately, because there is no team to book for", () => {
+    expect(bookableTouchPointScopes(coord)).toEqual([]);
+    expect(canBookTouchPoint(coord, "team")).toBe(false);
+    expect(canBookTouchPoint(coord, "function")).toBe(false);
+    expect(canBookTouchPoint(coord, "lc")).toBe(false);
+    // …while the Team Leader beside them keeps exactly their one scope
+    expect(bookableTouchPointScopes(tl)).toEqual(["team"]);
+  });
+
+  it("but a Coordinator inside TM is TM CORE, and books the LC's points", () => {
+    // the exception that already existed and must survive the rule above:
+    // TM's Coordinator runs LC sessions, which is not their own team
+    const tmCoord = member({ id: "co-tm", role: "Coordinator", functions: ["TM"], sub_functions: ["TM"] });
+    expect(bookableTouchPointScopes(tmCoord)).toEqual(["lc"]);
+  });
+});
+
+/** THE PDP / O2O PERMISSIONS (v36, ask #3).
+ *
+ *  A PDP is a leader writing down what they and one of their people agreed
+ *  about that person's month. Who may WRITE one and who may READ one are
+ *  different questions, and both are narrower than they look. */
+describe("filing a PDP", () => {
+  const vp = member({ id: "vp", role: "LCVP", functions: ["IGV"], sub_functions: ["Raising"] });
+  const mm = member({ id: "mm", role: "Team Leader", functions: ["IGV"], sub_functions: ["Raising"], stakeholder_id: "vp" });
+  const memberOfMm = member({ id: "mem", role: "Member", functions: ["IGV"], sub_functions: ["Raising"], stakeholder_id: "mm" });
+  const otherMm = member({ id: "mm2", role: "Team Leader", functions: ["IGT"], sub_functions: ["Raising"], stakeholder_id: "vp" });
+
+  it("the cascade: a VP files for their MMs, an MM for their own members", () => {
+    expect(canFilePdpFor(vp, mm)).toBe(true);
+    expect(canFilePdpFor(mm, memberOfMm)).toBe(true);
+  });
+
+  it("nobody files for somebody else's person", () => {
+    expect(canFilePdpFor(otherMm, memberOfMm)).toBe(false);
+    expect(canFilePdpFor(memberOfMm, mm)).toBe(false);
+    // the VP is the MM's leader, not the member's — the cascade has one step
+    expect(canFilePdpFor(vp, memberOfMm)).toBe(false);
+  });
+
+  it("NOBODY files their own, whatever their rank", () => {
+    // a PDP is a conversation somebody else holds with you; a self-filed one
+    // would let a leader tick their own box while their people wait
+    expect(canFilePdpFor(mm, mm)).toBe(false);
+    expect(canFilePdpFor(lcp, lcp)).toBe(false);
+    expect(canFilePdpFor(tmVp, tmVp)).toBe(false);
+  });
+
+  it("TM and the LCP can file for anyone — they own the process", () => {
+    expect(canFilePdpFor(tmVp, memberOfMm)).toBe(true);
+    expect(canFilePdpFor(lcp, mm)).toBe(true);
+  });
+
+  it("F&L's LCP-level data access does NOT reach people's plans", () => {
+    const fnl = member({ id: "fnl1", role: "Member", functions: ["F&L"] });
+    expect(accountScope(fnl)).toEqual({ kind: "all" }); // every account, still
+    expect(canFilePdpFor(fnl, memberOfMm)).toBe(false); // and none of this
+  });
+});
+
+describe("reading a PDP", () => {
+  // filed by the MM (author) for their member (subject); the MM answers to a VP
+  const read = (v: Viewer) => canReadPdp(v, "mem", "mm", "mm", "vp");
+  const vp = member({ id: "vp", role: "LCVP", functions: ["IGV"], sub_functions: ["Raising"] });
+  const mm = member({ id: "mm", role: "Team Leader", functions: ["IGV"], sub_functions: ["Raising"] });
+  const subject = member({ id: "mem", role: "Member", functions: ["IGV"], sub_functions: ["Raising"] });
+
+  it("the member, their leader and that leader's leader", () => {
+    expect(read(subject)).toBe(true);
+    expect(read(mm)).toBe(true);
+    expect(read(vp)).toBe(true);
+  });
+
+  it("a re-parented member's NEW manager reads it even if they didn't write it", () => {
+    // the author left mid-cycle and somebody else picked the person up: the
+    // plan is still the member's, and their leader has to be able to read it
+    const newMm = member({ id: "mm-new", role: "Team Leader", functions: ["IGV"] });
+    expect(canReadPdp(newMm, "mem", "old-author", "mm-new", null)).toBe(true);
+  });
+
+  it("nobody else in the LC — not a teammate, not another function's VP", () => {
+    expect(read(igvRaiser)).toBe(false);
+    expect(read(igtVp)).toBe(false);
+    expect(read(b2cDirector)).toBe(false);
+    expect(read(pureAdmin)).toBe(false);
+  });
+
+  it("TM's crew and the LCP, and DELIBERATELY NOT every TM member", () => {
+    // hasTmAccess opens the members DIRECTORY to the whole function, which is
+    // right for names and KPIs and wrong for someone's own account of what
+    // they are struggling with
+    expect(read(tmVp)).toBe(true);
+    expect(read(lcp)).toBe(true);
+    const tmMember = member({ id: "tm-mem", role: "Member", functions: ["TM"] });
+    expect(hasTmAccess(tmMember)).toBe(true);
+    expect(read(tmMember)).toBe(false);
+    const tmCoord = member({ id: "tm-co", role: "Coordinator", functions: ["TM"] });
+    expect(read(tmCoord)).toBe(true);
+  });
+
+  it("F&L reads every account in the LC and none of its PDPs (v33.31's line)", () => {
+    expect(read(flVp)).toBe(false);
+    expect(read(member({ id: "fnl2", role: "Member", functions: ["F&L"] }))).toBe(false);
   });
 });

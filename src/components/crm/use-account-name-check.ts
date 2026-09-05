@@ -27,7 +27,12 @@ export interface NameCheck {
  */
 export function useAccountNameCheck(
   name: string,
-  fn: string,
+  // v36: nullable — an unclaimed research name has no function yet. The server
+  // treats NULL as the ICX world, exactly as the uniqueness index does
+  // (0073: `when function is null then 'icx'`), so an unclaimed name still
+  // collides with the active ICX names it could be claimed as. That is the
+  // point: it stops the same company being researched twice.
+  fn: string | null,
   opts?: { excludeId?: string }
 ) {
   const excludeId = opts?.excludeId;

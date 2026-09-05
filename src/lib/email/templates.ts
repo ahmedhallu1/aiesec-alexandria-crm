@@ -1,5 +1,8 @@
 import { env } from "@/lib/env";
 import { fmtClock12, ROLE_BLURBS } from "@/lib/types";
+// TYPE-ONLY: `core-rankings` is a plain module (deliberately not `server-only`,
+// see its header), but this import is a type anyway — nothing it does runs here.
+import type { CoreProgramRanking } from "@/lib/core-rankings";
 
 /** THE HOUSE EMAIL (v33.24 rebuild).
  *
@@ -580,7 +583,20 @@ export function feedbackThanksEmail(opts: {
  *  the person who can actually act on it: the owner.
  *
  *  Accounts arrive in two groups because they are two different asks — "this
- *  is due" and "we said this a week ago". */
+ *  is due" and "we said this a week ago".
+ *
+ *  ⚠️ WHO IT REACHES CHANGED IN v36, and the copy had to follow. It used to go
+ *  to the responsible AND every VP/Director of the function. The rule now, from
+ *  the product owner: **an account held by a Member is chased through that
+ *  member's Team Leader; an account held by a Team Leader is chased with that
+ *  Team Leader; no VPs on it at all.** A VP does not refresh accounts on Podio,
+ *  and putting them on the daily digest only taught them to filter it.
+ *
+ *  So the recipient is not always the owner any more, and an email that opens
+ *  "these are yours" to somebody's Team Leader is simply wrong. Pass
+ *  `ownerName` on any account the RECIPIENT does not personally hold, and the
+ *  whole email — subject, greeting, each row, and the line saying why they got
+ *  it — switches to the team voice. Leave it null and nothing changes. */
 export interface PodioDueAccount {
   name: string;
   fn: string;
@@ -588,6 +604,10 @@ export interface PodioDueAccount {
   /** 0 = due today; >0 = this many days late */
   daysOverdue: number;
   everyDays: number;
+  /** The responsible's name, when that is NOT the person being emailed — i.e.
+   *  a Team Leader getting one of their members' accounts. Null/omitted means
+   *  the recipient holds it themselves. */
+  ownerName?: string | null;
 }
 
 export function podioUpdateDigestEmail(opts: {
@@ -598,6 +618,13 @@ export function podioUpdateDigestEmail(opts: {
   stillPending: PodioDueAccount[];
   accountsUrl: string;
 }) {
+  // A "team digest" is simply one carrying at least one account somebody else
+  // holds. Derived rather than passed as a flag, so the copy can never claim
+  // one thing while the rows show another.
+  const all = [...opts.stillPending, ...opts.due];
+  const forOthers = all.filter((a) => a.ownerName);
+  const teamVoice = forOthers.length > 0;
+  const mine = all.length - forOthers.length;
   const total = opts.due.length + opts.stillPending.length;
   const n = (arr: PodioDueAccount[]) => arr.length;
   const worst = Math.max(0, ...[...opts.due, ...opts.stillPending].map((a) => a.daysOverdue));
@@ -612,7 +639,11 @@ export function podioUpdateDigestEmail(opts: {
           (a, i) => `<tr>
         <td style="padding:10px 14px;background:${i % 2 ? "#F7F8FA" : "#ffffff"};border-bottom:1px solid #EDF1F6;">
           <a href="${a.url}" style="color:#5B3BA8;font-weight:700;text-decoration:none;">${escapeHtml(a.name)}</a>
-          <div style="color:#52565E;font-size:12px;">${escapeHtml(a.fn)} · every ${a.everyDays} days</div>
+          <div style="color:#52565E;font-size:12px;">${escapeHtml(a.fn)} · every ${a.everyDays} days${
+            // On a team digest the owner's name is the most useful thing on the
+            // row — it is the person the recipient has to go and ask.
+            a.ownerName ? ` · <b style="color:#0A2540;">${escapeHtml(a.ownerName)}</b>` : ""
+          }</div>
         </td>
         <td style="padding:10px 14px;background:${i % 2 ? "#F7F8FA" : "#ffffff"};border-bottom:1px solid #EDF1F6;text-align:right;white-space:nowrap;color:${a.daysOverdue > 0 ? "#A82A18" : "#52565E"};font-weight:600;">
           ${a.daysOverdue > 0 ? `${a.daysOverdue} day${a.daysOverdue === 1 ? "" : "s"} late` : "due today"}
@@ -622,22 +653,29 @@ export function podioUpdateDigestEmail(opts: {
         .join("")}
     </table>`;
 
+  const whose = teamVoice ? "your team's" : "your";
   const subject =
     n(opts.stillPending) > 0
-      ? `⏰ ${total} account${total === 1 ? "" : "s"} still waiting for a Podio update`
+      ? `⏰ ${total} ${teamVoice ? "team " : ""}account${total === 1 ? "" : "s"} still waiting for a Podio update`
       : worst > 0
-        ? `🔄 ${total} account${total === 1 ? "" : "s"} due on Podio — ${worst} day${worst === 1 ? "" : "s"} late`
-        : `🔄 ${total} account${total === 1 ? "" : "s"} due for a Podio update`;
+        ? `🔄 ${total} ${teamVoice ? "team " : ""}account${total === 1 ? "" : "s"} due on Podio — ${worst} day${worst === 1 ? "" : "s"} late`
+        : `🔄 ${total} ${teamVoice ? "team " : ""}account${total === 1 ? "" : "s"} due for a Podio update`;
 
   return {
     subject,
     html: emailLayout({
-      preheader: `${total} of your account${total === 1 ? "" : "s"} need refreshing on Podio`,
+      preheader: `${total} of ${whose} account${total === 1 ? "" : "s"} need refreshing on Podio`,
       body: `
         <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Podio refresh — ${total} account${total === 1 ? "" : "s"} 🔄</h1>
-        <p>Hey ${escapeHtml(opts.firstName)} — these are yours, and they are due a refresh on
-        Podio. Update each one there, then hit <b>"Updated on Podio"</b> on the account:
-        that resets its countdown and stops the reminder.</p>
+        <p>Hey ${escapeHtml(opts.firstName)} — ${
+          teamVoice
+            ? `these are due a refresh on Podio${mine > 0 ? `, ${mine === 1 ? "one of them yours" : `${mine} of them yours`}` : " and they sit with your people"}.
+               Whoever holds an account updates it on Podio, then hits <b>"Updated on Podio"</b> there:
+               that resets its countdown and stops the reminder.`
+            : `these are yours, and they are due a refresh on Podio.
+               Update each one there, then hit <b>"Updated on Podio"</b> on the account:
+               that resets its countdown and stops the reminder.`
+        }</p>
         ${
           n(opts.stillPending) > 0
             ? `<p style="border-left:4px solid #7552CC;background:#EFEAFA;border-radius:0 8px 8px 0;padding:12px 16px;font-weight:600;">
@@ -646,9 +684,16 @@ export function podioUpdateDigestEmail(opts: {
             : ""
         }
         ${n(opts.due) > 0 ? (n(opts.stillPending) > 0 ? `<p style="margin:22px 0 4px;font-size:13px;font-weight:800;letter-spacing:0.6px;text-transform:uppercase;color:#5B3BA8;">Also due now</p>` : "") + list(opts.due) : ""}
-        ${button("Open my accounts", opts.accountsUrl)}
-        <p style="color:#52565E;font-size:13px;">One email a day, however many accounts are due —
-        never one per account.</p>`,
+        ${button(teamVoice ? "Open the accounts" : "Open my accounts", opts.accountsUrl)}
+        ${/* WHY THIS LANDED ON YOU (v36). The chase now runs through the MM,
+              not the VP — so a Team Leader who has never had this email before
+              is going to ask, and an unexplained daily digest is a digest that
+              gets muted. Say it once, small, at the bottom. */ ""}
+        <p style="color:#52565E;font-size:13px;">${
+          teamVoice
+            ? `You're getting this as the <b>Team Leader</b> on ${forOthers.length === 1 ? "one of these" : "these"} — Podio refreshes are chased through the MM, never the VP. `
+            : ""
+        }One email a day, however many accounts are due — never one per account.</p>`,
     }),
   };
 }
@@ -761,11 +806,18 @@ export function lcShoutoutEmail(opts: {
 
 // ------------------------------------------------------------- period reports
 
-/** Multi-column table for report waterfalls (detailsTable is 2-col only). */
+/** Multi-column table for report waterfalls (detailsTable is 2-col only).
+ *
+ *  `html: true` is the same escape hatch `detailsTable` has carried since
+ *  v33.54, and it exists for the same reason: a cell that needs a second line
+ *  in smaller type, or an emphasis span, cannot survive `escapeHtml`. It means
+ *  **the CALLER has already escaped every piece of every cell** and is
+ *  supplying markup deliberately. Default off, so all four existing call sites
+ *  keep the escaping they were written against. */
 export function gridTable(
   headers: string[],
   rows: (string | number)[][],
-  opts: { boldRows?: number[]; indentCol0?: number[] } = {}
+  opts: { boldRows?: number[]; indentCol0?: number[]; html?: boolean } = {}
 ): string {
   const th = headers
     .map(
@@ -781,7 +833,7 @@ export function gridTable(
         .map((c, ci) => {
           const base = `padding:6px 9px;font-size:13px;border-bottom:1px solid #eef3fa;${ci === 0 ? `text-align:left;${indent ? "padding-left:24px;color:#5c6b80;" : ""}` : "text-align:center;"}`;
           const weight = bold ? "font-weight:bold;background:#EFEAFA;" : "";
-          return `<td style="${base}${weight}">${escapeHtml(String(c))}</td>`;
+          return `<td style="${base}${weight}">${opts.html ? String(c) : escapeHtml(String(c))}</td>`;
         })
         .join("")}</tr>`;
     })
@@ -791,8 +843,234 @@ export function gridTable(
   </table></div>`;
 }
 
+/** A section heading, in the report's own small-caps violet. Repeated five
+ *  times below, and it was five copies of the same 180-character style
+ *  attribute before this. */
+function reportHeading(text: string): string {
+  return `<p style="margin:22px 0 4px;font-size:13px;font-weight:800;letter-spacing:0.6px;text-transform:uppercase;color:${BRAND.purpleDeep};">${escapeHtml(text)}</p>`;
+}
+
+// ------------------------------------------------- CORE national rankings (v36)
+
+/** WHERE THE LC ACTUALLY STANDS IN EGYPT (ask #4).
+ *
+ *  The period report has always answered "what did we do", and never "how does
+ *  that compare to the other twenty-odd entities doing the same job". CORE
+ *  publishes exactly that, in public, and the LC has been reading it by hand.
+ *
+ *  TWO NUMBERS, BOTH REQUIRED, and this is the whole design:
+ *   - CORE's own **top-10 board** per programme, printed in CORE's order with
+ *     Alexandria highlighted when she is on it, because that is the board the
+ *     floor already recognises from the site;
+ *   - Alexandria's **exact rank out of every Egyptian entity**, because
+ *     "outside the top 10" is not something anybody can act on, and on some
+ *     programmes that is genuinely where she sits.
+ *  Printing only the first is the failure this section exists to remove.
+ *
+ *  APPROVALS ONLY, and **term-to-date**: CORE is cumulative over the whole
+ *  term (1 Feb → 31 Jan), so it does NOT describe the sprint the rest of this
+ *  email describes. Every heading and the footnote say so in as many words —
+ *  a rank sitting under a sprint's numbers is otherwise read as the sprint's
+ *  rank, which would be wrong by a factor of a whole peak.
+ *
+ *  ⚠️ `gridTable`'s `html` hatch is on here, so **everything interpolated into
+ *  a cell below goes through `escapeHtml` first** — CORE's entity names are
+ *  somebody else's strings (`Luxor & Aswan (Closed)`) and one of them will
+ *  eventually contain a character that matters. */
+export interface ReportCoreRankings {
+  /** Already narrowed to the programmes this function is judged on, by
+   *  `rankingsForFunction()`. `null` means CORE could not be read at all when
+   *  the report was built — the section still prints, saying exactly that. */
+  programs: CoreProgramRanking[] | null;
+  /** CORE's own term label ("Term 26.27 · to date"). Null alongside a null
+   *  `programs`, since it is read off the same pages. */
+  termLabel: string | null;
+}
+
+/** One programme's board + Alexandria's exact standing. */
+function coreProgramBlock(p: CoreProgramRanking): string {
+  const alex = p.alexandria;
+
+  // The sentence first, the board under it: the rank is the thing somebody
+  // reads the section for, and burying it under ten rows of other LCs is how
+  // it gets skipped.
+  let standing: string;
+  if (!alex) {
+    // Her row exists in the Egyptian table but carries no number for this
+    // programme (or the row is missing entirely). Say that, rather than
+    // printing a board with no "us" in it and letting the reader guess.
+    standing = `CORE's Egyptian table carries no ${escapeHtml(p.program)} approvals for Alexandria right now.`;
+  } else {
+    const tied =
+      alex.tiedWith && alex.tiedWith.length > 0
+        ? ` — tied with ${escapeHtml(alex.tiedWith.slice(0, 3).join(", "))}${alex.tiedWith.length > 3 ? ` and ${alex.tiedWith.length - 3} more` : ""}`
+        : "";
+    standing =
+      `<b>Alexandria is #${alex.rank} of ${alex.of}</b> Egyptian entities on ` +
+      `${escapeHtml(p.program)} approvals — <b>${alex.approvals.toLocaleString("en")}</b> approved, term to date${tied}.` +
+      // CORE's own board sometimes orders a tie by something it does not
+      // publish (oGV: Zagazig and Alexandria both on 53, printed 5th and
+      // 6th). The two disagreeing IS the fact — see rankIn() in
+      // core-rankings.ts — so it is stated, not smoothed over.
+      (alex.boardRank && alex.boardRank !== alex.rank
+        ? ` <span style="color:#7b8794;">(CORE's own board prints her ${alex.boardRank}${ordinalSuffix(alex.boardRank)} — it breaks ties by something it doesn't publish.)</span>`
+        : "") +
+      (alex.inTop10 ? "" : ` She is <b>not</b> on CORE's top 10 for this programme.`);
+  }
+
+  // The board itself. CORE draws it horizontally, ten columns wide; an email
+  // read on a phone cannot carry that, so it is transposed to ten rows.
+  const rows: (string | number)[][] = p.top.map((r) => [
+    `#${r.rank}`,
+    escapeHtml(r.lc),
+    r.approvals.toLocaleString("en"),
+  ]);
+  const boldRows = p.top
+    .map((r, i) => (r.isAlexandria ? i : -1))
+    .filter((i) => i >= 0);
+
+  // Off the board but ranked: print her line anyway, under a gap, so the
+  // reader can see the distance instead of being told she is "outside".
+  if (alex && !alex.inTop10 && rows.length > 0) {
+    rows.push(["", `<span style="color:#8E97A6;">⋯</span>`, ""]);
+    rows.push([
+      `#${alex.rank}`,
+      `<b>Alexandria</b>`,
+      alex.approvals.toLocaleString("en"),
+    ]);
+    boldRows.push(rows.length - 1);
+  }
+
+  return `
+    <p style="margin:16px 0 2px;font-weight:700;color:${BRAND.ink};">${escapeHtml(p.program)}</p>
+    <p style="margin:0;font-size:13px;color:#5c6b80;line-height:1.65;">${standing}</p>
+    ${
+      rows.length > 0
+        ? gridTable(["#", "Entity", "Approved"], rows, { boldRows, html: true })
+        : `<p style="margin:6px 0 0;font-size:13px;color:#8E97A6;">CORE's top-10 board had no ${escapeHtml(p.program)} row when this report was built.</p>`
+    }`;
+}
+
+function ordinalSuffix(n: number): string {
+  const t = n % 100;
+  if (t >= 11 && t <= 13) return "th";
+  return ["th", "st", "nd", "rd"][n % 10] ?? "th";
+}
+
+/** The whole section. Returns "" only when the caller passed nothing at all —
+ *  a function with no CORE programme (B2C). Every other outcome, failures
+ *  included, prints something: a section that quietly vanishes reads as a
+ *  missing rank, which is the one thing this must never do. */
+export function coreRankingsSection(core: ReportCoreRankings | null | undefined): string {
+  if (!core) return "";
+
+  // Both branches land here: CORE unreachable, and CORE read but carrying no
+  // row for any of this function's programmes. They are the same fact to a
+  // reader — "we could not tell you where you stand" — and collapsing them
+  // keeps the email from explaining our own HTML parser to the floor.
+  if (!core.programs || core.programs.length === 0) {
+    return `
+      ${reportHeading("Where we stand nationally")}
+      <p style="border-left:4px solid #8E97A6;background:#F3F5F8;border-radius:0 8px 8px 0;padding:12px 16px;font-size:13px;color:#52565E;margin:6px 0 0;">
+        ⚠️ <b>CORE was unreachable when this report was built</b>, so the national
+        rankings are missing from this one — not zero, missing. They are live at
+        <a href="https://core.aiesec.org.eg" style="color:${BRAND.purpleDeep};font-weight:700;text-decoration:none;">core.aiesec.org.eg</a>.
+      </p>`;
+  }
+
+  return `
+    ${reportHeading("Where we stand nationally")}
+    <p style="margin:0 0 2px;color:#5c6b80;font-size:13px;">
+      From CORE, <b>approvals only</b>${core.termLabel ? ` · ${escapeHtml(core.termLabel)}` : " · term to date"}.
+      These are <b>cumulative for the whole term</b>, not for the period above — they answer
+      “where does the LC stand in Egypt”, not “how did this sprint go”.
+    </p>
+    ${core.programs.map(coreProgramBlock).join("")}`;
+}
+
+// ---------------------------------------------- consideration (v36, ask #8)
+
+/** THE OTHER HALF OF AN ICX FUNCTION.
+ *
+ *  IGV and IGT each carry two crews doing two different jobs: raising (accounts,
+ *  visits, opens) and consideration (IR calls, partner LCs, CVs). The report has
+ *  only ever counted the first — so the 11 consideration-only members appeared in
+ *  every sprint and month waterfall as raisers with 0 MR, 0 contacts, 0 visits,
+ *  0 deals and 0 opens. They were not failing; they were being measured against
+ *  somebody else's job.
+ *
+ *  One report, two sections: the waterfall above is raising, this is
+ *  consideration, and the 8 members who genuinely do BOTH appear in both — which
+ *  is the truth, and is why the footnote says so out loud. A reader adding the
+ *  two crew sizes together would otherwise count those 8 twice.
+ *
+ *  The numbers are LIVE (calls done, LCs reached, partnerships made), never the
+ *  member's own filed plan — reviewing somebody against their own target and
+ *  calling it an achievement is the defect this replaces. */
+export interface ConsiderationSection {
+  /** label · value · optional "▲ 3 vs last sprint (5)" note — same shape as
+   *  the function KPI list, so both render through `detailsTable`. */
+  kpis: [string, string, string?][];
+  headers: string[];
+  rows: (string | number)[][];
+  boldRows?: number[];
+  /** how many of this function's people carry BOTH jobs — drives the footnote */
+  bothCount: number;
+  /** how many are consideration-only (and are therefore NOT in the waterfall) */
+  onlyCount: number;
+}
+
+export function considerationSection(
+  c: ConsiderationSection | null | undefined,
+  periodLabel: string
+): string {
+  if (!c) return "";
+  const crew = c.bothCount + c.onlyCount;
+  return `
+    ${reportHeading("Consideration — the other half of this function")}
+    <p style="margin:0 0 6px;color:#5c6b80;font-size:13px;">
+      ${crew === 0
+        ? "Nobody in this function is on consideration right now."
+        : `${crew} ${crew === 1 ? "person" : "people"} here work consideration${
+            c.onlyCount > 0
+              ? ` — ${c.onlyCount} of them ${c.onlyCount === 1 ? "does" : "do"} only that, so ${c.onlyCount === 1 ? "they are" : "they are"} deliberately absent from the raising waterfall above`
+              : ""
+          }.`}
+      These are live numbers for ${escapeHtml(periodLabel)}, not filed plans.
+    </p>
+    ${
+      c.kpis.length > 0
+        ? detailsTable(
+            c.kpis.map(([l, v, note]) => [
+              l,
+              note
+                ? `${escapeHtml(v)}<div style="font-size:11px;color:#7b8794;font-weight:500;margin-top:2px;">${escapeHtml(note)}</div>`
+                : escapeHtml(v),
+            ]) as [string, string][],
+            { html: true }
+          )
+        : ""
+    }
+    ${
+      c.rows.length > 0
+        ? gridTable(c.headers, c.rows, { boldRows: c.boldRows })
+        : `<p style="margin:6px 0 0;font-size:13px;color:#8E97A6;">No consideration activity logged in this period.</p>`
+    }
+    ${
+      c.bothCount > 0
+        ? `<p style="margin:8px 0 0;font-size:12px;color:#7b8794;line-height:1.6;">
+             † ${c.bothCount} ${c.bothCount === 1 ? "person appears" : "people appear"} in <b>both</b> sections —
+             ${c.bothCount === 1 ? "they carry" : "they carry"} “Raising, Consideration” and genuinely
+             ${c.bothCount === 1 ? "does" : "do"} two jobs. Don't add the two crews together.
+           </p>`
+        : ""
+    }`;
+}
+
 /** v21 — the per-function period report (sprint / month / quarter): function
- *  totals, plan-vs-achieved, then the waterfall (each team → each member). */
+ *  totals, plan-vs-achieved, then the waterfall (each team → each member).
+ *  v36 adds CORE's national rankings between the two, and a consideration
+ *  section under the waterfall for the ICX functions. */
 export function periodReportEmail(opts: {
   functionLabel: string;
   periodKind: "sprint" | "month" | "quarter";
@@ -806,6 +1084,14 @@ export function periodReportEmail(opts: {
   boldRows: number[];
   indentRows: number[];
   mmPlanLines?: string[];
+  /** v36 — CORE's national rankings, already narrowed to this function's
+   *  programmes. Omit it entirely for a function CORE has no programme for
+   *  (B2C); pass `{ programs: null }` when CORE could not be read, and the
+   *  section says so rather than disappearing. */
+  core?: ReportCoreRankings | null;
+  /** v36 — the consideration crew's live numbers, under the raising
+   *  waterfall. Omitted on B2B/BD and OGX, which have no consideration side. */
+  consideration?: ConsiderationSection | null;
   dashboardUrl: string;
 }): { subject: string; html: string } {
   const kindLabel =
@@ -818,7 +1104,7 @@ export function periodReportEmail(opts: {
         <h2 style="margin:0 0 4px;">${escapeHtml(opts.functionLabel)} · ${kindLabel}</h2>
         <p style="margin:0 0 14px;color:#5c6b80;">${escapeHtml(opts.periodLabel)}</p>
         ${opts.planLine ? `<p style="border-left:4px solid #7552CC;background:#EFEAFA;border-radius:0 8px 8px 0;padding:12px 16px;font-weight:600;">${escapeHtml(opts.planLine)}</p>` : ""}
-        <p style="margin:18px 0 4px;font-size:13px;font-weight:800;letter-spacing:0.6px;text-transform:uppercase;color:#5B3BA8;">Function totals</p>
+        ${reportHeading("Function totals")}
         ${detailsTable(
           opts.kpis.map(([l, v, note]) => [
             l,
@@ -828,17 +1114,37 @@ export function periodReportEmail(opts: {
           ]) as [string, string][],
           { html: true }
         )}
-        <p style="margin:22px 0 4px;font-size:13px;font-weight:800;letter-spacing:0.6px;text-transform:uppercase;color:#5B3BA8;">The waterfall — every team, every person</p>
-        <p style="margin:0 0 6px;color:#5c6b80;font-size:13px;">Bold rows are team totals; the rows under them are that team's people.</p>
+        ${/* CORE sits BETWEEN the totals and the waterfall on purpose: the
+              two questions a reader has after seeing a number are "compared
+              to last sprint" (answered on the card itself) and "compared to
+              the rest of Egypt" — and only then "who did what". */ ""}
+        ${coreRankingsSection(opts.core)}
+        ${reportHeading("The waterfall — every team, every person")}
+        <p style="margin:0 0 6px;color:#5c6b80;font-size:13px;">Bold rows are team totals; the rows under them are that team's people.${
+          opts.consideration && opts.consideration.onlyCount > 0
+            ? ` This is the <b>raising</b> crew — the consideration section below carries the rest.`
+            : ""
+        }</p>
         ${gridTable(opts.waterfallHeaders, opts.waterfallRows, { boldRows: opts.boldRows, indentCol0: opts.indentRows })}
+        ${considerationSection(opts.consideration, opts.periodLabel)}
         ${
           opts.mmPlanLines && opts.mmPlanLines.length > 0
-            ? `<p style="margin:22px 0 4px;font-size:13px;font-weight:800;letter-spacing:0.6px;text-transform:uppercase;color:#5B3BA8;">MM plans this period</p>
+            ? `${reportHeading("MM plans this period")}
                <ul style="margin:6px 0;padding-left:20px;">${opts.mmPlanLines.map((l) => `<li style="margin:5px 0;">${escapeHtml(l)}</li>`).join("")}</ul>`
             : ""
         }
         ${button("Open the dashboard", opts.dashboardUrl)}
-        <p style="margin:14px 0 0;color:#5c6b80;font-size:13px;">Numbers cover ${escapeHtml(opts.periodLabel)} only. Questions? Ask The Violet Man. 🔵</p>`,
+        ${/* THE BLUE DOT IS GONE (v36, ask #5). This line ended every period
+              report with 🔵 — the only blue circle left in src/ — under a
+              name that has been VIOLET since v34. 🚶 is what the mascot
+              actually is: the walking artwork, and the emoji the chat
+              greeting, the profile card and the assistant's own prompt have
+              used all along. */ ""}
+        <p style="margin:14px 0 0;color:#5c6b80;font-size:13px;">Numbers cover ${escapeHtml(opts.periodLabel)} only${
+          opts.core && opts.core.programs && opts.core.programs.length > 0
+            ? ` — the national rankings above are term-to-date`
+            : ""
+        }. Questions? Ask The Violet Man. 🚶</p>`,
     }),
   };
 }

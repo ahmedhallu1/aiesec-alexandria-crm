@@ -212,7 +212,15 @@ export function allowedAccountFunctions(v: Viewer): AccountFunction[] {
 }
 
 type AccountLike = {
-  function: string;
+  /** NULL = THE UNOWNED RESEARCH POOL (v36) — see `Account.function`.
+   *
+   *  A row nobody has claimed belongs to no crew, so every FUNCTION test
+   *  below is false on it, deliberately: there is no function to match. What
+   *  keeps the pool reachable is `isClaimableAccount`, which asks a different
+   *  question ("is this nobody's, and may you create accounts at all?"), and
+   *  every predicate that must reach the pool routes through it rather than
+   *  through a function comparison. */
+  function: string | null;
   responsible_id: string | null;
   out_of_process?: boolean;
   /** the two fields the Podio worklist turns on (v33.13) */
@@ -229,8 +237,10 @@ export function canViewAccount(v: Viewer, a: AccountLike): boolean {
   // field the queue exists for, never edit or ownership (v33.13)
   if (canCheckPodio(v, a)) return true;
   // the function's leader opened their floor to this viewer's role (v33.32) —
-  // READ ONLY: canEditAccount below is the only thing that grants a change
-  if ((v.openViewFns ?? []).includes(a.function)) return true;
+  // READ ONLY: canEditAccount below is the only thing that grants a change.
+  // An unowned row has no function, so no leader has opened it to anybody:
+  // it is reached through the claim path or not at all.
+  if (a.function != null && (v.openViewFns ?? []).includes(a.function)) return true;
   return canEditAccount(v, a);
 }
 
@@ -266,16 +276,86 @@ export function isClaimableAccount(v: Viewer, a: AccountLike): boolean {
   return master(v) || allowedAccountFunctions(v).length > 0;
 }
 
-/** Who sees the UNOWNED pool at all (v33.2).
+/** AN MM — a Team Leader or a Coordinator (v36).
  *
- *  The imported market research — ~1,300 names nobody has taken — is a
- *  DISTRIBUTION problem, and distribution is an MM's job upward. A plain
- *  Member works the accounts they were given; burying those among a thousand
- *  unowned ones is how a member's own list stops being a to-do list. So:
- *  Team Leaders, Coordinators, Directors, VPs and the LCP — never Members. */
+ *  The product owner's ruling, verbatim: a Coordinator *"exists on the report
+ *  as MM too but with no team, can't book touch points."* So the two questions
+ *  that used to be one are now two: `isMm` is about RANK — the middle
+ *  management layer, the people a VP hands work to and reads a report about —
+ *  and `leadsTeam` below is about whether anybody reports to you. A
+ *  Coordinator is the first and never the second: they are an MM who works
+ *  alone.
+ *
+ *  Everything that counts MMs (reports, drills, the planning cohort, the PDP
+ *  cascade) asks THIS, so a Coordinator stops falling through the gap between
+ *  "not a Team Leader" and "not a plain Member". */
+export function memberIsMm(m: Pick<Member, "role">): boolean {
+  return m.role === "Team Leader" || m.role === "Coordinator";
+}
+
+export function isMm(v: Viewer): boolean {
+  return memberIsMm(v);
+}
+
+/** …AND WHO ACTUALLY LEADS A TEAM. A Coordinator NEVER does (v36).
+ *
+ *  Team card, team rollup, team leaderboard row, team goal, team touch point:
+ *  all of them need people, and a Coordinator has none — production confirms
+ *  it, all four of them carry zero direct reports. Asking `isMm` for those
+ *  would put an empty team on their dashboard and an empty row on everyone
+ *  else's board.
+ *
+ *  It is deliberately about the SEAT, not the headcount: a Team Leader whose
+ *  team is empty this week (two of the fourteen, today) still leads a team and
+ *  still files a team plan. "Is the team empty?" is a different question, and
+ *  `teamMemberIds.length` is where it is asked. */
+export function leadsTeam(v: Viewer): boolean {
+  return v.role === "Team Leader";
+}
+
+/** THE CREWS WHO SHARE THE UNOWNED RESEARCH POOL (v36).
+ *
+ *  Market research is done for the ICX floor: IGV and IGT raise from it, and
+ *  B2B/BD raise from the same names for the whole ICX. B2C does NOT — its
+ *  accounts are courses, events and student activities, a different world with
+ *  its own name space (v23.2), and there has never been an unowned B2C row.
+ *  A consideration-only member is out too: they work partner LCs, not
+ *  companies. */
+export function worksIcxRaisingOrB2b(v: Viewer): boolean {
+  if (isB2B(v)) return true;
+  if (icxFunctions(v).length === 0) return false;
+  // a leader owns both sides of the product function they lead; below the EB
+  // the Sub Function column says which side you work ("ICX" is the legacy
+  // catch-all for raising)
+  if (v.role === "LCVP" || v.role === "Director") return true;
+  return v.sub_functions.some((sf) => sf === "Raising" || sf === "ICX");
+}
+
+/** WHO SEES THE UNOWNED POOL AT ALL (v33.2, re-drawn v36).
+ *
+ *  The imported market research — names nobody has taken — is a DISTRIBUTION
+ *  problem, and distribution is an MM's job upward. A plain Member works the
+ *  accounts they were given; burying those among hundreds of unowned ones is
+ *  how a member's own list stops being a to-do list. So: MMs (Team Leaders
+ *  AND Coordinators), the VPs and Directors of IGV/IGT/B2B/BD, and the LCP.
+ *  Never Members.
+ *
+ *  v36 narrows one thing: the pool now carries NO FUNCTION at all, so "may
+ *  you create accounts somewhere?" stopped being the right question — it let
+ *  a B2C leader into a queue of ICX research they will never work. The gate is
+ *  the crew that owns the research (`worksIcxRaisingOrB2b`). Nothing is lost:
+ *  in production every unowned active account is ICX research (229 of them),
+ *  and B2C has never had one. */
+export function canSeeUnownedPool(v: Viewer): boolean {
+  if (master(v)) return true;
+  if (!worksIcxRaisingOrB2b(v)) return false;
+  return isMm(v) || v.role === "LCVP" || v.role === "Director";
+}
+
+/** The name the rest of the app has called it by since v33.2. ONE rule, not
+ *  two that can drift: whoever may see the pool sees it everywhere. */
 export function canSeeUnassigned(v: Viewer): boolean {
-  if (v.role === "Member") return false;
-  return master(v) || allowedAccountFunctions(v).length > 0;
+  return canSeeUnownedPool(v);
 }
 
 /** Who gets the explicit "— Unassigned" filter option.
@@ -298,7 +378,11 @@ export function claimTargetFunction(
 ): AccountFunction | null {
   const allowed = allowedAccountFunctions(v);
   if (allowed.length === 0) return null;
-  return allowed.includes(a.function as AccountFunction)
+  // THE POOL CARRIES NO FUNCTION (v36), so there is nothing to keep and the
+  // fall-through below is the rule ask #9 asked for in as many words:
+  // claiming an unowned name STAMPS THE CLAIMER'S function on it. The
+  // `includes` test only ever fires for an account that already had one.
+  return a.function != null && allowed.includes(a.function as AccountFunction)
     ? (a.function as AccountFunction)
     : allowed[0];
 }
@@ -330,10 +414,16 @@ export function canEditAccount(v: Viewer, a: AccountLike): boolean {
   if (canWorkArchived(v, a)) return true;
   const scope = accountScope(v);
   if (scope.kind === "all") return true;
-  if (scope.kind === "functions") return scope.fns.includes(a.function as AccountFunction);
-  // an unowned account in your function is open to you — that's how a member
-  // who researched it adds what they found and takes it
+  // AN UNOWNED ACCOUNT IS OPEN TO WHOEVER MAY WORK IT — checked FIRST (v36).
+  // It used to sit below the "functions" branch, which returned outright, so
+  // once the pool stopped carrying a function (0073) a VP or Director would
+  // have been locked out of the very rows they are meant to distribute: their
+  // scope is a list of functions and an unowned row matches none of them.
+  // Hoisting it widens nothing — `isClaimableAccount` is false the moment a
+  // row has a responsible, so every OWNED account still takes the old path.
   if (isClaimableAccount(v, a)) return true;
+  if (scope.kind === "functions")
+    return a.function != null && scope.fns.includes(a.function as AccountFunction);
   return a.responsible_id != null && scope.ids.includes(a.responsible_id);
 }
 
@@ -368,6 +458,11 @@ const ICX_SIBLINGS: AccountFunction[] = ["IGV", "IGT"];
  *  value). */
 export function accountFnTargets(v: Viewer, a: AccountLike): AccountFunction[] {
   if (a.out_of_process) return [];
+  // NOTHING TO RELABEL ON AN UNOWNED ROW (v36): it has no function yet, and
+  // the act that gives it one is claiming it (`claimTargetFunction`), not a
+  // picker. Offering a "move it to…" control on a name nobody holds would be
+  // a second, quieter way of assigning it.
+  if (a.function == null) return [];
   if (!canEditAccount(v, a)) return [];
   const allowed = allowedAccountFunctions(v);
   // THE MOVE MUST BE REVERSIBLE. An IGT member who pushed an account to IGV
@@ -387,7 +482,10 @@ export function accountFnTargets(v: Viewer, a: AccountLike): AccountFunction[] {
 /** The function an open may be RAISED FOR on this account (v34.10) — the
  *  account's own, plus its ICX sibling. B2B and BD already mix all three
  *  products in one deal, so they need no widening; B2C carries no opens. */
-export function openTargetFunctions(a: { function: string }): AccountFunction[] {
+export function openTargetFunctions(a: { function: string | null }): AccountFunction[] {
+  // an unowned account raises nothing: `recordDeal` refuses one outright
+  // ("assign it first"), so there is no product to offer (v36)
+  if (a.function == null) return [];
   return ICX_SIBLINGS.includes(a.function as AccountFunction)
     ? [...ICX_SIBLINGS]
     : [a.function as AccountFunction];
@@ -399,9 +497,12 @@ export function canReassignAccount(v: Viewer, a: AccountLike): boolean {
   if (master(v)) return true;
   // an archived account can be handed to anyone by an MM (v33.8)
   if (canWorkArchived(v, a)) return true;
-  if (isIcxLead(v)) return scopeFunctions(v).includes(a.function as AccountFunction);
-  // taking an unowned account needs no authority over anyone
+  // taking an unowned account needs no authority over anyone — and it is
+  // checked BEFORE the leader branch (v36), which returns outright and would
+  // otherwise answer "no" for every function-less pool row
   if (isClaimableAccount(v, a)) return true;
+  if (isIcxLead(v))
+    return a.function != null && scopeFunctions(v).includes(a.function as AccountFunction);
   if (v.role === "Team Leader")
     return a.responsible_id != null && [v.id, ...v.teamMemberIds].includes(a.responsible_id);
   return false;
@@ -446,6 +547,11 @@ export function canCheckPodio(v: Viewer, a: AccountLike): boolean {
     v.role === "Team Leader" ||
     v.role === "Coordinator";
   if (!mm) return false;
+  // AND NEVER AN UNOWNED ROW (v36). It is the same call v34.1 made for the
+  // Podio-check signal on the accounts list: nobody is going to submit a name
+  // nobody has been given, so the queue skips the pool rather than filling it
+  // with 229 names that need a responsible first.
+  if (a.function == null) return false;
   return allowedAccountFunctions(v).includes(a.function as AccountFunction);
 }
 
@@ -488,6 +594,7 @@ export function isTmCore(v: Viewer): boolean {
  *                    touch point — that is the Team Leader's call.
  *    TM core       → LC points ONLY. TM runs the LC's touch points; it does
  *                    not book for a function or for a team.
+ *    Coordinator   → NOTHING. See below — this is a decision, not a gap.
  *    LCP / admin   → everything, as always.
  *
  *  The order matters: a TM VP is TM core FIRST (lc), not an LCVP (function). */
@@ -496,6 +603,15 @@ export function bookableTouchPointScopes(v: Viewer): TouchPointScope[] {
   if (isTmCore(v)) return ["lc"];
   if (v.role === "LCVP" || v.role === "Director") return ["function"];
   if (v.role === "Team Leader") return ["team"];
+  // A COORDINATOR BOOKS NOTHING, AND THAT IS DELIBERATE (v36, the product
+  // owner's own words: "exists on the report as MM too but with no team,
+  // can't book touch points"). They are an MM by RANK — `isMm` is true for
+  // them and every report counts them as one — but a touch point is a room
+  // full of your people, and a Coordinator works alone: `leadsTeam` is false,
+  // there is no team to invite, no audience to derive and nobody to mark
+  // present. Do not "fix" this by adding "team" here; the empty list IS the
+  // answer, and the team-binding branch in server/touch-points.ts can never
+  // resolve a team for them anyway.
   return [];
 }
 
@@ -584,6 +700,71 @@ export function canEditOwnAttendanceRow(v: Viewer, tp: TouchPointRef): boolean {
   return master(v) || isTmCore(v);
 }
 
+// ------------------------------------------------------------ O2O / PDP (v36)
+
+/** THE PEOPLE WHO RUN THE PDP PROCESS — TM's own crew, the LCP, and the
+ *  break-glass admin.
+ *
+ *  Deliberately NOT `isTmCore`, which folds `master()` in and would therefore
+ *  hand every PDP in the LC to the whole F&L function. F&L's LCP-level access
+ *  (v33.16) is about money and commitments; a PDP is a private conversation
+ *  between a person and their leader about what they are bad at. That is the
+ *  same line the concerns inbox drew when F&L's LCVP was removed from it in
+ *  v33.31, and it is drawn here for the same reason. */
+const runsPdpProcess = (v: Viewer) =>
+  v.isAdmin ||
+  v.role === "LCP" ||
+  ((v.functions.includes("TM") || v.sub_functions.includes("TM")) &&
+    ["LCVP", "Director", "Team Leader", "Coordinator"].includes(v.role));
+
+/** MAY THIS VIEWER FILE A PDP FOR THIS MEMBER? (v36)
+ *
+ *  The cascade is the whole design: a VP files for their MMs, and those MMs
+ *  then file for their own members. So the rule is the MANAGER LINK — the
+ *  person named in your Manager cell is the person who sits down with you —
+ *  plus TM and the LCP, who own the process and have to be able to unstick it
+ *  when a leader has left mid-cycle.
+ *
+ *  ⚠️ NOT FOR YOURSELF, whatever your rank. A PDP is a conversation someone
+ *  else holds with you and writes down; a self-filed one is a to-do list with
+ *  a formal name, and it would let a leader tick their own box while the
+ *  people under them wait. */
+export function canFilePdpFor(v: Viewer, m: Member): boolean {
+  if (v.id === m.id) return false;
+  if (runsPdpProcess(v)) return true;
+  return m.stakeholder_id != null && m.stakeholder_id === v.id;
+}
+
+/** MAY THIS VIEWER READ THIS PDP? (v36)
+ *
+ *  The member it is about · the leader who filed it · that member's manager
+ *  (normally the same person, but a re-parenting mid-cycle must not orphan
+ *  the plan) · THAT leader's manager, because a VP coaches their MMs on the
+ *  coaching they are doing · TM's crew · the LCP.
+ *
+ *  ⚠️ DELIBERATELY NARROWER THAN `hasTmAccess`. That gate opens the members
+ *  DIRECTORY — names, teams, KPIs — to everyone in TM, which is right for a
+ *  directory and wrong for this: a PDP carries someone's own account of what
+ *  they are struggling with. Reading it is TM's leadership's job, not every
+ *  TM member's.
+ *
+ *  Takes ids rather than rows because the caller already has them from the
+ *  query it just ran — a predicate that needed two more member fetches per
+ *  row would be paid for on every list. */
+export function canReadPdp(
+  v: Viewer,
+  subjectId: string,
+  authorId: string,
+  subjectManagerId: string | null,
+  authorManagerId: string | null
+): boolean {
+  if (v.id === subjectId) return true;
+  if (v.id === authorId) return true;
+  if (subjectManagerId != null && v.id === subjectManagerId) return true;
+  if (authorManagerId != null && v.id === authorManagerId) return true;
+  return runsPdpProcess(v);
+}
+
 /* The B2B/BD "Podio pending" worklist was RETIRED in v32.3 — the filter, the
    inline request-state select and "Ask to submit" are gone, and B2B/BD now
    behave exactly like every other function. `canRequestPodioSubmit` went with
@@ -600,7 +781,12 @@ export function canEditOwnAttendanceRow(v: Viewer, tp: TouchPointRef): boolean {
  *  still only touches accounts they can already edit. */
 export function canEditRequestState(v: Viewer, a: AccountLike): boolean {
   if (canCheckPodio(v, a)) return true; // the worklist grant (v33.13)
-  if (master(v) || (isIcxLead(v) && scopeFunctions(v).includes(a.function as AccountFunction)))
+  if (
+    master(v) ||
+    (isIcxLead(v) &&
+      a.function != null &&
+      scopeFunctions(v).includes(a.function as AccountFunction))
+  )
     return true;
   if (v.role === "Team Leader")
     return a.responsible_id != null && [v.id, ...v.teamMemberIds].includes(a.responsible_id);

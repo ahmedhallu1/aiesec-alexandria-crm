@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/supabase";
 import { env } from "@/lib/env";
 import { sendEmail } from "@/lib/google/gmail";
-import { periodReportEmail } from "@/lib/email/templates";
+import { periodReportEmail, type ReportCoreRankings } from "@/lib/email/templates";
+import { fetchCoreRankings, rankingsForFunction } from "@/lib/core-rankings";
 import { buildFunctionReport, buildOgxReport, markCronRun } from "@/server/data";
 import { notifyMembers } from "@/server/notify";
 import { resolveMemberSettings } from "@/lib/member-settings";
@@ -128,6 +129,40 @@ export async function GET(req: NextRequest) {
   const skipped: string[] = [];
 
   const periods = isTest ? [currentSprint(new Date())] : duePeriods(new Date());
+
+  // ---- CORE, ONCE (v36, ask #4) -------------------------------------------
+  // Every report in this invocation quotes the SAME national board, so it is
+  // fetched once here and handed to each builder. Fetching per report would be
+  // up to ten round trips to somebody else's site on the 1st of the month
+  // (five functions × sprint + month) for one identical answer — and the
+  // module-memory cache inside `fetchCoreRankings` cannot be relied on to
+  // absorb that: a cron runs in a fresh lambda more often than not.
+  //
+  // Deliberately NOT inside the try/catch per report: `fetchCoreRankings`
+  // never throws and returns null on any failure, and null is a real outcome
+  // the email prints ("CORE was unreachable"), not an error to swallow.
+  // Skipped entirely when nothing is due, so a quiet day costs nothing.
+  const rankings = periods.length > 0 ? await fetchCoreRankings() : null;
+  if (periods.length > 0 && !rankings)
+    console.warn("[period-reports] CORE unreadable — reports will say so");
+
+  /** This function's slice of the board, in the shape the email expects.
+   *  `null` programmes = CORE was unreachable and the section says so;
+   *  `undefined` = this function has no CORE programme at all (B2C), and the
+   *  section is omitted rather than printing a failure for something that was
+   *  never going to be there. */
+  const coreFor = (fn: string): ReportCoreRankings | undefined => {
+    if (!rankings) {
+      // B2C is the only function CORE has nothing for, and it never reaches
+      // this route (FUNCTIONS + OGX_FUNCTIONS below) — but say the rule out
+      // loud so adding B2C later cannot silently start printing a failure.
+      return fn === "B2C" ? undefined : { programs: null, termLabel: null };
+    }
+    const programs = rankingsForFunction(rankings, fn);
+    return programs.length === 0
+      ? undefined
+      : { programs, termLabel: rankings.termLabel };
+  };
 
   const targets: { fn: string; ogx: boolean }[] = [
     ...FUNCTIONS.map((fn) => ({ fn, ogx: false })),

@@ -38,6 +38,10 @@ import {
 import {
   cairoDayIso, cascadeMemberRename, checkAccountName, getViewer, logAudit, type PipelineRow,
 } from "./data";
+// v36: the richer audit core. `logAudit` keeps coming from ./data (which now
+// re-exports it) so the ~113 existing call sites in this file did not have to
+// move; `diffFields` is new and only the paths that carry a pre-image use it.
+import { diffFields } from "./audit";
 import { recordUndo, sandboxSuppressed, snapshotForUndo } from "./sandbox";
 // v29: every real piece of work stamps work_activity — the raw material of
 // AUTOMATIC working-hours attendance (see src/server/attendance.ts)
@@ -651,7 +655,7 @@ export async function updateAccount(
   // project — both must WIN over whatever the form submitted alongside the
   // move, so they are applied last.
   if (movedTo) {
-    Object.assign(update, fnSpecificReset(movedTo));
+    Object.assign(update, fnSpecificReset(movedTo, account.function));
     if (movedTo === "IGV" && account.function === "IGT" && account.product === "GTe")
       update.project = "Global Classroom";
   }
@@ -738,11 +742,39 @@ export async function undoAutoAssign(accountId: string): Promise<ActionResult> {
   return { ok: true };
 }
 
+/** What a hand-over or a claim actually did — read by the dialogs that need to
+ *  finish the job (v36 ask #9). */
+export interface ReassignOutcome {
+  /** the function the account carries NOW. Never null: an owned account always
+   *  has one, which is the whole point of ask #9. */
+  landedIn: AccountFunction;
+  /** true when this hand-over stamped or moved the function */
+  functionChanged: boolean;
+  /** the field the landing function requires and the account still lacks — the
+   *  caller PROMPTS for it; the claim itself has already gone through */
+  needs: MissingAccountField | null;
+  /** the claimer's other raising functions, when there was more than one to
+   *  choose from. Empty for the single-function case. */
+  alternatives: AccountFunction[];
+}
+
 export async function reassignAccount(
   accountId: string,
   newResponsibleId: string,
-  opts?: { skipRefresh?: boolean }
-): Promise<ActionResult> {
+  opts?: {
+    skipRefresh?: boolean;
+    /** v36 — which of the claimer's functions to stamp on an unowned name.
+     *  Validated against their own allowed set; ignored on a hand-out, where
+     *  the TARGET's membership decides. */
+    intoFunction?: AccountFunction | null;
+    /** the field the landing function needs, when the dialog already asked */
+    details?: {
+      project?: string | null;
+      product?: string | null;
+      account_type?: string | null;
+    };
+  }
+): Promise<ActionResult<ReassignOutcome>> {
   const viewer = await getViewer();
   const account = await loadAccount(accountId);
   if (!account || !canReassignAccount(viewer, account))
@@ -762,12 +794,16 @@ export async function reassignAccount(
   // reassignment stays inside the account's function; B2B/BD (and B2C) may
   // live in EITHER column, so match both — mirrors listReassignTargets in
   // data.ts so the dialog can never offer a target the check would reject.
+  // an UNOWNED research name is in NO function (v36), so nobody is already
+  // "in" it — the account takes its new owner's function, below.
   const targetInFunction =
-    account.function === "B2B" || account.function === "BD"
-      ? memberIsB2B(target)
-      : account.function === "B2C"
-        ? rowIsB2C(target)
-        : (target.functions ?? []).includes(account.function);
+    account.function == null
+      ? false
+      : account.function === "B2B" || account.function === "BD"
+        ? memberIsB2B(target)
+        : account.function === "B2C"
+          ? rowIsB2C(target)
+          : (target.functions ?? []).includes(account.function);
   // taking an UNOWNED account for yourself needs no authority over anyone —
   // nobody is losing it (v32.4)
   const claimingForSelf =
@@ -790,52 +826,200 @@ export async function reassignAccount(
   // now, or it lands in a function its new owner can't even open. The
   // destination is the TARGET's function, not the mover's — handing a company
   // to IGT should file it under IGT.
-  const targetFns = [
-    ...(target.functions ?? []),
-    ...(target.sub_functions ?? []),
-  ].filter((f) => ["IGV", "IGT", "B2B", "BD", "B2C"].includes(f));
+  const targetFns = raisingFunctionsOf(target);
   // v33.18 — ANY cross-function hand-over moves it, not just claims and
   // revives. Leaving an account in a function its new owner can't open was
   // the bug: it vanished from their list and kept counting on the old
   // function's dashboard. If the target doesn't work the account's function
   // but does work a raising one, the account moves to theirs.
-  const movedFn = claimingForSelf
-    ? claimTargetFunction(viewer, account)
+  //
+  // v36 ask #9 — AND THE POOL HAS NO FUNCTION TO KEEP. Since 0073 an unclaimed
+  // research name carries `function = null`, so this is no longer only a
+  // "moves it" question: it is the moment the account gets a function AT ALL.
+  // `claimTargetFunction` already encodes the rule for a claim (keep the
+  // account's function when the claimer works it, otherwise stamp theirs);
+  // the hand-out branch below stamps the TARGET's.
+  const movedFn: AccountFunction | null = claimingForSelf
+    ? pickClaimFunction(viewer, account, opts?.intoFunction)
     : !targetInFunction && targetFns.length > 0
-      ? (targetFns[0] as typeof account.function)
+      ? targetFns[0]
       : null;
-  const fnChanged = !!movedFn && movedFn !== account.function;
+
+  // ⚠️ AN ASSIGNED ACCOUNT ALWAYS CARRIES A FUNCTION (v36). This used to fall
+  // through to `null` — "leave it where it is" — which was harmless while every
+  // account had a function and is a hole now: handing an unowned research name
+  // to somebody who works no raising function would have left an OWNED account
+  // with no function, invisible on every lane and unreachable by every
+  // function-scoped read. Refuse, and say who to hand it to instead.
+  const landsIn: AccountFunction | null = movedFn ?? account.function;
+  if (!landsIn)
+    return fail(
+      claimingForSelf
+        ? "You don't work a raising function, so there is no function to file this research under."
+        : `${target.name} doesn't work IGV, IGT, B2B, BD or B2C, so this research has no function to land in — hand it to someone who raises.`,
+      "forbidden"
+    );
+  const fnChanged = landsIn !== account.function;
+
+  // THE FIELD THE NEW FUNCTION NEEDS (v36). `createAccount` refuses an IGV
+  // account with no project, an IGT one with no product and a B2C one with no
+  // type — and the claim path enforced none of them, so claiming a pool row
+  // into IGV produced exactly the broken account creation is written to
+  // prevent. The answer is deliberately NOT to refuse: somebody has just
+  // picked up a name they researched, and bouncing that with a validation
+  // error to send them hunting for a dropdown is hostile. So the claim goes
+  // through, whatever the caller was able to supply is written with it, and
+  // what is still missing comes back as `needs` for the dialog to ask for on
+  // the spot.
+  const detail = fnDetailUpdate(landsIn, opts?.details);
 
   await snapshotForUndo("accounts", accountId);
-  const { error } = await db()
-    .from("accounts")
-    .update({
-      responsible_id: newResponsibleId,
-      ...(fnChanged ? { function: movedFn, ...fnSpecificReset(movedFn!) } : {}),
-      // IGTe → IGV carries a sensible default (v33.19): Global Classroom is
-      // the teaching project, the natural landing for a GTe company. Every
-      // other direction leaves the new function's fields for the owner to
-      // pick (an IGV→IGT mover chooses GTa/GTe themselves).
-      ...(fnChanged && movedFn === "IGV" && account.function === "IGT" && account.product === "GTe"
-        ? { project: "Global Classroom" }
-        : {}),
-    })
-    .eq("id", accountId);
+  const patch: Record<string, unknown> = {
+    responsible_id: newResponsibleId,
+    ...(fnChanged ? { function: landsIn, ...fnSpecificReset(landsIn, account.function) } : {}),
+    // IGTe → IGV carries a sensible default (v33.19): Global Classroom is
+    // the teaching project, the natural landing for a GTe company. Every
+    // other direction leaves the new function's fields for the owner to
+    // pick (an IGV→IGT mover chooses GTa/GTe themselves).
+    ...(fnChanged && landsIn === "IGV" && account.function === "IGT" && account.product === "GTe"
+      ? { project: "Global Classroom" }
+      : {}),
+    ...detail,
+  };
+  const { error } = await db().from("accounts").update(patch).eq("id", accountId);
   if (error)
     return fail(
       // moving across the name WORLDS (0034: BD/B2C vs the opens side) can
       // collide with an archived namesake there
       error.code === "23505"
-        ? `"${account.name}" already exists in ${movedFn}'s world (probably archived) — revive that one instead.`
+        ? `"${account.name}" already exists in ${landsIn}'s world (probably archived) — revive that one instead.`
         : error.message
     );
-  await logAudit(viewer.id, "reassign", "account", accountId, {
-    from: account.responsible_id,
-    to: newResponsibleId,
-    ...(fnChanged ? { function_from: account.function, function_to: movedFn } : {}),
-  });
+  const outcome: ReassignOutcome = {
+    landedIn: landsIn,
+    functionChanged: fnChanged,
+    // what the account STILL lacks, after whatever the caller supplied
+    needs: missingFnField(landsIn, {
+      project: (detail.project as string | null | undefined) ?? account.project,
+      product: (detail.product as string | null | undefined) ?? account.product,
+      account_type:
+        (detail.account_type as string | null | undefined) ?? account.account_type,
+    }),
+    // v36 — A DUAL-FUNCTION RAISER CLAIMS INTO ONE OF THEM, AND ONLY THEY KNOW
+    // WHICH. The default is deliberate and documented on `pickClaimFunction`;
+    // the alternatives ride back so the dialog can offer a one-tap correction
+    // instead of the member discovering the wrong badge tomorrow. Empty for
+    // everybody with a single function, which is nearly everybody — the common
+    // case gains no click.
+    alternatives:
+      claimingForSelf && fnChanged
+        ? allowedAccountFunctions(viewer).filter((f) => f !== landsIn)
+        : [],
+  };
+  await logAudit(
+    viewer.id,
+    "reassign",
+    "account",
+    accountId,
+    {
+      from: account.responsible_id,
+      to: newResponsibleId,
+      claim: claimingForSelf,
+      ...(fnChanged ? { function_from: account.function, function_to: landsIn } : {}),
+    },
+    {
+      changed: diffFields(
+        { responsible_id: account.responsible_id, function: account.function },
+        { responsible_id: newResponsibleId, ...(fnChanged ? { function: landsIn } : {}) }
+      ),
+      summary: claimingForSelf
+        ? `Claimed ${account.name}${fnChanged ? ` into ${landsIn}` : ""}`
+        : `Handed ${account.name} to ${target.name}${fnChanged ? ` (→ ${landsIn})` : ""}`,
+    }
+  );
   if (!opts?.skipRefresh) refresh(accountId);
-  return { ok: true };
+  return { ok: true, data: outcome };
+}
+
+/** The raising functions a member actually works, in the order their
+ *  membership row lists them (the sheet's own order — their primary function
+ *  first). `sub_functions` is included because B2B, BD and B2C routinely live
+ *  there and nowhere else. */
+function raisingFunctionsOf(m: {
+  functions: string[] | null;
+  sub_functions: string[] | null;
+}): AccountFunction[] {
+  const seen = new Set<string>();
+  return [...(m.functions ?? []), ...(m.sub_functions ?? [])].filter(
+    (f): f is AccountFunction =>
+      ["IGV", "IGT", "B2B", "BD", "B2C"].includes(f) && !seen.has(f) && !!seen.add(f)
+  );
+}
+
+/** WHICH FUNCTION A CLAIM STAMPS (v36, ask #9).
+ *
+ *  For the ~everybody case — a member who works exactly one raising function —
+ *  there is nothing to decide and nothing is asked: `claimTargetFunction`
+ *  returns that one function and the claim is a single click, as it has always
+ *  been.
+ *
+ *  For a DUAL-function raiser (IGV+IGT, or a B2B member who also holds B2C)
+ *  `claimTargetFunction` returns `allowed[0]`, and it is worth writing down
+ *  what that actually is rather than leaving it as an accident: it is their
+ *  FIRST function as the Membership sheet lists it — the primary one the LC
+ *  filed them under — because `allowedAccountFunctions` filters `v.functions`
+ *  in order before appending B2B/BD and B2C. That is a defensible default and
+ *  a stable one. It is still a guess, which is why the caller can override it
+ *  with `intoFunction` (validated here, never trusted) and why the alternatives
+ *  travel back to the dialog.
+ *
+ *  An override is checked against the claimer's OWN allowed functions, so this
+ *  can never be used to file an account somewhere the claimer cannot work. */
+function pickClaimFunction(
+  viewer: Awaited<ReturnType<typeof getViewer>>,
+  account: PipelineRow,
+  requested?: AccountFunction | null
+): AccountFunction | null {
+  if (requested && allowedAccountFunctions(viewer).includes(requested)) return requested;
+  return claimTargetFunction(viewer, account);
+}
+
+/** The one field a function cannot do without — the same three rules
+ *  `createAccount` enforces, in one place so the claim path and the create path
+ *  cannot drift. Returns null when the account is complete. */
+export type MissingAccountField = "project" | "product" | "account_type";
+
+function missingFnField(
+  fn: AccountFunction,
+  a: { project?: string | null; product?: string | null; account_type?: string | null }
+): MissingAccountField | null {
+  if (fn === "IGV") return a.project ? null : "project";
+  if (fn === "IGT") return a.product ? null : "product";
+  if (fn === "B2C")
+    return (B2C_TYPES as readonly string[]).includes(a.account_type ?? "")
+      ? null
+      : "account_type";
+  return null; // B2B and BD carry neither — they raise for the whole ICX
+}
+
+/** Whatever the claiming dialog was able to supply, narrowed to the fields the
+ *  LANDING function actually has. Anything that does not belong there is
+ *  dropped rather than written: an industry on a B2C account and a project on
+ *  a B2B one are exactly the strays `fnSpecificReset` exists to clear. */
+function fnDetailUpdate(
+  fn: AccountFunction,
+  details?: { project?: string | null; product?: string | null; account_type?: string | null }
+): Record<string, unknown> {
+  if (!details) return {};
+  const out: Record<string, unknown> = {};
+  const project = details.project?.trim();
+  const product = details.product?.trim();
+  const type = details.account_type?.trim();
+  if (fn === "IGV" && project) out.project = project;
+  if (fn === "IGT" && (product === "GTa" || product === "GTe")) out.product = product;
+  if (fn === "B2C" && type && (B2C_TYPES as readonly string[]).includes(type))
+    out.account_type = type;
+  return out;
 }
 
 /** Fields that only mean something inside ONE function, cleared when an
@@ -846,11 +1030,28 @@ export async function reassignAccount(
  *  the IGV project on it, so the account showed one function's badge and
  *  another function's details — which is what made a claimed account look
  *  like it was still in the function the claimer has no access to. */
-function fnSpecificReset(fn: string): Record<string, null> {
+function fnSpecificReset(fn: string, from?: string | null): Record<string, null> {
+  // ⚠️ B2C CARRIES NO INDUSTRY (v36). It has never had one — a B2C account is
+  // a course, an event or a student activity and the form does not ask — yet
+  // this function cleared the project and the product and left `industry`
+  // behind, so an IGT company moved to B2C kept "Software" on it forever. The
+  // v34.8 import pass fixed the same class of stray on the way IN; this is the
+  // way ACROSS.
+  //
+  // `account_type` is the subtler one, and it is why `from` exists: the column
+  // is shared but the VOCABULARY is not — raising accounts carry ACCOUNT_TYPES
+  // and B2C carries B2C_TYPES (Courses / Events / Student activities), so a
+  // value that was true on one side is meaningless on the other. It is cleared
+  // only when the move actually crosses that boundary; an IGV→IGT move keeps
+  // the type, because there the word still means what it meant. A caller that
+  // cannot say where the account came from keeps the type, which is the old
+  // behaviour.
+  const crossesB2c = from !== undefined && (from === "B2C") !== (fn === "B2C");
   return {
     ...(fn === "IGV" ? {} : { project: null }),
     ...(fn === "IGT" ? {} : { product: null, sub_product: null }),
-    ...(fn === "B2C" ? {} : {}),
+    ...(fn === "B2C" ? { industry: null } : {}),
+    ...(crossesB2c ? { account_type: null } : {}),
   };
 }
 
@@ -885,7 +1086,7 @@ export async function moveAccountFunction(
   await snapshotForUndo("accounts", accountId);
   const { error } = await db()
     .from("accounts")
-    .update({ function: toFunction, ...fnSpecificReset(toFunction) })
+    .update({ function: toFunction, ...fnSpecificReset(toFunction, account.function) })
     .eq("id", accountId);
   if (error) return fail(error.message);
   await logAudit(viewer.id, "move_function", "account", accountId, {
@@ -2709,8 +2910,15 @@ const memberIsB2B = (m: { functions: string[] | null; sub_functions: string[] | 
 const rowIsB2C = (m: { functions: string[] | null; sub_functions: string[] | null }) =>
   (m.functions ?? []).includes("B2C") || (m.sub_functions ?? []).includes("B2C");
 
-/** Product label for emails/notifications: IGV / IGTa / IGTe / B2B. */
-function productLabel(fn: string, product: string | null): string {
+/** Product label for emails/notifications: IGV / IGTa / IGTe / B2B.
+ *
+ *  `fn` is nullable because `accounts.function` is (v36, the unowned research
+ *  pool). A visit cannot in fact be booked on a pool row — it needs a
+ *  responsible, and having one now guarantees a function — but this is a label
+ *  builder, and a label builder that throws is worse than one that says
+ *  "Raising". */
+function productLabel(fn: string | null, product: string | null): string {
+  if (fn == null) return "Raising";
   if (fn === "IGT") return product === "GTe" ? "IGTe" : product === "GTa" ? "IGTa" : "IGT";
   return fn;
 }
@@ -2723,7 +2931,13 @@ const ANNOUNCE_GRACE_MS = 15 * 60_000;
 
 /** WHOSE LEADERS RIDE THE CALENDAR INVITE — unchanged. B2B/BD raise for IGV
  *  and IGT, so their VP stays on an IGV/IGT visit invite for oversight. */
-function leaderShareFunctions(fn: string): ("IGV" | "IGT" | "B2B" | "B2C")[] {
+function leaderShareFunctions(fn: string | null): ("IGV" | "IGT" | "B2B" | "B2C")[] {
+  // NOBODY IS TOLD ABOUT AN UNOWNED NAME (v36). A row with no function belongs
+  // to no crew, so there is no crew to invite. In practice this branch is
+  // unreachable — a visit needs a responsible and a responsible now implies a
+  // function — but returning [] is the honest answer, where falling through to
+  // the B2B default below would mail an entire crew about somebody else's row.
+  if (fn == null) return [];
   if (fn === "IGV") return ["IGV", "B2B"];
   if (fn === "IGT") return ["IGT", "B2B"];
   if (fn === "B2C") return ["B2C"]; // its own island (v23)
@@ -2738,7 +2952,8 @@ function leaderShareFunctions(fn: string): ("IGV" | "IGT" | "B2B" | "B2C")[] {
  *  IGT visit in the LC — mail they cannot act on, which is how people learn to
  *  ignore the mail that matters. B2B and BD stay ONE crew here, exactly as
  *  memberIsB2B treats them everywhere else. */
-function announceFunctions(fn: string): ("IGV" | "IGT" | "B2B" | "B2C")[] {
+function announceFunctions(fn: string | null): ("IGV" | "IGT" | "B2B" | "B2C")[] {
+  if (fn == null) return []; // see leaderShareFunctions — no function, no crew
   if (fn === "IGV") return ["IGV"];
   if (fn === "IGT") return ["IGT"];
   if (fn === "B2C") return ["B2C"];
@@ -2799,7 +3014,10 @@ async function resolveVisitRecipients(
   // default = exactly the old behaviour) turns that off; the responsible's
   // own Team Leader still rides it, because they answer for the visit.
   const { functionSettingsFor: fnSettingsForVisit } = await import("./function-settings");
-  const visitSettings = await fnSettingsForVisit(account.function);
+  // `?? ""` resolves to the defaults for an unknown key, which is exactly the
+  // right answer for a function-less row: nobody has configured a floor that
+  // does not exist, so the pre-0054 behaviour applies (v33.32).
+  const visitSettings = await fnSettingsForVisit(account.function ?? "");
   const attendees = new Set<string>();
   const vps = visitSettings.visitInviteLeaders
     ? members.filter((m) => m.role === "LCVP" && inFns(shareFns, m))
@@ -4833,6 +5051,15 @@ export async function deleteAccount(
 
 const PODIO_UPDATE_FNS = new Set(["IGV", "IGT", "BD", "B2C"]);
 
+/** Is this account on the continuous-Podio-update cycle at all?
+ *
+ *  An unowned research name is NOT (v36): the cycle exists so the person who
+ *  owns a partner keeps its Podio entry warm, and a name nobody has been given
+ *  has nobody to keep it. `Set.has(null)` is `false` anyway — this exists so
+ *  the reason is written down once instead of being an accident of typing. */
+const onPodioCycle = (fn: string | null): boolean =>
+  fn != null && PODIO_UPDATE_FNS.has(fn);
+
 /** The account must be refreshed on Podio every N days (v24 — IGV/IGT/BD/B2C).
  *  "I updated it" stamps now, resets the countdown and clears both reminders. */
 export async function markPodioUpdated(accountId: string): Promise<ActionResult> {
@@ -4840,7 +5067,7 @@ export async function markPodioUpdated(accountId: string): Promise<ActionResult>
   const account = await loadAccount(accountId);
   if (!account || !canEditAccount(viewer, account))
     return fail("You are not allowed to edit this account.", "forbidden");
-  if (!PODIO_UPDATE_FNS.has(account.function))
+  if (!onPodioCycle(account.function))
     return fail("Continuous Podio updates don't apply to this account.");
   await snapshotForUndo("accounts", accountId);
   const { error } = await db()
@@ -4867,7 +5094,7 @@ export async function setPodioUpdateCadence(
   const account = await loadAccount(accountId);
   if (!account || !canEditAccount(viewer, account))
     return fail("You are not allowed to edit this account.", "forbidden");
-  if (!PODIO_UPDATE_FNS.has(account.function))
+  if (!onPodioCycle(account.function))
     return fail("Continuous Podio updates don't apply to this account.");
   const days = Math.round(Number(everyDays));
   if (!Number.isFinite(days) || days < 1 || days > 90)
@@ -4899,7 +5126,7 @@ export async function setPodioUpdateEnabled(
   const account = await loadAccount(accountId);
   if (!account || !canEditAccount(viewer, account))
     return fail("You are not allowed to edit this account.", "forbidden");
-  if (!PODIO_UPDATE_FNS.has(account.function))
+  if (!onPodioCycle(account.function))
     return fail("Continuous Podio updates don't apply to this account.");
   await snapshotForUndo("accounts", accountId);
   const { error } = await db()
@@ -4964,7 +5191,12 @@ export async function reviveAndAssign(
     ...(targetRow?.functions ?? []),
     ...(targetRow?.sub_functions ?? []),
   ].filter((f) => ["IGV", "IGT", "B2B", "BD", "B2C"].includes(f));
-  const landsIn = targetFns.includes(account.function)
+  // v36: reviving an UNCLAIMED name (function === null) is a claim like any
+  // other — it lands in the reviver's function, because that is the person who
+  // has decided to work it. An account that already carries a function keeps
+  // it whenever the target works it, and otherwise follows its new owner (the
+  // v33.18 rule: an account follows its owner across functions).
+  const landsIn = account.function && targetFns.includes(account.function)
     ? account.function
     : (targetFns[0] ?? account.function);
 

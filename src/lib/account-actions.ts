@@ -1,4 +1,4 @@
-import { cairoToday, podioDefaultDays, type AccountFunction } from "@/lib/types";
+import { cairoToday, PODIO_UPDATE_DEFAULT_DAYS, type AccountFunction } from "@/lib/types";
 
 /** WHAT THIS ACCOUNT IS WAITING FOR.
  *
@@ -46,7 +46,10 @@ export function worstTone(actions: AccountAction[]): ActionTone {
 /** Only the fields we actually read — so list rows, detail rows and tests can
  *  all be passed straight in. */
 export interface ActionableAccount {
-  function: AccountFunction;
+  /** NULL = the unowned research pool (v36). A name nobody has claimed is in
+   *  no function and, more to the point, is nobody's to act on — see
+   *  `accountActions` below, which returns nothing for one. */
+  function: AccountFunction | null;
   out_of_process: boolean;
   stage?: string | null;
   visit_id?: string | null;
@@ -56,7 +59,11 @@ export interface ActionableAccount {
   no_response_attempts?: number;
   requested_podio?: boolean;
   request_state?: string | null;
-  responsible_id?: string | null;
+  /** REQUIRED, not optional (v36): `accountActions` returns nothing at all for
+   *  an unowned row, so a caller that quietly left this off would lose every
+   *  dot on the list and never be told. Making it required turns that into a
+   *  compile error instead of a silent regression. */
+  responsible_id: string | null;
   podio_update_enabled?: boolean;
   podio_update_every_days?: number | null;
   podio_updated_at?: string | null;
@@ -71,7 +78,12 @@ export function podioDueDay(a: ActionableAccount): string | null {
   if (!a.podio_update_enabled) return null;
   const anchorIso = a.podio_updated_at ?? a.created_at;
   if (!anchorIso) return null;
-  const every = a.podio_update_every_days ?? podioDefaultDays(a.function);
+  // The cadence default has been one number for every function since v24.1
+  // (`podioDefaultDays` ignores its argument and returns it), so an account
+  // with no function — the unowned pool — has a sensible answer here without
+  // anyone having to invent a function for it. Read the constant directly
+  // rather than passing a fake function through a typed helper.
+  const every = a.podio_update_every_days ?? PODIO_UPDATE_DEFAULT_DAYS;
   const due = new Date(new Date(anchorIso).getTime() + every * DAY_MS);
   if (Number.isNaN(due.getTime())) return null;
   return due.toISOString().slice(0, 10);
@@ -83,6 +95,15 @@ export function accountActions(
 ): AccountAction[] {
   // an archived account is out of the game — it is not waiting for anything
   if (a.out_of_process) return [];
+  // NEITHER IS AN UNOWNED RESEARCH NAME (v36). A row with no function is one
+  // nobody has claimed, and every signal below is addressed to a PERSON: report
+  // your visit, refresh your Podio entry, set your next step, decide on the
+  // three calls you made. Nobody made them. The Podio signal already skipped
+  // unowned rows for exactly this reason (v34.1) — "nobody is going to submit a
+  // name nobody has been given" — and the same sentence is true of all four, so
+  // the rule moves up here where it covers the lot. A pool of 229 dots that
+  // belong to no one is precisely the noise the dot exists to avoid.
+  if (a.responsible_id == null) return [];
   const out: AccountAction[] = [];
 
   // a visit whose day has passed and was never reported: the funnel is

@@ -504,6 +504,152 @@ export const WORK_MIN_GAP_MINUTES = 10;
  *  session they clearly worked. Two clicks are still spam; ten are a shift. */
 export const WORK_BURST_ACTIONS = 5;
 
+// ----------------------------------------------------------- O2O / PDP (v36)
+
+/** THE PERSONAL DEVELOPMENT PLAN, AND THE ONE-ON-ONE THAT PRODUCES IT.
+ *
+ *  TM has run this on a spreadsheet: once a month a leader sits with each of
+ *  their people, they look at last month's numbers together, and they agree
+ *  what the person is going to DO about them — a skill to build, a number to
+ *  hit, and the one step in their own funnel that is leaking. The sheet
+ *  worked and it also meant nobody could see whether a PDP had been filed,
+ *  the numbers on it went stale the moment they were typed, and the weekly
+ *  steps were never looked at again.
+ *
+ *  The cascade is the point: a VP files for their MMs, and only THEN do those
+ *  MMs file for their members — you cannot coach someone on a plan you were
+ *  never given yourself.
+ *
+ *  ⚠️ Three tracks, always the same three, because a PDP that is only about
+ *  numbers is a target and a PDP that is only about feelings is a chat. */
+export const PDP_TRACKS = [
+  {
+    value: "personal",
+    label: "🌱 Personal",
+    hint: "A skill they want to build — theirs, not the LC's.",
+  },
+  {
+    value: "professional",
+    label: "🎯 Professional",
+    hint: "The number they are going for this month, in their own MOS.",
+  },
+  {
+    value: "gap",
+    label: "🔍 The gap",
+    hint: "The one step in their funnel that leaks the most — and the fix.",
+  },
+] as const;
+
+export type PdpTrack = (typeof PDP_TRACKS)[number]["value"];
+
+/** The human label for a stored track value (null for anything unknown, so a
+ *  row written by a future version never renders as a raw enum). */
+export function pdpTrackLabel(v: string | null | undefined): string | null {
+  return PDP_TRACKS.find((t) => t.value === v)?.label ?? null;
+}
+
+/** A PDP is a DRAFT until the leader files it. Draft = the conversation is
+ *  still happening; filed = it counts, the member is told, and the nag ladder
+ *  stops asking. Nothing is ever deleted — a missed month stays missing. */
+export const PDP_STATUSES = ["draft", "filed"] as const;
+export type PdpStatus = (typeof PDP_STATUSES)[number];
+
+/** One month of the process. TM opens a cycle, gives it a deadline, and the
+ *  whole LC's PDPs for that month hang off it — which is what makes "who
+ *  hasn't filed yet" a query instead of a scroll through a spreadsheet. */
+export interface PdpCycle {
+  id: string;
+  /** the FIRST day of the month this cycle is about (Cairo), unique */
+  period_start: string;
+  deadline: string;
+  title: string | null;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+  /** a cycle can be closed without being deleted — the PDPs on it survive */
+  active: boolean;
+}
+
+/** THE O2O QUESTIONS ARE DATA, NOT CODE. TM rewrites them between peaks (the
+ *  spreadsheet's whole point was that they could), so they live in a table
+ *  with their own tab in the app rather than in a constant somebody has to
+ *  deploy. A NULL cycle_id means "ask this every month". */
+export interface PdpQuestion {
+  id: string;
+  cycle_id: string | null;
+  idx: number;
+  prompt: string;
+  hint: string | null;
+  active: boolean;
+  created_at: string;
+}
+
+/** One action step: something small enough to finish inside a single week.
+ *  The week is 1–4 — `pdpWeeks` in src/lib/pdp.ts cuts the month, and the
+ *  range is checked in migration 0074, so this stays a plain number rather
+ *  than a union that would have to be kept in step by hand. */
+export interface PdpStep {
+  id: string;
+  pdp_id: string;
+  track: PdpTrack;
+  week: number;
+  body: string;
+  done: boolean;
+  done_at: string | null;
+  /** who ticked it — the member ticks their own, their leader can too, and
+   *  which one it was is the difference between "I did it" and "my leader
+   *  says I did it" */
+  done_by: string | null;
+  created_at: string;
+}
+
+/** LAST MONTH'S NUMBERS, FROZEN INTO THE PDP.
+ *
+ *  Read live, they would move under the plan: a conversation held on the 3rd
+ *  about "you contacted 40 and visited 2" would read differently a fortnight
+ *  later, and the gap the leader identified would stop matching the note they
+ *  wrote about it. So the snapshot is stored ON the PDP. The five keys are
+ *  the raising funnel (the same shape as `FunnelCounts` in src/lib/pdp.ts);
+ *  `mos` carries the one number the member is actually judged on, whichever
+ *  module they work — opens, EGP, deals or approvals — with its own label. */
+export interface PdpSnapshot {
+  mr: number;
+  contacted: number;
+  visits: number;
+  visitsDone: number;
+  deals: number;
+  /** the member's own MOS for the month, and what to call it */
+  mos?: number;
+  mosLabel?: string;
+}
+
+export interface Pdp {
+  id: string;
+  cycle_id: string;
+  /** the person the plan is ABOUT */
+  member_id: string;
+  /** the leader who filed it — nullable because a leader can leave the LC and
+   *  the plan they wrote is still the member's */
+  author_id: string | null;
+  status: PdpStatus;
+  personal_skill: string | null;
+  personal_goal: string | null;
+  professional_metric: string | null;
+  professional_target: number | null;
+  professional_goal: string | null;
+  gap_step: string | null;
+  gap_note: string | null;
+  last_month: PdpSnapshot | null;
+  /** the O2O answers, keyed by `pdp_questions.id` — a question TM later
+   *  retires leaves its answers readable on the PDPs that carry them */
+  o2o: Record<string, string> | null;
+  filed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  /** attached by the reads that need them; never a column */
+  steps?: PdpStep[];
+}
+
 /** A tagged phone number, email or link on an account ("CEO", "LinkedIn", …). */
 export interface AccountContact {
   tag: string;
@@ -626,7 +772,28 @@ export function guessContactTag(kind: AccountContact["kind"], value: string): st
 
 export interface Account {
   id: string;
-  function: AccountFunction;
+  /** NULL = NOBODY HAS CLAIMED THIS NAME YET (v36, migration 0073).
+   *
+   *  A row of imported market research is not "an IGV account waiting for an
+   *  IGV owner" — it is a company name somebody typed down, and which product
+   *  it will eventually be sold is decided by whoever picks it up. Stamping a
+   *  function on it at import time was a guess dressed as a fact: it hid the
+   *  pool from every other crew's filters and made the IGV lane count 229
+   *  accounts nobody had ever worked. NULL is the honest representation of
+   *  "not yet anyone's", and `claimTargetFunction` stamps the CLAIMER's
+   *  function the moment somebody takes it.
+   *
+   *  ⚠️ The unowned pool deliberately shares the ICX NAME WORLD (v23.2's
+   *  three worlds: ICX · BD · B2C). A name sitting in the pool must block a
+   *  duplicate being added as IGV/IGT/B2B, because that is exactly the
+   *  research it came from — see the explicit `when function is null then
+   *  'icx'` branch of `accounts_normalized_name_world_key` in 0073.
+   *
+   *  ⚠️ This type is nullable ON PURPOSE. Every reader that assumed a
+   *  function is there — a badge, a lane test, a mirror column — now fails at
+   *  compile time instead of silently rendering "undefined" or dropping the
+   *  row out of a lane at runtime. */
+  function: AccountFunction | null;
   name: string;
   normalized_name: string;
   product: IgtProduct | null;
@@ -1010,14 +1177,24 @@ export const FUNCTION_COLORS: Record<string, { bg: string; text: string }> = {
   B2B: { bg: "bg-primary/15", text: "text-primary" },
   BD: { bg: "bg-chart-4/15", text: "text-chart-4" },
   B2C: { bg: "bg-fuchsia-500/15", text: "text-fuchsia-600 dark:text-fuchsia-400" },
+  // v36: the unowned research pool. Deliberately the NEUTRAL surface and not a
+  // product colour — the whole point is that no product has claimed it yet,
+  // and giving it a hue would put it back in the company of the real ones.
+  Unclaimed: { bg: "bg-muted", text: "text-muted-foreground" },
 };
 
-/** Product-level badge next to an account name: IGV / IGTa / IGTe / B2B. */
-export function productBadge(fn: AccountFunction, product: IgtProduct | null): {
+/** Product-level badge next to an account name: IGV / IGTa / IGTe / B2B.
+ *
+ *  v36: `fn` is nullable because an unowned research name has no function
+ *  until somebody claims it. It gets a plain "Unclaimed" chip rather than an
+ *  empty coloured pill — a blank badge reads as a rendering bug, and the whole
+ *  reason the column is null is that we stopped pretending to know. */
+export function productBadge(fn: AccountFunction | null, product: IgtProduct | null): {
   label: string;
   bg: string;
   text: string;
 } {
+  if (!fn) return { label: "Unclaimed", ...FUNCTION_COLORS.Unclaimed };
   const key = fn === "IGT" ? (product ? `I${product}` : "IGT") : fn;
   const c = FUNCTION_COLORS[key] ?? FUNCTION_COLORS.IGT;
   return { label: key, ...c };
