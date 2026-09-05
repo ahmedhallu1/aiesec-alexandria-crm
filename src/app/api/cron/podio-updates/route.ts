@@ -29,21 +29,11 @@ interface PodioRow {
   } | null;
 }
 
-/** Which VP/Director "owns" reminders for an account of this function.
- *  BD accounts belong to the B2B&BD crew (either label counts). */
-function leaderMatches(
-  m: { functions?: string[] | null; sub_functions?: string[] | null },
-  fn: AccountFunction
-): boolean {
-  const all = [...(m.functions ?? []), ...(m.sub_functions ?? [])];
-  if (fn === "BD" || fn === "B2B") return all.includes("B2B") || all.includes("BD");
-  return all.includes(fn);
-}
-
 /** Continuous Podio updates (v23 B2C → v24 every function that opts in).
  *  Daily: for every ACTIVE account with the feature ON whose refresh date has
- *  arrived, ping the RESPONSIBLE (v34.1 — leaders only for unowned accounts,
- *  and everything batched into ONE email per person) — bell + email,
+ *  arrived, ping the RESPONSIBLE **and their Team Leader** (v36 — never a VP
+ *  or Director; an unowned account raises nothing at all), everything batched
+ *  into ONE email per audience — bell + email,
  *  ONCE per cycle (podio_update_notified_at). A week after that first nag with
  *  still no update, a SECOND, firmer reminder goes out — also once per cycle
  *  (podio_update_second_notified_at; "Updated on Podio" clears both). */
@@ -79,18 +69,57 @@ export async function GET(req: NextRequest) {
       if ((data ?? []).length < PAGE) break;
     }
   }
-  // VPs/Directors — the function label may live in sub_functions only
-  const leadersRes = await db()
+  // ⚠️ v36 — THE REMINDER GOES UP TO THE TEAM LEADER, NEVER TO A VP.
+  //
+  // The rule from the floor: an account belonging to a MEMBER is chased with
+  // their Team Leader; an account belonging to a TEAM LEADER is chased with
+  // that Team Leader alone. No VP or Director on any of it.
+  //
+  // The reason is volume and usefulness in the same breath. A VP holds a whole
+  // function, so "everyone's overdue Podio accounts" is a daily digest they
+  // cannot act on personally and will filter within a week — while the Team
+  // Leader is the one person who can actually turn to the member and ask. This
+  // is the same lesson v34.1 learnt when it stopped sending one email PER
+  // ACCOUNT; the audience was still one level too high.
+  //
+  // So the whole membership is read for the manager chain instead of the
+  // VP/Director list. It is ~80 rows once per day.
+  const membersRes = await db()
     .from("members")
-    .select("id, name, email, role, functions, sub_functions")
-    .eq("is_active", true)
-    .in("role", ["LCVP", "Director"]);
-  if (leadersRes.error) {
-    console.error("[podio-updates] leaders query failed:", leadersRes.error.message);
-    return NextResponse.json({ ok: false, error: leadersRes.error.message }, { status: 500 });
+    .select("id, name, email, role, stakeholder_id, is_active")
+    .eq("is_active", true);
+  if (membersRes.error) {
+    console.error("[podio-updates] members query failed:", membersRes.error.message);
+    return NextResponse.json({ ok: false, error: membersRes.error.message }, { status: 500 });
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const allLeaders = (leadersRes.data ?? []) as any[];
+  interface MemberLite {
+    id: string; name: string; email: string | null;
+    role: string; stakeholder_id: string | null; is_active: boolean;
+  }
+  const byId = new Map<string, MemberLite>();
+  for (const m of (membersRes.data ?? []) as MemberLite[]) byId.set(m.id, m);
+
+  /** The Team Leader this account should be chased WITH, or null.
+   *
+   *  ⚠️ A MEMBER'S MANAGER IS NOT ALWAYS A TEAM LEADER, and that is not an
+   *  edge case here: `defaultManagerId` attaches anyone with a blank Manager
+   *  cell straight to their function's VP, and production also carries four
+   *  Coordinators and two Team Leaders with no reports at all. So the chain is
+   *  walked and anything that is not a Team Leader is DROPPED rather than
+   *  quietly promoted back into the VP inbox this change exists to empty.
+   *
+   *  A COORDINATOR IS THEIR OWN MM (v36): they hold no team and answer for
+   *  their own numbers, so there is nobody above them to chase them with, and
+   *  they get the reminder alone. Same for a Team Leader — "the TL himself
+   *  only" is the rule as it was given. */
+  const teamLeaderFor = (memberId: string): MemberLite | null => {
+    const me = byId.get(memberId);
+    if (!me) return null;
+    if (me.role === "Team Leader") return me; // a TL is chased as themselves
+    if (me.role === "Coordinator") return null; // an MM with no team above them
+    const mgr = me.stakeholder_id ? byId.get(me.stakeholder_id) : undefined;
+    return mgr && mgr.is_active && mgr.role === "Team Leader" ? mgr : null;
+  };
 
   const now = new Date();
   const sent: string[] = [];
@@ -134,23 +163,41 @@ export async function GET(req: NextRequest) {
     else continue; // already nagged this cycle
 
     const responsible = a.responsible && a.responsible.is_active ? a.responsible : null;
-    // AN UNOWNED ACCOUNT STILL HAS TO REACH SOMEBODY. "Owner only" is the rule
-    // for accounts that HAVE one; an unassigned or deactivated-owner account
-    // would otherwise fall silently out of the cycle, so it goes to the
-    // function's leaders as the fallback it always was.
-    const leaders = responsible ? [] : allLeaders.filter((m) => leaderMatches(m, a.function));
-    const key = responsible ? `m:${responsible.id}` : `fn:${a.function}`;
+    // ⚠️ AN ACCOUNT NOBODY OWNS RAISES NO REMINDER AT ALL (v36).
+    //
+    // It used to fall back to the function's VPs/Directors, which is precisely
+    // the audience this release is removing — and the fallback was answering
+    // the wrong question anyway. A Podio "continuous update" asks a person to
+    // go and refresh a partner they are working; an unassigned name is not
+    // being worked by anyone, so there is no update to make and nobody to ask.
+    // v36 also makes the unclaimed pool function-less (0073), so "the IGV
+    // leaders" would not even be a resolvable audience for one.
+    //
+    // The account is NOT stamped in this case, so it re-enters the cycle the
+    // moment somebody claims it — silence here is a pause, not a drop.
+    if (!responsible) continue;
+
+    const tl = teamLeaderFor(responsible.id);
+    // Everyone who should hear about it: the person who must do the work, and
+    // their Team Leader when they have one. `tl` IS the responsible when the
+    // responsible is themselves a Team Leader, so the Set collapses to one.
+    const people = new Map<string, { id: string; name: string; email: string | null }>();
+    people.set(responsible.id, responsible);
+    if (tl) people.set(tl.id, tl);
+
+    // One digest per AUDIENCE, so a Team Leader carrying three members' overdue
+    // accounts gets one email listing all of them rather than three.
+    const key = [...people.keys()].sort().join("+");
     let bucket = buckets.get(key);
     if (!bucket) {
-      bucket = responsible
-        ? { memberId: responsible.id, name: responsible.name, emails: responsible.email ? [responsible.email] : [], due: [] }
-        : {
-            memberId: null,
-            name: `${a.function} leaders`,
-            emails: leaders.map((l) => l.email).filter(Boolean),
-            due: [],
-          };
-      if (!responsible) bucket.leaderIds = leaders.map((l) => l.id);
+      const all = [...people.values()];
+      bucket = {
+        memberId: responsible.id,
+        name: all.map((p) => p.name).join(" & "),
+        emails: all.map((p) => p.email).filter((e): e is string => !!e),
+        due: [],
+      };
+      bucket.leaderIds = all.map((p) => p.id); // everyone gets the bell too
       buckets.set(key, bucket);
     }
     bucket.due.push({
@@ -170,7 +217,10 @@ export async function GET(req: NextRequest) {
     try {
       // one bell too — it names the count and opens the first account, rather
       // than twenty bells that each open one
-      const bellIds = bucket.memberId ? [bucket.memberId] : (bucket.leaderIds ?? []);
+      // v36: the bell reaches the same people as the email — the responsible
+      // and their Team Leader — so the two channels cannot say different
+      // things about who is accountable for this account.
+      const bellIds = bucket.leaderIds ?? (bucket.memberId ? [bucket.memberId] : []);
       const total = bucket.due.length;
       if (bellIds.length > 0) {
         await notifyMembers(
