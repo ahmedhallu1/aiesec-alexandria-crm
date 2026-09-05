@@ -5277,6 +5277,20 @@ export type SignupListRow = SignupRow & {
   /** the whole comment thread (v33.32.2), oldest first — so the list can show
    *  it and take a new one without opening the sign-up */
   comments_all?: SignupComment[];
+  /** v36 — THE B2C CALL THIS VIEWER STILL OWES ON THIS ROW, if any.
+   *
+   *  Set only when the viewer may record a B2C call that has not been recorded
+   *  yet. It exists because tapping Call/WhatsApp opened the OGX contact form
+   *  for EVERYONE, and a B2C caller is not the sign-up's owner — so pressing
+   *  "Log it" returned a flat "You are not allowed to work this sign-up."
+   *  They were being handed somebody else's form. With this the list can offer
+   *  the B2C form instead, which is the one they can actually save.
+   *
+   *  ⚠️ Resolved on the SERVER, next to `can_work`, deliberately: the browser
+   *  would have to reimplement "is this call mine, is it still open, am I a
+   *  B2C MM" and would drift from `updateB2cCic`'s own gate the first time
+   *  either changed. */
+  my_open_b2c_call_id?: string | null;
 };
 
 export interface SignupCicCall {
@@ -5583,7 +5597,30 @@ export async function listSignupsPage(
       list.push(c);
       byId.set(c.signup_id, list);
     }
-    rows = rows.map((r) => ({ ...r, cic_calls: byId.get(r.id) ?? [] }));
+    // v36 — WHICH B2C CALL IS THIS VIEWER'S TO RECORD.
+    //
+    // ⚠️ It is resolved HERE and not in `withCaps` above, because withCaps runs
+    // before this block and `cic_calls` is attached by it — a flag computed up
+    // there would read an undefined list and be null on every row, which is
+    // exactly the kind of silently-always-false gate that makes a feature look
+    // implemented and behave as if it were not.
+    //
+    // Mirrors `updateB2cCic`'s own gate (the assigned caller, or any B2C MM),
+    // so the form the list offers is always one the server will accept. "Open"
+    // means nothing has been recorded yet — a call already marked answered, or
+    // busy/dead, is finished business and must not reopen as a prompt.
+    const b2cMm = seesB2cCicQueue(viewer);
+    rows = rows.map((r) => {
+      const calls = byId.get(r.id) ?? [];
+      const mine = calls.find(
+        (c) =>
+          c.side === "B2C" &&
+          !c.outcome &&
+          !c.contact_status &&
+          (c.caller_id === viewer.id || b2cMm)
+      );
+      return { ...r, cic_calls: calls, my_open_b2c_call_id: mine?.id ?? null };
+    });
   }
   // COMMENTS ON THE LIST (v33.32.2) — the raising table has carried its
   // thread and a ➕ since v33.17; OGX had to open a sign-up to read or leave

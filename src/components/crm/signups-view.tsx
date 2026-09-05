@@ -765,10 +765,29 @@ function CallBackDialog({
  *  with the channel already written into the comment. Claims the sign-up on
  *  the way when it came from the unassigned pool — the exact same motion as
  *  the Contact button. "Not now" always gets you out. */
+/** ⚠️ v36 — THIS PROMPT SERVES TWO DIFFERENT CALLERS, AND IT USED TO SERVE
+ *  ONLY ONE OF THEM.
+ *
+ *  Tapping Call/WhatsApp on a CIC row opened this dialog for everybody and
+ *  saved through `updateSignupContact`, which is gated on `canWorkSignup` —
+ *  the sign-up's OWNER. A B2C caller is never the owner: they were handed to
+ *  this row to sell a course, not to run the OGX funnel. So pressing "Log it"
+ *  returned a flat **"You are not allowed to work this sign-up."** They were
+ *  being shown somebody else's form and blamed for using it.
+ *
+ *  The two calls are genuinely different work and Sodio has said so since
+ *  v35.1: an OGX contact moves the sign-up's own funnel, while a B2C selling
+ *  call lives in `signup_cic_calls` and must NEVER touch it — otherwise the
+ *  OGX crew's numbers move because somebody rang about a course.
+ *
+ *  So the prompt now asks who is calling and offers the form that person can
+ *  actually save: the OGX contact for the owner, the B2C outcome for the B2C
+ *  caller. `my_open_b2c_call_id` is resolved on the server beside `can_work`
+ *  (see listSignupsPage) so the two can never disagree about who may do what. */
 function SignupContactPrompt({
   row, channel, onClose, onOpenDetail,
 }: {
-  row: SignupRow;
+  row: SignupListRow;
   channel: Channel;
   onClose: () => void;
   onOpenDetail: () => void;
@@ -777,12 +796,53 @@ function SignupContactPrompt({
   const [contacted, setContacted] = useState("Yes");
   const [interested, setInterested] = useState("__unset");
   const [comment, setComment] = useState(`Reached out on ${channel}.`);
+  const [outcome, setOutcome] = useState("answered");
+  const [callBack, setCallBack] = useState("");
   const [pending, start] = useTransition();
 
   const unassigned = !row.assigned_to && !row.assigned_name;
+  // The B2C form is offered only when this viewer CANNOT work the sign-up but
+  // DOES owe a B2C call on it. Somebody who is both (a B2C member who also
+  // owns the row) keeps the OGX form — it is the one that moves the funnel,
+  // and their B2C call is still recordable from the CIC columns.
+  const b2cCallId = row.can_work ? null : (row.my_open_b2c_call_id ?? null);
+  const isB2cCall = !!b2cCallId;
+  const needsTime = isB2cCall && outcome === "call_back";
 
   const submit = () =>
     start(async () => {
+      // ---- the B2C selling call: its own row, never the OGX funnel --------
+      if (b2cCallId) {
+        if (needsTime && !callBack) {
+          toast.error("Pick when to call them back.");
+          return;
+        }
+        const res = await updateB2cCic(b2cCallId, {
+          outcome,
+          ...(needsTime ? { callBackAt: new Date(callBack).toISOString() } : {}),
+        });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
+        // The comment lands in B2C's OWN thread (author_class 'b2c') — that is
+        // what addSignupComment gives a B2C caller, and it is deliberately not
+        // written back to the OGX tracker sheet.
+        if (comment.trim()) {
+          const c = await addSignupComment(row.id, comment.trim());
+          if (!c.ok) toast.error(c.error);
+        }
+        toast.success(
+          needsTime
+            ? "⏰ Call back saved — you'll get a reminder when it's due"
+            : "B2C call recorded 🛍"
+        );
+        onClose();
+        router.refresh();
+        return;
+      }
+
+      // ---- the OGX contact: the owner's funnel ---------------------------
       if (unassigned) {
         const claim = await claimSignup(row.id);
         if (!claim.ok) {
@@ -818,12 +878,54 @@ function SignupContactPrompt({
             reach {row.name}?
           </DialogTitle>
           <DialogDescription>
-            You just opened <b>{channel}</b>. Log it here — a sign-up contacted
-            without a record is a sign-up nobody follows up.
-            {unassigned ? " Saving also claims them for you." : ""}
+            {isB2cCall ? (
+              <>
+                You just opened <b>{channel}</b> for your <b>B2C</b> call. Record
+                what happened — this is your selling call, and it stays on your
+                own log. It never touches their OGX funnel.
+              </>
+            ) : (
+              <>
+                You just opened <b>{channel}</b>. Log it here — a sign-up contacted
+                without a record is a sign-up nobody follows up.
+                {unassigned ? " Saving also claims them for you." : ""}
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
+          {isB2cCall ? (
+            <>
+              <div className="grid gap-1.5">
+                <Label>What happened?</Label>
+                <Select value={outcome} onValueChange={setOutcome}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {B2C_CALL_OUTCOMES.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {B2C_CALL_OUTCOMES.find((o) => o.value === outcome)?.hint}
+                </p>
+              </div>
+              {needsTime ? (
+                <div className="grid gap-1.5">
+                  <Label>When should you call back?</Label>
+                  <Input
+                    type="datetime-local"
+                    value={callBack}
+                    onChange={(e) => setCallBack(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Cairo time. You&apos;ll get a nudge once it falls due — it is a
+                    floor, not an alarm.
+                  </p>
+                </div>
+              ) : null}
+            </>
+          ) : (
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
               <Label>Contacted</Label>
@@ -847,6 +949,7 @@ function SignupContactPrompt({
               </Select>
             </div>
           </div>
+          )}
           <div className="grid gap-1.5">
             <Label>Comment</Label>
             <Textarea
@@ -862,7 +965,9 @@ function SignupContactPrompt({
             className="text-left text-xs text-muted-foreground underline-offset-2 hover:text-primary hover:underline"
             onClick={() => { onClose(); onOpenDetail(); }}
           >
-            Need the full record (potential, country, archive)? Open the details →
+            {isB2cCall
+              ? "See everything on this person? Open the details →"
+              : "Need the full record (potential, country, archive)? Open the details →"}
           </button>
         </div>
         <DialogFooter className="gap-2">
