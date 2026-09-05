@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import {
   addSignupComment, addSignupReferral, assignB2cCic, assignCicCaller, bulkAssignB2cCic,
-  bulkAssignCicCaller, bulkReassignSignups, clearB2cCic, updateB2cCic,
+  bulkAssignCicCaller, bulkReassignSignups, clearB2cCic, startB2cCall, updateB2cCic,
   bulkReviveSignups, claimSignup, clearCicCaller,
   openSignupDetail,
   reassignSignup, reviveSignup, runSignupsImport, setSignupOop,
@@ -3260,6 +3260,7 @@ function SignupDetailDialog({
             is the reason they opened this. */}
         {detail.canB2c ? (
           <B2cCallSection
+            signupId={detail.signup.id}
             call={detail.b2cCall}
             history={detail.b2cHistory}
             onDone={() => { onChanged(detail.signup.id); router.refresh(); }}
@@ -3359,19 +3360,37 @@ function SignupDetailDialog({
  *  and Interested belong to the OGX crew and stay theirs. That isolation is
  *  the whole reason B2C has its own call row rather than sharing one. */
 function B2cCallSection({
-  call, history, onDone,
+  signupId, call, history, onDone,
 }: {
+  signupId: string;
   call: SignupCicCall | null;
   history: SignupCicCall[];
   onDone: () => void;
 }) {
   const [pending, start] = useTransition();
-  const [outcome, setOutcome] = useState("answered");
-  const [interested, setInterested] = useState("__unset");
-  const [callBack, setCallBack] = useState("");
-  const [note, setNote] = useState("");
+  // ⚠️ PREFILLED FROM THE CALL, so opening it shows what is already recorded
+  // rather than a blank form that would overwrite it on save. `call` is the
+  // caller's LATEST call now, recorded or not — see the comment on
+  // SignupDetail.b2cCall for why "open" was the wrong idea.
+  const [outcome, setOutcome] = useState(
+    call?.outcome ?? (call?.contact_status === "Yes" ? "answered" : "answered")
+  );
+  const [interested, setInterested] = useState(call?.interested ?? "__unset");
+  const [callBack, setCallBack] = useState(
+    call?.call_back_at ? call.call_back_at.slice(0, 16) : ""
+  );
+  const [note, setNote] = useState(call?.note ?? "");
   const needsTime = outcome === "call_back";
   const reached = b2cOutcomeReached(outcome);
+  const recorded = !!(call?.outcome || call?.contact_status);
+
+  const ringAgain = () =>
+    start(async () => {
+      const res = await startB2cCall(signupId);
+      if (!res.ok) { toast.error(res.error); return; }
+      toast.success("New call started — record it when you've rung them 🛍");
+      onDone();
+    });
 
   const save = () =>
     start(async () => {
@@ -3395,7 +3414,25 @@ function B2cCallSection({
 
   return (
     <div className="space-y-2 rounded-lg border border-warning/40 bg-warning/5 p-3">
-      <p className="text-sm font-semibold text-warning">🛍 Your B2C call</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-sm font-semibold text-warning">🛍 Your B2C call</p>
+        {recorded ? (
+          <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">
+            recorded — editing it
+          </span>
+        ) : null}
+        {call && recorded ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-auto h-7"
+            onClick={ringAgain}
+            disabled={pending}
+          >
+            + Rang them again
+          </Button>
+        ) : null}
+      </div>
       {call ? (
         <>
           <div className="grid gap-2 sm:grid-cols-2">
@@ -3453,21 +3490,28 @@ function B2cCallSection({
           </p>
           <Button size="sm" onClick={save} disabled={pending}>
             {pending ? <Loader2 className="size-4 animate-spin" /> : <Phone className="size-4" />}
-            Record it
+            {recorded ? "Save changes" : "Record it"}
           </Button>
         </>
       ) : (
-        <p className="text-sm text-muted-foreground">
-          {done.length > 0
-            ? "No open B2C call on this one — the calls below are already recorded."
-            : "No B2C call has been handed out for this sign-up yet."}
-        </p>
+        <div className="space-y-2">
+          <p className="text-sm text-muted-foreground">
+            No B2C call on this sign-up yet — start one when you ring them.
+          </p>
+          <Button size="sm" onClick={ringAgain} disabled={pending}>
+            {pending ? <Loader2 className="size-4 animate-spin" /> : <Phone className="size-4" />}
+            Log a B2C call
+          </Button>
+        </div>
       )}
 
       {done.length > 0 ? (
         <div className="space-y-1 border-t border-warning/30 pt-2">
           {done.map((c) => (
             <p key={c.id} className="text-xs text-muted-foreground" dir="auto">
+              {/* the date is what tells eight calls apart — without it a caller
+                  who rang three times reads as one line repeated */}
+              <span className="font-mono text-[10px]">{fmtDateTime(c.assigned_at ?? c.created_at)}</span>{" "}
               <b className="text-foreground">{c.caller_name}</b>{" "}
               {b2cOutcomeLabel(c.outcome) ?? (c.contact_status === "Yes" ? "✅ Answered" : "— no answer")}
               {c.interested ? ` · interested: ${c.interested}` : ""}

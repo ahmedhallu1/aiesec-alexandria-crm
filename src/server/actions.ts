@@ -7629,13 +7629,25 @@ export async function assignB2cCic(
           : "As a B2C Coordinator you take the call yourself — leaders hand out further."
       );
   }
-  // ONE open B2C call per sign-up: replace the open row's caller, else insert
+  // ⚠️ REUSE THE LATEST UNRECORDED CALL — and "unrecorded" means NO OUTCOME,
+  // not "contact_status is null" (v36).
+  //
+  // That old test is what filled one production sign-up with EIGHT rows for the
+  // same caller, five of them carrying no outcome at all. `updateB2cCic` writes
+  // `contact_status`, and the CIC list's inline "called"/"interested" dropdowns
+  // call it directly — so touching either one made the row invisible to this
+  // query, and the next assign inserted a fresh one. Nobody meant to create
+  // any of them.
+  //
+  // The outcome is what v35.1 made the real record of a call, so it is what
+  // decides whether one has been made. A genuinely SECOND call is a deliberate
+  // act now — `startB2cCall`.
   const { data: openRow } = await db()
     .from("signup_cic_calls")
     .select("id, caller_name")
     .eq("signup_id", signupId)
     .eq("side", "B2C")
-    .is("contact_status", null)
+    .is("outcome", null)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle<{ id: string; caller_name: string }>();
@@ -7703,6 +7715,67 @@ export async function bulkAssignB2cCic(
 }
 
 /** The B2C caller records THEIR call — never the OGX funnel. */
+/** RING THEM AGAIN — a deliberately NEW B2C call on a sign-up (v36).
+ *
+ *  ⚠️ THIS EXISTS SO THAT TOUCHING A DROPDOWN CANNOT CREATE ONE BY ACCIDENT.
+ *  Until now the only way to get a second call row was to re-assign, and
+ *  because `updateB2cCic` writes `contact_status`, ANY inline edit closed the
+ *  current row and made the next assign insert a fresh one. Production carries
+ *  a sign-up with eight rows from that loop — same caller, seconds apart, five
+ *  with no outcome recorded at all. Nobody meant to create any of them.
+ *
+ *  A second call is a real thing (they said call back, or the first pitch
+ *  needed a follow-up) and it deserves its own row. It just has to be asked
+ *  for. Refused while the latest call is still blank, because that row IS the
+ *  unrecorded call — a second empty one would only recreate the pile. */
+export async function startB2cCall(signupId: string): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const { seesB2cCicQueue, b2cCicAccess } = await import("./data");
+  if (!b2cCicAccess(viewer)) return fail("B2C calls are the B2C crew's.", "forbidden");
+
+  const signup = await loadSignup(signupId);
+  if (!signup) return fail("Sign-up not found.");
+  if (signup.out_of_process) return fail("This sign-up is archived (Out of Process).");
+
+  const { data: calls } = await db()
+    .from("signup_cic_calls")
+    .select("id, caller_id, outcome, contact_status")
+    .eq("signup_id", signupId)
+    .eq("side", "B2C")
+    .order("created_at", { ascending: false })
+    .limit(1);
+  const latest = (calls ?? [])[0] as
+    | { id: string; caller_id: string | null; outcome: string | null; contact_status: string | null }
+    | undefined;
+
+  // only the caller who holds this row, or somebody who runs the queue
+  if (latest && latest.caller_id !== viewer.id && !seesB2cCicQueue(viewer))
+    return fail("That sign-up's B2C call belongs to someone else.", "forbidden");
+  if (latest && !latest.outcome && !latest.contact_status)
+    return fail("Record the call you already have first — it hasn't been filled in yet.");
+
+  const { data: made, error } = await db()
+    .from("signup_cic_calls")
+    .insert({
+      signup_id: signupId,
+      side: "B2C",
+      caller_id: viewer.id,
+      caller_name: viewer.name,
+      assigned_by: viewer.id,
+      assigned_by_name: viewer.name,
+    })
+    .select("id")
+    .maybeSingle<{ id: string }>();
+  if (error) return fail(error.message);
+  if (made) await recordUndo("signup_cic_calls", made.id, "insert");
+  await logSignupChange(viewer, signupId, "cic_b2c_assigned", null, viewer.name);
+  await logAudit(viewer.id, "cic_b2c_start", "signup", signupId, { call: made?.id }, {
+    summary: `Started another B2C call on ${signup.name}`,
+  });
+  refresh();
+  return { ok: true };
+}
+
 export async function updateB2cCic(
   callRowId: string,
   input: {

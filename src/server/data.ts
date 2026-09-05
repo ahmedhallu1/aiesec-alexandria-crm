@@ -5987,18 +5987,27 @@ export interface SignupDetail {
    *  whoever runs the B2C queue. They may leave a B2C comment — their own
    *  class, which never reaches the OGX tracker's cells. */
   canB2c: boolean;
-  /** ⚠️ v36 — THE B2C CALL ITSELF, which the dialog had no way to reach.
+  /** ⚠️ v36 — THE B2C CALL THIS VIEWER IS WORKING, which the dialog could not
+   *  reach at all, and then could only reach while it was "open".
    *
-   *  Reported from the floor: "the cic for b2c doesn't have any outcome, just
-   *  a comment nothing else". `canB2c` said the viewer was a B2C caller and
-   *  the dialog then offered them a comment box and nothing else — so the one
-   *  thing they opened it to record (what happened on the call) could only be
-   *  done from the CIC list's inline cells, and not at all from the sign-up
-   *  they were looking at.
+   *  Reported twice from the floor, the second time as "still the log for b2c
+   *  have nothing except the comment". The first fix showed the form only when
+   *  an OPEN call existed — no outcome AND no contact_status — and that state
+   *  turns out to be almost unreachable in practice:
    *
-   *  This is the OPEN call they may record: theirs, or any open one if they
-   *  run the queue. Null when there is none — a B2C MM reading somebody
-   *  else's finished call gets the history, not a form. */
+   *  `updateB2cCic` writes `contact_status` (v35.1 derives it from the
+   *  outcome), and the CIC list's inline "called"/"interested" dropdowns call
+   *  it directly. So the moment a caller touched either dropdown the row
+   *  stopped being open, the form vanished, and the only way to interact again
+   *  was to assign ANOTHER call — which is exactly what the data shows: eight
+   *  rows on one sign-up, same caller, five of them with no outcome at all,
+   *  created seconds apart.
+   *
+   *  A call is a thing that HAPPENED. It does not stop being this caller's
+   *  because they filled a field in. So this is their LATEST call on the row,
+   *  recorded or not, and the form edits it. Starting a genuinely new
+   *  conversation is an explicit act (`startB2cCall`), not something that
+   *  happens by accident because a dropdown was touched. */
   b2cCall: SignupCicCall | null;
   /** every B2C call on this row, newest first — the history under the form */
   b2cHistory: SignupCicCall[];
@@ -6068,14 +6077,13 @@ export async function getSignupDetail(
       .eq("side", "B2C")
       .order("created_at", { ascending: false });
     b2cHistory = (calls ?? []) as SignupCicCall[];
-    // "open" = nothing recorded yet, and mine to record. Mirrors
-    // updateB2cCic's own gate so the form can never offer a save it refuses.
+    // The LATEST call this viewer may record — `b2cHistory` is newest-first,
+    // so the first match is it. Mirrors updateB2cCic's own gate exactly (the
+    // assigned caller, or anyone who runs the B2C queue) so the form can never
+    // offer a save the server would refuse.
     b2cCall =
       b2cHistory.find(
-        (c) =>
-          !c.outcome &&
-          !c.contact_status &&
-          (c.caller_id === viewer.id || seesB2cCicQueue(viewer))
+        (c) => c.caller_id === viewer.id || seesB2cCicQueue(viewer)
       ) ?? null;
   }
 
