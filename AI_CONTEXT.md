@@ -790,14 +790,36 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
   exists; plans-are-the-goals implied you could see your team's plan. Five new:
   deleting an account and cancelling a deal, the cross-function open, the IM
   prompt composer, API keys, and IR slot requests. HELP_VERSION → v36.
-  ⚠️ **STILL PENDING, deliberately**: migrations **0073** (an unowned account
-  carries NO function — the 229-row pool) and **0074** (the O2O/PDP tables) are
-  WRITTEN AND NOT APPLIED. The code handles a null function everywhere and the
-  PDP server module exists, but the pool's claim path and the PDP screens are
-  not finished — applying 0073 now would blank 229 accounts' functions before
-  the UI that gives them one is in place. The CXP module still has no help
-  article.
-  **719 tests** (618 before), tsc clean, production build green.
+  ⑬ **ALL OGX WAS SHOWING ICX**, reported from the floor as exactly that. The
+  dashboard PAGE decided whether to FETCH `ogxDashboard`; the dashboard VIEW
+  separately decided whether to RENDER it — two hand-written copies of
+  `fn === "OGT" || fn === "OGV"` in different files, and the aggregate went
+  into one of them. ⚠️ It fails SILENTLY (`isOgxLane && ogx`), so it falls
+  through to the other module's numbers rather than blanking. There was a THIRD
+  copy in the same file deciding whether to clear stale ICX member/team ids
+  when crossing worlds — so All OGX kept an ICX member id and zeroed itself,
+  the exact failure that line exists to prevent. One `isOgxLaneKey`, pinned by
+  a ratchet that catches any hand-rolled comparison whatever the variable is
+  called (the first version only caught the shape I happened to be looking at).
+  ⑭ **THE O2O / PDP MODULE** (0074 applied): `/pdp`. Mine · My people · the LC.
+  Last month's numbers are READ from `listMembersDirectory` — the same reader
+  the TM directory uses — and FROZEN on filing, so the gap keeps matching the
+  steps agreed against it; `funnelGap` returns null rather than inventing one,
+  and the form says so. The member ticks their own weekly steps, and re-editing
+  the wording carries the ticks across. ⚠️ "My people" is the viewer's own
+  direct reports INCLUDING TM's — the first cut gave a process owner all **79**
+  active members under that heading; filing for anyone else is the unsticking
+  case and lives on the LC-wide list. No new cron (it rides
+  attendance-reminders, so the deadline is a floor); the prompt is SKIPPABLE
+  and has its own self-heal branch in `openPendingPrompt`.
+  ⚠️ **STILL PENDING, deliberately**: migration **0073** (an unowned account
+  carries NO function — the 229-row pool) is WRITTEN AND NOT APPLIED. The code
+  handles a null function everywhere, but the pool's claim path and its UI are
+  unfinished — applying it now would blank 229 accounts' functions before the
+  screen that gives them one back exists. The CXP module still has no help
+  article, and `/pdp` has not been clicked through in a browser (it needs a
+  signed-in session).
+  **721 tests** (618 before), tsc clean, production build green.
 
 - **2026-08-28 · v35.1** — **SEVEN FROM THE FLOOR** (migrations **0070 +
   0071 applied**: B2C call outcomes, the partnership stage).
