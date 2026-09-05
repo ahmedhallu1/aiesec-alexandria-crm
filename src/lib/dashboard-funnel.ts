@@ -105,6 +105,27 @@ export const noWork = (): RowWork => ({
   deals: 0, slots: 0, igv: 0, igta: 0, igte: 0, split: true,
 });
 
+/** IS THIS LANE AN OGX SIGN-UP LANE (rather than an ICX account lane)?
+ *
+ *  ⚠️ ONE PREDICATE, BECAUSE THERE USED TO BE TWO AND THEY DRIFTED. The
+ *  dashboard PAGE decided whether to fetch `ogxDashboard`, and the dashboard
+ *  VIEW separately decided whether to RENDER it — two copies of
+ *  `fn === "OGT" || fn === "OGV"` in different files. v36 added the aggregate
+ *  "OGX" lane to the page's copy and not the view's, so the page fetched the
+ *  OGX data correctly and the view then ignored it and drew the ICX dashboard
+ *  underneath the "All OGX" chip. Reported from the floor as, exactly, "all
+ *  OGX dashboard have ICX on it not OGX".
+ *
+ *  The render is `isOgxLane && ogx`, so a disagreement between the two does
+ *  not fail loudly — it silently falls through to the other module's numbers,
+ *  which is the worst possible way for it to be wrong.
+ *
+ *  It lives here, in the pure funnel module, because both a server component
+ *  and a client one need it. */
+export function isOgxLaneKey(fn: string): boolean {
+  return fn === "OGT" || fn === "OGV" || fn === "OGX";
+}
+
 /** ALL TIME: the account's own running counters, which is what the dashboard
  *  has always read when no date range is set. Kept as the no-window path on
  *  purpose — it costs nothing, it is what every existing number was built

@@ -21,6 +21,7 @@ import { CountUp } from "./count-up";
 import { cn } from "@/lib/utils";
 import { StreakCard } from "./streak-card";
 import { cairoToday, FUNCTION_COLORS } from "@/lib/types";
+import { isOgxLaneKey } from "@/lib/dashboard-funnel";
 import type {
   DrillGroup, FunnelStats, LanePlan, OgxBoardRow, OgxDashboardData, OgxFunnel,
   StreakStats, TeamPlan,
@@ -187,7 +188,7 @@ export function DashboardView({
   const myNumbersActive = filters.member === viewerId;
   const anyFilter = Object.values(filters).some(Boolean);
   // OGX pseudo-lanes (v28): same filter bar, sign-up funnel instead of accounts
-  const isOgxLane = activeFn === "OGT" || activeFn === "OGV";
+  const isOgxLane = isOgxLaneKey(activeFn);
   // Consideration lanes (v33.32): same bar again, IR calls instead of accounts
   const isConsLane = activeFn.startsWith("CONS");
   const noun = isConsLane ? "IR calls" : isOgxLane ? "sign-ups" : "accounts";
@@ -222,9 +223,12 @@ export function DashboardView({
                 onClick={() =>
                   go((p) => {
                     // ICX member/team ids mean nothing on OGX lanes (and vice
-                    // versa) — stale params would silently zero the dashboard
-                    const isOgx = (k: string) => k === "OGT" || k === "OGV";
-                    if (isOgx(v.key) !== isOgx(activeFn)) {
+                    // versa) — stale params would silently zero the dashboard.
+                    // v36: uses the SHARED predicate. Its own private copy did
+                    // not know about the aggregate "OGX" lane, so stepping from
+                    // an ICX lane onto All OGX kept the ICX member id — the
+                    // precise failure this line exists to prevent.
+                    if (isOgxLaneKey(v.key) !== isOgxLaneKey(activeFn)) {
                       p.delete("team");
                       p.delete("member");
                     }

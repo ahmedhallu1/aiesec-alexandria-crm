@@ -8,6 +8,7 @@ import {
   isBd, isTmCore, ogxLanes, raisingFunctions, seesEveryLane } from "@/lib/rbac";
 import { tmStats } from "@/server/tm-stats";
 import { memberIsB2C, teamLabel } from "@/lib/types";
+import { isOgxLaneKey } from "@/lib/dashboard-funnel";
 import { DashboardView, type DashboardScopeView } from "@/components/crm/dashboard-view";
 
 export const metadata = { title: "Dashboard" };
@@ -114,7 +115,7 @@ export default async function DashboardPage({
   // pure-OGX viewer scopes to their own — empty — accounts and returns fast)
   const SPECIAL_LANES = new Set(["CONS", "CONS_IGV", "CONS_IGT", "OGT", "OGV", "OGX", "TM"]);
   const baseLane = views.find((v) => !SPECIAL_LANES.has(v.key))?.key ?? "all";
-  const isOgxLane = activeFn === "OGT" || activeFn === "OGV" || activeFn === "OGX";
+  const isOgxLane = isOgxLaneKey(activeFn);
   const consLane: "IGV" | "IGT" | null =
     activeFn === "CONS_IGV" ? "IGV" : activeFn === "CONS_IGT" ? "IGT" : null;
 

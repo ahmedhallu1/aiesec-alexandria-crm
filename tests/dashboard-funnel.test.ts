@@ -1,7 +1,9 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import {
   addRowLane, allTimeWork, didAnything, emptyStats, laneAllocSlots, laneWorkSlots,
-  noWork, rowInLane, type LaneRow, type RowWork } from "@/lib/dashboard-funnel";
+  noWork, rowInLane, isOgxLaneKey, type LaneRow, type RowWork } from "@/lib/dashboard-funnel";
 
 /**
  * THE DASHBOARD'S FUNNEL — LANES, AND THE DATE EACH KPI IS JUDGED ON.
@@ -166,5 +168,50 @@ describe("B2C is deals-only (v23)", () => {
     const s = emptyStats();
     addRowLane(s, row({ function: "B2C" }), work({ mr: true, deals: 2 }), "B2C");
     expect(s).toMatchObject({ mr: 1, deals: 2, dealAccounts: 1, slots: 0 });
+  });
+});
+
+/** THE LANE PREDICATE MUST EXIST ONCE (v36).
+ *
+ *  Reported from the floor as "all OGX dashboard have ICX on it not OGX". The
+ *  dashboard PAGE decided whether to FETCH `ogxDashboard` and the dashboard
+ *  VIEW separately decided whether to RENDER it — two hand-written copies of
+ *  `fn === "OGT" || fn === "OGV"` in different files. Adding the aggregate
+ *  "OGX" lane to one of them and not the other meant the page fetched the OGX
+ *  numbers correctly and the view then ignored them and drew the ICX dashboard
+ *  under the "All OGX" chip.
+ *
+ *  It fails SILENTLY, which is what makes it worth a ratchet: the render is
+ *  `isOgxLane && ogx`, so a disagreement does not throw — it quietly shows
+ *  another module's numbers. This test greps the source, so a future copy of
+ *  the comparison fails here rather than on somebody's dashboard. */
+describe("one OGX-lane predicate, not two", () => {
+  const files = [
+    "src/app/(app)/dashboard/page.tsx",
+    "src/components/crm/dashboard-view.tsx",
+  ];
+
+  it("covers OGT, OGV and the aggregate OGX, and nothing else", () => {
+    expect(isOgxLaneKey("OGT")).toBe(true);
+    expect(isOgxLaneKey("OGV")).toBe(true);
+    expect(isOgxLaneKey("OGX")).toBe(true);
+    for (const other of ["all", "IGV", "IGT", "IGTa", "B2B", "BD", "B2C", "TM", "CONS_IGV", ""])
+      expect(isOgxLaneKey(other)).toBe(false);
+  });
+
+  it("is what the dashboard page and view both use", () => {
+    for (const f of files) {
+      const src = readFileSync(join(process.cwd(), f), "utf8");
+      expect(src, `${f} should call isOgxLaneKey`).toContain("isOgxLaneKey(");
+      // ⚠️ Catches ANY hand-rolled lane comparison, whatever the variable is
+      // called. The first version of this test only looked for `activeFn ===`
+      // and therefore missed a THIRD copy in the same file written as
+      // `(k) => k === "OGT" || k === "OGV"` — which is what decided whether to
+      // clear stale ICX member/team ids when crossing worlds, and so kept an
+      // ICX member id on the All-OGX lane: the exact failure that line exists
+      // to prevent.
+      const rolled = /=== "OG[TV]"\s*\|\|\s*\w+ === "OG[TV]"/.test(src);
+      expect(rolled, `${f} still hand-rolls the OGX lane test`).toBe(false);
+    }
   });
 });
