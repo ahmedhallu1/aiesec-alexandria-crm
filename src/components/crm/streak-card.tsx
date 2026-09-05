@@ -30,17 +30,29 @@ export function StreakCard({
   return (
     <Card className="rise-in border-orange-400/40">
       <CardContent className="space-y-2.5 p-4">
-        <div className="flex items-center gap-3">
+        {/* ⚠️ THIS HEADER WAS UNREADABLE ON A PHONE (v36 fix), and the cause is
+            the one this codebase keeps meeting: the middle block carried
+            `min-w-0` but NOT `flex-1`, so it had permission to shrink and no
+            claim on any width — while BOTH its siblings were `shrink-0` and
+            together needed more than a 375px screen. The headline wrapped one
+            word per line ("0-" / "day" / "streak"), and `ml-auto` on a
+            `shrink-0` paragraph then dragged the best-streak line back across
+            it, so the two texts overlapped. Same shape as the partner-LC names
+            in v34.3.
+            The fix is the same one: the text takes a real share of the row,
+            and the things beside it drop to their own row below `sm` instead
+            of competing for a width that isn't there. */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <span
             aria-hidden
             className={cn(
-              "text-4xl leading-none transition-all",
+              "shrink-0 text-4xl leading-none transition-all",
               !streak.savedToday && "opacity-40 grayscale"
             )}
           >
             🔥
           </span>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1 basis-40">
             <p className="text-xl font-bold tabular-nums">
               {streak.current}-day streak
             </p>
@@ -59,25 +71,29 @@ export function StreakCard({
           </div>
           {/* YOUR best, not the LC's (v33.26). Sitting unlabelled next to a
               board of other people's live streaks, "Best: 0 days" read as a
-              broken number rather than as "you haven't started". */}
-          {showAction && !streak.savedToday ? (
-            <Button size="sm" variant="outline" asChild className="order-last shrink-0 sm:order-none">
-              <Link prefetch={false} href="/signups">Go contact one</Link>
-            </Button>
-          ) : null}
-          <p className="ml-auto shrink-0 text-end text-xs text-muted-foreground">
-            {streak.best > 0 ? (
-              <>
-                Your best:{" "}
-                <span className="font-semibold text-foreground tabular-nums">
-                  {streak.best}
-                </span>{" "}
-                {dayWord(streak.best)}
-              </>
-            ) : (
-              "No streak yet — today can be day 1"
-            )}
-          </p>
+              broken number rather than as "you haven't started".
+              It shares a row with the button below `sm` — one full-width row
+              of its own is what stops either of them squeezing the headline. */}
+          <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
+            <p className="min-w-0 text-xs text-muted-foreground sm:text-end">
+              {streak.best > 0 ? (
+                <>
+                  Your best:{" "}
+                  <span className="font-semibold text-foreground tabular-nums">
+                    {streak.best}
+                  </span>{" "}
+                  {dayWord(streak.best)}
+                </>
+              ) : (
+                "No streak yet — today can be day 1"
+              )}
+            </p>
+            {showAction && !streak.savedToday ? (
+              <Button size="sm" variant="outline" asChild className="shrink-0">
+                <Link prefetch={false} href="/signups">Go contact one</Link>
+              </Button>
+            ) : null}
+          </div>
         </div>
         <div className="border-t pt-2">
           <div className="flex flex-wrap items-center gap-2">
@@ -141,13 +157,20 @@ export function StreakCard({
                     // ALIVE BUT UNSAVED (v33.37): the grace day. Saying it
                     // out loud is what keeps the board honest — this row
                     // dies at midnight unless they contact someone.
-                    <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
-                      not saved today ⏳
+                    // ⚠️ THE WORDS COST 110px OF A 375px ROW, which is what
+                    // squeezed the name down to "Mariam Abd…". The hourglass
+                    // carries the same meaning on a phone; the sentence comes
+                    // back from `sm`, and `title` keeps it reachable either way.
+                    <span
+                      title="Not saved today — this streak dies at midnight unless they contact someone"
+                      className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
+                    >
+                      <span className="hidden sm:inline">not saved today </span>⏳
                     </span>
                   )}
                   <span
                     className={cn(
-                      "w-16 shrink-0 text-end text-sm font-bold tabular-nums",
+                      "shrink-0 text-end text-sm font-bold tabular-nums",
                       !t.savedToday && "opacity-50"
                     )}
                   >
