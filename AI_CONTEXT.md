@@ -10,7 +10,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-08-28 · Version: v35.1
+Last updated: 2026-09-05 · Version: v36
 
 ---
 
@@ -676,6 +676,128 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-09-05 · v36** — **THE LOGS GROW UP, THE LOGIN STOPS GUESSING, AND TWO
+  FEATURES THAT HAD NEVER ONCE WORKED** (migrations **0072 + 0075 applied**;
+  **0073 + 0074 written and NOT yet applied** — see the note at the end).
+  ① **B2C COULD NEVER COMMENT ON A SIGN-UP. NOT ONCE.** v35.1 ④ shipped the
+  code — `actions.ts` writes `author_class: "b2c"`, `types.ts` declares the
+  third class, `signups-view.tsx` renders a third thread — and **the CHECK
+  constraint was never widened.** `0025_ogx_signups.sql:68` is still the only
+  place the column is constrained anywhere in the repo and it said
+  `('member','vp')`, so every attempt since 2026-08-28 died on a raw Postgres
+  error shown to the member in a red banner. Measured before fixing: 3,166
+  'member' rows, 21 'vp', **ZERO 'b2c'**, against 70 B2C calls by 2 callers.
+  0075 widens it. ⚠️ THE LESSON IS IN THE MIGRATION, because it will happen
+  again: migrations here are applied BY HAND, so code and schema ship on two
+  clocks, and a CHECK listing string literals is the sharpest form of that trap
+  — the TS union and the SQL check are two copies of one list and only one is
+  enforced at build time.
+  ② **AND THE B2C CALLER WAS BEING HANDED SOMEBODY ELSE'S FORM.** Tapping
+  Call/WhatsApp on a CIC row opened the contact prompt for everyone and saved
+  through `updateSignupContact`, gated on `canWorkSignup` — the sign-up's
+  OWNER. A B2C caller never is. Pressing "Log it" returned **"You are not
+  allowed to work this sign-up."** The prompt now asks who is calling and
+  offers the form that person can save: the OGX contact for the owner, the five
+  B2C outcomes for the B2C caller, with the call-back time. ⚠️ It never writes
+  the OGX funnel — that isolation is the v35.1 design. `my_open_b2c_call_id` is
+  resolved SERVER-side beside `can_work`, and had to move once while being
+  written: the obvious home was `withCaps`, which runs BEFORE `cic_calls` is
+  attached, so a flag computed there is null on every row forever.
+  ③ **THE ACTIVITY LOG BECAME A CONSOLE** (0072). The old page fetched the
+  newest 80 rows and grepped them IN THE BROWSER, so on 14,890 rows it could
+  not see past the last 80 — and said "Nothing matches" when the truth was that
+  it had never looked. Everything filters, orders and pages in Postgres now: by
+  person, action, entity, category, outcome, a Cairo date range and free text,
+  with CSV export and the filters in the URL. Rows carry what they never did:
+  **before → after** (`updateAccount` logged only the NAMES of changed fields),
+  **who REALLY acted** (an action inside a test view is credited to the member
+  being impersonated — it reads "by Ahmed · acting as Hana"), a **category**
+  and an **outcome** (went through · refused · failed), and a human summary.
+  `logAudit` keeps its exact signature — all ~123 call sites unchanged — and
+  everything new arrives through an optional 6th `opts`. The shape ladder
+  (v2 → v1 → legacy) re-probes every 2 minutes so a migration landing heals a
+  warm server without a redeploy. **Auth events exist at last**: there was not
+  one in 14,184 rows.
+  ④ **THE LOGIN ASKS WHO YOU ARE, THEN SHOWS ONE DOOR.** Reported as "many
+  wrong behaviours", and it was the page's fault: a Google button and a fully
+  operable password form side by side, and the member left to guess. The guess
+  is wrong for a quarter of the LC — **6 members have never had a password**
+  (the box could only ever fail, and its placeholder told them they had one),
+  **15 have no AIESEC address at all** and sign in with their phone in BOTH
+  fields (said nowhere until after they failed), and a personal Gmail, a typo
+  and a real member who had not signed in yet all got THE SAME SENTENCE. Now:
+  one field, Continue, and only the door that works — greeted by name, so a
+  wrong address is answered before a password is typed. The decision is
+  `routeLogin` in `src/lib/login-routing.ts`, pure, shared with the server,
+  pinned by 19 tests. ⚠️ The doors that must not close are tested as such: an
+  emailed temporary password BEATS Google-first (`okTemp`), a phone-only member
+  with only a temp password keeps the phone door, and "Forgot password?" is
+  offered only when an inbox exists to send it to.
+  ⑤ **A PLAN IS PRIVATE TO THE PERSON WHO FILED IT.** Every member of a team
+  was served their Team Leader's plan — target and shortfall — on their own
+  dashboard, daily. The client's `isOwnPlan` flag only changed the WORDING; the
+  numbers were already in the payload. Gated server-side. ⚠️ The third leak was
+  the assistant: `assistant.ts` printed `dash.teamPlan` into the Violet Man's
+  context, so a member could just ask him. The FUNCTION's shared goal is
+  untouched — v33.52 exists because members had no goal to see.
+  ⑥ **A COORDINATOR IS AN MM WITH NO TEAM.** Verified: all 4 active
+  Coordinators have zero direct reports and nobody is filed under one. Sodio
+  already gave them no team treatment anywhere while still offering them in the
+  Manager picker — so the one thing you COULD do was file somebody under a
+  Coordinator and have them vanish from every team view. `MANAGER_ROLES` drops
+  them and MOVED to `types.ts`, because the editor is a CLIENT component and a
+  value from `google/sheets.ts` would drag googleapis into the browser bundle
+  (the v34.6 API_FIELD_LABEL trap). One list, both sides.
+  ⑦ **CONSIDERATION IS A JOB, NOT A RAISING CREW THAT DID NOTHING.** Eleven
+  people (8 IGV, 3 IGT) appeared in every sprint and month report as raisers
+  with 0 of everything, because `buildFunctionReport` picks its crew by
+  `functions` alone. The report has TWO SECTIONS now; the consideration one
+  carries calls done, upcoming, LCs reached and 🤝 partnerships, per person,
+  from the calls themselves. The 8 who work BOTH appear in both, and the email
+  says so. Attributed by member ID, never the name snapshot (the v35 CIC
+  defect). ⚠️ They still RECEIVE the email — dropped from the waterfall, not
+  from the function.
+  ⑧ **NATIONAL RANKINGS PER APPROVALS, FROM CORE** — and they were **never
+  wired**: `coreFor()` was written and never called, so the parser, the
+  fixtures, the 21 tests and the rendering would all have shipped as dead code
+  with no report carrying a rank. An unused local is a warning, not an error.
+  `src/lib/core-rankings.ts` reads BOTH the homepage top-10 board and the full
+  Egyptian table, so Alexandria's EXACT rank is available even when she is
+  outside the top ten — which happens. One fetch per invocation feeds all ~20
+  reports. Labelled term-to-date; an unreachable CORE prints a line saying so
+  rather than vanishing.
+  ⑨ **THE BLUE DOT.** `templates.ts:841` ended every period report with
+  "Questions? Ask The Violet Man. 🔵" — the only 🔵 in src/, on an identity
+  violet since v34. Also the assistant's own prompt still told him his panel
+  had a "blue header".
+  ⑩ **THE PODIO REMINDER GOES UP TO THE TEAM LEADER, NEVER A VP.** The rule
+  from the floor, verbatim: *"if member it should be sent to the TL, and if for
+  TL it should be sent to the TL himself only, no VPs on it"*. ⚠️ A member's
+  manager is NOT always a Team Leader — `defaultManagerId` attaches anyone with
+  a blank Manager cell to their VP — so the chain is walked and anything that
+  is not a TL is DROPPED rather than promoted back into the VP inbox this
+  change exists to empty. An unowned account raises nothing at all now.
+  ⑪ **ALL OGX**, the lane ICX has had since v9 — one funnel over both sides,
+  with a **Both sides** table inside it so the aggregate does not hide which
+  side needs you. "OGX" means every side THIS VIEWER may see, never a
+  hard-coded pair. Verified: 3,104 sign-ups = OGT 1,067 + OGV 2,037, and the
+  sides add up to the total on all six metrics.
+  ⑫ **THE HELP CENTRE** — 70 articles (65 before). The stale ones first,
+  because a wrong article is worse than a missing one: **admin-toolkit still
+  documented "Undo from the logs"**, deleted in v34.3 and wrong for two
+  releases; signing-in and login-problems described a page that no longer
+  exists; plans-are-the-goals implied you could see your team's plan. Five new:
+  deleting an account and cancelling a deal, the cross-function open, the IM
+  prompt composer, API keys, and IR slot requests. HELP_VERSION → v36.
+  ⚠️ **STILL PENDING, deliberately**: migrations **0073** (an unowned account
+  carries NO function — the 229-row pool) and **0074** (the O2O/PDP tables) are
+  WRITTEN AND NOT APPLIED. The code handles a null function everywhere and the
+  PDP server module exists, but the pool's claim path and the PDP screens are
+  not finished — applying 0073 now would blank 229 accounts' functions before
+  the UI that gives them one is in place. The CXP module still has no help
+  article.
+  **719 tests** (618 before), tsc clean, production build green.
 
 - **2026-08-28 · v35.1** — **SEVEN FROM THE FLOOR** (migrations **0070 +
   0071 applied**: B2C call outcomes, the partnership stage).
