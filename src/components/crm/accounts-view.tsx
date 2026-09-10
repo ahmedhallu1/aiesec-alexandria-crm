@@ -1288,7 +1288,7 @@ export function AccountsView({
           <Input
             data-tour="accounts:search"
             className="pl-8"
-            placeholder="Search accounts…"
+            placeholder="Search name, phone, email or link…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
@@ -1847,6 +1847,7 @@ export function AccountsView({
       <BulkEditDialog
         ids={[...selected]}
         functions={viewer.allowedFns}
+        currentFns={rows.filter((r) => selected.has(r.id)).map((r) => r.function)}
         open={bulkEditOpen}
         onOpenChange={setBulkEditOpen}
         onDone={() => {
@@ -2539,11 +2540,14 @@ function BulkReassignDialog({
  *  through the account page's own rules on the server, so a skipped one comes
  *  back with the reason, word for word. */
 function BulkEditDialog({
-  ids, functions, open, onOpenChange, onDone,
+  ids, functions, currentFns, open, onOpenChange, onDone,
 }: {
   ids: string[];
   /** only the functions this viewer works — the only ones they may move into */
   functions: ViewerInfo["allowedFns"];
+  /** the selected accounts' own functions — when they all share one, moving
+   *  "to" it would do nothing, so it isn't offered */
+  currentFns: (string | null)[];
   open: boolean;
   onOpenChange: (o: boolean) => void;
   onDone: () => void;
@@ -2555,6 +2559,8 @@ function BulkEditDialog({
   const moving = fn !== "keep";
   const note = comment.trim();
   const canSave = !pending && ids.length > 0 && (moving || note.length > 0);
+  const shared = new Set(currentFns);
+  const offer = shared.size === 1 ? functions.filter((f) => !shared.has(f)) : functions;
 
   const submit = () =>
     start(async () => {
@@ -2585,28 +2591,21 @@ function BulkEditDialog({
         <DialogHeader>
           <DialogTitle>✏️ Edit {ids.length} account{ids.length === 1 ? "" : "s"}</DialogTitle>
           <DialogDescription>
-            Change the function, add a comment to every one, or both. Anything
-            you can&apos;t change on an account is skipped and you&apos;re told why.
+            Move them to another function, add a comment to each, or both.
           </DialogDescription>
         </DialogHeader>
-        {functions.length > 0 ? (
+        {offer.length > 0 ? (
           <div className="grid gap-1.5">
             <Label>Function</Label>
             <Select value={fn} onValueChange={setFn}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="keep">Keep as it is</SelectItem>
-                {functions.map((f) => (
+                {offer.map((f) => (
                   <SelectItem key={f} value={f}>Move to {f}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            {moving ? (
-              <p className="text-xs text-muted-foreground">
-                Fields {fn} doesn&apos;t use (an IGV project, an IGT product) are cleared,
-                exactly as when you move one account. Only functions you work are offered.
-              </p>
-            ) : null}
           </div>
         ) : null}
         <div className="grid gap-1.5">

@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { ExternalLink, Eye, FileText, Loader2, Send } from "lucide-react";
+import { ArrowLeft, ExternalLink, Eye, FileText, Loader2, Pencil, Send } from "lucide-react";
 import { previewProposalEmail, sendProposalEmail } from "@/server/actions";
 import type { PipelineRow } from "@/server/data";
 import {
@@ -24,12 +24,16 @@ import { cn } from "@/lib/utils";
 
 /** ICX Proposal Email — one popup, prefilled from the account.
  *
- *  v34.10: it SENDS, full stop. The old switch offered "leave it in my Gmail
- *  drafts" for the member who wanted to read it first — which sent them out of
- *  Sodio to do the reading, and the proposal usually never came back. Reading
- *  it is now a button in this same dialog: **See it first** renders the exact
- *  HTML the company will receive, in a panel, with the send still one click
- *  away underneath. No Gmail trip, no drafts folder, no redirect.
+ *  v34.10: it SENDS, full stop. Reading it first is a button in this same
+ *  dialog: **See it first** renders the exact HTML the company will receive.
+ *
+ *  v36.4 — ONE DIALOG, TWO VIEWS, AND THE PREVIEW IS EDITABLE. The preview
+ *  used to be a second dialog stacked on the first, so any click inside it
+ *  counted as a click OUTSIDE the first — "Keep editing" closed the whole
+ *  thing. Now the form and the letter are two views of one dialog; the letter
+ *  can be edited in place (and its subject), and those edits are what gets
+ *  sent. They stay while the fields they were rendered from stay the same;
+ *  change a field and the letter is rebuilt from it.
  *
  *  The attachment set follows the email you're writing: the B2B partnership
  *  email carries the B2B proposal, an iGV email carries the iGV deck, and any
@@ -69,7 +73,14 @@ export function ProposalDialog({
   const oversized = attachmentTooBig(attachPdfs);
 
   const [done, setDone] = useState(false);
-  const [preview, setPreview] = useState<{ subject: string; html: string } | null>(null);
+  const [view, setView] = useState<"form" | "preview">("form");
+  /** the letter as the server rendered it */
+  const [rendered, setRendered] = useState<{ key: string; subject: string; html: string } | null>(null);
+  /** what the member changed IN the preview, tied to the fields it came from */
+  const [edited, setEdited] = useState<{ key: string; subject: string; html: string | null } | null>(null);
+  const [subjectDraft, setSubjectDraft] = useState("");
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  const bodyDirty = useRef(false);
   const [pending, start] = useTransition();
   const [previewing, startPreview] = useTransition();
 
@@ -87,27 +98,69 @@ export function ProposalDialog({
     bodyProduct: isB2B ? bodyProduct : null,
     attachPdfs,
   };
+  const draftKey = JSON.stringify(draftInput);
+  const liveEdits = edited && edited.key === draftKey ? edited : null;
+  const liveRender = rendered && rendered.key === draftKey ? rendered : null;
+
+  /** read what the member did to the letter, before leaving the preview */
+  const captureEdits = (): { subject: string; html: string | null } | null => {
+    if (!liveRender) return liveEdits;
+    const doc = frameRef.current?.contentDocument;
+    const html =
+      bodyDirty.current && doc
+        ? `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`
+        : liveEdits?.html ?? null;
+    const subject = subjectDraft.trim() || liveRender.subject;
+    if (!html && subject === liveRender.subject) return null;
+    return { subject, html };
+  };
 
   const showPreview = () =>
     startPreview(async () => {
+      bodyDirty.current = false;
+      if (liveRender) {
+        setSubjectDraft(liveEdits?.subject ?? liveRender.subject);
+        setView("preview");
+        return;
+      }
       const res = await previewProposalEmail(draftInput);
-      if (res.ok && res.data) setPreview(res.data);
-      else toast.error(res.ok ? "Couldn't render the preview." : res.error);
+      if (res.ok && res.data) {
+        setRendered({ key: draftKey, subject: res.data.subject, html: res.data.html });
+        setSubjectDraft(res.data.subject);
+        setView("preview");
+      } else toast.error(res.ok ? "Couldn't render the preview." : res.error);
     });
+
+  const keepEditing = () => {
+    const e = captureEdits();
+    setEdited(e ? { key: draftKey, ...e } : null);
+    setView("form");
+  };
 
   const submit = () =>
     start(async () => {
-      const res = await sendProposalEmail({ ...draftInput, recipientEmail });
+      const e = view === "preview" ? captureEdits() : liveEdits;
+      const res = await sendProposalEmail({
+        ...draftInput,
+        recipientEmail,
+        editedSubject: e?.subject ?? null,
+        editedHtml: e?.html ?? null,
+      });
       if (res.ok) {
-        setPreview(null);
         setDone(true);
+        setView("form");
       } else {
         toast.error(res.error);
       }
     });
 
   const close = (o: boolean) => {
-    if (!o) { setDone(false); setPreview(null); }
+    if (!o) {
+      setDone(false);
+      setView("form");
+      setRendered(null);
+      setEdited(null);
+    }
     onOpenChange(o);
   };
 
@@ -116,10 +169,28 @@ export function ProposalDialog({
       ? ` with the ${attachPdfs.join(", ")} proposal${attachPdfs.length === 1 ? "" : "s"} attached`
       : "";
 
+  const sendButton = (
+    <Button onClick={submit} disabled={pending || !recipientEmail.includes("@") || !!oversized}>
+      {pending ? (
+        <><Loader2 className="size-4 animate-spin" /> Sending…</>
+      ) : view === "preview" ? (
+        <><Send className="size-4" /> Send it to {recipientEmail || "…"}</>
+      ) : (
+        <><Send className="size-4" /> Send it now</>
+      )}
+    </Button>
+  );
+
   return (
-    <>
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
+      <DialogContent
+        className={cn(
+          "max-h-[92dvh]",
+          view === "preview" && !done
+            ? "overflow-hidden p-0 sm:max-w-2xl"
+            : "overflow-y-auto sm:max-w-md"
+        )}
+      >
         {done ? (
           <>
             <DialogHeader>
@@ -147,6 +218,54 @@ export function ProposalDialog({
               </Button>
             </DialogFooter>
           </>
+        ) : view === "preview" && liveRender ? (
+          /* ------- exactly what the company will see — and editable ------- */
+          <>
+            <DialogHeader className="px-6 pt-6">
+              <DialogTitle>Exactly what they&apos;ll get</DialogTitle>
+              <DialogDescription>
+                Click anywhere in the letter to change it.
+                {attachPdfs.length > 0 ? <> · {attachPdfs.join(", ")} attached</> : null}
+              </DialogDescription>
+              <div className="flex items-center gap-2 pt-1">
+                <Label htmlFor="proposal-subject" className="shrink-0 text-xs text-muted-foreground">
+                  Subject
+                </Label>
+                <Input
+                  id="proposal-subject"
+                  value={subjectDraft}
+                  maxLength={300}
+                  onChange={(e) => setSubjectDraft(e.target.value)}
+                  className="h-8"
+                />
+              </div>
+            </DialogHeader>
+            <iframe
+              ref={frameRef}
+              title="Proposal email — editable"
+              srcDoc={liveEdits?.html ?? liveRender.html}
+              // same-origin so the page can switch on editing and read it
+              // back; NO scripts, so nothing inside the letter can run
+              sandbox="allow-same-origin"
+              onLoad={(e) => {
+                // the page from the load event itself — not through the ref the
+                // JSX holds, which the compiler treats as immutable
+                const doc = e.currentTarget.contentDocument;
+                if (!doc) return;
+                doc.designMode = "on";
+                doc.addEventListener("input", () => {
+                  bodyDirty.current = true;
+                });
+              }}
+              className="h-[58vh] w-full border-0 bg-white"
+            />
+            <DialogFooter className="gap-2 px-6 pb-6 sm:justify-between">
+              <Button variant="outline" onClick={keepEditing}>
+                <ArrowLeft className="size-4" /> Keep editing
+              </Button>
+              {sendButton}
+            </DialogFooter>
+          </>
         ) : (
           <>
             <DialogHeader>
@@ -155,9 +274,7 @@ export function ProposalDialog({
               </DialogTitle>
               <DialogDescription>
                 Sends the <b>{productLabel}</b> outreach email to{" "}
-                <b>{account.name}</b> straight from <b>your own Gmail</b>. Want to
-                read it first? <b>See it first</b> shows you the exact letter,
-                right here.
+                <b>{account.name}</b> straight from <b>your own Gmail</b>.
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-3">
@@ -252,64 +369,20 @@ export function ProposalDialog({
               </div>
             </div>
             <DialogFooter className="gap-2 sm:justify-between">
-              {/* reading it before it goes is a BUTTON, not a detour through
-                  Gmail drafts (v34.10) */}
               <Button variant="outline" onClick={showPreview} disabled={previewing || pending}>
                 {previewing ? (
                   <><Loader2 className="size-4 animate-spin" /> Rendering…</>
+                ) : liveEdits ? (
+                  <><Pencil className="size-4" /> Your edited letter</>
                 ) : (
                   <><Eye className="size-4" /> See it first</>
                 )}
               </Button>
-              <Button
-                onClick={submit}
-                disabled={pending || !recipientEmail.includes("@") || !!oversized}
-              >
-                {pending ? (
-                  <><Loader2 className="size-4 animate-spin" /> Sending…</>
-                ) : (
-                  <><Send className="size-4" /> Send it now</>
-                )}
-              </Button>
+              {sendButton}
             </DialogFooter>
           </>
         )}
       </DialogContent>
     </Dialog>
-
-    {/* ------- exactly what the company will see, without leaving Sodio ------- */}
-    <Dialog open={!!preview} onOpenChange={(o) => { if (!o) setPreview(null); }}>
-      <DialogContent className="max-h-[92dvh] overflow-hidden p-0 sm:max-w-2xl">
-        <DialogHeader className="px-6 pt-6">
-          <DialogTitle>Exactly what they&apos;ll get</DialogTitle>
-          <DialogDescription className="break-words">
-            Subject: <b>{preview?.subject}</b>
-            {attachPdfs.length > 0 ? <> · {attachPdfs.join(", ")} attached</> : null}
-          </DialogDescription>
-        </DialogHeader>
-        <iframe
-          title="Proposal email preview"
-          srcDoc={preview?.html ?? ""}
-          sandbox=""
-          className="h-[62vh] w-full border-0 bg-white"
-        />
-        <DialogFooter className="gap-2 px-6 pb-6 sm:justify-between">
-          <Button variant="outline" onClick={() => setPreview(null)}>
-            Keep editing
-          </Button>
-          <Button
-            onClick={submit}
-            disabled={pending || !recipientEmail.includes("@") || !!oversized}
-          >
-            {pending ? (
-              <><Loader2 className="size-4 animate-spin" /> Sending…</>
-            ) : (
-              <><Send className="size-4" /> Send it to {recipientEmail || "…"}</>
-            )}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-    </>
   );
 }

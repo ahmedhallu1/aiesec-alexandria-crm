@@ -1,16 +1,18 @@
 "use client";
 
 import { Globe, Mail, MoreHorizontal, Phone } from "lucide-react";
-import { FacebookIcon, InstagramIcon, LinkedinIcon, WhatsAppIcon } from "./icons";
-import { quickActions, type AccountContact } from "@/lib/types";
+import { FacebookIcon, GoogleMapsIcon, InstagramIcon, LinkedinIcon, WhatsAppIcon } from "./icons";
+import { isMapLink, quickActions, type AccountContact } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Hint } from "./hint";
 
-function linkIcon(tag: string) {
+function linkIcon(tag: string, value = "") {
   const t = tag.toLowerCase();
+  // a map link is a Location whatever it was tagged before v36.4
+  if (t === "location" || isMapLink(value)) return <GoogleMapsIcon className="size-3.5" />;
   if (t.includes("linkedin")) return <LinkedinIcon className="size-3.5" />;
   if (t.includes("instagram")) return <InstagramIcon className="size-3.5" />;
   if (t.includes("facebook")) return <FacebookIcon className="size-3.5" />;
@@ -66,9 +68,9 @@ export function buildActions(
   for (const [i, link] of qa.links.entries())
     items.push({
       key: `link${i}`,
-      label: `${link.tag}: ${link.value}`,
+      label: `${isMapLink(link.value) ? "Location" : link.tag}: ${link.value}`,
       href: link.value,
-      icon: linkIcon(link.tag),
+      icon: linkIcon(link.tag, link.value),
     });
   return items;
 }

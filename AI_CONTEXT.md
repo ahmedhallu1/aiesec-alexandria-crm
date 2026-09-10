@@ -14,7 +14,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-09-10 · Version: v36.3
+Last updated: 2026-09-11 · Version: v36.4
 
 ---
 
@@ -64,7 +64,7 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0061_touch_point_location` → `0062_close_rls_gaps` → `0063_prank_mode` →
 `0064_api_keys` → `0065_ir_slot_requests` → `0066_im_prompts` →
 `0067_member_settings` → `0068_cxp_module` → `0069_push_subscriptions` → `0070_b2c_cic_outcomes` →
-`0071_partnership_stage` → … → `0076_next_step_reminders` → `0077_visit_followups_gate`
+`0071_partnership_stage` → … → `0076_next_step_reminders` → `0077_visit_followups_gate` → `0078_contact_keys` → `0079_cv_drive_import` → `0080_redirect_links_and_locations`
 (**all applied**, 0046–0063 during v33.22–v33.51, 0064–0067 during v34.5–v34.8,
 0069 during v35).
 
@@ -689,6 +689,55 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-09-11 · v36.4** — **SEARCH BY NUMBER, ONE COMPANY ONE ACCOUNT, LOCATIONS,
+  A DRIVE CV IMPORT, AN AI THAT READS EVERYTHING, AND AN EDITABLE PROPOSAL.**
+  Migrations **0078, 0079 and 0080 applied**.
+  ① **`contact_key` (0078)** — ONE SQL function turns a phone (digits; 01…/02…/
+  03… read as +20; a wa.me link IS that phone), an email (lower-cased) or a
+  link (no scheme, www., m., trailing slash or ?query; fb.com = facebook.com;
+  redirect wrappers and bare platform front pages yield nothing) into a
+  canonical key. `accounts.contact_keys` is a GENERATED, GIN-indexed column of
+  them, so no write path can forget it, and the same function reads the typed
+  side of every comparison — **never re-implement it in TypeScript**.
+  ② **Search by number** — `account_ids_matching_contact(q)` (4+ digits, or an
+  @ . /) is OR'd into `buildAccountsQuery`'s name match: "0101234" finds
+  +201012345678, a pasted Instagram link finds its account.
+  ③ **One company, one account** — asked for in as many words ("abc
+  kindergarten and abc pre school"). `account_contact_clashes()` →
+  `server/contact-clashes.ts`: `createAccount` (so the import and the direct
+  visit too) and `updateAccountContacts` refuse a phone, email or link another
+  account in the SAME name world already holds, with that account's details
+  in the refusal. Cross-world is allowed, matching the v33.29 name rule; only
+  values NEW to an account are checked. Measured before: 413 values were
+  already shared by 814 accounts (393 within one world) — left as they are.
+  ④ **Location** — maps.app.goo.gl, goo.gl/maps, google.*/maps, Apple Maps and
+  Waze tag "Location" and draw `GoogleMapsIcon`; 69 existing links re-tagged
+  (0080). `l.facebook.com/l.php` — pasted on 6 unrelated accounts — no longer
+  yields a key.
+  ⑤ **Bulk edit** — the explanatory note is gone and the function the whole
+  selection is already in is not offered.
+  ⑥ **The Violet Man reads everything the viewer can** (over a screenshot of
+  him saying he couldn't filter by industry). `searchAccounts` takes every
+  account filter (industry and type matched loosely against the values that
+  exist; responsible by name, "me" or "unassigned"; archived
+  exclude/include/only) and returns every field; `getAccountDetail` returns
+  all of it; new `findMembers`, `searchSignups` (OGX/B2C), `searchPartnerLcs`
+  and `searchIrCalls` (consideration). Each tool is offered only to people
+  who can open that module and runs the page's own scoped read.
+  ⑦ **Drive CV import (0079)** — `lib/drive-cv-plan.ts` (pure, tested) +
+  `lib/drive-cv-import.ts`; `scanDriveCvFolder` plans, `importDriveCv` copies
+  one file per call. Gemini sorts the tree (CV or not, person, GTa/GTe,
+  sector); rules stand in when it's unavailable. ⚠️ The mailbox that downloads
+  can read Sodio's own Drive (backups, CXP, screenshots), so anything the
+  mailbox OWNS and the CRM folder are refused, and every file's parents are
+  walked up to the scanned root before a byte is copied. `cvs.drive_file_id`
+  (unique) makes a re-import skip, `file_hash` still de-dupes by bytes, and
+  `source_path` / `product` record where it came from.
+  ⑧ **Proposal preview** — one dialog, two views (the second, stacked dialog
+  was why "Keep editing" closed everything); the letter is `designMode` in a
+  script-less same-origin iframe, and the edits — sanitised by
+  `lib/email/edited-html.ts` — are what gets sent.
 
 - **2026-09-10 · v36.3** — **BULK EDIT, THE SHEET EXPORT FINISHES, AND THE
   REMINDERS RUN ON TIME.** Migration **0077 applied** (`visit_followups_due()`).

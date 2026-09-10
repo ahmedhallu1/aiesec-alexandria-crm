@@ -688,8 +688,33 @@ export const EMAIL_TAGS = [
 
 /** Tag choices for links ("Other" = free text). */
 export const LINK_TAGS = [
-  "Website", "LinkedIn", "Instagram", "Facebook", "Other",
+  "Website", "LinkedIn", "Instagram", "Facebook", "Location", "Other",
 ] as const;
+
+/** A PLACE ON A MAP (v36.4) — Google Maps, including the maps.app.goo.gl and
+ *  goo.gl/maps links its Share button makes, Apple Maps and Waze. Tagged
+ *  "Location" and drawn with the Maps pin instead of a generic globe. */
+function isMapHost(host: string, path: string): boolean {
+  const h = host.replace(/^www\./, "");
+  return (
+    h === "maps.app.goo.gl" ||
+    (h === "goo.gl" && path.startsWith("/maps")) ||
+    h.startsWith("maps.google.") ||
+    (/^google\.[a-z.]+$/.test(h) && path.startsWith("/maps")) ||
+    h === "maps.apple.com" ||
+    h === "waze.com" ||
+    h.endsWith(".waze.com")
+  );
+}
+
+export function isMapLink(raw: string): boolean {
+  try {
+    const url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw.trim()) ? raw.trim() : `https://${raw.trim()}`);
+    return isMapHost(url.hostname.toLowerCase(), url.pathname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
 
 /** The tag a fresh row of each kind starts with (its "untouched" default) —
  *  auto-tagging (below) only ever replaces a tag the member hasn't set. */
@@ -714,14 +739,17 @@ export function guessLinkTag(raw: string): string | null {
   // tolerate a half-typed address (no scheme yet) — the member is still typing
   const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `https://${value}`;
   let host: string;
+  let path: string;
   try {
     const url = new URL(withScheme);
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
     host = url.hostname.toLowerCase();
+    path = url.pathname.toLowerCase();
   } catch {
     return null;
   }
   if (!host.includes(".")) return null; // "https://inst" — nothing to read yet
+  if (isMapHost(host, path)) return "Location";
   if (host.includes("instagram")) return "Instagram";
   if (host.includes("linkedin") || host === "lnkd.in" || host.endsWith(".lnkd.in"))
     return "LinkedIn";

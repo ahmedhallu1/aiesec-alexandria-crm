@@ -400,6 +400,19 @@ export async function createAccount(
   if (contactError) return fail(contactError);
   const legacy = legacyContactColumns(contacts);
 
+  // THE SAME COMPANY UNDER ANOTHER NAME (v36.4) — a phone, email or link an
+  // account in this name world already has refuses, with that account's
+  // details, the way a duplicate NAME does. Covers the import and the direct
+  // visit too: both come through here.
+  {
+    const { contactClashes, clashRefusal } = await import("./contact-clashes");
+    const [clash] = await contactClashes(contacts, { fn: data.function });
+    if (clash) {
+      const refusal = clashRefusal(clash);
+      return fail(refusal.message, clash.archived ? "archived" : "duplicate", refusal.info);
+    }
+  }
+
   // THE FUNCTION'S OWN DEFAULTS (v33.32, migration 0054) — the leader of this
   // function decides whether new accounts start on the Podio update cycle and
   // how often. Unset = the rule that shipped before: ON for IGV/B2C/BD.
@@ -4857,10 +4870,19 @@ export async function updateAccountContacts(
   if (!account || !canEditAccount(viewer, account))
     return fail("You are not allowed to edit this account.", "forbidden");
 
-  await snapshotForUndo("accounts", accountId);
   const { list: clean, error: contactError } = cleanContacts(contacts);
   if (contactError) return fail(contactError);
 
+  // a number, email or link another account in this world already has
+  // (v36.4) — only what's NEW here is checked, so an account that shared a
+  // value before this guard existed can still be edited
+  {
+    const { contactClashes, clashRefusal } = await import("./contact-clashes");
+    const [clash] = await contactClashes(clean, { fn: account.function, excludeId: accountId });
+    if (clash) return fail(clashRefusal(clash).message, "duplicate");
+  }
+
+  await snapshotForUndo("accounts", accountId);
   const { error } = await db()
     .from("accounts")
     .update({ contacts: clean, ...legacyContactColumns(clean) })
@@ -5511,6 +5533,10 @@ const proposalSchema = z.object({
     .string()
     .trim()
     .refine((v) => EMAIL_RE.test(v), "A valid recipient email is required."),
+  /** EDITED IN THE PREVIEW (v36.4) — the member's own changes to the letter
+   *  and its subject. Sanitised before it goes out (lib/email/edited-html). */
+  editedSubject: z.string().trim().max(300).nullish(),
+  editedHtml: z.string().max(400_000).nullish(),
 });
 
 /** The preview needs no recipient — you are looking at the letter, not
@@ -5647,10 +5673,12 @@ export async function sendProposalEmail(
 
   try {
     const { sendMemberEmail } = await import("@/lib/google/gmail");
+    const { sanitizeEditedEmailHtml } = await import("@/lib/email/edited-html");
     const id = await sendMemberEmail(viewer.google_refresh_token, {
       to: [recipientEmail],
-      subject: built.subject,
-      html: built.html,
+      // what the member changed in the preview is what goes out (v36.4)
+      subject: parsed.data.editedSubject || built.subject,
+      html: parsed.data.editedHtml ? sanitizeEditedEmailHtml(parsed.data.editedHtml) : built.html,
       attachments,
     });
     if (!id) return fail("Google didn't accept the email — try again.");
@@ -11737,6 +11765,162 @@ export async function confirmCvUpload(input: {
   await logAudit(viewer.id, "cv_upload", "cv", created.id, { file: input.name });
   const result = await runCvExtraction(created.id);
   refresh();
+  return { ok: true, data: { id: created.id, status: result.status, note: result.note } };
+}
+
+// ------------------------------------------------ CV pool: a partner LC's Drive folder (v36.4)
+
+/** Step 1 — read a partner LC's Drive CV pool and propose what to import.
+ *  Nothing is copied yet: the member sees the plan and decides. */
+export async function scanDriveCvFolder(
+  link: string
+): Promise<
+  ActionResult<import("@/lib/drive-cv-plan").DriveCvPlan & { alreadyIn: string[] }>
+> {
+  const viewer = await getViewer();
+  if (!canSeeCvPool(viewer)) return considerationFail();
+  const { driveFolderIdFrom, planDriveCvImport, DriveImportError } = await import(
+    "@/lib/drive-cv-import"
+  );
+  const folderId = driveFolderIdFrom(link ?? "");
+  if (!folderId) return fail("Paste a Google Drive folder link (drive.google.com/drive/folders/…).");
+  try {
+    const plan = await planDriveCvImport(folderId);
+    const ids = plan.cvs.map((c) => c.fileId);
+    const { data: have } =
+      ids.length > 0
+        ? await db().from("cvs").select("drive_file_id").in("drive_file_id", ids)
+        : { data: [] };
+    const alreadyIn = ((have ?? []) as { drive_file_id: string }[]).map((r) => r.drive_file_id);
+    await logAudit(viewer.id, "cv_drive_scan", "cv", null, {
+      folder: folderId,
+      cvs: plan.cvs.length,
+      skipped: plan.skipped.length,
+      ai: plan.aiUsed,
+    });
+    return { ok: true, data: { ...plan, alreadyIn } };
+  } catch (e) {
+    if (e instanceof DriveImportError) return fail(e.message);
+    console.error("[cv-drive] scan failed:", e);
+    return fail("Couldn't read that folder — try again in a minute.");
+  }
+}
+
+const driveCvSchema = z.object({
+  rootId: z.string().regex(/^[A-Za-z0-9_-]{10,}$/),
+  fileId: z.string().regex(/^[A-Za-z0-9_-]{10,}$/),
+  name: z.string().trim().min(1).max(300),
+  mimeType: z.string().trim().max(200),
+  path: z.string().trim().max(600),
+  person: z.string().trim().max(120).nullish(),
+  product: z.enum(["GTa", "GTe"]).nullish(),
+  industry: z.string().trim().max(60).nullish(),
+  partnerLcId: z.string().uuid().nullish(),
+  newLc: z
+    .object({ name: z.string().trim().min(2).max(120), country: z.string().trim().max(80).nullish() })
+    .nullish(),
+});
+
+/** Step 2 — copy ONE CV from the scanned folder into the pool and let the AI
+ *  read it. The dialog calls this once per CV, so each one visibly lands and
+ *  a slow Drive or a busy AI never times a whole folder out. */
+export async function importDriveCv(
+  input: z.infer<typeof driveCvSchema>
+): Promise<ActionResult<{ id: string | null; status: string; note?: string }>> {
+  const viewer = await getViewer();
+  if (!canSeeCvPool(viewer)) return considerationFail();
+  if (viewer.sandbox)
+    return fail("CV imports are disabled in the sandbox test view — the files and AI extraction can't be undone on exit.");
+  const parsed = driveCvSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0].message);
+  const d = parsed.data;
+  if (!d.partnerLcId && !d.newLc?.name) return fail("Pick the partner LC these CVs came from.");
+
+  // already here from an earlier import of this folder — no download needed
+  const { data: prior } = await db()
+    .from("cvs")
+    .select("id")
+    .eq("drive_file_id", d.fileId)
+    .maybeSingle<{ id: string }>();
+  if (prior) return { ok: true, data: { id: prior.id, status: "skipped", note: "already in the pool" } };
+
+  const { assertFileInFolder, downloadDriveFile, DriveImportError, DRIVE_CV_MAX_BYTES } =
+    await import("@/lib/drive-cv-import");
+  const { mightBeCv } = await import("@/lib/drive-cv-plan");
+  if (!mightBeCv({ mimeType: d.mimeType }))
+    return fail(`"${d.name}" isn't a document Sodio can read as a CV.`);
+
+  let file: { data: Buffer; mimeType: string; fileName: string };
+  try {
+    // the file must sit inside the folder that was scanned, and must not be
+    // one of the LC's own — the mailbox that downloads it can read those too
+    await assertFileInFolder(d.fileId, d.rootId);
+    file = await downloadDriveFile({ fileId: d.fileId, mimeType: d.mimeType, name: d.name });
+  } catch (e) {
+    if (e instanceof DriveImportError) return fail(e.message);
+    console.error("[cv-drive] download failed:", e);
+    return fail(`Couldn't download "${d.name}" from Drive.`);
+  }
+  if (file.data.byteLength > Math.min(DRIVE_CV_MAX_BYTES, CV_MAX_SIZE))
+    return fail(`"${d.name}" is over 25 MB — skipped.`);
+
+  // the same bytes uploaded by hand, or from another folder, are the same CV
+  const { createHash } = await import("node:crypto");
+  const sha256 = createHash("sha256").update(file.data).digest("hex");
+  const { data: dupe } = await db()
+    .from("cvs")
+    .select("id")
+    .eq("file_hash", sha256)
+    .limit(1)
+    .maybeSingle<{ id: string }>();
+  if (dupe)
+    return { ok: true, data: { id: dupe.id, status: "skipped", note: "this exact CV is already in the pool" } };
+
+  const resolved = await resolvePartnerLc({ partnerLcId: d.partnerLcId ?? null, newLc: d.newLc ?? null });
+  if ("error" in resolved) return resolved.error;
+  const lc = resolved.lc;
+
+  const safeName = file.fileName.replace(/[^\w.\- ()]+/g, "_").slice(-80);
+  const path = `${Date.now()}-${crypto.randomUUID()}-${safeName}`;
+  const { error: upError } = await db()
+    .storage.from("cvs")
+    .upload(path, file.data, { contentType: file.mimeType, upsert: false });
+  if (upError) return fail(`Couldn't store "${d.name}": ${upError.message}`);
+
+  const { data: created, error } = await db()
+    .from("cvs")
+    .insert({
+      partner_lc_id: lc.id,
+      partner_lc_name: lc.name,
+      file_path: path,
+      file_name: file.fileName.slice(0, 200),
+      mime_type: file.mimeType,
+      size_bytes: file.data.byteLength,
+      file_hash: sha256,
+      extraction_status: "pending",
+      uploaded_by: viewer.id,
+      uploader_name: viewer.name,
+      // what the FOLDER said — the AI reading the CV only fills what's empty
+      person_name: d.person || null,
+      industry: d.industry || null,
+      product: d.product ?? null,
+      drive_file_id: d.fileId,
+      source_path: d.path,
+    })
+    .select("id")
+    .single();
+  if (error) {
+    await db().storage.from("cvs").remove([path]);
+    // two tabs importing one folder race on the unique Drive id — that's a
+    // skip, not a failure
+    if (error.code === "23505")
+      return { ok: true, data: { id: null, status: "skipped", note: "already in the pool" } };
+    return fail(error.message);
+  }
+  await recordUndo("cvs", created.id, "insert");
+  await stampWork(viewer.id, "cv_upload");
+  await logAudit(viewer.id, "cv_import_drive", "cv", created.id, { file: d.path });
+  const result = await runCvExtraction(created.id);
   return { ok: true, data: { id: created.id, status: result.status, note: result.note } };
 }
 

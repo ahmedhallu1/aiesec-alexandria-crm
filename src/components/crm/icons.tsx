@@ -20,6 +20,15 @@ export const InstagramIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
+/** A place on a map (v36.4) — the red Maps pin, in its own colours so it
+ *  reads as "location" at a glance next to the monochrome social glyphs. */
+export const GoogleMapsIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" className={className} aria-hidden>
+    <path fill="#EA4335" d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7Z" />
+    <circle cx="12" cy="9" r="2.6" fill="#fff" />
+  </svg>
+);
+
 export const FacebookIcon = ({ className }: { className?: string }) => (
   <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden>
     <path d="M13.5 21v-7h2.4l.36-2.8H13.5V9.4c0-.81.22-1.36 1.38-1.36h1.48V5.55c-.26-.03-1.13-.11-2.15-.11-2.13 0-3.58 1.3-3.58 3.68v2.08H8.25V14h2.38v7h2.87Z" />

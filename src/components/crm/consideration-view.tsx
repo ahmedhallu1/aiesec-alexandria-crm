@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   CalendarClock, Check, ChevronDown, ClipboardCheck, Copy, ExternalLink,
-  Building2, FileText, Globe2, Handshake, History, ImagePlus, Link2, Loader2, Mail,
+  Building2, FileText, FolderDown, Globe2, Handshake, History, ImagePlus, Link2, Loader2, Mail,
   MessageSquare, Pencil, Phone, Plus, RotateCcw, Send,
   Search, Settings2, Sparkles, Trash2, Upload, UserRound, UserRoundPlus, Video, X,
 } from "lucide-react";
@@ -13,7 +13,7 @@ import {
   addPartnerLc, addPartnerLcComment, cancelIrCall, completeIrCall, confirmCvUpload,
   deleteCv, deletePartnerLcComment,
   addPartnerLcContact, createIgtExpectationDraft, deleteIrCall, deletePartnerLc,
-  getCvFileUrl,
+  getCvFileUrl, importDriveCv, scanDriveCvFolder,
   previewIgtExpectationMail,
   assignLcPartnership, clearLcPartnershipTarget, setLcPartnershipStage,
   recordIrCall, recordLcPartnership, requestCvUpload, sendIgtExpectationMail,
@@ -30,6 +30,7 @@ import {
   PARTNERSHIP_STAGES, stageLabel, stageRank,
 } from "@/lib/partnership-stage";
 import { IR_ROLES, normalizePhone, fmtDateTime } from "@/lib/types";
+import type { DriveCvPlan } from "@/lib/drive-cv-plan";
 import { phoneExample } from "@/lib/dial-codes";
 import { whenLabelInZone } from "@/lib/timezones";
 import { availabilityIssues } from "@/lib/availability";
@@ -4776,6 +4777,258 @@ const STATUS_CHIP: Record<
   unsupported: { label: "Manual (format not auto-readable)", className: "bg-muted text-muted-foreground" },
 };
 
+/** IMPORT A PARTNER LC'S DRIVE CV POOL (v36.4).
+ *
+ *  Paste the folder link, see what the AI found — which files are CVs, whose,
+ *  GTa or GTe, which sector — untick anything you don't want, import. Every
+ *  LC lays its folder out differently, which is why the AI sorts it and why
+ *  the member sees its answer before a single file is copied. Each CV is
+ *  copied and read one request at a time, so the list fills in as it goes and
+ *  one slow file can't time the whole folder out. Importing the same folder
+ *  again only brings what is new. */
+function DriveImportDialog({
+  open, onOpenChange, lcs, onLcCreated,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  lcs: (PartnerLc | PartnerLcDetail)[];
+  onLcCreated: (lc: PartnerLc) => void;
+}) {
+  const router = useRouter();
+  const [link, setLink] = useState("");
+  const [lcId, setLcId] = useState("");
+  const [plan, setPlan] = useState<(DriveCvPlan & { alreadyIn: string[] }) | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [results, setResults] = useState<Record<string, { ok: boolean; text: string }>>({});
+  const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
+  const [running, setRunning] = useState(false);
+  const [scanning, startScan] = useTransition();
+
+  const reset = () => {
+    setLink("");
+    setPlan(null);
+    setPicked(new Set());
+    setResults({});
+    setProgress(null);
+  };
+
+  const scan = () =>
+    startScan(async () => {
+      const res = await scanDriveCvFolder(link);
+      if (!res.ok || !res.data) {
+        toast.error(res.ok ? "Couldn't read that folder." : res.error);
+        return;
+      }
+      const found = res.data;
+      setPlan(found);
+      setResults({});
+      setPicked(new Set(found.cvs.filter((c) => !found.alreadyIn.includes(c.fileId)).map((c) => c.fileId)));
+      // the AI read the LC off the folder's name — pick it when it's in the registry
+      if (!lcId && found.lcGuess) {
+        const guess = found.lcGuess.toLowerCase();
+        const hit = lcs.find((l) => {
+          const n = l.name.toLowerCase().replace(/^aiesec in\s+/, "");
+          return n === guess || n.includes(guess) || guess.includes(n);
+        });
+        if (hit) setLcId(hit.id);
+      }
+    });
+
+  const run = async () => {
+    if (!plan || !lcId) return;
+    const todo = plan.cvs.filter((c) => picked.has(c.fileId));
+    setRunning(true);
+    let imported = 0;
+    let skipped = 0;
+    let failed = 0;
+    for (let i = 0; i < todo.length; i++) {
+      const c = todo[i];
+      setProgress({ done: i, total: todo.length, current: c.person ?? c.name });
+      try {
+        const res = await importDriveCv({
+          rootId: plan.rootId,
+          fileId: c.fileId,
+          name: c.name,
+          mimeType: c.mimeType,
+          path: c.path,
+          person: c.person,
+          product: c.product,
+          industry: c.industry,
+          partnerLcId: lcId,
+        });
+        if (!res.ok) {
+          failed++;
+          setResults((r) => ({ ...r, [c.fileId]: { ok: false, text: res.error } }));
+        } else if (res.data?.status === "skipped") {
+          skipped++;
+          setResults((r) => ({ ...r, [c.fileId]: { ok: true, text: res.data?.note ?? "already in the pool" } }));
+        } else {
+          imported++;
+          setResults((r) => ({
+            ...r,
+            [c.fileId]: {
+              ok: true,
+              text: res.data?.status === "done" ? "imported ✨" : res.data?.note ?? "imported — fill its fields by hand",
+            },
+          }));
+        }
+      } catch {
+        failed++;
+        setResults((r) => ({ ...r, [c.fileId]: { ok: false, text: "lost the connection" } }));
+      }
+    }
+    setProgress(null);
+    setRunning(false);
+    setPicked(new Set());
+    toast.success(
+      `${imported} CV${imported === 1 ? "" : "s"} imported` +
+        (skipped ? ` · ${skipped} already in the pool` : "") +
+        (failed ? ` · ${failed} failed` : "")
+    );
+    router.refresh();
+  };
+
+  const toggle = (id: string) =>
+    setPicked((p) => {
+      const next = new Set(p);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (running) return; // the import finishes what it started
+        if (!o) reset();
+        onOpenChange(o);
+      }}
+    >
+      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FolderDown className="size-5 text-primary" /> Import a partner LC&apos;s CV folder
+          </DialogTitle>
+          <DialogDescription>
+            Paste the Google Drive folder link. The AI finds the CVs in it, however the
+            folder is organised.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+          <div className="grid gap-1.5">
+            <Label>Drive folder link</Label>
+            <Input
+              value={link}
+              onChange={(e) => setLink(e.target.value)}
+              placeholder="https://drive.google.com/drive/folders/…"
+              disabled={running}
+            />
+          </div>
+          <Button onClick={scan} disabled={scanning || running || link.trim().length < 20}>
+            {scanning ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
+            {scanning ? "Reading the folder…" : "Scan folder"}
+          </Button>
+        </div>
+
+        {plan ? (
+          <div className="space-y-3">
+            <div className="grid gap-1.5">
+              <Label>Partner LC</Label>
+              <PartnerLcPicker lcs={lcs} value={lcId} onChange={setLcId} onCreated={onLcCreated} />
+              {!lcId && plan.lcGuess ? (
+                <p className="text-xs text-muted-foreground">
+                  The folder says <b>{plan.lcGuess}</b> — pick it, or add it if it&apos;s new.
+                </p>
+              ) : null}
+            </div>
+
+            <p className="text-sm">
+              <b>{plan.cvs.length}</b> CV{plan.cvs.length === 1 ? "" : "s"} in “{plan.root}”
+              {plan.alreadyIn.length > 0 ? <> · {plan.alreadyIn.length} already in the pool</> : null}
+              {plan.skipped.length > 0 ? <> · {plan.skipped.length} other files skipped</> : null}
+              {!plan.aiUsed ? <> · sorted by file names (the AI was busy)</> : null}
+              {plan.truncated ? <> · only the first 400 files were read</> : null}
+            </p>
+
+            <div className="max-h-[42vh] divide-y overflow-y-auto rounded-lg border">
+              {plan.cvs.map((c) => {
+                const already = plan.alreadyIn.includes(c.fileId);
+                const result = results[c.fileId];
+                return (
+                  <label
+                    key={c.fileId}
+                    className={cn(
+                      "flex cursor-pointer items-start gap-2.5 px-3 py-2 text-sm",
+                      already && "opacity-60"
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-1 size-4 accent-primary"
+                      checked={picked.has(c.fileId)}
+                      disabled={already || running || !!result}
+                      onChange={() => toggle(c.fileId)}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-1.5 font-medium" dir="auto">
+                        {c.person ?? c.name}
+                        {c.product ? <Badge variant="outline" className="text-[10px]">{c.product}</Badge> : null}
+                        {c.industry ? <Badge variant="secondary" className="text-[10px]">{c.industry}</Badge> : null}
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground" dir="auto">{c.path}</span>
+                    </span>
+                    <span
+                      className={cn(
+                        "shrink-0 text-xs",
+                        result ? (result.ok ? "text-emerald-600" : "text-destructive") : "text-muted-foreground"
+                      )}
+                    >
+                      {result ? result.text : already ? "in the pool" : null}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+
+            {plan.skipped.length > 0 ? (
+              <details className="rounded-lg border px-3 py-2 text-xs text-muted-foreground">
+                <summary className="cursor-pointer">
+                  {plan.skipped.length} file{plan.skipped.length === 1 ? "" : "s"} that aren&apos;t CVs
+                </summary>
+                <ul className="mt-2 space-y-1">
+                  {plan.skipped.map((s) => (
+                    <li key={s.fileId} dir="auto">
+                      {s.path ? `${s.path} / ` : ""}{s.name} — {s.reason}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
+          </div>
+        ) : null}
+
+        {plan ? (
+          <DialogFooter className="items-center gap-2 sm:justify-between">
+            <span className="text-xs text-muted-foreground">
+              {progress
+                ? `${progress.done + 1} of ${progress.total} — ${progress.current}`
+                : picked.size > 0
+                  ? `${picked.size} selected`
+                  : null}
+            </span>
+            <Button onClick={run} disabled={running || picked.size === 0 || !lcId}>
+              {running ? <Loader2 className="size-4 animate-spin" /> : <FolderDown className="size-4" />}
+              {running ? "Importing…" : `Import ${picked.size} CV${picked.size === 1 ? "" : "s"}`}
+            </Button>
+          </DialogFooter>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function CvsTab({
   data, lcs, onLcCreated, q, viewer, setParams, cvFilters,
   pageSize, pageSizeOptions,
@@ -4810,6 +5063,7 @@ function CvsTab({
   const [editing, setEditing] = useState<CvRow | null>(null);
   const [deleting, setDeleting] = useState<CvRow | null>(null);
   const [rerunning, setRerunning] = useState<string | null>(null);
+  const [driveOpen, setDriveOpen] = useState(false);
 
   const pickFiles = (list: File[]) => {
     const ok: File[] = [];
@@ -5202,7 +5456,10 @@ function CvsTab({
               />
             </div>
           </div>
-          <div className="flex justify-end">
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="outline" onClick={() => setDriveOpen(true)} disabled={phase !== "idle"}>
+              <FolderDown className="size-4" /> Import a Drive folder
+            </Button>
             <Hint label="Uploads to the private CV pool, then the AI extracts the fields">
               <Button onClick={upload} disabled={pending || files.length === 0 || !lcId}>
                 {phase === "idle" ? (
@@ -5221,6 +5478,12 @@ function CvsTab({
           </div>
         </CardContent>
       </Card>
+      <DriveImportDialog
+        open={driveOpen}
+        onOpenChange={setDriveOpen}
+        lcs={lcs}
+        onLcCreated={onLcCreated}
+      />
 
       {/* search */}
       <div className="flex flex-wrap items-center gap-2">

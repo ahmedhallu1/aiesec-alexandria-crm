@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
-import { getAccount, getDashboard, getViewer, listAccounts, searchCvs } from "@/server/data";
+import {
+  getAccount, getDashboard, getViewer, listAccounts, listIrCalls, listPartnerLcDetails,
+  listSignupsPage, listVisibleMembers, searchCvs,
+} from "@/server/data";
 import type { AccountFilters, PipelineRow } from "@/server/data";
-import { canSeeCvPool } from "@/lib/rbac";
+import { canSeeCvPool, hasConsiderationAccess, isB2C, ogxFunctions } from "@/lib/rbac";
+import { db } from "@/lib/supabase";
 import { VIOLET_MAN_SYSTEM_PROMPT, buildAssistantContext } from "@/lib/assistant";
 import {
   PERIOD_HELP, PERIOD_KEYS, cairoDay, resolvePeriod, type PeriodKey,
@@ -18,28 +22,128 @@ interface ChatMessage {
 const GEMINI_URL =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
-/** v22.2: The Violet Man can LOOK THINGS UP on demand — the context only carries
- *  the freshest 300 accounts of ~4000, so he searches the rest through these
- *  RBAC-scoped functions instead of guessing. */
-const FUNCTION_DECLS = [
-  {
-    name: "searchAccounts",
-    description:
-      "Search Sodio accounts by (partial) company name. Returns up to 12 matches with stage, responsible, opens and link. Includes archived accounts. Use whenever the user asks about an account you don't see in the context.",
-    parameters: {
-      type: "object",
-      properties: { query: { type: "string", description: "Part of the account name" } },
-      required: ["query"],
+/** v36.4 — HE CAN LOOK UP EVERYTHING THIS USER MAY SEE. Asked in as many
+ *  words, over a screenshot of him saying "I can't filter by industry with
+ *  this search": "he should be able to read EVERYTHING ON THE SYSTEM!". The
+ *  account search now filters by every field the accounts list does and
+ *  returns every field, and sign-ups, partner LCs, IR calls and members have
+ *  tools of their own — each offered only to people who can already open
+ *  that data, and each running the same RBAC-scoped read the page does, so
+ *  he can never show a member something their own screens wouldn't. */
+const TOOLS_NOTE = `
+YOUR TOOLS READ THE LIVE SYSTEM. Anything this user may see in Sodio, you can look up: searchAccounts filters accounts by ANY field (industry, type, stage, product lane, project, responsible person, last contact result, Podio, deals, proposal, archived, date added) and matches names, phone numbers, emails and links; getAccountDetail returns every field, contact, visit, deal and comment of one account; the other tools cover sign-ups, partner LCs, IR calls, members and CVs where this user has access. NEVER tell the user you can't search or filter by a field — call the tool with that filter. When a first search finds nothing, try again with a looser word or another field before saying there is nothing.`;
+
+/** Every account field, compact. */
+function rowSummary(a: PipelineRow) {
+  return {
+    name: a.name,
+    function: a.function,
+    product: a.product,
+    project: a.project,
+    stage: a.stage,
+    responsible: a.responsible_name || "Unassigned",
+    contacts_logged: a.attempts,
+    deals: a.deals_count ?? 0,
+    opens: a.slots_count ?? 0,
+    archived: a.out_of_process ? a.oop_reason ?? true : false,
+    next_step: a.next_step
+      ? `${a.next_step} (${a.next_step_date ?? "no date"})`
+      : null,
+    link: `/accounts/${accountSlug(a.name).replace(/\(/g, "%28").replace(/\)/g, "%29")}`,
+  };
+}
+
+function fullRow(a: PipelineRow) {
+  const contacts = a.contacts ?? [];
+  const of = (kind: "phone" | "email" | "link") =>
+    contacts.filter((c) => c.kind === kind).map((c) => `${c.tag}: ${c.value}`);
+  return {
+    ...rowSummary(a),
+    industry: a.industry,
+    type: a.account_type,
+    sub_product: a.sub_product,
+    phones: of("phone"),
+    emails: of("email"),
+    links: of("link"),
+    team: a.responsible_team_name,
+    podio: { requested: a.requested_podio, state: a.request_state },
+    proposal_sent: a.proposal_sent,
+    added: fmtDay(a.created_at),
+    last_contact: a.last_contact_at
+      ? { date: fmtDay(a.last_contact_at), result: a.last_contact_status, method: a.last_contact_method }
+      : null,
+    visit: a.visit_date ? { date: a.visit_date, time: a.visit_time, done: a.visit_done } : null,
+    pinned_comment: a.pinned_comment ?? null,
+  };
+}
+
+/** Any row, reduced to its readable fields — ids, tokens and blobs dropped. */
+function compact(row: object): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(row)) {
+    if (/(^id$|_id$|token|hash|password|refresh|secret)/i.test(k) || v == null || v === "") continue;
+    if (typeof v === "string") out[k] = v.length > 300 ? `${v.slice(0, 300)}…` : v;
+    else if (typeof v === "number" || typeof v === "boolean") out[k] = v;
+    else if (Array.isArray(v) && v.every((x) => typeof x === "string")) out[k] = v.slice(0, 12);
+  }
+  return out;
+}
+
+const fold = (s: unknown) =>
+  String(s ?? "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+const ACCOUNT_SEARCH = {
+  name: "searchAccounts",
+  description:
+    "Find Sodio accounts by ANY field, or a mix: part of the name, a phone number, email or link (partial is fine), industry, type, stage, product lane, project, IGT sub-product, who holds it, last contact result, Podio, deals, proposal, archived, date added. Returns up to 25 accounts with every field (phones, emails, links, industry, stage, next step, Podio…). Use it for EVERY question about accounts — 'veterinary clinics', 'IT companies Salma holds', 'who has 01012345678', 'accounts that reached Deal Done in IGT', 'unassigned schools'. Industry and type are matched loosely.",
+  parameters: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "Part of the name, or a phone / email / link" },
+      industry: { type: "string", description: "Any part of the industry word, e.g. 'veterin', 'software', 'school'" },
+      accountType: { type: "string" },
+      lane: { type: "string", description: "IGV, IGT, IGTa, IGTe, B2B, BD, B2C — comma-separate several" },
+      stage: { type: "string" },
+      project: { type: "string" },
+      subProduct: { type: "string" },
+      responsible: { type: "string", description: "A member's name, 'me', or 'unassigned'" },
+      lastContactResult: { type: "string", description: "e.g. No Response, Interested, Not Interested" },
+      podio: { type: "string", description: "requested | not_requested | Checking | Approved | Rejected" },
+      hasDeals: { type: "boolean" },
+      proposalSent: { type: "boolean" },
+      archived: { type: "string", enum: ["exclude", "include", "only"], description: "default exclude" },
+      addedFrom: { type: "string", description: "YYYY-MM-DD" },
+      addedTo: { type: "string", description: "YYYY-MM-DD" },
+      limit: { type: "number" },
     },
   },
+};
+
+const BASE_DECLS = [
+  ACCOUNT_SEARCH,
   {
     name: "getAccountDetail",
     description:
-      "Full detail of ONE Sodio account by its exact name: header info, contact history, visits, deals and comments. Use after searchAccounts (or when the user names an account precisely).",
+      "EVERYTHING about ONE Sodio account by its name: every field, every phone/email/link, the contact history, visits, deals and comments.",
     parameters: {
       type: "object",
       properties: { name: { type: "string", description: "The account's name" } },
       required: ["name"],
+    },
+  },
+  {
+    name: "findMembers",
+    description:
+      "Members of the LC this user works with: name, role, function(s), sub-function and team. Filter by part of a name, a function (IGV, IGT, B2B, BD, B2C, OGV, OGT, TM…) or a role.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        function: { type: "string" },
+        role: { type: "string" },
+      },
     },
   },
   {
@@ -54,12 +158,9 @@ const FUNCTION_DECLS = [
   },
   {
     // ── THE DATE TOOL (v34.8) ────────────────────────────────────────────
-    // The one fix that matters for "how many visits did I book this week".
-    // The context is all-time and the account lines carry no dates, so the
-    // model had nothing to count with and produced a plausible number. This
-    // runs the REAL dashboard read — same function the dashboard page calls,
-    // same per-KPI date rules, same RBAC scope — so his answer and the
-    // screen cannot disagree.
+    // Runs the REAL dashboard read — same function the dashboard page calls,
+    // same per-KPI date rules, same RBAC scope — so his answer and the screen
+    // cannot disagree.
     name: "getNumbers",
     description:
       "THE ONLY correct way to answer any question about a TIME PERIOD (today, this week, last month, this sprint, a date range…). Returns the real funnel numbers — market research, contacted, visits booked, visits done, deals, opens — counted over that window, each KPI on its own date, scoped to what this user may see. NEVER answer a dated question from the all-time KPI block; call this instead. Always repeat the returned `window` label back to the user.",
@@ -93,7 +194,7 @@ const FUNCTION_DECLS = [
   },
 ];
 
-/** v26 — only offered to viewers with the Consideration module. */
+/** Offered only to viewers with the Consideration CV pool (v26). */
 const SEARCH_CVS_DECL = {
   name: "searchCvs",
   description:
@@ -105,25 +206,45 @@ const SEARCH_CVS_DECL = {
   },
 };
 
-/** Compact, token-friendly summary of a pipeline row for tool results. */
-function rowSummary(a: PipelineRow) {
-  return {
-    name: a.name,
-    function: a.function,
-    product: a.product,
-    project: a.project,
-    stage: a.stage,
-    responsible: a.responsible_name || "Unassigned",
-    contacts_logged: a.attempts,
-    deals: a.deals_count ?? 0,
-    opens: a.slots_count ?? 0,
-    archived: a.out_of_process ? a.oop_reason ?? true : false,
-    next_step: a.next_step
-      ? `${a.next_step} (${a.next_step_date ?? "no date"})`
-      : null,
-    link: `/accounts/${accountSlug(a.name).replace(/\(/g, "%28").replace(/\)/g, "%29")}`,
-  };
-}
+/** Offered only to viewers who work OGX sign-ups (or call them for B2C). */
+const SEARCH_SIGNUPS_DECL = {
+  name: "searchSignups",
+  description:
+    "Search OGX sign-ups — people who signed up to go abroad — by name, phone or email, optionally by status, programme or country. Returns up to 15 with their status, contact and interest, programme, country, who holds them and when they signed up.",
+  parameters: {
+    type: "object",
+    properties: {
+      query: { type: "string" },
+      status: { type: "string" },
+      program: { type: "string" },
+      country: { type: "string" },
+    },
+  },
+};
+
+/** Offered only to viewers with the Consideration module. */
+const CONSIDERATION_DECLS = [
+  {
+    name: "searchPartnerLcs",
+    description:
+      "Partner LCs (AIESEC LCs abroad we work with): calls made, CVs received, products reached, their IRs (names, roles, emails, phones) and partnerships. Filter by part of the LC name or country; empty returns the busiest.",
+    parameters: { type: "object", properties: { query: { type: "string" } } },
+  },
+  {
+    name: "searchIrCalls",
+    description:
+      "IR calls with partner LCs — upcoming and past: when, which LC, who ran it, status, notes, demand, who booked it. Filter by text (LC, person, notes), status (scheduled, completed, cancelled) and date range.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        status: { type: "string", enum: ["scheduled", "completed", "cancelled"] },
+        from: { type: "string", description: "YYYY-MM-DD" },
+        to: { type: "string", description: "YYYY-MM-DD" },
+      },
+    },
+  },
+];
 
 export async function POST(req: Request) {
   let viewer;
@@ -157,6 +278,9 @@ export async function POST(req: Request) {
     }
   };
   const allowedSlugs = new Set(slugs.map((s) => safeDecode(s) ?? s));
+  const allow = (rows: PipelineRow[]) => {
+    for (const r of rows) allowedSlugs.add(safeDecode(accountSlug(r.name)) ?? r.name);
+  };
 
   const callGemini = async (body: unknown) => {
     const res = await fetch(GEMINI_URL, {
@@ -202,29 +326,87 @@ export async function POST(req: Request) {
     }
   };
 
+  /** Loose words → the exact values stored in a column ("veterin" →
+   *  "Veterinary"). Only the distinct VALUES are read here; the accounts
+   *  themselves still come through the viewer's scoped list. */
+  const valuesLike = async (column: "industry" | "account_type", term: string) => {
+    const t = term.replace(/[%_,()"]/g, " ").trim();
+    if (!t) return { hits: [] as string[], all: [] as string[] };
+    const { data } = await db().from("accounts").select(column).not(column, "is", null).limit(5000);
+    const all = [
+      ...new Set(
+        ((data ?? []) as Record<string, string | null>[]).map((r) => r[column]).filter((x): x is string => !!x)
+      ),
+    ];
+    const words = fold(t).split(/\s+/).filter(Boolean);
+    return { hits: all.filter((v) => words.every((w) => fold(v).includes(w))), all };
+  };
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const execTool = async (name: string, args: any): Promise<unknown> => {
     if (name === "searchAccounts") {
+      const filters: AccountFilters = {};
       const q = String(args?.query ?? "").trim();
-      if (q.length < 2) return { error: "query too short" };
-      // scoped actives + the LC-WIDE archive (v22.2: every member may check a
-      // dead name) — the Archived query path skips accountScope
-      const [scoped, archivedAll] = await Promise.all([
-        listAccounts(viewer, { q, includeArchived: true }, 12),
-        listAccounts(viewer, { q, archived: true }, 12),
-      ]);
-      const seen = new Set<string>();
-      const rows = [...scoped, ...archivedAll]
-        .filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true)))
-        .slice(0, 12);
-      for (const r of rows) allowedSlugs.add(safeDecode(accountSlug(r.name)) ?? r.name);
-      return { matches: rows.map(rowSummary) };
+      if (q) filters.q = q;
+      for (const [col, arg, prop] of [
+        ["industry", args?.industry, "industry"],
+        ["account_type", args?.accountType, "accountType"],
+      ] as const) {
+        const term = String(arg ?? "").trim();
+        if (!term) continue;
+        const { hits, all } = await valuesLike(col, term);
+        if (hits.length === 0)
+          return {
+            matches: [],
+            note: `No account has ${col === "industry" ? "an industry" : "a type"} like "${term}". The ones that exist: ${all.slice(0, 60).join(", ")}. Pick the closest and search again.`,
+          };
+        filters[prop] = hits.join(",");
+      }
+      if (args?.lane) filters.lane = String(args.lane);
+      if (args?.stage) filters.stage = String(args.stage) as AccountFilters["stage"];
+      if (args?.project) filters.project = String(args.project);
+      if (args?.subProduct) filters.subProduct = String(args.subProduct);
+      if (args?.lastContactResult) filters.lastStatus = String(args.lastContactResult);
+      if (args?.podio) filters.podio = String(args.podio);
+      if (typeof args?.hasDeals === "boolean") filters.deals = args.hasDeals ? "has" : "none";
+      if (typeof args?.proposalSent === "boolean") filters.proposal = args.proposalSent ? "sent" : "not_sent";
+      if (DAY.test(String(args?.addedFrom ?? ""))) filters.from = String(args.addedFrom);
+      if (DAY.test(String(args?.addedTo ?? ""))) filters.to = String(args.addedTo);
+      const who = fold(args?.responsible);
+      if (who === "me") filters.responsibleId = viewer.id;
+      else if (["unassigned", "nobody", "none", "no one"].includes(who)) filters.responsibleId = "none";
+      else if (who) {
+        const people = (await listVisibleMembers(viewer)).filter((m) => fold(m.name).includes(who));
+        if (people.length === 0) return { matches: [], note: `Nobody called "${args.responsible}" in this user's scope.` };
+        filters.responsibleId = people.map((m) => m.id).join(",");
+      }
+      const limit = Math.min(40, Math.max(1, Number(args?.limit) || 25));
+      const archived = String(args?.archived ?? "exclude");
+      let rows: PipelineRow[];
+      if (archived === "only") {
+        rows = await listAccounts(viewer, { ...filters, archived: true }, limit);
+      } else if (archived === "include") {
+        // scoped actives + the LC-WIDE archive (v22.2: every member may check
+        // a dead name) — the Archived query path skips accountScope
+        const [scoped, archivedAll] = await Promise.all([
+          listAccounts(viewer, { ...filters, includeArchived: true }, limit),
+          listAccounts(viewer, { ...filters, archived: true }, limit),
+        ]);
+        const seen = new Set<string>();
+        rows = [...scoped, ...archivedAll]
+          .filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true)))
+          .slice(0, limit);
+      } else {
+        rows = await listAccounts(viewer, filters, limit);
+      }
+      allow(rows);
+      return { count: rows.length, matches: rows.map(fullRow) };
     }
     if (name === "getAccountDetail") {
       const nm = String(args?.name ?? "").trim();
       if (!nm) return { error: "name required" };
-      // getAccount re-checks canViewAccount — the Violet Man can never show a
-      // member something their own account page wouldn't
+      // getAccount re-checks canViewAccount — never more than the account
+      // page itself would show this member
       const result =
         (await getAccount(viewer, accountSlug(nm))) ??
         (await (async () => {
@@ -233,23 +415,17 @@ export async function POST(req: Request) {
         })());
       if (!result) return { error: "No such account in your scope." };
       const { account, attempts, visits, deals, comments } = result;
-      allowedSlugs.add(safeDecode(accountSlug(account.name)) ?? account.name);
+      allow([account]);
       return {
-        account: rowSummary(account),
-        industry: account.industry,
-        type: account.account_type,
-        last_contacts: attempts.slice(0, 5).map((c) => ({
+        account: fullRow(account),
+        contact_history: attempts.slice(0, 20).map((c) => ({
           date: fmtDay(c.created_at),
           method: c.method,
           result: c.status,
           comment: c.comment,
         })),
-        visits: visits.slice(0, 5).map((v) => ({
-          date: v.visit_date,
-          done: v.done,
-          comment: v.visit_comment,
-        })),
-        deals: deals.slice(0, 5).map((d) => ({
+        visits: visits.slice(0, 10).map((v) => compact(v)),
+        deals: deals.slice(0, 10).map((d) => ({
           date: fmtDay(d.created_at),
           opens: d.slots,
           igv: d.slots_igv,
@@ -258,9 +434,34 @@ export async function POST(req: Request) {
           egp: d.amount || 0,
           note: d.note,
         })),
-        comments: comments.slice(-3).map((c) => ({
+        comments: comments.slice(-12).map((c) => ({
           by: c.member?.name || c.author_label,
-          body: c.body.slice(0, 300),
+          body: c.body.slice(0, 600),
+        })),
+      };
+    }
+    if (name === "findMembers") {
+      const q = fold(args?.query);
+      const fn = String(args?.function ?? "").trim().toUpperCase();
+      const role = fold(args?.role);
+      const people = (await listVisibleMembers(viewer))
+        .filter((m) => !q || fold(m.name).includes(q))
+        .filter(
+          (m) =>
+            !fn ||
+            (m.functions ?? []).map((f) => f.toUpperCase()).includes(fn) ||
+            (m.sub_functions ?? []).map((f) => f.toUpperCase()).includes(fn)
+        )
+        .filter((m) => !role || fold(m.role).includes(role))
+        .slice(0, 40);
+      return {
+        count: people.length,
+        members: people.map((m) => ({
+          name: m.name,
+          role: m.role,
+          functions: m.functions,
+          sub_functions: m.sub_functions,
+          team: m.team_name,
         })),
       };
     }
@@ -331,6 +532,46 @@ export async function POST(req: Request) {
       if (q.length < 2) return { error: "query too short" };
       return await searchCvs(viewer, q);
     }
+    if (name === "searchSignups") {
+      const filters = {
+        q: String(args?.query ?? "").trim() || undefined,
+        status: args?.status ? String(args.status) : undefined,
+        program: args?.program ? String(args.program) : undefined,
+        country: args?.country ? String(args.country) : undefined,
+      };
+      const res = await listSignupsPage(viewer, filters, 0, 15);
+      return { total: res.total, matches: res.rows.map((r) => compact(r)) };
+    }
+    if (name === "searchPartnerLcs") {
+      if (!hasConsiderationAccess(viewer)) return { error: "Partner LCs are outside this user's access." };
+      const q = fold(args?.query);
+      const lcs = (await listPartnerLcDetails(viewer))
+        .filter((l) => !q || fold(l.name).includes(q) || fold(l.country).includes(q))
+        .slice(0, 15);
+      return {
+        count: lcs.length,
+        lcs: lcs.map((l) => ({
+          ...compact(l),
+          products: l.products,
+          irs: (l.contacts ?? []).slice(0, 8).map((c) => compact(c)),
+          partnerships: (l.partnerships ?? []).map((p) => compact(p)),
+        })),
+      };
+    }
+    if (name === "searchIrCalls") {
+      if (!hasConsiderationAccess(viewer)) return { error: "IR calls are outside this user's access." };
+      const res = await listIrCalls(viewer, 0, 20, undefined, {
+        q: String(args?.query ?? "").trim() || undefined,
+        status: args?.status ? String(args.status) : undefined,
+        from: DAY.test(String(args?.from ?? "")) ? String(args.from) : undefined,
+        to: DAY.test(String(args?.to ?? "")) ? String(args.to) : undefined,
+      });
+      return {
+        total: res.total,
+        upcoming: res.scheduled.slice(0, 10).map((c) => compact(c)),
+        log: res.rows.map((c) => compact(c)),
+      };
+    }
     return { error: `unknown tool ${name}` };
   };
 
@@ -340,24 +581,29 @@ export async function POST(req: Request) {
     parts: [{ text: m.content.slice(0, 4000) }],
   }));
 
-  // the CV-pool tool exists only for Consideration-module viewers (v26)
-  const functionDecls = canSeeCvPool(viewer)
-    ? [...FUNCTION_DECLS, SEARCH_CVS_DECL]
-    : FUNCTION_DECLS;
+  // each module's tools exist only for people who can open that module
+  const functionDecls = [
+    ...BASE_DECLS,
+    ...(canSeeCvPool(viewer) ? [SEARCH_CVS_DECL] : []),
+    ...(ogxFunctions(viewer).length > 0 || isB2C(viewer) ? [SEARCH_SIGNUPS_DECL] : []),
+    ...(hasConsiderationAccess(viewer) ? CONSIDERATION_DECLS : []),
+  ];
 
   let text = "";
   try {
-    // tool loop: up to 3 rounds of function calls, then the final answer
-    for (let round = 0; round < 4; round++) {
+    // tool loop: up to 4 rounds of function calls, then the final answer
+    for (let round = 0; round < 5; round++) {
       const data = (await callGemini({
-        system_instruction: { parts: [{ text: `${VIOLET_MAN_SYSTEM_PROMPT}\n\n${context}` }] },
+        system_instruction: {
+          parts: [{ text: `${VIOLET_MAN_SYSTEM_PROMPT}\n${TOOLS_NOTE}\n\n${context}` }],
+        },
         contents,
         tools: [{ function_declarations: functionDecls }],
         generationConfig: {
           // detail is the point (v32.7): 1024 truncated real answers —
           // tables, rankings and step-by-steps all need room
           temperature: 0.6, maxOutputTokens: 3072,
-          // 2.5-flash "thinks" by default — with up to 5 sequential calls per
+          // 2.5-flash "thinks" by default — with several sequential calls per
           // request that blows the 60s serverless budget; keep it snappy
           thinkingConfig: { thinkingBudget: 0 },
         },
@@ -367,7 +613,7 @@ export async function POST(req: Request) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const parts: any[] = cand?.content?.parts ?? [];
       const calls = parts.filter((p) => p.functionCall);
-      if (calls.length === 0 || round === 3) {
+      if (calls.length === 0 || round === 4) {
         text = parts
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           .map((p: any) => p.text ?? "")
@@ -406,7 +652,7 @@ export async function POST(req: Request) {
   const STATIC_PATHS = new Set([
     "/accounts", "/accounts/import", "/dashboard", "/calendar", "/help", "/playbook",
     "/profile", "/planning", "/members", "/lc-feedback", "/feedback",
-    "/feedback/inbox", "/membership", "/admin", "/consideration",
+    "/feedback/inbox", "/membership", "/admin", "/consideration", "/signups",
   ]);
   text = text.replace(
     /\[([^\]]+)\]\((\/[^)\s]*)\)/g,

@@ -1242,7 +1242,25 @@ async function buildAccountsQuery(
       .is("request_state", null)
       .not("responsible_id", "is", null);
   if (filters.flag === "next_step_missing") query = query.eq("next_step_missing", true);
-  if (filters.q) query = query.ilike("normalized_name", `%${normalizeName(filters.q)}%`);
+  if (filters.q) {
+    // NAME — OR A NUMBER, EMAIL OR LINK (v36.4): "search by number, not just
+    // the account name". A query with 4+ digits, or an @ . or /, is also
+    // matched against every phone, email and link on the account, through the
+    // same canonical keys the duplicate guard uses — so "0101234" finds
+    // +201012345678 and a pasted Instagram link finds its account.
+    const name = normalizeName(filters.q);
+    const digits = filters.q.replace(/\D/g, "");
+    let ids: string[] = [];
+    if (digits.length >= 4 || /[@./]/.test(filters.q)) {
+      const { data } = await db().rpc("account_ids_matching_contact", { p_q: filters.q });
+      ids = ((data ?? []) as unknown[]).filter((x): x is string => typeof x === "string");
+    }
+    const safe = name.replace(/[,()"]/g, " ").trim();
+    query =
+      ids.length > 0
+        ? query.or(`normalized_name.ilike.%${safe}%,id.in.(${ids.join(",")})`)
+        : query.ilike("normalized_name", `%${name}%`);
+  }
   // column sorting (v24) — WHITELISTED fields only; anything else falls back
   // to the default recency order. Nulls always sink to the bottom.
   const SORTABLE = new Set([

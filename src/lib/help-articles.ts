@@ -1172,7 +1172,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "p",
-    "md": "**He only sees what YOU see.** His data context is scoped by the same permissions as the rest of Sodio — a member's Violet Man knows that member's accounts, a VP's knows the function, and consideration viewers get an extra trick: he can search the CV pool (\"CVs with C# in skills\"). He can't leak what you couldn't open yourself."
+    "md": "**He only sees what YOU see.** His data context is scoped by the same permissions as the rest of Sodio — a member's Violet Man knows that member's accounts, a VP's knows the function, and and he can look up **anything you can open**: accounts by any field (industry, type, stage, who holds it, a phone number, a link…), sign-ups, partner LCs, IR calls, members and — for consideration viewers — the CV pool (\"CVs with C# in skills\"). He can't leak what you couldn't open yourself."
    },
    {
     "t": "steps",
@@ -1727,6 +1727,15 @@ export const HELP_ARTICLES: HelpArticle[] = [
   "summary": "Every phone, email and link on an account carries a tag, numbers auto-normalize to +20 format, and pasted numbers get cleaned of the invisible characters that used to break them.",
   "blocks": [
    {
+    "t": "callout",
+    "tone": "warn",
+    "md": "**One company, one account (v36.4).** A phone number, email or link that is already on another account in your world is refused — Sodio shows you that account (its name, function, who holds it, active or archived), because it is almost always the same company under another name (*abc kindergarten* and *abc pre school*). Work that account instead, or revive it if it is archived. The same company in another world — an IGV partner that is also a BD sponsor — is still allowed. Numbers are compared as digits, so 01012345678 and +20 101 234 5678 are one number; links ignore https://, www. and tracking bits."
+   },
+   {
+    "t": "p",
+    "md": "**Search by number.** The Raising search box finds an account by its name *or* by any phone, email or link on it — type part of a number (\"0101234\") or paste a link. **Map links** (Google Maps, including the maps.app.goo.gl links its Share button makes, Apple Maps and Waze) tag themselves **Location** and show the Maps pin."
+   },
+   {
     "t": "p",
     "md": "An account holds as many contacts as you want, each with a **tag** so everyone knows who they're calling. The tag also powers the quick actions — the WhatsApp button dials the number tagged `Whatsapp` first."
    },
@@ -2272,6 +2281,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
   ],
   "summary": "The Proposal email button builds a branded, product-aware pitch and sends it from YOUR own Gmail — with a See-it-first preview of the exact letter, inside Sodio.",
   "blocks": [
+   {
+    "t": "callout",
+    "tone": "tip",
+    "md": "**Edit the letter itself.** In **See it first**, click anywhere in the letter — or in the subject — and type. What you change there is exactly what gets sent. **Keep editing** takes you back to the fields without losing those changes; change a field and the letter is rebuilt from it."
+   },
    {
     "t": "p",
     "md": "Every raising account has a **Proposal email** button. Fill the popup — recipient, sector, an optional custom note — and Sodio **sends it straight from your own Gmail**. It leaves *your* address, so the reply comes back to you and the email sits in your Sent folder; Sodio is the stationery, not the sender. Want to read it before it goes? **See it first** renders the exact letter the company will receive, right there in Sodio, with **Send** underneath it — no trip to Gmail, no drafts folder to forget about. The account is marked `proposal_sent` and nothing else moves — a proposal never changes ownership or stage."
@@ -3271,6 +3285,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
   ],
   "summary": "The registry remembers every partner LC — country, GV/GT badges, its IR people, notes and a full history timeline — and the IGT-only CV pool reads uploaded CVs with AI.",
   "blocks": [
+   {
+    "t": "callout",
+    "tone": "tip",
+    "md": "**Import another LC's whole CV folder.** CV tab → **Import a Drive folder** → paste the Google Drive folder link → **Scan folder**. The AI finds the CVs however the folder is organised — by programme, by sector, a folder per person with videos and certificates, or everything loose — names each person and reads GTa/GTe and the sector from the folders. You see the list before anything is copied: untick what you don't want, pick the partner LC, import. Each CV is copied and read one at a time, and importing the same folder again only brings what is new. If Sodio can't open the folder, ask the LC to share it with the LC mailbox, or with \"anyone with the link\"."
+   },
    {
     "t": "p",
     "md": "**The registry** (⚙ on the IR-calls tab) is the LC's memory of every partner entity. Each LC carries its country, **GV/GT badges derived from the calls actually made** (never stored, never stale), its IR people — every IR is a real contact row with a pick-list role, email and WhatsApp — plus **notes** on the LC itself or on any single IR (the 💬 button on their row). The **History** button opens one timeline — calls, CVs and notes, newest first — each call entry naming both the IR *and* the member who took it, with the IR's own \"what I'd like to talk about\" note and the in-call notes. \"Have we spoken to these people before?\" is one click now."

@@ -4,10 +4,11 @@ import { useRef } from "react";
 import { Globe, Mail, Phone, Plus, Trash2 } from "lucide-react";
 import {
   CONTACT_TAGS, DEFAULT_CONTACT_TAG, EMAIL_RE, EMAIL_TAGS, guessContactTag,
-  phoneTagsFor,
+  isMapLink, phoneTagsFor,
   LINK_TAGS, normalizePhone, URL_RE,
   type AccountContact,
 } from "@/lib/types";
+import { GoogleMapsIcon } from "./icons";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -122,7 +123,13 @@ export function ContactsEditor({
         const isCustomTag = !known.includes(c.tag);
         return (
           <div key={i} className="flex items-start gap-1.5">
-            <span className="mt-2.5 shrink-0 text-muted-foreground">{meta.icon}</span>
+            <span className="mt-2.5 shrink-0 text-muted-foreground">
+              {c.kind === "link" && (c.tag === "Location" || isMapLink(c.value)) ? (
+                <GoogleMapsIcon className="size-3.5" />
+              ) : (
+                meta.icon
+              )}
+            </span>
             <div className="w-[6.8rem] shrink-0 space-y-1">
               <Select
                 value={isCustomTag ? "Other" : c.tag}
