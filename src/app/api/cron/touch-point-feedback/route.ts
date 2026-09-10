@@ -167,6 +167,7 @@ export async function GET(req: NextRequest) {
           ...new Set([...(tp.scope === "lc" ? tmCc : []), ...(owner ? [owner] : [])]),
         ];
         await sendEmail({
+          topic: "touch_points",
           to: to.length === 1 ? [to[0]] : [],
           bcc: to.length === 1 ? undefined : to,
           cc: cc.length > 0 ? cc : undefined,
@@ -180,7 +181,8 @@ export async function GET(req: NextRequest) {
           `⭐ How was ${label}?`,
           "One tap, five stars — open Feedback, pick 'A touch point'. Four seconds, promise.",
           null,
-          "/lc-feedback"
+          "/lc-feedback",
+          "touch_points"
         );
         asked.push(`${label} ${whenLabel} → ${to.length}`);
       }

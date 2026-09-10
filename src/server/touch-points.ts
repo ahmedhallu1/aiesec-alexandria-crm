@@ -146,7 +146,7 @@ async function announce(
         ? touchPointMovedEmail({ ...base, previousWhen: extra?.previousWhen ?? "—" })
         : touchPointCancelledEmail({ ...base, reason: extra?.reason ?? "—" });
 
-  await sendEmail({ to, cc, subject: mail.subject, html: mail.html }).catch((e) =>
+  await sendEmail({ topic: "touch_points", to, cc, subject: mail.subject, html: mail.html }).catch((e) =>
     console.error("[touch-points] announce email failed:", e)
   );
 }

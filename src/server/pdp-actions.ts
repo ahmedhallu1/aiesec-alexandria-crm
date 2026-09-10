@@ -205,7 +205,9 @@ export async function savePdp(input: PdpInput): Promise<Result> {
       `${viewer.name} filed your development plan${
         input.personalSkill ? ` — the skill is ${input.personalSkill}` : ""
       }. Open it to see the weekly steps and tick them off as you go.`,
-      "/pdp"
+      "/pdp",
+      null,
+      "pdp"
     );
 
   revalidatePath("/pdp");

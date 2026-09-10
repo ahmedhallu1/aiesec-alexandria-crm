@@ -1,65 +1,116 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import ts from "typescript";
 import {
-  MEMBER_SETTINGS_DEFAULTS,
+  LEGACY_SETTING_KEYS,
+  NOTIFY_TOPICS,
   SECTION_META,
   SETTINGS_INDEX,
+  defaultMemberSettings,
   foldSearch,
   resolveMemberSettings,
   searchSettings,
   visibleSettings,
-  type MemberSettingKey,
+  wants,
+  withNotifyPref,
+  type NotifyChannel,
   type SettingsContext,
 } from "@/lib/member-settings";
 
 /**
- * MY SETTINGS.
+ * MY SETTINGS — per topic, per channel (v36.2).
  *
- * Two properties matter more than anything else on this screen:
+ * Three properties matter more than anything else on this screen:
  *
- *  1. **A member who never opens it cannot tell it exists.** Every default is
- *     the behaviour that shipped before, and a stored blob only overrides the
- *     keys it really carries — so adding a setting later cannot silently
- *     change what an existing member receives.
+ *  1. **A member who never opens it cannot tell it exists.** Everything
+ *     defaults ON, and a stored blob only overrides the switches it really
+ *     carries — so adding a topic later cannot change what anybody receives.
  *
- *  2. **No dead toggles.** Every switch in the index is read by real code on
- *     a real send path. The last block here goes and checks that, because a
- *     settings panel full of switches that do nothing is worse than no panel:
- *     people turn things off, keep getting the emails, and stop trusting it.
+ *  2. **Nobody loses a choice they already made.** The five v34.8 switches
+ *     are read into their topics.
+ *
+ *  3. **No dead toggles.** Every switch is obeyed by a real send, and no send
+ *     uses a channel its topic doesn't offer. The last block checks that by
+ *     reading the source — a settings page full of switches that do nothing
+ *     teaches people to stop trusting it.
  */
 
-const ALL: SettingsContext = { ogx: true, leadsFunction: true, hasPassword: true };
-const NOBODY: SettingsContext = { ogx: false, leadsFunction: false, hasPassword: false };
+const ALL: SettingsContext = {
+  ogx: true, leadsFunction: true, hasPassword: true,
+  raising: true, consideration: true, signups: true, cxp: true,
+};
+const NOBODY: SettingsContext = {
+  ogx: false, leadsFunction: false, hasPassword: false,
+  raising: false, consideration: false, signups: false, cxp: false,
+};
 
 describe("defaults", () => {
-  it("has every setting default to ON — the pre-0067 behaviour", () => {
-    for (const [k, v] of Object.entries(MEMBER_SETTINGS_DEFAULTS)) {
-      expect(v, k).toBe(true);
+  it("has every topic ON on both channels — the behaviour before any of this", () => {
+    const d = defaultMemberSettings();
+    for (const t of NOTIFY_TOPICS) {
+      expect(d.notify[t.id], t.id).toEqual({ email: true, bell: true });
     }
   });
 
   it("fills the defaults in around an empty, missing or junk blob", () => {
-    for (const raw of [null, undefined, {}, "nonsense", 42, []]) {
-      expect(resolveMemberSettings(raw)).toEqual(MEMBER_SETTINGS_DEFAULTS);
+    for (const raw of [null, undefined, {}, "nonsense", 42, [], { notify: "x" }]) {
+      expect(resolveMemberSettings(raw)).toEqual(defaultMemberSettings());
     }
   });
 
-  it("honours only the keys actually stored", () => {
-    const r = resolveMemberSettings({ emailShoutouts: false });
-    expect(r.emailShoutouts).toBe(false);
-    expect(r.emailPeriodReports).toBe(true);
-    expect(r.bellVisitAnnouncements).toBe(true);
+  it("treats missing settings as YES", () => {
+    expect(wants(undefined, "visit_announcements", "email")).toBe(true);
   });
 
-  it("ignores non-boolean and unknown keys instead of storing them", () => {
+  it("ignores non-boolean values and unknown topics", () => {
     const r = resolveMemberSettings({
-      emailShoutouts: "false",
+      notify: { shoutouts: { email: "false", bell: 0 }, made_up: { email: false } },
       emailPeriodReports: 0,
-      somethingElse: true,
     });
-    expect(r).toEqual(MEMBER_SETTINGS_DEFAULTS);
-    expect(Object.keys(r)).toEqual(Object.keys(MEMBER_SETTINGS_DEFAULTS));
+    expect(r).toEqual(defaultMemberSettings());
+  });
+});
+
+describe("the v34.8 switches carry over", () => {
+  it("reads every old key into its topic and channel", () => {
+    for (const [key, [topic, channel]] of Object.entries(LEGACY_SETTING_KEYS)) {
+      const r = resolveMemberSettings({ [key]: false });
+      expect(r.notify[topic][channel], key).toBe(false);
+      const other: NotifyChannel = channel === "email" ? "bell" : "email";
+      expect(r.notify[topic][other], `${key} must not touch the other channel`).toBe(true);
+    }
+  });
+
+  it("lets a v36.2 value win over an old key for the same switch", () => {
+    const r = resolveMemberSettings({ emailShoutouts: false, notify: { shoutouts: { email: true } } });
+    expect(r.notify.shoutouts.email).toBe(true);
+  });
+});
+
+describe("saving", () => {
+  it("changes exactly one switch", () => {
+    const next = withNotifyPref({}, "ir_calls", "bell", false);
+    const r = resolveMemberSettings(next);
+    expect(r.notify.ir_calls).toEqual({ email: true, bell: false });
+    expect(r.notify.partnerships.bell).toBe(true);
+  });
+
+  it("'all' flips one channel on every topic that uses it, and nothing else", () => {
+    const r = resolveMemberSettings(withNotifyPref({}, "all", "email", false));
+    for (const t of NOTIFY_TOPICS) {
+      expect(r.notify[t.id].bell, t.id).toBe(true);
+      if (t.channels.includes("email")) expect(r.notify[t.id].email, t.id).toBe(false);
+    }
+  });
+
+  it("folds the old keys in, drops them, and keeps keys it doesn't know", () => {
+    const next = withNotifyPref({ emailStreakNag: false, futureKey: 7 }, "podio", "email", false);
+    expect(next.emailStreakNag).toBeUndefined();
+    expect(next.futureKey).toBe(7);
+    const r = resolveMemberSettings(next);
+    expect(r.notify.streak.email).toBe(false);
+    expect(r.notify.podio.email).toBe(false);
   });
 });
 
@@ -75,23 +126,13 @@ describe("the index", () => {
     }
   });
 
-  it("points every toggle at a key that exists in the shape", () => {
-    for (const e of SETTINGS_INDEX) {
-      if (e.kind.type !== "toggle") continue;
-      expect(
-        Object.prototype.hasOwnProperty.call(MEMBER_SETTINGS_DEFAULTS, e.kind.key),
-        `${e.id} toggles "${e.kind.key}", which is not a setting`
-      ).toBe(true);
-    }
-  });
-
-  it("offers a row for EVERY setting in the shape — no orphan keys", () => {
-    // a stored setting with no row is a preference nobody can reach
+  it("offers a row for EVERY topic, and every topic at least one channel", () => {
     const shown = new Set(
-      SETTINGS_INDEX.flatMap((e) => (e.kind.type === "toggle" ? [e.kind.key] : []))
+      SETTINGS_INDEX.flatMap((e) => (e.kind.type === "notify" ? [e.kind.topic] : []))
     );
-    for (const k of Object.keys(MEMBER_SETTINGS_DEFAULTS) as MemberSettingKey[]) {
-      expect(shown.has(k), `"${k}" has no row in the settings panel`).toBe(true);
+    for (const t of NOTIFY_TOPICS) {
+      expect(shown.has(t.id), `"${t.id}" has no row`).toBe(true);
+      expect(t.channels.length, t.id).toBeGreaterThan(0);
     }
   });
 
@@ -104,13 +145,14 @@ describe("the index", () => {
   it("hides module rows from people they don't apply to", () => {
     const forAll = visibleSettings(ALL).map((e) => e.id);
     const forNobody = visibleSettings(NOBODY).map((e) => e.id);
-    expect(forAll).toContain("email-streak-nag");
-    expect(forAll).toContain("function-defaults");
-    expect(forNobody).not.toContain("email-streak-nag");
-    expect(forNobody).not.toContain("function-defaults");
+    for (const id of ["notify-streak", "notify-ir_calls", "notify-next_steps", "notify-cxp", "function-defaults"]) {
+      expect(forAll).toContain(id);
+      expect(forNobody).not.toContain(id);
+    }
     // …but the universal rows survive for everyone
-    expect(forNobody).toContain("email-visit-announcements");
-    expect(forNobody).toContain("password");
+    for (const id of ["notify-touch_points", "notify-shoutouts", "notify-always-on", "password"]) {
+      expect(forNobody).toContain(id);
+    }
   });
 });
 
@@ -127,12 +169,15 @@ describe("search", () => {
     expect(find("dark")[0]).toBe("theme");
     expect(find("avatar")[0]).toBe("avatar");
     expect(find("backup gmail")[0]).toBe("backup-email");
+    expect(find("next step")[0]).toBe("notify-next_steps");
   });
 
   it("finds settings by what people actually type, not their titles", () => {
-    // nobody searches for "visit announcements" — they search for the problem
-    expect(find("too many emails").length).toBeGreaterThan(0);
-    expect(find("unsubscribe")).toContain("email-must-dos");
+    const hits = find("too many emails");
+    expect(hits).toContain("notify-visit_announcements");
+    expect(hits).toContain("notify-period_reports");
+    expect(hits).toContain("notify-shoutouts");
+    expect(find("unsubscribe")).toContain("notify-visit_announcements");
     expect(find("bug")).toContain("report-problem");
     expect(find("whatsapp")).toContain("phone");
   });
@@ -141,25 +186,11 @@ describe("search", () => {
     expect(find("اشعارات").length).toBeGreaterThan(0);
     expect(find("كلمة السر")).toContain("password");
     expect(find("مشكلة")).toContain("report-problem");
-    // hamza / alef folding: أشعارات must find what اشعارات finds
     expect(find("أشعارات")).toEqual(find("اشعارات"));
-  });
-
-  it("finds a row by the PLURAL of a word it spells singular", () => {
-    // people type "emails"; the section and half the rows say "email"
-    const hits = find("too many emails");
-    expect(hits).toContain("email-visit-announcements");
-    expect(hits).toContain("email-period-reports");
-    expect(hits).toContain("email-shoutouts");
   });
 
   it("requires EVERY word to match somewhere", () => {
     expect(find("password zzzzz")).toHaveLength(0);
-  });
-
-  it("ranks a title hit above a body mention", () => {
-    const hits = find("theme");
-    expect(hits[0]).toBe("theme");
   });
 
   it("normalises punctuation and case away", () => {
@@ -168,31 +199,64 @@ describe("search", () => {
   });
 });
 
-describe("no dead toggles — every switch is read by real code", () => {
-  // the whole feature's credibility rests on this: a member who turns an
-  // email off must stop getting it
-  const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
-  const sources = [
-    read("src/server/actions.ts"),
-    read("src/app/api/cron/period-reports/route.ts"),
-    read("src/app/api/cron/streak-nags/route.ts"),
-  ].join("\n");
-
-  for (const key of Object.keys(MEMBER_SETTINGS_DEFAULTS) as MemberSettingKey[]) {
-    it(`"${key}" is checked on a real send path`, () => {
-      expect(
-        sources.includes(key),
-        `"${key}" is offered in the settings panel but nothing reads it — either wire it or remove the row`
-      ).toBe(true);
+describe("no dead toggles — every switch is obeyed by a real send", () => {
+  // Read every send in src with the TypeScript parser: the 7th argument of
+  // notifyMembers is its topic (bell), and `topic:` in a sendEmail call is the
+  // email's. A string search would be fooled by "feedback" or "podio" meaning
+  // something else entirely a thousand times over.
+  const used = { email: new Set<string>(), bell: new Set<string>() };
+  const walk = (dir: string): string[] =>
+    readdirSync(dir).flatMap((f) => {
+      const p = join(dir, f);
+      return statSync(p).isDirectory() ? walk(p) : /\.tsx?$/.test(f) ? [p] : [];
     });
+  for (const file of walk(join(process.cwd(), "src"))) {
+    const src = readFileSync(file, "utf8");
+    if (!src.includes("notifyMembers(") && !src.includes("sendEmail(") && !src.includes("notifyTouchPointAudience(")) continue;
+    const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true);
+    const visit = (n: ts.Node) => {
+      if (ts.isCallExpression(n) && ts.isIdentifier(n.expression)) {
+        const name = n.expression.text;
+        const topicArg = n.arguments[6];
+        if (name === "notifyMembers" && topicArg && ts.isStringLiteral(topicArg)) used.bell.add(topicArg.text);
+        const obj = n.arguments[0];
+        if (name === "sendEmail" && obj && ts.isObjectLiteralExpression(obj)) {
+          for (const p of obj.properties) {
+            if (ts.isPropertyAssignment(p) && p.name.getText(sf) === "topic" && ts.isStringLiteral(p.initializer))
+              used.email.add(p.initializer.text);
+          }
+        }
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(sf);
   }
 
-  it("keeps the must-do emails un-switchable", () => {
-    // if one of these ever becomes a toggle it should be a deliberate act,
-    // not a drive-by addition
-    const toggleKeys = Object.keys(MEMBER_SETTINGS_DEFAULTS);
-    for (const forbidden of ["emailVisitFollowup", "emailAttendance", "emailPodio", "emailPasswordReset"]) {
-      expect(toggleKeys, `${forbidden} must not be optional`).not.toContain(forbidden);
+  for (const t of NOTIFY_TOPICS) {
+    for (const c of t.channels) {
+      it(`"${t.id}" really is sent by ${c}`, () => {
+        expect(
+          used[c].has(t.id),
+          `the ${c} switch for "${t.id}" is offered but no send carries that topic — wire it or drop the channel`
+        ).toBe(true);
+      });
     }
+  }
+
+  it("never sends a topic on a channel its row doesn't offer", () => {
+    const byId = new Map(NOTIFY_TOPICS.map((t) => [t.id as string, t]));
+    for (const c of ["email", "bell"] as const) {
+      for (const id of used[c]) {
+        const t = byId.get(id);
+        expect(t, `"${id}" is not a topic`).toBeTruthy();
+        expect(t!.channels.includes(c), `"${id}" is sent by ${c} but has no ${c} switch`).toBe(true);
+      }
+    }
+  });
+
+  it("keeps the password reset un-switchable", () => {
+    const src = readFileSync(join(process.cwd(), "src/server/password.ts"), "utf8");
+    expect(src).not.toMatch(/topic:/);
+    for (const t of NOTIFY_TOPICS) expect(src.includes(`"${t.id}"`), t.id).toBe(false);
   });
 });

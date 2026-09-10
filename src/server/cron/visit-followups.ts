@@ -3,8 +3,12 @@ import { markCronRun } from "@/server/data";
 import { db } from "@/lib/supabase";
 import { env } from "@/lib/env";
 import { cairoToUtc } from "@/lib/time";
+import { accountSlug, cairoToday, fmtClock12 } from "@/lib/types";
+import { nextStepDue, nextStepKey } from "@/lib/next-step-reminder";
 import { sendEmail } from "@/lib/google/gmail";
-import { visitFollowupEmail, visitForgottenEmail } from "@/lib/email/templates";
+import {
+  nextStepsDueEmail, visitFollowupEmail, visitForgottenEmail,
+} from "@/lib/email/templates";
 
 /** THE VISIT REMINDER JOB, LIFTED OUT OF ITS ROUTE (v33.46).
  *
@@ -49,6 +53,8 @@ export interface VisitFollowupResult {
   bounces: { checked: number; flagged: number };
   /** B2C call-backs that came due and were nudged (v35.1) */
   callBacks: number;
+  /** account next steps reminded on their day (v36.2) */
+  nextSteps: number;
 }
 
 /** Reminders go to the responsible member AND their team leader (manager)
@@ -126,14 +132,15 @@ export async function runVisitFollowups(): Promise<VisitFollowupResult> {
         visit.member.email ?? visit.member.fallback_email,
         ...(leader ? [leader.email] : []),
       ].filter((e): e is string => !!e);
-      if (to.length > 0) await sendEmail({ to, ...mail });
+      if (to.length > 0) await sendEmail({ topic: "visit_followups", to, ...mail });
       await notifyMembers(
         [visit.member.id, ...(leader ? [leader.id] : [])],
         "followup",
         `How did the visit to ${visit.account.name} go? 📝`,
         "Report it from the account page — your leaders get notified automatically.",
         null,
-        `/accounts/${visit.account.id}`
+        `/accounts/${visit.account.id}`,
+        "visit_followups"
       );
       await db()
         .from("visits")
@@ -175,14 +182,15 @@ export async function runVisitFollowups(): Promise<VisitFollowupResult> {
         visit.member.email ?? visit.member.fallback_email,
         ...(leader ? [leader.email] : []),
       ].filter((e): e is string => !!e);
-      if (to.length > 0) await sendEmail({ to, ...mail });
+      if (to.length > 0) await sendEmail({ topic: "visit_followups", to, ...mail });
       await notifyMembers(
         [visit.member.id, ...(leader ? [leader.id] : [])],
         "followup",
         `⏰ ${visit.account.name} is still unreported`,
         "Log the visit result, or mark the account Out of Process if they're not interested.",
         null,
-        `/accounts/${visit.account.id}`
+        `/accounts/${visit.account.id}`,
+        "visit_followups"
       );
       await db()
         .from("visits")
@@ -217,6 +225,16 @@ export async function runVisitFollowups(): Promise<VisitFollowupResult> {
     console.error("[cron] b2c call-backs failed:", e);
   }
 
+  // NEXT STEPS (v36.2) — the same tick, for the same reason: the time is a
+  // floor, and the nudge lands at the first pass after it (see
+  // `lib/next-step-reminder.ts` for when that is).
+  let nextSteps = 0;
+  try {
+    nextSteps = await runNextStepReminders();
+  } catch (e) {
+    console.error("[cron] next-step reminders failed:", e);
+  }
+
   await markCronRun("visit-followups");
   return {
     checked: pending?.length ?? 0,
@@ -225,7 +243,106 @@ export async function runVisitFollowups(): Promise<VisitFollowupResult> {
     nagged,
     bounces,
     callBacks,
+    nextSteps,
   };
+}
+
+interface NextStepRow {
+  id: string;
+  name: string;
+  next_step: string | null;
+  next_step_date: string;
+  next_step_time: string | null;
+  next_step_reminded_key: string | null;
+  responsible_id: string;
+}
+
+interface StepOwner {
+  id: string;
+  name: string;
+  email: string | null;
+  fallback_email: string | null;
+  is_active: boolean;
+}
+
+/** REMIND EVERY RESPONSIBLE OF TODAY'S NEXT STEPS (v36.2).
+ *
+ *  The calendar event `syncNextStepReminder` writes only exists for members
+ *  who connected Google — 44 of the 100 upcoming steps had no reminder at all.
+ *  This one reaches everyone: one bell (which is also the phone push) and one
+ *  email per person per pass, however many of their steps fell due together.
+ *  Both respect the member's "Next-step reminders" switches. Stamped per
+ *  account only AFTER delivery, so a failure retries on the next pass. */
+async function runNextStepReminders(): Promise<number> {
+  const today = cairoToday();
+  const now = Date.now();
+  const { data, error } = await db()
+    .from("accounts")
+    .select(
+      "id, name, next_step, next_step_date, next_step_time, next_step_reminded_key, responsible_id"
+    )
+    .eq("next_step_date", today)
+    .eq("out_of_process", false)
+    .eq("is_test", false) // test accounts never trigger real reminders
+    .not("responsible_id", "is", null)
+    .limit(1000);
+  if (error) throw new Error(error.message);
+
+  const due = ((data ?? []) as NextStepRow[]).filter((a) => nextStepDue(a, today, now));
+  if (due.length === 0) return 0;
+
+  const byOwner = new Map<string, NextStepRow[]>();
+  for (const a of due) byOwner.set(a.responsible_id, [...(byOwner.get(a.responsible_id) ?? []), a]);
+  const { data: ownerRows } = await db()
+    .from("members")
+    .select("id, name, email, fallback_email, is_active")
+    .in("id", [...byOwner.keys()]);
+
+  let reminded = 0;
+  for (const owner of (ownerRows ?? []) as StepOwner[]) {
+    if (!owner.is_active) continue;
+    const items = byOwner.get(owner.id) ?? [];
+    if (items.length === 0) continue;
+    const one = items[0];
+    try {
+      await notifyMembers(
+        [owner.id],
+        "followup",
+        items.length === 1
+          ? `⏰ Next step today — ${one.name}`
+          : `⏰ ${items.length} next steps due today`,
+        items.length === 1
+          ? `${one.next_step || "Your planned next step"}${one.next_step_time ? ` · ${fmtClock12(one.next_step_time)}` : ""}`
+          : `${items.slice(0, 4).map((a) => a.name).join(" · ")}${items.length > 4 ? ` · +${items.length - 4} more` : ""}`,
+        null,
+        items.length === 1 ? `/accounts/${accountSlug(one.name)}` : "/accounts",
+        "next_steps"
+      );
+      const to = owner.email ?? owner.fallback_email;
+      if (to) {
+        const mail = nextStepsDueEmail({
+          firstName: owner.name.split(" ")[0] || owner.name,
+          items: items.map((a) => ({
+            accountName: a.name,
+            step: a.next_step,
+            time: a.next_step_time,
+            url: `${env.appUrl}/accounts/${accountSlug(a.name)}`,
+          })),
+        });
+        await sendEmail({ topic: "next_steps", to: [to], ...mail });
+      }
+      for (const a of items) {
+        await db()
+          .from("accounts")
+          .update({ next_step_reminded_key: nextStepKey(a.next_step_date, a.next_step_time) })
+          .eq("id", a.id);
+      }
+      reminded += items.length;
+    } catch (e) {
+      console.error(`[cron] next-step reminder for ${owner.id} failed:`, e);
+    }
+  }
+  return reminded;
 }
 
 interface CallBackRow {
@@ -264,7 +381,8 @@ async function runB2cCallBacks(): Promise<number> {
         `⏰ Call ${who} back`,
         `You said you'd ring ${who} around now${row.signup?.phone ? ` — ${row.signup.phone}` : ""}.`,
         null,
-        "/signups?view=cic&cicMine=1"
+        "/signups?view=cic&cicMine=1",
+        "cic_calls"
       );
       // stamped only AFTER the nudge is actually out, so a failure retries on
       // the next pass instead of going silent (the v34.1 Podio-digest lesson)

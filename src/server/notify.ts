@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "@/lib/supabase";
 import { sandboxSuppressed } from "@/server/sandbox";
+import type { NotifyTopic } from "@/lib/member-settings";
 
 export type NotificationKind =
   | "welcome"
@@ -27,17 +28,27 @@ export async function notifyMembers(
   title: string,
   body?: string | null,
   createdBy?: string | null,
-  link?: string | null
+  link?: string | null,
+  /** what this is about (v36.2). Members who switched the topic's App
+   *  notifications off are skipped — the bell and the phone push alike, since
+   *  the push is this same notification. Omit only for the few that are not
+   *  preferences (a password reset, the welcome). */
+  topic?: NotifyTopic | null
 ): Promise<void> {
   // NOBODY IS TOLD ABOUT THEIR OWN CLICK (v33.43). 24 of the last 34
   // "Visit booked" bells went to the person who had just booked it, and the
   // bookers of touch points were belling themselves too. A notification is
   // for news you don't already have; the actor watched it happen and got a
   // toast for it. One guard, so no future caller has to remember.
-  const ids = [...new Set(memberIds)].filter(
+  let ids = [...new Set(memberIds)].filter(
     (id) => Boolean(id) && (!createdBy || id !== createdBy)
   );
   if (ids.length === 0) return;
+  if (topic) {
+    const { membersWanting } = await import("./member-settings");
+    ids = await membersWanting(ids, topic, "bell");
+    if (ids.length === 0) return;
+  }
   if (await sandboxSuppressed(`notification "${title}" → ${ids.length} member(s)`)) return;
   const rows = ids.map((member_id) => ({
     member_id,

@@ -205,7 +205,8 @@ export async function GET(req: NextRequest) {
             : "Attended · Late · Absent — it takes a minute."
         }`,
         null,
-        `/attendance?tp=${tp.id}`
+        `/attendance?tp=${tp.id}`,
+        "attendance"
       );
 
       const emails = owners.map((o) => o.email).filter((e): e is string => !!e);
@@ -222,7 +223,7 @@ export async function GET(req: NextRequest) {
         // counter unstamped, or this same reminder re-sends every night and
         // the ladder never escalates to the in-app prompt
         try {
-          await sendEmail({ to: [...new Set(emails)], ...mail });
+          await sendEmail({ topic: "attendance", to: [...new Set(emails)], ...mail });
         } catch (e) {
           errors.push(
             `${label} ${whenLabel}: reminder #${reminder} email failed: ${

@@ -4,7 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import Link from "next/link";
-import { Check, ChevronDown, Dices, Eye, FlipHorizontal2, KeyRound, Loader2, Lock, Mail, MessageSquareHeart, Phone, SlidersHorizontal, Sparkles, Target, Upload, Users, UsersRound } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Dices, Settings2, Eye, FlipHorizontal2, KeyRound, Loader2, Lock, Mail, MessageSquareHeart, Phone, SlidersHorizontal, Sparkles, Target, Upload, Users, UsersRound } from "lucide-react";
 import {
   changePassword, saveFunctionSettings, startViewAs, stopViewAs, updateAvatar,
   updateProfile,
@@ -20,8 +20,6 @@ import { ADMIN_EMAIL, adminWhatsAppLink, cleanPhone, FUNCTION_COLORS, normalizeP
 import type { MmPlanData, PersonCard, TlPlanData } from "@/server/data";
 import { TlPlanForm } from "./tl-plan-form";
 import { MmPlanForm } from "./mm-plan-form";
-import { SettingsPanel } from "./settings-panel";
-import type { MemberSettings, SettingsContext } from "@/lib/member-settings";
 import { WhatsAppIcon } from "./icons";
 import { Hint } from "./hint";
 import {
@@ -73,14 +71,8 @@ export function ProfileView({
   mmPlan,
   viewAs,
   fnSettings = [],
-  settings,
-  settingsContext,
 }: {
   member: ProfileInfo;
-  /** the member's own preferences, defaults filled in (v34.8) */
-  settings: MemberSettings;
-  /** which optional settings rows are worth showing this person */
-  settingsContext: SettingsContext;
   /** the functions this viewer LEADS (v33.32) — empty for everyone else */
   fnSettings?: FunctionSettingsCard[];
   /** the viewer's people (TL → team · VP/Director → function · LCP → EB) */
@@ -367,7 +359,28 @@ export function ProfileView({
         </Card>
       ) : null}
 
-      <SettingsPanel settings={settings} context={settingsContext} />
+      {/* SETTINGS ARE A PAGE OF THEIR OWN (v36.2) — one row per kind of
+          message outgrew a card in the middle of the profile */}
+      <Link
+        href="/profile/settings"
+        prefetch={false}
+        id="profile-settings"
+        className="group block scroll-mt-24"
+      >
+        <Card className="transition-colors group-hover:border-primary/60">
+          <CardContent className="flex items-center gap-3 py-4">
+            <Settings2 className="size-5 shrink-0 text-primary" />
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">Settings</p>
+              <p className="text-sm text-muted-foreground">
+                Emails &amp; notifications — for each kind of message, your inbox, the
+                app, both or neither. Plus phone alerts and how Sodio looks.
+              </p>
+            </div>
+            <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+          </CardContent>
+        </Card>
+      </Link>
 
       {fnSettings.length > 0 ? (
         <Card id="profile-function-defaults" className="scroll-mt-24">

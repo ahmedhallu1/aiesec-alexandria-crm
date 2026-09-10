@@ -6,7 +6,7 @@ import { periodReportEmail, type ReportCoreRankings } from "@/lib/email/template
 import { fetchCoreRankings, rankingsForFunction } from "@/lib/core-rankings";
 import { buildFunctionReport, buildOgxReport, markCronRun } from "@/server/data";
 import { notifyMembers } from "@/server/notify";
-import { resolveMemberSettings } from "@/lib/member-settings";
+import { resolveMemberSettings, wants } from "@/lib/member-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -223,10 +223,10 @@ export async function GET(req: NextRequest) {
           continue;
         }
 
-        // WHO STILL WANTS THE EMAIL (v34.8). The report is resolved by
-        // ADDRESS, so the opt-out has to be resolved by address too — the
-        // bell below is unaffected either way, which is the point: the
-        // numbers still reach everyone, just not always by inbox.
+        // WHO STILL WANTS THE EMAIL (v34.8, per-topic v36.2). The report is
+        // resolved by ADDRESS, so the opt-out is resolved by address too.
+        // `sendEmail` would drop them anyway; counting here keeps the
+        // "recipients" stamp below honest. The bell has its own switch.
         const { data: crewRows } = await db()
           .from("members")
           .select("id, email, settings")
@@ -236,7 +236,7 @@ export async function GET(req: NextRequest) {
         }[];
         const optedOut = new Set(
           crew
-            .filter((m) => resolveMemberSettings(m.settings).emailPeriodReports === false)
+            .filter((m) => !wants(resolveMemberSettings(m.settings), "period_reports", "email"))
             .map((m) => (m.email ?? "").toLowerCase())
         );
         const mailTo = report.recipients.filter(
@@ -245,20 +245,23 @@ export async function GET(req: NextRequest) {
 
         if (mailTo.length > 0) {
           await sendEmail({
+            topic: "period_reports",
             to: [env.gmailSender],
             bcc: mailTo,
             ...mail,
           });
         }
 
-        // bell for the crew too (link → dashboard) — everyone, always
+        // bell for the crew too (link → dashboard) — minus anyone who switched
+        // the report's App notifications off (v36.2)
         await notifyMembers(
           crew.map((m) => m.id),
           "report",
           `📊 ${report.functionLabel} ${period.kind} report is out`,
           period.label,
           null,
-          "/dashboard"
+          "/dashboard",
+          "period_reports"
         );
 
         await db().from("app_settings").upsert({

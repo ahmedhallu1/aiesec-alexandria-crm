@@ -421,7 +421,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
      },
      {
       "q": "Do I still get the emails?",
-      "a": "Yes — nothing about email changed. If you want fewer of those, the same Settings panel has the email switches."
+      "a": "Yes — the phone and the inbox are separate. In Profile → Settings every kind of message has its own Email switch and App switch (App is the bell and this phone together), so you can keep one, the other, both or neither."
      }
     ]
    }
@@ -454,65 +454,74 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "ايميلات كتير",
    "اوقف الايميلات"
   ],
-  "summary": "One searchable panel on your Profile: which emails you get, what reaches the bell, how Sodio looks, and a shortcut to everything else about you.",
+  "summary": "Profile → Settings, a page of its own: for every kind of message, choose your inbox, the app, both or neither — plus phone alerts, how Sodio looks, and shortcuts to everything else about you.",
   "blocks": [
    {
     "t": "p",
-    "md": "Everything you can change about *your own* Sodio now lives in one place: **Profile → Settings**. It has a search box at the top, and it searches the descriptions as well as the titles — so type the problem, not the feature name. *\"too many emails\"*, *\"password\"*, *\"dark\"*, *\"اشعارات\"* all find the right row. Switches save the moment you flip them; there is no Save button."
+    "md": "Everything you can change about *your own* Sodio lives on one page: **Profile → Settings**. It has a search box at the top that searches the descriptions as well as the titles — so type the problem, not the feature name: *\"too many emails\"*, *\"next step\"*, *\"password\"*, *\"dark\"*, *\"اشعارات\"*. Switches save the moment you flip them; there is no Save button."
    },
    {
     "t": "steps",
-    "title": "Get less email",
+    "title": "Choose how each message reaches you",
     "items": [
-     "Go to **Profile** → scroll to **Settings**.",
-     "Search **emails**.",
-     "Turn off whichever ones you don't want. The bell still tells you — you're only switching off the inbox copy."
+     "Open **Profile** and tap the **Settings** card.",
+     "Under **Emails & notifications**, every kind of message has two switches: **Email** (your inbox) and **App** (the bell — and your phone, if you turned phone notifications on).",
+     "Keep one, the other, both or neither. A dash instead of a switch means Sodio never sends that one that way.",
+     "Want quiet? **All off** at the top turns every email (or every app notification) off in one tap — and **All on** brings them back."
     ]
    },
    {
     "t": "table",
     "headers": [
-     "Setting",
-     "What it turns off"
+     "Group",
+     "What's in it"
     ],
     "rows": [
      [
-      "“A visit was booked” emails",
-      "The crew-wide heads-up when *anyone* in your function books a visit. Your OWN visits, your calendar invites and the follow-up asking you to report one are untouched."
+      "Accounts & visits",
+      "Accounts handed to you · your own visits (the email carries the calendar invite) · the crew's “a visit was booked” · report-your-visit reminders · visit results from your team · **next-step reminders** · Podio updates due"
      ],
      [
-      "Sprint & month reports",
-      "The waterfall report your function gets when a period closes. It's still on the dashboard."
+      "Sign-ups",
+      "Sign-ups and referrals handed to you · CIC & B2C calls to make · the 🔥 streak reminder"
      ],
      [
-      "Shout-out emails",
-      "🎉 when someone appreciates you. The bell still says so — some people just don't want it in the inbox."
+      "IR calls & partnerships",
+      "Calls booked, moved, cancelled or handed to you, times IRs asked for, bounced IR emails · partnership targets and partnerships that count for you"
      ],
      [
-      "Streak reminder email",
-      "🔥 the evening nudge before your contacting streak dies (OGX). The bell still fires."
+      "Touch points & your team",
+      "Touch-point invites and ratings · attendance · PDPs & O2Os · things added to your calendar · CXP reminders"
      ],
      [
-      "“A visit was booked” on the bell",
-      "The same crew-wide heads-up, in the notifications panel."
+      "Feedback · Reports",
+      "Shout-outs · feedback and concerns · sprint & month reports · announcements from leaders"
      ]
     ]
    },
    {
     "t": "callout",
     "tone": "warn",
-    "md": "**Some emails cannot be switched off, and the panel says so with the reason.** Reporting a visit you booked, an attendance must-do, a Podio refresh coming due, a password reset, a confirmation going to an IR abroad — those are commitments to other people, not preferences. Nobody can turn them off, including the IM team."
+    "md": "**Only two things can't be switched off:** a password reset you asked for, and the one welcome when you first sign in — they're how you get into Sodio. Everything else is yours to choose, including the follow-up, attendance and Podio reminders, so if you turn those off, you're the one keeping track."
    },
    {
     "t": "p",
-    "md": "The panel also holds **your phone, backup Gmail, password and profile picture** — those rows don't duplicate the controls, they jump you to the card that owns them and flash it, so there's only ever one place a field is edited. **Theme** and **how the accounts list looks on a phone** are marked *this browser*: they're remembered on the device you set them on, not on your account."
+    "md": "**Next-step reminders** come from Sodio itself: on the day of an account's next step you get one — an hour before it if it has a time, at 9:00 if it only has a date. Before, only people who connected Google got a reminder (as a calendar event); now everybody does, and the calendar event still happens for those who have it."
+   },
+   {
+    "t": "p",
+    "md": "The page also holds **your phone, backup Gmail, password and profile picture** — those rows don't duplicate the controls, they take you to the card on your profile that owns them. **Theme** and **how the accounts list looks on a phone** are marked *this browser*: they're remembered on the device you set them on, not on your account."
    },
    {
     "t": "faq",
     "faqItems": [
      {
       "q": "I turned an email off and still got one.",
-      "a": "Check it was the same kind. The crew-wide \"a visit was booked\" heads-up and the follow-up asking YOU to report YOUR visit are two different emails, and only the first is optional — the second is how the LC knows a visit happened."
+      "a": "Check it was the same kind — they're separate rows. The crew's \"a visit was booked\" and your OWN visit are two different switches, and so are \"report your visit\" and \"visit results from my team\". Only a password reset and the welcome can't be turned off."
+     },
+     {
+      "q": "I turned the App switch off but my phone still buzzed.",
+      "a": "The App switch covers the bell and the phone together, per kind of message. If something else buzzed, it was a different kind — search the settings for it. To silence the phone entirely on one device, use \"Notifications on this phone or laptop\"."
      },
      {
       "q": "Can I change my name, role, function or team here?",
@@ -520,7 +529,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
      },
      {
       "q": "Why did my theme not follow me to my phone?",
-      "a": "Theme and the mobile list style are saved in the browser, not on your account — the panel labels them \"this browser\". Set them once per device."
+      "a": "Theme and the mobile list style are saved in the browser, not on your account — the page labels them \"this browser\". Set them once per device."
      }
     ]
    }
@@ -1051,7 +1060,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
      },
      {
       "q": "Why does Google ask for calendar and Gmail permissions?",
-      "a": "Calendar powers your visit and next-step reminders on your own Google Calendar; the Gmail permission lets Sodio drop proposal drafts into YOUR Gmail so emails go out from your address. Sodio never sends without you."
+      "a": "Calendar puts your visits and next steps on your own Google Calendar (Sodio also reminds you of next steps by app notification and email, Google or not); the Gmail permission lets Sodio drop proposal drafts into YOUR Gmail so emails go out from your address. Sodio never sends without you."
      },
      {
       "q": "I used to sign in with my phone in both fields and it stopped working.",

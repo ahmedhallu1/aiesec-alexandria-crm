@@ -27,6 +27,7 @@ import {
   canUseIgtExpectationMail,
   canReassignAccount,
   claimTargetFunction,
+  raisingFunctionsOf,
   icxFunctions,
   isClaimableAccount,
   canManageArchive,
@@ -939,21 +940,6 @@ export async function reassignAccount(
   );
   if (!opts?.skipRefresh) refresh(accountId);
   return { ok: true, data: outcome };
-}
-
-/** The raising functions a member actually works, in the order their
- *  membership row lists them (the sheet's own order — their primary function
- *  first). `sub_functions` is included because B2B, BD and B2C routinely live
- *  there and nowhere else. */
-function raisingFunctionsOf(m: {
-  functions: string[] | null;
-  sub_functions: string[] | null;
-}): AccountFunction[] {
-  const seen = new Set<string>();
-  return [...(m.functions ?? []), ...(m.sub_functions ?? [])].filter(
-    (f): f is AccountFunction =>
-      ["IGV", "IGT", "B2B", "BD", "B2C"].includes(f) && !seen.has(f) && !!seen.add(f)
-  );
 }
 
 /** WHICH FUNCTION A CLAIM STAMPS (v36, ask #9).
@@ -2303,7 +2289,8 @@ export async function bulkReassignAccounts(
           `📋 ${viewer.name} assigned you ${names.length} account${names.length === 1 ? "" : "s"}`,
           `${names.slice(0, 5).join(" · ")}${names.length > 5 ? ` · +${names.length - 5} more` : ""} — they're yours now, start raising!`,
           null,
-          "/accounts"
+          "/accounts",
+          "accounts_assigned"
         );
         // the LCP never receives operational emails (house rule)
         if (target.email && target.role !== "LCP" && !(await sandboxSuppressed("bulk-assign email"))) {
@@ -2316,7 +2303,7 @@ export async function bulkReassignAccounts(
             accountNames: names,
             accountsUrl: `${env.appUrl}/accounts`,
           });
-          sendEmail({ to: [target.email], ...mail }).catch((e) =>
+          sendEmail({ topic: "accounts_assigned", to: [target.email], ...mail }).catch((e) =>
             console.error("[bulk-reassign] email failed:", e)
           );
         }
@@ -3258,7 +3245,7 @@ export async function scheduleVisit(
         sharedWith: recipients.attendeeEmails,
         accountUrl: detailsUrl,
       });
-      await sendEmail({ to: inviteTo, ...mail, ics: { content: ics, method: "REQUEST" } });
+      await sendEmail({ topic: "visit_mine", to: inviteTo, ...mail, ics: { content: ics, method: "REQUEST" } });
       inviteSent = true;
     } catch (e) {
       console.error("[visits] invite email failed:", e);
@@ -3275,7 +3262,8 @@ export async function scheduleVisit(
     `Visit booked — ${account.name} 🗓️`,
     `${visitDate} at ${visitTime.slice(0, 5)}.${inviteSent ? " A calendar invite is in your inbox — accept it for the 24h & 1h reminders." : " (Calendar invite couldn't be emailed — check with the IM team.)"}`,
     viewer.id,
-    `/accounts/${slug}`
+    `/accounts/${slug}`,
+    "visit_mine"
   );
 
   // function-wide fan-out: the account's OWN raising crew get an FYI email AND
@@ -3287,16 +3275,19 @@ export async function scheduleVisit(
       responsible?.name || account.responsible_name;
     // WHO STILL WANTS THIS (v34.8). It is the highest-volume message in the
     // system — 521 in one week — and it is pure FYI, so a member may switch
-    // off the email, the bell, or both from their own settings. Their OWN
-    // visit, their calendar invite and every follow-up asking them to report
-    // one are untouched: those are not preferences.
+    // off the email, the bell, or both from their own settings. Since v36.2
+    // their OWN visits and the report-your-visit prompts are separate
+    // switches ("visit_mine", "visit_followups"), so muting the crew's noise
+    // never mutes their own work. Counted here so the audit numbers are real;
+    // notifyMembers/sendEmail would drop the same people anyway.
     const { memberSettingsFor } = await import("@/server/member-settings");
+    const { wants } = await import("@/lib/member-settings");
     const prefs = await memberSettingsFor(recipients.announce.map((a) => a.id));
     const bellIds = recipients.announce
-      .filter((a) => prefs.get(a.id)?.bellVisitAnnouncements !== false)
+      .filter((a) => wants(prefs.get(a.id), "visit_announcements", "bell"))
       .map((a) => a.id);
     const announceEmails = recipients.announce
-      .filter((a) => a.email && prefs.get(a.id)?.emailVisitAnnouncements !== false)
+      .filter((a) => a.email && wants(prefs.get(a.id), "visit_announcements", "email"))
       .map((a) => a.email as string);
     belled = bellIds.length;
     mailed = announceEmails.length;
@@ -3309,7 +3300,9 @@ export async function scheduleVisit(
       announceAsMove
         ? `${responsibleName} moved the visit with ${account.name} to ${visitDate} at ${visitTime.slice(0, 5)}.`
         : `${responsibleName} booked a visit with ${account.name} on ${visitDate} at ${visitTime.slice(0, 5)}.`,
-      viewer.id
+      viewer.id,
+      null,
+      "visit_announcements"
     );
     if (announceEmails.length > 0) {
       const { visitAnnouncementEmail } = await import("@/lib/email/templates");
@@ -3323,7 +3316,7 @@ export async function scheduleVisit(
         accountUrl: `${env.appUrl}/accounts/${slug}`,
         moved: announceAsMove,
       });
-      sendEmail({ to: [env.gmailSender || viewer.email || ""].filter(Boolean), bcc: announceEmails, ...mail }).catch(
+      sendEmail({ topic: "visit_announcements", to: [env.gmailSender || viewer.email || ""].filter(Boolean), bcc: announceEmails, ...mail }).catch(
         (e) => console.error("[visits] announcement email failed:", e)
       );
     }
@@ -3939,7 +3932,7 @@ export async function reportVisit(
       nextStep: nextStep || null,
       accountUrl: `${env.appUrl}/accounts/${account.id}`,
     });
-    sendEmail({ to: [...recipients.values()], ...mail })
+    sendEmail({ topic: "visit_results", to: [...recipients.values()], ...mail })
       .then(() => db().from("visits").update({ report_sent_at: new Date().toISOString() }).eq("id", visitId))
       .catch((e) => console.error("[visits] report email failed:", e));
   }
@@ -4008,7 +4001,7 @@ export async function submitFeedback(input: {
     message: input.message.trim(),
     inboxUrl: `${env.appUrl}/feedback/inbox`,
   });
-  sendEmail({ to: [...FEEDBACK_INBOX_EMAILS], ...mail }).catch((e) =>
+  sendEmail({ topic: "feedback", to: [...FEEDBACK_INBOX_EMAILS], ...mail }).catch((e) =>
     console.error("[feedback] notification email failed:", e)
   );
   await logAudit(viewer.id, "feedback", "feedback", null, { type: input.type });
@@ -4269,25 +4262,26 @@ export async function updateAvatar(url: string | null): Promise<ActionResult> {
 
 // ================================================================== my settings
 
-/** SAVE ONE OF MY OWN SETTINGS (v34.8).
+/** SAVE ONE OF MY EMAIL / APP SWITCHES (v34.8; per topic since v36.2).
  *
- *  One key per call, because the panel saves as you flip rather than behind a
- *  Save button — a settings page with a Save button is a settings page people
+ *  One switch per call — or, with `topic: "all"`, one channel across every
+ *  topic that uses it — because the page saves as you flip rather than behind
+ *  a Save button: a settings page with a Save button is a settings page people
  *  leave half-changed.
  *
  *  It is deliberately a MERGE into the existing blob, not a replace: two tabs
- *  open on the same profile must not be able to undo each other's toggles.
- *  Only keys the shape actually declares are accepted, so a stale client (or
+ *  open on the same page must not be able to undo each other's toggles. Only
+ *  topics and channels the shape declares are accepted, so a stale client (or
  *  a hand-crafted call) cannot stuff arbitrary JSON onto a member row. */
-export async function saveMySetting(
-  key: string,
+export async function saveMyNotifyPref(
+  topic: string,
+  channel: string,
   value: boolean
 ): Promise<ActionResult> {
   const viewer = await getViewer();
-  const { MEMBER_SETTINGS_DEFAULTS, resolveMemberSettings } =
-    await import("@/lib/member-settings");
-  if (!Object.prototype.hasOwnProperty.call(MEMBER_SETTINGS_DEFAULTS, key))
-    return fail("That isn't a setting.");
+  const { isNotifyTopic, withNotifyPref } = await import("@/lib/member-settings");
+  if (topic !== "all" && !isNotifyTopic(topic)) return fail("That isn't a setting.");
+  if (channel !== "email" && channel !== "bell") return fail("That isn't a setting.");
   if (typeof value !== "boolean") return fail("That setting is on or off.");
 
   const { data: row } = await db()
@@ -4296,7 +4290,12 @@ export async function saveMySetting(
     .eq("id", viewer.id)
     .maybeSingle<{ settings: unknown }>();
 
-  const merged = { ...resolveMemberSettings(row?.settings), [key]: value };
+  const merged = withNotifyPref(
+    row?.settings,
+    topic as import("@/lib/member-settings").NotifyTopic | "all",
+    channel,
+    value
+  );
   await snapshotForUndo("members", viewer.id); // sandbox test view: roll back on exit
   const { error } = await db()
     .from("members")
@@ -4308,7 +4307,7 @@ export async function saveMySetting(
         ? "Your settings need migration 0067 — ask the IM team to run it."
         : error.message
     );
-  await logAudit(viewer.id, "member_setting", "member", viewer.id, { key, value });
+  await logAudit(viewer.id, "member_setting", "member", viewer.id, { topic, channel, value });
   refresh();
   return { ok: true };
 }
@@ -5715,7 +5714,9 @@ export async function sendBroadcast(
     "broadcast",
     b.title,
     b.body,
-    viewer.id
+    viewer.id,
+    null,
+    "broadcasts"
   );
 
   if (b.alsoEmail) {
@@ -5725,7 +5726,7 @@ export async function sendBroadcast(
       body: b.body,
       senderName: viewer.name,
     });
-    sendEmail({ to: [viewer.email || env.gmailSender].filter(Boolean), bcc: targets.map((t) => t.email), ...mail }).catch(
+    sendEmail({ topic: "broadcasts", to: [viewer.email || env.gmailSender].filter(Boolean), bcc: targets.map((t) => t.email), ...mail }).catch(
       (e) => console.error("[broadcast] email failed:", e)
     );
   }
@@ -5785,7 +5786,9 @@ export async function thankFeedback(feedbackId: string): Promise<ActionResult> {
     "thanks",
     "Your feedback made Sodio better 💜",
     `The IM team applied your feedback — thank you for building Sodio with us! ("${f.message.slice(0, 120)}")`,
-    viewer.id
+    viewer.id,
+    null,
+    "feedback"
   );
 
   const { feedbackThanksEmail } = await import("@/lib/email/templates");
@@ -5793,7 +5796,7 @@ export async function thankFeedback(feedbackId: string): Promise<ActionResult> {
     memberFirstName: f.member.name.split(" ")[0],
     feedbackSnippet: f.message.slice(0, 160),
   });
-  sendEmail({ to: [f.member.email], ...mail }).catch((e) =>
+  sendEmail({ topic: "feedback", to: [f.member.email], ...mail }).catch((e) =>
     console.error("[feedback] thanks email failed:", e)
   );
 
@@ -6078,7 +6081,9 @@ export async function submitLcFeedback(input: {
       "lc_feedback",
       `💜 ${from} appreciated you!`,
       message.slice(0, 300),
-      input.anonymous ? null : viewer.id
+      input.anonymous ? null : viewer.id,
+      null,
+      "shoutouts"
     );
     // ONE EMAIL, EVERYONE ON BCC (v33.33). A shout-out to nine people used to
     // be nine separate sends: nine chances to fail, nine rows in the mailbox,
@@ -6087,22 +6092,23 @@ export async function submitLcFeedback(input: {
     // that isn't; a single recipient still gets their own name.
     const { lcShoutoutEmail } = await import("@/lib/email/templates");
     // …and a member may switch the shout-out EMAIL off in their own settings
-    // (v34.8). The bell above already told them, so nobody misses being
-    // appreciated — some people just don't want it in their inbox.
+    // (v34.8) — and the bell, separately, since v36.2. Filtered here so the
+    // greeting is written for the people who will actually read it.
     const { memberSettingsFor } = await import("@/server/member-settings");
+    const { wants } = await import("@/lib/member-settings");
     const shoutPrefs = await memberSettingsFor(targets.map((t) => t.id));
     const withMail = targets.filter(
-      (t) => t.email && shoutPrefs.get(t.id)?.emailShoutouts !== false
+      (t) => t.email && wants(shoutPrefs.get(t.id), "shoutouts", "email")
     );
     if (withMail.length === 1) {
       const t = withMail[0];
       const mail = lcShoutoutEmail({ firstName: t.name.split(" ")[0], from, message });
-      sendEmail({ to: [t.email], ...mail }).catch((e) =>
+      sendEmail({ topic: "shoutouts", to: [t.email], ...mail }).catch((e) =>
         console.error("[lc-feedback] shout-out email failed:", e)
       );
     } else if (withMail.length > 1) {
       const mail = lcShoutoutEmail({ firstName: null, from, message });
-      sendEmail({ to: [], bcc: withMail.map((t) => t.email), ...mail }).catch((e) =>
+      sendEmail({ topic: "shoutouts", to: [], bcc: withMail.map((t) => t.email), ...mail }).catch((e) =>
         console.error("[lc-feedback] shout-out email failed:", e)
       );
     }
@@ -6137,7 +6143,8 @@ export async function submitLcFeedback(input: {
           ? `${rating}/5 — open the inbox to read the review.`
           : `About ${targets.length} ${targets.length === 1 ? "person" : "people"} — open the inbox to read it.`,
         null,
-        "/lc-feedback"
+        "/lc-feedback",
+        "feedback"
       );
       if (!(await sandboxSuppressed("lc concern email"))) {
         const { lcConcernEmail } = await import("@/lib/email/templates");
@@ -6147,6 +6154,7 @@ export async function submitLcFeedback(input: {
         const inboxes = inboxOwners.map((m) => m.email).filter(Boolean) as string[];
         if (inboxes.length > 0)
           await sendEmail({
+            topic: "feedback",
             to: inboxes.length === 1 ? [inboxes[0]] : [],
             bcc: inboxes.length === 1 ? undefined : inboxes,
             ...mail,
@@ -6255,7 +6263,8 @@ export async function shareLcFeedback(
     body.slice(0, 400),
     // the SHARER is named (they chose to pass it on); the AUTHOR never is
     viewer.id,
-    "/lc-feedback"
+    "/lc-feedback",
+    "feedback"
   );
   if (!(await sandboxSuppressed("share lc feedback"))) {
     const { lcSharedFeedbackEmail } = await import("@/lib/email/templates");
@@ -6270,6 +6279,7 @@ export async function shareLcFeedback(
     const inboxes = targets.map((t) => t.email).filter(Boolean) as string[];
     if (inboxes.length > 0)
       await sendEmail({
+        topic: "feedback",
         to: inboxes.length === 1 ? [inboxes[0]] : [],
         bcc: inboxes.length === 1 ? undefined : inboxes,
         ...mail,
@@ -6325,11 +6335,13 @@ export async function tellLcFeedbackAuthor(
     "✅ Your feedback was handled",
     said || "Thank you for speaking up — it was read and acted on.",
     viewer.id,
-    "/lc-feedback"
+    "/lc-feedback",
+    "feedback"
   );
   if (author.email && !(await sandboxSuppressed("lc feedback handled email"))) {
     const { lcFeedbackHandledEmail } = await import("@/lib/email/templates");
     await sendEmail({
+      topic: "feedback",
       to: [author.email],
       ...lcFeedbackHandledEmail({
         name: author.name,
@@ -7040,7 +7052,8 @@ export async function bulkReassignSignups(
             `🆕 ${viewer.name} assigned you ${names.length} sign-up${names.length === 1 ? "" : "s"}`,
             `${names.slice(0, 5).join(" · ")}${names.length > 5 ? ` · +${names.length - 5} more` : ""} — they're yours now, reach out!`,
             null,
-            "/signups?view=mine"
+            "/signups?view=mine",
+            "signups_assigned"
           );
           if (target.email && target.role !== "LCP") {
             // SIGN-UPS, NOT ACCOUNTS (v33.24) — this used to borrow the
@@ -7055,7 +7068,7 @@ export async function bulkReassignSignups(
             after(async () => {
               try {
                 const { sendEmail } = await import("@/lib/google/gmail");
-                await sendEmail({ to: [target.email!], subject: mail.subject, html: mail.html });
+                await sendEmail({ topic: "signups_assigned", to: [target.email!], subject: mail.subject, html: mail.html });
               } catch (e) {
                 console.error("[signups] assignment email failed:", e);
               }
@@ -7324,7 +7337,8 @@ export async function addSignupReferral(input: {
       `🤝 A referral is yours — ${name}`,
       `${viewer.name} logged an organic referral in ${fn} and put it on you. Call them and move them through the funnel like any sign-up.`,
       null,
-      "/signups?view=mine"
+      "/signups?view=mine",
+      "signups_assigned"
     );
   }
   await logAudit(viewer.id, "signup_referral_add", "signup", created.id, { fn, name });
@@ -7472,7 +7486,8 @@ export async function assignCicCaller(
         `📞 CIC call to make — ${signup.name}`,
         "A customer interview call: check the first contact really happened and follow up.",
         viewer.id,
-        "/signups"
+        "/signups",
+        "cic_calls"
       )
     );
   await logAudit(viewer.id, "cic_assign", "signup", id, { caller: caller.id });
@@ -7506,7 +7521,8 @@ export async function bulkAssignCicCaller(
         `📞 ${done} CIC call${done === 1 ? "" : "s"} to make`,
         "Customer interview calls: check the first contact really happened and follow up.",
         viewer.id,
-        "/signups"
+        "/signups",
+        "cic_calls"
       )
     );
   }
@@ -7678,7 +7694,8 @@ export async function assignB2cCic(
         `📞 B2C call to make — ${signup.name}`,
         "They already answered the OGX first call — pitch them what B2C has for them.",
         viewer.id,
-        "/signups?view=cic"
+        "/signups?view=cic",
+        "cic_calls"
       )
     );
   await logAudit(viewer.id, "cic_b2c_assign", "signup", signupId, { caller: caller.id });
@@ -7706,7 +7723,8 @@ export async function bulkAssignB2cCic(
         `📞 ${done} B2C call${done === 1 ? "" : "s"} to make`,
         "People the OGX first call already reached — pitch them what B2C has.",
         viewer.id,
-        "/signups?view=cic"
+        "/signups?view=cic",
+        "cic_calls"
       )
     );
   }
@@ -9041,7 +9059,8 @@ export async function bookIrCall(input: {
       `📅 IR call booked — ${lc.name}`,
       `${bookerName ? `${bookerName} of ` : ""}${lc.name} booked ${whenLabel}.`,
       null,
-      "/consideration"
+      "/consideration",
+      "ir_calls"
     );
   } catch (e) {
     console.error("[ir-booking] notification failed:", e);
@@ -9061,7 +9080,7 @@ export async function bookIrCall(input: {
         note: bookerNote || null,
         considerationUrl: `${env.appUrl}/consideration`,
       });
-      await sendEmail({ to: [owner.email], subject: mail.subject, html: mail.html });
+      await sendEmail({ topic: "ir_calls", to: [owner.email], subject: mail.subject, html: mail.html });
     } catch (e) {
       console.error("[ir-booking] owner email failed:", e);
     }
@@ -9126,7 +9145,8 @@ export async function bookIrCall(input: {
         `⚠️ ${bookerName}'s email was rejected — ${lc.name}`,
         `We couldn't deliver anything to ${bookerEmail}. WhatsApp them (${bookerPhone}) for the right address, then open the call on Consideration → Fix the email.`,
         null,
-        "/consideration"
+        "/consideration",
+        "ir_calls"
       );
     } catch (inner) {
       console.error("[ir-booking] bounce flag failed:", inner);
@@ -9267,12 +9287,14 @@ export async function requestIrSlot(input: {
     `📅 ${lc?.name ?? lcName} asked for a time you don't have open`,
     `${bookerName} asked for ${cairoLabel} — accept it or decline with a reason.`,
     null,
-    "/consideration"
+    "/consideration",
+    "ir_calls"
   );
   const to = [owner.email, owner.fallback_email].filter(Boolean) as string[];
   if (to.length > 0) {
     const { irSlotRequestedEmail } = await import("@/lib/email/templates");
     await sendEmail({
+      topic: "ir_calls",
       to,
       ...irSlotRequestedEmail({
         memberFirstName: owner.name.split(" ")[0],
@@ -9987,7 +10009,8 @@ export async function reassignIrCall(
       `🤝 An IR call is yours — ${call.partner_lc_name}`,
       `${viewer.name} handed you the ${cairo} call with ${call.partner_lc_name}.`,
       viewer.id,
-      "/consideration"
+      "/consideration",
+      "ir_calls"
     );
   } catch (e) {
     console.error("[ir-calls] hand-over bell (new host) failed:", e);
@@ -10016,7 +10039,7 @@ export async function reassignIrCall(
         note: call.booker_note,
         considerationUrl,
       });
-      await sendEmail({ to: [toMail], subject: mail.subject, html: mail.html });
+      await sendEmail({ topic: "ir_calls", to: [toMail], subject: mail.subject, html: mail.html });
     } catch (e) {
       console.error("[ir-calls] hand-over email (new host) failed:", e);
     }
@@ -10033,7 +10056,8 @@ export async function reassignIrCall(
         `🤝 Your ${call.partner_lc_name} call moved to ${to.name}`,
         `The ${cairo} call is ${to.name}'s now — nothing left for you to do.`,
         viewer.id,
-        "/consideration"
+        "/consideration",
+        "ir_calls"
       );
     } catch (e) {
       console.error("[ir-calls] hand-over bell (previous host) failed:", e);
@@ -10056,7 +10080,7 @@ export async function reassignIrCall(
           whenLabel: cairo,
           considerationUrl,
         });
-        await sendEmail({ to: [prevMail], subject: mail.subject, html: mail.html });
+        await sendEmail({ topic: "ir_calls", to: [prevMail], subject: mail.subject, html: mail.html });
       } catch (e) {
         console.error("[ir-calls] hand-over email (previous host) failed:", e);
       }
@@ -10627,7 +10651,8 @@ export async function rescheduleBookedCall(input: {
       `🔁 IR call moved — ${call.partner_lc_name}`,
       `${call.booker_name ? `${call.booker_name} of ` : ""}${call.partner_lc_name} moved the call from ${oldWhen} to ${newWhen}.`,
       null,
-      "/consideration"
+      "/consideration",
+      "ir_calls"
     );
   } catch (e) {
     console.error("[ir-booking] reschedule notification failed:", e);
@@ -10643,7 +10668,7 @@ export async function rescheduleBookedCall(input: {
         newWhenLabel: newWhen,
         considerationUrl: `${env.appUrl}/consideration`,
       });
-      await sendEmail({ to: [owner.email], subject: mail.subject, html: mail.html });
+      await sendEmail({ topic: "ir_calls", to: [owner.email], subject: mail.subject, html: mail.html });
     } catch (e) {
       console.error("[ir-booking] owner reschedule email failed:", e);
     }
@@ -10738,7 +10763,8 @@ export async function cancelBookedCall(input: {
         `❌ IR call cancelled — ${call.partner_lc_name}`,
         `${call.booker_name ? `${call.booker_name} of ` : ""}${call.partner_lc_name} cancelled ${whenLabel}: "${reason}"`,
         null,
-        "/consideration"
+        "/consideration",
+        "ir_calls"
       );
     } catch (e) {
       console.error("[ir-booking] cancel notification failed:", e);
@@ -10754,7 +10780,7 @@ export async function cancelBookedCall(input: {
           reason,
           considerationUrl: `${env.appUrl}/consideration`,
         });
-        await sendEmail({ to: [owner.email], subject: mail.subject, html: mail.html });
+        await sendEmail({ topic: "ir_calls", to: [owner.email], subject: mail.subject, html: mail.html });
       } catch (e) {
         console.error("[ir-booking] owner cancel email failed:", e);
       }
@@ -11089,7 +11115,8 @@ export async function recordLcPartnership(input: {
       `🤝 Partnership made: ${lc.name} (${input.product})`,
       `${viewer.name} recorded it — it counts for you.`,
       viewer.id,
-      "/consideration?tab=lcs"
+      "/consideration?tab=lcs",
+      "partnerships"
     );
   }
   await logAudit(viewer.id, "lc_partnership_made", "partner_lc", lc.id, {
@@ -11210,7 +11237,8 @@ export async function assignLcPartnership(input: {
       ? "You took it — approach them and record the partnership once the group exists."
       : `${viewer.name} set it${recipients.length > 1 ? ` for ${target.name}` : " for you"} — approach them, open the WhatsApp group, then record it from the Partner LCs tab.`,
     viewer.id,
-    "/consideration?tab=lcs"
+    "/consideration?tab=lcs",
+    "partnerships"
   );
   await logAudit(viewer.id, "lc_partnership_target", "partner_lc", lc.id, {
     product: input.product,
@@ -11320,7 +11348,8 @@ export async function setLcPartnershipStage(
       `🤝 ${lc?.name ?? "A partner LC"} — ${stageLabel(next)}`,
       `${viewer.name} moved your ${row.product} partnership target to "${stageLabel(next)}".`,
       viewer.id,
-      "/consideration"
+      "/consideration",
+      "partnerships"
     );
   }
 

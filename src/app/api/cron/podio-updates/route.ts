@@ -233,7 +233,8 @@ export async function GET(req: NextRequest) {
             ? `${second.length} of them were flagged a week ago and are still pending.`
             : `Refresh each on Podio, then mark it updated to reset the countdown.`,
           null,
-          total === 1 ? `/accounts/${accountSlug(bucket.due[0].name)}` : `/accounts`
+          total === 1 ? `/accounts/${accountSlug(bucket.due[0].name)}` : `/accounts`,
+          "podio"
         );
       }
 
@@ -244,7 +245,7 @@ export async function GET(req: NextRequest) {
           stillPending: second,
           accountsUrl: `${env.appUrl}/accounts`,
         });
-        await sendEmail({ to: [...new Set(bucket.emails)], ...mail });
+        await sendEmail({ topic: "podio", to: [...new Set(bucket.emails)], ...mail });
       }
 
       // stamp only AFTER the digest went out — a failed send must retry

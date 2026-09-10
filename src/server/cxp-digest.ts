@@ -125,7 +125,7 @@ export async function runDailyDigest(
       }`;
     } else {
       try {
-        await sendEmail({ to, subject, html });
+        await sendEmail({ topic: "cxp", to, subject, html });
         status = "sent";
       } catch (err) {
         status = "failed";

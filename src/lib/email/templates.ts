@@ -178,6 +178,41 @@ export function escapeHtml(s: string): string {
 
 // ------------------------------------------------------------------ templates
 
+/** NEXT STEPS DUE TODAY (v36.2) — the reminder a responsible gets on the day
+ *  of a planned next step, whether or not their Google Calendar is connected.
+ *  One email per person per pass, however many steps fall due together. */
+export function nextStepsDueEmail(opts: {
+  firstName: string;
+  items: { accountName: string; step: string | null; time: string | null; url: string }[];
+}) {
+  const n = opts.items.length;
+  const one = opts.items[0];
+  return {
+    subject: n === 1 ? `⏰ Next step today — ${one.accountName}` : `⏰ ${n} next steps due today`,
+    html: emailLayout({
+      preheader:
+        n === 1 ? one.step ?? "Your planned next step is today" : `${n} of your accounts have a next step today`,
+      body: `
+        <h1 style="margin:0 0 16px;font-size:20px;color:#0A2540;">Hey ${escapeHtml(opts.firstName)} 👋</h1>
+        <p>${n === 1 ? "You planned a next step for today:" : `You planned ${n} next steps for today:`}</p>
+        ${opts.items
+          .map(
+            (i) =>
+              detailsTable([
+                ["Account", i.accountName],
+                ["Next step", i.step],
+                ["When", i.time ? fmtClock12(i.time) : "Today"],
+              ]) +
+              (n <= 3
+                ? button("Open the account", i.url)
+                : `<p style="margin:-8px 0 16px;"><a href="${i.url}" style="color:${BRAND.purple};font-weight:600;">Open ${escapeHtml(i.accountName)} →</a></p>`)
+          )
+          .join("")}
+        <p style="color:#5c6b80;font-size:13px;">Done? Log the contact on the account and set the next step. Plans changed? Move the date — the reminder moves with it.</p>`,
+    }),
+  };
+}
+
 export function welcomeEmail(member: {
   name: string;
   role: string;

@@ -384,7 +384,45 @@ export function claimTargetFunction(
   // `includes` test only ever fires for an account that already had one.
   return a.function != null && allowed.includes(a.function as AccountFunction)
     ? (a.function as AccountFunction)
-    : allowed[0];
+    : preferB2bOverBd(allowed)[0];
+}
+
+/** B2B BEFORE BD (v36.2). Somebody who works BOTH files an unowned account
+ *  under B2B — the floor's rule, in their words: "when an unassigned account
+ *  is assigned to a B2B and BD user, make it B2B, not BD." Nothing else about
+ *  the order moves: an IGV member who also does B2B still lands in IGV first.
+ *
+ *  It had to be written down because the membership sheet lists these two in
+ *  either order ("BD, B2B" for three of the eight), and the hand-out path took
+ *  the FIRST one — which is how 50 pool accounts handed to one person on
+ *  2026-09-01 all came out BD. */
+export function preferB2bOverBd<F extends string>(fns: readonly F[]): F[] {
+  const out = [...fns];
+  const b2b = out.indexOf("B2B" as F);
+  const bd = out.indexOf("BD" as F);
+  if (bd !== -1 && b2b > bd) {
+    out.splice(b2b, 1);
+    out.splice(bd, 0, "B2B" as F);
+  }
+  return out;
+}
+
+/** The raising functions a member actually works, in the order their
+ *  membership row lists them (the sheet's own order — their primary function
+ *  first), except that B2B always comes before BD. `sub_functions` is
+ *  included because B2B, BD and B2C routinely live there and nowhere else.
+ *  The account a hand-out moves lands in the FIRST of these. */
+export function raisingFunctionsOf(m: {
+  functions: string[] | null;
+  sub_functions: string[] | null;
+}): AccountFunction[] {
+  const seen = new Set<string>();
+  return preferB2bOverBd(
+    [...(m.functions ?? []), ...(m.sub_functions ?? [])].filter(
+      (f): f is AccountFunction =>
+        ["IGV", "IGT", "B2B", "BD", "B2C"].includes(f) && !seen.has(f) && !!seen.add(f)
+    )
+  );
 }
 
 /** THE ARCHIVE IS WORKABLE BY MMs, IN EVERY FUNCTION (v33.8).

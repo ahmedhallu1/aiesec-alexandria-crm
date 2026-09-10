@@ -24,60 +24,281 @@
  *  agree on one source of truth.
  */
 
-export interface MemberSettings {
-  // ---------------- email
-  /** the function-wide "📢 new visit booked" FYI. Not your own visits, not
-   *  your team's follow-up prompts — the crew-wide heads-up, which is the
-   *  single highest-volume email in the system (521 in one week, v33.42). */
-  emailVisitAnnouncements: boolean;
-  /** the sprint / month period report for your function */
-  emailPeriodReports: boolean;
-  /** 🎉 "someone appreciated you" — the bell still fires either way */
-  emailShoutouts: boolean;
-  /** the evening 🔥 streak nag (OGX). The bell still fires. */
-  emailStreakNag: boolean;
+// ══════════════════════════════════════════════ emails & notifications
 
-  // ---------------- in-app bell
-  /** the same crew-wide visit fan-out, on the bell side */
-  bellVisitAnnouncements: boolean;
-}
+/** WHAT A MESSAGE IS ABOUT (v36.2).
+ *
+ *  v34.8 shipped five switches and a rule that everything else was always on.
+ *  The floor asked for the opposite — "turn on/off any emails/notifications or
+ *  both" — so every message Sodio sends a MEMBER carries one of these topics,
+ *  and each topic has two switches: EMAIL (their inbox) and BELL (the in-app
+ *  notification, which since v35 is also what reaches their phone).
+ *
+ *  The filter lives in ONE place per channel — `notifyMembers` for the bell,
+ *  `sendEmail` for the inbox — so a caller only names its topic. A message
+ *  with NO topic is always delivered; that is kept for the two that are not
+ *  preferences: a password reset and the welcome. Mail to people OUTSIDE the
+ *  LC (an IR booking a call) is never filtered — they have no settings.
+ *
+ *  `tests/member-settings.test.ts` checks that every topic here is named by a
+ *  real send, so a switch can never be added that nothing obeys. */
+export type NotifyTopic =
+  | "accounts_assigned" | "visit_mine" | "visit_announcements" | "visit_followups"
+  | "visit_results" | "next_steps" | "podio"
+  | "signups_assigned" | "cic_calls" | "streak"
+  | "ir_calls" | "partnerships"
+  | "touch_points" | "attendance" | "pdp" | "calendar_items" | "cxp"
+  | "shoutouts" | "feedback" | "period_reports" | "broadcasts";
 
-export const MEMBER_SETTINGS_DEFAULTS: MemberSettings = {
-  // every default is EXACTLY what shipped before this existed: a member who
-  // never opens the panel must not be able to tell it was added
-  emailVisitAnnouncements: true,
-  emailPeriodReports: true,
-  emailShoutouts: true,
-  emailStreakNag: true,
-  bellVisitAnnouncements: true,
+/** EMAIL = the inbox. BELL = the in-app notification AND the phone push, which
+ *  is the same message delivered to the device. */
+export type NotifyChannel = "email" | "bell";
+export const NOTIFY_CHANNELS: readonly NotifyChannel[] = ["email", "bell"];
+
+/** Which rows are worth showing this person — see `SettingsContext`. */
+export type SettingNeed =
+  | "ogx" | "leadsFunction" | "hasPassword" | "raising" | "consideration" | "signups" | "cxp";
+
+export type NotifyGroup = "raising" | "signups" | "consideration" | "team" | "feedback" | "reports";
+
+export const NOTIFY_GROUP_LABEL: Record<NotifyGroup, string> = {
+  raising: "Accounts & visits",
+  signups: "Sign-ups",
+  consideration: "IR calls & partnerships",
+  team: "Touch points & your team",
+  feedback: "Feedback",
+  reports: "Reports & announcements",
 };
 
-export type MemberSettingKey = keyof MemberSettings;
+export interface NotifyTopicMeta {
+  id: NotifyTopic;
+  group: NotifyGroup;
+  label: string;
+  description: string;
+  keywords: string[];
+  /** the channels this topic actually sends on — a switch for a channel it
+   *  never uses would be a dead toggle */
+  channels: readonly NotifyChannel[];
+  needs?: SettingNeed;
+}
+
+const BOTH: readonly NotifyChannel[] = ["email", "bell"];
+
+export const NOTIFY_TOPICS: readonly NotifyTopicMeta[] = [
+  {
+    id: "accounts_assigned", group: "raising", label: "Accounts handed to me",
+    description: "When a leader assigns you accounts.",
+    keywords: ["assigned", "handed", "accounts", "حسابات"], channels: BOTH, needs: "raising",
+  },
+  {
+    id: "visit_mine", group: "raising", label: "My visits",
+    description: "A visit booked on one of your accounts. The email carries the calendar invite — with it off (and no Google sign-in) the visit won't reach your calendar.",
+    keywords: ["visit", "invite", "calendar", "زيارة"], channels: BOTH, needs: "raising",
+  },
+  {
+    id: "visit_announcements", group: "raising", label: "“A visit was booked” — the crew",
+    description: "The heads-up when anyone in your function books a visit — the busiest message in Sodio. Your own visits are the row above.",
+    keywords: ["visit", "announcement", "booked", "noise", "spam", "زيارة", "كتير"], channels: BOTH, needs: "raising",
+  },
+  {
+    id: "visit_followups", group: "raising", label: "Report-your-visit reminders",
+    description: "Two hours after a visit (“how did it go?”) and again a week later if it is still unreported. Team Leaders get their members' ones too.",
+    keywords: ["follow up", "followup", "report", "visit", "reminder"], channels: BOTH, needs: "raising",
+  },
+  {
+    id: "visit_results", group: "raising", label: "Visit results from my team",
+    description: "When somebody you lead reports how a visit went.",
+    keywords: ["visit", "report", "result", "team", "leader"], channels: ["email"], needs: "raising",
+  },
+  {
+    id: "next_steps", group: "raising", label: "Next-step reminders",
+    description: "On the day of an account's next step — an hour before it when it has a time, at 9:00 when it only has a date.",
+    keywords: ["next step", "reminder", "due", "follow up", "تذكير"], channels: BOTH, needs: "raising",
+  },
+  {
+    id: "podio", group: "raising", label: "Podio updates due",
+    description: "When accounts you hold need their Podio entry refreshed.",
+    keywords: ["podio", "update", "refresh"], channels: BOTH, needs: "raising",
+  },
+  {
+    id: "signups_assigned", group: "signups", label: "Sign-ups handed to me",
+    description: "Sign-ups assigned to you, and referrals somebody put on you.",
+    keywords: ["signups", "sign-ups", "assigned", "referral", "ogx"], channels: BOTH, needs: "signups",
+  },
+  {
+    id: "cic_calls", group: "signups", label: "CIC & B2C calls to make",
+    description: "A customer-interview or B2C call handed to you, and a call-back coming due.",
+    keywords: ["cic", "b2c", "call", "call back", "callback"], channels: ["bell"], needs: "signups",
+  },
+  {
+    id: "streak", group: "signups", label: "Streak reminder",
+    description: "🔥 The evening nudge when your contacting streak is about to end.",
+    keywords: ["streak", "nag", "reminder", "ستريك"], channels: BOTH, needs: "ogx",
+  },
+  {
+    id: "ir_calls", group: "consideration", label: "IR calls",
+    description: "A call booked, moved, cancelled or handed to you, a time an IR asked for, and an IR's email bouncing.",
+    keywords: ["ir", "call", "booked", "cancelled", "moved", "bounce", "consideration"], channels: BOTH, needs: "consideration",
+  },
+  {
+    id: "partnerships", group: "consideration", label: "Partnerships & targets",
+    description: "A partnership target set for you or moved along, and a partnership that counts for you.",
+    keywords: ["partnership", "target", "lc", "whatsapp"], channels: ["bell"], needs: "consideration",
+  },
+  {
+    id: "touch_points", group: "team", label: "Touch points",
+    description: "Invitations, changes and cancellations — and the ⭐ “how was it?” afterwards.",
+    keywords: ["touch point", "event", "meeting", "invite", "rating"], channels: BOTH,
+  },
+  {
+    id: "attendance", group: "team", label: "Attendance",
+    description: "Recording or confirming attendance, and the excuses and appeals that reach the people who handle them.",
+    keywords: ["attendance", "excuse", "appeal", "حضور"], channels: BOTH,
+  },
+  {
+    id: "pdp", group: "team", label: "PDPs & O2Os",
+    description: "Your development plan being filed, and the plans you still owe your people.",
+    keywords: ["pdp", "o2o", "development", "plan"], channels: BOTH,
+  },
+  {
+    id: "calendar_items", group: "team", label: "Things added to my calendar",
+    description: "When somebody adds an item to your Sodio calendar or removes one.",
+    keywords: ["calendar", "added", "removed", "item"], channels: ["bell"],
+  },
+  {
+    id: "cxp", group: "team", label: "CXP reminders & digest",
+    description: "The CXP module's weekly reminders and its daily document digest.",
+    keywords: ["cxp", "digest", "documents", "ep"], channels: ["email"], needs: "cxp",
+  },
+  {
+    id: "shoutouts", group: "feedback", label: "Shout-outs",
+    description: "🎉 When somebody appreciates you on the Feedback page.",
+    keywords: ["shoutout", "shout out", "appreciation", "praise", "شكر"], channels: BOTH,
+  },
+  {
+    id: "feedback", group: "feedback", label: "Feedback & concerns",
+    description: "Concerns and ratings for the people who handle them, feedback shared with you, and word that yours was handled.",
+    keywords: ["feedback", "concern", "inbox", "rating", "bug"], channels: BOTH,
+  },
+  {
+    id: "period_reports", group: "reports", label: "Sprint & month reports",
+    description: "The report your function gets when a sprint or a month closes — totals, plan vs achieved, every person's numbers.",
+    keywords: ["report", "sprint", "month", "period", "waterfall", "تقرير"], channels: BOTH,
+  },
+  {
+    id: "broadcasts", group: "reports", label: "Announcements from leaders",
+    description: "Broadcasts sent to your function or to the whole LC.",
+    keywords: ["announcement", "broadcast", "news"], channels: BOTH,
+  },
+];
+
+/** Words anybody looking for a switch types — every notification row answers
+ *  to them, in both languages. */
+const NOTIFY_WORDS = [
+  "email", "notification", "bell", "phone", "too many", "many", "stop", "less",
+  "mute", "quiet", "unsubscribe", "spam", "ايميل", "اشعار", "اشعارات",
+];
+
+const TOPIC_IDS = new Set<string>(NOTIFY_TOPICS.map((t) => t.id));
+export const isNotifyTopic = (x: unknown): x is NotifyTopic =>
+  typeof x === "string" && TOPIC_IDS.has(x);
+
+export type NotifyPrefs = Record<NotifyTopic, Record<NotifyChannel, boolean>>;
+
+export interface MemberSettings {
+  /** per topic, per channel — ON unless the member switched it off */
+  notify: NotifyPrefs;
+}
+
+/** Everything ON: exactly what shipped before any of this existed, so a member
+ *  who never opens the panel cannot tell it was added. A fresh object each
+ *  call — the result is mutated by `resolveMemberSettings`. */
+export function defaultMemberSettings(): MemberSettings {
+  const notify = {} as NotifyPrefs;
+  for (const t of NOTIFY_TOPICS) notify[t.id] = { email: true, bell: true };
+  return { notify };
+}
+
+export const MEMBER_SETTINGS_DEFAULTS: MemberSettings = defaultMemberSettings();
+
+/** THE v34.8 SWITCHES, read into their topics. Members who turned one of these
+ *  off before v36.2 keep it off; the key is dropped the next time they save. */
+export const LEGACY_SETTING_KEYS: Record<string, [NotifyTopic, NotifyChannel]> = {
+  emailVisitAnnouncements: ["visit_announcements", "email"],
+  bellVisitAnnouncements: ["visit_announcements", "bell"],
+  emailPeriodReports: ["period_reports", "email"],
+  emailShoutouts: ["shoutouts", "email"],
+  emailStreakNag: ["streak", "email"],
+};
+
+const isObj = (x: unknown): x is Record<string, unknown> =>
+  !!x && typeof x === "object" && !Array.isArray(x);
 
 /** Fill the defaults in around whatever the row actually carries. A stored
- *  blob only ever overrides a key it really has, so adding a setting later
- *  cannot change the behaviour of an existing member. */
+ *  blob only ever overrides a switch it really has, so adding a topic later
+ *  cannot change what an existing member receives. */
 export function resolveMemberSettings(raw: unknown): MemberSettings {
-  const stored = (raw ?? {}) as Partial<Record<string, unknown>>;
-  const out = { ...MEMBER_SETTINGS_DEFAULTS };
-  for (const k of Object.keys(MEMBER_SETTINGS_DEFAULTS) as MemberSettingKey[]) {
-    if (typeof stored[k] === "boolean") out[k] = stored[k] as boolean;
+  const stored = isObj(raw) ? raw : {};
+  const out = defaultMemberSettings();
+  // v34.8 first, so a v36.2 value for the same switch wins
+  for (const [key, [topic, channel]] of Object.entries(LEGACY_SETTING_KEYS)) {
+    if (typeof stored[key] === "boolean") out.notify[topic][channel] = stored[key] as boolean;
+  }
+  const notify = isObj(stored.notify) ? stored.notify : {};
+  for (const t of NOTIFY_TOPICS) {
+    const row = notify[t.id];
+    if (!isObj(row)) continue;
+    for (const c of NOTIFY_CHANNELS) {
+      if (typeof row[c] === "boolean") out.notify[t.id][c] = row[c] as boolean;
+    }
   }
   return out;
+}
+
+/** Does this member still want `topic` on `channel`? Missing settings mean
+ *  YES — see the fail-open note in `server/member-settings.ts`. */
+export function wants(
+  s: MemberSettings | undefined,
+  topic: NotifyTopic,
+  channel: NotifyChannel
+): boolean {
+  return s?.notify[topic]?.[channel] !== false;
+}
+
+/** The blob to write back after one switch — or, with `"all"`, every topic
+ *  that uses that channel. A MERGE: keys this file doesn't know survive, and
+ *  the v34.8 keys are folded in and dropped. */
+export function withNotifyPref(
+  raw: unknown,
+  topic: NotifyTopic | "all",
+  channel: NotifyChannel,
+  value: boolean
+): Record<string, unknown> {
+  const stored: Record<string, unknown> = isObj(raw) ? { ...raw } : {};
+  const resolved = resolveMemberSettings(stored);
+  for (const t of NOTIFY_TOPICS) {
+    const hit = topic === "all" ? t.channels.includes(channel) : t.id === topic;
+    if (hit) resolved.notify[t.id][channel] = value;
+  }
+  for (const k of Object.keys(LEGACY_SETTING_KEYS)) delete stored[k];
+  return { ...stored, notify: resolved.notify };
 }
 
 // ══════════════════════════════════════════════ the searchable index
 
 export type SettingSection =
-  | "account" | "email" | "notifications" | "appearance" | "function" | "help";
+  | "account" | "notifications" | "appearance" | "function" | "help";
 
 export const SECTION_META: Record<
   SettingSection,
   { label: string; icon: string; blurb: string }
 > = {
   account: { label: "Account", icon: "👤", blurb: "Who you are and how you sign in." },
-  email: { label: "Email", icon: "✉️", blurb: "What lands in your inbox." },
-  notifications: { label: "Notifications", icon: "🔔", blurb: "What lands on the bell." },
+  notifications: {
+    label: "Emails & notifications",
+    icon: "🔔",
+    blurb: "For each kind of message: your inbox, the app (and your phone), both, or neither.",
+  },
   appearance: { label: "Appearance", icon: "🎨", blurb: "How Sodio looks on this device." },
   function: { label: "My function", icon: "🏛️", blurb: "Defaults for the crew you lead." },
   help: { label: "Help & support", icon: "🆘", blurb: "When something is wrong." },
@@ -93,7 +314,8 @@ export interface SettingEntry {
    *  long settings page usable, and half this LC types in Arabic */
   keywords: string[];
   kind:
-    | { type: "toggle"; key: MemberSettingKey }
+    /** one topic — an Email switch and an App switch, for the channels it uses */
+    | { type: "notify"; topic: NotifyTopic }
     /** a browser preference, not an account one — say so on the row */
     | { type: "localChoice"; storageKey: string; options: { value: string; label: string }[]; fallback: string }
     | { type: "theme" }
@@ -108,7 +330,9 @@ export interface SettingEntry {
     | { type: "locked"; reason: string };
   /** hidden unless this holds — module-specific rows shouldn't clutter
    *  somebody else's panel */
-  needs?: "ogx" | "leadsFunction" | "hasPassword";
+  needs?: SettingNeed;
+  /** the sub-heading a notification row sits under */
+  group?: NotifyGroup;
 }
 
 export const SETTINGS_INDEX: readonly SettingEntry[] = [
@@ -167,89 +391,26 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
     kind: { type: "jump", target: "profile-avatar", cta: "Change my picture" },
   },
 
-  // ───────────────────────────────────────────── email
-  {
-    id: "email-visit-announcements",
-    section: "email",
-    label: "“A visit was booked” emails",
-    description:
-      "The crew-wide heads-up when anyone in your function books a visit. Turning it off does NOT touch your own visits, your calendar invites, or the follow-up asking you to report one.",
-    keywords: [
-      "visit", "announcement", "booked", "noise", "too many", "many", "stop",
-      "less", "mute", "quiet", "unsubscribe", "spam", "زيارة", "ايميل", "كتير",
-    ],
-    kind: { type: "toggle", key: "emailVisitAnnouncements" },
-  },
-  {
-    id: "email-period-reports",
-    section: "email",
-    label: "Sprint & month reports",
-    description:
-      "The waterfall report your function gets when a sprint or a month closes — totals, plan vs achieved, every person's numbers.",
-    keywords: [
-      "report", "sprint", "month", "period", "waterfall", "too many", "many",
-      "stop", "less", "mute", "quiet", "unsubscribe", "تقرير",
-    ],
-    kind: { type: "toggle", key: "emailPeriodReports" },
-  },
-  {
-    id: "email-shoutouts",
-    section: "email",
-    label: "Shout-out emails",
-    description:
-      "🎉 when somebody appreciates you on the Feedback page. The bell still tells you either way — this is only the email.",
-    keywords: [
-      "shoutout", "shout out", "appreciation", "feedback", "praise", "too many",
-      "many", "stop", "less", "mute", "quiet", "unsubscribe", "شكر",
-    ],
-    kind: { type: "toggle", key: "emailShoutouts" },
-  },
-  {
-    id: "email-streak-nag",
-    section: "email",
-    label: "Streak reminder email",
-    description:
-      "🔥 the evening nudge when your contacting streak is about to end. The bell still fires — this is only the email.",
-    keywords: [
-      "streak", "nag", "reminder", "signups", "ogx", "too many", "many", "stop",
-      "less", "mute", "quiet", "unsubscribe", "ستريك",
-    ],
-    kind: { type: "toggle", key: "emailStreakNag" },
-    needs: "ogx",
-  },
-  {
-    id: "email-must-dos",
-    section: "email",
-    label: "Follow-ups, attendance and Podio — always on",
-    description:
-      "Reporting a visit you booked, recording attendance, refreshing an account on Podio, a password reset, a booking confirmation to an IR abroad. These are commitments to other people, not preferences, so nobody can switch them off — including you.",
-    keywords: [
-      "follow up", "followup", "attendance", "podio", "reminder", "must do",
-      "cannot turn off", "unsubscribe", "spam", "too many", "many", "stop",
-      "less", "mute", "quiet",
-    ],
-    kind: {
-      type: "locked",
-      reason: "Somebody else is waiting on each of these.",
-    },
-  },
-
-  // ───────────────────────────────────────────── bell
-  {
-    id: "bell-visit-announcements",
-    section: "notifications",
-    label: "“A visit was booked” on the bell",
-    description:
-      "The same crew-wide heads-up, in the notifications panel. Your own visits always appear.",
-    keywords: ["bell", "notification", "visit", "announcement", "اشعار"],
-    kind: { type: "toggle", key: "bellVisitAnnouncements" },
-  },
+  // ───────────────────────────────────────────── emails & notifications (v36.2)
+  // one row per topic — see NOTIFY_TOPICS for what each covers
+  ...NOTIFY_TOPICS.map(
+    (t): SettingEntry => ({
+      id: `notify-${t.id}`,
+      section: "notifications",
+      group: t.group,
+      label: t.label,
+      description: t.description,
+      keywords: [...t.keywords, ...NOTIFY_WORDS],
+      kind: { type: "notify", topic: t.id },
+      ...(t.needs ? { needs: t.needs } : {}),
+    })
+  ),
   {
     id: "push-device",
     section: "notifications",
     label: "Notifications on this phone or laptop",
     description:
-      "The same bell, delivered to the device — so an account handed to you, a visit booked or a prompt waiting reaches you without Sodio being open. Turn it on wherever you want to be reached; each device is separate. The Android app uses this exact switch.",
+      "The App switches above, delivered to this device — so an account handed to you or a reminder reaches you without Sodio being open. Each device is separate; the Android app uses this exact switch.",
     keywords: [
       "push", "notification", "phone", "mobile", "android", "app", "alerts",
       "اشعارات", "تنبيهات", "موبايل",
@@ -257,13 +418,13 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
     kind: { type: "push" },
   },
   {
-    id: "bell-everything-else",
+    id: "notify-always-on",
     section: "notifications",
-    label: "Everything else on the bell stays on",
+    label: "Password resets and your welcome — always on",
     description:
-      "An account handed to you, a deal, a touch point you're invited to, a bounced IR email, a prompt waiting for you. The bell is where Sodio reaches you when something is actually yours to do.",
-    keywords: ["bell", "notifications", "cannot turn off", "اشعارات"],
-    kind: { type: "locked", reason: "This is how work reaches you." },
+      "A fresh password you asked for, and the one welcome when you first sign in. They are how you get into Sodio, not news about it, so they can't be switched off.",
+    keywords: ["password", "reset", "welcome", "cannot turn off", ...NOTIFY_WORDS],
+    kind: { type: "locked", reason: "They are how you get into Sodio." },
   },
 
   // ───────────────────────────────────────────── appearance
@@ -348,6 +509,13 @@ export interface SettingsContext {
   ogx: boolean;
   leadsFunction: boolean;
   hasPassword: boolean;
+  /** works accounts (ICX raising, B2B/BD, B2C) */
+  raising: boolean;
+  /** IR calls and partner LCs */
+  consideration: boolean;
+  /** OGX sign-ups, or the B2C callers who work them */
+  signups: boolean;
+  cxp: boolean;
 }
 
 export function visibleSettings(ctx: SettingsContext): SettingEntry[] {

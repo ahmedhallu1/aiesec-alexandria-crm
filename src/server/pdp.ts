@@ -938,7 +938,8 @@ export async function runPdpNags(): Promise<PdpNagResult> {
           : `⏳ Reminder ${reminder}: ${names.length} PDP${names.length === 1 ? "" : "s"} still open`,
         `${monthKeyLabel(cycle.period_start)} · ${who}. Half an hour each, and they know what they're working on.`,
         null,
-        "/pdp"
+        "/pdp",
+        "pdp"
       );
 
       // the AIESEC address, or the backup Gmail for the fifth of the LC whose
@@ -947,7 +948,7 @@ export async function runPdpNags(): Promise<PdpNagResult> {
       const to = leader.email ?? leader.fallback_email;
       if (to) {
         try {
-          await sendEmail({ to: [to], ...pdpNagEmail({ leaderName: leader.name, cycle, names, reminder }) });
+          await sendEmail({ topic: "pdp", to: [to], ...pdpNagEmail({ leaderName: leader.name, cycle, names, reminder }) });
         } catch (e) {
           out.errors.push(
             `${leader.name}: reminder #${reminder} email failed: ${e instanceof Error ? e.message : e}`

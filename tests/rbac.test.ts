@@ -21,6 +21,8 @@ import {
   canRecordAttendance,
   canUseMailboxTab,
   claimTargetFunction,
+  preferB2bOverBd,
+  raisingFunctionsOf,
   hasPodioAccess,
   hasTmAccess,
   calendarItemScopes,
@@ -612,6 +614,27 @@ describe("a row nobody owns and nobody has labelled", () => {
     expect(claimTargetFunction(b2cMember, poolRow())).toBe("B2C");
     // somebody who may create nothing claims nothing
     expect(claimTargetFunction(ogvMm, poolRow())).toBe(null);
+  });
+
+  // v36.2 — "when an unassigned account is assigned to a B2B and BD user,
+  // make it B2B, not BD". The sheet lists the pair in either order, and 50
+  // pool accounts handed to one "BD, B2B" member all landed in BD.
+  it("somebody in B2B AND BD claims into B2B, in whichever order the sheet lists them", () => {
+    const bdFirst = member({ id: "dual1", functions: ["BD", "B2B"], sub_functions: [] });
+    const b2bFirst = member({ id: "dual2", functions: ["B2B", "BD"], sub_functions: [] });
+    expect(claimTargetFunction(bdFirst, poolRow())).toBe("B2B");
+    expect(claimTargetFunction(b2bFirst, poolRow())).toBe("B2B");
+    expect(claimTargetFunction(bdDirector, poolRow())).toBe("B2B");
+  });
+
+  it("a hand-out to them lands in B2B too — B2B always comes before BD", () => {
+    expect(raisingFunctionsOf({ functions: ["BD", "B2B"], sub_functions: [] })[0]).toBe("B2B");
+    expect(raisingFunctionsOf({ functions: [], sub_functions: ["BD", "B2B"] })[0]).toBe("B2B");
+    // nothing else about the order moves: a primary IGV stays first
+    expect(raisingFunctionsOf({ functions: ["IGV", "BD", "B2B"], sub_functions: [] })).toEqual(["IGV", "B2B", "BD"]);
+    // and somebody who only does BD still lands in BD
+    expect(raisingFunctionsOf({ functions: ["BD"], sub_functions: [] })).toEqual(["BD"]);
+    expect(preferB2bOverBd(["BD", "B2C", "B2B"])).toEqual(["B2B", "BD", "B2C"]);
   });
 
   it("owned accounts are untouched by the hoisted claim check", () => {

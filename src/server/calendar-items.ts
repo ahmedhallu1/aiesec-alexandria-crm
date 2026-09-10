@@ -173,7 +173,8 @@ export async function createCalendarItem(input: {
       `📌 ${viewer.name} added "${title}" to your calendar`,
       `${input.date} ${input.time}${weeks > 1 ? ` · repeats weekly ×${weeks}` : ""}${note ? ` — ${note}` : ""}`,
       viewer.id,
-      "/calendar"
+      "/calendar",
+      "calendar_items"
     );
   }
   await logAudit(viewer.id, "calendar_item_create", "calendar_item", created?.id ?? "?", {
@@ -206,7 +207,8 @@ export async function deleteCalendarItem(id: string): Promise<Result> {
       `🗑 "${item.title}" was removed from your calendar`,
       null,
       viewer.id,
-      "/calendar"
+      "/calendar",
+      "calendar_items"
     );
   }
   await logAudit(viewer.id, "calendar_item_delete", "calendar_item", id, { title: item.title });

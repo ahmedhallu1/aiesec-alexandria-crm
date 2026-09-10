@@ -150,7 +150,8 @@ async function alertHost(c: BouncedCall): Promise<void> {
       `⚠️ ${c.booker_name ?? "The IR"}'s email bounced — ${c.partner_lc_name}`,
       `The invite to ${bad} couldn't be delivered (the address doesn't exist). WhatsApp them for the right one, then open the call on Consideration → Fix the email — the invite is re-sent automatically.`,
       null,
-      "/consideration"
+      "/consideration",
+      "ir_calls"
     );
   } catch (e) {
     console.error("[bounces] notify failed:", e);
@@ -220,6 +221,7 @@ async function alertHost(c: BouncedCall): Promise<void> {
           considerationUrl: `${env.appUrl}/consideration`,
         });
         await sendEmail({
+          topic: "ir_calls",
           to: leadEmails,
           subject: `${m2.subject} — host ${host.name} has no email on file`,
           html: m2.html,
@@ -244,7 +246,7 @@ async function alertHost(c: BouncedCall): Promise<void> {
         : null,
       considerationUrl: `${env.appUrl}/consideration`,
     });
-    await sendEmail({ to: [to], subject: mail.subject, html: mail.html });
+    await sendEmail({ topic: "ir_calls", to: [to], subject: mail.subject, html: mail.html });
     console.log(`[bounces] host ${host.name} emailed at ${to} for call ${c.id}`);
   } catch (e) {
     console.error("[bounces] host email failed:", e);

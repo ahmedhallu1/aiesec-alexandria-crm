@@ -1,6 +1,7 @@
 import { google } from "@/lib/google/apis";
 import { env, requireEnv } from "@/lib/env";
 import { sandboxSuppressed } from "@/server/sandbox";
+import type { NotifyTopic } from "@/lib/member-settings";
 
 /** Sends branded transactional email from the IM director's mailbox
  *  (GMAIL_SENDER) via the Gmail API using an offline refresh token. */
@@ -17,12 +18,39 @@ export async function sendEmail(opts: {
   ics?: { content: string; method?: "REQUEST" | "CANCEL" };
   /** files riding along as MIME parts (the nightly backup's off-site copy). */
   attachments?: { filename: string; mimeType: string; contentBase64: string }[];
+  /** what this email is about (v36.2) — members who switched the topic's
+   *  email off are dropped. Omit it only for the few that aren't preferences. */
+  topic?: NotifyTopic;
 }): Promise<void> {
   if (await sandboxSuppressed(`email "${opts.subject}"`)) return;
   const missing = requireEnv("googleClientId", "googleClientSecret", "gmailRefreshToken", "gmailSender");
   if (missing) {
     console.warn(`[email] Not sent ("${opts.subject}"): ${missing}`);
     return;
+  }
+
+  // WHO STILL WANTS THIS (v36.2). A message about a TOPIC drops every member
+  // who switched that topic's email off — here, once, instead of at seventy
+  // call sites. An address that isn't a member's (an IR, the LC mailbox) is
+  // never touched, and when nobody real is left nothing is sent at all.
+  let to = opts.to;
+  let cc = opts.cc ?? [];
+  let bcc = opts.bcc ?? [];
+  if (opts.topic) {
+    const { emailsOptedOut } = await import("@/server/member-settings");
+    const out = await emailsOptedOut([...to, ...cc, ...bcc], opts.topic);
+    if (out.size > 0) {
+      const keep = (a: string) => !out.has(a.trim().toLowerCase());
+      to = to.filter(keep);
+      cc = cc.filter(keep);
+      bcc = bcc.filter(keep);
+      const mailbox = env.gmailSender.toLowerCase();
+      const real = [...to, ...cc, ...bcc].filter((a) => a.trim().toLowerCase() !== mailbox);
+      if (real.length === 0) {
+        console.log(`[email] "${opts.subject}" not sent — every recipient switched off ${opts.topic} emails`);
+        return;
+      }
+    }
   }
 
   const oauth2 = new google.auth.OAuth2(env.googleClientId, env.googleClientSecret);
@@ -34,14 +62,14 @@ export async function sendEmail(opts: {
   // header is rejected by some servers and renders as a blank recipient in
   // the rest. Addressing it to ourselves is the standard way to say
   // "undisclosed recipients" and keeps the copy in the LC's own mailbox.
-  const toLine = opts.to.length > 0 ? opts.to.join(", ") : env.gmailSender;
+  const toLine = to.length > 0 ? to.join(", ") : env.gmailSender;
 
   const addrHeaders = [
     `From: ${encodeHeader(env.gmailSenderName)} <${env.gmailSender}>`,
     `To: ${toLine}`,
     ...(opts.replyTo ? [`Reply-To: ${opts.replyTo}`] : []),
-    ...(opts.cc?.length ? [`Cc: ${opts.cc.join(", ")}`] : []),
-    ...(opts.bcc?.length ? [`Bcc: ${opts.bcc.join(", ")}`] : []),
+    ...(cc.length ? [`Cc: ${cc.join(", ")}`] : []),
+    ...(bcc.length ? [`Bcc: ${bcc.join(", ")}`] : []),
     `Subject: ${encodeHeader(opts.subject)}`,
     "MIME-Version: 1.0",
   ];

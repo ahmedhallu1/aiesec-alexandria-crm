@@ -2,8 +2,7 @@ import {
   getRealViewer, getViewer, listViewAsTargets, mmPlanForProfile, profilePeople,
   teamsForViewer, tlPlanForProfile,
 } from "@/server/data";
-import { canUseAdminTools, ogxFunctions } from "@/lib/rbac";
-import { memberSettings } from "@/server/member-settings";
+import { canUseAdminTools } from "@/lib/rbac";
 import { db } from "@/lib/supabase";
 import { ProfileView } from "@/components/crm/profile-view";
 
@@ -45,7 +44,7 @@ export default async function ProfilePage() {
         )
       : [];
 
-  const [stakeholderRow, teams, people, tlPlan, mmPlan, settings] = await Promise.all([
+  const [stakeholderRow, teams, people, tlPlan, mmPlan] = await Promise.all([
     viewer.stakeholder_id
       ? db()
           .from("members")
@@ -57,7 +56,6 @@ export default async function ProfilePage() {
     profilePeople(viewer).catch(() => null),
     tlPlanForProfile(viewer).catch(() => null),
     mmPlanForProfile(viewer).catch(() => null),
-    memberSettings(viewer.id),
   ]);
   const stakeholder = stakeholderRow.data;
 
@@ -86,14 +84,6 @@ export default async function ProfilePage() {
       mmPlan={mmPlan}
       viewAs={viewAs}
       fnSettings={fnSettings}
-      settings={settings}
-      // which optional rows are worth showing: a raiser has no streak nag to
-      // switch off, and someone who leads nothing has no function defaults
-      settingsContext={{
-        ogx: ogxFunctions(viewer).length > 0,
-        leadsFunction: fnSettings.length > 0,
-        hasPassword: !!viewer.password_hash,
-      }}
     />
   );
 }

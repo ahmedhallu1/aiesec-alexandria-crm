@@ -37,7 +37,7 @@ export async function notifyTouchPointAudience(
 ): Promise<void> {
   const sandbox = await sandboxState();
   if (!sandbox.active) {
-    await notifyMembers(memberIds, kind, title, body, createdBy, link);
+    await notifyMembers(memberIds, kind, title, body, createdBy, link, "touch_points");
     return;
   }
 

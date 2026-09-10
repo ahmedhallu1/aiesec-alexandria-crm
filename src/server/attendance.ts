@@ -291,6 +291,7 @@ export async function excuseMyAttendance(
           excuse,
         });
         await sendEmail({
+          topic: "attendance",
           to: [to[0]],
           bcc: to.length > 1 ? to.slice(1) : undefined,
           subject: mail.subject,
@@ -562,6 +563,7 @@ export async function appealAttendance(
         touchPointId: tp.id,
       });
       await sendEmail({
+        topic: "attendance",
         to: recipients,
         cc: to.length > 0 ? cc : [],
         ...mail,

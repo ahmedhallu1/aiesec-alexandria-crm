@@ -14,7 +14,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-09-10 · Version: v36.1
+Last updated: 2026-09-10 · Version: v36.2
 
 ---
 
@@ -64,7 +64,7 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0061_touch_point_location` → `0062_close_rls_gaps` → `0063_prank_mode` →
 `0064_api_keys` → `0065_ir_slot_requests` → `0066_im_prompts` →
 `0067_member_settings` → `0068_cxp_module` → `0069_push_subscriptions` → `0070_b2c_cic_outcomes` →
-`0071_partnership_stage`
+`0071_partnership_stage` → … → `0076_next_step_reminders`
 (**all applied**, 0046–0063 during v33.22–v33.51, 0064–0067 during v34.5–v34.8,
 0069 during v35).
 
@@ -689,6 +689,46 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-09-10 · v36.2** — **EVERY EMAIL AND NOTIFICATION HAS A SWITCH, NEXT
+  STEPS ARE REMINDED FOR EVERYONE, AND B2B+BD HAND-OUTS LAND IN B2B.**
+  Migration **0076 applied** (`accounts.next_step_reminded_key`).
+  ① **SETTINGS: 21 TOPICS × {Email, App}.** Asked for in as many words: "turn
+  on/off any emails/notifications or both, so be customizable". Every send to
+  a member names a topic — `notifyMembers(…, topic)` for the bell (and so the
+  phone push), `sendEmail({ topic })` for the inbox — and the ONE filter per
+  channel lives inside those two (`membersWanting` / `emailsOptedOut` in
+  `server/member-settings.ts`; email is matched by address, @aiesec.net or the
+  backup Gmail). 73 call sites were tagged by an AST codemod, not by hand.
+  Untagged = always delivered: only the password reset, the welcome, and mail
+  to non-members (IR bookers). ⚠️ This REVERSES v34.8's "must-dos stay on" for
+  visit follow-ups, attendance and Podio — the floor asked for "any". The five
+  v34.8 keys are read into their topics (`LEGACY_SETTING_KEYS`) and dropped on
+  the next save. Settings are a page of their own, **/profile/settings**,
+  entered from a card on the profile, with All on / All off per channel.
+  `tests/member-settings.test.ts` parses every send with the TypeScript
+  compiler and fails if a switch has no send behind it, or a send uses a
+  channel its topic doesn't offer.
+  ② **NEXT-STEP REMINDERS WERE HALF-WORKING.** Measured: of 100 upcoming next
+  steps only 50 had a reminder — the only one was the Google Calendar event
+  `syncNextStepReminder` writes, 44 owners never connected Google and 6 more
+  simply had none. Sodio now reminds every responsible itself on the 15-minute
+  visit-followups tick (`lib/next-step-reminder.ts`): an hour before a timed
+  step, 09:00 Cairo for a date-only one (84 of the 100); one bell + one email
+  per person per pass; once per (date, time) via `next_step_reminded_key`, so
+  moving a step re-arms it. Topic `next_steps`. The calendar event stays as a
+  bonus. ⚠️ 689 open next steps are already OVERDUE and are deliberately not
+  chased — what an overdue digest should say is a decision, not a bug fix.
+  ③ **B2B BEFORE BD.** "When an unassigned account is assigned to a B2B and BD
+  user, make it B2B not BD." Claims already picked B2B; HAND-OUTS took the
+  target's first-listed function, and three of the eight dual members are
+  listed "BD, B2B" — so all 50 pool accounts handed to one of them on
+  2026-09-01 landed in BD. `raisingFunctionsOf` moved to `rbac.ts` and, with
+  `claimTargetFunction`, runs through `preferB2bOverBd`. Those 50 existing
+  accounts were NOT converted — waiting on a yes.
+  ④ Vercel: the old CRM deployments were deleted (94 → 2: live + one
+  rollback). The retention policy (30 days, keep 10) could not be changed
+  through the API — it is a dashboard setting.
 
 - **2026-09-10 · v36.1** — **VERCEL'S STORAGE CEILING, A PODIO FALSE "SUBMIT
   IT", AND PARTNERSHIPS WITH LCs ALREADY CALLED.** No migrations; one new

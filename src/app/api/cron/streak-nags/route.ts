@@ -5,7 +5,7 @@ import { db } from "@/lib/supabase";
 import { env } from "@/lib/env";
 import { sendEmail } from "@/lib/google/gmail";
 import { streakNagEmail } from "@/lib/email/templates";
-import { resolveMemberSettings } from "@/lib/member-settings";
+import { resolveMemberSettings, wants } from "@/lib/member-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -113,16 +113,17 @@ export async function GET(req: NextRequest) {
         `🔥 Your ${streak}-day streak ends at midnight!`,
         "One real contact saves it — reach a sign-up and mark it Contacted before midnight.",
         null,
-        "/signups"
+        "/signups",
+        "streak"
       );
-      // the BELL always fires — the streak is theirs and losing it silently
-      // would be the worst outcome. The EMAIL is a preference (v34.8).
-      if (m.email && resolveMemberSettings(m.settings).emailStreakNag !== false) {
+      // both halves are the member's own choice since v36.2 — the bell above
+      // carries the "streak" topic, and so does the email
+      if (m.email && wants(resolveMemberSettings(m.settings), "streak", "email")) {
         const mail = streakNagEmail({
           firstName: name.split(" ")[0] || name,
           streak,
         });
-        await sendEmail({ to: [m.email], ...mail });
+        await sendEmail({ topic: "streak", to: [m.email], ...mail });
       }
       const { error: stampError } = await db()
         .from("members")

@@ -1,13 +1,14 @@
 "use client";
 
-import { useMemo, useState, useSyncExternalStore, useTransition } from "react";
+import { Fragment, useMemo, useState, useSyncExternalStore, useTransition } from "react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
-import { ArrowRight, Lock, Search, Settings2, X } from "lucide-react";
-import { saveMySetting } from "@/server/actions";
+import { ArrowRight, Bell, Lock, Mail, Search, Settings2, X } from "lucide-react";
+import { saveMyNotifyPref } from "@/server/actions";
 import {
-  SECTION_META, searchSettings, visibleSettings,
-  type MemberSettings, type SettingEntry, type SettingSection, type SettingsContext,
+  NOTIFY_GROUP_LABEL, NOTIFY_TOPICS, SECTION_META, searchSettings, visibleSettings, wants,
+  type MemberSettings, type NotifyChannel, type NotifyTopic, type SettingEntry,
+  type SettingSection, type SettingsContext,
 } from "@/lib/member-settings";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -20,19 +21,22 @@ import {
 import { PushToggle } from "@/components/crm/push-toggle";
 import { cn } from "@/lib/utils";
 
-/** MY SETTINGS — one panel, searchable (v34.8).
+/** MY SETTINGS — one page, searchable (v34.8; its own page since v36.2).
  *
  *  Everything a member can change about their own Sodio was scattered: the
  *  phone on one card, the theme in the sidebar footer, the mobile list style
- *  in a control above the accounts table, and the email volume nowhere at all
- *  because there was no way to opt out of anything.
+ *  in a control above the accounts table — and the email volume nowhere.
  *
- *  Two decisions worth stating:
+ *  Three decisions worth stating:
  *
  *  · **Search is the interface.** A settings page long enough to be thorough
  *    is too long to scan, so the box is the first thing on it, it matches
  *    Arabic and English, and it searches the DESCRIPTIONS too — people look
  *    for "too many emails", not for "visit announcements".
+ *
+ *  · **Every message is a row with two switches** (v36.2): Email and App. Any
+ *    of the four combinations is a valid answer, and the two "all" buttons
+ *    are there for the person who simply wants quiet.
  *
  *  · **Nothing is duplicated.** Where a control already exists (the phone,
  *    the password, the avatar, the function defaults), the row TAKES YOU
@@ -41,8 +45,12 @@ import { cn } from "@/lib/utils";
  */
 
 const SECTION_ORDER: SettingSection[] = [
-  "account", "email", "notifications", "appearance", "function", "help",
+  "notifications", "account", "appearance", "function", "help",
 ];
+
+const CHANNEL_LABEL: Record<NotifyChannel, string> = { email: "Email", bell: "App" };
+
+type OnNotify = (topic: NotifyTopic | "all", channel: NotifyChannel, next: boolean) => void;
 
 export function SettingsPanel({
   settings, context,
@@ -65,18 +73,34 @@ export function SettingsPanel({
     return m;
   }, [hits]);
 
-  const toggle = (key: keyof MemberSettings, next: boolean) => {
+  // the topics this person can actually receive — what the "all" buttons count
+  const myTopics = useMemo(
+    () => entries.flatMap((e) => (e.kind.type === "notify" ? [e.kind.topic] : [])),
+    [entries]
+  );
+
+  const setNotify: OnNotify = (topic, channel, next) => {
     // optimistic: the switch has to move under the finger, and a failed save
     // puts it back rather than leaving a lie on screen
-    const before = values[key];
-    setValues((v) => ({ ...v, [key]: next }));
-    setSaving(key);
+    const before = values;
+    setValues((v) => {
+      const notify = { ...v.notify };
+      for (const t of NOTIFY_TOPICS) {
+        const hit = topic === "all" ? t.channels.includes(channel) : t.id === topic;
+        if (hit) notify[t.id] = { ...notify[t.id], [channel]: next };
+      }
+      return { ...v, notify };
+    });
+    setSaving(`${topic}:${channel}`);
     start(async () => {
-      const res = await saveMySetting(key, next);
+      const res = await saveMyNotifyPref(topic, channel, next);
       setSaving(null);
       if (!res.ok) {
-        setValues((v) => ({ ...v, [key]: before }));
+        setValues(before);
         toast.error(res.error);
+      } else if (topic === "all") {
+        const what = channel === "email" ? "email" : "app notification";
+        toast.success(next ? `Every ${what} is on.` : `Every ${what} is off.`);
       }
     });
   };
@@ -97,7 +121,7 @@ export function SettingsPanel({
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search settings — “email”, “password”, “dark”, “اشعارات”…"
+            placeholder="Search settings — “visit emails”, “password”, “dark”, “اشعارات”…"
             className="pl-9 pr-9"
             aria-label="Search settings"
           />
@@ -126,7 +150,7 @@ export function SettingsPanel({
           const meta = SECTION_META[section];
           return (
             <div key={section} className="space-y-1">
-              <div className="flex items-baseline gap-2 pt-1">
+              <div className="flex flex-wrap items-baseline gap-2 pt-1">
                 <h3 className="text-sm font-semibold">
                   <span aria-hidden>{meta.icon}</span> {meta.label}
                 </h3>
@@ -134,15 +158,19 @@ export function SettingsPanel({
                   <span className="text-xs text-muted-foreground">{meta.blurb}</span>
                 ) : null}
               </div>
+              {section === "notifications" && !searching && myTopics.length > 0 ? (
+                <AllSwitches values={values} topics={myTopics} saving={saving} onNotify={setNotify} />
+              ) : null}
               <div className="divide-y rounded-lg border">
-                {rows.map((e) => (
-                  <SettingRow
-                    key={e.id}
-                    entry={e}
-                    values={values}
-                    saving={saving}
-                    onToggle={toggle}
-                  />
+                {rows.map((e, i) => (
+                  <Fragment key={e.id}>
+                    {e.group && e.group !== rows[i - 1]?.group ? (
+                      <p className="bg-muted/40 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        {NOTIFY_GROUP_LABEL[e.group]}
+                      </p>
+                    ) : null}
+                    <SettingRow entry={e} values={values} saving={saving} onNotify={setNotify} />
+                  </Fragment>
                 ))}
               </div>
             </div>
@@ -153,13 +181,60 @@ export function SettingsPanel({
   );
 }
 
+/** "Everything off" in two taps, for the person who just wants quiet — and a
+ *  count, so it is obvious what the switches below add up to. */
+function AllSwitches({
+  values, topics, saving, onNotify,
+}: {
+  values: MemberSettings;
+  topics: NotifyTopic[];
+  saving: string | null;
+  onNotify: OnNotify;
+}) {
+  const busy = saving?.startsWith("all:") ?? false;
+  return (
+    <div className="flex flex-wrap gap-2 py-1">
+      {(["email", "bell"] as const).map((c) => {
+        const offered = topics.filter((t) => NOTIFY_TOPICS.find((m) => m.id === t)?.channels.includes(c));
+        const on = offered.filter((t) => wants(values, t, c)).length;
+        return (
+          <div key={c} className="flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs">
+            {c === "email" ? <Mail className="size-3.5" /> : <Bell className="size-3.5" />}
+            <span className="text-muted-foreground">
+              {CHANNEL_LABEL[c]}: <span className="font-medium text-foreground">{on}</span> of {offered.length} on
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2 text-xs"
+              disabled={busy || on === offered.length}
+              onClick={() => onNotify("all", c, true)}
+            >
+              All on
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2 text-xs"
+              disabled={busy || on === 0}
+              onClick={() => onNotify("all", c, false)}
+            >
+              All off
+            </Button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function SettingRow({
-  entry, values, saving, onToggle,
+  entry, values, saving, onNotify,
 }: {
   entry: SettingEntry;
   values: MemberSettings;
   saving: string | null;
-  onToggle: (k: keyof MemberSettings, v: boolean) => void;
+  onNotify: OnNotify;
 }) {
   const k = entry.kind;
   return (
@@ -181,12 +256,13 @@ function SettingRow({
         <p className="text-xs leading-relaxed text-muted-foreground">{entry.description}</p>
       </div>
       <div className="shrink-0">
-        {k.type === "toggle" ? (
-          <Switch
-            checked={values[k.key]}
-            disabled={saving === k.key}
-            onCheckedChange={(v) => onToggle(k.key, v)}
-            aria-label={entry.label}
+        {k.type === "notify" ? (
+          <NotifySwitches
+            topic={k.topic}
+            label={entry.label}
+            values={values}
+            saving={saving}
+            onNotify={onNotify}
           />
         ) : k.type === "push" ? (
           <PushToggle label={entry.label} />
@@ -220,11 +296,56 @@ function SettingRow({
   );
 }
 
+/** The two switches of one topic. A channel the topic never sends on shows a
+ *  dash instead of a switch — a switch that does nothing is worse than none. */
+function NotifySwitches({
+  topic, label, values, saving, onNotify,
+}: {
+  topic: NotifyTopic;
+  label: string;
+  values: MemberSettings;
+  saving: string | null;
+  onNotify: OnNotify;
+}) {
+  const channels = NOTIFY_TOPICS.find((t) => t.id === topic)?.channels ?? [];
+  const busyAll = saving?.startsWith("all:") ?? false;
+  return (
+    <div className="flex items-center gap-4">
+      {(["email", "bell"] as const).map((c) =>
+        channels.includes(c) ? (
+          <label key={c} className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+            {c === "email" ? <Mail className="size-3.5" /> : <Bell className="size-3.5" />}
+            {CHANNEL_LABEL[c]}
+            <Switch
+              checked={wants(values, topic, c)}
+              disabled={busyAll || saving === `${topic}:${c}`}
+              onCheckedChange={(v) => onNotify(topic, c, v)}
+              aria-label={`${label} — ${c === "email" ? "email" : "app notification"}`}
+            />
+          </label>
+        ) : (
+          <span
+            key={c}
+            className="inline-flex w-[76px] justify-center text-xs text-muted-foreground/50"
+            title={`Sodio never sends this one by ${c === "email" ? "email" : "app notification"}`}
+          >
+            —
+          </span>
+        )
+      )}
+    </div>
+  );
+}
+
 /** Scroll to the card that really owns this field and flash it, so the jump
- *  lands somewhere the eye can find. */
+ *  lands somewhere the eye can find. Those cards live on the profile, so from
+ *  the settings page the jump is a navigation to the same anchor. */
 function jumpTo(id: string) {
   const el = document.getElementById(id);
-  if (!el) return;
+  if (!el) {
+    window.location.href = `/profile#${id}`;
+    return;
+  }
   el.scrollIntoView({ behavior: "smooth", block: "center" });
   el.classList.add("ring-2", "ring-primary", "ring-offset-2", "rounded-xl");
   window.setTimeout(
