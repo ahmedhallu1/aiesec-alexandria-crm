@@ -712,10 +712,17 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
   ② **NEXT-STEP REMINDERS WERE HALF-WORKING.** Measured: of 100 upcoming next
   steps only 50 had a reminder — the only one was the Google Calendar event
   `syncNextStepReminder` writes, 44 owners never connected Google and 6 more
-  simply had none. Sodio now reminds every responsible itself on the 15-minute
-  visit-followups tick (`lib/next-step-reminder.ts`): an hour before a timed
-  step, 09:00 Cairo for a date-only one (84 of the 100); one bell + one email
-  per person per pass; once per (date, time) via `next_step_reminded_key`, so
+  simply had none. Sodio now reminds every responsible itself on the
+  visit-followups tick (`lib/next-step-reminder.ts`) — which is GitHub
+  Actions `crons.yml`, **every 30 min, 04–21 UTC** (07:00–00:00 Cairo), not
+  the 15-min pg_cron `cron.sql` still describes — so a timed step is reminded
+  30–60 min before it, a date-only one (84 of the 100) at the 09:00 Cairo
+  pass, and a step timed before 07:00 at the first pass. ⚠️ **In practice
+  GitHub runs far fewer**: 10 scheduled runs in the 24 h to 2026-09-10 14:00
+  UTC instead of ~54 — 5 visit-followups, and 5 sheet exports that hit the
+  10-min timeout and were cancelled. Until the tick moves back to pg_cron
+  (the route still exists), every visit-followups pass is hours apart. One
+  bell + one email per person per pass; once per (date, time) via `next_step_reminded_key`, so
   moving a step re-arms it. Topic `next_steps`. The calendar event stays as a
   bonus. ⚠️ 689 open next steps are already OVERDUE and are deliberately not
   chased — what an overdue digest should say is a decision, not a bug fix.
