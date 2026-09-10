@@ -1074,7 +1074,14 @@ export async function moveAccountFunction(
     .from("accounts")
     .update({ function: toFunction, ...fnSpecificReset(toFunction, account.function) })
     .eq("id", accountId);
-  if (error) return fail(error.message);
+  if (error)
+    return fail(
+      // BD and B2C each keep their own name world (0034), so moving across can
+      // meet a namesake already living there
+      error.code === "23505"
+        ? `"${account.name}" already exists in ${toFunction} (maybe archived) — revive or open that one instead.`
+        : error.message
+    );
   await logAudit(viewer.id, "move_function", "account", accountId, {
     from: account.function,
     to: toFunction,
@@ -2315,6 +2322,54 @@ export async function bulkReassignAccounts(
 
   refresh();
   return { ok: true, data: { done, failed, emailed } };
+}
+
+/** BULK EDIT (v36.2) — change the FUNCTION and/or add the same COMMENT on up
+ *  to 50 selected accounts. Nothing new is decided here: every account goes
+ *  through exactly what the account page does — `moveAccountFunction` (only
+ *  into and out of functions you work, the other function's fields cleared,
+ *  a name clash in the target world refused with its name) and `addComment`
+ *  (only where you may edit) — so a bulk edit can never do what a single one
+ *  couldn't. Sequential on purpose: each is a few queries, 50 stays well inside
+ *  the time budget, and the first refusal comes back word for word. */
+export async function bulkEditAccounts(
+  ids: string[],
+  edit: { toFunction?: string | null; comment?: string | null }
+): Promise<
+  ActionResult<{ moved: number; commented: number; skipped: number; firstError: string | null }>
+> {
+  if (!Array.isArray(ids) || ids.length === 0) return fail("Select at least one account.");
+  if (ids.length > 50) return fail("Max 50 accounts per bulk edit — run it in batches.");
+  const toFunction = edit?.toFunction || null;
+  const comment = edit?.comment?.trim() || null;
+  if (!toFunction && !comment) return fail("Pick a function or write a comment.");
+
+  let moved = 0;
+  let commented = 0;
+  let skipped = 0;
+  let firstError: string | null = null;
+  for (const id of ids) {
+    let clean = true;
+    if (toFunction) {
+      const r = await moveAccountFunction(id, toFunction);
+      if (r.ok) moved += 1;
+      else {
+        clean = false;
+        firstError ??= r.error;
+      }
+    }
+    if (comment) {
+      const r = await addComment(id, comment);
+      if (r.ok) commented += 1;
+      else {
+        clean = false;
+        firstError ??= r.error;
+      }
+    }
+    if (!clean) skipped += 1;
+  }
+  refresh();
+  return { ok: true, data: { moved, commented, skipped, firstError } };
 }
 
 // ================================================================== podio submit requests

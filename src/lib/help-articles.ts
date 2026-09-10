@@ -2398,7 +2398,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "p",
-    "md": "**Bulk operations on the active list**: hit **Select**, tick rows (desktop shows the checkboxes always), and the action bar offers **Archive** or **Assign to…**. Reassigning has an **\"Email them about it 📬\"** toggle — on by default — that sends the new responsible the account list; it stays quiet when you assign to yourself. Every row still passes the normal permission checks individually."
+    "md": "**Bulk operations on the active list**: hit **Select**, tick rows (desktop shows the checkboxes always), and the action bar offers **Archive**, **Assign to…** or **✏️ Edit**. **Edit** moves the selected accounts to another function you work and/or adds the same comment to each one, under your name — up to 50 at a time; anything you can't change on an account is skipped and you're told why. Reassigning has an **\"Email them about it 📬\"** toggle — on by default — that sends the new responsible the account list; it stays quiet when you assign to yourself. Every row still passes the normal permission checks individually."
    },
    {
     "t": "faq",

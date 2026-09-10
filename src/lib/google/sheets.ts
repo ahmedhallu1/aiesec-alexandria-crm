@@ -71,6 +71,18 @@ export function clients(): { sheets: sheets_v4.Sheets; drive: drive_v3.Drive } {
   };
 }
 
+/** The service account's own address, lower-cased — what a protected range's
+ *  editor list is checked against before a write (v36.2). Null when the key is
+ *  missing or unreadable, which makes every protected range count as closed. */
+export function serviceAccountEmail(): string | null {
+  try {
+    const key = JSON.parse(Buffer.from(env.serviceAccountKeyBase64, "base64").toString("utf-8"));
+    return typeof key.client_email === "string" ? key.client_email.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Loose title matching so "CRM — Membership" vs "CRM - membership" both work. */
 function normTitle(t: string): string {
   return t.toLowerCase().replace(/[^a-z0-9]+/g, "");

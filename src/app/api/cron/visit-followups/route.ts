@@ -14,7 +14,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   try {
-    return NextResponse.json(await runVisitFollowups());
+    // `?passes=reminders` is the Supabase pg_cron call (v36.2): it arrives
+    // only when `visit_followups_due()` says something is due, and runs the
+    // reminder passes alone — the mailbox bounce scan stays on GitHub, so a
+    // quiet quarter-hour costs Vercel nothing and a busy one costs little.
+    const remindersOnly = req.nextUrl.searchParams.get("passes") === "reminders";
+    return NextResponse.json(await runVisitFollowups({ bounces: !remindersOnly }));
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "visit follow-ups failed" },

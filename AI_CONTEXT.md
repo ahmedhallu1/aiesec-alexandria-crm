@@ -14,7 +14,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-09-10 · Version: v36.2
+Last updated: 2026-09-10 · Version: v36.3
 
 ---
 
@@ -39,7 +39,7 @@ the blueprint for future OGX/other-function modules.
 | Stack | Next.js 16 (App Router, Turbopack) · React 19 · Tailwind v4 · shadcn/ui · Supabase (Postgres, project `iesrpuuoduxtihuaqfic`) |
 | Auth | Auth.js v5: **FIRST sign-in is Google-only** (grants `calendar` + `gmail.compose`) → onboarding sets a password → afterwards **email OR phone + password**, or Google, all work. **Members with NO email yet (v24) sign in with their phone in BOTH fields** until a password is set; adding their email closes that door (Google once, then password). Deactivated members land on **/inactive**. **Forgot password emails a fresh password** (`issueTempPassword` in `server/password.ts`); the old password still works until the member changes it (no lockouts) |
 | Google | Service account (Sheets sync, folder creation) · **the IM mailbox token carries mail + calendar + drive + sheets** — every Drive FILE is written as the mailbox, because a service account has no storage quota · Calendar events on each member's own calendar |
-| Cron | Supabase `pg_cron` + `pg_net` → `/api/cron/*`, **10 jobs** (visit-followups 15 min · signups-import 15 min · membership-import 30 min · sheets-export hourly :05 · **backup daily 02:00 UTC** · podio-updates daily 05:00 · period-reports daily 07:00 (sprint + month, no quarters) · streak-nags daily 16:00 · touch-point-feedback daily 19:00 · attendance-reminders daily 20:59) |
+| Cron | **v36.3: visit-followups = pg_cron every 15 min, GATED by `visit_followups_due()` — Vercel is only called when a reminder is due; the IR bounce scan (`ir-bounces`) and sheets-export run on GitHub Actions `crons.yml`.** Supabase `pg_cron` + `pg_net` → `/api/cron/*`, **10 jobs** (visit-followups 15 min · signups-import 15 min · membership-import 30 min · sheets-export hourly :05 · **backup daily 02:00 UTC** · podio-updates daily 05:00 · period-reports daily 07:00 (sprint + month, no quarters) · streak-nags daily 16:00 · touch-point-feedback daily 19:00 · attendance-reminders daily 20:59) |
 | Admin | `ADMIN_EMAILS` env (= IM director, treated as LCP) |
 
 **Migrations** live in `supabase/migrations/` and are run **manually** in the
@@ -64,7 +64,7 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0061_touch_point_location` → `0062_close_rls_gaps` → `0063_prank_mode` →
 `0064_api_keys` → `0065_ir_slot_requests` → `0066_im_prompts` →
 `0067_member_settings` → `0068_cxp_module` → `0069_push_subscriptions` → `0070_b2c_cic_outcomes` →
-`0071_partnership_stage` → … → `0076_next_step_reminders`
+`0071_partnership_stage` → … → `0076_next_step_reminders` → `0077_visit_followups_gate`
 (**all applied**, 0046–0063 during v33.22–v33.51, 0064–0067 during v34.5–v34.8,
 0069 during v35).
 
@@ -689,6 +689,42 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-09-10 · v36.3** — **BULK EDIT, THE SHEET EXPORT FINISHES, AND THE
+  REMINDERS RUN ON TIME.** Migration **0077 applied** (`visit_followups_due()`).
+  ① **BULK EDIT.** The active list's bulk bar gains **✏️ Edit**: move the
+  selected accounts to another function the viewer works and/or file the same
+  comment on each (≤50). `bulkEditAccounts` decides nothing new — every row
+  goes through `moveAccountFunction` and `addComment`, so a bulk edit can never
+  do what a single one couldn't, and the first refusal comes back verbatim. A
+  name clash when moving into the BD/B2C worlds now says so instead of a raw
+  23505.
+  ② **YARA'S 50 → B2B.** The 50 pool accounts handed to Yara Ali on
+  2026-09-01 that landed in BD (v36.2 ③) were moved to B2B, as asked: all
+  untouched, 0 name clashes in the ICX world checked first, project/product
+  cleared, one `move_function` audit row each under Ahmed.
+  ③ **THE SHEET EXPORT WAS CANCELLED ON EVERY RUN.** Cause, from the run log:
+  one protected cell on the OGX tracker's "Old" tab made Google refuse the
+  whole sign-up batch, and v36's fallback then wrote every cell on its own
+  until GitHub's 10-minute limit. `writeSignupsBackBatch` now reads the tab's
+  protected ranges first (`isCellProtected`, honouring warning-only ranges,
+  unprotected holes and ranges the service account may edit), writes the rest
+  in ONE batch, and narrows any leftover refusal by Google's own `data[i]`
+  index or by halving, under a 4-minute cap. Refused rows still hold the
+  watermark back. `tests/sheet-protection.test.ts`.
+  ④ **REMINDERS BACK ON pg_cron — GATED, SO VERCEL CPU BARELY MOVES.** GitHub
+  ran the 30-min reminder schedule 5 times in 24 h. Now pg_cron asks
+  `visit_followups_due()` every 15 min — pure SQL, free, "no" before 07:00
+  Cairo — and calls `/api/cron/visit-followups?passes=reminders` ONLY when a
+  visit follow-up, B2C call-back or next step is actually due; `passes=
+  reminders` skips the Gmail bounce scan, which stays on GitHub as the new
+  `ir-bounces` job. `visit-followups` is manual-only in `crons.yml` now —
+  never schedule it in both places, or a reminder can go out twice. The SQL
+  gate MIRRORS `visit-followups.ts` + `lib/next-step-reminder.ts`: change one,
+  change the other.
+  ⑤ Vercel: the other five projects with functions were pruned to what serves
+  a domain plus one rollback each (auditing 29 → 2, website_2.0 37 → 4,
+  worldfit-self-discovery 3 → 2, worldfit-careers 5 → 2, yacht-pilates 22 → 3).
 
 - **2026-09-10 · v36.2** — **EVERY EMAIL AND NOTIFICATION HAS A SWITCH, NEXT
   STEPS ARE REMINDED FOR EVERYONE, AND B2B+BD HAND-OUTS LAND IN B2B.**

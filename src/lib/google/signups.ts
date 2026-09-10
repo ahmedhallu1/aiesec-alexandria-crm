@@ -1,5 +1,5 @@
 import { db } from "@/lib/supabase";
-import { clients } from "./sheets";
+import { clients, serviceAccountEmail } from "./sheets";
 import { sandboxSuppressed } from "@/server/sandbox";
 import type { OgxFunction, SignupComment, SignupRow } from "@/lib/types";
 
@@ -597,6 +597,144 @@ export interface SignupBackEntry {
   assignedDisplay: string | null;
 }
 
+// ------------------------------------------------ writing around protected cells
+
+/** The bits of a Sheets `GridRange` / `ProtectedRange` the check reads. An
+ *  absent bound is unbounded, exactly as Google means it (a whole-sheet
+ *  protection carries only its sheetId). */
+export interface GridRangeLite {
+  startRowIndex?: number | null;
+  endRowIndex?: number | null;
+  startColumnIndex?: number | null;
+  endColumnIndex?: number | null;
+}
+export interface ProtectedRangeLite {
+  range?: GridRangeLite | null;
+  unprotectedRanges?: GridRangeLite[] | null;
+  /** a "show a warning" protection doesn't stop a write */
+  warningOnly?: boolean | null;
+  /** only visible to someone allowed to edit the range */
+  editors?: { users?: string[] | null } | null;
+}
+
+const inGrid = (g: GridRangeLite, row: number, col: number) =>
+  (g.startRowIndex ?? 0) <= row &&
+  row < (g.endRowIndex ?? Infinity) &&
+  (g.startColumnIndex ?? 0) <= col &&
+  col < (g.endColumnIndex ?? Infinity);
+
+/** Is this (0-based) cell closed to `me`? Pure — pinned by
+ *  `tests/sheet-protection.test.ts`. */
+export function isCellProtected(
+  ranges: readonly ProtectedRangeLite[],
+  row: number,
+  col: number,
+  me: string | null
+): boolean {
+  return ranges.some(
+    (p) =>
+      !p.warningOnly &&
+      !(me && (p.editors?.users ?? []).some((u) => u.toLowerCase() === me)) &&
+      (p.range ? inGrid(p.range, row, col) : true) &&
+      !(p.unprotectedRanges ?? []).some((u) => inGrid(u, row, col))
+  );
+}
+
+/** "AB12" → 0-based column index 27. */
+function colIndexOf(letters: string): number {
+  let n = 0;
+  for (const ch of letters) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n - 1;
+}
+
+type SheetsApi = ReturnType<typeof clients>["sheets"];
+type CellWrite = { range: string; values: string[][] };
+
+/** Batch-write, and when Google refuses because of protection, find the
+ *  refused cells in as few calls as possible: Google names the first refused
+ *  index (`data[7]`), so that one is dropped and the rest retried; without a
+ *  name the batch is halved. Stops at `deadline` — whatever is left counts as
+ *  refused and is retried on the next run. Returns the refused writes. */
+async function writeNarrowing(
+  sheets: SheetsApi,
+  spreadsheetId: string,
+  data: CellWrite[],
+  deadline: number
+): Promise<CellWrite[]> {
+  if (data.length === 0) return [];
+  try {
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      requestBody: { valueInputOption: "RAW", data },
+    });
+    return [];
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!/protected/i.test(msg)) {
+      // not a protection problem (quota, a vanished tab…) — say so, give up on
+      // this batch, and let the next run retry it
+      console.warn(`[signups] sheet write failed (${msg}) — ${data.length} cell(s) left for next run`);
+      return data;
+    }
+    if (data.length === 1 || Date.now() > deadline) return data;
+    const named = Number(/data\[(\d+)\]/.exec(msg)?.[1]);
+    if (Number.isInteger(named) && named >= 0 && named < data.length) {
+      const rest = [...data.slice(0, named), ...data.slice(named + 1)];
+      return [data[named], ...(await writeNarrowing(sheets, spreadsheetId, rest, deadline))];
+    }
+    const mid = data.length >> 1;
+    return [
+      ...(await writeNarrowing(sheets, spreadsheetId, data.slice(0, mid), deadline)),
+      ...(await writeNarrowing(sheets, spreadsheetId, data.slice(mid), deadline)),
+    ];
+  }
+}
+
+/** WRITE WHAT MAY BE WRITTEN, FAST (v36.2). Reads the tab's protected ranges
+ *  once, leaves the cells closed to this service account alone, writes the rest
+ *  in one batch and narrows down anything Google still refuses. Returns the
+ *  1-based SHEET ROWS that did not fully land. */
+async function writeCellsAvoidingProtection(
+  sheets: SheetsApi,
+  spreadsheetId: string,
+  tab: string,
+  data: CellWrite[]
+): Promise<Set<number>> {
+  let ranges: ProtectedRangeLite[] = [];
+  try {
+    const meta = await sheets.spreadsheets.get({
+      spreadsheetId,
+      fields:
+        "sheets(properties(title),protectedRanges(range,unprotectedRanges,warningOnly,editors(users)))",
+    });
+    ranges = (meta.data.sheets ?? []).find((s) => s.properties?.title === tab)
+      ?.protectedRanges as ProtectedRangeLite[] ?? [];
+  } catch (e) {
+    // no protection map — the narrowing below still finds the closed cells
+    console.warn(`[signups] couldn't read ${tab}'s protected ranges:`, e instanceof Error ? e.message : e);
+  }
+
+  const me = serviceAccountEmail();
+  const cell = (range: string) => {
+    const m = /!([A-Z]+)(\d+)$/.exec(range);
+    return m ? { row: Number(m[2]), col: colIndexOf(m[1]) } : null;
+  };
+  const open: CellWrite[] = [];
+  const closed: CellWrite[] = [];
+  for (const d of data) {
+    const c = cell(d.range);
+    (c && isCellProtected(ranges, c.row - 1, c.col, me) ? closed : open).push(d);
+  }
+
+  const refused = [
+    ...closed,
+    ...(await writeNarrowing(sheets, spreadsheetId, open, Date.now() + 4 * 60_000)),
+  ];
+  if (refused.length > 0)
+    console.warn(`[signups] ${refused.length} protected cell(s) on ${tab} left alone`);
+  return new Set(refused.map((d) => cell(d.range)?.row ?? -1));
+}
+
 /** Batched write-back (v26): bulk assigns push MANY rows — one tab read +
  *  ONE batchUpdate per tab instead of a full read/verify/write per row
  *  (50 rows would otherwise be ~150 Sheets calls). Returns the ep_ids it
@@ -649,49 +787,23 @@ export async function writeSignupsBackBatch(entries: SignupBackEntry[]): Promise
       }
     }
     if (data.length > 0) {
-      try {
-        await sheets.spreadsheets.values.batchUpdate({
-          spreadsheetId: cfg.spreadsheetId,
-          requestBody: { valueInputOption: "RAW", data },
-        });
-      } catch (e) {
-        // ⚠️ ONE PROTECTED CELL MUST NOT LOSE THE WHOLE BATCH (v36).
-        //
-        // A `values.batchUpdate` is all-or-nothing: Google refuses the entire
-        // request with "You are trying to edit a protected cell or object" and
-        // names only the offending index, so a single protected column on one
-        // tracker tab silently costs every other row in the run. Found by
-        // actually running the hourly mirror against the live sheet, which
-        // failed on `data[9]` — the LC has protected ranges on their tracker,
-        // and they are entitled to.
-        //
-        // So the batch is the FAST PATH and the per-cell walk is the fallback:
-        // the writable cells still land, the protected ones are recorded as
-        // missed, and the caller gets a list rather than an exception. That
-        // also stops the watermark advancing over rows that never made it.
-        const msg = e instanceof Error ? e.message : String(e);
-        console.warn(`[signups] batch write to ${cfg.tab} refused (${msg}) — falling back per cell`);
-        const blocked = new Set<string>();
-        for (const d of data) {
-          try {
-            await sheets.spreadsheets.values.update({
-              spreadsheetId: cfg.spreadsheetId,
-              range: d.range,
-              valueInputOption: "RAW",
-              requestBody: { values: d.values },
-            });
-          } catch {
-            // the row this cell belongs to did not fully mirror
-            blocked.add(d.range.replace(/[A-Z]+(\d+)$/, "$1"));
-          }
-        }
-        // map the blocked SHEET ROWS back to the ep_ids that own them, so the
-        // caller can say which sign-ups are behind rather than just "some"
-        for (const e of group) {
-          const rowIdx = rowByEp.get(e.signup.ep_id);
-          if (rowIdx !== undefined && blocked.has(String(rowIdx + 1)))
-            missed.push(e.signup.ep_id);
-        }
+      // ⚠️ ONE PROTECTED CELL MUST NOT LOSE THE WHOLE BATCH (v36) — AND MUST
+      // NOT COST THE WHOLE RUN EITHER (v36.2). A `values.batchUpdate` is
+      // all-or-nothing, and the LC protects ranges on its tracker, as it is
+      // entitled to. v36's answer was to retry every cell on its own after a
+      // refusal: correct, and so slow on the "Old" tab that the hourly export
+      // hit GitHub's 10-minute limit and was cancelled on every run. Now the
+      // protected cells are known BEFORE writing, the rest go in one batch, and
+      // anything still refused is narrowed down in a handful of calls.
+      const blockedRows = await writeCellsAvoidingProtection(
+        sheets, cfg.spreadsheetId, cfg.tab, data
+      );
+      // map the blocked SHEET ROWS back to the ep_ids that own them, so the
+      // caller can say which sign-ups are behind rather than just "some" —
+      // and so the watermark never advances over a row that didn't land
+      for (const e of group) {
+        const rowIdx = rowByEp.get(e.signup.ep_id);
+        if (rowIdx !== undefined && blockedRows.has(rowIdx + 1)) missed.push(e.signup.ep_id);
       }
     }
   }

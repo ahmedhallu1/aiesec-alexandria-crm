@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   AlertTriangle, Archive, CalendarClock, Check, CheckCircle2, CheckSquare, CircleAlert,
-  FileUp, Footprints, LayoutDashboard, Loader2, MessageSquarePlus, Phone, Plus,
+  FileUp, Footprints, LayoutDashboard, Loader2, MessageSquarePlus, Pencil, Phone, Plus,
   RotateCcw, Search,
   Trash2, Users2, X,
   XCircle,
@@ -14,7 +14,7 @@ import {
 import type { PipelineRow, UnreportedVisit } from "@/server/data";
 import {
   addArchivedAccount, addComment, bulkArchiveAccounts, bulkDeleteArchived,
-  bulkReassignAccounts,
+  bulkEditAccounts, bulkReassignAccounts,
   bulkReviveAccounts, importArchivedBulk, reassignAccount, removeArchivedEntry,
   updateAccount,
 } from "@/server/actions";
@@ -731,6 +731,7 @@ export function AccountsView({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkArchiveOpen, setBulkArchiveOpen] = useState(false);
   const [bulkReassignOpen, setBulkReassignOpen] = useState(false);
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
   const [rowArchive, setRowArchive] = useState<PipelineRow | null>(null);
   const toggleSelected = (id: string) =>
     setSelected((prev) => {
@@ -1803,6 +1804,14 @@ export function AccountsView({
                 <Users2 className="size-3.5" /> Reassign
               </Button>
             ) : null}
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={selected.size === 0}
+              onClick={() => setBulkEditOpen(true)}
+            >
+              <Pencil className="size-3.5" /> Edit
+            </Button>
             <Button size="sm" variant="ghost" onClick={exitSelect} aria-label="Exit selection">
               <X className="size-3.5" />
             </Button>
@@ -1832,6 +1841,16 @@ export function AccountsView({
         onOpenChange={setBulkReassignOpen}
         onDone={() => {
           setBulkReassignOpen(false);
+          exitSelect();
+        }}
+      />
+      <BulkEditDialog
+        ids={[...selected]}
+        functions={viewer.allowedFns}
+        open={bulkEditOpen}
+        onOpenChange={setBulkEditOpen}
+        onDone={() => {
+          setBulkEditOpen(false);
           exitSelect();
         }}
       />
@@ -2508,6 +2527,103 @@ function BulkReassignDialog({
           <Button onClick={submit} disabled={pending || ids.length === 0 || !target}>
             {pending ? <Loader2 className="size-4 animate-spin" /> : <Users2 className="size-4" />}
             Reassign
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** EDIT MANY ACCOUNTS AT ONCE (v36.2) — move them to another function the
+ *  viewer works and/or file the same comment on each. Every account still goes
+ *  through the account page's own rules on the server, so a skipped one comes
+ *  back with the reason, word for word. */
+function BulkEditDialog({
+  ids, functions, open, onOpenChange, onDone,
+}: {
+  ids: string[];
+  /** only the functions this viewer works — the only ones they may move into */
+  functions: ViewerInfo["allowedFns"];
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  onDone: () => void;
+}) {
+  const router = useRouter();
+  const [fn, setFn] = useState<string>("keep");
+  const [comment, setComment] = useState("");
+  const [pending, start] = useTransition();
+  const moving = fn !== "keep";
+  const note = comment.trim();
+  const canSave = !pending && ids.length > 0 && (moving || note.length > 0);
+
+  const submit = () =>
+    start(async () => {
+      const res = await bulkEditAccounts(ids, {
+        toFunction: moving ? fn : null,
+        comment: note || null,
+      });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      const { moved, commented, skipped, firstError } = res.data!;
+      const done = [
+        moving ? `${moved} in ${fn}` : null,
+        note ? `${commented} commented` : null,
+      ].filter(Boolean).join(" · ");
+      if (skipped > 0) toast.warning(`${done} · ${skipped} skipped — ${firstError ?? "no access"}`);
+      else toast.success(`${done}.`);
+      setFn("keep");
+      setComment("");
+      onDone();
+      router.refresh();
+    });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>✏️ Edit {ids.length} account{ids.length === 1 ? "" : "s"}</DialogTitle>
+          <DialogDescription>
+            Change the function, add a comment to every one, or both. Anything
+            you can&apos;t change on an account is skipped and you&apos;re told why.
+          </DialogDescription>
+        </DialogHeader>
+        {functions.length > 0 ? (
+          <div className="grid gap-1.5">
+            <Label>Function</Label>
+            <Select value={fn} onValueChange={setFn}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="keep">Keep as it is</SelectItem>
+                {functions.map((f) => (
+                  <SelectItem key={f} value={f}>Move to {f}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {moving ? (
+              <p className="text-xs text-muted-foreground">
+                Fields {fn} doesn&apos;t use (an IGV project, an IGT product) are cleared,
+                exactly as when you move one account. Only functions you work are offered.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="grid gap-1.5">
+          <Label>Comment for all {moving ? "(optional)" : ""}</Label>
+          <Textarea
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            rows={3}
+            maxLength={2000}
+            dir="auto"
+            placeholder="Added to each selected account, under your name…"
+          />
+        </div>
+        <DialogFooter>
+          <Button onClick={submit} disabled={!canSave}>
+            {pending ? <Loader2 className="size-4 animate-spin" /> : <Pencil className="size-4" />}
+            Apply to {ids.length}
           </Button>
         </DialogFooter>
       </DialogContent>

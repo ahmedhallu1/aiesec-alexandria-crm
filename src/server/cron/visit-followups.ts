@@ -89,7 +89,11 @@ const VISIT_SELECT =
  *
  *  Throws only on a failed READ; a single member's email failing is logged
  *  and stepped over, because one bad address must not stop the other 39. */
-export async function runVisitFollowups(): Promise<VisitFollowupResult> {
+export async function runVisitFollowups(
+  /** `bounces: false` — the reminder passes only (v36.2): the pg_cron call,
+   *  while the mailbox bounce scan runs on GitHub as `ir-bounces` */
+  opts: { bounces?: boolean } = {}
+): Promise<VisitFollowupResult> {
   const now = Date.now();
   let sent = 0;
   let nagged = 0;
@@ -206,11 +210,13 @@ export async function runVisitFollowups(): Promise<VisitFollowupResult> {
   // mailbox for mailer-daemon reports and flag scheduled calls whose invite
   // bounced. Best-effort; a Gmail hiccup never fails the visit reminders.
   let bounces: { checked: number; flagged: number } = { checked: 0, flagged: 0 };
-  try {
-    const { checkIrEmailBounces } = await import("@/server/bounces");
-    bounces = await checkIrEmailBounces();
-  } catch (e) {
-    console.error("[cron] bounce watch failed:", e);
+  if (opts.bounces !== false) {
+    try {
+      const { checkIrEmailBounces } = await import("@/server/bounces");
+      bounces = await checkIrEmailBounces();
+    } catch (e) {
+      console.error("[cron] bounce watch failed:", e);
+    }
   }
 
   // B2C CALL-BACKS (v35.1) — "ring me at four" is an appointment the person

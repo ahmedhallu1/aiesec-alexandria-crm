@@ -161,3 +161,21 @@ select cron.schedule(
   '0 8 * * *',
   $$ select net.http_get(url := '<APP_URL>/api/cron/cxp-reminders?key=<CRON_SECRET>') $$
 );
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- v36.2 — THE REMINDER TICK IS BACK ON pg_cron, GATED (migration 0077).
+--
+-- GitHub's scheduler ran the "every 30 min" reminder workflow 5 times in a
+-- day. This runs every 15 min; `visit_followups_due()` answers in Postgres —
+-- free — whether a visit follow-up, a B2C call-back or a next step is due,
+-- and says no before 07:00 Cairo. Only a YES calls Vercel, and then with
+-- `passes=reminders`, which skips the mailbox bounce scan (that stays on
+-- GitHub as `ir-bounces`). A quiet quarter-hour costs Vercel nothing.
+--
+-- It was created from the existing jobs' URL so the key never had to be
+-- retyped:
+--   select cron.schedule('visit-followups', '*/15 * * * *', $$
+--     select case when public.visit_followups_due()
+--       then net.http_get(url := '<APP_URL>/api/cron/visit-followups?passes=reminders&key=<CRON_SECRET>')
+--     end $$);
+-- To remove:  select cron.unschedule('visit-followups');

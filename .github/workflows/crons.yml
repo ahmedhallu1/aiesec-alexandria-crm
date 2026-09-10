@@ -1,37 +1,30 @@
-# Visit reminders + sheet export OFF Vercel (v33.46) — see scripts/run-cron.mjs.
+# The background jobs that are NOT time-critical, OFF Vercel — see
+# scripts/run-cron.mjs.
 #
-# Why: these two were 120 of the ~126 daily cron calls hitting Vercel, and a
-# third of them fired between midnight and 6 AM Cairo, when there is no visit
-# to chase and nothing new to export. Neither serves a browser request.
+# v36.2 — THE VISIT / NEXT-STEP / CALL-BACK REMINDERS LEFT THIS FILE. GitHub's
+# scheduler ran the "every 30 min" schedule 5 times in 24 hours (10 runs in
+# all, the other 5 being sheet exports cancelled at the 10-min limit), so
+# reminders arrived hours late. They now run from Supabase pg_cron every 15
+# min, 07:00–midnight Cairo, and only call Vercel when
+# `visit_followups_due()` says something is due (supabase/cron.sql). What
+# stays here tolerates GitHub's timing:
+#
+#   ir-bounces      every 30 min, working hours — flags IR invites that bounced
+#   sheets-export   hourly at :05, working hours
+#
+# ⚠️ Never schedule `visit-followups` here again: two schedulers racing over
+# the same due rows is how a member gets a reminder twice. It stays a MANUAL
+# option below, for "run it all now".
 #
 # BUDGET NOTE — this repo is PRIVATE, so Actions minutes are capped (2,000/mo
 # on the free plan) and are a real budget, not a free lunch. The sheet-import
-# workflow already measures ~51s per run and ~780 min/month. These schedules
-# are deliberately SPARSER than the pg_cron ones they replace so the two
-# workflows together stay well inside the cap:
-#
-#   visit-followups   every 15 min, 24/7   →  every 30 min, working hours
-#   sheets-export     hourly, 24/7         →  hourly, working hours
-#
-# The follow-up email fires 2h after a visit; a half-hour tick means it can
-# arrive up to 30 min later than it used to, which nobody will notice — and
-# members stop getting reminder mail at 3 AM.
-#
-# BEFORE ENABLING: confirm the repo secrets below exist (the imports workflow
-# already needs most of them), run each job once with "Run workflow"
-# (workflow_dispatch) to confirm it's green, THEN unschedule the pg_cron
-# twins in Supabase:
-#   select cron.unschedule('visit-followups');
-#   select cron.unschedule('sheets-export');
-# Until you do, both run. That is SAFE but not free: sheets-export just
-# rewrites the same sheet, and visit-followups stamps each visit before it
-# sends, so the loser of a race sends nothing and no member is emailed twice.
+# workflow already measures ~51s per run and ~780 min/month.
 
 name: Background jobs
 
 on:
   schedule:
-    # visit reminders every 30 min, sheet export at :05 — working hours only
+    # bounce scan every 30 min, sheet export at :05 — working hours only
     # (04:00–21:59 UTC ≈ 06:00–00:00 Cairo)
     - cron: "*/30 4-21 * * *"
     - cron: "5 4-21 * * *"
@@ -40,9 +33,9 @@ on:
       job:
         description: "Which job to run"
         required: true
-        default: visit-followups
+        default: ir-bounces
         type: choice
-        options: [visit-followups, sheets-export, both]
+        options: [ir-bounces, sheets-export, visit-followups]
 
 concurrency:
   group: background-jobs
@@ -75,14 +68,18 @@ jobs:
       # install step needed here (the imports workflow had a redundant one).
       - run: npm ci --no-audit --no-fund
 
-      - name: Visit follow-ups
+      - name: IR bounce scan
         if: >-
           (github.event_name == 'schedule' && github.event.schedule == '*/30 4-21 * * *') ||
-          github.event.inputs.job == 'both' || github.event.inputs.job == 'visit-followups'
-        run: npx tsx --tsconfig tsconfig.scripts.json scripts/run-cron.mjs visit-followups
+          github.event.inputs.job == 'ir-bounces'
+        run: npx tsx --tsconfig tsconfig.scripts.json scripts/run-cron.mjs ir-bounces
 
       - name: Sheets export
         if: >-
           (github.event_name == 'schedule' && github.event.schedule == '5 4-21 * * *') ||
-          github.event.inputs.job == 'both' || github.event.inputs.job == 'sheets-export'
+          github.event.inputs.job == 'sheets-export'
         run: npx tsx --tsconfig tsconfig.scripts.json scripts/run-cron.mjs sheets-export
+
+      - name: Visit follow-ups (manual only)
+        if: github.event.inputs.job == 'visit-followups'
+        run: npx tsx --tsconfig tsconfig.scripts.json scripts/run-cron.mjs visit-followups

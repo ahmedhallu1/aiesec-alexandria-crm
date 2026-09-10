@@ -1,21 +1,23 @@
 /**
- * THE BACKGROUND JOBS THAT DON'T NEED VERCEL (v33.46).
+ * THE BACKGROUND JOBS THAT DON'T NEED VERCEL (v33.46, split v36.2).
  *
- * Sibling of run-import.mjs, same reasoning, two more jobs. `visit-followups`
- * ran every 15 minutes and `sheets-export` every hour — around the clock,
- * from Supabase pg_cron straight at Vercel. Between them that was 120 of the
- * ~126 daily cron invocations on the account, and a third of them fired
- * between midnight and 6 AM Cairo, when there is no visit to chase and
- * nothing new to export.
+ * Sibling of run-import.mjs, same reasoning. `visit-followups` ran every 15
+ * minutes and `sheets-export` every hour — around the clock, from Supabase
+ * pg_cron straight at Vercel. Between them that was 120 of the ~126 daily
+ * cron invocations on the account, and a third of them fired between midnight
+ * and 6 AM Cairo, when there is no visit to chase and nothing new to export.
  *
- * Neither job serves a browser request: they read Supabase, send Gmail and
- * write Google Sheets. GitHub Actions runs them for free at the same cadence.
- * This script calls the SAME exported functions the Vercel routes call, so
- * there is exactly one implementation and the routes stay usable as a manual
- * "run it now" handle.
+ * v36.2 — THE REMINDERS WENT BACK TO pg_cron, GATED. GitHub's scheduler ran
+ * the "every 30 min" workflow 5 times in a day, so reminders arrived hours
+ * late. Supabase now asks `visit_followups_due()` every 15 minutes (free, in
+ * Postgres) and calls the Vercel route only when something is actually due.
+ * What stays here is what is not time-critical: the IR bounce scan
+ * (`ir-bounces`) and the sheet export. `visit-followups` remains as a manual
+ * "run it all now" handle — never schedule it here again, or a reminder can
+ * go out twice.
  *
  * Usage:  npx tsx --tsconfig tsconfig.scripts.json \
- *            scripts/run-cron.mjs visit-followups|sheets-export
+ *            scripts/run-cron.mjs ir-bounces|sheets-export|visit-followups
  *
  * The --tsconfig flag is LOAD-BEARING: src/server/** carries
  * `import "server-only"`, which Next resolves via its bundler and plain Node
@@ -32,7 +34,7 @@
 
 import "./_node-compat.mjs";
 
-const JOBS = ["visit-followups", "sheets-export"];
+const JOBS = ["ir-bounces", "sheets-export", "visit-followups"];
 const which = process.argv[2];
 
 if (!JOBS.includes(which)) {
@@ -40,18 +42,20 @@ if (!JOBS.includes(which)) {
   process.exit(2);
 }
 
-// visit-followups EMAILS REAL MEMBERS, so a missing var must stop the run
+// the mailbox jobs EMAIL REAL MEMBERS, so a missing var must stop the run
 // rather than half-send. sheets-export needs the Google pair but no mailbox.
+const MAILBOX = [
+  "SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "GMAIL_REFRESH_TOKEN",
+  "GMAIL_SENDER",
+  "AUTH_GOOGLE_ID",
+  "AUTH_GOOGLE_SECRET",
+  "NEXT_PUBLIC_APP_URL",
+];
 const NEEDED = {
-  "visit-followups": [
-    "SUPABASE_URL",
-    "SUPABASE_SERVICE_ROLE_KEY",
-    "GMAIL_REFRESH_TOKEN",
-    "GMAIL_SENDER",
-    "AUTH_GOOGLE_ID",
-    "AUTH_GOOGLE_SECRET",
-    "NEXT_PUBLIC_APP_URL",
-  ],
+  "ir-bounces": MAILBOX,
+  "visit-followups": MAILBOX,
   "sheets-export": [
     "SUPABASE_URL",
     "SUPABASE_SERVICE_ROLE_KEY",
@@ -68,12 +72,17 @@ if (missing.length) {
 
 const started = Date.now();
 try {
-  if (which === "visit-followups") {
+  if (which === "ir-bounces") {
+    const { checkIrEmailBounces } = await import("../src/server/bounces.ts");
+    const b = await checkIrEmailBounces();
+    console.log(`ir-bounces: ${b.flagged}/${b.checked} flagged`);
+  } else if (which === "visit-followups") {
     const { runVisitFollowups } = await import("../src/server/cron/visit-followups.ts");
     const r = await runVisitFollowups();
     console.log(
       `visit-followups: ${r.sent} prompt(s) from ${r.checked} pending, ` +
         `${r.nagged} nag(s) from ${r.forgottenChecked} unreported, ` +
+        `${r.nextSteps} next step(s), ${r.callBacks} call-back(s), ` +
         `bounces ${r.bounces.flagged}/${r.bounces.checked} flagged`
     );
   } else {
