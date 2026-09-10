@@ -14,7 +14,7 @@ import "server-only";
  *  visit-followups cron: one Gmail list call per tick, message bodies fetched
  *  only for reports not seen before. */
 
-import { google } from "googleapis";
+import { google } from "@/lib/google/apis";
 import { env, requireEnv } from "@/lib/env";
 import { db } from "@/lib/supabase";
 

@@ -1,4 +1,4 @@
-import { google, sheets_v4, drive_v3 } from "googleapis";
+import { google, sheets_v4, drive_v3 } from "@/lib/google/apis";
 import { db } from "@/lib/supabase";
 import { env, requireEnv } from "@/lib/env";
 import { sandboxSuppressed } from "@/server/sandbox";

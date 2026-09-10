@@ -5555,7 +5555,7 @@ export async function sendProposalEmail(
   if ("error" in built) return built.error;
   const { product } = built;
 
-  const { defaultProposalPdfs, proposalPdfFile, attachmentTooBig } =
+  const { defaultProposalPdfs, proposalPdfFile, attachmentTooBig, PROPOSALS_BUCKET } =
     await import("@/lib/proposal-pdfs");
 
   // WHICH OFFICIAL DECKS RIDE ALONG — the member's picks when they made any,
@@ -5567,25 +5567,25 @@ export async function sendProposalEmail(
   const tooBig = attachmentTooBig(wanted);
   if (tooBig) return fail(tooBig);
 
+  // THE DECKS LIVE IN STORAGE, NOT IN THE FUNCTION (v36.1). Reading them off
+  // disk meant bundling all 38 MB into every function of every deployment,
+  // which filled the Vercel team's Function Storage. They are uploaded once by
+  // `scripts/upload-proposals.mjs` and fetched here only when an email asks.
   const attachments: { filename: string; mimeType: string; contentBase64: string }[] = [];
-  if (wanted.length > 0) {
-    const { readFile } = await import("node:fs/promises");
-    const { join } = await import("node:path");
-    for (const p of wanted) {
-      const { path, filename } = proposalPdfFile(p);
-      try {
-        const pdf = await readFile(join(process.cwd(), "proposals", path));
-        attachments.push({
-          filename,
-          mimeType: "application/pdf",
-          contentBase64: pdf.toString("base64"),
-        });
-      } catch {
-        return fail(
-          `The official ${p} proposal PDF isn't uploaded to the system yet — ask the IM team, or uncheck it and continue.`
-        );
-      }
+  for (const p of wanted) {
+    const { path, filename } = proposalPdfFile(p);
+    const { data: pdf, error } = await db().storage.from(PROPOSALS_BUCKET).download(path);
+    if (error || !pdf) {
+      console.error(`[proposal] ${path} could not be read from storage:`, error);
+      return fail(
+        `The official ${p} proposal PDF isn't uploaded to the system yet — ask the IM team, or uncheck it and continue.`
+      );
     }
+    attachments.push({
+      filename,
+      mimeType: "application/pdf",
+      contentBase64: Buffer.from(await pdf.arrayBuffer()).toString("base64"),
+    });
   }
 
   if (await sandboxSuppressed("send a proposal email"))
@@ -10949,23 +10949,6 @@ async function resolvePartnershipTarget(
   return { target };
 }
 
-/** IR CALLS ARE THE RELATIONSHIP (v33.39): an LC already called for a product
- *  needs no partnership row on it — recording or targeting one there is
- *  refused, exactly like the buttons that stood down in the UI. */
-async function lcAlreadyCalled(
-  partnerLcId: string,
-  product: "GV" | "GT"
-): Promise<boolean> {
-  const { data } = await db()
-    .from("ir_calls")
-    .select("id")
-    .eq("partner_lc_id", partnerLcId)
-    .eq("product", product)
-    .neq("status", "cancelled")
-    .limit(1);
-  return (data ?? []).length > 0;
-}
-
 /** RECORD A PARTNERSHIP (v33.38): approached an LC, opened the WhatsApp group —
  *  that IS the win, and it finally has a row. One per LC × PRODUCT, so the same
  *  LC can be a new GT partnership while staying an old GV one. Completing a
@@ -11008,11 +10991,12 @@ export async function recordLcPartnership(input: {
   if ("error" in resolved) return resolved.error;
   const lc = resolved.lc;
 
-  // an LC already CALLED for this product needs no partnership row (v33.39)
-  if (await lcAlreadyCalled(lc.id, input.product))
-    return fail(
-      `${lc.name} already has ${input.product} IR calls — that IS the working relationship, nothing to record.`
-    );
+  // IR CALLS NO LONGER BLOCK A PARTNERSHIP (v36.1). v33.39 refused this on any
+  // LC already called for the programme — "the calls ARE the relationship".
+  // v35.1's road then made calls a STAGE on the way (scheduled → done) with the
+  // WhatsApp group as the partnership itself, so an LC the member had worked
+  // through calls could never reach its last stage: recording the group they
+  // had just made was refused. Calls are history now, not a verdict.
 
   const { data: existing } = await db()
     .from("lc_partnerships")
@@ -11158,11 +11142,8 @@ export async function assignLcPartnership(input: {
   if ("error" in resolved) return resolved.error;
   const lc = resolved.lc;
 
-  // an LC already CALLED for this product needs no target on it (v33.39)
-  if (await lcAlreadyCalled(lc.id, input.product))
-    return fail(
-      `${lc.name} already has ${input.product} IR calls — that IS the working relationship, nothing to target.`
-    );
+  // an LC already CALLED can be a target too (v36.1) — the calls put it at
+  // "IR call done" on the road; see recordLcPartnership
 
   const { data: existing } = await db()
     .from("lc_partnerships")

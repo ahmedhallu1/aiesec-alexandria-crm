@@ -1,5 +1,5 @@
 import { Readable } from "node:stream";
-import { google } from "googleapis";
+import { google } from "@/lib/google/apis";
 import { db } from "@/lib/supabase";
 import { env } from "@/lib/env";
 import { clients } from "./sheets";

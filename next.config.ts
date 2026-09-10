@@ -79,10 +79,9 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-  // the Proposal email action reads proposals/<product>.pdf at runtime
-  outputFileTracingIncludes: {
-    "/**": ["./proposals/**"],
-  },
+  // NO `outputFileTracingIncludes` for proposals/ (v36.1): "/**" copied 38 MB
+  // of PDF into every function of every deployment and filled the team's
+  // 10 GB Function Storage. The decks are read from Supabase Storage instead.
   experimental: {
     serverActions: {
       // IR-call screenshots travel base64 inside the action body (~4.27 MB

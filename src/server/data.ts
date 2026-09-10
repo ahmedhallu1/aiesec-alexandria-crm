@@ -6813,10 +6813,6 @@ export interface PartnerLcDetail extends PartnerLc {
   }[];
   /** 🤝 made partnerships + assigned targets, one per product (v33.38) */
   partnerships: LcPartnershipInfo[];
-  /** which products have actual IR CALLS (not hand-added IRs) — a called
-   *  product IS a working relationship, so no partnership is recorded on it
-   *  (v33.39) */
-  callProducts: IrProduct[];
   /** WHO WORKS THIS LC (v33.39) — derived, never stored: everyone who made a
    *  call with it, plus each caller's Team Leader. The registry filter. */
   assignedTo: { id: string; name: string }[];
@@ -7076,13 +7072,6 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
         ].filter((p): p is IrProduct => p === "GV" || p === "GT")
       ),
     ].sort();
-    // ...and the products with actual CALLS — those ARE the relationship, so
-    // the partnership buttons stand down on them (v33.39)
-    const callProducts = [
-      ...new Set(
-        mine.map((c) => c.product).filter((p): p is IrProduct => p === "GV" || p === "GT")
-      ),
-    ].sort();
     // WHO WORKS THIS LC: its callers + each caller's Team Leader (a TL's own
     // calls assign the LC to them alone — they are their own team's leader)
     const assignedTo: { id: string; name: string }[] = [];
@@ -7108,7 +7097,6 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
       cvs: cvCounts.get(lc.id) ?? 0,
       lastCallAt: mine[0]?.called_at ?? null,
       products,
-      callProducts,
       assignedTo,
       contacts,
       partnerships: (partnershipsByLc.get(lc.id) ?? []).sort((a, b) =>

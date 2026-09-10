@@ -5,8 +5,13 @@
  *  whole 1,500-line template tree and `env` — into the browser bundle. Same
  *  reason `api-scope.ts` exists (v34.6). Keep it import-free.
  *
- *  The files themselves live in `proposals/<key>.pdf` and are bundled into the
- *  serverless function by `outputFileTracingIncludes` in next.config.ts. */
+ *  The files live in the private Supabase Storage bucket below, uploaded from
+ *  `proposals/<key>.pdf` by `scripts/upload-proposals.mjs` (v36.1). They used
+ *  to be bundled into every serverless function — 38 MB each, in every
+ *  deployment — which filled the Vercel team's Function Storage. */
+
+/** Where the send action downloads the decks from. */
+export const PROPOSALS_BUCKET = "proposals";
 
 /** What an outreach email can be WRITTEN for. */
 export type ProposalProduct = "iGTa" | "iGTe" | "iGV" | "B2B" | "BD";

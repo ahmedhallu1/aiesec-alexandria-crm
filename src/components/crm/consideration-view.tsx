@@ -408,12 +408,6 @@ function PartnerLcsTab({
                 <div key={pp.id} className="flex flex-wrap items-center gap-2 text-sm">
                   <span className="min-w-0 break-words font-medium" dir="auto">{lc.name}</span>
                   <ProductTag product={pp.product} />
-                  {(lc.callProducts ?? []).includes(pp.product) ? (
-                    <span className="text-xs text-muted-foreground">
-                      an IR call already reached them for {pp.product} — the
-                      relationship exists, hand the target back
-                    </span>
-                  ) : (
                   <Button
                     size="sm"
                     variant="outline"
@@ -426,7 +420,6 @@ function PartnerLcsTab({
                   >
                     <Handshake className="size-3.5" /> Record it
                   </Button>
-                  )}
                   <Button
                     size="sm"
                     variant="ghost"
@@ -835,15 +828,15 @@ function PartnerLcsTab({
               </CardHeader>
               <CardContent className="space-y-1.5">
                 <div className="flex flex-wrap items-center gap-1.5">
-                  {/* a product with a made partnership OR real IR CALLS is
-                      spoken for — both gone = the buttons stand down (v33.39) */}
+                  {/* a product with a MADE partnership is spoken for — both
+                      made = the buttons stand down. IR calls no longer count
+                      (v36.1): they are a stage on the road, not the win. */}
                   {(() => {
-                    const taken = new Set([
-                      ...(lc.partnerships ?? [])
+                    const taken = new Set(
+                      (lc.partnerships ?? [])
                         .filter((pp) => pp.status === "done")
-                        .map((pp) => pp.product),
-                      ...(lc.callProducts ?? []),
-                    ]);
+                        .map((pp) => pp.product)
+                    );
                     if (taken.size >= 2) return null;
                     return (
                       <>
@@ -1687,12 +1680,11 @@ function RecordPartnershipDialog({
     });
   }
   const chosen = lc ?? lcs.find((l) => l.id === form.lcId) ?? null;
-  // a programme is taken by a MADE partnership — or by real IR calls, which
-  // ARE the relationship (v33.39)
+  // a programme is taken by a MADE partnership. IR calls used to take it too
+  // (v33.39) — lifted in v36.1: the calls are the road, the group is the win.
   const takenProducts = (chosen?.partnerships ?? [])
     .filter((pp) => pp.status === "done")
     .map((pp) => pp.product);
-  const calledProducts = chosen?.callProducts ?? [];
   const canSave =
     !pending &&
     (form.newLc ? form.newName.trim().length > 1 : !!(lc?.id || form.lcId)) &&
@@ -1798,14 +1790,10 @@ function RecordPartnershipDialog({
                     <SelectItem
                       key={pr}
                       value={pr}
-                      disabled={takenProducts.includes(pr) || calledProducts.includes(pr)}
+                      disabled={takenProducts.includes(pr)}
                     >
                       {pr}
-                      {takenProducts.includes(pr)
-                        ? " — already partnered"
-                        : calledProducts.includes(pr)
-                          ? " — already reached (IR calls)"
-                          : ""}
+                      {takenProducts.includes(pr) ? " — already partnered" : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1931,7 +1919,6 @@ function AssignPartnershipDialog({
   const takenProducts = (chosen?.partnerships ?? [])
     .filter((pp) => pp.status === "done")
     .map((pp) => pp.product);
-  const calledProducts = chosen?.callProducts ?? [];
   const pendingOn = (pr: string) =>
     (chosen?.partnerships ?? []).find((pp) => pp.status === "pending" && pp.product === pr)
       ?.assignedToName ?? null;
@@ -2031,16 +2018,14 @@ function AssignPartnershipDialog({
                   <SelectItem
                     key={pr}
                     value={pr}
-                    disabled={takenProducts.includes(pr) || calledProducts.includes(pr)}
+                    disabled={takenProducts.includes(pr)}
                   >
                     {pr}
                     {takenProducts.includes(pr)
                       ? " — already partnered"
-                      : calledProducts.includes(pr)
-                        ? " — already reached (IR calls)"
-                        : pendingOn(pr)
-                          ? ` — currently ${pendingOn(pr)}'s target`
-                          : ""}
+                      : pendingOn(pr)
+                        ? ` — currently ${pendingOn(pr)}'s target`
+                        : ""}
                   </SelectItem>
                 ))}
               </SelectContent>

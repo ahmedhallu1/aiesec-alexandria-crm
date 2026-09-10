@@ -1,6 +1,6 @@
 import "server-only";
 import { Readable } from "node:stream";
-import { google, type drive_v3 } from "googleapis";
+import { google, type drive_v3 } from "@/lib/google/apis";
 import { db } from "@/lib/supabase";
 import { env, requireEnv } from "@/lib/env";
 import { driveAsMailbox } from "@/lib/google/drive-upload";

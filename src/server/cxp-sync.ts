@@ -1,5 +1,5 @@
 import "server-only";
-import { google } from "googleapis";
+import { google } from "@/lib/google/apis";
 import { db } from "@/lib/supabase";
 import { env, requireEnv } from "@/lib/env";
 import { parseAllGrids, deduplicate, SUBTOOL_TABS, type Grid } from "@/lib/cxp/parser";

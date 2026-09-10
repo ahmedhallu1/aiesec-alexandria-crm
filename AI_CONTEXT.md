@@ -5,12 +5,16 @@
 > Add a dated entry to the **Changelog** at the bottom. No secrets in this file.
 >
 > **⚠️ SHIP RULE (every session, no exceptions):** finished work goes
-> **commit → merge to `main` → push to GitHub → `vercel deploy --prod`**.
+> **commit → merge to `main` → push to GitHub**. The push IS the production
+> deploy — Vercel's Git integration builds `main`. **Do NOT also run
+> `vercel deploy --prod`** (v36.1): it builds the same commit a second time,
+> Vercel keeps every deployment's functions, and that doubling helped fill the
+> team's 10 GB Function Storage. Use the CLI only to redeploy without a commit.
 > Never leave features on a side branch — that's how `0011_teams.sql` "went
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-09-05 · Version: v36
+Last updated: 2026-09-10 · Version: v36.1
 
 ---
 
@@ -31,7 +35,7 @@ the blueprint for future OGX/other-function modules.
 | Live URL | https://sodio.vercel.app (+ aiesec-alexandria-crm.vercel.app; **elevate-alex.vercel.app was removed in v32.1**) |
 | Android | **Google Play, package `app.sodio.crm`** (v35) — a Bubblewrap **TWA** around the live URL, so every deploy reaches every phone with no store review. Built from `android/twa-manifest.json`; runbook in `android/README.md`. Verified by `/.well-known/assetlinks.json`, which reads `ANDROID_CERT_FINGERPRINTS` |
 | Repo | github.com/ahmedhallu1/aiesec-alexandria-crm (private) |
-| Vercel project | `aiesec-alexandria-crm` (scope `ahmedhallu1s-projects`) — deploy with `vercel deploy --prod` |
+| Vercel project | `aiesec-alexandria-crm` (scope `ahmedhallu1s-projects`, **Hobby** — 10 GB Function Storage) — pushing `main` deploys; `vercel.json`'s `ignoreCommand` skips a build when nothing but docs/tests/android/outreach/migrations changed since the last deploy |
 | Stack | Next.js 16 (App Router, Turbopack) · React 19 · Tailwind v4 · shadcn/ui · Supabase (Postgres, project `iesrpuuoduxtihuaqfic`) |
 | Auth | Auth.js v5: **FIRST sign-in is Google-only** (grants `calendar` + `gmail.compose`) → onboarding sets a password → afterwards **email OR phone + password**, or Google, all work. **Members with NO email yet (v24) sign in with their phone in BOTH fields** until a password is set; adding their email closes that door (Google once, then password). Deactivated members land on **/inactive**. **Forgot password emails a fresh password** (`issueTempPassword` in `server/password.ts`); the old password still works until the member changes it (no lockouts) |
 | Google | Service account (Sheets sync, folder creation) · **the IM mailbox token carries mail + calendar + drive + sheets** — every Drive FILE is written as the mailbox, because a service account has no storage quota · Calendar events on each member's own calendar |
@@ -620,6 +624,15 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 
 ## 9. Pending / operational notes
 
+- **VERCEL FUNCTION STORAGE (v36.1)**: Hobby includes 10 GB, and every
+  retained deployment's functions count toward it. Since v36.1 a function
+  traces ~5 MB instead of ~97 MB, but every OLDER deployment keeps its old
+  size until it expires or is deleted — so after v36.1 is live, delete old
+  deployments from the project's Deployments tab (keep the current production
+  one plus one to roll back to) and set a short **Deployment Retention** window
+  in Project Settings. Don't add `googleapis`, `outputFileTracingIncludes` or
+  big files under a traced path back. The proposal decks are in the private
+  Storage bucket `proposals`; replacing one = `proposals/README.md`.
 - **BACKUPS (v33)**: nightly at 02:00 UTC into the private Supabase bucket
   `backups` (30 days, gzipped ~1.2 MB each) + a gzipped copy emailed to the IM
   mailbox + a copy in the CRM Drive folder ("CRM — Backups"). Restore = create the schema from `supabase/migrations/`, gunzip the
@@ -676,6 +689,48 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-09-10 · v36.1** — **VERCEL'S STORAGE CEILING, A PODIO FALSE "SUBMIT
+  IT", AND PARTNERSHIPS WITH LCs ALREADY CALLED.** No migrations; one new
+  private Storage bucket (`proposals`).
+  ① **THE FREE TEAM HIT 100% OF ITS 10 GB FUNCTION STORAGE** (Vercel email,
+  2026-09-09). Measured on a local build, every function traced **~97 MB**:
+  **39.7 MB was the four proposal PDFs** — `outputFileTracingIncludes:
+  { "/**": ["./proposals/**"] }` copied them into EVERY function to serve one
+  action — and a **12.4 MB chunk, twice (page + route bundles), was
+  `googleapis`**, whose index loads all ~330 Google APIs, so YouTube, BigQuery
+  and Android Publisher rode along for the four we use. Vercel keeps every
+  deployment's functions, and the ship rule deployed commits TWICE (git push +
+  `vercel deploy --prod`: 930a561 has two production deployments, 0fb6d27
+  three). Now: the decks live in the private `proposals` bucket
+  (`scripts/upload-proposals.mjs`; the repo copy stays the source and the tests
+  still check it) and are downloaded at send time; `googleapis` →
+  `@googleapis/{gmail,sheets,drive,calendar}` behind `src/lib/google/apis.ts`,
+  which keeps the `google.*` shape — **never import `googleapis` again**;
+  `vercel.json` skips a build whose changes since the last deploy are only
+  docs/tests/android/outreach/migrations/proposals; and the ship rule stops
+  double-deploying. **Heaviest function trace: 97.0 MB → 5.3 MB; everything
+  traced across all routes: 75.5 → 11.3 MB.** ⚠️ Old deployments keep counting
+  until they expire or are deleted — see §9.
+  ② **PODIO SAID "NOT ON PODIO" FOR A PARTNER IT HAD JUST RETURNED.** Reported
+  with screenshots: the national form's dropdown showed **Momo’s Burgers** for
+  "Momo's Burgers", and Sodio answered "Not on Podio — you still need to submit
+  it" while listing that very name under "Podio did return". Podio stores the
+  curly ’, a keyboard types the straight ', and `podio.ts` compared them
+  character for character — the one wrong answer that makes a member submit a
+  duplicate. `podioNameKey` folds quotes, dashes, accents and zero-width
+  characters before the exact comparison ("Gateway" still ≠ "Gateway Urban");
+  `tests/podio-name.test.ts`. The CRM's OWN duplicate check was measured and
+  does not share the bug: 19 account names carry typographic characters, 0
+  collide once folded.
+  ③ **"AIESEC in Bengaluru already has GV IR calls — that IS the working
+  relationship, nothing to record."** v33.39 refused a partnership (and a
+  target) on any LC already called for the programme. v35.1's road contradicts
+  it — the calls are the scheduled/done STAGES and the WhatsApp group is the
+  partnership — so an LC worked through calls could never reach its last stage.
+  Removed from `recordLcPartnership`, `assignLcPartnership` and every button and
+  programme option that stood down (`callProducts` is gone from the registry
+  rows). Only a partnership already MADE on the programme still blocks one.
 
 - **2026-09-05 · v36** — **THE LOGS GROW UP, THE LOGIN STOPS GUESSING, AND TWO
   FEATURES THAT HAD NEVER ONCE WORKED** (migrations **0072 + 0075 applied**;

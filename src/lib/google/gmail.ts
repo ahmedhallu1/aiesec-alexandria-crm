@@ -1,4 +1,4 @@
-import { google } from "googleapis";
+import { google } from "@/lib/google/apis";
 import { env, requireEnv } from "@/lib/env";
 import { sandboxSuppressed } from "@/server/sandbox";
 

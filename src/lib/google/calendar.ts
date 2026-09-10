@@ -1,4 +1,4 @@
-import { google } from "googleapis";
+import { google } from "@/lib/google/apis";
 import { env } from "@/lib/env";
 import { db } from "@/lib/supabase";
 import { cairoToUtc } from "@/lib/time";

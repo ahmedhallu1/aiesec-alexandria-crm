@@ -51,9 +51,27 @@ export interface PodioCheck {
 
 const UNKNOWN: PodioCheck = { status: "unknown", similar: [] };
 
-/** Case/spacing are noise; everything else is significant. The user asked for
- *  an EXACT match, so "Gateway" must not match "Gateway Urban". */
-const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+/** Case, spacing and TYPOGRAPHY are noise; the words are significant. The user
+ *  asked for an EXACT match, so "Gateway" must not match "Gateway Urban".
+ *
+ *  ⚠️ TYPOGRAPHY (v36.1). Podio stores many names with a curly apostrophe —
+ *  "Momo’s Burgers" — and a keyboard types a straight one. Podio's own search
+ *  treats them as one and RETURNED the partner; this comparison then saw ’ ≠ '
+ *  and answered "Not on Podio", which tells a member to submit a duplicate.
+ *  Quotes, dashes, accents and invisible characters are folded first. */
+export function podioNameKey(s: string): string {
+  return s
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "") // accents: "Café" = "Cafe"
+    .replace(/[\u2018\u2019\u201a\u201b\u2032\u00b4`]/g, "'") // ‘ ’ ‚ ‛ ′ ´ `
+    .replace(/[\u201c\u201d\u201e\u2033]/g, '"') // “ ” „ ″
+    .replace(/[\u2010-\u2015\u2212]/g, "-") // hyphens, en/em dashes, minus
+    .replace(/[\u200b-\u200d\u2060\ufeff]/g, "") // zero-width characters
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+const norm = podioNameKey;
 
 /** `https://podio.com/webforms/25879454/1936053` → its base for sub-paths. */
 function formBase(): string | null {

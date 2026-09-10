@@ -1529,7 +1529,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     "items": [
      "**Duplicate check** — if the name is already an active account in your world, you're blocked and shown whose it is.",
      "**Archive / blacklist check** — if the name was moved Out of Process (or manually blacklisted), it's blocked too: the archive IS the blacklist. A TL+ can revive it instead of re-adding.",
-     "**Podio check** — Sodio asks the national Podio form's own search. ⚠️ **Already on Podio** means don't submit a duplicate — add it here and ask your MM about the request state (it can be ours!). 🔎 **Not on Podio** means submit it via the linked national form — or flip **`I already submitted it`** right inside that result if you did. If Podio is unreachable you simply get no verdict, plus the manual link."
+     "**Podio check** — Sodio asks the national Podio form's own search. ⚠️ **Already on Podio** means don't submit a duplicate — add it here and ask your MM about the request state (it can be ours!). 🔎 **Not on Podio** means submit it via the linked national form — or flip **`I already submitted it`** right inside that result if you did. If Podio is unreachable you simply get no verdict, plus the manual link. Quotes, dashes and accents don't matter: **Momo's** and **Momo’s** are the same name."
     ],
     "title": "What happens as you type the name"
    },
@@ -3356,7 +3356,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    {
     "t": "callout",
     "tone": "info",
-    "md": "**IR calls ARE the relationship.** An LC that already has GT calls needs no GT partnership row — the buttons stand down on that programme (\"already reached — IR calls\"), and the same rule applies per programme: GV calls block GV only. An LC called for both shows no partnership buttons at all."
+    "md": "**IR calls don't block a partnership** (since v36.1). The calls are stages on the road — scheduled, done — and the WhatsApp group is the partnership itself, so an LC you've already called can still be recorded, or set as a target, like any other. Only a partnership already MADE on a programme blocks a second one there; the other programme can still make its own."
    },
    {
     "t": "p",
