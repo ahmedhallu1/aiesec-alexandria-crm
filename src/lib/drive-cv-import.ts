@@ -3,7 +3,8 @@ import { driveAsMailbox } from "@/lib/google/drive-upload";
 import { env } from "@/lib/env";
 import { CV_INDUSTRIES } from "@/lib/cv-extract";
 import {
-  classifyByRules, driveFolderIdFrom, mightBeCv, parseClassification, skipReasonForType,
+  CONTENT_PROMPT, classifyByRules, driveFolderIdFrom, mightBeCv, needsContentCheck,
+  parseClassification, parseContentVerdict, skipReasonForType,
   type DriveCvPlan, type DriveEntry,
 } from "@/lib/drive-cv-plan";
 
@@ -138,10 +139,11 @@ For EACH line decide:
 - product: "GTa" or "GTe" when the path says so (oGTa / GTa / Global Talent → GTa; oGTe / GTe / Teacher / Teaching → GTe), else null.
 - industry: the sector folder mapped to EXACTLY one of: ${CV_INDUSTRIES.join(", ")} — or null when the path doesn't say.
 - reason: when is_cv is false, 2–6 words why.
+- unsure: true when the NAME alone can't tell you whether it is a CV or whose it is — "Untitled", "Document from …", a template name like "CV Professionnel Minimaliste Bleu_2025…" or "Professional Resume", a scan like "IMG_1234". Those files will be OPENED and read, so never reject a file just because its name names nobody.
 
 Also lc_guess: the partner LC's name when the root folder name reveals it (e.g. "CV POOL oGT @ in Agadir" → "Agadir"), else null.
 
-Return ONLY this JSON: {"lc_guess": string|null, "items": [{"n": number, "is_cv": boolean, "person": string|null, "product": "GTa"|"GTe"|null, "industry": string|null, "reason": string|null}]}
+Return ONLY this JSON: {"lc_guess": string|null, "items": [{"n": number, "is_cv": boolean, "person": string|null, "product": "GTa"|"GTe"|null, "industry": string|null, "reason": string|null, "unsure": boolean}]}
 
 ${lines}`;
 
@@ -178,6 +180,53 @@ async function classifyWithAi(root: string, docs: DriveEntry[]) {
   }
 }
 
+/** READ ONE FILE TO DECIDE (v36.5) — for the documents whose NAME couldn't
+ *  settle it. Two real CVs were skipped as "Untitled document" because the
+ *  AI judged them by file names that named nobody ("CV_ Tunisia
+ *  opportunity.pdf", a Canva export "CV Professionnel Minimaliste Bleu_…").
+ *  PDFs, images and Google Docs (exported as PDF) are read; Word files can't
+ *  be sent to the AI this way, so their name-based verdict stands. */
+export async function readDocByContent(
+  d: Pick<DriveEntry, "id" | "name" | "mimeType" | "size">
+): Promise<{ isCv: boolean; person: string | null; reason: string | null } | null> {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return null;
+  const readable =
+    d.mimeType === "application/pdf" ||
+    d.mimeType.startsWith("image/") ||
+    d.mimeType === "application/vnd.google-apps.document";
+  if (!readable || (d.size != null && d.size > 12 * 1024 * 1024)) return null;
+  const file = await downloadDriveFile({ fileId: d.id, mimeType: d.mimeType, name: d.name });
+  const res = await fetch(GEMINI_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+    signal: AbortSignal.timeout(40_000),
+    body: JSON.stringify({
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { inline_data: { mime_type: file.mimeType, data: file.data.toString("base64") } },
+            { text: CONTENT_PROMPT },
+          ],
+        },
+      ],
+      generationConfig: {
+        temperature: 0,
+        maxOutputTokens: 256,
+        responseMimeType: "application/json",
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+    }),
+  });
+  if (!res.ok) {
+    console.error("[drive-cv] content read failed", res.status, (await res.text().catch(() => "")).slice(0, 200));
+    return null;
+  }
+  const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+  return parseContentVerdict((data.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join(""));
+}
+
 /** Scan a folder and decide what to import — nothing is copied yet. */
 export async function planDriveCvImport(folderId: string): Promise<DriveCvPlan> {
   const { root, entries, truncated } = await listDriveTree(folderId);
@@ -197,6 +246,33 @@ export async function planDriveCvImport(folderId: string): Promise<DriveCvPlan> 
     if (!ai) aiUsed = false;
     lcGuess = lcGuess ?? result.lcGuess;
     verdicts.push(...result.items);
+  }
+
+  // OPEN WHAT THE NAME COULDN'T SETTLE (v36.5) — four at a time, at most 20
+  // per scan, so a folder of mystery files can't run the scan out of time
+  const recheck = docs
+    .map((d, n) => ({ d, n }))
+    .filter(({ d, n }) => verdicts[n] && needsContentCheck(verdicts[n], d.name))
+    .slice(0, 20);
+  let opened = 0;
+  for (let i = 0; i < recheck.length; i += 4) {
+    await Promise.all(
+      recheck.slice(i, i + 4).map(async ({ d, n }) => {
+        const read = await readDocByContent(d).catch((e) => {
+          console.error("[drive-cv] could not open", d.name, e);
+          return null;
+        });
+        if (!read) return;
+        opened++;
+        verdicts[n] = {
+          ...verdicts[n],
+          isCv: read.isCv,
+          person: read.person ?? verdicts[n].person,
+          reason: read.isCv ? null : read.reason ?? "not a CV (read it)",
+          unsure: false,
+        };
+      })
+    );
   }
 
   const cvs: DriveCvPlan["cvs"] = [];
@@ -223,7 +299,7 @@ export async function planDriveCvImport(folderId: string): Promise<DriveCvPlan> 
     });
   });
 
-  return { rootId: folderId, root, lcGuess, cvs, skipped, truncated, aiUsed };
+  return { rootId: folderId, root, lcGuess, cvs, skipped, truncated, aiUsed, opened };
 }
 
 /** Walk a file's parents up to the scanned root. Refuses anything the LC

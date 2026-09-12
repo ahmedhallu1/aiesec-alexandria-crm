@@ -53,6 +53,15 @@ export function ProposalDialog({
     (account.contacts ?? []).find((c) => c.kind === "email")?.value ?? account.email ?? "";
 
   const [recipientEmail, setRecipientEmail] = useState(firstEmail);
+  // CC / BCC (v36.5) — commas, spaces or semicolons between addresses
+  const [cc, setCc] = useState("");
+  const [bcc, setBcc] = useState("");
+  const splitEmails = (s: string) => s.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
+  const ccList = splitEmails(cc);
+  const bccList = splitEmails(bcc);
+  const badCopy =
+    [...ccList, ...bccList].find((e) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) ??
+    (ccList.length > 10 || bccList.length > 10 ? "more than 10 addresses" : null);
   const [sector, setSector] = useState(account.industry ?? account.sub_product ?? "");
   const [customNote, setCustomNote] = useState("");
   // B2B/BD: the product the email body is written for (default = their
@@ -143,6 +152,8 @@ export function ProposalDialog({
       const res = await sendProposalEmail({
         ...draftInput,
         recipientEmail,
+        cc: ccList,
+        bcc: bccList,
         editedSubject: e?.subject ?? null,
         editedHtml: e?.html ?? null,
       });
@@ -170,7 +181,10 @@ export function ProposalDialog({
       : "";
 
   const sendButton = (
-    <Button onClick={submit} disabled={pending || !recipientEmail.includes("@") || !!oversized}>
+    <Button
+      onClick={submit}
+      disabled={pending || !recipientEmail.includes("@") || !!oversized || !!badCopy}
+    >
       {pending ? (
         <><Loader2 className="size-4 animate-spin" /> Sending…</>
       ) : view === "preview" ? (
@@ -198,7 +212,9 @@ export function ProposalDialog({
               <DialogTitle className="text-center">Sent — it&apos;s on its way</DialogTitle>
               <DialogDescription className="text-center leading-relaxed">
                 The {productLabel} proposal for <b>{account.name}</b> just went out
-                to <b>{recipientEmail}</b>{attachedLabel}, from your own address —
+                to <b>{recipientEmail}</b>
+                {ccList.length > 0 ? <> (cc {ccList.join(", ")})</> : null}
+                {attachedLabel}, from your own address —
                 so their reply lands in <b>your</b> inbox.
               </DialogDescription>
             </DialogHeader>
@@ -287,6 +303,33 @@ export function ProposalDialog({
                   placeholder="name@company.com"
                 />
               </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-1.5">
+                  <Label>CC</Label>
+                  <Input
+                    value={cc}
+                    inputMode="email"
+                    onChange={(e) => setCc(e.target.value)}
+                    placeholder="name@…, another@…"
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label>BCC</Label>
+                  <Input
+                    value={bcc}
+                    inputMode="email"
+                    onChange={(e) => setBcc(e.target.value)}
+                    placeholder="name@…"
+                  />
+                </div>
+              </div>
+              {badCopy ? (
+                <p className="-mt-1 text-xs font-medium text-destructive">
+                  {badCopy === "more than 10 addresses"
+                    ? "Up to 10 addresses each in CC and BCC."
+                    : `“${badCopy}” isn't an email address.`}
+                </p>
+              ) : null}
               <div className="grid gap-1.5">
                 <Label>Sector</Label>
                 <Input

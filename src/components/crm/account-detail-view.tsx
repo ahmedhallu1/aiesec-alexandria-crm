@@ -37,6 +37,7 @@ import { Hint } from "./hint";
 import { MultiPick } from "./multi-pick";
 import { ContactsEditor, contactsValid } from "./contacts-editor";
 import { QuickActions } from "./quick-actions";
+import { ContactClashWarning, useContactClashes } from "./contact-clash-warning";
 import { WhatsAppIcon } from "./icons";
 import { ProposalDialog } from "./proposal-dialog";
 import { ConfettiBurst } from "./confetti";
@@ -822,6 +823,8 @@ function ContactInfoCard({
   const [rows, setRows] = useState<AccountContact[]>(initial);
   const [dirty, setDirty] = useState(false);
   const [pending, start] = useTransition();
+  // a value this account is GAINING that another account already has (v36.5)
+  const { clashes } = useContactClashes(rows, { excludeId: account.id, enabled: canEdit && dirty });
 
   const save = () =>
     start(async () => {
@@ -855,8 +858,13 @@ function ContactInfoCard({
           disabled={!canEdit}
           onChange={(r) => { setRows(r); setDirty(true); }}
         />
+        {canEdit && dirty ? <ContactClashWarning clashes={clashes} /> : null}
         {canEdit && dirty ? (
-          <Button size="sm" onClick={save} disabled={pending || !contactsValid(rows)}>
+          <Button
+            size="sm"
+            onClick={save}
+            disabled={pending || !contactsValid(rows) || clashes.length > 0}
+          >
             {pending ? "Saving…" : "Save contact info"}
           </Button>
         ) : null}

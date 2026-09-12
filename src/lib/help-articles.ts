@@ -1729,7 +1729,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    {
     "t": "callout",
     "tone": "warn",
-    "md": "**One company, one account (v36.4).** A phone number, email or link that is already on another account in your world is refused — Sodio shows you that account (its name, function, who holds it, active or archived), because it is almost always the same company under another name (*abc kindergarten* and *abc pre school*). Work that account instead, or revive it if it is archived. The same company in another world — an IGV partner that is also a BD sponsor — is still allowed. Numbers are compared as digits, so 01012345678 and +20 101 234 5678 are one number; links ignore https://, www. and tracking bits."
+    "md": "**One company, one account (v36.4).** A phone number, email or link that is already on another account — in any function — is refused: you're warned while you type it, and Save stays off until it's gone. Sodio shows you that account (its name, function, who holds it, active or archived), because it is almost always the same company under another name (*abc kindergarten* and *abc pre school*). Work that account instead, or revive it if it is archived. Numbers are compared as digits, so 01012345678 and +20 101 234 5678 are one number; links ignore https://, www. and tracking bits."
    },
    {
     "t": "p",
@@ -2284,7 +2284,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    {
     "t": "callout",
     "tone": "tip",
-    "md": "**Edit the letter itself.** In **See it first**, click anywhere in the letter — or in the subject — and type. What you change there is exactly what gets sent. **Keep editing** takes you back to the fields without losing those changes; change a field and the letter is rebuilt from it."
+    "md": "**Edit the letter itself.** In **See it first**, click anywhere in the letter — or in the subject — and type. What you change there is exactly what gets sent. **Keep editing** takes you back to the fields without losing those changes; change a field and the letter is rebuilt from it. Under the recipient there are **CC** and **BCC** fields — separate several addresses with commas."
    },
    {
     "t": "p",
@@ -3288,7 +3288,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    {
     "t": "callout",
     "tone": "tip",
-    "md": "**Import another LC's whole CV folder.** CV tab → **Import a Drive folder** → paste the Google Drive folder link → **Scan folder**. The AI finds the CVs however the folder is organised — by programme, by sector, a folder per person with videos and certificates, or everything loose — names each person and reads GTa/GTe and the sector from the folders. You see the list before anything is copied: untick what you don't want, pick the partner LC, import. Each CV is copied and read one at a time, and importing the same folder again only brings what is new. If Sodio can't open the folder, ask the LC to share it with the LC mailbox, or with \"anyone with the link\"."
+    "md": "**Import another LC's whole CV folder.** CV tab → **Import a Drive folder** → paste the Google Drive folder link → **Scan folder**. The AI finds the CVs however the folder is organised — by programme, by sector, a folder per person with videos and certificates, or everything loose — names each person and reads GTa/GTe and the sector from the folders. When a file's name doesn't say whose it is (\"Untitled\", a Canva template name, \"Document from…\"), the AI opens the file and reads it before deciding. You see the list before anything is copied: untick what you don't want, pick the partner LC, import. Each CV is copied and read one at a time, and importing the same folder again only brings what is new. If Sodio can't open the folder, ask the LC to share it with the LC mailbox, or with \"anyone with the link\"."
    },
    {
     "t": "p",

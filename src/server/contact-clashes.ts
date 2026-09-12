@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "@/lib/supabase";
-import type { AccountContact, AccountFunction } from "@/lib/types";
+import type { AccountContact } from "@/lib/types";
 
 /** THE SAME COMPANY UNDER ANOTHER NAME (v36.4).
  *
@@ -13,11 +13,13 @@ import type { AccountContact, AccountFunction } from "@/lib/types";
  *  stored side and the typed side can never be normalised two different ways.
  *  This file only asks, and words the answer.
  *
- *  THE WORLDS RULE IS THE NAME RULE. Since v33.29 the same company may be an
- *  IGV partner, a BD sponsor and a B2C venue at once, so a clash only refuses
- *  inside the same name world (ICX · BD · B2C) — exactly where a duplicate
- *  NAME is refused. A number the other world already has is the same company
- *  doing different business with us, which is allowed. */
+ *  ANY ACCOUNT, ANY FUNCTION (v36.5). v36.4 refused only inside the same name
+ *  world (ICX · BD · B2C), copying the name rule — and on its first day two
+ *  duplicates walked straight through it: "boba spot" (BD) with the phone of
+ *  "boba spot cafe" (IGV), and "Tim's coffee" (BD) with timscoffee.eg's (B2B).
+ *  The floor asked for a refusal whenever the value is on ANOTHER account, and
+ *  that is the rule now: the member is shown the account that has it and
+ *  works that one. */
 
 export interface ContactClash {
   key: string;
@@ -42,9 +44,6 @@ interface Row {
   oop_reason: string | null;
 }
 
-const worldOf = (f: string | null | undefined): "ICX" | "BD" | "B2C" =>
-  f === "B2C" ? "B2C" : f === "BD" ? "BD" : "ICX";
-
 const kindOf = (key: string): ContactClash["kind"] =>
   key.startsWith("p:") ? "phone" : key.startsWith("e:") ? "email" : "link";
 
@@ -53,26 +52,27 @@ export function displayContactKey(key: string): string {
   return key.startsWith("p:") ? `+${key.slice(2)}` : key.slice(2);
 }
 
-/** The accounts in the SAME world that already hold one of these values.
- *  `excludeId` is the account being edited — its own values never clash, and
- *  values it already carried before this guard existed are not re-checked.
- *  Fails OPEN: a database hiccup must never stop somebody adding an account. */
+/** Every OTHER account that already holds one of these values, in any
+ *  function. `excludeId` is the account being edited — its own values never
+ *  clash, and values it already carried before this guard existed are not
+ *  re-checked. Fails OPEN: a database hiccup must never stop somebody adding
+ *  an account (and says so in the log). */
 export async function contactClashes(
   contacts: AccountContact[],
-  opts: { fn: AccountFunction | string | null; excludeId?: string | null }
+  opts: { excludeId?: string | null } = {}
 ): Promise<ContactClash[]> {
   if (contacts.length === 0) return [];
+  const exclude =
+    opts.excludeId && /^[0-9a-f-]{36}$/i.test(opts.excludeId) ? opts.excludeId : null;
   const { data, error } = await db().rpc("account_contact_clashes", {
     p_contacts: contacts,
-    p_exclude: opts.excludeId ?? null,
+    p_exclude: exclude,
   });
   if (error) {
     console.error("[contacts] clash check failed, allowing:", error.message);
     return [];
   }
-  const world = worldOf(opts.fn);
   return ((data ?? []) as Row[])
-    .filter((r) => worldOf(r.function) === world)
     .map((r) => ({
       key: r.key,
       value: displayContactKey(r.key),

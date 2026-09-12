@@ -38,6 +38,8 @@ export interface DriveCvPlan {
   truncated: boolean;
   /** false when the rules stood in for the AI */
   aiUsed: boolean;
+  /** files whose NAME didn't settle it, so the AI opened and read them */
+  opened: number;
 }
 
 /** The folder id out of any link shape Drive hands out. */
@@ -71,12 +73,14 @@ export function skipReasonForType(mime: string): string {
   return "not a document";
 }
 
-type Verdict = {
+export type Verdict = {
   isCv: boolean;
   person: string | null;
   product: "GTa" | "GTe" | null;
   industry: string | null;
   reason: string | null;
+  /** the NAME couldn't tell — the file is opened and read before deciding */
+  unsure: boolean;
 };
 
 const snapIndustry = (raw: unknown): string | null => {
@@ -106,7 +110,7 @@ export function parseClassification(
   }
   if (!parsed || !Array.isArray(parsed.items)) return null;
   const items: Verdict[] = Array.from({ length: count }, () => ({
-    isCv: false, person: null, product: null, industry: null, reason: "the AI skipped it",
+    isCv: false, person: null, product: null, industry: null, reason: "the AI skipped it", unsure: true,
   }));
   for (const it of parsed.items as Record<string, unknown>[]) {
     const n = typeof it?.n === "number" ? it.n : Number(it?.n);
@@ -117,9 +121,47 @@ export function parseClassification(
       product: snapProduct(it.product),
       industry: snapIndustry(it.industry),
       reason: clean(it.reason, 80),
+      unsure: it.unsure === true,
     };
   }
   return { lcGuess: clean(parsed.lc_guess, 80), items };
+}
+
+/** A NAME THAT SAYS CV — "CV_ Tunisia opportunity.pdf", "Professional Resume
+ *  YT.pdf". Reported by the floor (v36.5): two real CVs were skipped as
+ *  "Untitled document" because the AI judged them by a file name that named
+ *  nobody. */
+const NAMES_A_CV = /(^|[^a-z])(cv|c\.v|resume|résumé|curriculum|vitae)([^a-z]|$)/i;
+/** …and the verdicts that were decided on what the file IS, not on a missing
+ *  name — a certificate stays a certificate. */
+const DECIDED_NOT_A_CV =
+  /(certificat|transcript|relev|polic|video|another copy|diploma|passport|recommendation|cover letter|motivation)/i;
+
+/** Should the file be OPENED and read before the verdict stands? When its
+ *  name couldn't tell: a CV nobody could name, anything the AI flagged unsure,
+ *  a name that says "CV" but was rejected, and "Untitled"-style rejections. */
+export function needsContentCheck(v: Verdict, fileName: string): boolean {
+  if (v.isCv) return v.person === null;
+  if (NAMES_A_CV.test(fileName)) return true;
+  if (DECIDED_NOT_A_CV.test(v.reason ?? "")) return false;
+  return v.unsure || /(untitled|unclear|unknown|generic|no name|not sure)/i.test(v.reason ?? "");
+}
+
+export const CONTENT_PROMPT =
+  'Is this document a person\'s CV / resume — not a certificate, transcript, letter, form, policy or job description? If it is, give the person\'s full name exactly as written on it, tidily capitalised. Return ONLY this JSON: {"is_cv": boolean, "person": string|null, "reason": string|null} — reason in 2–6 words when it is not a CV.';
+
+/** The AI's answer after READING one file. Null when unusable — the
+ *  name-based verdict then stands. */
+export function parseContentVerdict(
+  raw: string
+): { isCv: boolean; person: string | null; reason: string | null } | null {
+  try {
+    const p = JSON.parse(raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")) as Record<string, unknown>;
+    if (typeof p?.is_cv !== "boolean") return null;
+    return { isCv: p.is_cv, person: clean(p.person), reason: clean(p.reason, 80) };
+  } catch {
+    return null;
+  }
 }
 
 const NOT_A_CV =
@@ -166,17 +208,19 @@ export function classifyByRules(
   const programmeOrSector = (seg: string) =>
     PRODUCT_OF([seg]) !== null || SECTOR_WORDS.some(([re]) => re.test(seg)) || /^other$/i.test(seg);
   const items = docs.map((d): Verdict => {
-    if (NOT_A_CV.test(d.name))
-      return { isCv: false, person: null, product: null, industry: null, reason: "not a CV (by its name)" };
+    if (NOT_A_CV.test(d.name) && !NAMES_A_CV.test(d.name))
+      return { isCv: false, person: null, product: null, industry: null, reason: "not a CV (by its name)", unsure: false };
     const own = d.path[d.path.length - 1];
     const personFolder = own && !programmeOrSector(own) ? own : null;
     const sector = [...d.path].reverse().map((seg) => SECTOR_WORDS.find(([re]) => re.test(seg))?.[1]).find(Boolean) ?? null;
+    const person = tidyName(personFolder ?? d.name);
     return {
       isCv: true,
-      person: tidyName(personFolder ?? d.name),
+      person,
       product: PRODUCT_OF([root, ...d.path]),
       industry: sector,
       reason: null,
+      unsure: person === null,
     };
   });
   const m = /@\s*(?:in\s+)?([\p{L} .'-]{3,40})$/iu.exec(root);

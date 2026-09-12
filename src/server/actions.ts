@@ -401,12 +401,12 @@ export async function createAccount(
   const legacy = legacyContactColumns(contacts);
 
   // THE SAME COMPANY UNDER ANOTHER NAME (v36.4) — a phone, email or link an
-  // account in this name world already has refuses, with that account's
-  // details, the way a duplicate NAME does. Covers the import and the direct
-  // visit too: both come through here.
+  // account already has — in ANY function since v36.5 — refuses, with that
+  // account's details, the way a duplicate NAME does. Covers the import and
+  // the direct visit too: both come through here.
   {
     const { contactClashes, clashRefusal } = await import("./contact-clashes");
-    const [clash] = await contactClashes(contacts, { fn: data.function });
+    const [clash] = await contactClashes(contacts);
     if (clash) {
       const refusal = clashRefusal(clash);
       return fail(refusal.message, clash.archived ? "archived" : "duplicate", refusal.info);
@@ -4873,12 +4873,12 @@ export async function updateAccountContacts(
   const { list: clean, error: contactError } = cleanContacts(contacts);
   if (contactError) return fail(contactError);
 
-  // a number, email or link another account in this world already has
-  // (v36.4) — only what's NEW here is checked, so an account that shared a
-  // value before this guard existed can still be edited
+  // a number, email or link another account already has, in any function
+  // (v36.4/v36.5) — only what's NEW here is checked, so an account that
+  // shared a value before this guard existed can still be edited
   {
     const { contactClashes, clashRefusal } = await import("./contact-clashes");
-    const [clash] = await contactClashes(clean, { fn: account.function, excludeId: accountId });
+    const [clash] = await contactClashes(clean, { excludeId: accountId });
     if (clash) return fail(clashRefusal(clash).message, "duplicate");
   }
 
@@ -5537,6 +5537,15 @@ const proposalSchema = z.object({
    *  and its subject. Sanitised before it goes out (lib/email/edited-html). */
   editedSubject: z.string().trim().max(300).nullish(),
   editedHtml: z.string().max(400_000).nullish(),
+  /** CC / BCC (v36.5) — the member's own copies, up to 10 addresses each */
+  cc: z
+    .array(z.string().trim().refine((v) => EMAIL_RE.test(v), "A CC address isn't a valid email."))
+    .max(10, "Up to 10 CC addresses.")
+    .nullish(),
+  bcc: z
+    .array(z.string().trim().refine((v) => EMAIL_RE.test(v), "A BCC address isn't a valid email."))
+    .max(10, "Up to 10 BCC addresses.")
+    .nullish(),
 });
 
 /** The preview needs no recipient — you are looking at the letter, not
@@ -5674,8 +5683,17 @@ export async function sendProposalEmail(
   try {
     const { sendMemberEmail } = await import("@/lib/google/gmail");
     const { sanitizeEditedEmailHtml } = await import("@/lib/email/edited-html");
+    // CC / BCC (v36.5): the recipient is never copied to themselves, and an
+    // address in both keeps only its CC
+    const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+    const cc = [...new Set(parsed.data.cc ?? [])].filter((a) => !same(a, recipientEmail));
+    const bcc = [...new Set(parsed.data.bcc ?? [])].filter(
+      (a) => !same(a, recipientEmail) && !cc.some((c) => same(c, a))
+    );
     const id = await sendMemberEmail(viewer.google_refresh_token, {
       to: [recipientEmail],
+      ...(cc.length > 0 ? { cc } : {}),
+      ...(bcc.length > 0 ? { bcc } : {}),
       // what the member changed in the preview is what goes out (v36.4)
       subject: parsed.data.editedSubject || built.subject,
       html: parsed.data.editedHtml ? sanitizeEditedEmailHtml(parsed.data.editedHtml) : built.html,

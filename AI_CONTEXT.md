@@ -14,7 +14,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-09-11 · Version: v36.4
+Last updated: 2026-09-12 · Version: v36.5
 
 ---
 
@@ -689,6 +689,31 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-09-12 · v36.5** — **THE DUPLICATE GUARD REFUSES ACROSS FUNCTIONS AND WARNS
+  AS YOU TYPE; THE DRIVE IMPORT READS FILES THEIR NAME COULDN'T SETTLE; CC/BCC
+  ON PROPOSALS.** No migrations.
+  ① Reported the day after v36.4: "u didn't do it, it doesn't work!". The data
+  showed exactly why: at 12:56 "boba spot" (BD) was added with the phone of
+  "boba spot cafe" (IGV), and "Tim's coffee" (BD) with timscoffee.eg's (B2B).
+  v36.4 refused only inside the same name world — copying the name rule, which
+  nobody asked for — and BD is its own world, so neither was stopped. The rule
+  is now the floor's: ANY other account (`contact-clashes.ts` no longer
+  filters). It also runs LIVE while typing (`checkContactClashesLive` in
+  `server/contact-actions.ts`; `useContactClashes` + `ContactClashWarning`) on
+  the add dialog and the account page, and Save stays off until the value
+  goes; the server still refuses on its own. The two duplicates above were
+  left for a human to merge.
+  ② Drive import: two real CVs ("CV_ Tunisia opportunity.pdf", a Canva export
+  "CV Professionnel Minimaliste Bleu_…pdf") were skipped as "Untitled
+  document" — judged by file names that named nobody. The classifier now
+  flags `unsure`, and `needsContentCheck` sends those — plus any rejected file
+  whose name says CV/resume and any CV without a name — to
+  `readDocByContent`, which downloads the file and has Gemini READ it (4 at a
+  time, at most 20 per scan). Files already recognised as certificates or
+  transcripts are not reopened.
+  ③ Proposal emails: CC and BCC under the recipient (up to 10 valid addresses
+  each; the recipient is never copied to themselves).
 
 - **2026-09-11 · v36.4** — **SEARCH BY NUMBER, ONE COMPANY ONE ACCOUNT, LOCATIONS,
   A DRIVE CV IMPORT, AN AI THAT READS EVERYTHING, AND AN EDITABLE PROPOSAL.**

@@ -20,6 +20,7 @@ import type { AccountContact } from "@/lib/types";
 import { Loader2, Plus } from "lucide-react";
 import { MultiPick } from "./multi-pick";
 import { ContactsEditor, contactsValid } from "./contacts-editor";
+import { ContactClashWarning, useContactClashes } from "./contact-clash-warning";
 import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -115,6 +116,9 @@ export function AddAccountDialog({
   const setVal = (key: string) => (v: string) => setForm((f) => ({ ...f, [key]: v }));
 
   const fieldsOk = contactsValid(contacts);
+  // a phone, email or link already on another account — checked as it's
+  // typed (v36.5), refused on Save regardless
+  const { clashes } = useContactClashes(contacts);
 
   // ---- LIVE name check (v22.2): fires while typing so nobody fills the whole
   // form only to learn the name is taken/burned. Stale responses are dropped.
@@ -587,6 +591,7 @@ export function AddAccountDialog({
           <div className="grid gap-2" data-tour="add:contacts">
             <Label>Contact info (phones · emails · links, each with a tag)</Label>
             <ContactsEditor rows={contacts} onChange={setContacts} />
+            <ContactClashWarning clashes={clashes} />
           </div>
 
           <div className="grid gap-2">
@@ -623,6 +628,7 @@ export function AddAccountDialog({
               pending ||
               !(form.name ?? "").trim() ||
               nameBlocked ||
+              clashes.length > 0 ||
               !fieldsOk ||
               viewer.allowedFns.length === 0 ||
               (fn === "IGT" && !form.product) ||
@@ -630,7 +636,13 @@ export function AddAccountDialog({
               (fn === "B2C" && !form.account_type)
             }
           >
-            {pending ? "Checking…" : nameBlocked ? "Name is blocked" : "Add account"}
+            {pending
+              ? "Checking…"
+              : nameBlocked
+                ? "Name is blocked"
+                : clashes.length > 0
+                  ? "Already on another account"
+                  : "Add account"}
           </Button>
         </DialogFooter>
       </DialogContent>
