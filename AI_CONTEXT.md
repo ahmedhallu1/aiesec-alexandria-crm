@@ -14,7 +14,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-09-12 · Version: v36.5
+Last updated: 2026-09-14 · Version: v36.6
 
 ---
 
@@ -64,7 +64,7 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0061_touch_point_location` → `0062_close_rls_gaps` → `0063_prank_mode` →
 `0064_api_keys` → `0065_ir_slot_requests` → `0066_im_prompts` →
 `0067_member_settings` → `0068_cxp_module` → `0069_push_subscriptions` → `0070_b2c_cic_outcomes` →
-`0071_partnership_stage` → … → `0076_next_step_reminders` → `0077_visit_followups_gate` → `0078_contact_keys` → `0079_cv_drive_import` → `0080_redirect_links_and_locations`
+`0071_partnership_stage` → … → `0076_next_step_reminders` → `0077_visit_followups_gate` → `0078_contact_keys` → `0079_cv_drive_import` → `0080_redirect_links_and_locations` → `0081_activation_bid_and_tour_seen`
 (**all applied**, 0046–0063 during v33.22–v33.51, 0064–0067 during v34.5–v34.8,
 0069 during v35).
 
@@ -689,6 +689,33 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-09-14 · v36.6** — **ACCOUNT EDITS SAVE THEMSELVES, AND THE WALKTHROUGH SHOWS
+  ONCE.** Migration **0081 applied** (`members.tour_seen_at` + the Activate bid
+  tables, used from v36.7).
+  ① "They edit an account, they get outside and nothing happened." Measured
+  first: every account PATCH that reached Supabase in the last day was a 204,
+  and the audit log held only ~20 `update` saves in 30 days — the edits were
+  lost BEFORE being sent. The Details, Contact info and Next-step cards only
+  saved on a button that appeared once something changed, and the Next-step
+  one stayed DISABLED while the step had no date, with nothing saying why.
+  They now autosave: `src/lib/autosave.ts` (pure, tested) + `use-autosave.ts`
+  flush on a pause, on blur, when the tab is hidden (tapping WhatsApp/Call),
+  on pagehide and on unmount; `beforeunload` asks while anything is unsaved;
+  `SaveStatus` says Saving / Saved / "Not saved yet — why" / "Not saved —
+  Retry". A failed save is kept, never dropped. The function MOVE stays an
+  explicit "Move to X" button. ⚠️ Any new editable card should use
+  `useAutosave` — `tests/account-edits-save.test.ts` pins the four on the
+  account page. Also: `next_step_date/time` are validated (`lib/sane-date.ts`)
+  — "20888-09-17" was being stored and then refused by Google Calendar.
+  The live clash check (v36.5) was checked and is NOT the cause: it skips
+  values an account already holds.
+  ② The first-run walkthrough kept reopening for some members (Yassin
+  ElHawash). "Seen" was a localStorage flag written only on Done/✕, so leaving
+  mid-tour, clearing the browser or a second device restarted it. It is
+  `members.tour_seen_at` now, set the moment it OPENS (`lib/tour-state.ts`,
+  `markTourSeen`); everyone who had already completed onboarding was
+  backfilled as seen. Help's "↻ Replay the walkthrough" still opens it.
 
 - **2026-09-12 · v36.5** — **THE DUPLICATE GUARD REFUSES ACROSS FUNCTIONS AND WARNS
   AS YOU TYPE; THE DRIVE IMPORT READS FILES THEIR NAME COULDN'T SETTLE; CC/BCC

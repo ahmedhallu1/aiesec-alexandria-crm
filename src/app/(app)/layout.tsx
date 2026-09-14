@@ -192,6 +192,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         role={viewer.isAdmin && viewer.role !== "LCP" ? "LCP" : viewer.role}
         functions={viewer.functions}
         modules={{ raising, tm, ogx, consideration, calendar }}
+        // v36.6 — remembered per MEMBER, not per browser (src/lib/tour-state.ts)
+        seen={!!viewer.tour_seen_at}
+        impersonated={!!viewer.impersonated}
       />
       {viewer.impersonated ? (
         <ViewAsBanner

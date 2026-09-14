@@ -433,6 +433,9 @@ export interface Member {
   password_hash: string | null;
   temp_password_hash: string | null;
   profile_completed_at: string | null;
+  /** v36.6 (0081): the first-run walkthrough has been SHOWN to them — set the
+   *  moment it opens, so any way out of it counts (src/lib/tour-state.ts) */
+  tour_seen_at?: string | null;
   first_login_at: string | null;
   photo_url: string | null;
   /** chosen fun avatar — wins over the Google photo when set */

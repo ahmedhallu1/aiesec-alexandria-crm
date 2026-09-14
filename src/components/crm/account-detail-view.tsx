@@ -46,6 +46,10 @@ import { StageBadge } from "./stage-badge";
 import { ContactDialog, type ContactTarget } from "./contact-dialog";
 import { CopyNameButton } from "./copy-name-button";
 import { useAccountNameCheck } from "./use-account-name-check";
+import { useAutosave } from "./use-autosave";
+import { SaveStatus } from "./save-status";
+import { isSaneIsoDate } from "@/lib/sane-date";
+import type { SaveResult } from "@/lib/autosave";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -609,36 +613,41 @@ function DetailsCard({
     sub_product: account.sub_product ?? "",
     fn: account.function,
   });
-  const [dirty, setDirty] = useState(false);
   // only a flip the USER made is ever sent — a refresh that changed
   // account.function underneath must not turn a stale form value into an
   // accidental flip-back
   const [fnTouched, setFnTouched] = useState(false);
-  const [pending, start] = useTransition();
-  const allOk = true;
+  const [moving, startMove] = useTransition();
+
+  // v36.6 — THE DETAILS SAVE THEMSELVES (src/lib/autosave.ts). The Save
+  // button only appeared once something changed and people left without
+  // pressing it; that is the "edits don't save" report.
+  const auto = useAutosave<ReturnType<typeof detailsOf>>(async (details) => {
+    const res = await updateAccount(account.id, details);
+    if (!res.ok) toast.error(res.error);
+    return (res.ok ? { ok: true } : { ok: false, error: res.error }) satisfies SaveResult;
+  });
 
   const set = (k: keyof typeof form) => (v: string) => {
-    setForm((f) => ({ ...f, [k]: v }));
-    setDirty(true);
+    const next = { ...form, [k]: v };
+    setForm(next);
+    if (k !== "fn") auto.change(detailsOf(next));
   };
-  const save = () =>
-    start(async () => {
-      const { fn, ...rest } = form;
-      const res = await updateAccount(account.id, {
-        ...rest,
-        // a function MOVE rides the same save — sent only when the USER
-        // changed it and it differs from the live value (v33.19: any pair
-        // of the viewer's own functions, not just B2B↔BD)
-        // v36: `fn` is nullable now (the unclaimed pool). A move is only ever
-        // sent for a real target the viewer picked, so a null simply never
-        // qualifies — an unclaimed name gets its function by being CLAIMED,
-        // not by being edited here.
-        ...(fnTouched && fn && fn !== account.function && fnTargets.includes(fn)
-          ? { function: fn }
-          : {}),
-      });
-      if (res.ok) { toast.success("Saved"); setDirty(false); setFnTouched(false); }
-      else toast.error(res.error);
+
+  // A FUNCTION MOVE is deliberate, so it stays a button: it re-files the
+  // account (and its numbers) under another lane, and the server may refuse
+  // it. Sent only when the USER picked a real target that differs (v33.19;
+  // v36: never for the unclaimed pool, whose function comes from a claim).
+  const move = () =>
+    startMove(async () => {
+      const fn = form.fn;
+      if (!fn || fn === account.function || !fnTargets.includes(fn)) return;
+      await auto.flush();
+      const res = await updateAccount(account.id, { function: fn });
+      if (res.ok) {
+        toast.success(`Moved to ${fn}`);
+        setFnTouched(false);
+      } else toast.error(res.error);
     });
 
   // the Function select — rendered on BOTH card variants (a B2C account may
@@ -665,12 +674,17 @@ function DetailsCard({
               ))}
             </SelectContent>
           </Select>
-          {fnTouched && form.fn !== account.function ? (
-            <p className="text-[11px] text-muted-foreground">
-              Saving moves this account (and its numbers) to the {form.fn} lane
-              — it stays yours, and so do its opens. Use this when the enabler
-              turned out to want {form.fn}, not {account.function}.
-            </p>
+          {fnTouched && form.fn && form.fn !== account.function ? (
+            <div className="grid gap-1.5">
+              <p className="text-[11px] text-muted-foreground">
+                Moving puts this account (and its numbers) in the {form.fn} lane
+                — it stays yours, and so do its opens. Use this when the enabler
+                turned out to want {form.fn}, not {account.function}.
+              </p>
+              <Button size="sm" className="w-fit" onClick={move} disabled={moving}>
+                {moving ? "Moving…" : `Move to ${form.fn}`}
+              </Button>
+            </div>
           ) : null}
         </div>
       </div>
@@ -698,6 +712,7 @@ function DetailsCard({
                 className="h-8"
                 value={value}
                 onChange={(e) => set(key)(e.target.value)}
+                onBlur={() => void auto.flush()}
                 placeholder={`Other ${label.toLowerCase()}…`}
               />
             ) : null}
@@ -732,11 +747,7 @@ function DetailsCard({
               <p className="truncate text-sm">{form.account_type || "—"}</p>
             )}
           </div>
-          {canEdit && dirty ? (
-            <Button size="sm" onClick={save} disabled={pending}>
-              {pending ? "Saving…" : "Save details"}
-            </Button>
-          ) : null}
+          {canEdit ? <SaveStatus status={auto.status} onRetry={() => void auto.flush()} /> : null}
         </CardContent>
       </Card>
     );
@@ -797,14 +808,25 @@ function DetailsCard({
             <p className="truncate text-sm">{form.sub_product || "—"}</p>
           </div>
         )}
-        {canEdit && dirty ? (
-          <Button size="sm" onClick={save} disabled={pending || !allOk}>
-            {pending ? "Saving…" : "Save details"}
-          </Button>
-        ) : null}
+        {canEdit ? <SaveStatus status={auto.status} onRetry={() => void auto.flush()} /> : null}
       </CardContent>
     </Card>
   );
+}
+
+/** The fields the Details card autosaves — everything but the function move. */
+function detailsOf(f: {
+  project: string;
+  account_type: string;
+  industry: string;
+  sub_product: string;
+}) {
+  return {
+    project: f.project,
+    account_type: f.account_type,
+    industry: f.industry,
+    sub_product: f.sub_product,
+  };
 }
 
 /** Tagged phones, emails & links — add as many as the account needs. */
@@ -822,16 +844,26 @@ function ContactInfoCard({
         ] as AccountContact[]);
   const [rows, setRows] = useState<AccountContact[]>(initial);
   const [dirty, setDirty] = useState(false);
-  const [pending, start] = useTransition();
   // a value this account is GAINING that another account already has (v36.5)
   const { clashes } = useContactClashes(rows, { excludeId: account.id, enabled: canEdit && dirty });
 
-  const save = () =>
-    start(async () => {
-      const res = await updateAccountContacts(account.id, rows);
-      if (res.ok) { toast.success("Contact info saved"); setDirty(false); }
-      else toast.error(res.error);
-    });
+  // v36.6 — contact info saves itself once it is valid (src/lib/autosave.ts).
+  // A value still being checked is NOT held back: the server refuses a
+  // duplicate on its own, and holding it would lose the edit if they left
+  // during the check.
+  const { status, change, flush } = useAutosave<AccountContact[]>(async (list) => {
+    const res = await updateAccountContacts(account.id, list);
+    if (!res.ok) toast.error(res.error);
+    return (res.ok ? { ok: true } : { ok: false, error: res.error }) satisfies SaveResult;
+  });
+  const blocked = !contactsValid(rows)
+    ? "fix the number, email or link marked in red"
+    : clashes.length > 0
+      ? "one of these is already on another account (see above)"
+      : null;
+  useEffect(() => {
+    if (dirty) change(rows, blocked);
+  }, [dirty, rows, blocked, change]);
 
   return (
     <Card>
@@ -859,15 +891,7 @@ function ContactInfoCard({
           onChange={(r) => { setRows(r); setDirty(true); }}
         />
         {canEdit && dirty ? <ContactClashWarning clashes={clashes} /> : null}
-        {canEdit && dirty ? (
-          <Button
-            size="sm"
-            onClick={save}
-            disabled={pending || !contactsValid(rows) || clashes.length > 0}
-          >
-            {pending ? "Saving…" : "Save contact info"}
-          </Button>
-        ) : null}
+        {canEdit ? <SaveStatus status={status} onRetry={() => void flush()} /> : null}
       </CardContent>
     </Card>
   );
@@ -880,15 +904,24 @@ function ContactInfoCard({
  *  firmer, a week later). */
 function PodioUpdateCard({ account, canEdit }: { account: PipelineRow; canEdit: boolean }) {
   const [pending, start] = useTransition();
+  const every =
+    account.podio_update_every_days ??
+    (account.function ? podioDefaultDays(account.function) : 14);
+  const [days, setDays] = useState(String(every));
+  // v36.6 — the cadence saves itself like the other cards (src/lib/autosave.ts)
+  const cadence = useAutosave<number>(async (n) => {
+    const res = await setPodioUpdateCadence(account.id, n);
+    if (!res.ok) toast.error(res.error);
+    return (res.ok ? { ok: true } : { ok: false, error: res.error }) satisfies SaveResult;
+  });
   // v36: THE UNCLAIMED POOL IS ON NOBODY'S PODIO CYCLE. This card asks a
   // person to go and refresh a partner on Podio every N days — and an unowned
   // research name has no person and no partner yet. The cron already skips
   // unowned rows for the same reason (v34.1: nobody submits a name nobody has
   // been given), so rendering the card here would be a countdown against a
-  // deadline nothing enforces.
+  // deadline nothing enforces. (v36.6: returned AFTER the hooks — returning
+  // before them broke the rules of hooks the moment a row gained a function.)
   if (!account.function) return null;
-  const every = account.podio_update_every_days ?? podioDefaultDays(account.function);
-  const [days, setDays] = useState(String(every));
   const anchor = new Date(account.podio_updated_at ?? account.created_at);
   const due = new Date(anchor.getTime() + every * 86400000);
   const msLeft = due.getTime() - Date.now();
@@ -900,12 +933,6 @@ function PodioUpdateCard({ account, canEdit }: { account: PipelineRow; canEdit: 
     start(async () => {
       const res = await markPodioUpdated(account.id);
       if (res.ok) toast.success("Countdown reset — next update in " + every + " days 🔄");
-      else toast.error(res.error);
-    });
-  const saveCadence = () =>
-    start(async () => {
-      const res = await setPodioUpdateCadence(account.id, Number(days) || 0);
-      if (res.ok) toast.success("Cadence updated");
       else toast.error(res.error);
     });
 
@@ -987,16 +1014,24 @@ function PodioUpdateCard({ account, canEdit }: { account: PipelineRow; canEdit: 
                 max={90}
                 className="h-8 w-16"
                 value={days}
-                onChange={(e) => setDays(e.target.value)}
+                onChange={(e) => {
+                  setDays(e.target.value);
+                  const n = Number(e.target.value);
+                  cadence.change(
+                    n,
+                    Number.isInteger(n) && n >= 1 && n <= 90 ? null : "pick between 1 and 90 days"
+                  );
+                }}
+                onBlur={() => void cadence.flush()}
                 aria-label="Update every N days"
               />
               days
-              {Number(days) !== every ? (
-                <Button size="sm" variant="outline" onClick={saveCadence} disabled={pending}>
-                  Save
-                </Button>
-              ) : null}
             </span>
+            <SaveStatus
+              status={cadence.status}
+              onRetry={() => void cadence.flush()}
+              className="w-full justify-end"
+            />
           </div>
         ) : null}
       </CardContent>
@@ -1124,17 +1159,26 @@ function NextStepCard({ account, canEdit }: { account: PipelineRow; canEdit: boo
   const [step, setStep] = useState(account.next_step ?? "");
   const [date, setDate] = useState(account.next_step_date ?? "");
   const [time, setTime] = useState(account.next_step_time?.slice(0, 5) ?? "");
-  const [dirty, setDirty] = useState(false);
-  const [pending, start] = useTransition();
 
-  const save = () =>
-    start(async () => {
-      const res = await updateAccount(account.id, {
-        next_step: step, next_step_date: date || null, next_step_time: time || null,
-      });
-      if (res.ok) { toast.success("Next step saved"); setDirty(false); }
-      else toast.error(res.error);
+  // v36.6 — THE NEXT STEP SAVES ITSELF (src/lib/autosave.ts). Its Save button
+  // appeared only after a change and stayed DISABLED while the step had no
+  // date, with nothing saying why — so a step typed without a date could not
+  // be saved at all, and one typed with a date was lost by anyone who left
+  // without pressing it.
+  const auto = useAutosave<{ step: string; date: string; time: string }>(async (v) => {
+    const res = await updateAccount(account.id, {
+      next_step: v.step, next_step_date: v.date || null, next_step_time: v.time || null,
     });
+    if (!res.ok) toast.error(res.error);
+    return (res.ok ? { ok: true } : { ok: false, error: res.error }) satisfies SaveResult;
+  });
+  const update = (patch: Partial<{ step: string; date: string; time: string }>) => {
+    const next = { step, date, time, ...patch };
+    setStep(next.step);
+    setDate(next.date);
+    setTime(next.time);
+    auto.change(next, nextStepProblem(next));
+  };
 
   return (
     <Card className={account.next_step_missing ? "border-destructive/50" : undefined}>
@@ -1148,13 +1192,16 @@ function NextStepCard({ account, canEdit }: { account: PipelineRow; canEdit: boo
           placeholder="What happens next with this account?"
           value={step}
           disabled={!canEdit}
-          onChange={(e) => { setStep(e.target.value); setDirty(true); }}
+          onChange={(e) => update({ step: e.target.value })}
+          onBlur={() => void auto.flush()}
         />
         <div className="grid grid-cols-2 gap-2">
-          <Input type="date" value={date} disabled={!canEdit}
-            onChange={(e) => { setDate(e.target.value); setDirty(true); }} />
+          <Input type="date" value={date} disabled={!canEdit} min="2020-01-01" max="2100-12-31"
+            onChange={(e) => update({ date: e.target.value })}
+            onBlur={() => void auto.flush()} />
           <Input type="time" value={time} disabled={!canEdit}
-            onChange={(e) => { setTime(e.target.value); setDirty(true); }} />
+            onChange={(e) => update({ time: e.target.value })}
+            onBlur={() => void auto.flush()} />
         </div>
         {canEdit ? (
           <Button
@@ -1164,10 +1211,9 @@ function NextStepCard({ account, canEdit }: { account: PipelineRow; canEdit: boo
             onClick={() => {
               const d = new Date();
               d.setDate(d.getDate() + 7);
-              setDate(
-                `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-              );
-              setDirty(true);
+              update({
+                date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
+              });
             }}
           >
             <CalendarPlus className="size-3.5" /> Next week
@@ -1186,26 +1232,29 @@ function NextStepCard({ account, canEdit }: { account: PipelineRow; canEdit: boo
                 return;
               }
               const d = new Date(res.data.startsAt);
-              setDate(
-                `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-              );
-              setTime(`${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`);
-              if (!step.trim()) setStep("Contact them again during working hours");
-              setDirty(true);
+              update({
+                date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
+                time: `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`,
+                ...(step.trim() ? {} : { step: "Contact them again during working hours" }),
+              });
               toast.success("Next step set to your next working hours ⏰");
             }}
           >
             <CalendarPlus className="size-3.5" /> Next working hours
           </Button>
         ) : null}
-        {canEdit && dirty ? (
-          <Button size="sm" onClick={save} disabled={pending || (!!step && !date)}>
-            {pending ? "Saving…" : "Save next step"}
-          </Button>
-        ) : null}
+        {canEdit ? <SaveStatus status={auto.status} onRetry={() => void auto.flush()} /> : null}
       </CardContent>
     </Card>
   );
+}
+
+/** Why a next step can't be saved as typed — in words, never a dead button. */
+function nextStepProblem(v: { step: string; date: string; time: string }): string | null {
+  if (v.date && !isSaneIsoDate(v.date)) return "that date doesn't look right — check the year";
+  if (v.step.trim() && !v.date) return "add a date — every next step needs one (Next week is one tap)";
+  if (v.time && !v.date) return "a time needs a date";
+  return null;
 }
 
 /** Numbered comments: everyone logs as many as needed. TL/VP/LCP comments carry

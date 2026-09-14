@@ -9,6 +9,7 @@ import bcrypt from "bcryptjs";
 import { db } from "@/lib/supabase";
 import { env } from "@/lib/env";
 import { checkVisitTime } from "@/lib/visit-time";
+import { isSaneIsoDate, isSaneTime } from "@/lib/sane-date";
 import { memberEmailProblem, memberNameProblem } from "@/lib/member-fields";
 import { mintKey } from "./api-keys";
 import { API_FIELDS, API_FUNCTIONS } from "@/lib/api-scope";
@@ -499,8 +500,16 @@ const editableFields = z.object({
   requested_podio: z.boolean().nullish(),
   request_state: z.enum(["Checking", "Approved", "Rejected"]).nullish(),
   next_step: z.string().trim().nullish(),
-  next_step_date: z.string().nullish(),
-  next_step_time: z.string().nullish(),
+  // v36.6 — a date input takes a six-digit year, and "20888-09-17" was being
+  // stored and then refused by Google Calendar. "" still means "clear it".
+  next_step_date: z
+    .string()
+    .nullish()
+    .refine((v) => !v || isSaneIsoDate(v), "That date doesn't look right — check the year."),
+  next_step_time: z
+    .string()
+    .nullish()
+    .refine((v) => !v || isSaneTime(v), "That time doesn't look right."),
 });
 
 /** RENAME AN ACCOUNT (v33.38) — open to anyone who may edit it.

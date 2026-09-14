@@ -66,6 +66,9 @@ const BACKUP_TABLES = [
   "touch_point_routines",
   // calendar
   "calendar_items",
+  // the Activate 26' hosting bid (v36.6) — typed by hand, nowhere else
+  "activation_sections",
+  "activation_rows",
   // planning + feedback
   "plan_cells",
   "mm_plans",

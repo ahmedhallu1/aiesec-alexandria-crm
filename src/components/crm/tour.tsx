@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import { GuidedTour, type TourStep } from "./guided-tour";
+import { tourDecision } from "@/lib/tour-state";
+import { markTourSeen } from "@/server/tour-actions";
 
 /** Which modules are LIVE for this viewer — mirrors the layout's rbac checks
  *  (hasRaisingAccess / hasTmAccess / hasOgxAccess / hasConsiderationAccess). */
@@ -225,34 +227,56 @@ function buildSteps(role: string, m: TourModules, fns: string[]): TourStep[] {
   return steps;
 }
 
-/** One-time guided walkthrough, keyed per member in this browser. */
+/** The first-run walkthrough: shown ONCE per member (not per browser), and
+ *  again only when they ask for it from Help.
+ *
+ *  v36.6 — it kept coming back for some members on every visit (Yassin
+ *  ElHawash reported it). "Seen" lived in localStorage and was written only
+ *  when the tour was CLOSED with Done or ✕ — so closing the app mid-tour, a
+ *  browser that clears site data, or opening Sodio on another device started it
+ *  over from step 1. The flag is now `members.tour_seen_at`, written the moment
+ *  the tour OPENS. The rule itself is `tourDecision` (src/lib/tour-state.ts). */
 export function Tour({
-  email, role, modules, functions, subFunctions,
+  email, role, modules, functions, subFunctions, seen, impersonated = false,
 }: {
   email: string;
   role: string;
   functions?: string[];
   subFunctions?: string[];
   modules: TourModules;
+  /** members.tour_seen_at is set — the server's answer, not this browser's */
+  seen: boolean;
+  /** an admin's test view: never auto-open for, or mark on behalf of, anyone */
+  impersonated?: boolean;
 }) {
-  // v4 (v33.29): the walkthrough was rebuilt — world-aware wording, the
-  // direct-visit and Emails steps, mobile no longer stalls on table targets —
-  // so everyone sees it once more
+  // the pre-v36.6 browser flag — read once, so members who finished the tour
+  // before this release are carried over to the server instead of re-shown
   const storageKey = `crm-tour-v4:${email.toLowerCase()}`;
-  const neverSeen = useSyncExternalStore(
-    () => () => {},
-    () => {
-      try { return !localStorage.getItem(storageKey); } catch { return false; }
-    },
-    () => false
-  );
-  const [dismissed, setDismissed] = useState(false);
+  // latched: once it opens it stays open until THEY close it, even if a later
+  // server render already says "seen"
+  const [active, setActive] = useState(false);
   const [replay, setReplay] = useState(false);
 
-  // "Replay the walkthrough" (Playbook) — a dismissed tour must never be gone
-  // for good in that browser
   useEffect(() => {
-    const onReplay = () => { setDismissed(false); setReplay(true); };
+    // deferred: the decision needs localStorage, which only exists here
+    const t = window.setTimeout(() => {
+      let browserSeen = false;
+      try { browserSeen = !!localStorage.getItem(storageKey); } catch {}
+      const d = tourDecision({ serverSeen: seen, browserSeen, impersonated });
+      if (d.markSeen) {
+        try { localStorage.setItem(storageKey, new Date().toISOString()); } catch {}
+        void markTourSeen().catch(() => {});
+      }
+      if (d.autoOpen) setActive(true);
+    }, 0);
+    return () => window.clearTimeout(t);
+    // once per mount of the app shell — the layout persists across pages
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // "Replay the walkthrough" (Help) — always available, never automatic
+  useEffect(() => {
+    const onReplay = () => setReplay(true);
     window.addEventListener("sodio:replay-tour", onReplay);
     return () => window.removeEventListener("sodio:replay-tour", onReplay);
   }, []);
@@ -261,11 +285,10 @@ export function Tour({
     ...(functions ?? []),
     ...(subFunctions ?? []),
   ]);
-  const open = ((neverSeen && !dismissed) || replay) && steps.length > 0;
+  const open = (active || replay) && steps.length > 0;
 
   const done = () => {
-    try { localStorage.setItem(storageKey, new Date().toISOString()); } catch {}
-    setDismissed(true);
+    setActive(false);
     setReplay(false);
   };
 

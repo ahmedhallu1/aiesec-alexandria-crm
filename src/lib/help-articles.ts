@@ -8,6 +8,82 @@ import type { HelpArticle } from "./help-content";
  */
 export const HELP_ARTICLES: HelpArticle[] = [
  {
+  "id": "edits-save-themselves",
+  "title": "Your account edits save themselves",
+  "emoji": "✅",
+  "category": "faq",
+  "audience": "Everyone who works accounts",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "save",
+   "not saved",
+   "lost",
+   "edit",
+   "next step",
+   "details",
+   "contact info",
+   "autosave",
+   "nothing happened",
+   "حفظ",
+   "اتمسح"
+  ],
+  "summary": "Next step, Details, Contact info and the Podio cadence on an account save automatically — the line under each card tells you when it's done, or why it can't be yet.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "On an account page you no longer press a Save button. Type, pick, or tap **Next week** — Sodio saves as soon as you pause, when you leave the field, when you switch to WhatsApp or Call, and when you go back to the list."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "**Saves automatically when you pause…** — you are still typing; it goes out in a second.",
+     "**Saving…** then **✓ Saved** — it is in Sodio, for everyone.",
+     "**Not saved yet — …** — something has to be fixed first, and it says what (for example, a next step needs a date).",
+     "**Not saved — … · Retry** — the connection or the server refused it. Nothing is thrown away: press Retry, or it is sent again when you leave the page."
+    ]
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**Moving an account to another function is still a button** (\"Move to IGV\"), on purpose — it re-files the account and its numbers under another lane, so it should never happen by accident."
+   }
+  ]
+ },
+ {
+  "id": "walkthrough-once",
+  "title": "The walkthrough shows once — replay it any time",
+  "emoji": "🧭",
+  "category": "faq",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "walkthrough",
+   "tour",
+   "onboarding",
+   "keeps showing",
+   "every time",
+   "replay",
+   "guide",
+   "جولة"
+  ],
+  "summary": "Sodio shows you the guided walkthrough the first time you enter, and never again unless you ask for it from Help.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "The walkthrough used to be remembered by your **browser**, and only when you finished it or pressed ✕ — so closing the app halfway, clearing your browser, or opening Sodio on your phone started it again from the beginning. It is remembered on **your account** now, from the moment it first opens."
+   },
+   {
+    "t": "callout",
+    "tone": "tip",
+    "md": "Want it again? Open [Help](/help) and press **↻ Replay the walkthrough** at the top."
+   }
+  ]
+ },
+ {
   "id": "pdp-and-o2o",
   "title": "Your PDP and your one-on-one",
   "emoji": "📋",
