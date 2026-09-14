@@ -1,0 +1,3480 @@
+{
+ "generatedFrom": [
+  "Activate (Timeline, Checkpoints)",
+  "Activate 26' (Structure & JDs, Mapping, HR Plan, OC-TimeLine1)"
+ ],
+ "capacity": 93,
+ "dayNotes": {
+  "Day 0": "LCPs Pre-Meeting"
+ },
+ "timelineRows": [
+  {
+   "id": "c31150ee-fb1a-4474-b578-83073e9d2196",
+   "data": {
+    "title": "Bid Result Announcement",
+    "lane": "all",
+    "start": "2026-09-25",
+    "end": "2026-09-25",
+    "kind": "milestone",
+    "notes": "",
+    "done": false,
+    "original": "2026-09-25"
+   }
+  },
+  {
+   "id": "599dbcec-b9a4-4b21-9bc5-9b94b3f5b866",
+   "data": {
+    "title": "Announcing To the Membership",
+    "lane": "all",
+    "start": "2026-09-26",
+    "end": "2026-09-26",
+    "kind": "milestone",
+    "notes": "",
+    "done": false,
+    "original": "2026-09-26"
+   }
+  },
+  {
+   "id": "3a0396ce-7474-4795-a5d7-cf19216fb4e6",
+   "data": {
+    "title": "OC Application Release",
+    "lane": "all",
+    "start": "2026-09-27",
+    "end": "2026-09-27",
+    "kind": "milestone",
+    "notes": "",
+    "done": false,
+    "original": "2026-09-27"
+   }
+  },
+  {
+   "id": "2130d98d-8a65-4ece-80d0-484abec4b092",
+   "data": {
+    "title": "OCP Selections & Announcement",
+    "lane": "all",
+    "start": "2026-10-02",
+    "end": "2026-10-02",
+    "kind": "milestone",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-02"
+   }
+  },
+  {
+   "id": "d5130438-a41b-4eb6-bf85-11053f356be4",
+   "data": {
+    "title": "OCVPs Selection & Announcement",
+    "lane": "all",
+    "start": "2026-10-03",
+    "end": "2026-10-03",
+    "kind": "milestone",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-03"
+   }
+  },
+  {
+   "id": "8fbfb2d5-7302-4ac6-89bc-8788b11e55fe",
+   "data": {
+    "title": "Teamsters Selections",
+    "lane": "all",
+    "start": "2026-10-04",
+    "end": "2026-10-04",
+    "kind": "milestone",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-04"
+   }
+  },
+  {
+   "id": "a2afbd58-0e74-4432-a577-17ebf0d0ed68",
+   "data": {
+    "title": "OC Announcement",
+    "lane": "all",
+    "start": "2026-10-05",
+    "end": "2026-10-05",
+    "kind": "milestone",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-05"
+   }
+  },
+  {
+   "id": "5e818b2b-5ea5-4b94-b42d-0f55540ae006",
+   "data": {
+    "title": "1st OC Meeting",
+    "lane": "all",
+    "start": "2026-10-06",
+    "end": "2026-10-06",
+    "kind": "milestone",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-06"
+   }
+  },
+  {
+   "id": "e0ba5514-5943-40d7-a4d2-2dcf548af302",
+   "data": {
+    "title": "Transition & Tools Creation",
+    "lane": "all",
+    "start": "2026-10-07",
+    "end": "2026-10-09",
+    "kind": "milestone",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-07 → 2026-10-10"
+   }
+  },
+  {
+   "id": "54905036-1c0f-471a-9a9e-6216b6c907c2",
+   "data": {
+    "title": "Theme Brainstorming",
+    "lane": "decor",
+    "start": "2026-10-10",
+    "end": "2026-10-10",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-11 → 2026-10-12"
+   }
+  },
+  {
+   "id": "417f82c3-118c-4473-9d72-dad056d1a1ee",
+   "data": {
+    "title": "Theme Brainstorming",
+    "lane": "dx",
+    "start": "2026-10-10",
+    "end": "2026-10-10",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-11 → 2026-10-12"
+   }
+  },
+  {
+   "id": "2cdfabff-9ecd-458e-a140-dbed0124244c",
+   "data": {
+    "title": "Theme Brainstorming",
+    "lane": "marketing",
+    "start": "2026-10-10",
+    "end": "2026-10-10",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-11 → 2026-10-12"
+   }
+  },
+  {
+   "id": "9d891a01-1f77-4bc3-ada6-515791ca6b75",
+   "data": {
+    "title": "Venue Done",
+    "lane": "logistics",
+    "start": "2026-10-10",
+    "end": "2026-10-10",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-11 → 2026-10-12"
+   }
+  },
+  {
+   "id": "e4eebc5e-b51e-4351-bf33-60e93410a033",
+   "data": {
+    "title": "Venue Done",
+    "lane": "finance",
+    "start": "2026-10-10",
+    "end": "2026-10-10",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-11 → 2026-10-12"
+   }
+  },
+  {
+   "id": "9dfccca9-247a-48a0-9373-529e4a5a19c3",
+   "data": {
+    "title": "Market Research for In-kinds",
+    "lane": "catering",
+    "start": "2026-10-10",
+    "end": "2026-10-16",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-11 → 2026-10-20"
+   }
+  },
+  {
+   "id": "f2d5f05a-a626-4ddf-a039-79120ebc0a56",
+   "data": {
+    "title": "Decorations Creation",
+    "lane": "decor",
+    "start": "2026-10-11",
+    "end": "2026-12-01",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-13 → 2026-12-22"
+   }
+  },
+  {
+   "id": "14a43227-1240-40cb-aa2d-4677c543c74a",
+   "data": {
+    "title": "DX Needs",
+    "lane": "dx",
+    "start": "2026-10-11",
+    "end": "2026-10-12",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-13 → 2026-10-14"
+   }
+  },
+  {
+   "id": "77c8f770-bd3c-4fa2-9c55-76a54bbe9aeb",
+   "data": {
+    "title": "Basic Planning",
+    "lane": "marketing",
+    "start": "2026-10-11",
+    "end": "2026-10-11",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-13"
+   }
+  },
+  {
+   "id": "34a29725-1beb-49d5-bc0a-67d090fccb9b",
+   "data": {
+    "title": "Check DX Needs",
+    "lane": "logistics",
+    "start": "2026-10-11",
+    "end": "2026-10-11",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-13"
+   }
+  },
+  {
+   "id": "9f2999f4-2cc7-44c5-b81a-c48116d05ad4",
+   "data": {
+    "title": "Budget Done & Approved by MC",
+    "lane": "finance",
+    "start": "2026-10-11",
+    "end": "2026-10-13",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-13 → 2026-10-15"
+   }
+  },
+  {
+   "id": "7896d33b-1fca-4790-b78c-b080744c0463",
+   "data": {
+    "title": "Logo & Slogan Creation",
+    "lane": "marketing",
+    "start": "2026-10-12",
+    "end": "2026-10-13",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-14 → 2026-10-15"
+   }
+  },
+  {
+   "id": "e0b5e37c-7881-4b29-991b-fa087d2da3f6",
+   "data": {
+    "title": "Check Catering Needs",
+    "lane": "logistics",
+    "start": "2026-10-12",
+    "end": "2026-10-12",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-14"
+   }
+  },
+  {
+   "id": "b9ccf440-f4cb-4760-8aa8-7bc5dd3314cb",
+   "data": {
+    "title": "Activities Brainstorming",
+    "lane": "dx",
+    "start": "2026-10-13",
+    "end": "2026-10-13",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-15 → 2026-10-16"
+   }
+  },
+  {
+   "id": "4131775a-0365-4dde-8027-02e4f6995aa9",
+   "data": {
+    "title": "Logistics Scenarios & Planning",
+    "lane": "logistics",
+    "start": "2026-10-13",
+    "end": "2026-10-13",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-15 → 2026-10-16"
+   }
+  },
+  {
+   "id": "69bab92d-ace7-4ca2-8c2d-0943526c9fee",
+   "data": {
+    "title": "MK Campaign Planning",
+    "lane": "dx",
+    "start": "2026-10-16",
+    "end": "2026-10-17",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-19 → 2026-10-21"
+   }
+  },
+  {
+   "id": "072a5831-1967-4291-963d-83520828c9d5",
+   "data": {
+    "title": "MK Campaign Planning",
+    "lane": "marketing",
+    "start": "2026-10-16",
+    "end": "2026-10-17",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-19 → 2026-10-21"
+   }
+  },
+  {
+   "id": "e0396941-57fe-4bbb-8ceb-921b65056ecc",
+   "data": {
+    "title": "DX Needs",
+    "lane": "logistics",
+    "start": "2026-10-16",
+    "end": "2026-10-17",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-19 → 2026-10-21"
+   }
+  },
+  {
+   "id": "2d919d5e-7a27-484b-859e-bf7c9a6bab9d",
+   "data": {
+    "title": "DX Needs",
+    "lane": "finance",
+    "start": "2026-10-16",
+    "end": "2026-10-17",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-19 → 2026-10-21"
+   }
+  },
+  {
+   "id": "ca1ee71a-e61a-4be4-a0a3-a79cddc8146c",
+   "data": {
+    "title": "Market Research for Merch",
+    "lane": "logistics",
+    "start": "2026-10-19",
+    "end": "2026-10-22",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-23 → 2026-10-28"
+   }
+  },
+  {
+   "id": "e803c2c6-5a86-4f04-876e-3b059662d268",
+   "data": {
+    "title": "First In-kind Deal",
+    "lane": "catering",
+    "start": "2026-10-19",
+    "end": "2026-10-19",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-23"
+   }
+  },
+  {
+   "id": "4c2a50fc-4517-48bb-a84d-02d8c89ac07f",
+   "data": {
+    "title": "Market Research for In-kinds",
+    "lane": "catering",
+    "start": "2026-10-19",
+    "end": "2026-10-22",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-24 → 2026-10-28"
+   }
+  },
+  {
+   "id": "661358a4-992a-40fa-98c2-eff32e0e7d08",
+   "data": {
+    "title": "Engagement Plan",
+    "lane": "dx",
+    "start": "2026-10-20",
+    "end": "2026-10-20",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-25 → 2026-10-26"
+   }
+  },
+  {
+   "id": "cdc4bd0b-bec9-4fd5-a547-e4c649998621",
+   "data": {
+    "title": "Social Media Creation",
+    "lane": "marketing",
+    "start": "2026-10-20",
+    "end": "2026-10-20",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-25 → 2026-10-26"
+   }
+  },
+  {
+   "id": "19b52fb4-891d-438a-b8a8-11ae5381bd22",
+   "data": {
+    "title": "DX Working Hours",
+    "lane": "dx",
+    "start": "2026-10-21",
+    "end": "2026-10-21",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-27"
+   }
+  },
+  {
+   "id": "ac59874a-0c60-463f-85f8-ba1badcf997d",
+   "data": {
+    "title": "Registration Form with Finance",
+    "lane": "dx",
+    "start": "2026-10-22",
+    "end": "2026-10-22",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-28"
+   }
+  },
+  {
+   "id": "b3ad9df4-506f-41c3-bf28-57f7f7ab540b",
+   "data": {
+    "title": "#1 Teaser Video",
+    "lane": "marketing",
+    "start": "2026-10-22",
+    "end": "2026-10-22",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-28"
+   }
+  },
+  {
+   "id": "dd09c8bb-9d4a-4ef5-a444-fc84724e873a",
+   "data": {
+    "title": "Registration Form with DX",
+    "lane": "finance",
+    "start": "2026-10-22",
+    "end": "2026-10-22",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-28"
+   }
+  },
+  {
+   "id": "4f165bc5-b1e2-44e4-8204-dea63da023f7",
+   "data": {
+    "title": "Brainstorming for gala night needs",
+    "lane": "dx",
+    "start": "2026-10-24",
+    "end": "2026-10-24",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-30 → 2026-10-31"
+   }
+  },
+  {
+   "id": "bad74299-7799-4c1e-864c-8097755e321a",
+   "data": {
+    "title": "T-shirt OC/Faci",
+    "lane": "marketing",
+    "start": "2026-10-24",
+    "end": "2026-10-24",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-30"
+   }
+  },
+  {
+   "id": "72220ff7-43cc-4913-a1a3-f4bff479233a",
+   "data": {
+    "title": "Market Research for In-kinds",
+    "lane": "catering",
+    "start": "2026-10-24",
+    "end": "2026-10-26",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-30 → 2026-11-03"
+   }
+  },
+  {
+   "id": "7220232b-4eee-4d4e-bdf5-c88e72eeaba0",
+   "data": {
+    "title": "Delegates T-shirt",
+    "lane": "marketing",
+    "start": "2026-10-24",
+    "end": "2026-10-24",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-31"
+   }
+  },
+  {
+   "id": "b3550d38-e5cb-40a7-8c40-843d26c1f8e4",
+   "data": {
+    "title": "Merch",
+    "lane": "logistics",
+    "start": "2026-10-24",
+    "end": "2026-10-27",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-10-31 → 2026-11-04"
+   }
+  },
+  {
+   "id": "03e8ce36-8716-4f08-8e2e-962c9602bf2b",
+   "data": {
+    "title": "Approaching Accepted Applicants",
+    "lane": "dx",
+    "start": "2026-10-25",
+    "end": "2026-10-25",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-01"
+   }
+  },
+  {
+   "id": "3fccee14-9be4-4144-be43-e71df98d6997",
+   "data": {
+    "title": "Creating WhatsApp Group for Applicants",
+    "lane": "dx",
+    "start": "2026-10-26",
+    "end": "2026-10-26",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-02"
+   }
+  },
+  {
+   "id": "e78d8d97-e150-4601-84cf-d2e5df6c7055",
+   "data": {
+    "title": "1st round release",
+    "lane": "dx",
+    "start": "2026-10-27",
+    "end": "2026-10-27",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-03"
+   }
+  },
+  {
+   "id": "a03f251b-5ef6-4c7e-851c-757f51c24b24",
+   "data": {
+    "title": "First Round Posts + Closing Round",
+    "lane": "marketing",
+    "start": "2026-10-27",
+    "end": "2026-10-27",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-03 → 2026-11-04"
+   }
+  },
+  {
+   "id": "bd1dd93c-67fc-4bdc-af2d-03bc16d70386",
+   "data": {
+    "title": "Gala night needs Expenses",
+    "lane": "finance",
+    "start": "2026-10-27",
+    "end": "2026-10-27",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-03"
+   }
+  },
+  {
+   "id": "a445b703-9c08-41c7-ba92-5ba4aeb7a105",
+   "data": {
+    "title": "1st round",
+    "lane": "dx",
+    "start": "2026-10-27",
+    "end": "2026-10-27",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-04"
+   }
+  },
+  {
+   "id": "42f1c358-9260-461a-8f60-08e01165381c",
+   "data": {
+    "title": "Second In-kind Deal",
+    "lane": "catering",
+    "start": "2026-10-27",
+    "end": "2026-10-27",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-04"
+   }
+  },
+  {
+   "id": "6b8657d4-a337-43e1-a48a-e6f9b50ac1b2",
+   "data": {
+    "title": "1st round",
+    "lane": "dx",
+    "start": "2026-10-29",
+    "end": "2026-10-31",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-06 → 2026-11-09"
+   }
+  },
+  {
+   "id": "578bd627-0f82-4530-ace6-f34c82dbdfb9",
+   "data": {
+    "title": "Stickers & Fiber Bracelets",
+    "lane": "marketing",
+    "start": "2026-10-29",
+    "end": "2026-10-29",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-06"
+   }
+  },
+  {
+   "id": "43be51f0-39d5-45a1-ac81-d763e46591bd",
+   "data": {
+    "title": "Calls and Visits for Merch",
+    "lane": "logistics",
+    "start": "2026-10-29",
+    "end": "2026-10-29",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-06"
+   }
+  },
+  {
+   "id": "46b4065f-a698-47b6-9c8f-953c4b10f714",
+   "data": {
+    "title": "Market Research for In-kinds",
+    "lane": "catering",
+    "start": "2026-10-29",
+    "end": "2026-10-31",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-06 → 2026-11-10"
+   }
+  },
+  {
+   "id": "c96306c7-4763-4a17-8123-dbb10d7058bb",
+   "data": {
+    "title": "Certificate & Awards",
+    "lane": "marketing",
+    "start": "2026-10-30",
+    "end": "2026-10-30",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-08"
+   }
+  },
+  {
+   "id": "21efb49f-d28c-41ed-b48b-9b4a8c068b55",
+   "data": {
+    "title": "Certificates & Awards Deals",
+    "lane": "logistics",
+    "start": "2026-10-30",
+    "end": "2026-10-30",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-08"
+   }
+  },
+  {
+   "id": "161ed172-024a-4096-adaf-78e01cfa3634",
+   "data": {
+    "title": "Send OC & Faci T-shirts",
+    "lane": "logistics",
+    "start": "2026-10-31",
+    "end": "2026-10-31",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-09"
+   }
+  },
+  {
+   "id": "48f4fb2a-414d-4118-9a9b-629ed74cbf5e",
+   "data": {
+    "title": "Checkpoint for Fees (Registration)",
+    "lane": "dx",
+    "start": "2026-11-01",
+    "end": "2026-11-01",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-10 → 2026-11-11"
+   }
+  },
+  {
+   "id": "fbd5eb25-08b3-4ed4-a6bd-14b33acaeeba",
+   "data": {
+    "title": "#2 Teaser Video",
+    "lane": "marketing",
+    "start": "2026-11-01",
+    "end": "2026-11-01",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-11"
+   }
+  },
+  {
+   "id": "e6166864-dc3e-4ea4-be71-861c81f7f15f",
+   "data": {
+    "title": "Third In-kind Deal",
+    "lane": "catering",
+    "start": "2026-11-01",
+    "end": "2026-11-01",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-11"
+   }
+  },
+  {
+   "id": "5065886b-cd84-4091-a062-53bce060e9d4",
+   "data": {
+    "title": "2nd round release",
+    "lane": "dx",
+    "start": "2026-11-03",
+    "end": "2026-11-03",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-13"
+   }
+  },
+  {
+   "id": "96af6867-4560-4b9c-ba11-3e38b4c125ec",
+   "data": {
+    "title": "Notebook - Keychain",
+    "lane": "marketing",
+    "start": "2026-11-03",
+    "end": "2026-11-03",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-13"
+   }
+  },
+  {
+   "id": "9cf5a317-728e-411b-814b-3becedf0517b",
+   "data": {
+    "title": "Second Round Posts + Closing Round",
+    "lane": "marketing",
+    "start": "2026-11-03",
+    "end": "2026-11-04",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-13 → 2026-11-15"
+   }
+  },
+  {
+   "id": "e983b6f6-c0a5-4f3d-a6f3-a29c3412e3dc",
+   "data": {
+    "title": "2nd round",
+    "lane": "dx",
+    "start": "2026-11-04",
+    "end": "2026-11-06",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-14 → 2026-11-18"
+   }
+  },
+  {
+   "id": "863aa5c1-c58c-46f8-856b-64d5f4e30b6c",
+   "data": {
+    "title": "Finalize Merch & Awards",
+    "lane": "marketing",
+    "start": "2026-11-04",
+    "end": "2026-11-04",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-14"
+   }
+  },
+  {
+   "id": "9cc841cb-8d3f-4e2d-a3c1-8f8bc80e985c",
+   "data": {
+    "title": "Finalize Merch Deals & Welcome Package",
+    "lane": "logistics",
+    "start": "2026-11-04",
+    "end": "2026-11-04",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-14 → 2026-11-15"
+   }
+  },
+  {
+   "id": "6023a822-5516-4946-8a5d-088378333d10",
+   "data": {
+    "title": "Marketing Campaign",
+    "lane": "marketing",
+    "start": "2026-11-05",
+    "end": "2026-11-06",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-16 → 2026-11-18"
+   }
+  },
+  {
+   "id": "695ee51c-80d2-423e-9d90-8ad4c334af51",
+   "data": {
+    "title": "Checkpoint for Fees (Registration)",
+    "lane": "dx",
+    "start": "2026-11-08",
+    "end": "2026-11-08",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-20 → 2026-11-21"
+   }
+  },
+  {
+   "id": "782340d3-5f83-4b01-942d-be2bd9208bce",
+   "data": {
+    "title": "Gala night needs",
+    "lane": "logistics",
+    "start": "2026-11-08",
+    "end": "2026-11-08",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-20"
+   }
+  },
+  {
+   "id": "cca3ea3a-9ad2-4517-a5ff-a2f8d8be1429",
+   "data": {
+    "title": "Checkpoint for Fees (Registration)",
+    "lane": "finance",
+    "start": "2026-11-08",
+    "end": "2026-11-08",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-20 → 2026-11-21"
+   }
+  },
+  {
+   "id": "70cd8fdf-3bcf-4a01-9142-a1d98d5260c2",
+   "data": {
+    "title": "Prepare HR",
+    "lane": "dx",
+    "start": "2026-11-09",
+    "end": "2026-11-09",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-21 → 2026-11-22"
+   }
+  },
+  {
+   "id": "088df701-8c22-4f50-9dfb-66f910f8f823",
+   "data": {
+    "title": "Finalized T-shirt OC/Faci",
+    "lane": "marketing",
+    "start": "2026-11-09",
+    "end": "2026-11-09",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-21"
+   }
+  },
+  {
+   "id": "6f087a8b-9155-4863-92bc-32bc59ddb91b",
+   "data": {
+    "title": "Market Research for In-kinds",
+    "lane": "catering",
+    "start": "2026-11-09",
+    "end": "2026-11-11",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-21 → 2026-11-25"
+   }
+  },
+  {
+   "id": "86ff3d3e-b31b-4feb-b038-bf833fb7fb7d",
+   "data": {
+    "title": "3rd round release",
+    "lane": "dx",
+    "start": "2026-11-09",
+    "end": "2026-11-09",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-22"
+   }
+  },
+  {
+   "id": "cfdfecd9-ee88-455b-ae87-0bbc7ffb9a1c",
+   "data": {
+    "title": "Teaser + Facebook Cover",
+    "lane": "marketing",
+    "start": "2026-11-09",
+    "end": "2026-11-10",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-22 → 2026-11-23"
+   }
+  },
+  {
+   "id": "fdcca379-7838-4547-b686-2b0c31145dc2",
+   "data": {
+    "title": "3rd round",
+    "lane": "dx",
+    "start": "2026-11-10",
+    "end": "2026-11-11",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-23 → 2026-11-25"
+   }
+  },
+  {
+   "id": "20c2ac94-23e2-490b-8ee1-5b0776efd3f3",
+   "data": {
+    "title": "Check-in Plans",
+    "lane": "dx",
+    "start": "2026-11-10",
+    "end": "2026-11-10",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-23"
+   }
+  },
+  {
+   "id": "10f930eb-a164-4d7f-8f6a-4b63b40b14b2",
+   "data": {
+    "title": "Calls and Visits for Merch",
+    "lane": "logistics",
+    "start": "2026-11-10",
+    "end": "2026-11-10",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-23"
+   }
+  },
+  {
+   "id": "b4ad64ee-efd0-4a74-9807-61ec90f8683a",
+   "data": {
+    "title": "In-kinds Finalizing Deals",
+    "lane": "finance",
+    "start": "2026-11-10",
+    "end": "2026-11-11",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-23 → 2026-11-25"
+   }
+  },
+  {
+   "id": "80f002e0-deeb-4990-8874-aa5410d22de0",
+   "data": {
+    "title": "Third Round Posts + Closing Round",
+    "lane": "marketing",
+    "start": "2026-11-11",
+    "end": "2026-11-11",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-24 → 2026-11-25"
+   }
+  },
+  {
+   "id": "50f0fbef-c3dc-4ae2-a293-e5d46d600afe",
+   "data": {
+    "title": "Receive Certificates & Awards",
+    "lane": "logistics",
+    "start": "2026-11-11",
+    "end": "2026-11-11",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-24"
+   }
+  },
+  {
+   "id": "ea859524-04a3-4af8-88e1-dd1dad0cc321",
+   "data": {
+    "title": "Receive OC & Faci T-shirts",
+    "lane": "logistics",
+    "start": "2026-11-11",
+    "end": "2026-11-11",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-25"
+   }
+  },
+  {
+   "id": "fb4f14aa-ee10-49b7-ac6b-ce379ea97e48",
+   "data": {
+    "title": "3rd round",
+    "lane": "dx",
+    "start": "2026-11-13",
+    "end": "2026-11-15",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-27 → 2026-11-30"
+   }
+  },
+  {
+   "id": "37cf3c08-f815-4afd-8435-5acb72e3a337",
+   "data": {
+    "title": "Prepare DX Needs Second Wave",
+    "lane": "dx",
+    "start": "2026-11-13",
+    "end": "2026-11-13",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-27 → 2026-11-28"
+   }
+  },
+  {
+   "id": "68377928-d070-4fbf-b257-ca59fd369af4",
+   "data": {
+    "title": "Summer Peak Recap",
+    "lane": "marketing",
+    "start": "2026-11-13",
+    "end": "2026-11-13",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-27"
+   }
+  },
+  {
+   "id": "13119956-7519-481b-aae2-eaaf4e22593f",
+   "data": {
+    "title": "Receive Merch",
+    "lane": "logistics",
+    "start": "2026-11-13",
+    "end": "2026-11-13",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-27"
+   }
+  },
+  {
+   "id": "fdcd23dc-2487-46bf-8afe-6bd08e044314",
+   "data": {
+    "title": "Fifth In-kind Deal",
+    "lane": "catering",
+    "start": "2026-11-13",
+    "end": "2026-11-13",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-27"
+   }
+  },
+  {
+   "id": "3de26962-3499-4ae1-a253-5ba96e21775c",
+   "data": {
+    "title": "Intro Videos Brainstorming",
+    "lane": "marketing",
+    "start": "2026-11-14",
+    "end": "2026-11-14",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-28 → 2026-11-29"
+   }
+  },
+  {
+   "id": "ad4ce09b-2cfd-4ea7-ae0a-801a9ac3fd40",
+   "data": {
+    "title": "Transportation MR",
+    "lane": "logistics",
+    "start": "2026-11-14",
+    "end": "2026-11-14",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-28"
+   }
+  },
+  {
+   "id": "d2e307fa-d0a1-4c56-912a-752c92e2a336",
+   "data": {
+    "title": "Meals Deals",
+    "lane": "finance",
+    "start": "2026-11-14",
+    "end": "2026-11-14",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-28"
+   }
+  },
+  {
+   "id": "4e9f8269-b84b-4c88-ac1c-123172204591",
+   "data": {
+    "title": "Finalize Catering Deals (Deposit)",
+    "lane": "catering",
+    "start": "2026-11-14",
+    "end": "2026-11-14",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-28"
+   }
+  },
+  {
+   "id": "f0c61f6f-9ee8-4743-b8ef-53c24a8cc581",
+   "data": {
+    "title": "Finalize Catering Deals (Backup plan)",
+    "lane": "catering",
+    "start": "2026-11-14",
+    "end": "2026-11-14",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-29"
+   }
+  },
+  {
+   "id": "27af8234-0c0c-4b24-96eb-31db765805a8",
+   "data": {
+    "title": "OC Intro Video",
+    "lane": "marketing",
+    "start": "2026-11-15",
+    "end": "2026-11-15",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-11-30"
+   }
+  },
+  {
+   "id": "9f5564ed-7e21-4aff-8498-9cefe640d1b3",
+   "data": {
+    "title": "Checkpoint for Fees (Registration)",
+    "lane": "dx",
+    "start": "2026-11-16",
+    "end": "2026-11-16",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-01 → 2026-12-02"
+   }
+  },
+  {
+   "id": "5e118d2e-9d7c-46fb-8990-25d3e8485452",
+   "data": {
+    "title": "Checkpoint for Fees (Registration)",
+    "lane": "finance",
+    "start": "2026-11-16",
+    "end": "2026-11-16",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-01 → 2026-12-02"
+   }
+  },
+  {
+   "id": "806b037a-f077-4efc-88ea-1418160bf0cc",
+   "data": {
+    "title": "OC Intro Video",
+    "lane": "catering",
+    "start": "2026-11-16",
+    "end": "2026-11-16",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-01"
+   }
+  },
+  {
+   "id": "653bfd50-d844-418f-afa2-a03275c91bbd",
+   "data": {
+    "title": "Video sessions if needed",
+    "lane": "marketing",
+    "start": "2026-11-17",
+    "end": "2026-11-17",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-02"
+   }
+  },
+  {
+   "id": "545e494b-b94b-4190-a295-afece14211e0",
+   "data": {
+    "title": "Sixth In-kind Deal",
+    "lane": "catering",
+    "start": "2026-11-17",
+    "end": "2026-11-17",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-02"
+   }
+  },
+  {
+   "id": "fd045db6-b4da-487a-bd48-fbf904e3ce5a",
+   "data": {
+    "title": "4th round release",
+    "lane": "dx",
+    "start": "2026-11-18",
+    "end": "2026-11-18",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-04"
+   }
+  },
+  {
+   "id": "b42dbe58-b0ce-4a38-9b9d-b54e160d7eaf",
+   "data": {
+    "title": "Fourth Round Posts + Closing Round",
+    "lane": "marketing",
+    "start": "2026-11-18",
+    "end": "2026-11-18",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-04 → 2026-12-05"
+   }
+  },
+  {
+   "id": "65cf6cd2-9d64-4f6a-845d-1974242a27dd",
+   "data": {
+    "title": "Prepare DX Needs Second Wave",
+    "lane": "logistics",
+    "start": "2026-11-18",
+    "end": "2026-11-18",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-04"
+   }
+  },
+  {
+   "id": "efdc3536-0062-4f26-89c9-df94b8e09737",
+   "data": {
+    "title": "Market Research for In-kinds",
+    "lane": "catering",
+    "start": "2026-11-18",
+    "end": "2026-11-21",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-04 → 2026-12-08"
+   }
+  },
+  {
+   "id": "93c1561b-aa4f-4c83-86b7-6bf9dd430351",
+   "data": {
+    "title": "4th round",
+    "lane": "dx",
+    "start": "2026-11-19",
+    "end": "2026-11-21",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-05 → 2026-12-09"
+   }
+  },
+  {
+   "id": "3b47fbb1-7057-4b55-8217-3c4c58c9d287",
+   "data": {
+    "title": "Transportation Finalize",
+    "lane": "logistics",
+    "start": "2026-11-19",
+    "end": "2026-11-19",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-05"
+   }
+  },
+  {
+   "id": "b5187152-0a19-441c-ae63-c01052e7d38d",
+   "data": {
+    "title": "Finalizing Everything Late",
+    "lane": "marketing",
+    "start": "2026-11-19",
+    "end": "2026-11-21",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-06 → 2026-12-08"
+   }
+  },
+  {
+   "id": "43f8ad0e-87c7-4148-90c2-39814ac04df1",
+   "data": {
+    "title": "Finalize Check-in & HR Plan",
+    "lane": "dx",
+    "start": "2026-11-20",
+    "end": "2026-11-21",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-07 → 2026-12-08"
+   }
+  },
+  {
+   "id": "cbdc8a0c-e2c3-4aa3-a0c1-88dc55c3eeb4",
+   "data": {
+    "title": "Finalize Transportation",
+    "lane": "logistics",
+    "start": "2026-11-22",
+    "end": "2026-11-22",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-09"
+   }
+  },
+  {
+   "id": "e18b8a83-7cb0-42ba-818a-8bd1b46141af",
+   "data": {
+    "title": "Seventh In-kind Deal",
+    "lane": "catering",
+    "start": "2026-11-22",
+    "end": "2026-11-22",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-09"
+   }
+  },
+  {
+   "id": "f4c33c73-5e7b-40d7-8ebc-b8e110add76d",
+   "data": {
+    "title": "Checkpoint for Fees (Registration)",
+    "lane": "dx",
+    "start": "2026-11-23",
+    "end": "2026-11-23",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-11 → 2026-12-12"
+   }
+  },
+  {
+   "id": "eb1b0ede-31e3-4d3b-b804-631745cbf16c",
+   "data": {
+    "title": "Engagement campaign",
+    "lane": "marketing",
+    "start": "2026-11-23",
+    "end": "2026-11-23",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-11 → 2026-12-12"
+   }
+  },
+  {
+   "id": "ff420ded-a498-49d3-a55c-0e05e80d6b37",
+   "data": {
+    "title": "Checkpoint for Fees (Registration)",
+    "lane": "finance",
+    "start": "2026-11-23",
+    "end": "2026-11-23",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-11 → 2026-12-12"
+   }
+  },
+  {
+   "id": "85c19d5a-26fd-47af-8317-efb23e772d9f",
+   "data": {
+    "title": "Two Day Registration",
+    "lane": "dx",
+    "start": "2026-11-24",
+    "end": "2026-11-25",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-13 → 2026-12-14"
+   }
+  },
+  {
+   "id": "2271160b-f01c-4c24-92c0-841e42c40590",
+   "data": {
+    "title": "Eighth In-kind Deal",
+    "lane": "catering",
+    "start": "2026-11-24",
+    "end": "2026-11-24",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-13"
+   }
+  },
+  {
+   "id": "395b42d6-a0dc-4585-bee4-80da9cd1bd32",
+   "data": {
+    "title": "Checkpoint for Fees (Registration)",
+    "lane": "dx",
+    "start": "2026-11-26",
+    "end": "2026-11-26",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-15"
+   }
+  },
+  {
+   "id": "12328301-b1bb-4341-be80-f0f04623a9ec",
+   "data": {
+    "title": "Checkpoint for Fees (Registration)",
+    "lane": "finance",
+    "start": "2026-11-26",
+    "end": "2026-11-26",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-15"
+   }
+  },
+  {
+   "id": "a5ab88da-33d6-415d-bd98-d9446b402bf8",
+   "data": {
+    "title": "Meals Finalizing",
+    "lane": "catering",
+    "start": "2026-11-26",
+    "end": "2026-11-26",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-15"
+   }
+  },
+  {
+   "id": "c9881251-89e4-46da-9ee2-dc0fd565cdb9",
+   "data": {
+    "title": "One Day Registration",
+    "lane": "dx",
+    "start": "2026-11-27",
+    "end": "2026-11-27",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-16"
+   }
+  },
+  {
+   "id": "7902354c-5373-48c6-8a3c-e2c3bdea9d9e",
+   "data": {
+    "title": "OC Pre-meeting",
+    "lane": "dx",
+    "start": "2026-11-27",
+    "end": "2026-11-27",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-16"
+   }
+  },
+  {
+   "id": "a4f35255-b915-4af6-92be-876d0d43fa66",
+   "data": {
+    "title": "Faci & Chair Needs",
+    "lane": "logistics",
+    "start": "2026-11-27",
+    "end": "2026-11-27",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-16"
+   }
+  },
+  {
+   "id": "606c6762-885c-4982-bf20-6f28bb1e3c7f",
+   "data": {
+    "title": "In-kinds finalizing deals",
+    "lane": "catering",
+    "start": "2026-11-27",
+    "end": "2026-11-27",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-16"
+   }
+  },
+  {
+   "id": "c2706e1f-0829-499e-9986-08de48d01ad3",
+   "data": {
+    "title": "One Day Registration",
+    "lane": "dx",
+    "start": "2026-11-28",
+    "end": "2026-11-28",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-18"
+   }
+  },
+  {
+   "id": "03052cc5-1b94-4d52-a924-079d2d454949",
+   "data": {
+    "title": "Rooming List",
+    "lane": "dx",
+    "start": "2026-11-28",
+    "end": "2026-11-28",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-18"
+   }
+  },
+  {
+   "id": "1af55b4f-f0d9-4b06-ba10-486f42a7b7b1",
+   "data": {
+    "title": "Finalizing Everything late",
+    "lane": "logistics",
+    "start": "2026-11-28",
+    "end": "2026-11-29",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-18 → 2026-12-19"
+   }
+  },
+  {
+   "id": "deb34161-f852-4701-a31e-071e4e1ea7a8",
+   "data": {
+    "title": "Ninth In-kind Deal",
+    "lane": "catering",
+    "start": "2026-11-28",
+    "end": "2026-11-28",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-18"
+   }
+  },
+  {
+   "id": "c1bed87d-3f2c-4d98-b322-eac14cc7bfa6",
+   "data": {
+    "title": "Checkpoint for Fees (Registration)",
+    "lane": "dx",
+    "start": "2026-11-29",
+    "end": "2026-11-29",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-19"
+   }
+  },
+  {
+   "id": "d03691b6-e99a-45c7-a82a-8e960e19e570",
+   "data": {
+    "title": "Checkpoint for Fees (Registration)",
+    "lane": "finance",
+    "start": "2026-11-29",
+    "end": "2026-11-29",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-19"
+   }
+  },
+  {
+   "id": "5a28e23e-5ea5-42ab-8c87-0bed9c982965",
+   "data": {
+    "title": "Flash Round",
+    "lane": "dx",
+    "start": "2026-11-30",
+    "end": "2026-11-30",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-20 → 2026-12-21"
+   }
+  },
+  {
+   "id": "cca34af3-6e4f-443a-b849-0f1dde6ae2d2",
+   "data": {
+    "title": "Checkpoint for Fees (Registration)",
+    "lane": "dx",
+    "start": "2026-12-01",
+    "end": "2026-12-01",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-22"
+   }
+  },
+  {
+   "id": "b27aacf0-b1c6-428b-ae69-9ca7d008b6c7",
+   "data": {
+    "title": "Day 0 · Pre-conference",
+    "lane": "all",
+    "start": "2026-12-02",
+    "end": "2026-12-02",
+    "kind": "show",
+    "notes": "",
+    "done": false,
+    "original": ""
+   }
+  },
+  {
+   "id": "ed47e1a9-2981-4087-b5a1-04f3975efe6d",
+   "data": {
+    "title": "Decoration Placement",
+    "lane": "decor",
+    "start": "2026-12-02",
+    "end": "2026-12-02",
+    "kind": "task",
+    "notes": "",
+    "done": false,
+    "original": "2026-12-02"
+   }
+  },
+  {
+   "id": "e38b8b51-0a68-4dcc-b7e1-d2250f0c56cd",
+   "data": {
+    "title": "Day 1 · Opening",
+    "lane": "all",
+    "start": "2026-12-03",
+    "end": "2026-12-03",
+    "kind": "show",
+    "notes": "",
+    "done": false,
+    "original": ""
+   }
+  },
+  {
+   "id": "d385cafa-7215-4cf2-9cde-b6340026bea4",
+   "data": {
+    "title": "Day 2",
+    "lane": "all",
+    "start": "2026-12-04",
+    "end": "2026-12-04",
+    "kind": "show",
+    "notes": "",
+    "done": false,
+    "original": ""
+   }
+  },
+  {
+   "id": "b2ef0a1e-ce4f-4baa-8a2a-3020e3451d65",
+   "data": {
+    "title": "Day 3 · Closing",
+    "lane": "all",
+    "start": "2026-12-05",
+    "end": "2026-12-05",
+    "kind": "show",
+    "notes": "",
+    "done": false,
+    "original": ""
+   }
+  }
+ ],
+ "checkpointRows": [
+  {
+   "id": "ffd71459-c138-4840-9321-ad2648991514",
+   "data": {
+    "name": "Checkpoint 1",
+    "date": "2026-10-18",
+    "dx": "Theme Idea",
+    "marketing": "Logo & Slogan Creation",
+    "logistics": "Venue shortlist (3 options)",
+    "finance": "Draft budget v1",
+    "catering": "1st In-kind Deal",
+    "done": false
+   }
+  },
+  {
+   "id": "8cecda18-5914-463c-900f-2ffdc45b754e",
+   "data": {
+    "name": "Checkpoint 2",
+    "date": "2026-10-23",
+    "dx": "Registration form built",
+    "marketing": "Logo & slogan finalized",
+    "logistics": "Venue site visits",
+    "finance": "",
+    "catering": "Food options requested",
+    "done": false
+   }
+  },
+  {
+   "id": "6ca83e53-a166-47fd-a978-223a7da9e20c",
+   "data": {
+    "name": "Checkpoint 3",
+    "date": "2026-10-28",
+    "dx": "Delegate journey mapped",
+    "marketing": "Social media teaser launch",
+    "logistics": "",
+    "finance": "",
+    "catering": "",
+    "done": false
+   }
+  },
+  {
+   "id": "27d078a2-5508-4590-b3ba-d4950e9cffda",
+   "data": {
+    "name": "Checkpoint 4",
+    "date": "2026-11-02",
+    "dx": "Pre-conference engagement plan",
+    "marketing": "Promo video/graphics released",
+    "logistics": "",
+    "finance": "",
+    "catering": "2nd in-kind deal + sponsor pitch sent",
+    "done": false
+   }
+  },
+  {
+   "id": "6edcdb13-ce6c-4008-9a1e-cab182fa437a",
+   "data": {
+    "name": "Checkpoint 5",
+    "date": "2026-11-07",
+    "dx": "OC/Fac team fully briefed on DX flow",
+    "marketing": "",
+    "logistics": "Transport plan drafted",
+    "finance": "",
+    "catering": "",
+    "done": false
+   }
+  },
+  {
+   "id": "be1bac00-5ae6-429e-bbec-fa46d327aa91",
+   "data": {
+    "name": "Checkpoint 6",
+    "date": "2026-11-12",
+    "dx": "Delegate reminders + FAQs sent",
+    "marketing": "Final hype/reveal content",
+    "logistics": "Materials (badges, kits) ordered",
+    "finance": "",
+    "catering": "Final headcount + menu lock",
+    "done": false
+   }
+  },
+  {
+   "id": "209fc29d-3631-4e5d-ae5f-3ebfe529a6fc",
+   "data": {
+    "name": "Checkpoint 7",
+    "date": "2026-11-17",
+    "dx": "Delegate support channel set up",
+    "marketing": "",
+    "logistics": "",
+    "finance": "",
+    "catering": "",
+    "done": false
+   }
+  },
+  {
+   "id": "9dd10035-ab06-4cd1-964a-a24572c1287c",
+   "data": {
+    "name": "Checkpoint 8",
+    "date": "2026-11-22",
+    "dx": "Decorations finalized",
+    "marketing": "",
+    "logistics": "All logistics confirmed (AV, signage, transport)",
+    "finance": "",
+    "catering": "",
+    "done": false
+   }
+  },
+  {
+   "id": "2d932bb9-2335-49d9-922a-2e2a6116246f",
+   "data": {
+    "name": "Checkpoint 9",
+    "date": "2026-11-27",
+    "dx": "Rooming and solving everything for the delegates",
+    "marketing": "",
+    "logistics": "",
+    "finance": "",
+    "catering": "",
+    "done": false
+   }
+  }
+ ],
+ "structureRows": [
+  {
+   "id": "b046cfe7-fb1f-4e86-bbce-6ffb0ff9d62f",
+   "data": {
+    "role": "OC Coach",
+    "tier": "Coach",
+    "teamsters": "",
+    "responsibilities": ""
+   }
+  },
+  {
+   "id": "ee69ce8e-755b-4e79-942a-6d446a6f7fa3",
+   "data": {
+    "role": "OCP",
+    "tier": "President",
+    "teamsters": "",
+    "responsibilities": "CONFERENCE MANAGEMENT:\n• Create a conference plan and activity timeline aligning the\nconference plan to the conference Agenda\n• Ensuring that the delegates are satisfied\n• Crisis Management\n• finalize main agreement with mc team\n\nTEAM MANAGEMENT:\n• Building and bonding the OC team and make them understand that they are responsible for this mission\n• Lead, Manage and track all the Organizing committee members\n• Provide personal and professional development for OC team\nmembers\n• implement hr rules"
+   }
+  },
+  {
+   "id": "2e3ae316-3823-4881-a2a5-fb17e4a4f2be",
+   "data": {
+    "role": "OCVP DX & Entertainment",
+    "tier": "OCVP",
+    "teamsters": 7,
+    "responsibilities": "• Making sure there is an effective planning and implementation of the checking in and out technicalities\n• Create a detailed plan to allocate OC members and specify tasks and roles during\nthe conference\n• handling registrations and collecting money from the delegates\n• report how much money is collected to finance\n• make sure that the delegations are satisfied throughout the 3 days - Teamsters will be responsible to invite ceeders"
+   }
+  },
+  {
+   "id": "e143998b-207d-41e3-8200-046129c96855",
+   "data": {
+    "role": "OCVP Marketing",
+    "tier": "OCVP",
+    "teamsters": 5,
+    "responsibilities": "• Responsible for creating a marketing plan to reach all membership body of AIESEC in Egypt\n• Creating all branding materials for the conference (Conference logo, event ...)\n• show case the conference"
+   }
+  },
+  {
+   "id": "199207b9-5954-4a11-990b-bb1f815d30d3",
+   "data": {
+    "role": "OCVP BD & Sponsors",
+    "tier": "OCVP",
+    "teamsters": 4,
+    "responsibilities": "Pushing more partners to the conference and to give the full experience to all partners that will attend"
+   }
+  },
+  {
+   "id": "08f3cb2c-d9d6-4a26-b44e-75af7c7cc28c",
+   "data": {
+    "role": "OCVP Logistics & Catering",
+    "tier": "OCVP",
+    "teamsters": 5,
+    "responsibilities": "• Providing a suitable venue for the conference Providing transportation\n• provide any materials that we need before, through and after the conference for the faci and delegations\n• Responsible for getting all equipment and logistical needs for the conference\n• Handling the venue manager\n• Documenting all money collected or paid and handing it directly to OCVP Finance\n• Market research for potential caterers\n• Responsible for catering raises for the conference and provide welcome packages"
+   }
+  },
+  {
+   "id": "1ae31618-79fb-44d2-8e92-501fa4c570c0",
+   "data": {
+    "role": "OCVP Finance",
+    "tier": "OCVP",
+    "teamsters": 0,
+    "responsibilities": "• Financial management including conference budgeting with the final budget to be\n• Reviewing the budget with OCP when requested\n• Developing a Strategy to be followed by the logistics team in collecting and\ndocumenting all costs and revenues before, during and after the conference\n• Tracking the Cash flow\n• responsible for all the finances"
+   }
+  }
+ ],
+ "mappingRows": [
+  {
+   "id": "3f708a0d-92f1-4462-843d-633b79a768c9",
+   "data": {
+    "name": "Nada Assem",
+    "position": "EB",
+    "expected_oc": "Yes",
+    "pref1": "OCVP MKTG",
+    "pref2": "",
+    "experience": "No OC experience"
+   }
+  },
+  {
+   "id": "80835383-068a-47c3-8c3d-0e9e13023818",
+   "data": {
+    "name": "Yassin Hawash",
+    "position": "EB",
+    "expected_oc": "Yes",
+    "pref1": "Director Catering",
+    "pref2": "Teamster Logistics",
+    "experience": "MM IGV No OC experience"
+   }
+  },
+  {
+   "id": "74868198-8f69-45a7-b910-a89d8a169319",
+   "data": {
+    "name": "Alaa El Fanagely",
+    "position": "EB",
+    "expected_oc": "Yes",
+    "pref1": "Teamster DX",
+    "pref2": "",
+    "experience": "MM IGV No OC experience"
+   }
+  },
+  {
+   "id": "dce3ffc2-2b9d-40f2-b370-1080c1f5e4be",
+   "data": {
+    "name": "Omar El Deeb",
+    "position": "EB",
+    "expected_oc": "Yes",
+    "pref1": "Teamster BD",
+    "pref2": "",
+    "experience": "No OC experience"
+   }
+  },
+  {
+   "id": "349fe812-ae24-46b0-b571-17e1bf0e99de",
+   "data": {
+    "name": "Barthinya Talaat",
+    "position": "EB",
+    "expected_oc": "Yes",
+    "pref1": "OCVP DX",
+    "pref2": "",
+    "experience": "Current VP OGV, No OC experience"
+   }
+  },
+  {
+   "id": "46dd13f6-cd2a-4cee-b8cf-1715e537f1df",
+   "data": {
+    "name": "Yassin Derbala",
+    "position": "EB",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "8fbc07ca-4fd6-4835-ab16-cbf5f926764c",
+   "data": {
+    "name": "Ali",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "2576367a-03dd-461c-b0f0-f7feeca014dc",
+   "data": {
+    "name": "Perehan",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "c6e40e2f-5e98-40cc-9e86-7707551859c5",
+   "data": {
+    "name": "Yara Yasser",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "13548dfd-cd60-4f3d-931c-cde6db6c5d48",
+   "data": {
+    "name": "Dai Mohamed",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "4ee791fd-c48a-47cd-810f-5d72aa3bef76",
+   "data": {
+    "name": "Yassen Mohamed",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "c922e36e-5dcd-4bc9-ac73-387935c6579a",
+   "data": {
+    "name": "Farah Shaaban",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "1da92ae9-7a11-4e63-9507-919da0a8110e",
+   "data": {
+    "name": "Abdelrahman Amr",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "aef57f0e-1ae8-49fa-bac0-c9bc35131056",
+   "data": {
+    "name": "Salma Hasona",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "3ae27a32-8c0d-476a-bb3d-7a0a6e8727f5",
+   "data": {
+    "name": "Mariam Hesham",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "eac51732-007a-498e-b5d0-0cece1d21ccb",
+   "data": {
+    "name": "Ahmed Hallul",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "4c809814-0dcb-4ff9-8ed0-2b0c3dc5d05c",
+   "data": {
+    "name": "Mohamed Ramadan",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "4a3a17d0-7f4a-470f-825c-2a7077c5fdc1",
+   "data": {
+    "name": "Yara Ali",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "74275464-923d-4a94-863a-7532f455a91d",
+   "data": {
+    "name": "Farah Hossam",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "cb39cf7f-b954-426c-b986-59cc1e3b97cd",
+   "data": {
+    "name": "Shahd Alaa Eldin",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "97a0ab9b-444b-4885-a590-b6e1fde41b91",
+   "data": {
+    "name": "Hana Wael",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "d28ff748-e3aa-4066-97ae-d9199f8d50d2",
+   "data": {
+    "name": "Mazen Eleskandarany",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "b8e0e6c6-c938-49dd-9610-cb8a07959dd0",
+   "data": {
+    "name": "Ali Emara",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "7e61580e-8f81-473e-9b82-4aea94044d55",
+   "data": {
+    "name": "Fares Ahmed",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "879c5c8b-bbe8-4f3f-a91d-95bae5e32274",
+   "data": {
+    "name": "Mayar Gad",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "2ed9bc70-2bd8-4c07-8ef2-204e2549b13f",
+   "data": {
+    "name": "Tasneem Mohamed",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "74c275a8-e70d-4a18-9da2-8a86c45a8e4d",
+   "data": {
+    "name": "Abdelrahman Amr",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "4ee99a73-b970-4201-aa5a-ba237dcac692",
+   "data": {
+    "name": "Farah Shabaan",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "94e31537-b190-4b00-85cc-761d9578e374",
+   "data": {
+    "name": "Omar El-Saied",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "bb10cb50-6e2f-4fe1-8f5e-61603e6b89fc",
+   "data": {
+    "name": "Salma Hassouna",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "b81babf9-b200-493d-9cea-c51342ed6a57",
+   "data": {
+    "name": "Hana Aboud",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "c9fc9e5d-46b0-4f6f-92bd-b9eb1f4645af",
+   "data": {
+    "name": "Perrihan Hazem",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "1f2f47a1-8ae1-4234-873f-bba2208b319f",
+   "data": {
+    "name": "Yassin Youssef",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "30c131b2-93c6-46ed-b7be-4b0b3bd3b1d8",
+   "data": {
+    "name": "Marwan Essam",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "d660f0c9-958b-493b-b1ac-758c20dda4e3",
+   "data": {
+    "name": "Menna Ahmed",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "33e3a7f3-755c-4e1e-a3c4-b39cb5a5dacd",
+   "data": {
+    "name": "Mazen Wagih",
+    "position": "MM",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "c39f3501-4fea-4af7-9ff0-053c8ff7caf5",
+   "data": {
+    "name": "Hanaa",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "Teamster DX",
+    "pref2": "Teamster MKTG",
+    "experience": "No OC experience"
+   }
+  },
+  {
+   "id": "34b3c708-16ef-4f18-9afa-5f96d1cf3b31",
+   "data": {
+    "name": "Habiba Mohamed",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "Director Catering",
+    "pref2": "",
+    "experience": "No OC experience"
+   }
+  },
+  {
+   "id": "48699663-7277-4f02-bd58-9f6bf73d7ad6",
+   "data": {
+    "name": "Jana Bsher",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "Teamster DX",
+    "pref2": "",
+    "experience": "No OC experience"
+   }
+  },
+  {
+   "id": "5f127532-a69d-45ce-9de7-f02a54cea173",
+   "data": {
+    "name": "Salma El Nagar",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "Teamster DX",
+    "pref2": "",
+    "experience": "No OC experience"
+   }
+  },
+  {
+   "id": "abd83a7a-9efe-4e7a-b008-3bb4a85d35d7",
+   "data": {
+    "name": "Abdelrahman El Saadany",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "Teamster DX",
+    "pref2": "",
+    "experience": "No OC experience"
+   }
+  },
+  {
+   "id": "51ef3909-bc86-4558-b8f4-430a8b64e597",
+   "data": {
+    "name": "Sameh Mohamed",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "Teamster DX",
+    "pref2": "",
+    "experience": "No OC experience"
+   }
+  },
+  {
+   "id": "15d0653d-03ef-47c3-916f-f2f18fe799be",
+   "data": {
+    "name": "Ahmed Basiouny",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "Teamster DX",
+    "pref2": "",
+    "experience": "No OC experience"
+   }
+  },
+  {
+   "id": "b4cc393b-59b0-4bf4-b0d0-744db61ca9ad",
+   "data": {
+    "name": "Badr Mohamed",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "Teamster DX",
+    "pref2": "",
+    "experience": "No OC experience"
+   }
+  },
+  {
+   "id": "26e79df8-9b65-4960-9f6a-516ad0a7b43d",
+   "data": {
+    "name": "Mohamed Maamon",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "Teamster DX",
+    "pref2": "",
+    "experience": "No OC experience"
+   }
+  },
+  {
+   "id": "f23c2dde-b9ed-41bc-83e4-4740b12a62ad",
+   "data": {
+    "name": "Kiro Samir",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "Teamster DX",
+    "pref2": "",
+    "experience": "No OC experience"
+   }
+  },
+  {
+   "id": "49a6d35c-9a25-4e86-a01f-4888ba36c167",
+   "data": {
+    "name": "Bassant Emad",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "Teamster DX",
+    "pref2": "",
+    "experience": "No OC experience"
+   }
+  },
+  {
+   "id": "2d6bef26-6a28-4b98-bb30-4b9c584c1b23",
+   "data": {
+    "name": "Mohamed Sheta",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "Teamster DX",
+    "pref2": "",
+    "experience": "No OC experience"
+   }
+  },
+  {
+   "id": "f1dce8e5-d19e-476b-b12e-cc2f9c9b28ec",
+   "data": {
+    "name": "Rowan Mohamed",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "Teamster DX",
+    "pref2": "",
+    "experience": "No OC experience"
+   }
+  },
+  {
+   "id": "457bdd5b-8a77-494c-a0a8-d64e3b2a4785",
+   "data": {
+    "name": "Monzer Essam",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "b5cd074e-34df-48db-826f-a3385d3121cc",
+   "data": {
+    "name": "Abdelrahman Baktoushy",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "5b00150e-fe9c-4057-a776-7d1e8d577b77",
+   "data": {
+    "name": "Yomna Eldeeb",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "a320b2dd-e3bb-4588-a46f-2ab00ec58642",
+   "data": {
+    "name": "Malak Walid Hosni",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "a86a20de-6773-41ff-a204-d260813eb570",
+   "data": {
+    "name": "Elina Talaat",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "0cb74694-cfb8-4f3d-9d5e-78ba4211add6",
+   "data": {
+    "name": "Ali Zaki",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "16cf6263-a292-4151-b4d6-81726e5a6d2a",
+   "data": {
+    "name": "Hana Zaki",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "3fd20754-7f7b-4af3-8fd8-a379e2361db0",
+   "data": {
+    "name": "Noureen Walid",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "05b9fb15-f016-4436-ab51-48cf044d7460",
+   "data": {
+    "name": "Omar Mohamed",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "489fb4f7-8841-4f6d-ac51-ffe8a873ea60",
+   "data": {
+    "name": "John Ashraf",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "212898c9-db00-41e7-829c-8409d93a023f",
+   "data": {
+    "name": "David",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "85e635c2-08b4-4c08-bfee-58dcd04cc2ea",
+   "data": {
+    "name": "Abdallah Farah",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "bb500d0d-c42b-4ca4-8efe-4cf918c20aba",
+   "data": {
+    "name": "Omar Essam",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "2d17ef29-d57e-46c2-a011-34e7fa6b1f2c",
+   "data": {
+    "name": "Mohamed Maamoun",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "5f1df201-aff5-4333-a4ec-4ad9588afd09",
+   "data": {
+    "name": "Mahmoud Khaled",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "e0e1f3d0-f165-4081-9cec-50a3bc5a3f32",
+   "data": {
+    "name": "Abdallah Nanoush",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "9994ab44-0bbb-4500-81fc-15e4345f007b",
+   "data": {
+    "name": "Omar Ahmed Eldamaty",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "822b57eb-f97e-4b1f-84e5-3cddc296e59b",
+   "data": {
+    "name": "Habiba Taher",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "e227280f-0a4e-4e3d-824a-d006696eaebd",
+   "data": {
+    "name": "Laila",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "49eb4e7d-86a0-461f-bc17-a5728e03401b",
+   "data": {
+    "name": "Omar Hady",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "799d544b-1b7e-43d9-8172-8acbdeb78357",
+   "data": {
+    "name": "Rahma Ebrahim",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "825400fc-d734-4457-a76a-5164ccfe174b",
+   "data": {
+    "name": "Fares Shereen",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "08b56242-bf97-4e38-9f10-f5331282701b",
+   "data": {
+    "name": "Youssef Yehia",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "0af2c509-584f-4d1b-a7cd-5781299b9b7b",
+   "data": {
+    "name": "Mahitab Gamal",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "c1a3d73c-e3f9-4aac-b996-889be6bad16b",
+   "data": {
+    "name": "Ahmed Kadry",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "763c8455-7397-4917-90ca-c964d383e4bd",
+   "data": {
+    "name": "Mohamed Ehab",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "d027d830-e0c3-4a06-a44b-4b6a07f08b62",
+   "data": {
+    "name": "Mariam Abdelwahab",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "04df0179-5464-4c1b-80e6-add51089a7f3",
+   "data": {
+    "name": "Lojain Ahmed",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "fc3ffb92-dc16-4e83-bab8-dd3f984c9dbd",
+   "data": {
+    "name": "Malak Osama",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "290ed87e-f0dc-4e29-9cb4-07485900a330",
+   "data": {
+    "name": "Mohanad Ashraf",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "5410d55b-856b-46f7-b9dd-24a9c9c90136",
+   "data": {
+    "name": "Zyad Mostafa",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "67baba0b-d9ab-42ef-b142-fad6d356766d",
+   "data": {
+    "name": "Youssef Elgayar",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "6ac2fe73-0fc8-486d-b1e9-159af4afa170",
+   "data": {
+    "name": "Akmal",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "af7cf786-a524-46de-89c1-1eb32f12a06c",
+   "data": {
+    "name": "Salma",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "e4d94ea0-adea-4676-b9e1-0dee44ab083b",
+   "data": {
+    "name": "Youssef Atya",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "4e3adbf8-1e41-473f-801c-1925ea34ea6e",
+   "data": {
+    "name": "Zyad Elsaadany",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "4550a93c-52fd-44ee-90fe-23ef3a72a91d",
+   "data": {
+    "name": "Youssef Maher",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "4a2c28b1-1285-4d90-9e7b-3e4073e0a8ca",
+   "data": {
+    "name": "Mostafa Ossama",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "302ac000-08b6-41b7-98f4-d3eaa343ccf6",
+   "data": {
+    "name": "Aisha Ibrahim",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "230c41dd-09d4-4785-8613-733db5b78dd9",
+   "data": {
+    "name": "Alaa Attia",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "115e89c1-b93d-42de-a405-0a8b73d08b0b",
+   "data": {
+    "name": "Jana Alaa",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "aed8e249-ff2f-42f5-b25b-d68d9634a941",
+   "data": {
+    "name": "Menna Diaa",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "a9f16856-ed4c-44e8-b12c-ebb95a2ddb71",
+   "data": {
+    "name": "Omar Mando",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  },
+  {
+   "id": "b21149c1-5eca-45c1-b249-31807d3f173b",
+   "data": {
+    "name": "Mazen Luca",
+    "position": "Member",
+    "expected_oc": "Yes",
+    "pref1": "",
+    "pref2": "",
+    "experience": ""
+   }
+  }
+ ],
+ "hrRows": [
+  {
+   "id": "0e4d3c67-c78a-44ca-995a-b77ee180d8e5",
+   "data": {
+    "day": "Day 0",
+    "activity": "LCPs check in",
+    "team": "DX",
+    "position": "OCVP",
+    "backup_team": "OCP",
+    "backup_position": "OCP"
+   }
+  },
+  {
+   "id": "3c5d4359-1dd8-4810-9ee9-fcc11080b2bc",
+   "data": {
+    "day": "Day 0",
+    "activity": "Sound system/systems and cables",
+    "team": "Logistics",
+    "position": "OCVP",
+    "backup_team": "DX",
+    "backup_position": "OCVP"
+   }
+  },
+  {
+   "id": "0e6145b2-65c7-428f-8ad7-f26fc6fb4371",
+   "data": {
+    "day": "Day 0",
+    "activity": "Start assigning Faci buddies",
+    "team": "OCP",
+    "position": "OCP",
+    "backup_team": "Coach",
+    "backup_position": "Coach"
+   }
+  },
+  {
+   "id": "146ea806-996b-4f4e-98fd-186086f97b34",
+   "data": {
+    "day": "Day 0",
+    "activity": "Ocvp logistics check for the food",
+    "team": "Logistics",
+    "position": "OCVP",
+    "backup_team": "Finance",
+    "backup_position": "OCVP"
+   }
+  },
+  {
+   "id": "0baee71c-a6bd-4d4a-b513-c195748b9f80",
+   "data": {
+    "day": "Day 0",
+    "activity": "Following up with CODs to set their arrival time",
+    "team": "DX",
+    "position": "Teamster",
+    "backup_team": "DX",
+    "backup_position": "OCVP"
+   }
+  },
+  {
+   "id": "917be8a6-d79b-4fda-b514-4a392c509799",
+   "data": {
+    "day": "Day 0",
+    "activity": "Set Crisis management responsible",
+    "team": "OCP",
+    "position": "OCP",
+    "backup_team": "Coach",
+    "backup_position": "Coach"
+   }
+  },
+  {
+   "id": "9303c679-d6f5-4766-99d0-26b9be8a3c43",
+   "data": {
+    "day": "Day 0",
+    "activity": "Review the agenda and set agenda responsibilities/needs",
+    "team": "OCP",
+    "position": "OCP",
+    "backup_team": "Logistics",
+    "backup_position": "OCVP"
+   }
+  },
+  {
+   "id": "6d2f63cb-9091-4a81-9e25-7112834ab781",
+   "data": {
+    "day": "Day 0",
+    "activity": "Decoration main plenary",
+    "team": "DX",
+    "position": "Teamster",
+    "backup_team": "DX",
+    "backup_position": "OCVP"
+   }
+  },
+  {
+   "id": "41eb6e48-10ca-4692-890c-ec3e8c83c542",
+   "data": {
+    "day": "Day 1",
+    "activity": "Check in",
+    "team": "DX",
+    "position": "Teamster",
+    "backup_team": "DX",
+    "backup_position": "OCVP"
+   }
+  },
+  {
+   "id": "9a510359-3e1f-4ffa-811a-65d1184ffc2a",
+   "data": {
+    "day": "Day 1",
+    "activity": "Collecting fees that are not yet paid",
+    "team": "DX",
+    "position": "OCVP",
+    "backup_team": "Finance",
+    "backup_position": "OCVP"
+   }
+  },
+  {
+   "id": "8f834e7e-de2c-4c96-9ca6-ab5078a17cd5",
+   "data": {
+    "day": "Day 1",
+    "activity": "Prepare plenary to receive delegates",
+    "team": "DX",
+    "position": "Teamster",
+    "backup_team": "DX",
+    "backup_position": "OCVP"
+   }
+  },
+  {
+   "id": "3570a998-cb3e-4cc9-b00b-9b82c6dacce7",
+   "data": {
+    "day": "Day 1",
+    "activity": "Check needs for the sessions to be ready",
+    "team": "Logistics",
+    "position": "Teamster",
+    "backup_team": "Logistics",
+    "backup_position": "OCVP"
+   }
+  },
+  {
+   "id": "18ed8919-ff66-4031-9752-fad96824d059",
+   "data": {
+    "day": "Day 1",
+    "activity": "Meeting with partners to set expectations",
+    "team": "MKTG",
+    "position": "OCVP",
+    "backup_team": "Coach",
+    "backup_position": "Coach"
+   }
+  },
+  {
+   "id": "29f2686c-0e18-40ae-8147-a8b1968481f8",
+   "data": {
+    "day": "Day 1",
+    "activity": "Showcasing first day opening",
+    "team": "BD",
+    "position": "Teamster",
+    "backup_team": "MKTG",
+    "backup_position": "OCVP"
+   }
+  },
+  {
+   "id": "5c2a20ae-0da3-4d60-91ee-2591e0198406",
+   "data": {
+    "day": "Day 1",
+    "activity": "Prepare welcome packages",
+    "team": "Logistics",
+    "position": "Teamster",
+    "backup_team": "DX",
+    "backup_position": "OCVP"
+   }
+  },
+  {
+   "id": "2a10ad67-bb04-4fb5-a310-966ce4c363d6",
+   "data": {
+    "day": "Day 1",
+    "activity": "Lunch",
+    "team": "Logistics",
+    "position": "Teamster",
+    "backup_team": "Logistics",
+    "backup_position": "OCVP"
+   }
+  },
+  {
+   "id": "283d42cb-c5c8-4df3-9dd0-a8570cb4ca97",
+   "data": {
+    "day": "Day 1",
+    "activity": "Dinner",
+    "team": "Logistics",
+    "position": "Teamster",
+    "backup_team": "Logistics",
+    "backup_position": "OCVP"
+   }
+  },
+  {
+   "id": "d544d593-0361-428c-990d-61e7aedc55d5",
+   "data": {
+    "day": "Day 2",
+    "activity": "Make sure people woke up on time",
+    "team": "DX",
+    "position": "Teamster",
+    "backup_team": "DX",
+    "backup_position": "OCVP"
+   }
+  },
+  {
+   "id": "585ee48b-7c8c-45cf-a6fd-58dc10fc1361",
+   "data": {
+    "day": "Day 2",
+    "activity": "Check needs",
+    "team": "Logistics",
+    "position": "Teamster",
+    "backup_team": "Logistics",
+    "backup_position": "OCVP"
+   }
+  },
+  {
+   "id": "807eb51e-9851-491d-b804-31901e25592a",
+   "data": {
+    "day": "Day 2",
+    "activity": "Showcasing partners and keynotes",
+    "team": "BD",
+    "position": "OCVP",
+    "backup_team": "Coach",
+    "backup_position": "Coach"
+   }
+  },
+  {
+   "id": "8a8bcc54-e062-46ec-a666-2b3439897cf2",
+   "data": {
+    "day": "Day 2",
+    "activity": "Breakfast",
+    "team": "Catering",
+    "position": "Director",
+    "backup_team": "Logistics",
+    "backup_position": "OCVP"
+   }
+  },
+  {
+   "id": "8b8cb407-d8d2-4fa7-b422-1ec3de5e711a",
+   "data": {
+    "day": "Day 2",
+    "activity": "Showcasing opening and after party",
+    "team": "MKTG",
+    "position": "Teamster",
+    "backup_team": "MKTG",
+    "backup_position": "OCVP"
+   }
+  },
+  {
+   "id": "94363208-d5ce-4db1-be74-211d36ebcab3",
+   "data": {
+    "day": "Day 2",
+    "activity": "Lunch",
+    "team": "Logistics",
+    "position": "Teamster",
+    "backup_team": "Logistics",
+    "backup_position": "OCVP"
+   }
+  },
+  {
+   "id": "fd64cf8d-4bd0-430a-bdab-908f093a6737",
+   "data": {
+    "day": "Day 2",
+    "activity": "Dinner",
+    "team": "Logistics",
+    "position": "OCVP",
+    "backup_team": "Logistics",
+    "backup_position": "OCVP"
+   }
+  },
+  {
+   "id": "309251f0-ed3c-42b9-8a8d-1991cbb13da8",
+   "data": {
+    "day": "Day 2",
+    "activity": "Check if things are ready for after party",
+    "team": "DX",
+    "position": "Teamster",
+    "backup_team": "Logistics",
+    "backup_position": "Teamster"
+   }
+  },
+  {
+   "id": "c0b92322-b9ce-42f3-86f6-c87e10a6e8d8",
+   "data": {
+    "day": "Day 3",
+    "activity": "Make sure people woke up on time",
+    "team": "DX",
+    "position": "Teamster",
+    "backup_team": "MKTG",
+    "backup_position": "Teamster"
+   }
+  },
+  {
+   "id": "28b263fc-e7b5-4f14-911e-4e6877782cb5",
+   "data": {
+    "day": "Day 3",
+    "activity": "Receive keys and room check",
+    "team": "DX",
+    "position": "Teamster",
+    "backup_team": "DX",
+    "backup_position": "OCVP"
+   }
+  },
+  {
+   "id": "04c5b19a-2729-4fb1-896f-28e1c83ea29e",
+   "data": {
+    "day": "Day 3",
+    "activity": "Check out",
+    "team": "DX",
+    "position": "OCVP",
+    "backup_team": "OCP",
+    "backup_position": "OCP"
+   }
+  },
+  {
+   "id": "9661ae8b-78f7-4487-b955-3b3b0f1a6a16",
+   "data": {
+    "day": "Day 3",
+    "activity": "Breakfast",
+    "team": "Logistics",
+    "position": "Teamster",
+    "backup_team": "Logistics",
+    "backup_position": "OCVP"
+   }
+  },
+  {
+   "id": "c13f2f8c-5a5d-42c9-a10b-efadae9cfd6c",
+   "data": {
+    "day": "Day 3",
+    "activity": "Check cleanliness of the plenary",
+    "team": "DX",
+    "position": "Teamster",
+    "backup_team": "MKTG",
+    "backup_position": "Teamster"
+   }
+  }
+ ],
+ "selectionRows": [
+  {
+   "id": "ad595d51-c707-4ef2-bd59-5a0e22b0eac9",
+   "data": {
+    "stage": "OCP",
+    "round": "1st round",
+    "step": "Announcement",
+    "date": "2026-09-26",
+    "done": false,
+    "comment": ""
+   }
+  },
+  {
+   "id": "959e57ba-b3a4-4ec1-bacc-67a886d3c3ed",
+   "data": {
+    "stage": "OCP",
+    "round": "1st round",
+    "step": "OC Coach selections & announcement",
+    "date": "2026-09-26",
+    "done": false,
+    "comment": ""
+   }
+  },
+  {
+   "id": "edbc621d-e0f2-44a3-bf76-aa98ed660552",
+   "data": {
+    "stage": "OCP",
+    "round": "1st round",
+    "step": "Application release",
+    "date": "2026-09-27",
+    "done": false,
+    "comment": ""
+   }
+  },
+  {
+   "id": "f821f764-058a-4cb9-9005-12e3769eea4f",
+   "data": {
+    "stage": "OCP",
+    "round": "1st round",
+    "step": "OCP application deadline",
+    "date": "2026-09-30",
+    "done": false,
+    "comment": ""
+   }
+  },
+  {
+   "id": "8cc590f5-b83f-42b2-b6c8-dc94f3ab50a3",
+   "data": {
+    "stage": "OCP",
+    "round": "1st round",
+    "step": "OCP selections & announcement",
+    "date": "2026-10-02",
+    "done": false,
+    "comment": ""
+   }
+  },
+  {
+   "id": "ebe801b7-86ca-4644-b115-8d319332375c",
+   "data": {
+    "stage": "OCP",
+    "round": "2nd round (if needed)",
+    "step": "Application release",
+    "date": "",
+    "done": false,
+    "comment": ""
+   }
+  },
+  {
+   "id": "e1682de4-4ecc-4238-8fb0-1f4e89bd6490",
+   "data": {
+    "stage": "OCP",
+    "round": "2nd round (if needed)",
+    "step": "OCP application deadline",
+    "date": "",
+    "done": false,
+    "comment": ""
+   }
+  },
+  {
+   "id": "9d342ad4-9173-43ee-ad91-d5232c761c86",
+   "data": {
+    "stage": "OCP",
+    "round": "2nd round (if needed)",
+    "step": "OCP selections",
+    "date": "",
+    "done": false,
+    "comment": ""
+   }
+  },
+  {
+   "id": "4f800996-3a58-4123-b3a2-a04e282b64d1",
+   "data": {
+    "stage": "OCP",
+    "round": "2nd round (if needed)",
+    "step": "OCP announcement",
+    "date": "",
+    "done": false,
+    "comment": ""
+   }
+  },
+  {
+   "id": "3c2d9a0a-898f-423c-92bd-0424baff2579",
+   "data": {
+    "stage": "OCVPs & Teamsters",
+    "round": "1st round",
+    "step": "Application release",
+    "date": "2026-09-27",
+    "done": false,
+    "comment": ""
+   }
+  },
+  {
+   "id": "1d2100ca-263d-49a5-89a4-40d1e7a7a247",
+   "data": {
+    "stage": "OCVPs & Teamsters",
+    "round": "1st round",
+    "step": "OCVP application deadline",
+    "date": "2026-09-30",
+    "done": false,
+    "comment": ""
+   }
+  },
+  {
+   "id": "6dce2af6-1915-45c4-b4ac-d8dd11e0daf5",
+   "data": {
+    "stage": "OCVPs & Teamsters",
+    "round": "1st round",
+    "step": "OCVP selections & announcement",
+    "date": "2026-10-03",
+    "done": false,
+    "comment": ""
+   }
+  },
+  {
+   "id": "e30f55db-7404-4421-b3f2-d352e2bfc907",
+   "data": {
+    "stage": "OCVPs & Teamsters",
+    "round": "1st round",
+    "step": "Teamster application deadline",
+    "date": "2026-09-30",
+    "done": false,
+    "comment": ""
+   }
+  },
+  {
+   "id": "f4b11b18-c17b-4b13-af59-cf60fe55ac35",
+   "data": {
+    "stage": "OCVPs & Teamsters",
+    "round": "1st round",
+    "step": "Teamster selections",
+    "date": "2026-10-04",
+    "done": false,
+    "comment": ""
+   }
+  },
+  {
+   "id": "b7a46adf-fb96-476b-8129-cb501897a6b4",
+   "data": {
+    "stage": "OCVPs & Teamsters",
+    "round": "2nd round (if needed)",
+    "step": "Application release",
+    "date": "",
+    "done": false,
+    "comment": ""
+   }
+  },
+  {
+   "id": "bd8ec892-5fd9-4fdf-8d34-f5b8aba6c2ec",
+   "data": {
+    "stage": "OCVPs & Teamsters",
+    "round": "2nd round (if needed)",
+    "step": "OCVP application deadline",
+    "date": "",
+    "done": false,
+    "comment": ""
+   }
+  },
+  {
+   "id": "251dc709-fd76-4f8b-a299-a40a9d4baca7",
+   "data": {
+    "stage": "OCVPs & Teamsters",
+    "round": "2nd round (if needed)",
+    "step": "OCVP selections",
+    "date": "",
+    "done": false,
+    "comment": ""
+   }
+  },
+  {
+   "id": "6cd64ed5-c7af-4af7-a0d8-067f233a066c",
+   "data": {
+    "stage": "OCVPs & Teamsters",
+    "round": "2nd round (if needed)",
+    "step": "Teamster application deadline",
+    "date": "",
+    "done": false,
+    "comment": ""
+   }
+  },
+  {
+   "id": "43b7ac5b-02fd-4c5b-a713-55950f9bd43c",
+   "data": {
+    "stage": "OCVPs & Teamsters",
+    "round": "2nd round (if needed)",
+    "step": "Teamster selections",
+    "date": "",
+    "done": false,
+    "comment": ""
+   }
+  }
+ ]
+}

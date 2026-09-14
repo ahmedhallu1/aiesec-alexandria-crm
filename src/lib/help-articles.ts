@@ -8,6 +8,58 @@ import type { HelpArticle } from "./help-content";
  */
 export const HELP_ARTICLES: HelpArticle[] = [
  {
+  "id": "activate-26-bid",
+  "title": "The Activate 26' bid page",
+  "emoji": "🎪",
+  "category": "getting-started",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "activate",
+   "activation",
+   "bid",
+   "hosting",
+   "conference",
+   "timeline",
+   "checkpoints",
+   "oc",
+   "organizing committee",
+   "public link",
+   "circus",
+   "استضافة",
+   "مؤتمر"
+  ],
+  "summary": "Our bid to host Activate 26' — the timeline, checkpoints, OC structure, casting list and run of show — on one page every member can edit like a sheet, with a public link that anyone can view.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Open **Activate 26' Bid** in the sidebar ([here](/activation)). It merges the two bid sheets into five acts: **the road to the show** (the timeline), **nine checkpoints**, **the ringmasters** (OC structure and job descriptions), **the casting call** (who wants which role, and how the OC is selected) and **showtime** (Day 0 – Day 3, who does what and who backs them up)."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Press **Edit** in the bar at the bottom. Every table opens as a sheet: click a cell and type, **Enter**/**Tab** to move on, **Delete** to clear.",
+     "**Paste straight from Google Sheets** — select a cell and paste; extra lines become new rows.",
+     "Click a column name to rename it, change its type, hide it or delete it; **+ Column** adds one.",
+     "On the road, **drag a bar** to move it, drag its edges to change how long it runs, click it to edit. Drag a 🚩 to move a checkpoint. **Teams & dates** renames teams and recolours them.",
+     "Changes save as you make them, and anyone else editing sees them within seconds. Press **View** to see exactly what the public sees."
+    ]
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**The public link** (\"Public link\" in the bottom bar, or /activate26) is read-only and needs no account. Each act has an **On the public page** switch, and the casting list shows its numbers publicly but **no names** unless you turn on **Show names publicly**."
+   },
+   {
+    "t": "callout",
+    "tone": "tip",
+    "md": "The dates were fitted from the sheet to **25 Sep → 5 Dec**: everything up to the 1st OC meeting kept its exact date, the rest kept its order and was spaced to finish by 1 December, so the nine checkpoints fall five days apart and Day 0 – Day 3 are 2 – 5 December. In edit mode, clicking a bar shows the date it had in the sheet."
+   }
+  ]
+ },
+ {
   "id": "edits-save-themselves",
   "title": "Your account edits save themselves",
   "emoji": "✅",

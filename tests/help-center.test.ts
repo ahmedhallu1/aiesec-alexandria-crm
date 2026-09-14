@@ -17,6 +17,8 @@ const ROUTES = new Set([
   "/calendar", "/attendance", "/dashboard", "/emails", "/feedback",
   "/lc-feedback", "/profile", "/members", "/membership", "/planning",
   "/admin", "/help", "/ogt-mail", "/playbook",
+  // v36.7 — the Activate 26' bid: editable in the app, read-only in public
+  "/activation", "/activate26",
 ]);
 const CATEGORY_IDS = new Set([
   "getting-started", "raising", "ogx", "consideration", "b2c",

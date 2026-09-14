@@ -26,6 +26,7 @@ import {
   Target,
   ClipboardCheck,
   ClipboardList,
+  Tent,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -132,6 +133,9 @@ export function AppShell({
     // now (one tab fewer); the /ogt-mail route itself stays for the button.
     ...(nav.tm ? [{ href: "/members", label: "Talent Management", icon: UsersRound }] : []),
     ...(nav.membership ? [{ href: "/membership", label: "Membership", icon: Users }] : []),
+    // v36.7 — the LC's bid to host Activate 26': everyone reads it, every
+    // member can edit it (the public, view-only copy lives at /activate26)
+    { href: "/activation", label: "Activate 26' Bid", icon: Tent },
     // v29: attendance is everybody's — own history, plus whatever you record
     { href: "/attendance", label: "Attendance", icon: CalendarCheck2 },
     // v36 — one-on-ones and development plans, beside Attendance because both

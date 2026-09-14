@@ -14,7 +14,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-09-14 · Version: v36.6
+Last updated: 2026-09-14 · Version: v36.7
 
 ---
 
@@ -371,7 +371,9 @@ mutation through a `can*` predicate, **server-side**.
   URL outside your scope → 404, never data. All reads/mutations re-check RBAC
   server-side (`getAccount` → `canViewAccount`; every action → `can*`).
 - Route protection: `src/proxy.ts` (Auth.js) — everything requires a session
-  except `/login`, auth/cron APIs, static assets, `/brand`, PWA files.
+  except `/login`, auth/cron APIs, static assets, `/brand`, PWA files, and the
+  read-only public pages (`/book`, `/privacy`, `/delete-account`, and since
+  v36.7 `/activate26` — the editable twin `/activation` stays protected).
   ⚠️ Any new public asset folder must be added to the matcher or the proxy
   307s it to /login.
 - `/api/cron/*` guarded by `CRON_SECRET`. Feedback inbox = ONLY
@@ -619,6 +621,9 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | B2C call outcomes + the call-back reminder | `B2C_CALL_OUTCOMES` in `types.ts` · `updateB2cCic` in `actions.ts` · `runB2cCallBacks` in `server/cron/visit-followups.ts` |
 | Deleting an account / cancelling a deal | `deleteAccount` + `accountDeletionCheck` + `cancelDeal` in `actions.ts` · the dialogs in `account-detail-view.tsx` |
 | The CIC 1st-caller filter | `cicFirstCallerOptions` + `cicPoolFilter` in `data.ts` · `firstCaller` in `SignupFilters` · the `assigned` case in `columnFilter` (signups-view) |
+| The Activate 26' bid page (model, public shaping, paste parsing) | `src/lib/activation/model.ts` (pure) · the first version `lib/activation/seed.ts` + `seed.json` (generated once from the two sheets — history, the DB is the plan) |
+| Bid page reads / writes | `src/server/activation.ts` · `src/server/activation-actions.ts` (every action: signed-in member, never a test view) |
+| Bid page UI (theme, sheet editor, timeline, acts) | `src/components/activation/*` — `circus.css` is namespaced `.circus`; routes `/activation` (in-app, editable) and `/activate26` (public, read-only) |
 
 ---
 
@@ -689,6 +694,40 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-09-14 · v36.7** — **THE ACTIVATE 26' BID PAGE.** Tables from migration
+  **0081** (`activation_sections`, `activation_rows`, `activation_set_cells`).
+  The LC is bidding to host Activate 26' and was asked to keep the plan in
+  Sheets; it lives here instead, editable like a sheet by every member and
+  readable by anyone at `/activate26`. Theme: *The Greatest Showman* — a
+  midnight big top (`circus.css`, its own committed look, Rye + Playfair via
+  next/font, all motion off under reduced-motion).
+  ① **MERGED** "Activate" (Timeline, Checkpoints) and "Activate 26'"
+  (Structure & JDs, Mapping, HR Plan, OC-TimeLine1) into five acts: the road
+  (a Gantt per team, agenda on phones), nine checkpoints, the ringmasters,
+  the casting call + OC selection, and showtime (Day 0–3). Typos and
+  ALL-CAPS were tidied; content was not changed. The HR Plan's unrelated code
+  block ("Atomic Treasure…") was left out.
+  ② **THE DATES WERE FITTED, NOT INVENTED.** The sheet ran 25 Sep → 22 Dec,
+  past its own Day 0/Day 1 (2–3 Dec), and its Checkpoints tab carried
+  different dates (30 Sep → 25 Nov) that contradicted the timeline.
+  25 Sep – 6 Oct kept its exact dates; 7 Oct – 22 Dec kept its order and
+  relative spacing, compressed to end 1 Dec, so the checkpoints fall exactly
+  every 5 days (18 Oct → 27 Nov) and Day 0–3 are 2–5 Dec. Every bar keeps its
+  sheet date in `original` (edit mode shows it). Pinned by
+  `tests/activation-seed.test.ts`.
+  ③ **EDITING**: tables become a sheet in Edit mode (type-to-edit, Enter/Tab,
+  arrows, paste a block from Google Sheets, add/rename/retype/hide/delete
+  columns, insert/move/delete rows with Undo); the road drags and resizes;
+  acts can be renamed, reordered, hidden from the public page, added and
+  (custom ones) deleted. Cell saves merge ONE key server-side, so two editors
+  never overwrite each other's cells; edit mode polls every 15 s while
+  visible. Deleting a column keeps its data (re-adding the same name restores
+  it).
+  ④ **PUBLIC**: `publicPlan` drops hidden acts, editor names and the pre-fit
+  dates, and shows the casting list's numbers but NO names unless
+  `namesPublic` is on. ⚠️ The public page is `force-dynamic` on purpose —
+  prerendering it would need the database at build time.
 
 - **2026-09-14 · v36.6** — **ACCOUNT EDITS SAVE THEMSELVES, AND THE WALKTHROUGH SHOWS
   ONCE.** Migration **0081 applied** (`members.tour_seen_at` + the Activate bid
