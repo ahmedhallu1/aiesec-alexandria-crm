@@ -10,8 +10,8 @@ import {
   COLUMN_TYPES,
   LIMITS,
   TABLE_VIEWS,
-  columnKey,
   daysBetween,
+  newSectionId,
   isIsoDate,
   sanitizeCell,
   sectionColumns,
@@ -25,6 +25,7 @@ import {
   type SectionConfig,
 } from "@/lib/activation/model";
 import { CORE_SECTION_IDS } from "@/lib/activation/seed";
+import { canSeeActivationBid } from "@/lib/rbac";
 
 /** WRITES for the Activate 26' bid page (v36.7).
  *
@@ -46,8 +47,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SECTION_ID = /^[a-z0-9][a-z0-9_-]{0,48}$/;
 const HEX = /^#[0-9a-f]{6}$/i;
 
+const MM_ONLY = "The bid plan is for MMs and above — the public page is open to everyone.";
+
 async function editor() {
   const viewer = await getViewer();
+  if (!canSeeActivationBid(viewer)) return { viewer, error: MM_ONLY };
   if (viewer.impersonated)
     return { viewer, error: "Exit the test view to edit the bid plan — the edit would be credited to someone else." };
   return { viewer, error: null as string | null };
@@ -239,6 +243,29 @@ export async function restoreActivationRow(rowId: string): Promise<Res> {
   return setDeleted(rowId, false);
 }
 
+/** Several rows at once (v36.8) — the sheet's row selection. Soft-deleted
+ *  like a single row, so a restore brings every one of them back. */
+export async function deleteActivationRows(rowIds: string[], restore = false): Promise<Res<{ count: number }>> {
+  const { viewer, error } = await editor();
+  if (error) return fail(error);
+  const ids = [...new Set((rowIds ?? []).filter((id) => UUID.test(id)))];
+  if (ids.length === 0) return fail("Pick the rows first.");
+  if (ids.length > 500) return fail("At most 500 rows at a time.");
+  const now = new Date().toISOString();
+  const { data, error: upErr } = await db()
+    .from("activation_rows")
+    .update({ deleted_at: restore ? null : now, updated_at: now, updated_by: viewer.id })
+    .in("id", ids)
+    .select("id, section_id");
+  if (upErr) return fail(upErr.message);
+  await logAudit(viewer.id, restore ? "activation_rows_restore" : "activation_rows_delete", "activation", null, {
+    section: data?.[0]?.section_id ?? null,
+    rows: data?.length ?? 0,
+  });
+  touchPublic();
+  return { ok: true, data: { count: data?.length ?? 0 } };
+}
+
 export async function moveActivationRow(rowId: string, position: number): Promise<Res> {
   const { viewer, error } = await editor();
   if (error) return fail(error);
@@ -397,6 +424,7 @@ export async function updateActivationSection(
       );
     }
     if (c.namesPublic !== undefined) next.namesPublic = !!c.namesPublic;
+    if (c.listTitle !== undefined) next.listTitle = String(c.listTitle).trim().slice(0, 60) || "Mapping";
     update.config = next;
   }
   if (Object.keys(update).length === 0) return { ok: true };
@@ -417,9 +445,10 @@ export async function addActivationSection(title: string): Promise<Res<{ id: str
   if (error) return fail(error);
   const t = String(title ?? "").trim().slice(0, LIMITS.title);
   if (!t) return fail("Give the new section a title.");
-  const { data: all } = await db().from("activation_sections").select("id, position");
+  const { data: all, error: readErr } = await db().from("activation_sections").select("id, position");
+  if (readErr) return fail(readErr.message);
   const list = (all ?? []) as { id: string; position: number }[];
-  const id = `s_${columnKey(t, list.map((s) => s.id.replace(/^s_/, ""))).slice(0, 40)}`;
+  const id = newSectionId(t, list.map((s) => s.id));
   const position = Math.max(0, ...list.map((s) => s.position)) + 1;
   const { error: insErr } = await db().from("activation_sections").insert({
     id,
@@ -483,7 +512,8 @@ export async function moveActivationSection(sectionId: string, direction: -1 | 1
 
 /** What changed since the board's last sync — polled while someone edits. */
 export async function getActivationDelta(since: string): Promise<Res<ActivationDelta>> {
-  await getViewer();
+  const viewer = await getViewer();
+  if (!canSeeActivationBid(viewer)) return fail(MM_ONLY);
   if (typeof since !== "string" || Number.isNaN(Date.parse(since))) return fail("Bad cursor.");
   try {
     return { ok: true, data: await loadActivationDelta(since) };
@@ -494,7 +524,8 @@ export async function getActivationDelta(since: string): Promise<Res<ActivationD
 
 /** The whole plan again — the recovery path after a save was refused. */
 export async function getActivationPlan(): Promise<Res<ActivationPlan>> {
-  await getViewer();
+  const viewer = await getViewer();
+  if (!canSeeActivationBid(viewer)) return fail(MM_ONLY);
   try {
     return { ok: true, data: await loadActivationPlan({ publicView: false }) };
   } catch (e) {

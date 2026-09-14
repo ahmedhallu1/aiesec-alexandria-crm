@@ -7,7 +7,7 @@ import {
   ArrowDown, ArrowUp, Check, Copy, ExternalLink, Eye, Loader2, Lock, Pencil, Plus, Trash2, TriangleAlert,
 } from "lucide-react";
 import {
-  addActivationRow, deleteActivationRow, getActivationDelta, getActivationPlan, moveActivationRow,
+  addActivationRow, deleteActivationRow, deleteActivationRows, getActivationDelta, getActivationPlan, moveActivationRow,
   pasteActivationCells, restoreActivationRow, setActivationCells, updateActivationSection,
   addActivationSection, deleteActivationSection, moveActivationSection,
 } from "@/server/activation-actions";
@@ -16,7 +16,11 @@ import {
   type ActivationPlan, type ActivationRow, type ActivationSection, type CellValue, type Column,
 } from "@/lib/activation/model";
 import { CORE_SECTION_IDS } from "@/lib/activation/seed";
-import { ConfettiBurst } from "@/components/crm/confetti";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { BoardContext, type BoardApi, useBoard } from "./context";
@@ -28,14 +32,14 @@ import { TimelineAct, type CheckpointMark } from "./timeline";
 import { ChecklistView, CheckpointsView, PeopleView, PlainView, RolesView, RunbookView, teamColor } from "./views";
 
 /**
- * THE ACTIVATE 26' BOARD (v36.7) — the whole bid, one page, two audiences.
+ * THE ACTIVATE 26' BOARD — the whole bid, one page, two audiences.
  *
- * Inside Sodio (`/activation`) every member can flip to EDIT and change
- * anything the way they would in the Google Sheet it came from; outside it
- * (`/activate26`) the same page is a read-only showbill. State lives here and
- * every change is optimistic: it shows immediately and saves behind it. A save
- * the server refuses reloads the plan from the server rather than leaving the
- * screen showing something that isn't true. While someone edits, the page
+ * Inside Sodio (`/activation`, MMs and above since v36.8) the board flips to
+ * EDIT and changes anything the way the Google Sheet it came from did; outside
+ * it (`/activate26`) the same page is a read-only showbill. State lives here
+ * and every change is optimistic: it shows immediately and saves behind it. A
+ * save the server refuses reloads the plan from the server rather than leaving
+ * the screen showing something that isn't true. While someone edits, the page
  * polls for the others' changes every 15 s (only while the tab is visible).
  */
 
@@ -60,7 +64,7 @@ export function ActivationBoard({
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(0);
   const [trouble, setTrouble] = useState(false);
-  const [confetti, setConfetti] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const planRef = useRef(plan);
   const busy = useRef(new Map<string, number>());
@@ -90,9 +94,12 @@ export function ActivationBoard({
           return false;
         }
         return true;
-      } catch {
+      } catch (e) {
+        // said out loud in the console too — "nothing happened" is exactly
+        // the report a swallowed error produces (v36.8, the add-section case)
+        console.error("[activation] save failed", e);
         setTrouble(true);
-        toast.error("Couldn't reach Sodio — that change may not be saved. Check your connection.");
+        toast.error("Couldn't reach Sodio — that change may not be saved. Check your connection, or reload the page.");
         return false;
       } finally {
         keys.forEach((k) => {
@@ -117,6 +124,23 @@ export function ActivationBoard({
       setCells: (rowId, patch) => {
         patchRow(rowId, patch);
         void run([rowId], () => setActivationCells(rowId, patch));
+      },
+      setMany: (sectionId, updates) => {
+        if (!updates.length) return;
+        setPlan((p) => ({
+          ...p,
+          rows: p.rows.map((r) => {
+            const u = updates.find((x) => x.rowId === r.id);
+            return u ? { ...r, data: { ...r.data, ...u.patch } } : r;
+          }),
+        }));
+        const cells = updates.reduce((n, u) => n + Object.keys(u.patch).length, 0);
+        void run(
+          updates.map((u) => u.rowId),
+          () => pasteActivationCells(sectionId, updates, [])
+        ).then((ok) => {
+          if (ok) toast.success(`Updated ${cells} cell${cells === 1 ? "" : "s"}`);
+        });
       },
       addRow: (sectionId, data = {}, near) => {
         const list = rowsOf(planRef.current, sectionId);
@@ -150,6 +174,24 @@ export function ActivationBoard({
               void run([rowId], () => restoreActivationRow(rowId));
             },
           },
+        });
+      },
+      deleteRows: (rowIds) => {
+        const ids = new Set(rowIds);
+        const gone = planRef.current.rows.filter((r) => ids.has(r.id));
+        if (!gone.length) return;
+        setPlan((p) => ({ ...p, rows: p.rows.filter((r) => !ids.has(r.id)) }));
+        void run([...ids], () => deleteActivationRows([...ids])).then((ok) => {
+          if (!ok) return;
+          toast(`${gone.length} row${gone.length === 1 ? "" : "s"} deleted`, {
+            action: {
+              label: "Undo",
+              onClick: () => {
+                setPlan((p) => ({ ...p, rows: [...p.rows, ...gone] }));
+                void run([...ids], () => deleteActivationRows([...ids], true));
+              },
+            },
+          });
         });
       },
       moveRow: (rowId, direction) => {
@@ -247,9 +289,21 @@ export function ActivationBoard({
         if (await run([sectionId], () => deleteActivationSection(sectionId))) await reload();
       },
       addSection: async (title) => {
-        if (await run(["__sections"], () => addActivationSection(title))) await reload();
+        let id: string | null = null;
+        const ok = await run(["__sections"], async () => {
+          const res = await addActivationSection(title);
+          if (res.ok) id = res.data?.id ?? null;
+          return res;
+        });
+        if (!ok) return false;
+        await reload();
+        toast.success(`“${title}” is on the page — it opens as a sheet, add rows or paste from Google Sheets.`);
+        // take them to it: a new act lands at the very bottom of a long page
+        window.setTimeout(() => {
+          if (id) document.getElementById(`act-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 150);
+        return true;
       },
-      celebrate: () => setConfetti(true),
     }),
     [editable, editing, initial.publicView, run, reload]
   );
@@ -314,14 +368,13 @@ export function ActivationBoard({
   const marks: CheckpointMark[] = useMemo(() => {
     const cps = byView("checkpoints");
     if (!cps) return [];
-    const teams = (cps.config.columns ?? []).filter((c) => !["name", "date", "done"].includes(c.key));
+    const teams = (cps.config.columns ?? []).filter((c) => !["name", "date"].includes(c.key));
     return rowsOf(plan, cps.id)
       .filter((r) => typeof r.data.date === "string" && r.data.date)
       .map((r) => ({
         id: r.id,
         name: String(r.data.name ?? "Checkpoint"),
         date: String(r.data.date),
-        done: !!r.data.done,
         detail: teams.map((t) => ({ label: t.label, text: String(r.data[t.key] ?? ""), color: teamColor(t.key) })),
       }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -369,8 +422,9 @@ export function ActivationBoard({
           <div className="mx-auto mt-4 flex max-w-3xl items-start gap-2 rounded-2xl bg-[var(--cz-crimson)]/15 px-4 py-3 text-sm ring-1 ring-[var(--cz-crimson)]/50">
             <Pencil className="mt-0.5 size-4 shrink-0 text-[var(--cz-gold)]" />
             <span>
-              <b>Edit mode.</b> Every change saves as you make it and everyone sees it. Tables open as sheets; the road is
-              dragged. Flip to <b>View</b> at the bottom to see exactly what the public sees.
+              <b>Edit mode.</b> Every change saves as you make it and everyone sees it. Tables open as sheets — drag
+              across cells to edit many at once; the road is dragged. Flip to <b>View</b> at the bottom to see exactly
+              what the public sees.
             </span>
           </div>
         ) : null}
@@ -390,18 +444,24 @@ export function ActivationBoard({
         ) : null}
 
         {acts.map((s, i) => (
-          <SectionAct
-            key={s.id}
-            section={s}
-            rows={rowsOf(plan, s.id)}
-            marks={marks}
-            day0={heroCfg?.day0 ?? null}
-            first={i === 0}
-            last={i === acts.length - 1}
-          />
+          <div key={s.id}>
+            {i > 0 ? (
+              <div className="circus-intermission" aria-hidden>
+                ✦ ✦ ✦
+              </div>
+            ) : null}
+            <SectionAct
+              section={s}
+              rows={rowsOf(plan, s.id)}
+              marks={marks}
+              day0={heroCfg?.day0 ?? null}
+              first={i === 0}
+              last={i === acts.length - 1}
+            />
+          </div>
         ))}
 
-        {editMode ? <AddSection /> : null}
+        {editMode ? <AddSection onOpen={() => setAddOpen(true)} /> : null}
 
         <Finale day0={heroCfg?.day0 ?? null} days={heroCfg?.showDays ?? 4} venue={heroCfg?.venue ?? ""} />
 
@@ -412,10 +472,11 @@ export function ActivationBoard({
             saving={saving}
             trouble={trouble}
             onReload={() => void reload()}
+            onAddSection={() => setAddOpen(true)}
             publicUrl={publicUrl}
           />
         ) : null}
-        {confetti ? <ConfettiBurst onDone={() => setConfetti(false)} /> : null}
+        {editMode ? <AddSectionDialog open={addOpen} onOpenChange={setAddOpen} /> : null}
       </div>
     </BoardContext.Provider>
   );
@@ -438,78 +499,82 @@ function SectionAct({
 
   return (
     <section id={`act-${section.id}`} data-act className="circus-section">
-      <div className="mx-auto max-w-3xl text-center">
-        {section.config.act ? (
-          <p className="circus-act-label" data-reveal>
-            {section.config.act}
-          </p>
-        ) : null}
-        {api.editing ? (
-          <div className="mt-3 grid gap-2">
-            <InlineText
-              value={section.title}
-              className="circus-h2 text-center"
-              label="Section title"
-              onSave={(title) => void api.updateSection(section.id, { title })}
-            />
-            <InlineText
-              value={section.subtitle}
-              className="circus-sub text-center"
-              label="Section subtitle"
-              placeholder="A line under the title…"
-              onSave={(subtitle) => void api.updateSection(section.id, { subtitle })}
-            />
-          </div>
-        ) : (
-          <>
-            <h2 className="circus-h2 mt-3" data-reveal style={{ "--d": "80ms" } as CSSProperties}>
-              {section.config.emoji ? <span className="not-italic">{section.config.emoji} </span> : null}
-              {section.title}
-            </h2>
-            {section.subtitle ? (
-              <p className="circus-sub mt-3" data-reveal style={{ "--d": "160ms" } as CSSProperties}>
-                {section.subtitle}
-              </p>
-            ) : null}
-          </>
-        )}
-        {!api.editing && api.editable && section.hidden_public ? (
-          <p className="mt-3 inline-flex items-center gap-1.5 text-xs text-[var(--cz-gold)]">
-            <Lock className="size-3.5" /> Only Sodio members see this act
-          </p>
-        ) : null}
-      </div>
+      <div className="circus-stage">
+        <div className="mx-auto max-w-3xl text-center">
+          {section.config.act ? (
+            <p className="circus-act-label" data-reveal>
+              {section.config.act}
+            </p>
+          ) : null}
+          {api.editing ? (
+            <div className="mt-3 grid gap-2">
+              <InlineText
+                value={section.title}
+                className="circus-h2 text-center"
+                label="Section title"
+                onSave={(title) => void api.updateSection(section.id, { title })}
+              />
+              <InlineText
+                value={section.subtitle}
+                className="circus-sub text-center"
+                label="Section subtitle"
+                placeholder="A line under the title…"
+                onSave={(subtitle) => void api.updateSection(section.id, { subtitle })}
+              />
+            </div>
+          ) : (
+            <>
+              <h2 className="circus-h2 mt-3" data-reveal style={{ "--d": "80ms" } as CSSProperties}>
+                {section.config.emoji ? <span className="not-italic">{section.config.emoji} </span> : null}
+                {section.title}
+              </h2>
+              {section.subtitle ? (
+                <p className="circus-sub mt-3" data-reveal style={{ "--d": "160ms" } as CSSProperties}>
+                  {section.subtitle}
+                </p>
+              ) : null}
+            </>
+          )}
+          {!api.editing && api.editable && section.hidden_public ? (
+            <p className="mt-3 inline-flex items-center gap-1.5 text-xs text-[var(--cz-gold)]">
+              <Lock className="size-3.5" /> Only Sodio members see this act
+            </p>
+          ) : null}
+        </div>
 
-      {api.editing ? <SectionTools section={section} custom={custom} first={first} last={last} /> : null}
+        {api.editing ? <SectionTools section={section} custom={custom} first={first} last={last} /> : null}
 
-      <div className="mt-10">
-        {section.kind === "timeline" ? (
-          <TimelineAct section={section} rows={rows} checkpoints={marks} />
-        ) : api.editing ? (
-          <SheetGrid
-            columns={columns}
-            rows={rows}
-            onCommit={(rowId, key, value) => api.setCells(rowId, { [key]: value })}
-            onAddRow={(near) => api.addRow(section.id, {}, near)}
-            onDeleteRow={api.deleteRow}
-            onMoveRow={api.moveRow}
-            onPaste={(r, c, m) => api.paste(section.id, r, c, m, columns)}
-            onColumnsChange={(next) => void api.updateSection(section.id, { config: { columns: next } })}
-            colorOf={(col, v) => (["team", "backup_team"].includes(col.key) ? teamColor(v) : undefined)}
-          />
-        ) : view === "checkpoints" ? (
-          <CheckpointsView section={section} rows={rows} />
-        ) : view === "roles" ? (
-          <RolesView section={section} rows={rows} />
-        ) : view === "people" ? (
-          <PeopleView section={section} rows={rows} />
-        ) : view === "checklist" ? (
-          <ChecklistView section={section} rows={rows} />
-        ) : view === "runbook" ? (
-          <RunbookView section={section} rows={rows} day0={day0} />
-        ) : (
-          <PlainView section={section} rows={rows} />
-        )}
+        <div className="mt-10">
+          {section.kind === "timeline" ? (
+            <TimelineAct section={section} rows={rows} checkpoints={marks} />
+          ) : api.editing ? (
+            <SheetGrid
+              columns={columns}
+              rows={rows}
+              onCommit={(rowId, key, value) => api.setCells(rowId, { [key]: value })}
+              onSetMany={(updates) => api.setMany(section.id, updates)}
+              onAddRow={(near) => api.addRow(section.id, {}, near)}
+              onDeleteRow={api.deleteRow}
+              onDeleteRows={api.deleteRows}
+              onMoveRow={api.moveRow}
+              onPaste={(r, c, m) => api.paste(section.id, r, c, m, columns)}
+              onColumnsChange={(next) => void api.updateSection(section.id, { config: { columns: next } })}
+              colorOf={(col, v) => (["team", "backup_team"].includes(col.key) ? teamColor(v) : undefined)}
+            />
+          ) : view === "checkpoints" ? (
+            <CheckpointsView section={section} rows={rows} />
+          ) : view === "roles" ? (
+            <RolesView section={section} rows={rows} />
+          ) : view === "people" ? (
+            <PeopleView section={section} rows={rows} />
+          ) : view === "checklist" ? (
+            <ChecklistView section={section} rows={rows} />
+          ) : view === "runbook" ? (
+            <RunbookView section={section} rows={rows} day0={day0} />
+          ) : (
+            <PlainView section={section} rows={rows} />
+          )}
+        </div>
       </div>
     </section>
   );
@@ -550,6 +615,8 @@ function InlineText({
   );
 }
 
+const pill = "flex items-center gap-2 rounded-full bg-white/5 px-3 py-1.5 ring-1 ring-[var(--cz-line)]";
+
 function SectionTools({
   section, custom, first, last,
 }: { section: ActivationSection; custom: boolean; first: boolean; last: boolean }) {
@@ -557,7 +624,7 @@ function SectionTools({
   const days = section.config.columns?.find((c) => c.key === "day")?.options ?? [];
   return (
     <div className="mx-auto mt-5 flex max-w-4xl flex-wrap items-center justify-center gap-2 text-xs">
-      <label className="flex items-center gap-2 rounded-full bg-white/5 px-3 py-1.5 ring-1 ring-[var(--cz-line)]">
+      <label className={pill}>
         <Switch
           checked={!section.hidden_public}
           onCheckedChange={(v) => void api.updateSection(section.id, { hidden_public: !v })}
@@ -566,14 +633,27 @@ function SectionTools({
       </label>
       {section.config.view === "people" ? (
         <>
-          <label className="flex items-center gap-2 rounded-full bg-white/5 px-3 py-1.5 ring-1 ring-[var(--cz-line)]">
+          <label className={pill}>
+            List title
+            <input
+              defaultValue={section.config.listTitle ?? "Mapping"}
+              onBlur={(e) => {
+                const v = e.target.value.trim() || "Mapping";
+                if (v !== (section.config.listTitle ?? "Mapping"))
+                  void api.updateSection(section.id, { config: { listTitle: v } });
+              }}
+              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+              className="w-32 rounded bg-white/10 px-1.5 py-0.5 text-[var(--cz-cream)] outline-none"
+            />
+          </label>
+          <label className={pill}>
             <Switch
               checked={!!section.config.namesPublic}
               onCheckedChange={(v) => void api.updateSection(section.id, { config: { namesPublic: v } })}
             />
             Show names publicly
           </label>
-          <label className="flex items-center gap-2 rounded-full bg-white/5 px-3 py-1.5 ring-1 ring-[var(--cz-line)]">
+          <label className={pill}>
             LC capacity
             <input
               type="number"
@@ -591,7 +671,7 @@ function SectionTools({
       ) : null}
       {section.config.view === "runbook"
         ? days.map((day) => (
-            <label key={day} className="flex items-center gap-2 rounded-full bg-white/5 px-3 py-1.5 ring-1 ring-[var(--cz-line)]">
+            <label key={day} className={pill}>
               {day}:
               <input
                 defaultValue={section.config.dayNotes?.[day] ?? ""}
@@ -644,44 +724,80 @@ function SectionTools({
   );
 }
 
-function AddSection() {
+/** The end of the acts in edit mode: one clear button into the add dialog —
+ *  the same dialog the dock's "+ Section" opens, so there are two doors in
+ *  and neither can sit under the other. */
+function AddSection({ onOpen }: { onOpen: () => void }) {
+  return (
+    <div className="circus-section">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="mx-auto flex w-full max-w-xl flex-col items-center gap-1 rounded-[26px] border-2 border-dashed border-[var(--cz-gold)]/40 bg-white/[0.03] px-6 py-7 text-center transition hover:border-[var(--cz-gold)] hover:bg-white/[0.06]"
+      >
+        <Plus className="size-6 text-[var(--cz-gold)]" />
+        <span className="circus-serif text-xl font-bold italic text-[var(--cz-cream)]">Add a new section</span>
+        <span className="text-xs text-[var(--cz-muted)]">Budget, partners, agenda… it opens as a sheet you can fill or paste into</span>
+      </button>
+    </div>
+  );
+}
+
+function AddSectionDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">{open ? <AddSectionForm onDone={() => onOpenChange(false)} /> : null}</DialogContent>
+    </Dialog>
+  );
+}
+
+function AddSectionForm({ onDone }: { onDone: () => void }) {
   const api = useBoard();
   const [title, setTitle] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    const t = title.trim();
+    if (!t || busy) return;
+    setBusy(true);
+    const ok = await api.addSection(t);
+    setBusy(false);
+    if (ok) onDone();
+  };
   return (
-    <div className="circus-section !pt-6">
-      <div className="mx-auto flex max-w-xl flex-wrap items-center gap-2 rounded-2xl bg-white/[0.04] p-3 ring-1 ring-dashed ring-[var(--cz-line)]">
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Add a new section — e.g. Budget, Partners, Agenda…"
-          className="min-w-0 flex-1 bg-transparent px-2 text-sm text-[var(--cz-cream)] outline-none placeholder:text-[var(--cz-muted)]"
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && title.trim()) {
-              void api.addSection(title.trim());
-              setTitle("");
-            }
-          }}
-        />
-        <button
-          type="button"
-          className="circus-btn !px-4 !py-2 !text-xs"
-          disabled={!title.trim()}
-          onClick={() => {
-            void api.addSection(title.trim());
-            setTitle("");
-          }}
-        >
-          <Plus className="size-4" /> Add section
-        </button>
-      </div>
-    </div>
+    <>
+      <DialogHeader>
+        <DialogTitle>Add a new section</DialogTitle>
+        <DialogDescription>
+          It lands at the end of the page with three columns (Item · Owner · Notes) — rename them, add more, or paste a
+          block straight from Google Sheets.
+        </DialogDescription>
+      </DialogHeader>
+      <Input
+        autoFocus
+        value={title}
+        maxLength={160}
+        onChange={(e) => setTitle(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            void submit();
+          }
+        }}
+        placeholder="e.g. Budget, Partners, Agenda"
+      />
+      <DialogFooter>
+        <Button disabled={!title.trim() || busy} onClick={() => void submit()}>
+          {busy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />} Add section
+        </Button>
+      </DialogFooter>
+    </>
   );
 }
 
 function Finale({ day0, days, venue }: { day0: string | null; days: number; venue: string }) {
   return (
-    <footer className="relative mt-20 overflow-hidden rounded-b-[inherit]">
-      <div className="circus-curtain px-6 py-16 text-center sm:py-20">
+    <footer className="relative mt-16 overflow-hidden rounded-b-[inherit]">
+      <div className="circus-finale-poster px-6 pb-16 pt-44 text-center sm:pb-24 sm:pt-64">
         <p className="circus-eyebrow !text-[var(--cz-cream)]">Curtain call</p>
         <p className="circus-display mt-3 text-4xl text-[var(--cz-gold)] drop-shadow-[0_4px_0_#4a0a15] sm:text-6xl" data-reveal>
           See you under the big top
@@ -698,13 +814,14 @@ function Finale({ day0, days, venue }: { day0: string | null; days: number; venu
 }
 
 function Dock({
-  editing, setEditing, saving, trouble, onReload, publicUrl,
+  editing, setEditing, saving, trouble, onReload, onAddSection, publicUrl,
 }: {
   editing: boolean;
   setEditing: (v: boolean) => void;
   saving: number;
   trouble: boolean;
   onReload: () => void;
+  onAddSection: () => void;
   publicUrl: string;
 }) {
   return (
@@ -717,6 +834,11 @@ function Dock({
           <Pencil className="size-4" /> Edit
         </button>
       </div>
+      {editing ? (
+        <button type="button" onClick={onAddSection} title="Add a new section to the page">
+          <Plus className="size-4" /> <span className="hidden sm:inline">Section</span>
+        </button>
+      ) : null}
       <span className="hidden items-center gap-1.5 px-2 text-xs sm:inline-flex" aria-live="polite">
         {saving > 0 ? (
           <>

@@ -28,8 +28,11 @@ export interface BoardApi {
   ) => Promise<boolean>;
   moveSection: (sectionId: string, direction: -1 | 1) => Promise<void>;
   deleteSection: (sectionId: string) => Promise<void>;
-  addSection: (title: string) => Promise<void>;
-  celebrate: () => void;
+  /** true once the section exists (the board has scrolled to it) */
+  addSection: (title: string, view?: SectionConfig["view"]) => Promise<boolean>;
+  /** several cells at once — a range cleared, filled down or set together */
+  setMany: (sectionId: string, updates: { rowId: string; patch: Record<string, CellValue> }[]) => void;
+  deleteRows: (rowIds: string[]) => void;
 }
 
 export const BoardContext = createContext<BoardApi | null>(null);

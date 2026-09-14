@@ -87,6 +87,16 @@ describe("the rest of the sheets", () => {
         for (const k of Object.keys(r.data)) expect(keys.has(k), `${s.id}.${k}`).toBe(true);
     }
   });
+  it("nothing is a task: no Done column anywhere, and no row carries a done flag (v36.8)", () => {
+    for (const s of sections as ActivationSection[])
+      expect((s.config.columns ?? []).map((c) => c.key), s.id).not.toContain("done");
+    for (const r of rows) expect("done" in r.data, r.section_id).toBe(false);
+  });
+  it("the sheet's own names: the HR Plan act, and the list is called Mapping", () => {
+    const byId = new Map((sections as ActivationSection[]).map((s) => [s.id, s]));
+    expect(byId.get("showtime")?.title).toBe("HR Plan");
+    expect(byId.get("casting")?.config.listTitle).toBe("Mapping");
+  });
   it("row ids are unique uuids, so seeding twice can never duplicate", () => {
     const ids = rows.map((r) => r.id);
     expect(new Set(ids).size).toBe(ids.length);

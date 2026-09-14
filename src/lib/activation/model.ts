@@ -66,6 +66,8 @@ export interface SectionConfig {
   dayNotes?: Record<string, string>;
   /** people view: show individual names on the PUBLIC page (off by default) */
   namesPublic?: boolean;
+  /** people view: the heading over the list of names (v36.8, default "Mapping") */
+  listTitle?: string;
 }
 
 export interface ActivationSection {
@@ -150,7 +152,6 @@ export function timelineColumns(lanes: Lane[]): Column[] {
       labels: TIMELINE_KIND_LABEL,
     },
     { key: "notes", label: "Notes", type: "longtext" },
-    { key: "done", label: "Done", type: "checkbox" },
   ];
 }
 
@@ -282,6 +283,16 @@ export function columnKey(label: string, existing: string[]): string {
   let n = 2;
   while (existing.includes(key)) key = `${base}_${n++}`;
   return key;
+}
+
+/** The id of a section someone adds (v36.8): `s_` + the title as a key, unique
+ *  among the ids already there. A title with no Latin letters in it (an
+ *  Arabic one) becomes `s_section`, `s_section_2`… — never an empty id. */
+export function newSectionId(title: string, existing: string[]): string {
+  const taken = existing.map((id) => id.replace(/^s_/, ""));
+  const base = columnKey(title, taken);
+  const key = base.startsWith("column") ? columnKey("section", taken) : base;
+  return `s_${key}`.slice(0, 48);
 }
 
 /** Check one cell against its column. Invalid input is refused with a reason,

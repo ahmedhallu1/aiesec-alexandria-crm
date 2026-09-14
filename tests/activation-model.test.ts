@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  addDays, clampSpan, daysBetween, isIsoDate, mergeDelta, packTracks, parseTsv, positionBetween,
-  publicPlan, sanitizeCell, toTsv,
+  addDays, clampSpan, daysBetween, isIsoDate, mergeDelta, newSectionId, packTracks, parseTsv, positionBetween,
+  publicPlan, sanitizeCell, timelineColumns, toTsv,
   type ActivationPlan, type ActivationRow, type ActivationSection, type Column,
 } from "@/lib/activation/model";
 
@@ -44,6 +44,29 @@ describe("lane packing", () => {
     // so "c" (6 Oct) goes back on track 0 instead of opening a new one
     expect(packed.find((p) => p.item.id === "c")!.track).toBe(0);
     expect(Math.max(...packed.map((p) => p.track))).toBe(1);
+  });
+});
+
+describe("adding a section (v36.8)", () => {
+  const core = ["hero", "timeline", "checkpoints", "structure", "casting", "selection", "showtime"];
+  it("gets an id from its title, unique among the ones already there", () => {
+    expect(newSectionId("Budget", core)).toBe("s_budget");
+    expect(newSectionId("Budget", [...core, "s_budget"])).toBe("s_budget_2");
+    expect(newSectionId("Partners & Sponsors", core)).toBe("s_partners_sponsors");
+  });
+  it("an Arabic title still gets a real, unique id — never an empty one", () => {
+    expect(newSectionId("الميزانية", core)).toBe("s_section");
+    expect(newSectionId("الشركاء", [...core, "s_section"])).toBe("s_section_2");
+  });
+  it("every id fits the server's section-id rule", () => {
+    for (const t of ["Budget", "الميزانية", "x".repeat(200), "  —  "])
+      expect(newSectionId(t, core)).toMatch(/^[a-z0-9][a-z0-9_-]{0,48}$/);
+  });
+});
+
+describe("nothing on the page is a task to tick off (v36.8)", () => {
+  it("the timeline has no Done column", () => {
+    expect(timelineColumns([]).map((c) => c.key)).not.toContain("done");
   });
 });
 

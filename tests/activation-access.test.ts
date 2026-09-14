@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { canSeeActivationBid, type Viewer } from "@/lib/rbac";
 
 /** "Editable for Sodio users, view-only for everyone else" (v36.7). */
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
@@ -19,9 +20,35 @@ describe("who can reach the bid page", () => {
     expect(matcher.test("/activation")).toBe(true);
     expect(matcher.test("/accounts")).toBe(true);
   });
-  it("every member reaches it, module or not", () => {
-    expect(read("src/components/crm/gate-client.tsx")).toContain('"/activation"');
-    expect(read("src/components/crm/app-shell.tsx")).toContain('href: "/activation"');
+  it("MMs and above reach it — never a plain Member (v36.8)", () => {
+    // not in the always-open list any more…
+    const gate = read("src/components/crm/gate-client.tsx");
+    const always = /const ALWAYS_ALLOWED = \[([^]*?)\];/.exec(gate)?.[1] ?? "";
+    expect(always.replace(/\/\/.*$/gm, "")).not.toContain('"/activation"');
+    // …but opened by the layout, the nav and the page for exactly them
+    const layout = read("src/app/(app)/layout.tsx");
+    expect(layout).toContain("canSeeActivationBid(viewer)");
+    expect(layout).toMatch(/activation \? \["\/activation"\]/);
+    expect(read("src/components/crm/app-shell.tsx")).toContain('nav.activation ? [{ href: "/activation"');
+    expect(read("src/app/(app)/activation/page.tsx")).toMatch(/if \(!canSeeActivationBid\(viewer\)\) redirect/);
+  });
+});
+
+describe("the MM+ rule itself", () => {
+  const v = (role: string, extra: Partial<Viewer> = {}) =>
+    ({ role, functions: [], sub_functions: [], isAdmin: false, ...extra }) as unknown as Viewer;
+  it("opens for every leadership role and closes for a Member", () => {
+    for (const role of ["Coordinator", "Team Leader", "Director", "LCVP", "LCP", "Admin"])
+      expect(canSeeActivationBid(v(role)), role).toBe(true);
+    expect(canSeeActivationBid(v("Member"))).toBe(false);
+  });
+  it("the admin always gets in, whatever the membership row says", () => {
+    expect(canSeeActivationBid(v("Member", { isAdmin: true }))).toBe(true);
+  });
+  it("every action — reads included — refuses a Member on the server", () => {
+    const actions = read("src/server/activation-actions.ts");
+    expect(actions).toMatch(/if \(!canSeeActivationBid\(viewer\)\) return \{ viewer, error: MM_ONLY \}/);
+    expect(actions.match(/if \(!canSeeActivationBid\(viewer\)\) return fail\(MM_ONLY\)/g)?.length).toBe(2);
   });
 });
 

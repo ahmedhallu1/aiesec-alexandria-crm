@@ -57,7 +57,7 @@ interface ShellProps {
     /** may open Health & Logs and the test view (v33) */
     adminTools: boolean;
   };
-  nav: { raising: boolean; dashboard: boolean; tm: boolean; membership: boolean; planning: boolean; ogtMail: boolean; signups: boolean; consideration: boolean; calendar: boolean; mailbox: boolean; cxp: boolean };
+  nav: { raising: boolean; dashboard: boolean; tm: boolean; membership: boolean; planning: boolean; ogtMail: boolean; signups: boolean; consideration: boolean; calendar: boolean; mailbox: boolean; cxp: boolean; activation: boolean };
   signOutAction: () => Promise<void>;
   /** the admin's test-view pool — empty for everyone else (v33.42) */
   viewAsTargets?: ViewAsTarget[];
@@ -133,9 +133,9 @@ export function AppShell({
     // now (one tab fewer); the /ogt-mail route itself stays for the button.
     ...(nav.tm ? [{ href: "/members", label: "Talent Management", icon: UsersRound }] : []),
     ...(nav.membership ? [{ href: "/membership", label: "Membership", icon: Users }] : []),
-    // v36.7 — the LC's bid to host Activate 26': everyone reads it, every
-    // member can edit it (the public, view-only copy lives at /activate26)
-    { href: "/activation", label: "Activate 26' Bid", icon: Tent },
+    // v36.7 — the LC's bid to host Activate 26'. MMs and above since v36.8
+    // (the public, view-only copy at /activate26 stays open to everyone)
+    ...(nav.activation ? [{ href: "/activation", label: "Activate 26' Bid", icon: Tent }] : []),
     // v29: attendance is everybody's — own history, plus whatever you record
     { href: "/attendance", label: "Attendance", icon: CalendarCheck2 },
     // v36 — one-on-ones and development plans, beside Attendance because both

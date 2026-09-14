@@ -8,7 +8,14 @@ import { useEffect, useSyncExternalStore, type PointerEvent, type RefObject } fr
 /** Reveal-on-scroll. Marks the root `js-ready` (the CSS only hides
  *  [data-reveal] under that class) and reveals each element once it enters the
  *  viewport — including elements that mount LATER (switching edit mode, a new
- *  row), which a one-time query would leave invisible forever. */
+ *  row), which a one-time query would leave invisible forever.
+ *
+ *  "Revealed" is the `data-in` ATTRIBUTE, never a class (v36.8). React owns
+ *  `className`: the flip card re-renders its className on every flip, which
+ *  wiped a class added here, and the card went invisible until the next
+ *  scroll re-revealed it. React never touches an attribute it didn't render. */
+const IN = "data-in";
+const PENDING = "[data-reveal]:not([data-in])";
 export function useReveal(root: RefObject<HTMLElement | null>) {
   useEffect(() => {
     const el = root.current;
@@ -19,7 +26,7 @@ export function useReveal(root: RefObject<HTMLElement | null>) {
       (entries) => {
         for (const e of entries) {
           if (e.isIntersecting) {
-            e.target.classList.add("is-in");
+            e.target.setAttribute(IN, "");
             io.unobserve(e.target);
           }
         }
@@ -27,8 +34,8 @@ export function useReveal(root: RefObject<HTMLElement | null>) {
       { rootMargin: "0px 0px -8% 0px", threshold: 0.08 }
     );
     const watch = (node: Element) => {
-      if (node.matches?.("[data-reveal]:not(.is-in)")) io.observe(node);
-      node.querySelectorAll?.("[data-reveal]:not(.is-in)").forEach((n) => io.observe(n));
+      if (node.matches?.(PENDING)) io.observe(node);
+      node.querySelectorAll?.(PENDING).forEach((n) => io.observe(n));
     };
     watch(el);
     const mo = new MutationObserver((muts) => {
@@ -43,10 +50,10 @@ export function useReveal(root: RefObject<HTMLElement | null>) {
     const sweep = () => {
       t = null;
       const h = window.innerHeight;
-      el.querySelectorAll<HTMLElement>("[data-reveal]:not(.is-in)").forEach((n) => {
+      el.querySelectorAll<HTMLElement>(PENDING).forEach((n) => {
         const r = n.getBoundingClientRect();
         if (r.top < h && r.bottom > 0) {
-          n.classList.add("is-in");
+          n.setAttribute(IN, "");
           io.unobserve(n);
         }
       });

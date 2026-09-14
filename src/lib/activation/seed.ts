@@ -42,7 +42,6 @@ const CHECKPOINT_COLUMNS: Column[] = [
   { key: "logistics", label: "Logistics", type: "longtext" },
   { key: "finance", label: "Finance", type: "longtext" },
   { key: "catering", label: "Catering", type: "longtext" },
-  { key: "done", label: "Done", type: "checkbox" },
 ];
 
 const ROLE_COLUMNS: Column[] = [
@@ -66,7 +65,6 @@ const SELECTION_COLUMNS: Column[] = [
   { key: "round", label: "Round", type: "text" },
   { key: "step", label: "Step", type: "text" },
   { key: "date", label: "Date", type: "date" },
-  { key: "done", label: "Done", type: "checkbox" },
   { key: "comment", label: "Updates / comment", type: "longtext" },
 ];
 
@@ -131,7 +129,7 @@ export function seedPlan(): { sections: SeedSection[]; rows: SeedRow[] } {
       subtitle: "The membership ready to take the stage, and the roles they want.",
       config: {
         act: "Act IV", emoji: "🎟️", view: "people", columns: PEOPLE_COLUMNS,
-        capacity: SEED.capacity || 93, namesPublic: false,
+        capacity: SEED.capacity || 93, namesPublic: false, listTitle: "Mapping",
       },
     },
     {
@@ -142,7 +140,8 @@ export function seedPlan(): { sections: SeedSection[]; rows: SeedRow[] } {
     },
     {
       id: "showtime", position: 7, kind: "table", hidden_public: false,
-      title: "Showtime",
+      // the sheet's own name for this tab (v36.8)
+      title: "HR Plan",
       subtitle: "Day 0 to Day 3 — who does what, with a backup for every task.",
       config: {
         act: "Act V", emoji: "🎭", view: "runbook", columns: RUNBOOK_COLUMNS,
@@ -152,15 +151,14 @@ export function seedPlan(): { sections: SeedSection[]; rows: SeedRow[] } {
   ];
 
   const rows: SeedRow[] = [];
+  // v36.8: nothing on this page is a task to tick off — seed.json still carries
+  // the sheets' `done` flags, and they are dropped on the way in
   const add = (sectionId: string, list: { id: string; data: Record<string, unknown> }[]) =>
-    list.forEach((r, i) =>
-      rows.push({
-        id: r.id,
-        section_id: sectionId,
-        position: (i + 1) * 1024,
-        data: r.data as Record<string, CellValue>,
-      })
-    );
+    list.forEach((r, i) => {
+      const data = { ...r.data } as Record<string, CellValue>;
+      delete data.done;
+      rows.push({ id: r.id, section_id: sectionId, position: (i + 1) * 1024, data });
+    });
   add("timeline", SEED.timelineRows);
   add("checkpoints", SEED.checkpointRows);
   add("structure", SEED.structureRows);

@@ -117,6 +117,14 @@ export function canUseAdminTools(v: Viewer): boolean {
   return v.isAdmin || v.role === "Admin" || (v.sub_functions ?? []).includes("Admin");
 }
 
+/** THE ACTIVATE 26' BID (v36.8) — MMs and above: Coordinators, Team Leaders,
+ *  Directors, LCVPs and the LCP (plus the admin). A plain Member neither sees
+ *  the tab nor edits the plan; the public copy at /activate26 stays open to
+ *  anyone with the link, members included. */
+export function canSeeActivationBid(v: Viewer): boolean {
+  return master(v) || v.role !== "Member";
+}
+
 /** EB = LCP + LCVPs (Directors are explicitly NOT EB). */
 export const isEb = (v: Viewer) => master(v) || v.role === "LCVP";
 

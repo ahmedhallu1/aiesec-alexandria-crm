@@ -12,7 +12,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
   "title": "The Activate 26' bid page",
   "emoji": "🎪",
   "category": "getting-started",
-  "audience": "Everyone",
+  "audience": "MMs and above (the public link: everyone)",
   "audienceKeys": [
    "everyone"
   ],
@@ -20,6 +20,12 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "activate",
    "activation",
    "bid",
+   "mapping",
+   "hr plan",
+   "bulk edit",
+   "fill down",
+   "add section",
+   "week",
    "hosting",
    "conference",
    "timeline",
@@ -31,21 +37,33 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "استضافة",
    "مؤتمر"
   ],
-  "summary": "Our bid to host Activate 26' — the timeline, checkpoints, OC structure, casting list and run of show — on one page every member can edit like a sheet, with a public link that anyone can view.",
+  "summary": "Our bid to host Activate 26' — the timeline, checkpoints, OC structure, Mapping and HR plan — on one page MMs and above edit like a sheet, with a public link that anyone can view.",
   "blocks": [
    {
     "t": "p",
-    "md": "Open **Activate 26' Bid** in the sidebar ([here](/activation)). It merges the two bid sheets into five acts: **the road to the show** (the timeline), **nine checkpoints**, **the ringmasters** (OC structure and job descriptions), **the casting call** (who wants which role, and how the OC is selected) and **showtime** (Day 0 – Day 3, who does what and who backs them up)."
+    "md": "Open **Activate 26' Bid** in the sidebar ([here](/activation)) — it's there for **MMs and above** (Coordinators, Team Leaders, Directors, VPs, the LCP). Members see the same plan on the public link. It merges the two bid sheets into five acts: **the road to the show** (the timeline), **nine checkpoints**, **the ringmasters** (OC structure and job descriptions), **the casting call** (the **Mapping** of who wants which role, and how the OC is selected) and the **HR Plan** (Day 0 – Day 3, who does what and who backs them up)."
+   },
+   {
+    "t": "p",
+    "md": "The road opens on **Week by week**: one row per week, one column per team, every item written out with its date — no clicking slot by slot. ↳ marks something still running from an earlier week; checkpoints sit in the week's label. **Timeline** is the draggable Gantt, **Agenda** the phone view."
    },
    {
     "t": "steps",
     "items": [
      "Press **Edit** in the bar at the bottom. Every table opens as a sheet: click a cell and type, **Enter**/**Tab** to move on, **Delete** to clear.",
+     "**Edit many cells at once, like Sheets**: drag across cells (or Shift+click / Shift+arrows, or click a column name to take the whole column). Then **Delete** clears them, **⌘/Ctrl+D** fills down, **⌘/Ctrl+R** fills right, **⌘/Ctrl+C** copies the block, and pasting ONE value fills every selected cell. The bar above the sheet does the same with buttons, plus **Set all to…**.",
+     "Tick rows on the left to **delete many at once** — with Undo.",
      "**Paste straight from Google Sheets** — select a cell and paste; extra lines become new rows.",
-     "Click a column name to rename it, change its type, hide it or delete it; **+ Column** adds one.",
+     "The ⚙ beside a column name renames it, changes its type, hides it or deletes it; **+ Column** adds one.",
+     "**+ Section** in the bottom bar (or the big button at the end of the acts) adds a new act; the page scrolls you to it.",
      "On the road, **drag a bar** to move it, drag its edges to change how long it runs, click it to edit. Drag a 🚩 to move a checkpoint. **Teams & dates** renames teams and recolours them.",
      "Changes save as you make them, and anyone else editing sees them within seconds. Press **View** to see exactly what the public sees."
     ]
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "Nothing on the page is a to-do — there are no \"done\" ticks. The checkpoints are the plan's stops; the page simply opens on the next one coming up. The name list's heading (**Mapping**) is yours to rename: Edit → the **List title** box on that act."
    },
    {
     "t": "callout",

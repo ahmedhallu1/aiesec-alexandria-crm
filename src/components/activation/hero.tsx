@@ -39,6 +39,7 @@ export function Hero({
 
   return (
     <header className="circus-hero" onPointerMove={followSpot}>
+      <div className="circus-poster" aria-hidden />
       <div className="relative z-[1] mx-auto w-full max-w-5xl">
         <p className="circus-eyebrow" data-reveal>
           {hero.eyebrow}

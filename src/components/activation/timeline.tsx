@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from "react";
-import { GanttChart, List, Palette, Plus, Table2, Trash2 } from "lucide-react";
+import { CalendarRange, GanttChart, List, Palette, Plus, Table2, Trash2 } from "lucide-react";
 import { WalkingMan } from "@/components/crm/walking-man";
 import {
   addDays, cairoTodayIso, clampSpan, columnKey, daysBetween, fmtDay, fmtSpan, isIsoDate, monthOf,
@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useBoard } from "./context";
@@ -38,7 +37,6 @@ export interface CheckpointMark {
   id: string;
   name: string;
   date: string;
-  done: boolean;
   detail: { label: string; text: string; color: string }[];
 }
 
@@ -50,7 +48,6 @@ interface Item {
   end: string;
   kind: TimelineKind;
   notes: string;
-  done: boolean;
   original: string;
 }
 
@@ -69,7 +66,6 @@ function toItem(r: ActivationRow): Item | null {
     end,
     kind,
     notes: String(d.notes ?? ""),
-    done: !!d.done,
     original: String(d.original ?? ""),
   };
 }
@@ -104,8 +100,11 @@ export function TimelineAct({
 }: { section: ActivationSection; rows: ActivationRow[]; checkpoints: CheckpointMark[] }) {
   const api = useBoard();
   const narrow = useNarrow();
-  const [pref, setPref] = useState<"gantt" | "agenda" | "sheet" | null>(null);
-  const layout = pref === "sheet" && !api.editing ? (narrow ? "agenda" : "gantt") : pref ?? (narrow ? "agenda" : "gantt");
+  // v36.8: the WEEK BOARD is the default — every item readable at a glance,
+  // no clicking slot by slot. The Gantt stays for dragging, the agenda for phones.
+  const [pref, setPref] = useState<"weeks" | "gantt" | "agenda" | "sheet" | null>(null);
+  const fallback = narrow ? "agenda" : "weeks";
+  const layout = pref === "sheet" && !api.editing ? fallback : pref ?? fallback;
   const lanes = useMemo(() => section.config.lanes ?? [], [section.config.lanes]);
   const start = section.config.start ?? "2026-09-25";
   const end = section.config.end ?? "2026-12-05";
@@ -125,12 +124,13 @@ export function TimelineAct({
       id: null,
       draft: {
         id: "", title: "", lane: lanes.find((l) => l.key !== "all")?.key ?? lanes[0]?.key ?? "all",
-        start: day, end: day, kind: "task", notes: "", done: false, original: "",
+        start: day, end: day, kind: "task", notes: "", original: "",
       },
     });
   };
 
   const views: [typeof layout, typeof GanttChart, string][] = [
+    ["weeks", CalendarRange, "Week by week"],
     ["gantt", GanttChart, "Timeline"],
     ["agenda", List, "Agenda"],
     ...(api.editing ? ([["sheet", Table2, "Sheet"]] as [typeof layout, typeof GanttChart, string][]) : []),
@@ -188,12 +188,16 @@ export function TimelineAct({
           onCommit={(rowId, key, value) => api.setCells(rowId, { [key]: value })}
           onAddRow={(near) => api.addRow(section.id, { kind: "task", start, end: start, lane: lanes[1]?.key ?? "all", title: "" }, near)}
           onDeleteRow={api.deleteRow}
+          onDeleteRows={api.deleteRows}
+          onSetMany={(updates) => api.setMany(section.id, updates)}
           onMoveRow={api.moveRow}
           onPaste={(r, c, m) => api.paste(section.id, r, c, m, timelineColumns(lanes))}
           colorOf={(col, v) => (col.key === "lane" ? lanes.find((l) => l.key === v)?.color : undefined)}
         />
       ) : layout === "agenda" ? (
         <Agenda items={items} lanes={lanes} start={start} end={end} checkpoints={checkpoints} onOpen={openItem} onCp={setCp} />
+      ) : layout === "weeks" ? (
+        <WeekBoard items={items} lanes={lanes} start={start} end={end} checkpoints={checkpoints} onOpen={openItem} onCp={setCp} />
       ) : (
         <Gantt
           items={items}
@@ -219,7 +223,7 @@ export function TimelineAct({
         onSave={(id, draft) => {
           const data = {
             title: draft.title.trim(), lane: draft.lane, start: draft.start, end: draft.end,
-            kind: draft.kind, notes: draft.notes, done: draft.done,
+            kind: draft.kind, notes: draft.notes,
           };
           if (id) api.setCells(id, data);
           else api.addRow(section.id, data);
@@ -405,7 +409,6 @@ function Gantt({
                   onClick={editing ? undefined : () => onCp(c)}
                 >
                   🚩 {i + 1}
-                  {c.done ? " ✓" : ""}
                 </button>
               );
             })}
@@ -477,7 +480,6 @@ function Gantt({
                         "tl-bar",
                         it.kind === "milestone" && "milestone",
                         it.kind === "show" && "show",
-                        it.done && "is-done",
                         drag?.id === it.id && "is-dragging"
                       )}
                       style={{ "--lane": lane.color, left, width, top: 5 + t * TRACK_H } as CSSProperties}
@@ -500,7 +502,7 @@ function Gantt({
                       }}
                     >
                       <span className="truncate">
-                        {it.kind === "milestone" ? "★ " : it.kind === "show" ? "🎪 " : it.done ? "✓ " : ""}
+                        {it.kind === "milestone" ? "★ " : it.kind === "show" ? "🎪 " : ""}
                         {it.title}
                       </span>
                       {editing ? (
@@ -556,13 +558,7 @@ function Agenda({
 }) {
   const color = (k: string) => lanes.find((l) => l.key === k)?.color ?? "#cdb9a3";
   const today = cairoTodayIso();
-  const weeks: { n: number; from: string; to: string }[] = [];
-  for (let w = 0; w < 60; w++) {
-    const from = addDays(start, w * 7);
-    if (from > end) break;
-    const to = addDays(from, 6) > end ? end : addDays(from, 6);
-    weeks.push({ n: w + 1, from, to });
-  }
+  const weeks = weeksOf(start, end);
   return (
     <div className="grid gap-4 md:grid-cols-2">
       {weeks.map((w) => {
@@ -595,7 +591,6 @@ function Agenda({
                   {cps.map((c) => (
                     <button key={c.id} type="button" className="circus-chip" onClick={() => onCp(c)}>
                       🚩 {c.name}
-                      {c.done ? " ✓" : ""}
                     </button>
                   ))}
                   {its.map((i) => (
@@ -603,7 +598,7 @@ function Agenda({
                       key={i.id}
                       type="button"
                       onClick={() => onOpen(i.id)}
-                      className={cn("circus-chip max-w-full text-left", i.done && "opacity-60")}
+                      className="circus-chip max-w-full text-left"
                       style={{ "--chip": i.kind === "milestone" ? "#f7c65b" : i.kind === "show" ? "#d7263d" : color(i.lane) } as CSSProperties}
                     >
                       <span className="truncate">
@@ -619,6 +614,130 @@ function Agenda({
           </section>
         );
       })}
+    </div>
+  );
+}
+
+/** The road in seven-day blocks from its first day. */
+function weeksOf(start: string, end: string): { n: number; from: string; to: string }[] {
+  const weeks: { n: number; from: string; to: string }[] = [];
+  for (let w = 0; w < 60; w++) {
+    const from = addDays(start, w * 7);
+    if (from > end) break;
+    const to = addDays(from, 6) > end ? end : addDays(from, 6);
+    weeks.push({ n: w + 1, from, to });
+  }
+  return weeks;
+}
+
+/**
+ * THE WEEK BOARD (v36.8) — "from outside I can see the details without
+ * clicking each slot". One row per week, one column per team, and every item
+ * written out in full with its date where it starts. Something still running
+ * from an earlier week shows as a muted "↳ … until" line, so a long task is
+ * never invisible in the weeks it covers. Checkpoints and the show days sit
+ * in the week's own label. A click still opens the full item.
+ */
+function WeekBoard({
+  items, lanes, start, end, checkpoints, onOpen, onCp,
+}: {
+  items: Item[];
+  lanes: Lane[];
+  start: string;
+  end: string;
+  checkpoints: CheckpointMark[];
+  onOpen: (id: string) => void;
+  onCp: (m: CheckpointMark) => void;
+}) {
+  const today = cairoTodayIso();
+  const weeks = weeksOf(start, end);
+  const known = new Set(lanes.map((l) => l.key));
+  const cols: Lane[] = [
+    ...lanes,
+    ...(items.some((i) => !known.has(i.lane)) ? [{ key: "_", label: "No team", color: "#cdb9a3" }] : []),
+  ];
+  const laneOf = (i: Item) => (known.has(i.lane) ? i.lane : "_");
+  const sorted = [...items].sort((a, b) => a.start.localeCompare(b.start) || a.title.localeCompare(b.title));
+  const when = (i: Item) =>
+    i.end > i.start ? `${fmtDay(i.start)} → ${fmtDay(i.end)}` : `${weekdayOf(i.start)} ${fmtDay(i.start)}`;
+
+  return (
+    <div>
+      <p className="mb-3 text-xs text-[var(--cz-muted)]">
+        Read across: each row is one week, each column a team. <span className="text-[var(--cz-cream)]">↳</span> means
+        still running from an earlier week. Tap anything for its notes.
+      </p>
+      <div className="tl-scroll wk-wrap" data-reveal>
+        <table className="wk">
+          <thead>
+            <tr>
+              <th className="wk-weekcol">Week</th>
+              {cols.map((l) => (
+                <th key={l.key} style={{ "--lane": l.color } as CSSProperties}>
+                  <span className="wk-lane-dot" />
+                  {l.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {weeks.map((w) => {
+              const isNow = today >= w.from && today <= w.to;
+              const cps = checkpoints.filter((c) => c.date >= w.from && c.date <= w.to);
+              return (
+                <tr key={w.n} className={cn(isNow && "is-now")}>
+                  <th className="wk-weekcol" scope="row">
+                    <span className="circus-serif block text-lg font-bold italic text-[var(--cz-cream)]">Week {w.n}</span>
+                    <span className="block text-[11px] font-semibold text-[var(--cz-muted)]">
+                      {fmtDay(w.from)} – {fmtDay(w.to)}
+                    </span>
+                    {isNow ? <span className="wk-now">This week</span> : null}
+                    {cps.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className="wk-flag"
+                        onClick={() => onCp(c)}
+                        title={c.detail.filter((x) => x.text).map((x) => `${x.label}: ${x.text}`).join("\n") || undefined}
+                      >
+                        🚩 {c.name} · {weekdayOf(c.date)} {fmtDay(c.date)}
+                      </button>
+                    ))}
+                  </th>
+                  {cols.map((l) => {
+                    const starts = sorted.filter((i) => laneOf(i) === l.key && i.start >= w.from && i.start <= w.to);
+                    const carry = sorted.filter((i) => laneOf(i) === l.key && i.start < w.from && i.end >= w.from);
+                    return (
+                      <td key={l.key} style={{ "--lane": l.color } as CSSProperties}>
+                        {starts.length === 0 && carry.length === 0 ? <span className="wk-empty">—</span> : null}
+                        {carry.map((i) => (
+                          <button key={`c-${i.id}`} type="button" className="wk-item is-cont" onClick={() => onOpen(i.id)}>
+                            ↳ {i.title} <span className="wk-date">· until {fmtDay(i.end)}</span>
+                          </button>
+                        ))}
+                        {starts.map((i) => (
+                          <button
+                            key={i.id}
+                            type="button"
+                            className={cn("wk-item", i.kind === "milestone" && "is-milestone", i.kind === "show" && "is-show")}
+                            onClick={() => onOpen(i.id)}
+                          >
+                            <span className="wk-date">{when(i)}</span>
+                            <span className="wk-title" dir="auto">
+                              {i.kind === "show" ? "🎪 " : i.kind === "milestone" ? "★ " : ""}
+                              {i.title}
+                            </span>
+                          </button>
+                        ))}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -667,7 +786,6 @@ function ItemTicket({ item, lane }: { item: Item; lane?: Lane }) {
           {lane?.label ?? "No team"}
         </span>
         <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-semibold">{TIMELINE_KIND_LABEL[item.kind]}</span>
-        {item.done ? <span className="rounded-full bg-emerald-600 px-2.5 py-0.5 text-xs font-bold text-white">Done ✓</span> : null}
       </div>
       {item.notes ? <p className="whitespace-pre-line text-sm" dir="auto">{item.notes}</p> : null}
     </>
@@ -744,9 +862,6 @@ function ItemForm({
           <Label>Notes</Label>
           <Textarea rows={3} value={d.notes} onChange={(e) => set("notes", e.target.value)} />
         </div>
-        <label className="flex items-center justify-between text-sm">
-          Done <Switch checked={d.done} onCheckedChange={(v) => set("done", v)} />
-        </label>
         {problem ? <p className="text-xs text-destructive">{problem}</p> : null}
       </div>
       <DialogFooter className="gap-2 sm:justify-between">
@@ -773,7 +888,7 @@ function CheckpointDialog({ mark, onClose }: { mark: CheckpointMark | null; onCl
           <>
             <DialogHeader>
               <DialogTitle>
-                🚩 {mark.name} {mark.done ? "· done ✓" : ""}
+                🚩 {mark.name}
               </DialogTitle>
               <DialogDescription>
                 {weekdayOf(mark.date)} {fmtDay(mark.date)} — what each team brings to it

@@ -19,8 +19,8 @@ import { usePathname, useRouter } from "next/navigation";
  *  lived in their leader's Drive. The PAGE still gates server-side. */
 const ALWAYS_ALLOWED = [
   "/", "/profile", "/feedback", "/help", "/playbook", "/lc-feedback", "/pdp",
-  // v36.7 — the Activate 26' bid belongs to the whole LC, module or not
-  "/activation",
+  // (/activation is NOT here since v36.8 — the bid is MMs and above, so the
+  // layout adds it to `extra` for exactly them)
 ];
 
 /** Client-side switch used by the (app) layout for members whose function has

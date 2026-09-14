@@ -1,13 +1,12 @@
 "use client";
 
 import { useMemo, useState, type CSSProperties } from "react";
-import { Check, RotateCw, Search, Users } from "lucide-react";
+import { RotateCw, Search, Users } from "lucide-react";
 import {
   addDays, cairoTodayIso, daysBetween, fmtDay, isIsoDate, weekdayOf,
   type ActivationRow, type ActivationSection, type CellValue, type Column,
 } from "@/lib/activation/model";
 import { cn } from "@/lib/utils";
-import { useBoard } from "./context";
 import { tilt } from "./fx";
 
 /** The designed side of the page (v36.7): each act read as a show, not a
@@ -25,19 +24,18 @@ const d = (ms: number) => ({ "--d": `${ms}ms` }) as CSSProperties;
 
 // ------------------------------------------------------------------ checkpoints
 export function CheckpointsView({ section, rows }: { section: ActivationSection; rows: ActivationRow[] }) {
-  const api = useBoard();
   const today = cairoTodayIso();
   const list = useMemo(
     () => [...rows].sort((a, b) => str(a.data.date).localeCompare(str(b.data.date)) || a.position - b.position),
     [rows]
   );
-  const teams = (section.config.columns ?? []).filter(
-    (c) => !["name", "date", "done"].includes(c.key) && !c.hidden
-  );
-  const upcoming = list.find((r) => !r.data.done && str(r.data.date) >= today) ?? list[0];
+  const teams = (section.config.columns ?? []).filter((c) => !["name", "date"].includes(c.key) && !c.hidden);
+  // these are the plan's stops, not tasks to tick off (v36.8) — the page
+  // opens on the next one coming up
+  const upcomingIdx = Math.max(0, list.findIndex((r) => str(r.data.date) >= today));
+  const upcoming = list[upcomingIdx];
   const [selId, setSelId] = useState<string | null>(null);
   const active = list.find((r) => r.id === selId) ?? upcoming;
-  const done = list.filter((r) => r.data.done).length;
   const n = list.length;
   const pts = list.map((_, i) => ({ x: ((i + 0.5) / Math.max(1, n)) * 1000, y: i % 2 === 0 ? 62 : 150 }));
   const path = pts.reduce(
@@ -49,17 +47,13 @@ export function CheckpointsView({ section, rows }: { section: ActivationSection;
   if (n === 0) return <Empty />;
   return (
     <div className="space-y-6">
-      <div className="mx-auto flex max-w-md items-center gap-3 text-sm" data-reveal>
-        <span className="shrink-0 font-bold text-[var(--cz-gold)]">
-          {done}/{n} done
-        </span>
-        <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/10">
-          <div
-            className="circus-bar-fill is-in h-full rounded-full bg-gradient-to-r from-[#d7263d] to-[#f7c65b]"
-            style={{ "--w": n ? done / n : 0 } as CSSProperties}
-          />
-        </div>
-      </div>
+      {upcoming && isIsoDate(str(upcoming.data.date)) ? (
+        <p className="text-center text-sm text-[var(--cz-muted)]" data-reveal>
+          Next stop: <b className="text-[var(--cz-cream)]">{str(upcoming.data.name) || `Checkpoint ${upcomingIdx + 1}`}</b> ·{" "}
+          {weekdayOf(str(upcoming.data.date))} {fmtDay(str(upcoming.data.date))} ·{" "}
+          {relDays(daysBetween(today, str(upcoming.data.date)))}
+        </p>
+      ) : null}
 
       <div className="overflow-x-auto pb-2" data-reveal>
         <div className="relative mx-auto h-[230px] min-w-[760px] max-w-[1100px]">
@@ -79,8 +73,8 @@ export function CheckpointsView({ section, rows }: { section: ActivationSection;
                 style={{ left: `${pts[i].x / 10}%`, top: `${(pts[i].y / 220) * 100}%` }}
                 aria-pressed={isSel}
               >
-                <span className={cn("cp-ring", isSel && "is-sel", !!r.data.done && !isSel && "is-done")}>
-                  <span className="circus-display text-2xl leading-none">{r.data.done ? "✓" : i + 1}</span>
+                <span className={cn("cp-ring", isSel && "is-sel")}>
+                  <span className="circus-display text-2xl leading-none">{i + 1}</span>
                 </span>
                 <span className={cn("text-[11px] font-bold", date === today ? "text-[var(--cz-crimson)]" : "text-[var(--cz-muted)]")}>
                   {isIsoDate(date) ? `${weekdayOf(date)} ${fmtDay(date)}` : "—"}
@@ -103,21 +97,6 @@ export function CheckpointsView({ section, rows }: { section: ActivationSection;
                 </span>
               </p>
             </div>
-            {api.editable ? (
-              <button
-                type="button"
-                className={cn("circus-btn !px-4 !py-2 !text-xs", !active.data.done && "ghost")}
-                onClick={() => {
-                  const next = !active.data.done;
-                  api.setCells(active.id, { done: next });
-                  if (next) api.celebrate();
-                }}
-              >
-                <Check className="size-4" /> {active.data.done ? "Done" : "Mark done"}
-              </button>
-            ) : active.data.done ? (
-              <span className="circus-chip">✓ Done</span>
-            ) : null}
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {teams.map((t, i) => {
@@ -205,13 +184,9 @@ export function RolesView({ rows }: { section: ActivationSection; rows: Activati
 
   return (
     <div className="space-y-2">
-      {coach.map((r, i) => (
-        <Wide key={r.id} r={r} i={i} />
-      ))}
+      <WideRow list={coach} from={0} />
       {coach.length ? <Connector /> : null}
-      {presidents.map((r, i) => (
-        <Wide key={r.id} r={r} i={i + 1} />
-      ))}
+      <WideRow list={presidents} from={coach.length} />
       {presidents.length ? <Connector /> : null}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {vps.map((r, i) => (
@@ -235,10 +210,24 @@ export function RolesView({ rows }: { section: ActivationSection; rows: Activati
   );
 }
 
-/** The coach and the OCP: wide cards, the whole job description visible. */
-function Wide({ r, i }: { r: ActivationRow; i: number }) {
+/** One tier of wide cards (the coaches, the OCP). Two or more sit SIDE BY
+ *  SIDE (v36.8) — two coaches are peers, not a chain of command. */
+function WideRow({ list, from }: { list: ActivationRow[]; from: number }) {
+  if (!list.length) return null;
+  const pair = list.length > 1;
   return (
-    <div className="circus-card lift circus-tilt mx-auto w-full max-w-3xl p-5 sm:p-6" data-reveal style={d(i * 90)} {...tilt(4)}>
+    <div className={cn("mx-auto grid w-full gap-4", pair ? "max-w-5xl md:grid-cols-2" : "max-w-3xl")}>
+      {list.map((r, i) => (
+        <Wide key={r.id} r={r} i={from + i} compact={pair} />
+      ))}
+    </div>
+  );
+}
+
+/** The coach and the OCP: wide cards, the whole job description visible. */
+function Wide({ r, i, compact }: { r: ActivationRow; i: number; compact: boolean }) {
+  return (
+    <div className="circus-card lift circus-tilt h-full w-full p-5 sm:p-6" data-reveal style={d(i * 90)} {...tilt(4)}>
       <div className="flex items-center gap-3">
         <span className="text-3xl">{roleEmoji(str(r.data.role))}</span>
         <div>
@@ -246,7 +235,7 @@ function Wide({ r, i }: { r: ActivationRow; i: number }) {
           <p className="circus-serif text-2xl font-bold italic text-[var(--cz-cream)]">{str(r.data.role)}</p>
         </div>
       </div>
-      <div className="mt-4 sm:columns-2 sm:gap-8">
+      <div className={cn("mt-4", !compact && "sm:columns-2 sm:gap-8")}>
         <JobText text={str(r.data.responsibilities)} />
       </div>
     </div>
@@ -379,7 +368,11 @@ export function PeopleView({ section, rows }: { section: ActivationSection; rows
       {hasNames ? (
         <div className="circus-card p-5" data-reveal>
           <div className="flex flex-wrap items-center gap-3">
-            <p className="circus-serif text-xl font-bold italic text-[var(--cz-cream)]">The company</p>
+            {/* the sheet called this tab "Mapping" — and the LC can rename it (v36.8) */}
+            <p className="circus-serif text-xl font-bold italic text-[var(--cz-cream)]">
+              {section.config.listTitle?.trim() || "Mapping"}
+            </p>
+            <span className="text-xs text-[var(--cz-muted)]">{people.filter((p) => str(p.name)).length} names</span>
             <label className="ml-auto flex items-center gap-2 rounded-full bg-white/5 px-3 py-1.5 ring-1 ring-[var(--cz-line)]">
               <Search className="size-4 text-[var(--cz-muted)]" />
               <input
@@ -437,20 +430,18 @@ function Stat({ big, label, note, i }: { big: number; label: string; note: strin
 
 // ------------------------------------------------------------------ checklist
 export function ChecklistView({ rows }: { section: ActivationSection; rows: ActivationRow[] }) {
-  const api = useBoard();
   const stages = [...new Set(rows.map((r) => str(r.data.stage) || "Steps"))];
   return (
     <div className="grid gap-5 lg:grid-cols-2">
       {stages.map((stage, si) => {
         const its = rows.filter((r) => (str(r.data.stage) || "Steps") === stage);
         const rounds = [...new Set(its.map((r) => str(r.data.round)))];
-        const done = its.filter((r) => r.data.done).length;
         return (
           <div key={stage} className="circus-card p-5" data-reveal style={d(si * 100)}>
             <div className="flex items-baseline justify-between gap-2">
               <p className="circus-serif text-2xl font-bold italic text-[var(--cz-cream)]">{stage}</p>
               <span className="text-xs font-bold text-[var(--cz-gold)]">
-                {done}/{its.length}
+                {its.length} step{its.length === 1 ? "" : "s"}
               </span>
             </div>
             {rounds.map((round) => (
@@ -463,28 +454,11 @@ export function ChecklistView({ rows }: { section: ActivationSection; rows: Acti
                       const date = str(r.data.date);
                       return (
                         <li key={r.id} className="relative">
-                          <button
-                            type="button"
-                            disabled={!api.editable}
-                            onClick={() => {
-                              const next = !r.data.done;
-                              api.setCells(r.id, { done: next });
-                              if (next) api.celebrate();
-                            }}
-                            className={cn(
-                              "absolute -left-[31px] top-0.5 grid size-5 place-items-center rounded-full border-2 text-[10px] font-black transition",
-                              r.data.done
-                                ? "border-[var(--cz-gold)] bg-[var(--cz-gold)] text-[#2a0710]"
-                                : "border-[var(--cz-gold)]/60 bg-[#1a0f28]",
-                              api.editable && "hover:scale-110"
-                            )}
-                            aria-label={r.data.done ? "Done" : "Mark done"}
-                          >
-                            {r.data.done ? "✓" : ""}
-                          </button>
-                          <p className={cn("text-sm font-semibold", r.data.done ? "text-[var(--cz-muted)] line-through" : "text-[var(--cz-cream)]")}>
-                            {str(r.data.step)}
-                          </p>
+                          <span
+                            aria-hidden
+                            className="absolute -left-[27px] top-1 size-3 rounded-full border-2 border-[var(--cz-gold)]/70 bg-[#1a0f28] shadow-[0_0_8px_rgba(247,198,91,0.35)]"
+                          />
+                          <p className="text-sm font-semibold text-[var(--cz-cream)]">{str(r.data.step)}</p>
                           <p className="text-xs text-[var(--cz-muted)]">
                             {isIsoDate(date) ? `${weekdayOf(date)} ${fmtDay(date)}` : "Only if needed"}
                           </p>

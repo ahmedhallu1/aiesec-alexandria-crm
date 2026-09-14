@@ -9,6 +9,7 @@ import {
   isB2C, isTmCore, seesEveryLane,
 } from "@/lib/rbac";
 import { hasCxpAccess } from "@/lib/cxp/rbac";
+import { canSeeActivationBid } from "@/lib/rbac";
 import { signOut } from "@/lib/auth";
 import { AppShell } from "@/components/crm/app-shell";
 import { ComingSoon } from "@/components/crm/coming-soon";
@@ -105,7 +106,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // v33.24 — the Emails tab is MMs and above, module or not: writing to a
   // partner is part of every MM's job. It rides the gate like /attendance.
   const mailbox = canUseMailboxTab(viewer);
-  const gateRoutes = ["/attendance", ...(mailbox ? ["/emails"] : []), ...extraRoutes];
+  // v36.8 — the Activate 26' bid: MMs and above, module or not. Like
+  // /attendance it rides the gate without counting as "having a module".
+  const activation = canSeeActivationBid(viewer);
+  const gateRoutes = [
+    "/attendance",
+    ...(mailbox ? ["/emails"] : []),
+    ...(activation ? ["/activation"] : []),
+    ...extraRoutes,
+  ];
 
   // THE GRANT NUDGE (v33.40): an AIESEC email exists on the row but no Google
   // grant does — the member signed in before the address landed and has been
@@ -163,6 +172,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         consideration,
         mailbox,
         cxp,
+        activation,
       }}
       signOutAction={async () => {
         "use server";

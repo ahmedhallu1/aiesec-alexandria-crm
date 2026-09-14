@@ -14,7 +14,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-09-14 · Version: v36.7
+Last updated: 2026-09-14 · Version: v36.8
 
 ---
 
@@ -373,7 +373,10 @@ mutation through a `can*` predicate, **server-side**.
 - Route protection: `src/proxy.ts` (Auth.js) — everything requires a session
   except `/login`, auth/cron APIs, static assets, `/brand`, PWA files, and the
   read-only public pages (`/book`, `/privacy`, `/delete-account`, and since
-  v36.7 `/activate26` — the editable twin `/activation` stays protected).
+  v36.7 `/activate26` — the editable twin `/activation` stays protected, and
+  since v36.8 is MMs and above only: `canSeeActivationBid` in rbac.ts gates the
+  nav, the layout's gate routes, the page — a Member is sent to `/activate26`
+  — and every action, reads included).
   ⚠️ Any new public asset folder must be added to the matcher or the proxy
   307s it to /login.
 - `/api/cron/*` guarded by `CRON_SECRET`. Feedback inbox = ONLY
@@ -622,8 +625,11 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | Deleting an account / cancelling a deal | `deleteAccount` + `accountDeletionCheck` + `cancelDeal` in `actions.ts` · the dialogs in `account-detail-view.tsx` |
 | The CIC 1st-caller filter | `cicFirstCallerOptions` + `cicPoolFilter` in `data.ts` · `firstCaller` in `SignupFilters` · the `assigned` case in `columnFilter` (signups-view) |
 | The Activate 26' bid page (model, public shaping, paste parsing) | `src/lib/activation/model.ts` (pure) · the first version `lib/activation/seed.ts` + `seed.json` (generated once from the two sheets — history, the DB is the plan) |
-| Bid page reads / writes | `src/server/activation.ts` · `src/server/activation-actions.ts` (every action: signed-in member, never a test view) |
+| Bid page reads / writes | `src/server/activation.ts` · `src/server/activation-actions.ts` (every action: MMs and above via `canSeeActivationBid`, never a test view) |
 | Bid page UI (theme, sheet editor, timeline, acts) | `src/components/activation/*` — `circus.css` is namespaced `.circus`; routes `/activation` (in-app, editable) and `/activate26` (public, read-only) |
+| Who sees the bid tab | `canSeeActivationBid` in `rbac.ts` (MMs and above) — read by the layout, the nav, the page and `editor()` in the actions |
+| Bid sheet bulk editing (ranges, fill, row delete) | `sheet-grid.tsx` (`commitMany` → `onSetMany` → `pasteActivationCells`) · `deleteActivationRows` in `activation-actions.ts` |
+| The bid page's poster | `public/brand/activate26-poster(-sm).webp` · `.circus-poster` / `.circus-finale-poster` in `circus.css` |
 
 ---
 
@@ -694,6 +700,51 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-09-14 · v36.8** — **THE BID PAGE, ROUND TWO.** No migrations; data
+  fixes applied to prod.
+  ① **MMs AND ABOVE ONLY.** `canSeeActivationBid` (master, or any role but
+  Member). `/activation` left GateClient's ALWAYS_ALLOWED; the layout adds it
+  to the gate routes for exactly them; the page redirects a Member to the
+  public `/activate26`; `editor()` and both read actions refuse a Member.
+  ② **THE FLIP BUG.** The OCVP cards vanished after a flip and came back on
+  scroll: `useReveal` marked revealed elements with a CLASS, and React
+  re-renders `className` (the flip toggles `is-flipped`), wiping it — a
+  `[data-reveal]` without it is opacity 0. Revealed is now the `data-in`
+  ATTRIBUTE, which React never touches; every `.is-in` selector moved with it.
+  ③ **"ADD SECTION DOESN'T WORK."** Supabase's edge logs show the action's
+  first query (`select id, position`) never ran all day, and no test view was
+  on — the click never reached the server. Not reproduced (the page needs a
+  signed-in session). Hardened instead: a **+ Section** button in the dock and
+  a big button after the acts both open ONE dialog; success toasts and
+  scrolls to the new act; `run()` now logs a thrown save to the console;
+  ids come from `newSectionId` (an Arabic title → `s_section`, never empty).
+  ④ **NO "DONE".** Nothing on the page is a task: the timeline's Done column,
+  the checkpoint "Mark done"/progress, the checklist ticks and the confetti are
+  gone; `done` was stripped from every row and from the checkpoints/selection
+  columns in prod, and `seedPlan` drops it from seed.json.
+  ⑤ **THE WEEK BOARD** is the timeline's default: weeks × teams, every item in
+  full with its date, "↳ … until" for what's still running, checkpoints in the
+  week label. Gantt and Agenda stay.
+  ⑥ **BULK EDITING LIKE SHEETS** in `sheet-grid.tsx`: range selection (drag,
+  Shift+click/arrows, column header), Delete clears, ⌘/Ctrl+D / R fill,
+  ⌘/Ctrl+C copies the block, one pasted value fills the range, a "Set all to…"
+  bar, and ticked rows deleted together (`deleteActivationRows`, with Undo).
+  ⑦ **THE CASTING LIST, REPAIRED** (a paste had appended the whole Mapping
+  again): 252 → 162 live rows — 99 duplicates/blanks/the pasted header
+  soft-deleted, names Title-Cased and ALL-CAPS text tidied, 5 spelling
+  variants matched to their members, and the 9 active members missing from it
+  added (LCP/LCVP → EB, Director/TL/Coordinator → MM). The list heading is
+  **Mapping** (`config.listTitle`, editable in Edit mode) and "Showtime" is
+  **HR Plan**, like the sheet.
+  ⑧ **LOOK**: each act is its own stage (`.circus-stage`, gold footlight) with
+  an intermission ornament between acts; two coaches sit side by side; the
+  hero's pointer spotlight fades instead of cutting at the hero's edge; the
+  Greatest Showman poster sits behind the marquee (masked on every side) and
+  under the curtain call.
+  ⑨ Also: the 8 accounts with impossible next-step dates were cleaned (three
+  slipped years → 2026, five junk dates cleared — 7 of the 8 were one
+  member's).
 
 - **2026-09-14 · v36.7** — **THE ACTIVATE 26' BID PAGE.** Tables from migration
   **0081** (`activation_sections`, `activation_rows`, `activation_set_cells`).
