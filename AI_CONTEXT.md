@@ -14,7 +14,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-09-14 · Version: v36.8
+Last updated: 2026-09-19 · Version: v36.9
 
 ---
 
@@ -64,7 +64,7 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0061_touch_point_location` → `0062_close_rls_gaps` → `0063_prank_mode` →
 `0064_api_keys` → `0065_ir_slot_requests` → `0066_im_prompts` →
 `0067_member_settings` → `0068_cxp_module` → `0069_push_subscriptions` → `0070_b2c_cic_outcomes` →
-`0071_partnership_stage` → … → `0076_next_step_reminders` → `0077_visit_followups_gate` → `0078_contact_keys` → `0079_cv_drive_import` → `0080_redirect_links_and_locations` → `0081_activation_bid_and_tour_seen`
+`0071_partnership_stage` → … → `0076_next_step_reminders` → `0077_visit_followups_gate` → `0078_contact_keys` → `0079_cv_drive_import` → `0080_redirect_links_and_locations` → `0081_activation_bid_and_tour_seen` → `0082_bd_b2b_planning`
 (**all applied**, 0046–0063 during v33.22–v33.51, 0064–0067 during v34.5–v34.8,
 0069 during v35).
 
@@ -395,9 +395,12 @@ actual Team Leader.
 `performance_goals` machinery is retired (setPerformanceGoal, GoalDialog,
 Set-goal buttons, the goal-reminders cron + its email templates are all gone;
 the table stays in the DB, unread). Instead: the **lane goal = the PlanCard**
-(plan_cells opens vs `laneOpensActual`, sprint/month toggle — product lanes
-only; the B2B lane has no planned goal because the planning sheet skips
-B2B/BD) and the **team goal = the TL's filed plan** (`tl_plans`, see below) —
+(plan_cells opens vs `laneOpensActual`, sprint/month toggle — the 6 product
+lanes) plus, **since v36.9, the B2B lane's own `TermPlanCard`** — BD/B2B set
+ONE term-wide target in their sheet tabs (revenue + a slots/contract count),
+not a month/sprint plan, so it's a running term-to-date figure rather than
+following the sprint/month toggle — and the **team goal = the TL's filed
+plan** (`tl_plans`, see below) —
 `getDashboard` returns `teamPlan` {planned vs allocation-attributed actual for
 the current month} rendered as TeamPlanCard (a TL with no filed month sees a
 nudge to their profile). Funnel conversion percentages are **capped at 100%**
@@ -572,6 +575,8 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | The mascot's colour | the `feColorMatrix` in `SodioSvgDefs` (`sodio-mark.tsx`) |
 | The Help center (articles/FAQs) | `src/lib/help-articles.ts` (+ bump `HELP_VERSION` in `help-content.ts`) · diagrams in `help-diagrams.tsx` |
 | Lane goal display (plan vs actual) | `lanePlan` in `getDashboard` · `PlanCard` in `dashboard-view.tsx` |
+| VP planning sheet (which spreadsheet, re-import) | `app_settings.planning:sheet-id` (manually seeded, never auto-discovered) · `importPlanningSheet`/`importBdB2bPlanning` in `google/sheets.ts` · `runPlanningImport` in `actions.ts` |
+| BD/B2B term goal (revenue/slots vs achieved) | `importBdB2bPlanning` in `google/sheets.ts` (parses the "🎯BD"/"🎯B2B \| goal setting" tabs — a different shape from the 6-lane funnel, `plan_cells.scope='term'`) · `dealsTotalsForAccountFn`/the `termPlan` block in `getDashboard` · `TermPlanCard` in `dashboard-view.tsx` · the `isB2BReport` branch of `buildFunctionReport`'s plan-check |
 | TL plans (who files, flow, card) | `isPlanningTl`/`needsTlPlan`/`tlPlanForProfile` in `data.ts` · `saveTlPlan` in `actions.ts` · `tl-plan-form.tsx` · `/welcome/plan-tl` |
 | Deal opens splits | `recordDeal` allocations in `actions.ts` · `deal_allocations` reads in `data.ts` · DealDialog in `account-detail-view.tsx` |
 | Accounts list pagination | `listAccountsPage` in `data.ts` · pagination footer in `accounts-view.tsx` |
@@ -658,16 +663,16 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
   2026-07-21 via the Supabase MCP** — plan_cells, mm_plans, feedback.category,
   lc_feedback, accounts.is_test (+ accounts_pipeline view column),
   test_sessions, test_undo).
-- **PLANNING SHEET STILL NOT REACHABLE BY THE SERVICE ACCOUNT** (re-checked
-  2026-07-26 after Ahmed shared it: Drive returns "File not found" for the
-  service account = zero access — the share never landed, most likely an
-  aiesec.net external-sharing restriction or a mistyped address). v21's 1512
-  verified plan cells stay live. For the /planning **Re-import** button to
-  work, "Alexandria | Planning Tool 26.1" must be readable by
-  `crm-sheets@gen-lang-client-0055329754.iam.gserviceaccount.com` — either a
-  direct Viewer share (watch for the "sharing outside your organisation"
-  warning and confirm it), OR move/copy the sheet into the CRM Drive folder
-  (the folder is already shared with the service account).
+- **THE PLANNING SHEET IS REACHABLE AGAIN — IT'S A NEW SHEET NOW** (v36.9).
+  "Alexandria | Planning Tool 26.1" (id `1gmPTHjZdYC2i8jdzFZi6mX7-…`) never
+  became readable and confirmed **403** on re-check — the share genuinely
+  never landed. The LC has since moved on to **"Alexandria | Planning Tool
+  26.2"** (id `1BF4nh017y12glrOzfQBNarS2tNya9P7QInvpE11HC5I`), shared
+  **"Anyone with the link"**, which the service account reads with no share
+  needed. `app_settings.planning:sheet-id` now points at 26.2. If the LC
+  rolls to a 26.3/27.1 sheet next term, repoint that same setting (there is
+  still no in-app writer for it — see §8's "VP planning tabs" row) and
+  re-run the import.
 - The **period-reports pg_cron job** (daily 07:00 UTC) was scheduled directly
   in prod (2026-07-21) by cloning the goal-reminders job's URL+key — it's in
   supabase/cron.sql too for rebuilds.
@@ -700,6 +705,77 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-09-19 · v36.9** — **VP/DIRECTOR PLANNING: A NEW SHEET, A REAL WINTER
+  REFRESH, AND BD/B2B GET A GOAL TOO.** Migration **0082 applied**
+  (`plan_cells` gains fn `'BD'`/`'B2B'`, scope `'term'`, metrics
+  `'revenue'/'contracts'/'slots_igv'/'slots_igta'/'slots_igte'`).
+  ① **THE OLD PLANNING SHEET WAS DEAD; THE LC HAS ALREADY MOVED TO A NEW ONE.**
+  "Alexandria | Planning Tool 26.1" confirmed **403** for the service account
+  — the share never landed, full stop. The LC's own planning has continued on
+  a successor spreadsheet, **"Alexandria | Planning Tool 26.2"**
+  (`1BF4nh017y12glrOzfQBNarS2tNya9P7QInvpE11HC5I`), shared **"Anyone with the
+  link"** — no share step needed, confirmed by reading it directly with the
+  service account before touching anything. `app_settings.planning:sheet-id`
+  now points at it. **The 6-lane tabs (iGV/iGTa/iGTe/oGV/oGTa/oGTe) kept the
+  EXACT layout `importPlanningSheet` already parses** — same "here is the
+  overview" / "LC goal distribution by Sprints" markers, same 7-row funnel
+  order — so no parser changes were needed there, only the pointer.
+  ② **THE WINTER PEAK WAS REFRESHED, SUMMER LEFT ALONE** (by request —
+  Feb–Jul's numbers were spot-checked first and are unchanged anyway).
+  `importPlanningSheet` gained an optional `monthsFilter` param; a one-off
+  script (`scripts/reimport-planning-26-2.mjs`) ran it for Aug 2026–Jan 2027
+  only. IGV's August goal alone moved 15 → **26** opens — the winter targets
+  really had changed, confirmed before reimporting by diffing the sheet
+  against the live `plan_cells` rows.
+  ③ **BD & B2B GET A REAL GOAL-VS-ACHIEVED, FOR THE FIRST TIME.** Both
+  functions have had a dashboard lane since v15/v16 with nowhere to show a
+  target — `performance_goals` was retired in v22 ("goals come from
+  planning") and the 6-lane `plan_cells` importer explicitly skipped them.
+  Their sheet tabs don't fit that shape: **BD** sets one term-wide revenue
+  figure ("BD Goal 26.27" = 124,000 EGP) + a contract-count target (12); **B2B**
+  sets a per-product slots split (IGV 30 / IGTa 21 / IGTe 21) + its own
+  (currently unfilled) revenue cell. New `importBdB2bPlanning` reads both by
+  MARKER TEXT (never a fixed cell address — the same caution the 6-lane
+  parser already follows), storing them as `plan_cells` `scope='term'` rows.
+  **"Achieved" is TERM-TO-DATE** (since the term's own February), not scoped
+  to a sprint/month, because the target itself isn't one — a new
+  `dealsTotalsForAccountFn(fn, from, to)` sums `deals` joined to accounts
+  carrying that exact function LABEL (⚠️ deliberately NOT `laneOpensActual`,
+  which blends every product's opens together across whichever account raised
+  them — BD/B2B need their OWN accounts' deals only). Shows as a new
+  `TermPlanCard` on the B2B dashboard lane (leaders only, same gate as the
+  6-lane `lanePlan`) and as a "Term check —" line in the B2B/BD period-report
+  email, replacing what used to be total silence on the plan there. Either
+  half is omitted wherever the VP hasn't actually filled the number in yet
+  (B2B's revenue currently reads 0 — a live formula over blank input cells,
+  not a bug) rather than showing a goal of zero.
+  ④ **THE OGX (oGT/oGV) PERIOD-REPORT EMAILS HAD NO GOAL-VS-ACHIEVED AT
+  ALL** — `buildOgxReport`'s `planLine` was a fixed methodology sentence
+  about what the funnel counts, never a comparison, even though the OGX
+  DASHBOARD (`ogxDashboard.lanePlan`) has compared applicants/accepted/
+  approvals plan vs sign-ups-worked since v33.52. The email now runs the
+  identical `plan_cells` lookup and the identical "worked in this window"
+  rule the dashboard's own `tally()` uses (so the two can never disagree),
+  and prints e.g. *"Plan check: 34 of ~50 applicants · 12 of ~20 accepted ·
+  4 of ~9 approvals planned for this sprint (44% of the approvals goal)."*
+  before the same methodology note as before. Falls back to the methodology
+  note ALONE when no plan_cells target exists for that window (e.g. before
+  any import has run).
+  ⑤ **DELIBERATELY LEFT OUT, after actually opening the tabs first: B2C and
+  TM.** B2C's goal-setting tab plans a sign-up/marketing-channel funnel
+  (#SU/#APP/#APD by GTa/GTe/GV, Campus/PR/Event counts) that nothing in
+  Sodio's B2C module tracks — B2C's own data is accounts + contract-signed
+  deals, not sign-ups, so there is no honest "achieved" to show against it.
+  TM's tab ("Funnel & HR Plan") plans **internal AIESEC member recruitment**
+  (staffing the LC itself) — a different domain from every other function
+  Sodio tracks, with zero comparable data in the CRM. Both would need a new
+  tracking feature, not a planning refresh, and are documented here rather
+  than silently skipped.
+  ⚠️ **The self-serve "Re-import from sheet" button stays removed** (v26) —
+  by request, this remains a by-hand action; `runPlanningImport` (now also
+  calling `importBdB2bPlanning`) is reachable only via a dev session or a
+  future UI re-add, not from `/planning` today.
 
 - **2026-09-14 · v36.8** — **THE BID PAGE, ROUND TWO.** No migrations; data
   fixes applied to prod.

@@ -24,7 +24,7 @@ import { cairoToday, FUNCTION_COLORS } from "@/lib/types";
 import { isOgxLaneKey } from "@/lib/dashboard-funnel";
 import type {
   DrillGroup, FunnelStats, LanePlan, OgxBoardRow, OgxDashboardData, OgxFunnel,
-  StreakStats, TeamPlan,
+  StreakStats, TeamPlan, TermPlan,
 } from "@/server/data";
 
 export interface DashboardScopeView { key: string; label: string }
@@ -67,6 +67,9 @@ interface Props {
   lanePlan: LanePlan | null;
   /** the viewer's team plan (the TL's filed opens plan vs the team's month) */
   teamPlan: TeamPlan | null;
+  /** BD/B2B's term goal vs term-to-date achieved (v36.9) — set only on the
+   *  B2B lane, and only for VP/Director/LCP/admin viewers. */
+  termPlan: TermPlan | null;
   teamLabel: string | null;
 }
 
@@ -105,7 +108,7 @@ export function DashboardView({
   total, byFunction, byTeam, memberBoard, mmBoard, teamBoard,
   views, activeFn, laneLabel, scopeLabel,
   showTeamDrill, teamOptions, memberOptions, filters, viewerId, showMyNumbers,
-  isB2cLane, b2cCic, lanePlan, teamPlan, teamLabel,
+  isB2cLane, b2cCic, lanePlan, teamPlan, termPlan, teamLabel,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -376,6 +379,7 @@ export function DashboardView({
       {/* Goals = the plans (v22): the lane goal comes from the VPs' planning
           sheet, the team goal from the TL's filed plan — nothing is set here. */}
       {lanePlan ? <PlanCard plan={lanePlan} /> : null}
+      {termPlan ? <TermPlanCard plan={termPlan} /> : null}
       {isB2cLane && b2cCic ? <B2cCicCard stats={b2cCic} /> : null}
       {teamPlan ? (
         <TeamPlanCard plan={teamPlan} teamLabel={teamLabel} isOwnPlan={teamPlan.teamLeaderId === viewerId} />
@@ -1709,6 +1713,83 @@ function PlanCard({ plan }: { plan: LanePlan }) {
             </span>
           ))}
           <span className="text-muted-foreground/60">— from the VPs&apos; planning sheet</span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** BD & B2B's term goal (v36.9) — the sheet sets ONE number for the whole
+ *  term, not a month/sprint plan, so this card shows term-to-date progress
+ *  (since the term's own February) rather than following the filter bar's
+ *  window the way PlanCard does. Either half is omitted when that VP hasn't
+ *  actually filled the target in on the sheet yet. */
+function TermPlanCard({ plan }: { plan: TermPlan }) {
+  const bar = (achieved: number, planned: number) => {
+    const progress = planned > 0 ? Math.min(1, achieved / planned) : 0;
+    return (
+      <div className="mt-1.5 h-1.5 w-full rounded-full bg-muted">
+        <div
+          className={cn(
+            "h-full rounded-full transition-all duration-700",
+            progress >= 1 ? "bg-success" : "bg-primary",
+            progress > 0 && "goal-fill goal-striped"
+          )}
+          style={{ width: `${progress * 100}%` }}
+        />
+      </div>
+    );
+  };
+  if (!plan.bd && !plan.b2b) return null;
+  return (
+    <Card className="relative overflow-hidden rise-in rise-in-2">
+      <CardContent className="pt-4">
+        <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <Target className="size-3.5" /> {plan.termLabel} goal — from the VPs&apos; planning sheet
+        </p>
+        <div className="mt-3 grid gap-4 sm:grid-cols-2">
+          {plan.bd ? (
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">BD</p>
+              {plan.bd.plannedRevenue > 0 ? (
+                <>
+                  <p className="mt-0.5 text-lg font-bold">
+                    {plan.bd.actualRevenue.toLocaleString("en")}
+                    <span className="text-sm font-semibold text-muted-foreground">
+                      {" "}/ {plan.bd.plannedRevenue.toLocaleString("en")} EGP
+                    </span>
+                  </p>
+                  {bar(plan.bd.actualRevenue, plan.bd.plannedRevenue)}
+                </>
+              ) : null}
+              {plan.bd.plannedContracts > 0 ? (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Contracts: <b className="text-foreground">{plan.bd.actualContracts}</b> / {plan.bd.plannedContracts}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+          {plan.b2b ? (
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">B2B</p>
+              {plan.b2b.plannedSlots > 0 ? (
+                <>
+                  <p className="mt-0.5 text-lg font-bold">
+                    {plan.b2b.actualSlots.toLocaleString("en")}
+                    <span className="text-sm font-semibold text-muted-foreground">
+                      {" "}/ {plan.b2b.plannedSlots.toLocaleString("en")} slots
+                    </span>
+                  </p>
+                  {bar(plan.b2b.actualSlots, plan.b2b.plannedSlots)}
+                </>
+              ) : null}
+              {plan.b2b.plannedRevenue > 0 ? (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Revenue: <b className="text-foreground">{plan.b2b.actualRevenue.toLocaleString("en")}</b> / {plan.b2b.plannedRevenue.toLocaleString("en")} EGP
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </CardContent>
     </Card>

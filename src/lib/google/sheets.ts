@@ -1191,20 +1191,33 @@ function planNum(v: unknown): number {
   return isFinite(n) ? n : 0;
 }
 
-/** Re-imports the six goal-setting tabs into plan_cells. Returns cell count.
- *  febYear anchors the term (default: current term — Feb of this year, or of
- *  last year when we're in January). */
-export async function importPlanningSheet(febYear?: number): Promise<{ cells: number; skipped: string[] }> {
+/** Reads the planning sheet's id from app_settings (shared by every planning
+ *  importer). Throws when it hasn't been seeded. */
+async function planningSheetId(): Promise<string> {
   const { data: setting } = await db()
     .from("app_settings").select("value").eq("key", "planning:sheet-id").maybeSingle();
   const spreadsheetId =
     typeof setting?.value === "string" ? setting.value : (setting?.value as { id?: string })?.id;
   if (!spreadsheetId) throw new Error("planning:sheet-id is not set in app_settings.");
+  return spreadsheetId;
+}
+
+/** Re-imports the six goal-setting tabs into plan_cells. Returns cell count.
+ *  febYear anchors the term (default: current term — Feb of this year, or of
+ *  last year when we're in January). `monthsFilter` restricts the import to a
+ *  subset of PLAN_MONTHS (e.g. just the winter peak) — omit it for the full
+ *  term, which is the right default for any future re-import. */
+export async function importPlanningSheet(
+  febYear?: number,
+  monthsFilter?: string[]
+): Promise<{ cells: number; skipped: string[] }> {
+  const spreadsheetId = await planningSheetId();
 
   // anchor the term in Cairo time (matches src/lib/plan.ts) — the term starts
   // in February, so a January import belongs to the PREVIOUS Feb-anchored term
   const cairoNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Africa/Cairo" }));
   const year = febYear ?? (cairoNow.getMonth() === 0 ? cairoNow.getFullYear() - 1 : cairoNow.getFullYear());
+  const months = monthsFilter?.length ? PLAN_MONTHS.filter((m) => monthsFilter.includes(m)) : PLAN_MONTHS;
 
   const { sheets } = clients();
   const skipped: string[] = [];
@@ -1233,14 +1246,14 @@ export async function importPlanningSheet(febYear?: number): Promise<{ cells: nu
     );
     if (hdrIdx < 0) { skipped.push(`${tab}: monthly header not found`); continue; }
     const hdr = grid[hdrIdx].map((c) => String(c ?? "").trim());
-    const monthCols = PLAN_MONTHS.map((m) => hdr.indexOf(m));
-    if (monthCols.some((c) => c < 0)) { skipped.push(`${tab}: month columns missing`); continue; }
+    const monthColByName = new Map(PLAN_MONTHS.map((m) => [m, hdr.indexOf(m)]));
+    if ([...monthColByName.values()].some((c) => c < 0)) { skipped.push(`${tab}: month columns missing`); continue; }
     PLAN_METRIC_ROWS.forEach((met, j) => {
       const r = grid[hdrIdx + 1 + j] ?? [];
-      PLAN_MONTHS.forEach((mName, k) => {
+      months.forEach((mName) => {
         rows.push({
           fn, scope: "month", period_start: planMonthIso(mName, year),
-          metric: met === "m1" ? m1 : met, value: planNum(r[monthCols[k]]),
+          metric: met === "m1" ? m1 : met, value: planNum(r[monthColByName.get(mName)!]),
         });
       });
     });
@@ -1249,12 +1262,12 @@ export async function importPlanningSheet(febYear?: number): Promise<{ cells: nu
     const sIdx = grid.findIndex((r) => rowText(r).includes("LC goal distribution by Sprints"));
     if (sIdx < 0) { skipped.push(`${tab}: sprint block not found`); continue; }
     const sHdr = (grid[sIdx + 1] ?? []).map((c) => String(c ?? "").trim());
-    const sMonthCols = PLAN_MONTHS.map((m) => sHdr.indexOf(m));
-    if (sMonthCols.some((c) => c < 0)) { skipped.push(`${tab}: sprint month columns missing`); continue; }
+    const sMonthColByName = new Map(PLAN_MONTHS.map((m) => [m, sHdr.indexOf(m)]));
+    if ([...sMonthColByName.values()].some((c) => c < 0)) { skipped.push(`${tab}: sprint month columns missing`); continue; }
     PLAN_METRIC_ROWS.forEach((met, j) => {
       const r = grid[sIdx + 3 + j] ?? [];
-      PLAN_MONTHS.forEach((mName, k) => {
-        const base = sMonthCols[k];
+      months.forEach((mName) => {
+        const base = sMonthColByName.get(mName)!;
         const monthIso = planMonthIso(mName, year);
         rows.push({
           fn, scope: "sprint", period_start: monthIso,
@@ -1275,6 +1288,101 @@ export async function importPlanningSheet(febYear?: number): Promise<{ cells: nu
         rows.slice(i, i + 500).map((r) => ({ ...r, imported_at: new Date().toISOString() })),
         { onConflict: "fn,scope,period_start,metric" }
       );
+    if (error) throw new Error(`plan_cells upsert failed: ${error.message}`);
+  }
+  return { cells: rows.length, skipped };
+}
+
+/** BD & B2B goal-setting tabs (v36.9): each sets ONE term-wide target, not a
+ *  month/sprint funnel — a different shape from PLAN_TABS, so it's parsed
+ *  separately and stored as plan_cells `scope='term'` rows keyed at the
+ *  term's own February 1st.
+ *   · BD ("🎯BD | goal setting"): "BD Goal 26.27" = the term revenue target
+ *     (EGP), found by marker text, value one row below in the same column;
+ *     "Contract signed" = the term deal-count target, 2 columns to its right
+ *     (the row also carries a "/" conversion-rate placeholder in between —
+ *     labels are template copy-paste, so this reads by fixed position off a
+ *     found marker row, same caution as PLAN_TABS above).
+ *   · B2B ("🎯B2B | goal setting"): one summary row headed "Revenue
+ *     Generated" / "IGV Slots" / "IGta slots" / "IGte slots", values in the
+ *     row below. The tab's funnel detail below this is riddled with #DIV/0!
+ *     errors from unfilled cells — deliberately NOT read. */
+export async function importBdB2bPlanning(febYear?: number): Promise<{ cells: number; skipped: string[] }> {
+  const spreadsheetId = await planningSheetId();
+  const cairoNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Africa/Cairo" }));
+  const year = febYear ?? (cairoNow.getMonth() === 0 ? cairoNow.getFullYear() - 1 : cairoNow.getFullYear());
+  const periodStart = `${year}-02-01`;
+
+  const { sheets } = clients();
+  const skipped: string[] = [];
+  const rows: { fn: string; scope: string; period_start: string; metric: string; value: number }[] = [];
+  const norm = (s: unknown) => String(s ?? "").trim().toLowerCase();
+
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "'🎯BD | goal setting'!A1:AZ20",
+      valueRenderOption: "UNFORMATTED_VALUE",
+    });
+    const grid = (res.data.values ?? []) as unknown[][];
+    // the marker cell is "BD Goal 26.27" on its own, not a sentence ending in
+    // those words — the instructions column above it ("...in your BD goal")
+    // would also match a loose `includes`, and land on the wrong column
+    const goalRowIdx = grid.findIndex((r) => r.some((c) => norm(c).startsWith("bd goal")));
+    const goalCol = goalRowIdx >= 0 ? grid[goalRowIdx].findIndex((c) => norm(c).startsWith("bd goal")) : -1;
+    if (goalCol >= 0) {
+      rows.push({
+        fn: "BD", scope: "term", period_start: periodStart, metric: "revenue",
+        value: planNum((grid[goalRowIdx + 1] ?? [])[goalCol]),
+      });
+    } else skipped.push("🎯BD | goal setting: revenue goal not found");
+
+    const contractRowIdx = grid.findIndex((r) => r.some((c) => norm(c) === "contract signed"));
+    const contractCol = contractRowIdx >= 0 ? grid[contractRowIdx].findIndex((c) => norm(c) === "contract signed") : -1;
+    if (contractCol >= 0) {
+      // the row also carries a "/" conversion-rate placeholder immediately
+      // after the label, so the target itself is 2 columns to its right
+      rows.push({
+        fn: "BD", scope: "term", period_start: periodStart, metric: "contracts",
+        value: planNum(grid[contractRowIdx][contractCol + 2]),
+      });
+    } else skipped.push("🎯BD | goal setting: contract-signed target not found");
+  } catch (e) {
+    skipped.push(`🎯BD | goal setting: ${e instanceof Error ? e.message : "unreadable"}`);
+  }
+
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "'🎯B2B | goal setting'!A1:AZ10",
+      valueRenderOption: "UNFORMATTED_VALUE",
+    });
+    const grid = (res.data.values ?? []) as unknown[][];
+    const hdrIdx = grid.findIndex((r) => r.some((c) => norm(c) === "revenue generated"));
+    if (hdrIdx >= 0) {
+      const hdr = grid[hdrIdx].map((c) => norm(c));
+      const valueRow = grid[hdrIdx + 1] ?? [];
+      const metrics: [string, string][] = [
+        ["revenue generated", "revenue"],
+        ["igv slots", "slots_igv"],
+        ["igta slots", "slots_igta"],
+        ["igte slots", "slots_igte"],
+      ];
+      for (const [label, metric] of metrics) {
+        const col = hdr.indexOf(label);
+        if (col >= 0) {
+          rows.push({ fn: "B2B", scope: "term", period_start: periodStart, metric, value: planNum(valueRow[col]) });
+        } else skipped.push(`🎯B2B | goal setting: "${label}" column missing`);
+      }
+    } else skipped.push("🎯B2B | goal setting: summary row not found");
+  } catch (e) {
+    skipped.push(`🎯B2B | goal setting: ${e instanceof Error ? e.message : "unreadable"}`);
+  }
+
+  for (const r of rows) {
+    const { error } = await db()
+      .from("plan_cells")
+      .upsert({ ...r, imported_at: new Date().toISOString() }, { onConflict: "fn,scope,period_start,metric" });
     if (error) throw new Error(`plan_cells upsert failed: ${error.message}`);
   }
   return { cells: rows.length, skipped };

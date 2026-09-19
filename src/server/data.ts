@@ -48,7 +48,7 @@ import {
   slugLikePattern } from "@/lib/types";
 import { teamLabel } from "@/lib/types";
 import { cairoToUtc } from "@/lib/time";
-import { monthOf, sprintOf } from "@/lib/plan";
+import { monthOf, sprintOf, currentTermFebYear, termStartIso } from "@/lib/plan";
 import {
   addRowLane, allTimeWork, didAnything, emptyStats, laneAllocSlots, laneWorkSlots,
   noWork, rowInLane, type FunnelStats, type RowWork } from "@/lib/dashboard-funnel";
@@ -2493,6 +2493,47 @@ export async function getDashboard(
     }
   }
 
+  // ---- BD & B2B's term goal (v36.9) --------------------------------------
+  // These sheets set ONE target for the whole term, not a month/sprint plan
+  // — so unlike lanePlan above, "achieved" is the running total since the
+  // term started, refreshed on every view rather than following the filter
+  // bar's window.
+  let termPlan: TermPlan | null = null;
+  if (viewerIsPlanLeader && lane === "B2B") {
+    const cells = await listPlanCells(["BD", "B2B"]);
+    if (cells.length > 0) {
+      const val = (fn: string, metric: string) =>
+        cells.find((c) => c.fn === fn && c.scope === "term" && c.metric === metric)?.value ?? 0;
+      const year = currentTermFebYear();
+      const start = termStartIso(year);
+      const today = new Date().toISOString().slice(0, 10);
+      const [bdActual, b2bActual] = await Promise.all([
+        dealsTotalsForAccountFn("BD", start, today),
+        dealsTotalsForAccountFn("B2B", start, today),
+      ]);
+      const bdRevenuePlanned = val("BD", "revenue");
+      const bdContractsPlanned = val("BD", "contracts");
+      const b2bSlotsPlanned = val("B2B", "slots_igv") + val("B2B", "slots_igta") + val("B2B", "slots_igte");
+      const b2bRevenuePlanned = val("B2B", "revenue");
+      termPlan = {
+        termLabel: `Term ${year}–${year + 1}`,
+        bd: bdRevenuePlanned > 0 || bdContractsPlanned > 0
+          ? {
+              plannedRevenue: bdRevenuePlanned, actualRevenue: bdActual.amount,
+              plannedContracts: bdContractsPlanned, actualContracts: bdActual.contracts,
+            }
+          : null,
+        b2b: b2bSlotsPlanned > 0 || b2bRevenuePlanned > 0
+          ? {
+              plannedSlots: b2bSlotsPlanned,
+              actualSlots: b2bActual.slotsIgv + b2bActual.slotsIgta + b2bActual.slotsIgte,
+              plannedRevenue: b2bRevenuePlanned, actualRevenue: b2bActual.amount,
+            }
+          : null,
+      };
+    }
+  }
+
   return {
     total,
     byFunction: [...byFunction.values()],
@@ -2503,6 +2544,7 @@ export async function getDashboard(
     teamLeadId,
     lanePlan,
     teamPlan,
+    termPlan,
   };
 }
 
@@ -2522,6 +2564,20 @@ export interface LanePlanWindow {
   plannedOpens: number;
   actualOpens: number;
   funnel: { metric: string; value: number }[];
+}
+
+/** BD & B2B's term goal vs term-to-date achieved (v36.9). Unlike `LanePlan`,
+ *  these targets are TERM-WIDE (the sheet sets one number for the whole
+ *  Feb–Jan term, not a month/sprint split) — so "achieved" is the running
+ *  total since the term started, not this sprint/month's own work. Null
+ *  fields mean that target hasn't been set in the sheet yet. */
+export interface TermPlan {
+  termLabel: string;
+  bd: { plannedRevenue: number; actualRevenue: number; plannedContracts: number; actualContracts: number } | null;
+  b2b: {
+    plannedSlots: number; actualSlots: number;
+    plannedRevenue: number; actualRevenue: number;
+  } | null;
 }
 
 /** The viewer's team plan snapshot (v22): the TL's filed opens plan for the
@@ -3510,14 +3566,15 @@ export async function getSystemHealth(): Promise<SystemHealth> {
 
 export interface PlanCell {
   fn: string;
-  scope: "month" | "sprint";
+  scope: "month" | "sprint" | "term";
   period_start: string;
   metric: string;
   value: number;
 }
 
-/** All imported plan cells for the given plan-functions (IGV/IGTa/IGTe/OGV/OGTa/OGTe).
- *  Paged: the full six-lane set is 1500+ rows — over Supabase's 1000-row cap. */
+/** All imported plan cells for the given plan-functions (IGV/IGTa/IGTe/OGV/OGTa/OGTe,
+ *  or BD/B2B's term cells — v36.9). Paged: the full six-lane set is 1500+ rows
+ *  — over Supabase's 1000-row cap. */
 export async function listPlanCells(fns: string[]): Promise<PlanCell[]> {
   if (fns.length === 0) return [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -3531,6 +3588,35 @@ export async function listPlanCells(fns: string[]): Promise<PlanCell[]> {
   );
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (data as any[]).map((r) => ({ ...r, value: Number(r.value) })) as PlanCell[];
+}
+
+/** Deals raised on accounts carrying a given function LABEL (BD or B2B —
+ *  distinct from `laneOpensActual`, which blends every product's opens
+ *  together whatever account they were raised on). This is the "achieved"
+ *  side of BD/B2B's term goal (v36.9): BD's target is revenue, B2B's is a
+ *  per-product slots split, so both are read in one pass. */
+export async function dealsTotalsForAccountFn(
+  fn: "BD" | "B2B",
+  fromIso: string,
+  toIso: string
+): Promise<{ amount: number; slotsIgv: number; slotsIgta: number; slotsIgte: number; contracts: number }> {
+  const { data } = await db()
+    .from("deals")
+    .select("amount, slots_igv, slots_igta, slots_igte, created_at, account:accounts!inner(function, is_test)")
+    .eq("account.function", fn)
+    .eq("account.is_test", false)
+    .gte("created_at", `${fromIso}T00:00:00`)
+    .lte("created_at", `${toIso}T23:59:59`);
+  const out = { amount: 0, slotsIgv: 0, slotsIgta: 0, slotsIgte: 0, contracts: 0 };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const d of (data ?? []) as any[]) {
+    out.amount += Number(d.amount) || 0;
+    out.slotsIgv += d.slots_igv ?? 0;
+    out.slotsIgta += d.slots_igta ?? 0;
+    out.slotsIgte += d.slots_igte ?? 0;
+    out.contracts += 1;
+  }
+  return out;
 }
 
 export interface MmPlanRow {
@@ -4242,6 +4328,48 @@ export async function buildOgxReport(
     ...(lcp?.email ? [lcp.email as string] : []),
   ].filter(Boolean);
 
+  // ---- VP-level plan vs achieved (v36.9) -----------------------------------
+  // The dashboard's `ogxDashboard.lanePlan` has computed exactly this since
+  // v33.52; the email never read it. Same plan_cells lookup, same "worked in
+  // this window" achieved (`total.applied/accepted/approved`, built above
+  // from the identical `inWindow` rule the dashboard's `tally()` uses), so the
+  // two can't disagree. Falls back to the methodology note alone when the
+  // sheet has no target for this window — e.g. before the first import.
+  const windowMonthKeys: string[] = [];
+  {
+    let y = Number(window.start.slice(0, 4));
+    let m = Number(window.start.slice(5, 7));
+    const endKey = window.end.slice(0, 7);
+    while (`${y}-${String(m).padStart(2, "0")}` <= endKey) {
+      windowMonthKeys.push(`${y}-${String(m).padStart(2, "0")}-01`);
+      m++;
+      if (m > 12) { m = 1; y++; }
+    }
+  }
+  const planFns = fn === "OGV" ? ["OGV"] : ["OGTa", "OGTe"];
+  const planCells = await listPlanCells(planFns);
+  const sumPlan = (metric: string) =>
+    kind === "sprint"
+      ? planCells
+          .filter((c) => c.scope === "sprint" && c.metric === metric && c.period_start === window.start)
+          .reduce((s, c) => s + c.value, 0)
+      : planCells
+          .filter((c) => c.scope === "month" && c.metric === metric && windowMonthKeys.includes(c.period_start))
+          .reduce((s, c) => s + c.value, 0);
+  const plannedApplicants = sumPlan("applicants");
+  const plannedAccepted = sumPlan("accepted");
+  const plannedApprovals = sumPlan("approvals");
+  const methodologyNote =
+    "Counted on the sign-ups HANDED OUT in this period (the tracker's own sign-up date when they were never assigned) — the funnel below is where those people stand today, since no status carries a date of its own.";
+  let planLine = methodologyNote;
+  if (plannedApplicants + plannedAccepted + plannedApprovals > 0) {
+    const span = kind === "sprint" ? "this sprint" : windowMonthKeys.length > 1 ? "these months" : "this month";
+    const approvalsPct = plannedApprovals > 0 ? Math.round((total.approved / plannedApprovals) * 100) : 0;
+    planLine =
+      `Plan check: ${total.applied} of ~${plannedApplicants} applicants · ${total.accepted} of ~${plannedAccepted} accepted · ` +
+      `${total.approved} of ~${plannedApprovals} approvals planned for ${span} (${approvalsPct}% of the approvals goal). ${methodologyNote}`;
+  }
+
   return {
     functionLabel: fn,
     recipients: [...new Set(recipients.map((e) => e.toLowerCase()))],
@@ -4251,8 +4379,7 @@ export async function buildOgxReport(
       visitsDone: total.applied, deals: total.accepted, opens: total.approved, egp: 0,
     },
     kpis,
-    planLine:
-      "Counted on the sign-ups HANDED OUT in this period (the tracker's own sign-up date when they were never assigned) — the funnel below is where those people stand today, since no status carries a date of its own.",
+    planLine,
     waterfallHeaders: headers,
     waterfallRows: table,
     boldRows,
@@ -4593,6 +4720,39 @@ export async function buildFunctionReport(
       const ach = fnKey === "IGT" ? actual.IGTa + actual.IGTe : actual[fnKey];
       const span = kind === "sprint" ? "this sprint" : windowMonthKeys.length > 1 ? "these months" : "this month";
       planLine = `Plan check (opens): ${ach} raised of ~${planned} planned for ${span} (${planned ? Math.round((ach / planned) * 100) : 0}%).`;
+    }
+  } else {
+    // BD & B2B set ONE term-wide target (v36.9), not a month/sprint plan — the
+    // check is always "term-to-date" (since the term's own February), not
+    // scoped to this sprint/month's own window, and skips any fact the VP
+    // hasn't actually filled in on the sheet yet.
+    const cells = await listPlanCells(["BD", "B2B"]);
+    if (cells.length > 0) {
+      const val = (fn: string, metric: string) =>
+        cells.find((c) => c.fn === fn && c.scope === "term" && c.metric === metric)?.value ?? 0;
+      const year = currentTermFebYear();
+      const start = termStartIso(year);
+      const [bdActual, b2bActual] = await Promise.all([
+        dealsTotalsForAccountFn("BD", start, window.end),
+        dealsTotalsForAccountFn("B2B", start, window.end),
+      ]);
+      const parts: string[] = [];
+      const bdRevenue = val("BD", "revenue");
+      if (bdRevenue > 0) {
+        parts.push(
+          `BD revenue: ${bdActual.amount.toLocaleString("en")} of ~${bdRevenue.toLocaleString("en")} EGP planned for the term (${Math.round((bdActual.amount / bdRevenue) * 100)}%)`
+        );
+      }
+      const bdContracts = val("BD", "contracts");
+      if (bdContracts > 0) parts.push(`${bdActual.contracts} of ~${bdContracts} contracts signed`);
+      const b2bSlots = val("B2B", "slots_igv") + val("B2B", "slots_igta") + val("B2B", "slots_igte");
+      if (b2bSlots > 0) {
+        const achievedSlots = b2bActual.slotsIgv + b2bActual.slotsIgta + b2bActual.slotsIgte;
+        parts.push(
+          `B2B slots: ${achievedSlots} of ~${b2bSlots} planned for the term (${Math.round((achievedSlots / b2bSlots) * 100)}%)`
+        );
+      }
+      if (parts.length > 0) planLine = `Term check — ${parts.join(" · ")}.`;
     }
   }
 

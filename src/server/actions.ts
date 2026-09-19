@@ -6481,14 +6481,16 @@ export async function tellLcFeedbackAuthor(
 // ================================================================== planning import (v21)
 
 /** Re-imports the VP planning sheet ("Alexandria | Planning Tool") into
- *  plan_cells. Requires the sheet to be shared with the service account. */
+ *  plan_cells — the 6-lane month/sprint funnel AND (v36.9) BD/B2B's term
+ *  goals. Requires the sheet to be shared with the service account. */
 export async function runPlanningImport(): Promise<ActionResult<{ cells: number; skipped: string[] }>> {
   const viewer = await getViewer();
   const { canSeePlanning } = await import("@/lib/rbac");
   if (!canSeePlanning(viewer)) return fail("Planning owners only.", "forbidden");
   try {
-    const { importPlanningSheet } = await import("@/lib/google/sheets");
-    const res = await importPlanningSheet();
+    const { importPlanningSheet, importBdB2bPlanning } = await import("@/lib/google/sheets");
+    const [lanes, bdB2b] = await Promise.all([importPlanningSheet(), importBdB2bPlanning()]);
+    const res = { cells: lanes.cells + bdB2b.cells, skipped: [...lanes.skipped, ...bdB2b.skipped] };
     await logAudit(viewer.id, "plan_import", "system", null, { cells: res.cells });
     refresh();
     return { ok: true, data: res };

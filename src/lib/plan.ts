@@ -7,7 +7,9 @@
  *  (Mirrors the LC's "Alexandria | Planning Tool" sheet — see plan_cells.)
  */
 
-/** Functions covered by the imported VP plan (BD/B2B/TM deliberately out). */
+/** Functions covered by the imported VP plan's month/sprint funnel
+ *  (TM deliberately out — its sheet tab plans internal member recruitment,
+ *  not anything Sodio's accounts/signups data can be measured against). */
 export const PLAN_FUNCTIONS = ["IGV", "IGTa", "IGTe", "OGV", "OGTa", "OGTe"] as const;
 export type PlanFunction = (typeof PLAN_FUNCTIONS)[number];
 
@@ -181,6 +183,19 @@ export function sprintKeysOfMonth(monthKey: string): [string, string] {
 export function inPeriod(dateIso: string, p: { start: string; end: string }): boolean {
   const d = dateIso.slice(0, 10);
   return d >= p.start && d <= p.end;
+}
+
+/** The year the current term's February belongs to (Cairo time) — a January
+ *  date belongs to the term that started the PREVIOUS February. Mirrors the
+ *  anchoring `importPlanningSheet` already uses for the 6-lane funnel. */
+export function currentTermFebYear(d = new Date()): number {
+  const c = cairo(d);
+  return c.getMonth() === 0 ? c.getFullYear() - 1 : c.getFullYear();
+}
+
+/** ISO first-of-term (always February 1st) for a Feb-anchored term year. */
+export function termStartIso(anchorFebYear: number): string {
+  return `${anchorFebYear}-02-01`;
 }
 
 export { iso as isoDate };

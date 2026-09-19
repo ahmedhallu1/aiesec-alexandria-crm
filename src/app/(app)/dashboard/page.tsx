@@ -226,6 +226,7 @@ export default async function DashboardPage({
       teamBoard={data.teamBoard}
       lanePlan={data.lanePlan}
       teamPlan={data.teamPlan}
+      termPlan={data.termPlan}
       teamLabel={teamCardLabel}
       views={views}
       activeFn={activeFn}
