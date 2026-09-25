@@ -19,6 +19,8 @@ const ROUTES = new Set([
   "/admin", "/help", "/ogt-mail", "/playbook",
   // v36.7 — the Activate 26' bid: editable in the app, read-only in public
   "/activation", "/activate26",
+  // the CXP module (v35) — its first help article landed in v37
+  "/cxp", "/cxp/weekly",
 ]);
 const CATEGORY_IDS = new Set([
   "getting-started", "raising", "ogx", "consideration", "b2c",

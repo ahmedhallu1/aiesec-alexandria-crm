@@ -19,10 +19,46 @@ import {
 } from "./data-table-kit";
 import { CXP_STAGE_KEYS, STAGE_BY_KEY, type CxpStageKey } from "@/lib/cxp/types";
 import { Button } from "@/components/ui/button";
-import { uploadCxpFile } from "@/server/cxp-actions";
+import {
+  clearCxpRequirement,
+  confirmCxpUpload,
+  requestCxpUpload,
+} from "@/server/cxp-actions";
+import { MAX_UPLOAD_BYTES } from "@/lib/cxp/drive";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { Check, Copy, UploadCloud } from "lucide-react";
+import { Check, Copy, Download, Eye, FileArchive, Trash2, UploadCloud } from "lucide-react";
+
+/** PUT the file straight to the signed storage URL, reporting progress. XHR,
+ *  not fetch, because fetch still cannot report UPLOAD progress — and a 15 MB
+ *  scan on a phone connection with no progress looks exactly like the bug this
+ *  replaces. */
+function putWithProgress(
+  url: string,
+  file: File,
+  onProgress: (pct: number) => void
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    xhr.setRequestHeader("content-type", file.type || "application/octet-stream");
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => resolve(xhr.status >= 200 && xhr.status < 300);
+    xhr.onerror = () => resolve(false);
+    xhr.onabort = () => resolve(false);
+    xhr.send(file);
+  });
+}
+
+/** Where one document can be read. Sodio streams it — the Drive file itself
+ *  is not shared with most of the people who need to see it. */
+function fileHref(epOppId: string, d: { stageKey: string; requirementKey: string }, download: boolean) {
+  const p = new URLSearchParams({ ep: epOppId, stage: d.stageKey, req: d.requirementKey });
+  if (download) p.set("dl", "1");
+  return `/api/cxp/file?${p.toString()}`;
+}
 
 /** One row of the EP's document checklist. */
 export interface EpDocRow {
@@ -32,7 +68,10 @@ export interface EpDocRow {
   requirementName: string;
   criteria: string;
   uploaded: boolean;
-  fileUrl: string | null;
+  /** a real file sits behind it, so it can be viewed and downloaded */
+  hasFile: boolean;
+  /** collected only per the ECB sheet's tick — no file in Sodio */
+  fromSheetOnly: boolean;
   dueDate: string | null;
   window: string | null;
   /** which input date drove the deadline — so a wrong one is traceable */
@@ -77,7 +116,9 @@ export function CxpEpView({
   canEdit: boolean;
 }) {
   const [pending, startTransition] = useTransition();
-  const [busy, setBusy] = useState<string | null>(null);
+  /** per row: upload progress 0–100, "saving" while it moves to Drive */
+  const [busy, setBusy] = useState<Record<string, number | "saving">>({});
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const inputs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -159,20 +200,218 @@ export function CxpEpView({
 
   const have = docs.filter((d) => d.uploaded).length;
 
-  const attach = (d: EpDocRow, file: File) => {
+  const setRow = (key: string, v: number | "saving" | null) =>
+    setBusy((prev) => {
+      const next = { ...prev };
+      if (v === null) delete next[key];
+      else next[key] = v;
+      return next;
+    });
+
+  /** THE TWO-STEP UPLOAD. The file goes straight to storage (no size wall),
+   *  then the server moves it into the EP's Drive folder. Every failure lands
+   *  in a toast that says what happened — the old path threw inside a
+   *  transition and simply stopped. */
+  const attach = async (d: EpDocRow, file: File) => {
     const key = `${d.stageKey}|${d.requirementKey}`;
-    setBusy(key);
-    const fd = new FormData();
-    fd.set("epOppId", header.epOppId);
-    fd.set("stageKey", d.stageKey);
-    fd.set("requirementKey", d.requirementKey);
-    fd.set("file", file);
-    startTransition(async () => {
-      const r = await uploadCxpFile(fd);
-      setBusy(null);
+    if (busy[key] !== undefined) return;
+    if (file.size > MAX_UPLOAD_BYTES) {
+      toast.error(
+        `"${file.name}" is ${(file.size / 1024 / 1024).toFixed(1)} MB — the limit is ${
+          MAX_UPLOAD_BYTES / 1024 / 1024
+        } MB. Compress it and try again.`
+      );
+      return;
+    }
+    setRow(key, 0);
+    try {
+      const ticket = await requestCxpUpload({
+        epOppId: header.epOppId,
+        stageKey: d.stageKey,
+        requirementKey: d.requirementKey,
+        fileName: file.name,
+        size: file.size,
+      });
+      if (!ticket.ok || !ticket.signedUrl || !ticket.path) {
+        toast.error(ticket.message || "Could not prepare the upload.");
+        return;
+      }
+      const put = await putWithProgress(ticket.signedUrl, file, (pct) => setRow(key, pct));
+      if (!put) {
+        toast.error("The upload was interrupted — check your connection and try again.");
+        return;
+      }
+      setRow(key, "saving");
+      const r = await confirmCxpUpload({
+        epOppId: header.epOppId,
+        stageKey: d.stageKey,
+        requirementKey: d.requirementKey,
+        path: ticket.path,
+        fileName: file.name,
+        mimeType: file.type || "application/octet-stream",
+      });
       if (r.ok) toast.success(r.message);
       else toast.error(r.message);
+    } catch (err) {
+      toast.error(
+        err instanceof Error && err.message
+          ? `Upload failed: ${err.message}`
+          : "Upload failed — try again."
+      );
+    } finally {
+      setRow(key, null);
+    }
+  };
+
+  const remove = (d: EpDocRow) => {
+    setConfirmRemove(null);
+    startTransition(async () => {
+      try {
+        const r = await clearCxpRequirement(header.epOppId, d.stageKey, d.requirementKey);
+        if (r.ok) toast.success(r.message);
+        else toast.error(r.message);
+      } catch {
+        toast.error("Could not remove it — try again.");
+      }
     });
+  };
+
+  const withFile = docs.filter((d) => d.hasFile).length;
+
+  /** The actions a document offers — the same on a card and in a table row. */
+  const docActions = (d: EpDocRow) => {
+    const rowKey = `${d.stageKey}|${d.requirementKey}`;
+    const state = busy[rowKey];
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        {state !== undefined ? (
+          <div className="flex min-w-32 items-center gap-2">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full bg-primary transition-[width]"
+                style={{ width: `${state === "saving" ? 100 : state}%` }}
+              />
+            </div>
+            <span className="text-[11px] tabular-nums text-muted-foreground">
+              {state === "saving" ? "Saving to Drive…" : `${state}%`}
+            </span>
+          </div>
+        ) : d.uploaded ? (
+          d.hasFile ? (
+            <>
+              <a
+                href={fileHref(header.epOppId, d, false)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+              >
+                <Eye className="h-3.5 w-3.5" />
+                View
+              </a>
+              <a
+                href={fileHref(header.epOppId, d, true)}
+                className="inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium hover:bg-muted"
+                title="Download this document"
+              >
+                <Download className="h-3.5 w-3.5" />
+                <span className="sr-only sm:not-sr-only">Download</span>
+              </a>
+            </>
+          ) : (
+            <Badge variant="secondary" title="Ticked as collected on the ECB sheet — no file was attached in Sodio">
+              collected · ECB sheet
+            </Badge>
+          )
+        ) : dragOver === rowKey ? (
+          <Badge variant="outline" className="border-primary text-primary">
+            <UploadCloud className="mr-1 h-3 w-3" />
+            Drop to attach
+          </Badge>
+        ) : (
+          <Badge variant="destructive">missing</Badge>
+        )}
+        {canEdit && state === undefined ? (
+          <>
+            <input
+              ref={(el) => {
+                inputs.current[rowKey] = el;
+              }}
+              type="file"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) void attach(d, f);
+              }}
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              disabled={pending}
+              onClick={() => inputs.current[rowKey]?.click()}
+            >
+              <UploadCloud className="mr-1 h-3.5 w-3.5" />
+              {d.hasFile ? "Replace" : "Attach"}
+            </Button>
+            {d.uploaded && !d.fromSheetOnly ? (
+              confirmRemove === rowKey ? (
+                <span className="inline-flex items-center gap-1 text-xs">
+                  Remove it?
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="h-6 px-2 text-xs"
+                    disabled={pending}
+                    onClick={() => remove(d)}
+                  >
+                    Yes
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-xs"
+                    onClick={() => setConfirmRemove(null)}
+                  >
+                    No
+                  </Button>
+                </span>
+              ) : (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
+                  disabled={pending}
+                  title="Wrong file? Mark it as not collected (the file stays in Drive)"
+                  onClick={() => setConfirmRemove(rowKey)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span className="sr-only">Remove</span>
+                </Button>
+              )
+            ) : null}
+          </>
+        ) : null}
+      </div>
+    );
+  };
+
+  const dropProps = (d: EpDocRow) => {
+    const rowKey = `${d.stageKey}|${d.requirementKey}`;
+    if (!canEdit) return {};
+    return {
+      onDragOver: (e: React.DragEvent) => {
+        e.preventDefault();
+        setDragOver(rowKey);
+      },
+      onDragLeave: () => setDragOver((k) => (k === rowKey ? null : k)),
+      onDrop: (e: React.DragEvent) => {
+        e.preventDefault();
+        setDragOver(null);
+        const f = e.dataTransfer.files?.[0];
+        if (f) void attach(d, f);
+      },
+    };
   };
 
   // ONE FIELD, whichever side populated it. The parser only ever fills one of
@@ -272,6 +511,16 @@ export function CxpEpView({
         <Badge variant="outline">
           {have}/{docs.length} collected
         </Badge>
+        {withFile > 0 ? (
+          <a
+            href={`/api/cxp/zip?ep=${encodeURIComponent(header.epOppId)}`}
+            className="inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium hover:bg-muted"
+            title="Every collected document for this EP, in one ZIP, sorted by stage"
+          >
+            <FileArchive className="h-3.5 w-3.5" />
+            Download all ({withFile})
+          </a>
+        ) : null}
         <span className="text-xs text-muted-foreground">
           {filtered.length} of {docs.length} shown
         </span>
@@ -287,7 +536,37 @@ export function CxpEpView({
         ) : null}
       </div>
 
-      <div className="overflow-x-auto rounded-lg border">
+      {/* PHONES GET CARDS — a four-column checklist with buttons in the last
+          column was a sideways scroll on every row */}
+      <div className="grid gap-2 md:hidden">
+        {sorted.map((d) => {
+          const rowKey = `${d.stageKey}|${d.requirementKey}`;
+          return (
+            <div
+              key={rowKey}
+              className={cn(
+                "grid gap-2 rounded-lg border p-3",
+                dragOver === rowKey && "bg-primary/5",
+                !d.uploaded && "border-l-4 border-l-destructive/60"
+              )}
+              {...dropProps(d)}
+            >
+              <div className="min-w-0">
+                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{d.stage}</p>
+                <p className="break-words font-medium">{d.requirementName}</p>
+                <p className="break-words text-xs text-muted-foreground">{d.criteria}</p>
+                <p className="mt-1 text-xs">
+                  <span className="text-muted-foreground">Due: </span>
+                  {d.window ?? d.dueDate ?? "no fixed date"}
+                </p>
+              </div>
+              {docActions(d)}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="hidden overflow-x-auto rounded-lg border md:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -331,27 +610,8 @@ export function CxpEpView({
                   key={rowKey}
                   className={cn(dragOver === rowKey && "bg-primary/5")}
                   // THE WHOLE ROW IS A DROP TARGET when editable — drag a file
-                  // from Finder/Explorer straight onto its requirement, no
-                  // need to find the Attach button first.
-                  onDragOver={
-                    canEdit
-                      ? (e) => {
-                          e.preventDefault();
-                          setDragOver(rowKey);
-                        }
-                      : undefined
-                  }
-                  onDragLeave={canEdit ? () => setDragOver((k) => (k === rowKey ? null : k)) : undefined}
-                  onDrop={
-                    canEdit
-                      ? (e) => {
-                          e.preventDefault();
-                          setDragOver(null);
-                          const f = e.dataTransfer.files?.[0];
-                          if (f) attach(d, f);
-                        }
-                      : undefined
-                  }
+                  // from Finder/Explorer straight onto its requirement
+                  {...dropProps(d)}
                 >
                   <TableCell className="text-xs text-muted-foreground">{d.stage}</TableCell>
                   <TableCell>
@@ -367,58 +627,7 @@ export function CxpEpView({
                     ) : null}
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-2">
-                      {d.uploaded ? (
-                        d.fileUrl ? (
-                          <a
-                            href={d.fileUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sm font-medium text-emerald-600 hover:underline"
-                          >
-                            View
-                          </a>
-                        ) : (
-                          <Badge variant="secondary">collected</Badge>
-                        )
-                      ) : dragOver === rowKey ? (
-                        <Badge variant="outline" className="border-primary text-primary">
-                          <UploadCloud className="mr-1 h-3 w-3" />
-                          Drop to attach
-                        </Badge>
-                      ) : (
-                        <Badge variant="destructive">missing</Badge>
-                      )}
-                      {canEdit ? (
-                        <>
-                          <input
-                            ref={(el) => {
-                              inputs.current[rowKey] = el;
-                            }}
-                            type="file"
-                            className="hidden"
-                            onChange={(e) => {
-                              const f = e.target.files?.[0];
-                              if (f) attach(d, f);
-                              e.target.value = "";
-                            }}
-                          />
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2 text-xs"
-                            disabled={pending}
-                            onClick={() => inputs.current[rowKey]?.click()}
-                          >
-                            {busy === rowKey
-                              ? "Uploading…"
-                              : d.uploaded
-                                ? "Replace"
-                                : "Attach"}
-                          </Button>
-                        </>
-                      ) : null}
-                    </div>
+                    {docActions(d)}
                   </TableCell>
                 </TableRow>
               );

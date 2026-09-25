@@ -7,7 +7,7 @@ import {
   CalendarClock, Check, ChevronDown, ClipboardCheck, Copy, ExternalLink,
   Building2, FileText, FolderDown, Globe2, Handshake, History, ImagePlus, Link2, Loader2, Mail,
   MessageSquare, Pencil, Phone, Plus, RotateCcw, Send,
-  Search, Settings2, Sparkles, Trash2, Upload, UserRound, UserRoundPlus, Video, X,
+  Search, Settings2, Sparkles, Trash2, Trophy, Upload, UserRound, UserRoundPlus, Video, X,
 } from "lucide-react";
 import {
   addPartnerLc, addPartnerLcComment, cancelIrCall, completeIrCall, confirmCvUpload,
@@ -47,6 +47,7 @@ import { WalkingLoader } from "./walking-loader";
 import { WhatsAppIcon } from "./icons";
 import { Badge } from "@/components/ui/badge";
 import { IrSlotRequestsCard } from "./ir-slot-requests-card";
+import { IcxApprovalsTab } from "./icx-approvals-tab";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -2151,8 +2152,9 @@ export function ConsiderationView({
   partnershipTargets = [],
   handoverTargets = [],
   slotRequests = [],
+  approvals = null,
 }: {
-  tab: "calls" | "cvs" | "expectation" | "lcs";
+  tab: "calls" | "cvs" | "expectation" | "lcs" | "approvals";
   /** ?lc=<id> — the LC the log linked to, scrolled to and outlined */
   highlightLc?: string | null;
   lcs: (PartnerLc | PartnerLcDetail)[];
@@ -2172,6 +2174,15 @@ export function ConsiderationView({
   /** who a booked IR call may be handed to (v33.58) — the consideration crew */
   handoverTargets?: PartnershipTarget[];
   slotRequests?: IrSlotRequest[];
+  /** 🏆 the Approvals tab's data — only loaded while that tab is open (v37) */
+  approvals?: {
+    rows: import("@/server/icx-approvals").IcxApprovalRow[];
+    suggestions: import("@/server/icx-approvals").ApprovalSuggestion[];
+    boards: Partial<Record<"IGV" | "IGT", import("@/lib/icx-approvals").LaneApprovals>>;
+    creditTargets: import("@/server/icx-approvals").CreditTarget[];
+    options: import("./icx-approvals-tab").ApprovalFormOptions;
+    lanes: ("IGV" | "IGT")[];
+  } | null;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -2209,6 +2220,8 @@ export function ConsiderationView({
 
   const tabs = [
     { key: "calls", label: "IR calls", icon: Globe2 },
+    // the ICX MOS (v37) — second, because it is what the calls are for
+    { key: "approvals", label: "Approvals", icon: Trophy },
     ...(viewer.showCvs ? [{ key: "cvs", label: "CVs", icon: FileText }] : []),
     { key: "lcs", label: "Partner LCs", icon: Building2 },
     ...(viewer.showExpectation
@@ -2255,7 +2268,19 @@ export function ConsiderationView({
             <WalkingLoader label="Loading…" />
           </div>
         ) : null}
-        {tab === "lcs" ? (
+        {tab === "approvals" && approvals ? (
+          <IcxApprovalsTab
+            rows={approvals.rows}
+            suggestions={approvals.suggestions}
+            boards={approvals.boards}
+            creditTargets={approvals.creditTargets}
+            lcs={allLcs.map((l) => ({ id: l.id, name: l.name, country: l.country ?? null }))}
+            options={approvals.options}
+            lanes={approvals.lanes}
+            viewerId={viewer.id}
+            mmPlanned={{}}
+          />
+        ) : tab === "lcs" ? (
           <PartnerLcsTab
             lcs={allLcs}
             highlight={highlightLc}

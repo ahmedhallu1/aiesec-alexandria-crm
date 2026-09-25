@@ -9,6 +9,10 @@ import {
   canSeeCvPool, canUseIgtExpectationMail, fnSetting, hasConsiderationAccess, icxFunctions,
 } from "@/lib/rbac";
 import { env } from "@/lib/env";
+import {
+  approvalBoards, approvalCreditTargets, approvalFormOptions, approvalLanes,
+  approvalSuggestions, listIcxApprovals,
+} from "@/server/icx-approvals";
 import { ConsiderationView } from "@/components/crm/consideration-view";
 import { PAGE_SIZES, pageSizeOf } from "@/lib/page-size";
 
@@ -32,14 +36,16 @@ export default async function ConsiderationPage({
   const showCvs = canSeeCvPool(viewer);
   // the incoming-EP expectation mail is the IGT leadership's to send (v33.3)
   const showExpectation = canUseIgtExpectationMail(viewer);
-  const tab: "calls" | "cvs" | "expectation" | "lcs" =
+  const tab: "calls" | "cvs" | "expectation" | "lcs" | "approvals" =
     sp.tab === "cvs" && showCvs
       ? "cvs"
       : sp.tab === "expectation" && showExpectation
         ? "expectation"
         : sp.tab === "lcs"
           ? "lcs"
-          : "calls";
+          : sp.tab === "approvals"
+            ? "approvals"
+            : "calls";
   const page = Math.max(0, (parseInt(sp.page ?? "1", 10) || 1) - 1);
   // rows per page is the member's own choice (v31) — whitelisted here
   const pageSize = pageSizeOf(sp.size);
@@ -106,6 +112,25 @@ export default async function ConsiderationPage({
     canHandOverCalls ? irCallHandoverTargets(viewer) : Promise.resolve([]),
     listIrSlotRequests(viewer),
   ]);
+  // 🏆 APPROVALS (v37) — read only on their own tab: nobody on the calls tab
+  // pays for the SubTool comparison or the account list
+  const approvals =
+    tab === "approvals"
+      ? await Promise.all([
+          listIcxApprovals(viewer),
+          approvalSuggestions(viewer),
+          approvalBoards(viewer),
+          approvalCreditTargets(viewer),
+          approvalFormOptions(viewer),
+        ]).then(([rows, suggestions, boards, creditTargets, options]) => ({
+          rows,
+          suggestions,
+          boards,
+          creditTargets,
+          options,
+          lanes: approvalLanes(viewer),
+        }))
+      : null;
   // cross-team targets are the FUNCTION's call (v33.39, function defaults)
   const crossTeam = icxFunctions(viewer).some(
     (fn) => fnSetting(viewer, fn).partnershipCrossTeam
@@ -146,6 +171,7 @@ export default async function ConsiderationPage({
       }))}
       handoverTargets={handoverTargets}
       slotRequests={slotRequests}
+      approvals={approvals}
       viewer={{
         id: viewer.id,
         isVp: viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role),

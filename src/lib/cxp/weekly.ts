@@ -115,12 +115,24 @@ export function weeklyItemsFor(
   statusMap: Record<string, Pick<CxpRequirementStatus, "uploaded">>,
   fn: CxpFunction,
   deadline: string,
-  now: Date = new Date()
+  now: Date = new Date(),
+  opts: {
+    /** which half of the week's submission: what is still OWED (the board,
+     *  the reminder — the default), what is already COLLECTED (the ZIP and the
+     *  weekly folder), or both */
+    state?: "missing" | "collected" | "all";
+    /** keep last month's rows. Off for the board; on for the ZIP of a week
+     *  that belongs to last month, whose rows are all flagged past-month now */
+    includePastMonth?: boolean;
+  } = {}
 ): WeeklyItem[] {
+  const state = opts.state ?? "missing";
   const out: WeeklyItem[] = [];
   // PAST-MONTH ROWS ARE NOT PART OF A WEEKLY SUBMISSION. They live behind the
   // EP list's "last month" toggle; the weekly board is about what is owed now.
-  for (const rec of records.filter((r) => r.function === fn && !r.is_past_month)) {
+  for (const rec of records.filter(
+    (r) => r.function === fn && (opts.includePastMonth || !r.is_past_month)
+  )) {
     const dues = new Map(
       computeDeadlinesForRecord(
         {
@@ -139,7 +151,8 @@ export function weeklyItemsFor(
 
     for (const req of requirementsForStage(fn, rec.stage_key)) {
       const uploaded = isUploaded(rec, req.key, statusMap);
-      if (uploaded) continue;
+      if (state === "missing" && uploaded) continue;
+      if (state === "collected" && !uploaded) continue;
       const dueDate = dues.get(req.key) ?? null;
       const bucket = bucketFor(dueDate, deadline);
       // not owed yet at this deadline
@@ -153,7 +166,7 @@ export function weeklyItemsFor(
         requirementName: req.name,
         dueDate,
         bucket,
-        uploaded: false,
+        uploaded,
       });
     }
   }

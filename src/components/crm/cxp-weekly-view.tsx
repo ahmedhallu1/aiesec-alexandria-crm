@@ -26,7 +26,7 @@ import {
   type TableColumn,
 } from "./data-table-kit";
 import { cn } from "@/lib/utils";
-import { buildCxpWeeklyFolder, buildCxpWeeklyZip } from "@/server/cxp-actions";
+import { buildCxpWeeklyFolder } from "@/server/cxp-actions";
 import type { WeeklyEp, WeeklyItem, WeeklySummary } from "@/lib/cxp/weekly";
 import type { CxpFunction, CxpSide, CxpWeeklyDeadline } from "@/lib/cxp/types";
 
@@ -82,6 +82,7 @@ export function CxpWeeklyView({
   side,
   sides,
   canOps,
+  zipFiles,
 }: {
   deadlines: CxpWeeklyDeadline[];
   selected: string;
@@ -90,8 +91,10 @@ export function CxpWeeklyView({
   eps: Record<string, WeeklyEp[]>;
   side: CxpSide | null;
   sides: CxpSide[];
-  /** may this viewer build the weekly Drive folder / ZIP for these functions? */
+  /** may this viewer build the weekly Drive folder for these functions? */
   canOps: boolean;
+  /** collected documents with a file, per function, for the selected week */
+  zipFiles: Record<string, number>;
 }) {
   const router = useRouter();
   // opening an EP is a navigation — show that the click landed
@@ -99,11 +102,11 @@ export function CxpWeeklyView({
   const [colFilter, setColFilter] = useState<Record<string, string>>({});
   const cols = useTableColumns("cxp-weekly", COLUMNS);
 
-  // THE DOWNLOAD BUTTONS. `folderUrls`/`zipUrls` remember the last link
-  // returned for THIS deadline — switching weeks clears them rather than
-  // showing a stale link for a different week (the old board's bug: past
-  // weeks' links vanished on switch; this is the opposite mistake, and just
-  // as wrong, so state is keyed by `${fn}|${selected}`).
+  // THE WEEKLY FOLDER (leaders only — it writes shortcuts into Drive). The
+  // link is SHOWN once built rather than `window.open`ed after the await: a
+  // popup opened after an async gap is exactly what browsers block, which is
+  // why the old button looked like it did nothing. State is keyed by
+  // `${fn}|${selected}` so switching weeks never shows another week's link.
   const [busy, setBusy] = useState<string | null>(null);
   const [links, setLinks] = useState<Record<string, string>>({});
   // `opsPending` isn't read directly — `busy` already drives each button's own
@@ -112,27 +115,27 @@ export function CxpWeeklyView({
   const [opsPending, startOps] = useTransition();
   void opsPending;
 
-  const runOp = (
-    fn: CxpFunction,
-    kind: "folder" | "zip",
-    action: (fn: CxpFunction, deadline: string) => Promise<{ ok: boolean; message: string; url?: string }>
-  ) => {
-    const key = `${fn}|${kind}`;
-    setBusy(key);
+  const buildFolder = (fn: CxpFunction) => {
+    setBusy(fn);
     startOps(async () => {
-      const r = await action(fn, selected);
-      setBusy(null);
-      if (r.ok) {
-        toast.success(r.message);
-        if (r.url) {
-          setLinks((prev) => ({ ...prev, [`${fn}|${kind}|${selected}`]: r.url! }));
-          window.open(r.url, "_blank", "noopener,noreferrer");
+      try {
+        const r = await buildCxpWeeklyFolder(fn, selected);
+        if (r.ok) {
+          toast.success(r.message);
+          if (r.url) setLinks((prev) => ({ ...prev, [`${fn}|${selected}`]: r.url! }));
+        } else {
+          toast.error(r.message);
         }
-      } else {
-        toast.error(r.message);
+      } catch {
+        toast.error("Could not build the folder — try again.");
+      } finally {
+        setBusy(null);
       }
     });
   };
+
+  const zipHref = (fn: CxpFunction) =>
+    `/api/cxp/zip?${new URLSearchParams({ fn, deadline: selected }).toString()}`;
 
   const allItems = useMemo(
     () => Object.values(eps).flatMap((list) => list.flatMap((e) => e.items)),
@@ -291,46 +294,51 @@ export function CxpWeeklyView({
                 ) : null}
               </div>
 
-              {/* THE SUBMISSION DOWNLOAD — the piece the old board led with.
-                  Not shown for a past week: those are read from the recorded
-                  snapshot, and there is nothing here to bundle. */}
-              {canOps && !isPast ? (
-                <div className="mt-3 flex gap-2 border-t pt-3">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 flex-1 text-xs"
-                    disabled={busy === `${s.function}|zip`}
-                    onClick={() => runOp(s.function, "zip", buildCxpWeeklyZip)}
-                  >
-                    <Download className="mr-1 h-3.5 w-3.5" />
-                    {busy === `${s.function}|zip` ? "Building…" : "Download ZIP"}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 flex-1 text-xs"
-                    disabled={busy === `${s.function}|folder`}
-                    onClick={() => runOp(s.function, "folder", buildCxpWeeklyFolder)}
-                  >
-                    <FolderOpen className="mr-1 h-3.5 w-3.5" />
-                    {busy === `${s.function}|folder` ? "Building…" : "Open folder"}
-                  </Button>
-                </div>
-              ) : null}
-              {(links[`${s.function}|zip|${selected}`] || links[`${s.function}|folder|${selected}`]) ? (
-                <p className="mt-1.5 text-[10px] text-muted-foreground">
-                  Opened in a new tab.{" "}
+              {/* THE SUBMISSION DOWNLOAD — the old board's lead button, back.
+                  A plain link: the ZIP streams straight from Sodio, so there is
+                  no popup to block and no Drive permission to lack. Anyone who
+                  reads this function may download it, past weeks included. */}
+              <div className="mt-3 grid gap-2 border-t pt-3">
+                {(zipFiles[s.function] ?? 0) > 0 ? (
                   <a
-                    href={links[`${s.function}|zip|${selected}`] || links[`${s.function}|folder|${selected}`]}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline"
+                    href={zipHref(s.function)}
+                    className="inline-flex h-8 items-center justify-center gap-1 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition hover:bg-primary/90"
+                    title="The collected documents for this week, one folder per EP, with a README of what is still missing"
                   >
-                    Open again
+                    <Download className="h-3.5 w-3.5" />
+                    Download ZIP ({zipFiles[s.function]} file{zipFiles[s.function] === 1 ? "" : "s"})
                   </a>
-                </p>
-              ) : null}
+                ) : (
+                  <p className="text-center text-[11px] text-muted-foreground">
+                    No collected files for this week yet — attach them from each EP&apos;s page.
+                  </p>
+                )}
+                {canOps ? (
+                  links[`${s.function}|${selected}`] ? (
+                    <a
+                      href={links[`${s.function}|${selected}`]}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex h-7 items-center justify-center gap-1 rounded-md border px-2 text-xs font-medium hover:bg-muted"
+                    >
+                      <FolderOpen className="h-3.5 w-3.5" />
+                      Open the Drive folder
+                    </a>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      disabled={busy === s.function || (zipFiles[s.function] ?? 0) === 0}
+                      onClick={() => buildFolder(s.function)}
+                      title="Builds a Drive folder of shortcuts to this week's documents"
+                    >
+                      <FolderOpen className="mr-1 h-3.5 w-3.5" />
+                      {busy === s.function ? "Building…" : "Build Drive folder"}
+                    </Button>
+                  )
+                ) : null}
+              </div>
             </CardContent>
           </Card>
         ))}

@@ -452,6 +452,32 @@ export function ProfileView({
               )}
               mode="profile"
             />
+            {/* 🏆 WHAT YOU ACTUALLY GOT (v37) — approvals logged in the
+                Consideration module, yours plus your team's when you lead one */}
+            {mmPlan.months.some((m) => m.approvalsActual != null) ? (
+              <div className="mt-4 rounded-lg border bg-muted/30 p-3">
+                <p className="text-xs font-medium text-muted-foreground">
+                  🏆 Approvals — planned vs achieved
+                </p>
+                <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-6">
+                  {mmPlan.months.map((m) => {
+                    const got = m.approvalsActual ?? 0;
+                    const met = m.approvals > 0 && got >= m.approvals;
+                    return (
+                      <div key={m.month} className="rounded-md bg-background px-2 py-1.5 text-center">
+                        <p className="text-[10px] uppercase text-muted-foreground">
+                          {new Date(`${m.month}T00:00:00Z`).toLocaleString("en", { month: "short", timeZone: "UTC" })}
+                        </p>
+                        <p className={cn("text-sm font-bold tabular-nums", met && "text-emerald-600 dark:text-emerald-400")}>
+                          {got}
+                          <span className="font-normal text-muted-foreground">/{m.approvals}</span>
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       ) : null}

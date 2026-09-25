@@ -12,6 +12,7 @@ import {
   type PlanFunction,
 } from "@/lib/plan";
 import { PlanningView } from "@/components/crm/planning-view";
+import { approvalsByWindow } from "@/server/icx-approvals";
 
 export const metadata = { title: "Planning" };
 
@@ -40,6 +41,25 @@ export default async function PlanningPage() {
   // v25: a VP/Director sees only THEIR function's MM plans (LCP/admin: all)
   const mmScope =
     viewer.isAdmin || viewer.role === "LCP" ? undefined : viewer.functions;
+  // 🏆 approvals achieved (v37) — the same windows, from icx_approvals
+  const y0 = Number(month.start.slice(0, 4));
+  const m0 = Number(month.start.slice(5, 7));
+  const termStart = `${m0 >= 2 ? y0 : y0 - 1}-02-01`;
+  const termEnd = `${m0 >= 2 ? y0 + 1 : y0}-01-31`;
+  const peakEnd = (() => {
+    const last = peak.months[peak.months.length - 1];
+    const d = new Date(`${last}T00:00:00Z`);
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
+  })();
+  const approvalWindows = hasIcx
+    ? await approvalsByWindow({
+        sprint: sprint,
+        month: month,
+        quarter: quarter,
+        peak: { start: peak.months[0], end: peakEnd },
+        term: { start: termStart, end: termEnd },
+      }).catch(() => null)
+    : null;
   const [cells, mmPlans, tlPlans, sprintActual, monthActual, quarterActual] = await Promise.all([
     listPlanCells(fns),
     listMmPlans(undefined, mmScope),
@@ -72,6 +92,7 @@ export default async function PlanningPage() {
       termMonths={termMonths}
       peak={{ label: peak.label, months: peak.months }}
       actuals={{ sprint: sprintActual, month: monthActual, quarter: quarterActual }}
+      approvalActuals={approvalWindows}
     />
   );
 }

@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import { AskVioletMan } from "./ask-violet-man";
 import { Hint } from "./hint";
+import { IcxApprovalsBoard } from "./icx-approvals-board";
 import { CountUp } from "./count-up";
 import { cn } from "@/lib/utils";
 import { StreakCard } from "./streak-card";
@@ -851,6 +852,9 @@ function ConsiderationPanel({ stats }: { stats: import("@/server/data").Consider
           left in. Clear it to see the whole floor.
         </p>
       ) : null}
+      {/* 🏆 THE MOS FIRST (v37). Approvals are what this floor exists to
+          produce; the calls below are how it gets there. */}
+      <IcxApprovalsBoard data={stats.approvals} mmPlanned={stats.plan?.approvals ?? null} />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {kpi("IR calls — total", stats.irTotal, "Every recorded + booked call (cancelled excluded)")}
         {kpi(
@@ -920,7 +924,7 @@ function ConsiderationPanel({ stats }: { stats: import("@/server/data").Consider
         <Card className="rise-in rise-in-1">
           <CardContent className="pt-4">
             <p className="text-xs font-medium text-muted-foreground">
-              🏅 Consideration leaderboard — ranked by calls done
+              🏅 Consideration leaderboard — ranked by approvals, then calls done
             </p>
             {/* THE COLUMNS ADD UP NOW (v33.32). It used to read
                 "This month · Upcoming · Total" — three numbers that look like
@@ -938,6 +942,9 @@ function ConsiderationPanel({ stats }: { stats: import("@/server/data").Consider
                 <thead>
                   <tr className="text-left text-xs text-muted-foreground">
                     <th className="py-1 pr-2 font-medium">Member</th>
+                    <th className="py-1 pr-2 text-right font-medium" title="Approvals credited to them — the ICX MOS">
+                      🏆
+                    </th>
                     <th className="py-1 pr-2 text-right font-medium" title="Calls that happened">
                       Done
                     </th>
@@ -983,6 +990,7 @@ function ConsiderationPanel({ stats }: { stats: import("@/server/data").Consider
                         </span>
                         {m.name}
                       </td>
+                      <td className="py-1.5 pr-2 text-right font-black tabular-nums">{m.approvals}</td>
                       <td className="py-1.5 pr-2 text-right font-semibold tabular-nums">{m.done}</td>
                       <td className="py-1.5 pr-2 text-right tabular-nums">{m.upcoming}</td>
                       <td
@@ -1043,7 +1051,10 @@ function ConsiderationPanel({ stats }: { stats: import("@/server/data").Consider
             <div className="mt-2 flex flex-wrap gap-4 text-sm">
               <span><b>{stats.plan.applicants}</b> applicants planned</span>
               <span><b>{stats.plan.accepted}</b> accepted planned</span>
-              <span><b>{stats.plan.approvals}</b> approvals planned 🏆</span>
+              <span>
+                <b>{stats.plan.approvals}</b> approvals planned 🏆 ·{" "}
+                <b>{stats.approvals.thisMonth}</b> achieved
+              </span>
             </div>
           </CardContent>
         </Card>

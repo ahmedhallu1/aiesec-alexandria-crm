@@ -13,8 +13,6 @@ import { PAGE_SIZES, pageSizeOf } from "@/lib/page-size";
 
 export const metadata = { title: "Sign-ups" };
 
-/** Rows per page (?size) — the universal table kit's picker drives it. */
-const DEFAULT_PAGE_SIZE = 100;
 
 /** THE OGX WORKSPACE (v25): OGT & OGV sign-ups, two-way synced with the LC's
  *  tracker sheets. Main view = the unassigned pool — contact one, it's yours. */

@@ -57,6 +57,8 @@ interface Props {
   peak: { label: string; months: string[] };
   /** actual opens per ICX lane for the current windows (null for OGX-only viewers) */
   actuals: { sprint: LaneActual | null; month: LaneActual | null; quarter: LaneActual | null };
+  /** 🏆 approvals achieved per window (v37) — ICX lanes, null for OGX-only */
+  approvalActuals: Record<"sprint" | "month" | "quarter" | "peak" | "term", LaneActual> | null;
 }
 
 /** A table number — zeros render dimmed so the real plan pops. */
@@ -125,7 +127,7 @@ function PeriodCard({
 }
 
 export function PlanningView({
-  fns, cells, mmPlans, tlPlans, sprint, month, quarter, termMonths, peak, actuals,
+  fns, cells, mmPlans, tlPlans, sprint, month, quarter, termMonths, peak, actuals, approvalActuals,
 }: Props) {
   const [fn, setFn] = useState<PlanFunction>(fns[0]);
   const [pending, startImport] = useTransition();
@@ -146,13 +148,24 @@ export function PlanningView({
     !ogx && a && (fn === "IGV" || fn === "IGTa" || fn === "IGTe") ? a[fn] : null;
 
   // consideration-funnel columns: sprint scope → month scope → month sums
-  const funnelCols: { label: string; keys: string[]; scope: "month" | "sprint" }[] = [
-    { label: "This sprint", scope: "sprint", keys: sprint.planKeys },
-    { label: "This month", scope: "month", keys: month.planKeys },
-    { label: `This quarter (${quarter.label})`, scope: "month", keys: quarter.planKeys },
-    { label: "Peak S2 total", scope: "month", keys: s2Months },
-    { label: "Term total", scope: "month", keys: termMonths },
+  const funnelCols: {
+    label: string;
+    keys: string[];
+    scope: "month" | "sprint";
+    /** which approvals-achieved window this column is (v37) */
+    win: "sprint" | "month" | "quarter" | "peak" | "term";
+  }[] = [
+    { label: "This sprint", scope: "sprint", keys: sprint.planKeys, win: "sprint" },
+    { label: "This month", scope: "month", keys: month.planKeys, win: "month" },
+    { label: `This quarter (${quarter.label})`, scope: "month", keys: quarter.planKeys, win: "quarter" },
+    { label: "Peak S2 total", scope: "month", keys: s2Months, win: "peak" },
+    { label: "Term total", scope: "month", keys: termMonths, win: "term" },
   ];
+  /** 🏆 approvals ACHIEVED for this lane in a window — ICX only (v37) */
+  const approvalsGot = (w: "sprint" | "month" | "quarter" | "peak" | "term"): number | null =>
+    !ogx && approvalActuals && (fn === "IGV" || fn === "IGTa" || fn === "IGTe")
+      ? approvalActuals[w][fn]
+      : null;
 
   // step-to-step conversions from the TERM month totals — deliberately NOT
   // capped at 100%: the planning funnel legitimately grows (applicants are
@@ -284,6 +297,40 @@ export function PlanningView({
             />
           </div>
 
+          {/* 🏆 APPROVALS — the ICX MOS, planned vs achieved (v37). Logged in
+              Consideration → Approvals, credited to one person each. */}
+          {!ogx && approvalActuals ? (
+            <div className="grid gap-3 sm:grid-cols-3">
+              <PeriodCard
+                title="🏆 Approvals · sprint"
+                sub={sprint.label}
+                planned={Math.ceil(sum("sprint", sprint.planKeys, "approvals"))}
+                actual={approvalsGot("sprint")}
+                leadLabel="approvals"
+                ogx={false}
+                delay={1}
+              />
+              <PeriodCard
+                title="🏆 Approvals · month"
+                sub={month.label}
+                planned={Math.ceil(sum("month", month.planKeys, "approvals"))}
+                actual={approvalsGot("month")}
+                leadLabel="approvals"
+                ogx={false}
+                delay={2}
+              />
+              <PeriodCard
+                title="🏆 Approvals · peak"
+                sub={peak.label}
+                planned={Math.ceil(sum("month", s2Months, "approvals"))}
+                actual={approvalsGot("peak")}
+                leadLabel="approvals"
+                ogx={false}
+                delay={3}
+              />
+            </div>
+          ) : null}
+
           {/* consideration funnel */}
           <Card className="rise-in rise-in-2">
             <CardHeader>
@@ -306,11 +353,24 @@ export function PlanningView({
                     {funnel.map((m) => (
                       <TableRow key={m}>
                         <TableCell className="whitespace-nowrap font-medium">{METRIC_LABEL[m]}</TableCell>
-                        {funnelCols.map((c) => (
-                          <TableCell key={c.label} className="text-center text-sm font-semibold">
-                            <Num v={sum(c.scope, c.keys, m)} />
-                          </TableCell>
-                        ))}
+                        {funnelCols.map((c) => {
+                          const got = m === "approvals" ? approvalsGot(c.win) : null;
+                          return (
+                            <TableCell key={c.label} className="text-center text-sm font-semibold">
+                              {got != null ? (
+                                // 🏆 achieved / planned — the one funnel row
+                                // Sodio can now measure on the consideration side
+                                <span title="Achieved (logged in Consideration → Approvals) / planned">
+                                  <span className="text-primary">{got}</span>
+                                  <span className="text-muted-foreground"> / </span>
+                                  <Num v={sum(c.scope, c.keys, m)} />
+                                </span>
+                              ) : (
+                                <Num v={sum(c.scope, c.keys, m)} />
+                              )}
+                            </TableCell>
+                          );
+                        })}
                       </TableRow>
                     ))}
                   </TableBody>
@@ -500,6 +560,19 @@ export function PlanningView({
                         <span className="font-medium text-foreground">{monthKeyLabel(`${r.month.slice(0, 7)}-01`)}</span>
                         {" — "}
                         {r.applicants} applicants · {r.accepted} accepted · {r.approvals} approvals
+                        {r.approvals_actual != null ? (
+                          <span
+                            className={cn(
+                              "ml-1.5 font-semibold",
+                              r.approvals > 0 && r.approvals_actual >= r.approvals
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : "text-primary"
+                            )}
+                            title="Approvals actually credited — theirs, plus their team's when they lead one"
+                          >
+                            · 🏆 {r.approvals_actual} achieved
+                          </span>
+                        ) : null}
                       </li>
                     ))}
                   </ul>

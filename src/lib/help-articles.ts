@@ -3481,6 +3481,146 @@ export const HELP_ARTICLES: HelpArticle[] = [
   ]
  },
  {
+  "id": "icx-approvals",
+  "title": "Approvals — the ICX MOS",
+  "emoji": "🏆",
+  "category": "consideration",
+  "audience": "Consideration crew, their MMs and VPs",
+  "audienceKeys": [
+   "consideration",
+   "leaders",
+   "mm"
+  ],
+  "keywords": [
+   "approval",
+   "approvals",
+   "approved",
+   "MOS",
+   "KPI",
+   "plan",
+   "planned vs achieved",
+   "leaderboard",
+   "subtool",
+   "ECB",
+   "EXPA",
+   "credit",
+   "counts for",
+   "team leader",
+   "ابروفال",
+   "موافقة",
+   "الموس"
+  ],
+  "summary": "Every approved EP is logged once in Consideration → Approvals, credited to one person — and counted against the planning sheet, on the dashboard, the MM plans and the period reports.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "An **approval** is the ICX MOS: an EP from abroad approved on one of our opportunities. The planning sheet has always planned them (IGV · IGTa · IGTe) and every consideration MM files an approvals plan — now Sodio counts them too. They live on the **Approvals** tab of [Consideration](/consideration?tab=approvals)."
+   },
+   {
+    "t": "steps",
+    "title": "Log an approval",
+    "items": [
+     "Open [Consideration → Approvals](/consideration?tab=approvals). The yellow card lists approvals the **ECB SubTool** already knows about that nobody has logged — hit **Log it** on yours and the EP, EXPA id, date and sending LC are filled in for you.",
+     "Not on the SubTool yet? **Log an approval** and type it: programme (GV / GTa / GTe), the EP's name and EXPA id, and the approval date.",
+     "Say **who made it** — yourself, or (as an MM or VP) someone from the crew you answer for.",
+     "Pick the **sending LC** (or add a new one), **how it came** (IR call, CV pool, EXPA organic, partner referral) — link the IR call or CV when there is one — and **our opportunity** (the account they were approved on).",
+     "Add the EP's email / WhatsApp and any notes, then **Log it**."
+    ]
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**Who it counts for**: one person per approval. A member's approvals ALSO count for their **Team Leader**, and the TL's own approvals are theirs too — the same way opens roll up on the raising side. So the tab and the dashboard show two boards: **by person** and **by MM (own + team)**."
+   },
+   {
+    "t": "p",
+    "md": "**Where it shows**: the consideration lane on the [dashboard](/dashboard) now opens with **planned vs achieved** (the month, or the sprint when *This sprint* is pressed, and the whole peak), a month-by-month strip against the plan, both boards, and where the approvals came from. Consideration MMs see their filed plan against what they actually got on their [profile](/profile); VPs see it on [Planning](/planning) next to the sheet's approvals row; and the sprint/month report emails carry an approvals line and per-person counts."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Can the same EP be logged twice?",
+      "a": "No — the EXPA id is the guard. Typing just the EP id (without the opportunity part) also covers that EP's SubTool row, so a hand-logged approval never shows up again as a suggestion."
+     },
+     {
+      "q": "I logged it under the wrong person — can I fix it?",
+      "a": "Yes. Open it from the list: whoever logged it, whoever it counts for, their Team Leader and the function's VPs can edit or remove it."
+     },
+     {
+      "q": "Why is my approval not on the plan card?",
+      "a": "The card counts by the approval date. An approval dated last month counts for last month — check the date on the row."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "cxp-documents",
+  "title": "CXP — attaching and downloading ECB documents",
+  "emoji": "🗂️",
+  "category": "leaders",
+  "audience": "CXP, and the MMs and VPs of IGV · IGT · OGV · OGT",
+  "audienceKeys": [
+   "leaders",
+   "mm",
+   "consideration",
+   "ogx"
+  ],
+  "keywords": [
+   "cxp",
+   "ecb",
+   "subtool",
+   "audit",
+   "document",
+   "upload",
+   "attach",
+   "download",
+   "zip",
+   "weekly",
+   "deadline",
+   "passport",
+   "مستندات",
+   "رفع",
+   "تحميل"
+  ],
+  "summary": "Attach each EP's documents from their CXP page (any size up to 25 MB), view or download them from Sodio, and download a whole week — or a whole EP — as one ZIP.",
+  "blocks": [
+   {
+    "t": "steps",
+    "title": "Attach a document",
+    "items": [
+     "Open [CXP](/cxp) and click the EP.",
+     "On the document's row press **Attach** — or drag the file from your computer straight onto the row.",
+     "A progress bar shows the upload; when it says **Saving to Drive…** the file is being put in the EP's Drive folder. It's done when the row turns to **View · Download**.",
+     "Wrong file? **Replace** it, or the 🗑 marks it as not collected again (the file itself stays in Drive as evidence)."
+    ]
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "Files up to **25 MB** — photos straight from a phone and scanned PDFs included. (Before v37 anything over about 4.5 MB silently failed; that's fixed.)"
+   },
+   {
+    "t": "p",
+    "md": "**Downloading**: every collected document has **View** (opens in the tab) and **Download**, served by Sodio — you don't need access to the Drive folder. **Download all** on an EP's page gives that EP's whole file as one ZIP, sorted by stage. On the [weekly board](/cxp/weekly), each function's card has **Download ZIP** for the selected deadline — past weeks too — with a README inside listing what's included and what's still missing. Leaders can also **Build Drive folder**, a folder of shortcuts for the week."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "It says \"collected · ECB sheet\" but there's no file to download.",
+      "a": "That document is ticked on the ECB SubTool but was never attached in Sodio — attach the file if you have it."
+     },
+     {
+      "q": "Who can download?",
+      "a": "Anyone who can read that function's submissions in CXP — the same people who can see the EP."
+     }
+    ]
+   }
+  ]
+ },
+ {
   "id": "lc-partnerships",
   "title": "Partnerships with partner LCs",
   "emoji": "🤝",

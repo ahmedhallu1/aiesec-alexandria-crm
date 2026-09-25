@@ -47,6 +47,7 @@ export default async function CxpWeeklyPage({
         side={side}
         sides={access.sides}
         canOps={access.canOps}
+        zipFiles={board.zipFiles}
       />
     </div>
   );

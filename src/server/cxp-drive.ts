@@ -13,12 +13,11 @@ import {
   stageFolderName,
   stageKeyFromFolderName,
   weeklyFolderPath,
-  zipFileName,
-  zipFolderPath,
 } from "@/lib/cxp/drive";
-import { findRequirement, requirementsForStage } from "@/lib/cxp/requirements";
-import { selectWeeklyEps } from "@/lib/cxp/weekly";
-import type { CxpEpRecord, CxpFunction, CxpStageKey } from "@/lib/cxp/types";
+import { findRequirement } from "@/lib/cxp/requirements";
+import { statusKey, weeklyItemsFor } from "@/lib/cxp/weekly";
+import { submissionMonthOf } from "@/lib/cxp/deadlines";
+import { STAGE_BY_KEY, type CxpEpRecord, type CxpFunction, type CxpStageKey } from "@/lib/cxp/types";
 
 /**
  * THE CXP DRIVE LAYER.
@@ -136,7 +135,7 @@ export interface CxpUploadResult {
 
 /** Put one collected document into its EP's stage folder and record it.
  *
- *  Authorization is the CALLER's job (`assertCanEditCxp`) — this function has
+ *  Authorization is the CALLER's job (`resolveTarget` in cxp-actions) — this function has
  *  no viewer and must never be exposed directly to a route. */
 export async function uploadCxpDocument(opts: {
   epName: string;
@@ -185,7 +184,7 @@ export async function uploadCxpDocument(opts: {
   if (!fileId) throw new Error("Drive returned no file id.");
   const fileUrl = res.data.webViewLink ?? `https://drive.google.com/file/d/${fileId}/view`;
 
-  await db()
+  const { error: recordError } = await db()
     .from("cxp_requirement_status")
     .upsert(
       {
@@ -202,6 +201,13 @@ export async function uploadCxpDocument(opts: {
       },
       { onConflict: "ep_opp_id,stage_key,requirement_key" }
     );
+  // the file is in Drive either way — but a lost write would show the
+  // document as missing while it sits in the folder, so say so
+  if (recordError) {
+    throw new Error(
+      `The file reached Drive but Sodio could not record it (${recordError.message}). Try again.`
+    );
+  }
 
   return { fileId, fileUrl, storedName };
 }
@@ -386,7 +392,117 @@ export async function scanCxpDrive(): Promise<DriveIndexResult> {
   return { scanned, matched: rows.length, needsReview, epFoldersSeen };
 }
 
-// ----------------------------------------------------- weekly folder + ZIP
+// --------------------------------------------------------- reading a file
+
+export interface OpenedCxpFile {
+  /** the name the download should carry, extension included */
+  name: string;
+  mimeType: string;
+  /** bytes, when Drive reported them (exports have no size up front) */
+  size: number | null;
+  stream: Readable;
+}
+
+const GOOGLE_NATIVE_EXPORT: Record<string, { mime: string; ext: string }> = {
+  "application/vnd.google-apps.document": { mime: "application/pdf", ext: "pdf" },
+  "application/vnd.google-apps.spreadsheet": { mime: "application/pdf", ext: "pdf" },
+  "application/vnd.google-apps.presentation": { mime: "application/pdf", ext: "pdf" },
+  "application/vnd.google-apps.drawing": { mime: "application/pdf", ext: "pdf" },
+};
+
+/**
+ * Open one stored document for download, THROUGH SODIO.
+ *
+ * WHY NOT JUST LINK TO DRIVE: the file belongs to the IM mailbox, in a folder
+ * that is not shared with every CXP member — so the old "View" link opened a
+ * "You need access" page for most of the people the module is for. Sodio
+ * already decided they may read this function; it fetches the bytes with its
+ * own identity and hands them over.
+ *
+ * Both identities are tried: the service account (Editor on the CXP root, so
+ * it reads what the mailbox wrote), then the mailbox (which can read a file a
+ * member dropped in by hand and shared only with it). A Google Doc is exported
+ * to PDF — `alt=media` refuses native files — and a shortcut is followed to its
+ * target, which is what the weekly folder is made of.
+ *
+ * Authorization is the CALLER's job, exactly like `uploadCxpDocument`.
+ */
+export async function openCxpDriveFile(fileId: string): Promise<OpenedCxpFile> {
+  const clients: drive_v3.Drive[] = [];
+  try {
+    clients.push(serviceDrive());
+  } catch {
+    // no service account configured — the mailbox may still manage
+  }
+  const mailbox = driveAsMailbox();
+  if (mailbox) clients.push(mailbox);
+  if (clients.length === 0) throw new Error("Google Drive is not configured.");
+
+  let lastError: unknown = null;
+  for (const drive of clients) {
+    try {
+      let meta = (
+        await drive.files.get({
+          fileId,
+          fields: "id, name, mimeType, size, shortcutDetails",
+          supportsAllDrives: true,
+        })
+      ).data;
+      if (meta.mimeType === "application/vnd.google-apps.shortcut") {
+        const target = meta.shortcutDetails?.targetId;
+        if (!target) throw new Error("That shortcut points at nothing.");
+        meta = (
+          await drive.files.get({
+            fileId: target,
+            fields: "id, name, mimeType, size",
+            supportsAllDrives: true,
+          })
+        ).data;
+      }
+      const id = meta.id!;
+      const name = meta.name || "document";
+      const native = meta.mimeType ? GOOGLE_NATIVE_EXPORT[meta.mimeType] : undefined;
+      if (native) {
+        const res = await drive.files.export(
+          { fileId: id, mimeType: native.mime },
+          { responseType: "stream" }
+        );
+        return {
+          name: /\.pdf$/i.test(name) ? name : `${name}.${native.ext}`,
+          mimeType: native.mime,
+          size: null,
+          stream: res.data as unknown as Readable,
+        };
+      }
+      if (meta.mimeType?.startsWith("application/vnd.google-apps.")) {
+        throw new Error(`"${name}" is a Google ${meta.mimeType.split(".").pop()} and cannot be downloaded.`);
+      }
+      const res = await drive.files.get(
+        { fileId: id, alt: "media", supportsAllDrives: true },
+        { responseType: "stream" }
+      );
+      return {
+        name,
+        mimeType: meta.mimeType || "application/octet-stream",
+        size: meta.size ? Number(meta.size) : null,
+        stream: res.data as unknown as Readable,
+      };
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Could not read that file from Drive.");
+}
+
+/** Where an upload waits between the browser and Drive (migration 0083).
+ *
+ *  Vercel refuses any request body over 4.5 MB before Sodio ever sees it, so a
+ *  phone photo or a scanned PDF could never reach the old one-step upload. The
+ *  browser now PUTs the file straight into this private bucket, and the server
+ *  moves it on to Drive and deletes it here. */
+export const CXP_STAGING_BUCKET = "cxp-staging";
+
+// ----------------------------------------------------------- weekly folder
 
 export interface WeeklyFolderResult {
   folderId: string;
@@ -395,27 +511,28 @@ export interface WeeklyFolderResult {
   fileCount: number;
 }
 
-/**
- * Build the week's submission folder: one sub-folder per EP, holding SHORTCUTS
- * to the documents already collected.
+/** The documents a function has COLLECTED for one weekly deadline, each with
+ *  the Drive file behind it — what the weekly folder and the ZIP are made of.
  *
- * Shortcuts, not copies, on purpose — the file stays in the EP's own folder, so
- * there is one copy of a passport in Drive rather than one per week.
- *
- * THE DEADLINE IS A REAL INPUT HERE. In the old system it was only ever the
- * folder's NAME: every week's folder held an identical file set because the
- * selection ignored it. `selectWeeklyEps` now filters on it, so week A and
- * week B genuinely differ.
- */
-export async function buildWeeklyFolder(
+ *  THE BUG THIS REPLACES: both used `selectWeeklyEps`, which returns the EPs
+ *  that still OWE something. So an EP whose documents were all in — exactly
+ *  the EP you submit — was left out of its own week's ZIP, and only the
+ *  representative stage of the rest was read. The ZIP came out empty or close
+ *  to it. Now it is the collected half of the same week the board shows:
+ *  current + overdue + always-owed, for the month that deadline belongs to. */
+export async function collectedForWeek(
   fn: CxpFunction,
   deadline: string
-): Promise<WeeklyFolderResult> {
-  const drive = serviceDrive();
-  const folderId = await ensurePath(weeklyFolderPath(fn, deadline));
-
-  const [{ data: records }, statusRows] = await Promise.all([
-    db().from("cxp_ep_records").select("*").eq("function", fn).eq("is_past_month", false),
+): Promise<{
+  files: { epOppId: string; epName: string; stageKey: CxpStageKey; requirementName: string; fileId: string }[];
+  /** collected per the ECB sheet's own tick, with no file in Drive */
+  flaggedOnly: { epName: string; epOppId: string; stageKey: CxpStageKey; requirementName: string }[];
+  /** still owed at this deadline */
+  missing: { epName: string; epOppId: string; stageKey: CxpStageKey; requirementName: string; bucket: string }[];
+}> {
+  const month = submissionMonthOf(deadline);
+  const [{ data: records }, { data: statusRows }] = await Promise.all([
+    db().from("cxp_ep_records").select("*").eq("function", fn).eq("submission_month", month),
     db()
       .from("cxp_requirement_status")
       .select("ep_opp_id, stage_key, requirement_key, uploaded, file_id")
@@ -424,18 +541,65 @@ export async function buildWeeklyFolder(
 
   const statusMap: Record<string, { uploaded: boolean }> = {};
   const fileIds: Record<string, string | null> = {};
-  for (const s of statusRows.data ?? []) {
-    const k = `${s.ep_opp_id}|${s.stage_key}|${s.requirement_key}`;
+  for (const s of statusRows ?? []) {
+    const k = statusKey(s.ep_opp_id, s.stage_key, s.requirement_key);
     statusMap[k] = { uploaded: s.uploaded };
     fileIds[k] = s.file_id;
   }
 
-  const eps = selectWeeklyEps((records ?? []) as CxpEpRecord[], statusMap, fn, deadline);
+  const items = weeklyItemsFor((records ?? []) as CxpEpRecord[], statusMap, fn, deadline, new Date(), {
+    state: "all",
+    includePastMonth: true,
+  });
+  const files = [];
+  const flaggedOnly = [];
+  const missing = [];
+  for (const i of items) {
+    const base = {
+      epOppId: i.epOppId,
+      epName: i.epName,
+      stageKey: i.stageKey,
+      requirementName: i.requirementName,
+    };
+    if (!i.uploaded) {
+      missing.push({ ...base, bucket: i.bucket });
+      continue;
+    }
+    const fileId = fileIds[statusKey(i.epOppId, i.stageKey, i.requirementKey)];
+    if (fileId) files.push({ ...base, fileId });
+    else flaggedOnly.push(base);
+  }
+  return { files, flaggedOnly, missing };
+}
 
-  // the EPs in this week's submission, and for each the documents we DO have
+/**
+ * Build the week's submission folder: one sub-folder per EP, holding SHORTCUTS
+ * to the documents already collected.
+ *
+ * Shortcuts, not copies, on purpose — the file stays in the EP's own folder, so
+ * there is one copy of a passport in Drive rather than one per week.
+ */
+export async function buildWeeklyFolder(
+  fn: CxpFunction,
+  deadline: string
+): Promise<WeeklyFolderResult> {
+  const drive = serviceDrive();
+  const folderId = await ensurePath(weeklyFolderPath(fn, deadline));
+  const { files } = await collectedForWeek(fn, deadline);
+
+  const byEp = new Map<string, typeof files>();
+  for (const f of files) {
+    const arr = byEp.get(f.epOppId) ?? [];
+    arr.push(f);
+    byEp.set(f.epOppId, arr);
+  }
+
   let fileCount = 0;
-  for (const ep of eps) {
-    const epDir = await ensureFolder(epFolderName(ep.epName, ep.epOppId), folderId);
+  for (const epFiles of byEp.values()) {
+    const epDir = await ensureFolder(
+      epFolderName(epFiles[0].epName, epFiles[0].epOppId),
+      folderId
+    );
     const existing = new Set(
       (
         await drive.files.list({
@@ -443,15 +607,16 @@ export async function buildWeeklyFolder(
           fields: "files(name)",
           pageSize: 200,
           supportsAllDrives: true,
+          includeItemsFromAllDrives: true,
         })
       ).data.files?.map((f) => f.name ?? "") ?? []
     );
 
-    for (const req of requirementsForStage(fn, ep.stageKey)) {
-      const key = `${ep.epOppId}|${ep.stageKey}|${req.key}`;
-      const fileId = fileIds[key];
-      if (!statusMap[key]?.uploaded || !fileId) continue;
-      const name = `${req.name}`.replace(/[\\/:*?"<>|]/g, "_");
+    for (const f of epFiles) {
+      const name = `${STAGE_BY_KEY[f.stageKey]} - ${f.requirementName}`.replace(
+        /[\\/:*?"<>|]/g,
+        "_"
+      );
       if (existing.has(name)) {
         fileCount++;
         continue; // idempotent: regenerating must not duplicate shortcuts
@@ -462,7 +627,7 @@ export async function buildWeeklyFolder(
             name,
             mimeType: "application/vnd.google-apps.shortcut",
             parents: [epDir],
-            shortcutDetails: { targetId: fileId },
+            shortcutDetails: { targetId: f.fileId },
           },
           fields: "id",
           supportsAllDrives: true,
@@ -477,111 +642,7 @@ export async function buildWeeklyFolder(
   return {
     folderId,
     folderUrl: `https://drive.google.com/drive/folders/${folderId}`,
-    epCount: eps.length,
+    epCount: byEp.size,
     fileCount,
   };
-}
-
-export interface ZipResult {
-  ok: boolean;
-  fileId?: string;
-  url?: string;
-  includedFileCount: number;
-  bytes?: number;
-  error?: string;
-}
-
-/**
- * Bundle the week's collected documents into one ZIP for handing to ECB.
- *
- * Deliberately best-effort: it downloads every file into memory, which is fine
- * for a normal week (a few dozen photos and PDFs) and will not be fine forever.
- * On any failure the caller falls back to the weekly Drive FOLDER link, which
- * is the primary mechanism and always exists — the ZIP is a convenience.
- */
-export async function generateWeeklyZip(
-  fn: CxpFunction,
-  deadline: string
-): Promise<ZipResult> {
-  try {
-    const { ZipArchive } = await import("archiver");
-    const drive = serviceDrive();
-
-    const [{ data: records }, statusRows] = await Promise.all([
-      db().from("cxp_ep_records").select("*").eq("function", fn).eq("is_past_month", false),
-      db()
-        .from("cxp_requirement_status")
-        .select("ep_opp_id, stage_key, requirement_key, uploaded, file_id")
-        .eq("function", fn),
-    ]);
-
-    const statusMap: Record<string, { uploaded: boolean }> = {};
-    const fileIds: Record<string, string | null> = {};
-    for (const s of statusRows.data ?? []) {
-      const k = `${s.ep_opp_id}|${s.stage_key}|${s.requirement_key}`;
-      statusMap[k] = { uploaded: s.uploaded };
-      fileIds[k] = s.file_id;
-    }
-
-    const eps = selectWeeklyEps((records ?? []) as CxpEpRecord[], statusMap, fn, deadline);
-
-    const archive = new ZipArchive({ zlib: { level: 9 } });
-    const chunks: Buffer[] = [];
-    archive.on("data", (c: Buffer) => chunks.push(c));
-    const done = new Promise<void>((resolve, reject) => {
-      archive.on("end", () => resolve());
-      archive.on("error", reject);
-    });
-
-    let includedFileCount = 0;
-    for (const ep of eps) {
-      const dir = epFolderName(ep.epName, ep.epOppId);
-      for (const req of requirementsForStage(fn, ep.stageKey)) {
-        const key = `${ep.epOppId}|${ep.stageKey}|${req.key}`;
-        const fileId = fileIds[key];
-        if (!statusMap[key]?.uploaded || !fileId) continue;
-        try {
-          const res = await drive.files.get(
-            { fileId, alt: "media", supportsAllDrives: true },
-            { responseType: "arraybuffer" }
-          );
-          archive.append(Buffer.from(res.data as ArrayBuffer), {
-            name: `${dir}/${req.name.replace(/[\\/:*?"<>|]/g, "_")}`,
-          });
-          includedFileCount++;
-        } catch {
-          // skip a file we cannot read rather than failing the bundle
-        }
-      }
-    }
-
-    await archive.finalize();
-    await done;
-    const buffer = Buffer.concat(chunks);
-
-    const folderId = await ensurePath(zipFolderPath(fn, deadline));
-    const uploader = driveAsMailbox() ?? drive;
-    const created = await uploader.files.create({
-      requestBody: { name: zipFileName(fn, deadline), parents: [folderId] },
-      media: { mimeType: "application/zip", body: Readable.from(buffer) },
-      fields: "id, webViewLink",
-      supportsAllDrives: true,
-    });
-
-    return {
-      ok: true,
-      fileId: created.data.id ?? undefined,
-      url:
-        created.data.webViewLink ??
-        `https://drive.google.com/file/d/${created.data.id}/view`,
-      includedFileCount,
-      bytes: buffer.byteLength,
-    };
-  } catch (err) {
-    return {
-      ok: false,
-      includedFileCount: 0,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
 }

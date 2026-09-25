@@ -23,7 +23,17 @@ export default async function CxpEpPage({
   // "not yours" are deliberately the same answer
   if (!found) notFound();
 
-  const { records, statusMap } = found;
+  // ONE ROW PER STAGE. The same EP stage can sit in two monthly tabs (last
+  // month's leftovers and this month's), and listing both printed every
+  // document twice under one key. The newest month is the live one.
+  const { statusMap } = found;
+  const latest = new Map<string, (typeof found.records)[number]>();
+  for (const r of [...found.records].sort((a, b) =>
+    b.submission_month.localeCompare(a.submission_month)
+  )) {
+    if (!latest.has(r.stage_key)) latest.set(r.stage_key, r);
+  }
+  const records = [...latest.values()];
   const rep = records[0];
   const viewer = await getViewer();
   const canEdit = canEditCxpFunction(viewer, rep.function);
@@ -41,7 +51,8 @@ export default async function CxpEpPage({
         requirementName: req.name,
         criteria: req.criteria,
         uploaded,
-        fileUrl: status?.file_url ?? null,
+        hasFile: Boolean(status?.uploaded && status.file_url),
+        fromSheetOnly: uploaded && !status?.file_url,
         dueDate: d.dueDate,
         window:
           d.windowStart && d.windowEnd ? `${d.windowStart} → ${d.windowEnd}` : null,

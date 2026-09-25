@@ -141,9 +141,9 @@ export const NOTIFY_TOPICS: readonly NotifyTopicMeta[] = [
     keywords: ["ir", "call", "booked", "cancelled", "moved", "bounce", "consideration"], channels: BOTH, needs: "consideration",
   },
   {
-    id: "partnerships", group: "consideration", label: "Partnerships & targets",
-    description: "A partnership target set for you or moved along, and a partnership that counts for you.",
-    keywords: ["partnership", "target", "lc", "whatsapp"], channels: ["bell"], needs: "consideration",
+    id: "partnerships", group: "consideration", label: "Partnerships, targets & approvals",
+    description: "A partnership target set for you or moved along, and a partnership or an approval 🏆 that counts for you.",
+    keywords: ["partnership", "target", "lc", "whatsapp", "approval", "mos"], channels: ["bell"], needs: "consideration",
   },
   {
     id: "touch_points", group: "team", label: "Touch points",

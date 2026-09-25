@@ -392,6 +392,8 @@ export interface ConsiderationStats {
     partnerships: number;
     /** CVs they put in the pool — IGT only, 0 on the IGV lane */
     cvs: number;
+    /** 🏆 approvals credited to them — the ICX MOS (v37) */
+    approvals: number;
   }[];
   /** the last 6 months' call volume, oldest first — the trend strip */
   byMonth: { month: string; label: string; calls: number }[];
@@ -408,6 +410,9 @@ export interface ConsiderationStats {
     pending: number;
     byMember: { name: string; total: number; month: number }[];
   };
+  /** 🏆 APPROVALS — the ICX MOS (v37): planned (the VP planning sheet) vs
+   *  achieved, the peak's trend, and the two boards (by person, by MM). */
+  approvals: import("@/lib/icx-approvals").LaneApprovals;
 }
 
 /** The dashboard filter bar, applied to a consideration lane (v33.32). Every
@@ -451,7 +456,8 @@ export async function considerationStats(
   if (!considerationFunctions(viewer).includes(fn)) return null;
   const showCvs = fn === "IGT" && _canSeeCvPool(viewer);
   const monthStart = monthOf().start;
-  const [callRowsAll, cvRowsAll, plans, memberRows, partnershipRowsAll] = await Promise.all([
+  const { laneApprovals, planFnsOfLane } = await import("@/lib/icx-approvals");
+  const [callRowsAll, cvRowsAll, plans, memberRows, partnershipRowsAll, approvalRowsAll, approvalCells] = await Promise.all([
     fetchAll<{
       called_at: string;
       status: string;
@@ -477,7 +483,7 @@ export async function considerationStats(
       .from("mm_plans")
       .select("applicants, accepted, approvals, month, member:members!mm_plans_member_id_fkey(functions, sub_functions)")
       .eq("month", monthStart),
-    db().from("members").select("id, role, stakeholder_id, functions, sub_functions"),
+    db().from("members").select("id, name, role, stakeholder_id, functions, sub_functions"),
     // 🤝 partnerships (v33.38) — small table; pre-0059 grace: fail to empty
     (async () => {
       const { data } = await db()
@@ -490,6 +496,16 @@ export async function considerationStats(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return (data ?? []) as any[];
     })().catch(() => []),
+    // 🏆 approvals (v37) — the lane's own product(s); pre-0083: none
+    (async () => {
+      const { data } = await db()
+        .from("icx_approvals")
+        .select("approved_on, product, made_by, made_by_name, partner_lc_name, source")
+        .eq("function", fn)
+        .limit(5000);
+      return (data ?? []) as import("@/lib/icx-approvals").LaneApprovalRow[];
+    })().catch(() => [] as import("@/lib/icx-approvals").LaneApprovalRow[]),
+    listPlanCells(planFnsOfLane(fn)).catch(() => [] as PlanCell[]),
   ]);
   const now = new Date();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -592,13 +608,13 @@ export async function considerationStats(
     string,
     {
       name: string; total: number; month: number; done: number; upcoming: number;
-      overdue: number; lcs: number; partnerships: number; cvs: number;
+      overdue: number; lcs: number; partnerships: number; cvs: number; approvals: number;
     }
   >();
   const lcsByMember = new Map<string, Set<string>>();
   const blank = (name: string) => ({
     name, total: 0, month: 0, done: 0, upcoming: 0, overdue: 0,
-    lcs: 0, partnerships: 0, cvs: 0,
+    lcs: 0, partnerships: 0, cvs: 0, approvals: 0,
   });
   for (const c of live) {
     const key = c.member_name || "—";
@@ -621,7 +637,10 @@ export async function considerationStats(
   // CVs are the IGT hunt: `cvRows` is already lane-scoped (empty on IGV)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const cv of cvRows as any[]) {
-    const key = cv.uploaded_by || "";
+    // THE NAME, not the id (v37): every other column keys this board by the
+    // person's name, and keying CVs by `uploaded_by` put each uploader on the
+    // board a second time — as a row titled with their raw UUID
+    const key = (cv.uploaded_by && byMember.get(cv.uploaded_by)?.name) || "";
     if (!key) continue;
     const row = perMember.get(key) ?? blank(key);
     row.cvs += 1;
@@ -680,6 +699,46 @@ export async function considerationStats(
     board.partnerships += 1;
     perMember.set(key, board);
   }
+  // 🏆 APPROVALS (v37). The filter bar's member/team pick narrows them like
+  // everything else — by the person CREDITED, and a team is its Team Leader
+  // plus everyone reporting to them (the credit rule). The date windows are
+  // applied inside `laneApprovals`, each to its own question.
+  const approvalRows = approvalRowsAll.filter(
+    (r) =>
+      (!filters.member || r.made_by === filters.member) &&
+      (!filters.team || tlIdOf(r.made_by) === filters.team)
+  );
+  const inApprovalWindow = (d: string) =>
+    (!filters.from || d >= filters.from) && (!filters.to || d <= filters.to);
+  for (const r of approvalRows) {
+    if (!inApprovalWindow(r.approved_on)) continue;
+    const key = (r.made_by && byMember.get(r.made_by)?.name) || r.made_by_name || "—";
+    const board = perMember.get(key) ?? blank(key);
+    board.approvals += 1;
+    perMember.set(key, board);
+  }
+  const { sprintOf, peakOf, monthOf: planMonthOf } = await import("@/lib/plan");
+  const sprintNow = sprintOf(now);
+  const monthNow = planMonthOf(now);
+  const peakNow = peakOf(now);
+  const approvals = laneApprovals({
+    rows: approvalRows,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    members: ((memberRows.data ?? []) as any[]).map((m) => ({
+      id: m.id as string,
+      name: (m.name as string) ?? "—",
+      role: m.role as string,
+      managerId: (m.stakeholder_id as string | null) ?? null,
+    })),
+    cells: approvalCells,
+    month: monthNow,
+    sprint: sprintNow,
+    peak: peakNow,
+    window: { from: filters.from, to: filters.to },
+    // the bar decides (v33.56): "This sprint" on → the sprint, else the month
+    sprintMode: filters.from === sprintNow.start && filters.to === sprintNow.end,
+    today: cairoDayIso(now),
+  });
   const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const byMonth = monthKeys.map((key) => ({
     month: key,
@@ -714,11 +773,14 @@ export async function considerationStats(
         : null,
     newLcsThisMonth,
     irOverdue: live.filter(isOverdue).length,
+    // RANKED BY THE MOS (v37): approvals first — the thing the floor exists
+    // to produce — then the work that leads to them
     byMember: [...perMember.values()].sort(
       (a, b) =>
-        b.done - a.done || b.total - a.total || b.partnerships - a.partnerships ||
-        b.lcs - a.lcs || b.cvs - a.cvs
+        b.approvals - a.approvals || b.done - a.done || b.total - a.total ||
+        b.partnerships - a.partnerships || b.lcs - a.lcs || b.cvs - a.cvs
     ),
+    approvals,
     byMonth,
     filtered,
     partnerships: {
@@ -3629,6 +3691,20 @@ export interface MmPlanRow {
   accepted: number;
   approvals: number;
   peak: string;
+  /** 🏆 approvals actually credited that month (own + team for a Team
+   *  Leader) — consideration MMs only; null for OGX MMs, whose approvals live
+   *  on the sign-ups (v37) */
+  approvals_actual: number | null;
+}
+
+/** Is this an ICX consideration MM — the plans whose approvals are
+ *  `icx_approvals` rows (v37)? An OGX MM's approvals are sign-ups instead. */
+function isConsiderationPlanner(
+  m: { functions?: string[] | null; sub_functions?: string[] | null } | null | undefined
+): boolean {
+  if (!m) return false;
+  const all = [...(m.functions ?? []), ...(m.sub_functions ?? [])];
+  return all.includes("Consideration") && !all.includes("OGV") && !all.includes("OGT");
 }
 
 /** MM monthly plans for a set of members (or all when ids omitted). */
@@ -3670,8 +3746,17 @@ export async function listMmPlans(
   // board is right the moment the sheet changes, with no cleanup to remember.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data = ((scoped ?? []) as any[]).filter((r) => stillPlans(r.member, "mm"));
+  // 🏆 what each consideration MM actually got (v37)
+  const { approvalMosByMonth } = await import("./icx-approvals");
+  const actuals = await approvalMosByMonth([
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ...new Set(((data ?? []) as any[]).filter((r) => isConsiderationPlanner(r.member)).map((r) => r.member_id as string)),
+  ]).catch(() => new Map<string, Map<string, number>>());
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ((data ?? []) as any[]).map((r) => ({
+    approvals_actual: isConsiderationPlanner(r.member)
+      ? (actuals.get(r.member_id)?.get(String(r.month).slice(0, 7)) ?? 0)
+      : null,
     member_id: r.member_id,
     member_name: r.member?.name || "?",
     member_role: r.member?.role ?? "",
@@ -4085,7 +4170,15 @@ export async function tlPlanForProfile(viewer: Viewer): Promise<TlPlanData | nul
 
 export interface MmPlanData {
   peakLabel: string;
-  months: { month: string; applicants: number; accepted: number; approvals: number }[];
+  months: {
+    month: string;
+    applicants: number;
+    accepted: number;
+    approvals: number;
+    /** 🏆 approvals actually credited that month (v37) — consideration MMs
+     *  only: their own, plus their team's when they lead one */
+    approvalsActual: number | null;
+  }[];
 }
 
 /** The profile "My plan" card data for an OGX / Consideration MM (v22.2 —
@@ -4102,6 +4195,12 @@ export async function mmPlanForProfile(viewer: Viewer): Promise<MmPlanData | nul
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ((data ?? []) as any[]).map((r) => [`${String(r.month).slice(0, 7)}-01`, r])
   );
+  const consideration = isConsiderationPlanner(viewer);
+  const actual = consideration
+    ? ((await (await import("./icx-approvals"))
+        .approvalMosByMonth([viewer.id])
+        .catch(() => new Map<string, Map<string, number>>())).get(viewer.id) ?? new Map<string, number>())
+    : null;
   return {
     peakLabel: peak.label,
     months: peak.months.map((m) => {
@@ -4111,6 +4210,7 @@ export async function mmPlanForProfile(viewer: Viewer): Promise<MmPlanData | nul
         applicants: r?.applicants ?? 0,
         accepted: r?.accepted ?? 0,
         approvals: r?.approvals ?? 0,
+        approvalsActual: actual ? (actual.get(m.slice(0, 7)) ?? 0) : null,
       };
     }),
   };
@@ -4802,18 +4902,36 @@ export async function buildFunctionReport(
       member_id: string | null; status: string | null;
       called_at: string; partner_lc_id: string | null;
     }[];
+    // `partnership_date` is the column (0059). This asked for a `made_on` that
+    // never existed, PostgREST refused, `data` came back null — and every
+    // report since v36 said 0 partnerships (fixed v37)
     const { data: partRows } = await db()
       .from("lc_partnerships")
-      .select("made_by, made_on")
+      .select("made_by, partnership_date, status")
+      .eq("status", "done")
       .in("made_by", sectionIds);
-    const parts = (partRows ?? []) as { made_by: string | null; made_on: string | null }[];
+    const parts = ((partRows ?? []) as { made_by: string | null; partnership_date: string | null }[]).map(
+      (p) => ({ made_by: p.made_by, made_on: p.partnership_date })
+    );
+    // 🏆 APPROVALS (v37) — the ICX MOS, credited to one person each. The
+    // section counts the WHOLE function's approvals in the window (credit can
+    // land on a raiser or a VP too), and the per-person column counts each
+    // row's own.
+    const { data: apprRows } = await db()
+      .from("icx_approvals")
+      .select("made_by, approved_on")
+      .eq("function", fnKey)
+      .gte("approved_on", window.start)
+      .lte("approved_on", window.end);
+    const approvalsInWindow = (apprRows ?? []) as { made_by: string | null; approved_on: string }[];
 
     const inWin = (iso: string | null | undefined) =>
       !!iso && iso >= window.start && iso <= `${window.end}T23:59:59`;
 
-    const per = new Map<string, { done: number; upcoming: number; lcs: Set<string>; partnerships: number }>();
+    const per = new Map<string, { done: number; upcoming: number; lcs: Set<string>; partnerships: number; approvals: number }>();
     const bump = (id: string) =>
-      per.get(id) ?? per.set(id, { done: 0, upcoming: 0, lcs: new Set(), partnerships: 0 }).get(id)!;
+      per.get(id) ??
+      per.set(id, { done: 0, upcoming: 0, lcs: new Set(), partnerships: 0, approvals: 0 }).get(id)!;
     const nowIso = new Date().toISOString();
     for (const c of calls) {
       if (!c.member_id || !inWin(c.called_at)) continue;
@@ -4826,34 +4944,61 @@ export async function buildFunctionReport(
       if (!pr.made_by || !inWin(pr.made_on)) continue;
       bump(pr.made_by).partnerships++;
     }
+    for (const a of approvalsInWindow) {
+      if (a.made_by && sectionIds.includes(a.made_by)) bump(a.made_by).approvals++;
+    }
 
     const rowsC = sectionIds
       .map((id) => {
         const b = per.get(id);
         return [
           nameOf.get(id) ?? "—",
+          b?.approvals ?? 0,
           b?.done ?? 0,
           b?.upcoming ?? 0,
           b?.lcs.size ?? 0,
           b?.partnerships ?? 0,
         ] as (string | number)[];
       })
-      // busiest first; somebody with nothing this period still appears, because
-      // a person missing from a report reads as a person nobody is watching
-      .sort((a, b) => (b[1] as number) - (a[1] as number));
+      // the MOS first, then the busiest; somebody with nothing this period
+      // still appears, because a person missing from a report reads as a
+      // person nobody is watching
+      .sort(
+        (a, b) =>
+          (b[1] as number) - (a[1] as number) || (b[2] as number) - (a[2] as number)
+      );
 
     const sum = (i: number) => rowsC.reduce((t, r) => t + (r[i] as number), 0);
     const allLcs = new Set<string>();
     for (const b of per.values()) for (const lc of b.lcs) allLcs.add(lc);
 
+    // the approvals plan for this window — the same cells the opens check
+    // reads, the approvals row (IGT = IGTa + IGTe)
+    const planFnsA = fnKey === "IGT" ? ["IGTa", "IGTe"] : [fnKey];
+    const cellsA = await listPlanCells(planFnsA).catch(() => [] as PlanCell[]);
+    const plannedA = Math.ceil(
+      (kind === "sprint"
+        ? cellsA.filter((c) => c.scope === "sprint" && c.metric === "approvals" && c.period_start === window.start)
+        : cellsA.filter((c) => c.scope === "month" && c.metric === "approvals" && windowMonthKeys.includes(c.period_start))
+      ).reduce((t, c) => t + c.value, 0)
+    );
+    const gotA = approvalsInWindow.length;
+
     consideration = {
       kpis: [
-        ["Calls done", String(sum(1))],
-        ["Still upcoming", String(sum(2))],
+        [
+          "🏆 Approvals",
+          String(gotA),
+          plannedA > 0
+            ? `${Math.round((gotA / plannedA) * 100)}% of ~${plannedA} planned`
+            : undefined,
+        ],
+        ["Calls done", String(sum(2))],
+        ["Still upcoming", String(sum(3))],
         ["LCs reached", String(allLcs.size)],
-        ["🤝 Partnerships", String(sum(4))],
+        ["🤝 Partnerships", String(sum(5))],
       ],
-      headers: ["Person", "Calls done", "Upcoming", "LCs reached", "🤝"],
+      headers: ["Person", "🏆 Approvals", "Calls done", "Upcoming", "LCs reached", "🤝"],
       rows: rowsC,
       bothCount: bothIds.length,
       onlyCount: considerationIds.length,

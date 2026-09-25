@@ -14,7 +14,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-09-19 · Version: v36.9
+Last updated: 2026-09-26 · Version: v37
 
 ---
 
@@ -64,7 +64,7 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0061_touch_point_location` → `0062_close_rls_gaps` → `0063_prank_mode` →
 `0064_api_keys` → `0065_ir_slot_requests` → `0066_im_prompts` →
 `0067_member_settings` → `0068_cxp_module` → `0069_push_subscriptions` → `0070_b2c_cic_outcomes` →
-`0071_partnership_stage` → … → `0076_next_step_reminders` → `0077_visit_followups_gate` → `0078_contact_keys` → `0079_cv_drive_import` → `0080_redirect_links_and_locations` → `0081_activation_bid_and_tour_seen` → `0082_bd_b2b_planning`
+`0071_partnership_stage` → … → `0076_next_step_reminders` → `0077_visit_followups_gate` → `0078_contact_keys` → `0079_cv_drive_import` → `0080_redirect_links_and_locations` → `0081_activation_bid_and_tour_seen` → `0082_bd_b2b_planning` → `0083_cxp_staging_and_icx_approvals`
 (**all applied**, 0046–0063 during v33.22–v33.51, 0064–0067 during v34.5–v34.8,
 0069 during v35).
 
@@ -635,6 +635,10 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | Who sees the bid tab | `canSeeActivationBid` in `rbac.ts` (MMs and above) — read by the layout, the nav, the page and `editor()` in the actions |
 | Bid sheet bulk editing (ranges, fill, row delete) | `sheet-grid.tsx` (`commitMany` → `onSetMany` → `pasteActivationCells`) · `deleteActivationRows` in `activation-actions.ts` |
 | The bid page's poster | `public/brand/activate26-poster(-sm).webp` · `.circus-poster` / `.circus-finale-poster` in `circus.css` |
+| ICX approvals (credit rule, plan vs achieved, SubTool matching) | `src/lib/icx-approvals.ts` (pure, tested) · reads `src/server/icx-approvals.ts` · writes `src/server/icx-approval-actions.ts` · the tab `icx-approvals-tab.tsx` · the board `icx-approvals-board.tsx` (dashboard lane AND the tab) · `approvals` in `considerationStats` · the report's consideration section in `buildFunctionReport` |
+| CXP uploads (two-step, via the `cxp-staging` bucket) | `requestCxpUpload`/`confirmCxpUpload` in `src/server/cxp-actions.ts` · `putWithProgress` in `cxp-ep-view.tsx` |
+| CXP downloads (one document / an EP / a week, streamed) | `openCxpDriveFile` + `collectedForWeek` in `cxp-drive.ts` · `src/server/cxp-download.ts` · routes `src/app/api/cxp/file` and `src/app/api/cxp/zip` |
+| Rows-per-page pickers | `src/lib/page-size.ts` (`DEFAULT_PAGE_SIZE` — never a literal; pinned by `tests/page-size.test.ts`) |
 
 ---
 
@@ -705,6 +709,82 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-09-26 · v37** — **CXP UPLOADS ARRIVE, CXP DOWNLOADS EXIST, AND ICX
+  APPROVALS ARE COUNTED.** Migration **0083 applied** (the private
+  `cxp-staging` bucket, 25 MB cap; the `icx_approvals` table).
+  ① **CXP: "IT DOESN'T UPLOAD."** The file rode inside the server action's
+  own request, and Vercel refuses any request body over **4.5 MB** before the
+  app sees it — while the page promised 25 MB. Phone photos and scanned PDFs
+  (most real documents) died with no message; in a month **three** documents
+  were ever attached, all small PDFs. Now: the browser PUTs to a signed URL in
+  `cxp-staging` (the contracts/CVs pattern) with a progress bar, then
+  `confirmCxpUpload` moves it into the EP's Drive folder and deletes the
+  staged copy (abandoned ones older than a day are swept). Every failure is a
+  toast — the old path threw inside a transition and just stopped. Verified
+  live: a 6 MB file through the signed URL, read back, removed. The DB write
+  after the Drive upload is now checked (a lost write showed a document as
+  missing while it sat in the folder). Uploads are refused in a sandbox test
+  view (a Drive file can't be undone). `clearCxpRequirement` existed with no
+  button — rows now have 🗑 "mark as not collected" (the file stays in Drive).
+  ② **CXP: "NO BUTTON TO DOWNLOAD LIKE THE OLD SYSTEM."** Three faults: the
+  weekly **Download ZIP** was leaders-only and hidden on past weeks; it
+  `window.open`ed a Drive link after an `await` (popup-blocked); and it was
+  built from `selectWeeklyEps` — the EPs that still OWE something — reading
+  one stage each, so an EP with everything in was never in its own week's ZIP
+  and the ZIP came out empty (Drive's "Generated ZIPs" folder had nothing in
+  it, ever). Now a streamed route (`/api/cxp/zip`, exempt from the 4.5 MB cap
+  because it streams) builds the ZIP on the fly from `collectedForWeek` —
+  the COLLECTED half of the board's own definition (current + overdue +
+  always-owed, for the deadline's own month) — stored not deflated, a
+  `_README.txt` listing what's in, what's ticked-only and what's missing, and
+  a `_SKIPPED` note instead of a failed download when one Drive file is dead.
+  **Anyone who reads the function downloads** (the old system's reach),
+  past weeks included; the Drive folder of shortcuts stays leaders-only and
+  its selection got the same fix. Each document has **View / Download**
+  through `/api/cxp/file` — the old "View" pointed at a mailbox-owned Drive
+  file most members had no access to — and an EP page has **Download all**.
+  Downloads and ZIPs are audit-logged (passports are PII).
+  ③ **CXP, ALSO:** 25 EP stages sit in two monthly tabs, so their EP pages
+  listed every document twice under one React key — the page keeps the
+  newest month per stage. Phones get cards instead of a four-column table.
+  ⚠️ **NOT FIXED — A QUESTION FOR THE LC:** `CXP_DRIVE_FOLDER_ID` points at a
+  root holding ONE EP folder (4 files, all from Sept 20). The old system's
+  trees ("AIESEC in Alexandria Internal Audit System", "EPs Folder (DOCs)")
+  are not visible to the IM mailbox at all, so the Drive scan has never
+  matched a manually dropped document (0 rows). Share the old root with the
+  mailbox (or point the env at it) and the scan picks it up.
+  ④ **ICX APPROVALS — THE ICX MOS.** The planning sheet has planned approvals
+  per product since v21 and consideration MMs file an approvals plan every
+  month; nothing counted one. **Consideration → Approvals** logs them: product
+  (GV/GTa/GTe), EP + EXPA id, date, sending LC, how it came (IR call / CV /
+  EXPA / referral, linked), our opportunity (account), EP contact, notes. The
+  ECB SubTool (already synced for CXP) **suggests** the ICX approvals nobody
+  has logged (last 150 days), prefilled; the claim says WHO. **Credit rule
+  (the LC's):** one person; a member's approvals also count for their Team
+  Leader, whose own count too — two boards, by person and by MM. Crediting
+  someone else follows the partnership-target reach. `expa_key` (unique) +
+  a bare-EP-id match stop double counting. Shown on the dashboard lane
+  (planned vs achieved — month, or sprint on the chip — and the peak, a
+  monthly strip, both boards, sources, sending LCs; the consideration
+  leaderboard now ranks by approvals), consideration MMs' profile plan,
+  /planning (achieved / planned on the approvals row + three cards, and on
+  each MM's plan), and the period reports' consideration section (KPI with
+  the plan %, per-person column).
+  ⑤ **TWO LATENT BUGS FOUND ON THE WAY:** the consideration leaderboard keyed
+  CV counts by member ID while everything else keyed by name, so every CV
+  uploader got a second row titled with their UUID; and the period report
+  asked `lc_partnerships` for a `made_on` column that never existed, so every
+  report since v36 said **0 partnerships**. Both fixed.
+  ⑥ **"I PICK 100 A PAGE ON CIC AND IT STAYS ON 20."** The sign-ups picker
+  dropped `?size` whenever 100 was chosen, because 100 USED to be the
+  default — v33.10 made it 20 and the literal was never updated. It compares
+  against `DEFAULT_PAGE_SIZE` now, and `tests/page-size.test.ts` fails on
+  any table deciding a size param from a literal.
+  Help centre: 2 new articles (🏆 Approvals, 🗂️ CXP documents — CXP's first);
+  HELP_VERSION → v37. **896 tests** (18 new), tsc clean, lint identical to baseline,
+  production build green. ⚠️ Not clicked through in a browser — every page
+  involved needs a signed-in session.
 
 - **2026-09-19 · v36.9** — **VP/DIRECTOR PLANNING: A NEW SHEET, A REAL WINTER
   REFRESH, AND BD/B2B GET A GOAL TOO.** Migration **0082 applied**

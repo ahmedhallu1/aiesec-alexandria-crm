@@ -56,6 +56,8 @@ const BACKUP_TABLES = [
   "partner_lc_contacts",
   "partner_lc_comments",
   "lc_partnerships",
+  // the ICX MOS (v37) — logged by hand, nowhere else
+  "icx_approvals",
   "ir_calls",
   "cvs",
   "ir_booking_settings",

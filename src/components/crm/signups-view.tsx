@@ -33,6 +33,7 @@ import {
   ColumnFilter, PageSizePicker, resizableCellStyle, ResizableHead, TableSettings, useTableColumns, type TableColumn,
 } from "./data-table-kit";
 import { Hint } from "./hint";
+import { DEFAULT_PAGE_SIZE } from "@/lib/page-size";
 import { StreakCard } from "./streak-card";
 import { WhatsAppIcon } from "./icons";
 import { Badge } from "@/components/ui/badge";
@@ -2396,7 +2397,11 @@ export function SignupsView({
             value={pageSize}
             options={pageSizeOptions}
             label="Sign-ups per page"
-            onChange={(n) => setParams({ size: n === 100 ? null : String(n) })}
+            // THE URL ALWAYS SAYS THE SIZE. This used to drop `?size` when 100
+            // was picked, on the belief that 100 was the default — it stopped
+            // being the default in v33.10 (it is 20), so picking 100 quietly
+            // snapped the CIC queue and every other view back to 20 a page.
+            onChange={(n) => setParams({ size: n === DEFAULT_PAGE_SIZE ? null : String(n) })}
           />
           {pages > 1 ? (
             <>

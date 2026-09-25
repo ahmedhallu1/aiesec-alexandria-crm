@@ -3,7 +3,6 @@ import { db } from "@/lib/supabase";
 import { getViewer } from "./data";
 import {
   canRunCxpOps,
-  canViewCxpFunction,
   cxpDefaultFunction,
   cxpDefaultSide,
   cxpFunctions,
@@ -18,6 +17,7 @@ import {
   upcomingWeeklyDeadlines,
 } from "@/lib/cxp/deadlines";
 import { requirementsForStage } from "@/lib/cxp/requirements";
+import { collectedForWeek } from "./cxp-drive";
 import { selectWeeklyEps, summarize, type WeeklyEp, type WeeklySummary } from "@/lib/cxp/weekly";
 import {
   CXP_FUNCTIONS,
@@ -249,6 +249,9 @@ export interface WeeklyBoardData {
   isPast: boolean;
   summaries: WeeklySummary[];
   eps: Record<string, WeeklyEp[]>;
+  /** how many collected documents WITH A FILE each function's ZIP holds for
+   *  this deadline — so the download button can say so before it is pressed */
+  zipFiles: Record<string, number>;
 }
 
 /** THE WEEK SELECTOR'S DATA — the thing the old app never wired up.
@@ -281,7 +284,18 @@ export async function weeklyBoard(opts: {
   const selected = deadlines.some((d) => d.date === requested) ? requested : fallback;
   const isPast = selected < today;
 
-  if (isPast) return await pastWeek(target, selected, deadlines, selected);
+  const zipFiles: Record<string, number> = {};
+  await Promise.all(
+    target.map(async (fn) => {
+      try {
+        zipFiles[fn] = (await collectedForWeek(fn, selected)).files.length;
+      } catch {
+        zipFiles[fn] = 0;
+      }
+    })
+  );
+
+  if (isPast) return { ...(await pastWeek(target, selected, deadlines, selected)), zipFiles };
 
   const [{ data }, statusMap] = await Promise.all([
     db().from("cxp_ep_records").select("*").in("function", target).eq("is_past_month", false),
@@ -295,7 +309,7 @@ export async function weeklyBoard(opts: {
     summaries.push(summarize(records, statusMap, fn, selected));
     eps[fn] = selectWeeklyEps(records, statusMap, fn, selected);
   }
-  return { deadlines, selected, isPast: false, summaries, eps };
+  return { deadlines, selected, isPast: false, summaries, eps, zipFiles };
 }
 
 /** A week that has already happened, read from the stored snapshot. */
@@ -304,7 +318,7 @@ async function pastWeek(
   deadline: string,
   deadlines: CxpWeeklyDeadline[],
   selected: string
-): Promise<WeeklyBoardData> {
+): Promise<Omit<WeeklyBoardData, "zipFiles">> {
   const { data } = await db()
     .from("cxp_weekly_missing")
     .select("*")
@@ -358,14 +372,4 @@ async function pastWeek(
     });
   }
   return { deadlines, selected, isPast: true, summaries, eps };
-}
-
-/** Per-row authorization for anything that mutates. Throws rather than
- *  returning false: a caller that forgets to check gets an error, not a
- *  silent write. */
-export async function assertCanEditCxp(fn: CxpFunction): Promise<void> {
-  const viewer = await getViewer();
-  if (!canViewCxpFunction(viewer, fn)) {
-    throw new Error(`Not authorized for ${fn} submissions.`);
-  }
 }
