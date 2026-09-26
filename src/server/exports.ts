@@ -3,6 +3,7 @@ import { db } from "@/lib/supabase";
 import {
   canManageMembership,
   canSeeCvPool,
+  canUseAdminTools,
   canViewArchive,
   considerationFunctions,
   hasConsiderationAccess,
@@ -377,6 +378,41 @@ export const EXPORTS: ExportDef[] = [
               fmtDateTime(r.startsAt), r.label, r.kind, r.memberName, list(r.memberFunctions),
               r.status, yes(r.excused), r.excuse, r.ownerName, yes(r.automatic),
             ]),
+          },
+        ],
+      };
+    },
+  },
+
+  // ------------------------------------------------------------ admin
+  {
+    id: "im_prompts",
+    label: "Messages to the LC — answers",
+    description: "Every “Say something to the LC” prompt, and each person's answer.",
+    available: canUseAdminTools,
+    async build() {
+      const { loadImPromptResults } = await import("./im-prompt-results");
+      const r = await loadImPromptResults();
+      const rows = r.ok ? r.data : [];
+      return {
+        fileName: `Sodio LC messages ${stamp()}`,
+        sheets: [
+          {
+            name: "Prompts",
+            columns: ["Sent", "Title", "Kind", "Sent to", "Answered", "Skipped", "Waiting", "Average rating", "Closed"],
+            rows: rows.map((p): ExportCell[] => [
+              fmtDateTime(p.createdAt), p.title, p.responseKind, p.sent, p.answered, p.skipped,
+              p.waiting, p.avgRating, yes(!p.active),
+            ]),
+          },
+          {
+            name: "Answers",
+            columns: ["Prompt", "Person", "Role", "Rating", "Answer", "Acknowledged", "Skipped", "When"],
+            rows: rows.flatMap((p) =>
+              p.responses.map((x): ExportCell[] => [
+                p.title, x.name, x.role, x.rating, x.text, yes(x.acknowledged), yes(x.skipped), fmtDateTime(x.at),
+              ])
+            ),
           },
         ],
       };

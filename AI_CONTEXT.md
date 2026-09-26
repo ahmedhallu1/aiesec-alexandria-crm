@@ -14,7 +14,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-09-26 · Version: v37.2
+Last updated: 2026-09-26 · Version: v37.3
 
 ---
 
@@ -717,6 +717,16 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-09-26 · v37.3** — **THE ANSWERS TO "SAY SOMETHING TO THE LC" ARE
+  VISIBLE.** Since v34.7 every rating, sentence, acknowledgement and skip was
+  stored in `im_prompt_responses` and nothing ever read it. /admin now shows
+  "What the LC answered" under the composer (`im-prompt-results.tsx`,
+  `server/im-prompt-results.ts`, read as the REAL viewer, admin tools only):
+  per prompt — sent / answered / skipped / still waiting, the rating average
+  and spread, every answer with name and time, who hasn't answered, and
+  "Close it" (takes it off the screens still waiting; answers stay). Export:
+  `im_prompts` (Prompts + Answers sheets). No migration.
 
 - **2026-09-26 · v37.2** — **SETTINGS IN SECTIONS, EXPORT EVERYWHERE,
   MEMBERSHIP IN SODIO, AND A REAL NEW-TERM / NEW-PEAK FLOW.** No migration

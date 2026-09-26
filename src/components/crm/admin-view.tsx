@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApiKeysCard } from "./api-keys-card";
 import { ImPromptCard } from "./im-prompt-card";
+import { ImPromptResults } from "./im-prompt-results";
 import type { ApiKeyRow } from "@/server/api-keys";
 import { Switch } from "@/components/ui/switch";
 
@@ -101,6 +102,8 @@ export function AdminView({
       <TestModeCard testMode={testMode} />
 
       <ImPromptCard />
+      {/* the answers (v37.3) — they were stored and never shown */}
+      <ImPromptResults />
 
       <ApiKeysCard keys={apiKeys} origin={origin} />
 
