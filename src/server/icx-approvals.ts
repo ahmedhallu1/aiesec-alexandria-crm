@@ -10,6 +10,7 @@ import {
   planFnsOfLane,
   productFromRaw,
   type ApprovalFunction,
+  type ApprovalPlanSource,
   type ApprovalProduct,
   type ApprovalSource,
   type LaneApprovalRow,
@@ -358,7 +359,7 @@ export async function approvalBoards(
         (r) => r.function === fn
       ),
       members: creditMembers,
-      cells: cells.filter((c) => planFns.includes(c.fn)),
+      plan: await approvalPlanSourceFor(viewer, cells.filter((c) => planFns.includes(c.fn))),
       month,
       sprint,
       peak,
@@ -436,4 +437,30 @@ export async function approvalMosByMonth(
     out.set(id, perMonth);
   }
   return out;
+}
+
+/** Is this viewer held to the FUNCTION's planning sheet? The exact gate the
+ *  raising lane plan uses (`viewerIsPlanLeader` in getDashboard). */
+export function isApprovalPlanLeader(v: Viewer): boolean {
+  return v.isAdmin || ["LCP", "LCVP", "Director"].includes(v.role);
+}
+
+/** WHICH PLAN THIS VIEWER SEES (v37.1): leaders the sheet, an MM the plan
+ *  they filed on their profile, a Member none — see `ApprovalPlanSource`. */
+export async function approvalPlanSourceFor(
+  viewer: Viewer,
+  cells: import("@/lib/icx-approvals").PlanCellLike[]
+): Promise<ApprovalPlanSource> {
+  if (isApprovalPlanLeader(viewer)) return { kind: "sheet", cells };
+  if (viewer.role !== "Team Leader" && viewer.role !== "Coordinator") return { kind: "none" };
+  const { data } = await db()
+    .from("mm_plans")
+    .select("month, approvals")
+    .eq("member_id", viewer.id);
+  const monthly: Record<string, number> = {};
+  for (const r of data ?? []) {
+    if (r.approvals == null) continue;
+    monthly[`${String(r.month).slice(0, 7)}-01`] = Number(r.approvals) || 0;
+  }
+  return { kind: "mine", memberId: viewer.id, monthly };
 }

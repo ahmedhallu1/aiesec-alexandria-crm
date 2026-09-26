@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import Link from "next/link";
 import { Check, ChevronDown, ChevronRight, Dices, Settings2, Eye, FlipHorizontal2, KeyRound, Loader2, Lock, Mail, MessageSquareHeart, Phone, SlidersHorizontal, Sparkles, Target, Upload, Users, UsersRound } from "lucide-react";
 import {
-  changePassword, saveFunctionSettings, startViewAs, stopViewAs, updateAvatar,
+  changePassword, saveFunctionSettings, setTeamMemberActive, startViewAs, stopViewAs, updateAvatar,
   updateProfile,
 } from "@/server/actions";
 import {
@@ -500,11 +500,17 @@ export function ProfileView({
               return (
                 <div
                   key={p.id}
-                  className="flex items-center gap-3 rounded-lg border p-2.5"
+                  className={cn(
+                    "flex flex-wrap items-center gap-3 rounded-lg border p-2.5",
+                    p.is_active === false && "border-dashed bg-muted/40 opacity-75"
+                  )}
                 >
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold">
                       {p.name}
+                      {p.is_active === false ? (
+                        <Badge variant="outline" className="ml-1.5 text-[10px]">Inactive</Badge>
+                      ) : null}
                       <span className="ml-1.5 text-xs font-normal text-muted-foreground">
                         {p.role}
                         {p.functions.length ? ` · ${p.functions.join(", ")}` : ""}
@@ -542,6 +548,7 @@ export function ProfileView({
                         </Hint>
                       </>
                     ) : null}
+                    {p.canToggleActive ? <ActiveToggle person={p} /> : null}
                   </span>
                 </div>
               );
@@ -1305,5 +1312,48 @@ function AvatarDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** A Team Leader marks a member of THEIR team active / inactive (v37.1). Two
+ *  taps for "inactive" — it stops the person signing in — one to bring back. */
+function ActiveToggle({ person }: { person: { id: string; name: string; is_active?: boolean } }) {
+  const [confirm, setConfirm] = useState(false);
+  const [pending, start] = useTransition();
+  const active = person.is_active !== false;
+  const run = (next: boolean) =>
+    start(async () => {
+      try {
+        const r = await setTeamMemberActive(person.id, next);
+        if (r.ok) {
+          toast.success(next ? `${person.name} is active again.` : `${person.name} is marked inactive.`);
+          setConfirm(false);
+        } else toast.error(r.error);
+      } catch {
+        toast.error("Could not save — try again.");
+      }
+    });
+  if (!active) {
+    return (
+      <Button size="sm" variant="outline" className="h-7 text-xs" disabled={pending} onClick={() => run(true)}>
+        {pending ? "…" : "Make active"}
+      </Button>
+    );
+  }
+  return confirm ? (
+    <span className="flex items-center gap-1 text-xs">
+      <Button size="sm" variant="destructive" className="h-7 text-xs" disabled={pending} onClick={() => run(false)}>
+        {pending ? "…" : "Yes, inactive"}
+      </Button>
+      <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setConfirm(false)}>
+        No
+      </Button>
+    </span>
+  ) : (
+    <Hint label="They left the team? Marks them inactive — they can't sign in, and their unreported calls and visits stop being flagged">
+      <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" onClick={() => setConfirm(true)}>
+        Mark inactive
+      </Button>
+    </Hint>
   );
 }

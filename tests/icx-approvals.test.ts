@@ -141,15 +141,15 @@ describe("planned vs achieved", () => {
   ];
 
   it("follows the filter bar: the month, or the sprint while it is pressed", () => {
-    const m = laneApprovals({ rows, members, cells, month, sprint, peak, sprintMode: false, today: "2026-09-26" });
+    const m = laneApprovals({ rows, members, plan: { kind: "sheet", cells }, month, sprint, peak, sprintMode: false, today: "2026-09-26" });
     expect(m.plan).toMatchObject({ mode: "month", planned: 4, achieved: 3 });
     expect(m.lastMonth).toBe(1);
-    const s = laneApprovals({ rows, members, cells, month, sprint, peak, sprintMode: true, today: "2026-09-26" });
+    const s = laneApprovals({ rows, members, plan: { kind: "sheet", cells }, month, sprint, peak, sprintMode: true, today: "2026-09-26" });
     expect(s.plan).toMatchObject({ mode: "sprint", planned: 2, achieved: 2 });
   });
 
   it("strips the peak month by month against the plan", () => {
-    const m = laneApprovals({ rows, members, cells, month, sprint, peak, sprintMode: false, today: "2026-09-26" });
+    const m = laneApprovals({ rows, members, plan: { kind: "sheet", cells }, month, sprint, peak, sprintMode: false, today: "2026-09-26" });
     expect(m.byMonth.map((b) => [b.month, b.achieved, b.planned])).toEqual([
       ["2026-08", 1, 3],
       ["2026-09", 3, 4],
@@ -159,17 +159,76 @@ describe("planned vs achieved", () => {
 
   it("has no 'last month' in the first month of a peak", () => {
     const aug = { start: "2026-08-01", end: "2026-08-31", label: "August", planKeys: ["2026-08-01"] };
-    const m = laneApprovals({ rows, members, cells, month: aug, sprint, peak, sprintMode: false, today: "2026-08-20" });
+    const m = laneApprovals({ rows, members, plan: { kind: "sheet", cells }, month: aug, sprint, peak, sprintMode: false, today: "2026-08-20" });
     expect(m.lastMonth).toBeNull();
   });
 
   it("narrows the boards to the filter window when one is set", () => {
     const m = laneApprovals({
-      rows, members, cells, month, sprint, peak, sprintMode: false, today: "2026-09-26",
+      rows, members, plan: { kind: "sheet", cells }, month, sprint, peak, sprintMode: false, today: "2026-09-26",
       window: { from: "2026-09-15", to: "2026-09-30" },
     });
     expect(m.total).toBe(2);
     expect(m.mms[0]).toMatchObject({ id: "tl", own: 1, team: 1, total: 2 });
     expect(m.bySource.map((s) => s.source).sort()).toEqual(["cv_pool", "ir_call"]);
+  });
+});
+
+describe("whose plan the viewer sees (v37.1)", () => {
+  const month = { start: "2026-09-01", end: "2026-09-30", label: "September 2026", planKeys: ["2026-09-01"] };
+  const sprint = { start: "2026-09-16", end: "2026-09-30", label: "Sprint 2", planKeys: ["2026-09-16"] };
+  const peak = {
+    label: "Winter peak", start: "2026-08-01", end: "2027-01-31",
+    months: ["2026-08-01", "2026-09-01", "2026-10-01", "2026-11-01", "2026-12-01", "2027-01-01"],
+  };
+  const rows = [
+    row("m1", { approved_on: "2026-09-05" }),
+    row("m2", { approved_on: "2026-09-18" }),
+    row("tl", { approved_on: "2026-09-20" }),
+    row("m3", { approved_on: "2026-09-21" }), // not on the TL's team
+  ];
+  const base = { rows, members, month, sprint, peak, today: "2026-09-26" };
+
+  it("a Member sees no plan at all", () => {
+    const m = laneApprovals({ ...base, plan: { kind: "none" }, sprintMode: false });
+    expect(m.planKind).toBe("none");
+    expect(m.plan.planned).toBeNull();
+    expect(m.peak.planned).toBeNull();
+    expect(m.byMonth.every((b) => b.planned === null)).toBe(true);
+  });
+
+  it("a Team Leader is held to THEIR filed plan, against own + team", () => {
+    const m = laneApprovals({
+      ...base,
+      plan: { kind: "mine", memberId: "tl", monthly: { "2026-09-01": 5, "2026-10-01": 6 } },
+      sprintMode: false,
+    });
+    expect(m.plan).toMatchObject({ planned: 5, achieved: 3 }); // m1 + m2 + tl, not m3
+    expect(m.peak.planned).toBe(11);
+    expect(m.total).toBe(4); // the lane's own count is untouched
+  });
+
+  it("a sprint is half the MM's month, rounded up", () => {
+    const m = laneApprovals({
+      ...base,
+      plan: { kind: "mine", memberId: "tl", monthly: { "2026-09-01": 5 } },
+      sprintMode: true,
+    });
+    expect(m.plan).toMatchObject({ mode: "sprint", planned: 3, achieved: 2 });
+  });
+
+  it("a Coordinator is held to their own approvals only", () => {
+    const m = laneApprovals({
+      ...base,
+      rows: [...rows, row("co", { approved_on: "2026-09-10" })],
+      plan: { kind: "mine", memberId: "co", monthly: { "2026-09-01": 2 } },
+      sprintMode: false,
+    });
+    expect(m.plan).toMatchObject({ planned: 2, achieved: 1 });
+  });
+
+  it("an MM with nothing filed has no plan, not a plan of zero", () => {
+    const m = laneApprovals({ ...base, plan: { kind: "mine", memberId: "tl", monthly: {} }, sprintMode: false });
+    expect(m.plan.planned).toBeNull();
   });
 });

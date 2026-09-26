@@ -14,7 +14,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-09-26 · Version: v37
+Last updated: 2026-09-26 · Version: v37.1
 
 ---
 
@@ -638,6 +638,9 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | ICX approvals (credit rule, plan vs achieved, SubTool matching) | `src/lib/icx-approvals.ts` (pure, tested) · reads `src/server/icx-approvals.ts` · writes `src/server/icx-approval-actions.ts` · the tab `icx-approvals-tab.tsx` · the board `icx-approvals-board.tsx` (dashboard lane AND the tab) · `approvals` in `considerationStats` · the report's consideration section in `buildFunctionReport` |
 | CXP uploads (two-step, via the `cxp-staging` bucket) | `requestCxpUpload`/`confirmCxpUpload` in `src/server/cxp-actions.ts` · `putWithProgress` in `cxp-ep-view.tsx` |
 | CXP downloads (one document / an EP / a week, streamed) | `openCxpDriveFile` + `collectedForWeek` in `cxp-drive.ts` · `src/server/cxp-download.ts` · routes `src/app/api/cxp/file` and `src/app/api/cxp/zip` |
+| Whose approvals plan a viewer sees | `ApprovalPlanSource` / `laneApprovals` in `src/lib/icx-approvals.ts` · `approvalPlanSourceFor` in `src/server/icx-approvals.ts` |
+| CXP Drive root | `app_settings` `cxp:drive-root` · `cxpRoot()` in `cxp-drive.ts` |
+| TL active/inactive for their team | `setTeamMemberActive` in `actions.ts` · `ActiveToggle` in `profile-view.tsx` · the TL branch of `profilePeople` |
 | Rows-per-page pickers | `src/lib/page-size.ts` (`DEFAULT_PAGE_SIZE` — never a literal; pinned by `tests/page-size.test.ts`) |
 
 ---
@@ -709,6 +712,39 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-09-26 · v37.1** — **A FRESH CXP DIRECTORY, PLANS THAT FOLLOW THE
+  VIEWER, DEPARTED PEOPLE STOP OWING REPORTS, TLs MANAGE THEIR TEAM'S STATUS.**
+  No migration.
+  ① **CXP STARTS A NEW DRIVE DIRECTORY** (the LC's call: forget the old
+  system's files). "Sodio — CXP Submissions" (`1MLaJcRv10DNcjZUt-9h_5TYPKBgkI2AL`),
+  owned by the IM mailbox and shared with the service account as writer —
+  the same model as the Aug-26 root, which is left untouched. Its id lives in
+  `app_settings` `cxp:drive-root`, read FIRST by `cxpRoot()`;
+  `CXP_DRIVE_FOLDER_ID` is only a fallback now. The three Sept-20 test uploads
+  still download (they are addressed by file id).
+  ② **APPROVALS PLAN VS ACHIEVED FOLLOWS THE VIEWER** — the rule the raising
+  lanes already follow (v25 / v36 ⑤): VP · Director · LCP · admin → the
+  planning sheet vs the lane; Team Leader · Coordinator → the plan THEY filed
+  on their profile (mm_plans approvals; a sprint is half the month, rounded
+  up) vs their own MOS (a TL's own + team); a Member → no plan, just the
+  counts and boards. `ApprovalPlanSource` in `lib/icx-approvals.ts`,
+  `approvalPlanSourceFor` in `server/icx-approvals.ts`. The lane's
+  "Consideration plan" card (every MM's plan summed) is leaders-only, and
+  the period-report email — sent to members too — shows the approvals count
+  without a plan.
+  ③ **A DEPARTED HOST'S UNREPORTED WORK IS NOT FLAGGED.** An inactive member's
+  past-due IR calls no longer show "⏰ Time passed — report it", don't count
+  in "N calls need you", the dashboard's "Waiting to be reported" or the
+  leaderboard's Waiting column (`host_inactive` on IrCallRow; `hostGone` in
+  `considerationStats`), and their visits leave the "N visits need a report"
+  banner. The rows themselves stay — history is not deleted.
+  ④ **TEAM LEADERS MARK THEIR MEMBERS ACTIVE / INACTIVE** from Profile → My
+  team (`setTeamMemberActive`): their DIRECT reports only, never themself,
+  never from a test view; the EB keeps the full editor. Written back to the
+  Membership sheet in the same call (it is two-way — the 30-min import would
+  flip it back otherwise). The TL's card now lists inactive reports too, dimmed,
+  with "Make active".
 
 - **2026-09-26 · v37** — **CXP UPLOADS ARRIVE, CXP DOWNLOADS EXIST, AND ICX
   APPROVALS ARE COUNTED.** Migration **0083 applied** (the private

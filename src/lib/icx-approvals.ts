@@ -255,7 +255,24 @@ export interface WindowLike {
   planKeys: string[];
 }
 
+/**
+ * WHOSE PLAN THE VIEWER IS HELD AGAINST (v37.1) — the same rule the raising
+ * lanes have followed since v25 / v36:
+ *
+ *   sheet  VP · Director · LCP · admin — the function's planning sheet,
+ *          against the whole lane
+ *   mine   Team Leader · Coordinator — the plan THEY filed on their profile,
+ *          against their own MOS (a TL's: own + team)
+ *   none   a Member — no plan vs achieved at all
+ */
+export type ApprovalPlanSource =
+  | { kind: "sheet"; cells: PlanCellLike[] }
+  | { kind: "mine"; memberId: string; monthly: Record<string, number> }
+  | { kind: "none" };
+
 export interface LaneApprovals {
+  /** which plan the cards and the strip are measured against */
+  planKind: "sheet" | "mine" | "none";
   /** in the filter window when one is set, else the whole current peak */
   total: number;
   totalLabel: string;
@@ -303,7 +320,7 @@ export function plannedApprovals(
 export function laneApprovals(input: {
   rows: LaneApprovalRow[];
   members: CreditMember[];
-  cells: PlanCellLike[];
+  plan: ApprovalPlanSource;
   month: WindowLike;
   sprint: WindowLike;
   peak: { label: string; start: string; end: string; months: string[] };
@@ -312,7 +329,33 @@ export function laneApprovals(input: {
   sprintMode: boolean;
   today: string;
 }): LaneApprovals {
-  const { rows, cells, month, sprint, peak } = input;
+  const { rows, month, sprint, peak, plan: source } = input;
+  const byId = new Map(input.members.map((m) => [m.id, m]));
+  // "mine" measures the viewer's OWN MOS: theirs, plus their team's when they
+  // lead one — every other view measures the lane
+  const planRows =
+    source.kind === "mine"
+      ? rows.filter(
+          (r) =>
+            r.made_by === source.memberId ||
+            (byId.get(source.memberId)?.role === "Team Leader" &&
+              teamLeaderOf(r.made_by, byId) === source.memberId)
+        )
+      : rows;
+  /** the plan for a set of month keys (scope month) or the sprint's key */
+  const plannedFor = (scope: "month" | "sprint", keys: string[]): number | null => {
+    if (source.kind === "sheet") return plannedApprovals(source.cells, scope, keys);
+    if (source.kind === "none") return null;
+    // an MM files MONTHS; a sprint's share is half its month, rounded up (the
+    // v33.56 rule every MM card already follows)
+    if (scope === "sprint") {
+      const monthKey = `${keys[0]?.slice(0, 7)}-01`;
+      const m = source.monthly[monthKey];
+      return m == null ? null : Math.ceil(m / 2);
+    }
+    const hit = keys.filter((k) => source.monthly[k] != null);
+    return hit.length === 0 ? null : hit.reduce((a, k) => a + source.monthly[k], 0);
+  };
   const inRange = (d: string, a?: string | null, b?: string | null) =>
     (!a || d >= a) && (!b || d <= b);
   const filtered = !!(input.window?.from || input.window?.to);
@@ -323,6 +366,8 @@ export function laneApprovals(input: {
   const planWin = input.sprintMode ? sprint : month;
   const achievedIn = (w: { start: string; end: string }) =>
     rows.filter((r) => inRange(r.approved_on, w.start, w.end)).length;
+  const planAchievedIn = (w: { start: string; end: string }) =>
+    planRows.filter((r) => inRange(r.approved_on, w.start, w.end)).length;
 
   const lastMonthStart = (() => {
     const d = new Date(`${month.start}T00:00:00Z`);
@@ -344,8 +389,8 @@ export function laneApprovals(input: {
     return {
       month: m.slice(0, 7),
       label: MONTH_SHORT[d.getUTCMonth()],
-      achieved: achievedIn({ start: m, end }),
-      planned: plannedApprovals(cells, "month", [m]),
+      achieved: planAchievedIn({ start: m, end }),
+      planned: plannedFor("month", [m]),
     };
   });
 
@@ -363,6 +408,7 @@ export function laneApprovals(input: {
   const tallies = tallyApprovals(windowRows, input.members);
 
   return {
+    planKind: source.kind,
     total: windowRows.length,
     totalLabel: filtered ? "in the filtered window" : peak.label,
     thisMonth: achievedIn(month),
@@ -370,13 +416,13 @@ export function laneApprovals(input: {
     plan: {
       mode: input.sprintMode ? "sprint" : "month",
       label: planWin.label,
-      planned: plannedApprovals(cells, input.sprintMode ? "sprint" : "month", planWin.planKeys),
-      achieved: achievedIn(planWin),
+      planned: plannedFor(input.sprintMode ? "sprint" : "month", planWin.planKeys),
+      achieved: planAchievedIn(planWin),
     },
     peak: {
       label: peak.label,
-      planned: plannedApprovals(cells, "month", peak.months),
-      achieved: achievedIn({ start: peak.start, end: input.today < peak.end ? input.today : peak.end }),
+      planned: plannedFor("month", peak.months),
+      achieved: planAchievedIn({ start: peak.start, end: input.today < peak.end ? input.today : peak.end }),
     },
     byMonth,
     byProduct: APPROVAL_PRODUCTS.filter((p) => products.has(p)).map((p) => ({

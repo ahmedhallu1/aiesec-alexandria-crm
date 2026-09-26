@@ -483,7 +483,7 @@ export async function considerationStats(
       .from("mm_plans")
       .select("applicants, accepted, approvals, month, member:members!mm_plans_member_id_fkey(functions, sub_functions)")
       .eq("month", monthStart),
-    db().from("members").select("id, name, role, stakeholder_id, functions, sub_functions"),
+    db().from("members").select("id, name, role, stakeholder_id, functions, sub_functions, is_active"),
     // 🤝 partnerships (v33.38) — small table; pre-0059 grace: fail to empty
     (async () => {
       const { data } = await db()
@@ -564,8 +564,12 @@ export async function considerationStats(
         "Consideration"
       ) && ownerInLane(p.member, fn)
   );
+  // the SUM of every MM's filed plan is the leaders' view (v37.1) — a Member
+  // sees no plan, an MM their own (on the approvals board / profile)
+  const viewerIsPlanLeader =
+    viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
   const plan =
-    considerationPlans.length > 0
+    viewerIsPlanLeader && considerationPlans.length > 0
       ? considerationPlans.reduce(
           (acc, p) => ({
             applicants: acc.applicants + (p.applicants ?? 0),
@@ -591,8 +595,10 @@ export async function considerationStats(
   }
   const newLcsThisMonth = [...firstCall.values()].filter((d) => inMonth(d)).length;
   /** a booked call whose slot has passed and that nobody has reported on */
-  const isOverdue = (c: { status: string; called_at: string }) =>
-    c.status === "scheduled" && new Date(c.called_at) < now;
+  // a host who has LEFT will never report it (v37.1) — not flagged, not counted
+  const hostGone = (id: string | null) => !!id && byMember.get(id)?.is_active === false;
+  const isOverdue = (c: { status: string; called_at: string; member_id?: string | null }) =>
+    c.status === "scheduled" && new Date(c.called_at) < now && !hostGone(c.member_id ?? null);
   const isUpcoming = (c: { status: string; called_at: string }) =>
     c.status === "scheduled" && new Date(c.called_at) >= now;
   // per-member drill from the calls' own name snapshots (renames cascade).
@@ -730,7 +736,9 @@ export async function considerationStats(
       role: m.role as string,
       managerId: (m.stakeholder_id as string | null) ?? null,
     })),
-    cells: approvalCells,
+    // WHOSE PLAN (v37.1): the sheet for leaders, an MM's own filed plan, and
+    // nothing for a Member — the rule the raising lanes already follow
+    plan: await (await import("./icx-approvals")).approvalPlanSourceFor(viewer, approvalCells),
     month: monthNow,
     sprint: sprintNow,
     peak: peakNow,
@@ -832,7 +840,7 @@ export async function unreportedVisits(viewer: Viewer): Promise<UnreportedVisit[
     .select(
       "id, account_id, member_id, visit_date, visit_time, " +
         "account:accounts!visits_account_id_fkey(name, function, out_of_process, is_test), " +
-        "member:members!visits_member_id_fkey(name)"
+        "member:members!visits_member_id_fkey(name, is_active)"
     )
     // A PENDING VISIT IS `done IS NULL`, NOT `done = false` (v33.36.2).
     // The column is nullable and nothing ever writes false — reporting a
@@ -863,6 +871,9 @@ export async function unreportedVisits(viewer: Viewer): Promise<UnreportedVisit[
     const when = cairoToUtcVisit(v.visit_date, v.visit_time);
     if (when.getTime() >= now) continue; // still ahead of us
     const member = Array.isArray(v.member) ? v.member[0] : v.member;
+    // WHOEVER BOOKED IT HAS LEFT (v37.1): nobody is going to report it, so it
+    // is not a to-do — flagging it forever only buries the real ones
+    if (member && member.is_active === false) continue;
     out.push({
       id: v.id,
       accountId: v.account_id,
@@ -3227,6 +3238,11 @@ export interface PersonCard {
   phone: string | null;
   team_name: string | null;
   functions: string[];
+  /** v37.1 — a Team Leader's own card lists departed members too, so they
+   *  can be marked active again */
+  is_active?: boolean;
+  /** may the viewer mark this person active / inactive (their TL) */
+  canToggleActive?: boolean;
 }
 
 /** The people a leader looks after, for the profile card:
@@ -3274,13 +3290,20 @@ export async function profilePeople(
   }
 
   if (viewer.role === "Team Leader") {
+    // EVERYONE who reports to them, the departed included (v37.1): the card is
+    // where a TL marks a member inactive — and active again
     const { data } = await db()
       .from("members")
       .select("*")
-      .eq("is_active", true)
       .eq("stakeholder_id", viewer.id)
+      .order("is_active", { ascending: false })
       .order("name");
-    const people = ((data ?? []) as Member[]).map(strip);
+    const people = ((data ?? []) as Member[]).map((m) => ({
+      ...strip(m),
+      is_active: m.is_active,
+      // never in a test view — it would change a real member's status
+      canToggleActive: !viewer.impersonated,
+    }));
     return people.length > 0 ? { title: "My team", people } : null;
   }
 
@@ -4972,27 +4995,14 @@ export async function buildFunctionReport(
     const allLcs = new Set<string>();
     for (const b of per.values()) for (const lc of b.lcs) allLcs.add(lc);
 
-    // the approvals plan for this window — the same cells the opens check
-    // reads, the approvals row (IGT = IGTa + IGTe)
-    const planFnsA = fnKey === "IGT" ? ["IGTa", "IGTe"] : [fnKey];
-    const cellsA = await listPlanCells(planFnsA).catch(() => [] as PlanCell[]);
-    const plannedA = Math.ceil(
-      (kind === "sprint"
-        ? cellsA.filter((c) => c.scope === "sprint" && c.metric === "approvals" && c.period_start === window.start)
-        : cellsA.filter((c) => c.scope === "month" && c.metric === "approvals" && windowMonthKeys.includes(c.period_start))
-      ).reduce((t, c) => t + c.value, 0)
-    );
+    // NO PLAN IN THIS EMAIL (v37.1): it goes to every member of the function,
+    // and a Member sees no plan vs achieved — leaders read that on the
+    // dashboard and /planning, an MM against their own plan on the profile
     const gotA = approvalsInWindow.length;
 
     consideration = {
       kpis: [
-        [
-          "🏆 Approvals",
-          String(gotA),
-          plannedA > 0
-            ? `${Math.round((gotA / plannedA) * 100)}% of ~${plannedA} planned`
-            : undefined,
-        ],
+        ["🏆 Approvals", String(gotA)],
         ["Calls done", String(sum(2))],
         ["Still upcoming", String(sum(3))],
         ["LCs reached", String(allLcs.size)],
@@ -7520,6 +7530,9 @@ export interface IrCallRow {
   screenshot_link: string | null;
   member_id: string | null;
   member_name: string;
+  /** the host has LEFT (members.is_active = false, v37.1) — their unreported
+   *  calls are never going to be reported, so they are not flagged */
+  host_inactive?: boolean;
   created_at: string;
   /** v27 booking: 'scheduled' rows come from /book/<slug>, in-call notes
    *  flip them to 'completed'; manual records are born 'completed'. */
@@ -7763,10 +7776,24 @@ export async function listIrCalls(
   // the manage token is an email-held capability for the IR — shipping it to
   // every crew member's browser would let anyone drive the public
   // reschedule/cancel endpoints on teammates' calls
+  const hostIds = [
+    ...new Set(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      [...(sched.data ?? []), ...(log.data ?? [])].map((r: any) => r.member_id).filter(Boolean)
+    ),
+  ] as string[];
+  const { data: gone } = hostIds.length
+    ? await db().from("members").select("id").in("id", hostIds).eq("is_active", false)
+    : { data: [] as { id: string }[] };
+  const inactive = new Set((gone ?? []).map((m) => m.id as string));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scrub = (r: any): IrCallRow => {
     const { manage_token, ...rest } = r;
-    return { ...rest, has_manage_link: !!manage_token } as IrCallRow;
+    return {
+      ...rest,
+      has_manage_link: !!manage_token,
+      host_inactive: !!r.member_id && inactive.has(r.member_id),
+    } as IrCallRow;
   };
   return {
     scheduled: (sched.data ?? []).map(scrub),

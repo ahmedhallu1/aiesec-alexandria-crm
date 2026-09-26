@@ -3534,7 +3534,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "p",
-    "md": "**Where it shows**: the consideration lane on the [dashboard](/dashboard) now opens with **planned vs achieved** (the month, or the sprint when *This sprint* is pressed, and the whole peak), a month-by-month strip against the plan, both boards, and where the approvals came from. Consideration MMs see their filed plan against what they actually got on their [profile](/profile); VPs see it on [Planning](/planning) next to the sheet's approvals row; and the sprint/month report emails carry an approvals line and per-person counts."
+    "md": "**Where it shows**: the consideration lane on the [dashboard](/dashboard) now opens with **planned vs achieved** (the month, or the sprint when *This sprint* is pressed, and the whole peak), a month-by-month strip against the plan, both boards, and where the approvals came from. **Who sees which plan**: VPs, Directors and the LCP see the function's planning sheet against the whole lane (and on [Planning](/planning)); a Team Leader or Coordinator sees the plan THEY filed on their [profile](/profile) against their own approvals (a TL's include their team's); a Member sees no plan, just the counts and the boards. The sprint/month report emails carry the approvals count and per-person numbers, without the plan."
    },
    {
     "t": "faq",
@@ -3599,7 +3599,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    {
     "t": "callout",
     "tone": "info",
-    "md": "Files up to **25 MB** — photos straight from a phone and scanned PDFs included. (Before v37 anything over about 4.5 MB silently failed; that's fixed.)"
+    "md": "Files up to **25 MB** — photos straight from a phone and scanned PDFs included. (Before v37 anything over about 4.5 MB silently failed; that's fixed.) Since v37.1 everything is kept in a fresh Drive directory, **Sodio — CXP Submissions**; the old system's files were not carried over."
    },
    {
     "t": "p",

@@ -43,20 +43,31 @@ function serviceDrive(): drive_v3.Drive {
   return google.drive({ version: "v3", auth });
 }
 
-/** THE CXP DRIVE ROOT.
+/** THE CXP DRIVE ROOT (v37.1 — a fresh start).
  *
- *  `CXP_DRIVE_FOLDER_ID` POINTS AT THE EXISTING TREE. The standalone auditing
- *  system kept its own Drive root (GOOGLE_DRIVE_ROOT_FOLDER_ID) holding every
- *  EP folder and every document the LC has collected. Creating a fresh root
- *  here would orphan all of it — the drive index would scan an empty folder and
- *  conclude nothing had ever been submitted.
+ *  The LC decided NOT to carry the standalone auditing system's files over:
+ *  CXP starts a new directory. Its id lives in `app_settings`
+ *  (`cxp:drive-root`), so moving it again is a data change, not an env var
+ *  and a redeploy. The folder belongs to the IM mailbox (the identity that
+ *  stores the bytes) and is shared with the service account as writer, which
+ *  creates the per-function and per-EP folders inside it.
  *
- *  So: set CXP_DRIVE_FOLDER_ID to the OLD system's root and the module picks up
- *  the existing "EP Files", "ECB Weekly Submissions" and "Generated ZIPs"
- *  folders exactly where they are. Unset, it falls back to a subfolder of the
- *  CRM Drive folder — the right behaviour for a fresh install, and the wrong
- *  one for this migration. */
+ *  `CXP_DRIVE_FOLDER_ID` is only a fallback now (it points at the Aug-26
+ *  root, left untouched); with neither set, a root is created inside the CRM
+ *  Drive folder. */
+export const CXP_ROOT_SETTING = "cxp:drive-root";
+
 async function cxpRoot(): Promise<string> {
+  const { data } = await db()
+    .from("app_settings")
+    .select("value")
+    .eq("key", CXP_ROOT_SETTING)
+    .maybeSingle();
+  const stored =
+    data?.value && typeof data.value === "object" && "id" in data.value
+      ? String((data.value as { id: string }).id)
+      : "";
+  if (stored) return stored;
   const explicit = process.env.CXP_DRIVE_FOLDER_ID ?? "";
   if (explicit) return explicit;
   return ensureFolder("CXP — ECB Submissions", env.driveFolderId);

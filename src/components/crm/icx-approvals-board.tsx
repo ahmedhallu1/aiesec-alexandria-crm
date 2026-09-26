@@ -33,21 +33,35 @@ export function IcxApprovalsBoard({
   const maxBar = Math.max(1, ...data.byMonth.map((m) => Math.max(m.achieved, m.planned ?? 0)));
   const delta = data.lastMonth == null ? null : data.thisMonth - data.lastMonth;
 
+  const mine = data.planKind === "mine";
+  const noPlanText = mine
+    ? "You haven't filed an approvals plan for this — do it on your profile."
+    : "No approvals planned on the sheet for this period.";
+
   return (
     <div className="space-y-3">
+      {data.planKind === "none" ? (
+        // A MEMBER SEES NO PLAN (v37.1) — just what the floor has achieved
+        <div className="grid grid-cols-2 gap-3">
+          <CountCard title="🏆 Approvals — this month" value={data.thisMonth} />
+          <CountCard title={`🏆 Approvals — ${data.peak.label}`} value={data.peak.achieved} />
+        </div>
+      ) : (
       <div className="grid gap-3 md:grid-cols-2">
         <ProgressCard
-          title={`🏆 Approvals — ${data.plan.mode === "sprint" ? "this sprint" : "this month"}`}
-          subtitle={data.plan.label}
+          title={`🏆 ${mine ? "Your approvals" : "Approvals"} — ${data.plan.mode === "sprint" ? "this sprint" : "this month"}`}
+          subtitle={`${data.plan.label} · ${mine ? "your plan, from your profile" : "the planning sheet"}`}
           achieved={data.plan.achieved}
           planned={data.plan.planned}
           pct={planPct}
+          noPlanText={noPlanText}
           foot={
             [
-              mmPlanned != null && mmPlanned > 0
+              !mine && mmPlanned != null && mmPlanned > 0
                 ? `The MMs filed ${mmPlanned} for this month`
                 : null,
-              delta != null && data.plan.mode === "month"
+              mine ? "Yours + your team's" : null,
+              !mine && delta != null && data.plan.mode === "month"
                 ? `${data.lastMonth} last month${delta !== 0 ? ` (${delta > 0 ? "+" : ""}${delta})` : ""}`
                 : null,
             ]
@@ -56,24 +70,26 @@ export function IcxApprovalsBoard({
           }
         />
         <ProgressCard
-          title="🏆 Approvals — the peak so far"
-          subtitle={data.peak.label}
+          title={`🏆 ${mine ? "Your approvals" : "Approvals"} — the peak so far`}
+          subtitle={`${data.peak.label} · ${mine ? "your plan" : "the planning sheet"}`}
           achieved={data.peak.achieved}
           planned={data.peak.planned}
           pct={peakPct}
+          noPlanText={noPlanText}
           foot={
-            data.total !== data.peak.achieved
+            !mine && data.total !== data.peak.achieved
               ? `${data.total} ${data.totalLabel}`
               : null
           }
         />
       </div>
+      )}
 
-      {data.byMonth.length > 0 ? (
+      {data.planKind !== "none" && data.byMonth.length > 0 ? (
         <Card className="rise-in py-0">
           <CardContent className="px-4 py-3">
             <p className="text-xs font-medium text-muted-foreground">
-              Approvals per month vs the plan — {data.peak.label}
+              {mine ? "Your approvals per month vs your plan" : "Approvals per month vs the plan"} — {data.peak.label}
             </p>
             <div className="mt-3 flex items-end gap-2">
               {data.byMonth.map((m) => (
@@ -107,7 +123,7 @@ export function IcxApprovalsBoard({
               ))}
             </div>
             <p className="mt-2 text-[11px] text-muted-foreground">
-              Bar = achieved · dashed line = planned on the planning sheet.
+              Bar = achieved · dashed line = {mine ? "your plan" : "planned on the planning sheet"}.
             </p>
           </CardContent>
         </Card>
@@ -163,6 +179,7 @@ function ProgressCard({
   planned,
   pct,
   foot,
+  noPlanText,
 }: {
   title: string;
   subtitle: string;
@@ -170,6 +187,7 @@ function ProgressCard({
   planned: number | null;
   pct: number | null;
   foot: string | null;
+  noPlanText: string;
 }) {
   return (
     <Card className="kpi-card rise-in py-0">
@@ -199,9 +217,20 @@ function ProgressCard({
             </p>
           </>
         ) : (
-          <p className="mt-1 text-xs text-muted-foreground">No approvals planned on the sheet for this period.</p>
+          <p className="mt-1 text-xs text-muted-foreground">{noPlanText}</p>
         )}
         {foot ? <p className="mt-1 text-[11px] text-muted-foreground">{foot}</p> : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function CountCard({ title, value }: { title: string; value: number }) {
+  return (
+    <Card className="kpi-card rise-in py-0">
+      <CardContent className="px-4 py-3">
+        <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{title}</p>
+        <p className="mt-1.5 text-3xl font-black leading-none tabular-nums">{value}</p>
       </CardContent>
     </Card>
   );

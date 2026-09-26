@@ -4731,6 +4731,59 @@ export async function upsertMember(
   return { ok: true, data: { id: id! } };
 }
 
+/** A TEAM LEADER MARKS THEIR OWN MEMBERS ACTIVE / INACTIVE (v37.1).
+ *
+ *  The TL is the first to know somebody has left the team, and until now only
+ *  the EB (the membership editor) or the sheet could say so — so a departed
+ *  member kept being assigned work and kept owing reports nobody would file.
+ *
+ *  Reach: the TL's DIRECT reports only (`stakeholder_id` = the TL), never
+ *  themself; the EB keeps the full editor. The change is written back to the
+ *  "CRM — Membership" sheet in the same breath — the sheet is two-way, and
+ *  the 30-minute import would otherwise flip it straight back. */
+export async function setTeamMemberActive(
+  memberId: string,
+  active: boolean
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (memberId === viewer.id) return fail("You can't change your own status.");
+  const { data: m } = await db()
+    .from("members")
+    .select("id, name, email, phone, role, functions, sub_functions, stakeholder_id, stakeholder_name, team_name, is_active")
+    .eq("id", memberId)
+    .maybeSingle();
+  if (!m) return fail("That member doesn't exist.");
+  const mine = viewer.role === "Team Leader" && m.stakeholder_id === viewer.id;
+  if (!mine && !canManageMembership(viewer)) {
+    return fail("Only their Team Leader (or the EB) can change that.", "forbidden");
+  }
+  if (m.is_active === active) return { ok: true };
+
+  await snapshotForUndo("members", memberId);
+  const { error } = await db().from("members").update({ is_active: active }).eq("id", memberId);
+  if (error) return fail(error.message);
+
+  const { writeMemberToSheet } = await import("@/lib/google/sheets");
+  await writeMemberToSheet({
+    name: m.name,
+    email: m.email ?? null,
+    phone: m.phone ?? null,
+    role: m.role,
+    functions: m.functions ?? [],
+    sub_functions: m.sub_functions ?? [],
+    stakeholder_name: m.stakeholder_name ?? null,
+    team_name: m.team_name ?? null,
+    is_active: active,
+  }).catch((e) => console.error("[sheets] membership write-back failed:", e));
+
+  await logAudit(viewer.id, active ? "member_reactivate" : "member_deactivate", "member", memberId, {
+    name: m.name,
+    by_team_leader: mine,
+  });
+  refresh();
+  return { ok: true };
+}
+
 /** EB reset: a fresh password is generated and EMAILED to the member (their
  *  old one keeps working until they change it — no lockouts). */
 export async function resetMemberPassword(memberId: string): Promise<ActionResult> {

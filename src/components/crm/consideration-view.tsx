@@ -3162,7 +3162,9 @@ function IrCallsTab({
   }, []);
   /** the slot has passed and the call is still just "scheduled" */
   const pastDue = useCallback(
-    (c: IrCallRow) => c.status === "scheduled" && new Date(c.called_at) < new Date(),
+    // a host who has LEFT will never report it — not flagged (v37.1)
+    (c: IrCallRow) =>
+      c.status === "scheduled" && new Date(c.called_at) < new Date() && !c.host_inactive,
     []
   );
   /** WHOSE PROBLEM IS IT? (v33.33)
