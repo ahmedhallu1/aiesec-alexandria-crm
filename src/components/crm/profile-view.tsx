@@ -4,7 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import Link from "next/link";
-import { Check, ChevronDown, ChevronRight, Dices, Settings2, Eye, FlipHorizontal2, KeyRound, Loader2, Lock, Mail, MessageSquareHeart, Phone, SlidersHorizontal, Sparkles, Target, Upload, Users, UsersRound } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Dices, Settings2, Eye, FlipHorizontal2, KeyRound, Loader2, Lock, Mail, MessageSquareHeart, Phone, Sparkles, Target, Upload, Users, UsersRound } from "lucide-react";
 import {
   changePassword, saveFunctionSettings, setTeamMemberActive, startViewAs, stopViewAs, updateAvatar,
   updateProfile,
@@ -373,8 +373,9 @@ export function ProfileView({
             <div className="min-w-0 flex-1">
               <p className="font-semibold">Settings</p>
               <p className="text-sm text-muted-foreground">
-                Emails &amp; notifications — for each kind of message, your inbox, the
-                app, both or neither. Plus phone alerts and how Sodio looks.
+                Notifications &amp; emails, your defaults (home page, dashboard, list sizes),
+                {fnSettings.length > 0 ? " your function's rules," : ""} and downloading your
+                data — everything that is yours to change, in one place.
               </p>
             </div>
             <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
@@ -382,26 +383,8 @@ export function ProfileView({
         </Card>
       </Link>
 
-      {fnSettings.length > 0 ? (
-        <Card id="profile-function-defaults" className="scroll-mt-24">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <SlidersHorizontal className="size-4 text-muted-foreground" />
-              Function defaults
-            </CardTitle>
-            <p className="text-sm text-muted-foreground">
-              How your function behaves by default. Nothing here changes what
-              already exists — these are the rules new work starts from, and
-              they apply to everyone in the function.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {fnSettings.map((s) => (
-              <FunctionDefaultsBlock key={s.fn} settings={s} />
-            ))}
-          </CardContent>
-        </Card>
-      ) : null}
+      {/* FUNCTION DEFAULTS MOVED INTO SETTINGS → MY FUNCTION (v37.2) — one
+          place for everything a person can change */}
 
       {tlPlan ? (
         <Card>
@@ -589,7 +572,7 @@ export function ProfileView({
  *  TM leader never sees a Podio cadence and a B2C leader never sees the OGX
  *  pool. Saving sends only the keys this block rendered; the server merges
  *  them over what is stored, so nothing off-screen can be blanked. */
-function FunctionDefaultsBlock({ settings }: { settings: FunctionSettingsCard }) {
+export function FunctionDefaultsBlock({ settings }: { settings: FunctionSettingsCard }) {
   const router = useRouter();
   const [form, setForm] = useState<FunctionSettings>(settings);
   const [dirty, setDirty] = useState(false);
@@ -1317,7 +1300,7 @@ function AvatarDialog({
 
 /** A Team Leader marks a member of THEIR team active / inactive (v37.1). Two
  *  taps for "inactive" — it stops the person signing in — one to bring back. */
-function ActiveToggle({ person }: { person: { id: string; name: string; is_active?: boolean } }) {
+export function ActiveToggle({ person }: { person: { id: string; name: string; is_active?: boolean } }) {
   const [confirm, setConfirm] = useState(false);
   const [pending, start] = useTransition();
   const active = person.is_active !== false;

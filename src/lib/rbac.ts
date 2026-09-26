@@ -117,6 +117,13 @@ export function canUseAdminTools(v: Viewer): boolean {
   return v.isAdmin || v.role === "Admin" || (v.sub_functions ?? []).includes("Admin");
 }
 
+/** THE LC TOOLS (v37.2) — starting a new term or peak, restarting the
+ *  membership, pointing Sodio at the term's planning, where membership lives.
+ *  The LCP and the admins, as the LC decided — nobody else, not even the EB. */
+export function canRunLcTools(v: Viewer): boolean {
+  return v.isAdmin || v.role === "LCP" || canUseAdminTools(v);
+}
+
 /** THE ACTIVATE 26' BID (v36.8) — MMs and above: Coordinators, Team Leaders,
  *  Directors, LCVPs and the LCP (plus the admin). A plain Member neither sees
  *  the tab nor edits the plan; the public copy at /activate26 stays open to

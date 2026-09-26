@@ -11,6 +11,12 @@ import {
  *  membership (EB) → planning → accounts (the module-less see Soon there). */
 export default async function Home() {
   const viewer = await getViewer();
+  // MY HOME (v37.2) — a person's own pick wins, but only while it is still a
+  // page they may open (a module they have since left falls through)
+  const { resolveMemberSettings } = await import("@/lib/member-settings");
+  const { homeOptionsFor } = await import("@/lib/home-options");
+  const home = resolveMemberSettings((viewer as { settings?: unknown }).settings).defaults.home;
+  if (home && homeOptionsFor(viewer).some((o) => o.value === home)) redirect(home);
   // THE EB STEERS (v33.12) — the LCP and the LCVPs open on the Dashboard,
   // because the numbers are the first thing they came for. It has to be
   // checked BEFORE the module redirects, or an LCVP with raising access

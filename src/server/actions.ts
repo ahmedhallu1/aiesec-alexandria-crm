@@ -4389,6 +4389,51 @@ export async function saveMyNotifyPref(
   return { ok: true };
 }
 
+/** MY DEFAULTS (v37.2) — home page, dashboard lane, rows per page, sign-ups
+ *  view. Each value is checked against what THIS person may actually use, so
+ *  a stored default can never point somewhere they cannot go. `null` puts the
+ *  system's own default back. */
+export async function saveMyDefault(
+  key: string,
+  value: string | number | null
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  const { PERSONAL_DEFAULT_KEYS, withPersonalDefault } = await import("@/lib/member-settings");
+  if (!(PERSONAL_DEFAULT_KEYS as readonly string[]).includes(key)) return fail("That isn't a setting.");
+  if (value !== null) {
+    if (key === "home") {
+      const { homeOptionsFor } = await import("@/lib/home-options");
+      if (!homeOptionsFor(viewer).some((o) => o.value === value)) return fail("You can't open that page.");
+    } else if (key === "dashboardLane") {
+      const { dashboardLaneViews } = await import("@/lib/dashboard-lanes");
+      if (!dashboardLaneViews(viewer).some((v) => v.key === value)) return fail("That lane isn't yours.");
+    } else if (key === "pageSize") {
+      const { PAGE_SIZES } = await import("@/lib/page-size");
+      if (!PAGE_SIZES.includes(Number(value))) return fail("Pick one of the sizes offered.");
+      value = Number(value);
+    } else if (key === "signupsView") {
+      const { signupViewsFor } = await import("./data");
+      if (!signupViewsFor(viewer).includes(String(value))) return fail("That view isn't yours.");
+    }
+  }
+  const { data: row } = await db()
+    .from("members")
+    .select("settings")
+    .eq("id", viewer.id)
+    .maybeSingle<{ settings: unknown }>();
+  const merged = withPersonalDefault(
+    row?.settings,
+    key as import("@/lib/member-settings").PersonalDefaultKey,
+    value
+  );
+  await snapshotForUndo("members", viewer.id);
+  const { error } = await db().from("members").update({ settings: merged }).eq("id", viewer.id);
+  if (error) return fail(error.message);
+  await logAudit(viewer.id, "member_setting", "member", viewer.id, { default: key, value });
+  refresh();
+  return { ok: true };
+}
+
 // ================================================================== push notifications (v35)
 
 /** The device's own subscription — an endpoint plus the two keys the payload

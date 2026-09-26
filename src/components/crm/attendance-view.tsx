@@ -54,6 +54,7 @@ import {
   type TableColumn,
 } from "./data-table-kit";
 import { Hint } from "./hint";
+import { ExportButton } from "./export-button";
 
 /** /attendance (v29) — for EVERYONE.
  *  A member reads their own history and appeals a wrong row; a Team Leader
@@ -773,6 +774,8 @@ export function AttendanceView({
           {navPending ? (
             <Loader2 className="size-4 animate-spin text-primary" />
           ) : null}
+          {/* the history you can see, with its filters, as a file (v37.2) */}
+          <ExportButton kind="attendance" params={searchParams.toString()} className="ml-auto" />
         </h1>
         <p className="text-sm text-muted-foreground">
           Every meeting, working-hours session and outing — who showed up, who

@@ -48,6 +48,7 @@ import { WhatsAppIcon } from "./icons";
 import { Badge } from "@/components/ui/badge";
 import { IrSlotRequestsCard } from "./ir-slot-requests-card";
 import { IcxApprovalsTab } from "./icx-approvals-tab";
+import { ExportButton } from "./export-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -2241,6 +2242,7 @@ export function ConsiderationView({
       </div>
 
       {/* segmented tab control (like the accounts mobile view switcher) */}
+      <div className="flex flex-wrap items-center gap-2">
       <div className="flex w-fit items-center gap-1 rounded-lg bg-muted p-1">
         {tabs.map((t) => (
           <button
@@ -2258,6 +2260,21 @@ export function ConsiderationView({
             {t.label}
           </button>
         ))}
+      </div>
+      {/* THE OPEN TAB AS A FILE (v37.2), with that tab's own filters */}
+      {tab !== "expectation" ? (
+        <ExportButton
+          className="ml-auto"
+          kind={
+            tab === "approvals" ? "approvals"
+              : tab === "lcs" ? "partner_lcs"
+                : tab === "cvs" && viewer.showCvs ? "cvs"
+                  : "ir_calls"
+          }
+          params={searchParams.toString()}
+          sheetsHint={tab === "lcs" ? ["Partner LCs", "IRs"] : tab === "calls" ? ["Scheduled", "Call log"] : undefined}
+        />
+      ) : null}
       </div>
 
       {/* the tab content — the walking man walks while a tab/page/filter

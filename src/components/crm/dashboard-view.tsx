@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import { AskVioletMan } from "./ask-violet-man";
 import { Hint } from "./hint";
+import { ExportButton } from "./export-button";
 import { IcxApprovalsBoard } from "./icx-approvals-board";
 import { CountUp } from "./count-up";
 import { cn } from "@/lib/utils";
@@ -213,11 +214,31 @@ export function DashboardView({
             {laneLabel} Dashboard{" "}
             {navPending ? <Loader2 className="ml-1 inline size-4 animate-spin text-primary" /> : null}
           </h1>
-          <AskVioletMan
-            className="mt-1.5"
-            hint="Ask The Violet Man about your numbers"
-            prefill="How is my funnel doing this month? "
-          />
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <AskVioletMan
+              hint="Ask The Violet Man about your numbers"
+              prefill="How is my funnel doing this month? "
+            />
+            {/* THIS LANE AS A WORKBOOK (v37.2): totals, conversions, every
+                leaderboard and drill, for the dates and team on the bar */}
+            {activeFn !== "TM" ? (
+              <ExportButton
+                kind="dashboard"
+                params={(() => {
+                  const q = new URLSearchParams(searchParams.toString());
+                  q.set("fn", activeFn);
+                  return q;
+                })()}
+                sheetsHint={
+                  isConsLane
+                    ? ["Summary", "Leaderboard", "Approvals by person", "Approvals by MM", "Approvals by month", "Approvals by source"]
+                    : isOgxLaneKey(activeFn)
+                      ? ["Summary", "Members", "MMs", "Teams"]
+                      : ["Summary", "Leaderboard", "MMs", "By team", "By function"]
+                }
+              />
+            ) : null}
+          </div>
         </div>
         {views.length > 1 ? (
           <div className="flex flex-wrap gap-1 rounded-lg bg-muted p-1">
@@ -1352,6 +1373,7 @@ function OgxLanePlan({
       {/* THE FUNCTION'S GOAL vs WHAT IT HAS DONE (v33.55). It used to print
           the planning sheet's numbers and stop — a target with nothing beside
           it, which is the one thing a goal card must not be. */}
+      {plan.plan ? (
       <Card>
         <CardContent className="space-y-3 pt-4">
           <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
@@ -1370,6 +1392,7 @@ function OgxLanePlan({
           </p>
         </CardContent>
       </Card>
+      ) : null}
 
       {/* the viewer's OWN filed plan, same treatment (v33.55) */}
       {plan.mine && plan.mineAchieved ? (

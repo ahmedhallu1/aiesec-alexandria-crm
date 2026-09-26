@@ -16,7 +16,7 @@ import {
   workWindowClosed,
 } from "@/server/attendance-read";
 import { AttendanceView } from "@/components/crm/attendance-view";
-import { pageSizeOf } from "@/lib/page-size";
+import { pageSizeOf, personalPageSize } from "@/lib/page-size";
 
 export const metadata = { title: "Attendance" };
 
@@ -56,7 +56,7 @@ export default async function AttendancePage({
     fn: (params.fn ?? "").slice(0, 120),
   };
   const page = Math.max(1, Number(params.page) || 1);
-  const pageSize = pageSizeOf(params.size);
+  const pageSize = pageSizeOf(params.size, personalPageSize(viewer));
 
   const [owedRows, history, appeals, pickable] = await Promise.all([
     touchPointsNeedingRecord(viewer),

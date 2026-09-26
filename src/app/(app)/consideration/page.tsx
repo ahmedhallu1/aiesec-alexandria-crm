@@ -14,7 +14,7 @@ import {
   approvalSuggestions, listIcxApprovals,
 } from "@/server/icx-approvals";
 import { ConsiderationView } from "@/components/crm/consideration-view";
-import { PAGE_SIZES, pageSizeOf } from "@/lib/page-size";
+import { PAGE_SIZES, pageSizeOf, personalPageSize } from "@/lib/page-size";
 
 export const metadata = { title: "Consideration" };
 
@@ -48,7 +48,7 @@ export default async function ConsiderationPage({
             : "calls";
   const page = Math.max(0, (parseInt(sp.page ?? "1", 10) || 1) - 1);
   // rows per page is the member's own choice (v31) — whitelisted here
-  const pageSize = pageSizeOf(sp.size);
+  const pageSize = pageSizeOf(sp.size, personalPageSize(viewer));
 
   // the call log's filters (v33.32) — server-side, so they filter the whole
   // history rather than the page in hand

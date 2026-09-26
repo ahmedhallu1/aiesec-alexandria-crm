@@ -30,6 +30,7 @@ import { DEFAULT_PAGE_SIZE, PAGE_SIZES } from "@/lib/page-size";
 import { cn } from "@/lib/utils";
 import type { CxpEpSummary, CxpSide } from "@/lib/cxp/types";
 import { CXP_STAGE_KEYS, STAGE_BY_KEY } from "@/lib/cxp/types";
+import { ExportButton } from "./export-button";
 
 /**
  * THE EP SUBMISSIONS TABLE.
@@ -241,6 +242,7 @@ export function CxpEpsView({
           <p className="text-xs text-muted-foreground">{monthLabel}</p>
         </div>
 
+        <ExportButton kind="cxp" params={{ side, scope, q: search }} />
         <Link
           prefetch={false}
           href={href({ scope: scope === "previous" ? "current" : "previous" })}

@@ -188,17 +188,21 @@ export async function GET(req: NextRequest) {
             );
         if (!report) { skipped.push(`${settingKey} (no crew)`); continue; }
 
-        const mail = periodReportEmail({
+        // PLANNING IS THE LEADERS' (v37.2): the function's plan check and the
+        // MMs' filed plans reach the VPs, Directors, the LCP and the admins
+        // only. Everyone else gets the same report without them — a member
+        // (or an MM) does not read their managers' planning.
+        const buildMail = (withPlan: boolean) => periodReportEmail({
           functionLabel: report.functionLabel,
           periodKind: period.kind,
           periodLabel: period.label,
           kpis: report.kpis,
-          planLine: report.planLine,
+          planLine: withPlan ? report.planLine : null,
           waterfallHeaders: report.waterfallHeaders,
           waterfallRows: report.waterfallRows,
           boldRows: report.boldRows,
           indentRows: report.indentRows,
-          mmPlanLines: report.mmPlanLines,
+          mmPlanLines: withPlan ? report.mmPlanLines : [],
           // v36 — the consideration crew's live numbers, under the raising
           // waterfall. Null on B2B/BD and OGX, which have no consideration
           // side, and the section is then omitted rather than printed empty.
@@ -211,6 +215,8 @@ export async function GET(req: NextRequest) {
           core: coreFor(fn),
           dashboardUrl: `${env.appUrl}/dashboard`,
         });
+        const mail = buildMail(true);
+        const crewMail = buildMail(false);
 
         if (isTest) {
           // preview goes ONLY to the IM mailbox
@@ -218,6 +224,11 @@ export async function GET(req: NextRequest) {
             to: [env.gmailSender],
             ...mail,
             subject: `[TEST] ${mail.subject}`,
+          });
+          await sendEmail({
+            to: [env.gmailSender],
+            ...crewMail,
+            subject: `[TEST · member version] ${crewMail.subject}`,
           });
           sent.push(`${settingKey} → TEST to ${env.gmailSender}`);
           continue;
@@ -229,11 +240,17 @@ export async function GET(req: NextRequest) {
         // "recipients" stamp below honest. The bell has its own switch.
         const { data: crewRows } = await db()
           .from("members")
-          .select("id, email, settings")
+          .select("id, email, settings, role")
           .in("email", report.recipients);
         const crew = (crewRows ?? []) as {
-          id: string; email: string | null; settings: unknown;
+          id: string; email: string | null; settings: unknown; role: string;
         }[];
+        const leaderEmails = new Set(
+          crew
+            .filter((m) => ["LCP", "LCVP", "Director"].includes(m.role))
+            .map((m) => (m.email ?? "").toLowerCase())
+        );
+        for (const a of env.adminEmails) leaderEmails.add(a.toLowerCase());
         const optedOut = new Set(
           crew
             .filter((m) => !wants(resolveMemberSettings(m.settings), "period_reports", "email"))
@@ -243,12 +260,22 @@ export async function GET(req: NextRequest) {
           (e) => !optedOut.has(e.toLowerCase())
         );
 
-        if (mailTo.length > 0) {
+        const leadersTo = mailTo.filter((e) => leaderEmails.has(e.toLowerCase()));
+        const othersTo = mailTo.filter((e) => !leaderEmails.has(e.toLowerCase()));
+        if (leadersTo.length > 0) {
           await sendEmail({
             topic: "period_reports",
             to: [env.gmailSender],
-            bcc: mailTo,
+            bcc: leadersTo,
             ...mail,
+          });
+        }
+        if (othersTo.length > 0) {
+          await sendEmail({
+            topic: "period_reports",
+            to: [env.gmailSender],
+            bcc: othersTo,
+            ...crewMail,
           });
         }
 

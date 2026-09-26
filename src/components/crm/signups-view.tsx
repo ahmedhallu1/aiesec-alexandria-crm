@@ -33,6 +33,7 @@ import {
   ColumnFilter, PageSizePicker, resizableCellStyle, ResizableHead, TableSettings, useTableColumns, type TableColumn,
 } from "./data-table-kit";
 import { Hint } from "./hint";
+import { ExportButton } from "./export-button";
 import { DEFAULT_PAGE_SIZE } from "@/lib/page-size";
 import { StreakCard } from "./streak-card";
 import { WhatsAppIcon } from "./icons";
@@ -1971,7 +1972,9 @@ export function SignupsView({
               : `Two-way synced with the ${activeFn} tracker sheet — contact one from the unassigned pool, it's yours, move them down the funnel.`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* the list on screen, as a file (v37.2) — same view, side, filters */}
+          <ExportButton kind="signups" params={searchParams.toString()} size="default" />
           <Hint
             label={
               viewer.b2cOnly

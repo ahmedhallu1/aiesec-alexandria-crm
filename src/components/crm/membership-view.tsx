@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { KeyRound, Pencil, Plus, RefreshCw, Search, Table2, Trash2, Users2, X } from "lucide-react";
+import { KeyRound, Pencil, Plus, RefreshCw, Search, Table2, Trash2, Upload, Users2, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   deleteTeamEntry,
@@ -45,6 +45,9 @@ import {
 } from "@/components/ui/table";
 import { SortHeader, useTableSort, type SortDir } from "./sort-header";
 import { ColumnFilter, multi } from "./data-table-kit";
+import { MembershipUploadDialog } from "./membership-upload-dialog";
+import { ExportButton } from "./export-button";
+import { mirrorMembershipNow } from "@/server/lc-actions";
 
 export interface MemberRow {
   id: string;
@@ -146,9 +149,23 @@ const MEMBER_SORTERS: Record<string, (m: MemberRow) => string | number | null> =
     ({ active: 0, never: 1, inactive: 2, left: 3 } as const)[memberStatus(m)],
 };
 
-export function MembershipView({ members, teams }: { members: MemberRow[]; teams: TeamRegistryRow[] }) {
+export function MembershipView({
+  members,
+  teams,
+  source = "sodio",
+  canRestart = false,
+}: {
+  members: MemberRow[];
+  teams: TeamRegistryRow[];
+  /** where membership lives (v37.2) — Sodio, with the sheet as its mirror, or
+   *  the old two-way sync */
+  source?: "sodio" | "sheet";
+  /** the LCP / admins may restart the membership from a file */
+  canRestart?: boolean;
+}) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  const [uploading, setUploading] = useState(false);
   const [editing, setEditing] = useState<MemberRow | null>(null);
   const [adding, setAdding] = useState(false);
   const [q, setQ] = useState("");
@@ -237,6 +254,13 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
       } else toast.error(res.error);
     });
 
+  const mirrorNow = () =>
+    start(async () => {
+      const res = await mirrorMembershipNow();
+      if (res.ok) toast.success(`The Membership sheet now mirrors Sodio — ${res.data?.rows ?? 0} people.`);
+      else toast.error(res.error);
+    });
+
   const exportNow = () =>
     start(async () => {
       const res = await runSheetsExport();
@@ -246,21 +270,49 @@ export function MembershipView({ members, teams }: { members: MemberRow[]; teams
 
   return (
     <div className="mx-auto max-w-6xl space-y-4">
+      <MembershipUploadDialog
+        open={uploading}
+        onClose={() => {
+          setUploading(false);
+          router.refresh();
+        }}
+        canRestart={canRestart}
+      />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Membership</h1>
           <p className="text-sm text-muted-foreground">
-            Edit members right here — every change is also written back to the
-            <b> “CRM — Membership”</b> sheet (which still auto-syncs every 30 minutes).
+            {source === "sodio" ? (
+              <>
+                <b>Sodio is the membership.</b> Edit people here, or download the list, change
+                it in Excel and upload it back. The <b>“CRM — Membership”</b> sheet is a mirror
+                Sodio keeps writing — edits made in the sheet are not read back.
+              </>
+            ) : (
+              <>
+                Edit members right here — every change is also written back to the
+                <b> “CRM — Membership”</b> sheet (which still auto-syncs every 30 minutes).
+              </>
+            )}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button onClick={() => setUploading(true)} disabled={pending}>
+            <Upload className="size-4" /> Upload
+          </Button>
+          <ExportButton kind="membership" label="Download" size="default" />
           <Button variant="outline" onClick={exportNow} disabled={pending}>
             <Table2 className="size-4" /> Export mirrors
           </Button>
-          <Button variant="outline" onClick={importNow} disabled={pending}>
-            <RefreshCw className={pending ? "size-4 animate-spin" : "size-4"} /> Sync from sheet
-          </Button>
+          {source === "sodio" ? (
+            <Button variant="outline" onClick={mirrorNow} disabled={pending}>
+              <RefreshCw className={pending ? "size-4 animate-spin" : "size-4"} /> Rewrite the sheet
+            </Button>
+          ) : (
+            <Button variant="outline" onClick={importNow} disabled={pending}>
+              <RefreshCw className={pending ? "size-4 animate-spin" : "size-4"} /> Sync from sheet
+            </Button>
+          )}
           <Button onClick={() => setAdding(true)}>
             <Plus className="size-4" /> Add member
           </Button>

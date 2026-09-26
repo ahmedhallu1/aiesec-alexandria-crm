@@ -8,8 +8,9 @@ import {
   canSeeUnassigned, canSetRequestStateOnCreate, canViewArchive, icxFunctions,
 } from "@/lib/rbac";
 import { AccountsView } from "@/components/crm/accounts-view";
-import { memberIsB2B, memberIsB2C, type Stage } from "@/lib/types";
-import { PAGE_SIZES, pageSizeOf } from "@/lib/page-size";
+import { memberIsB2B, memberIsB2C } from "@/lib/types";
+import { PAGE_SIZES, pageSizeOf, personalPageSize } from "@/lib/page-size";
+import { accountFiltersFromParams } from "@/lib/filters-from-params";
 
 export const metadata = { title: "Raising" };
 
@@ -35,52 +36,12 @@ export default async function AccountsPage({
     !(scope.kind === "members" && scope.ids.length <= 1) || canSeeUnassigned(viewer);
   // the B2B/BD leaders' Podio submission worklist
 
-  const filters: AccountFilters = {
-    q: params.q || undefined,
-    fn:
-      params.fn === "IGV" || params.fn === "IGT" || params.fn === "B2B" ||
-      params.fn === "BD" || params.fn === "B2C"
-        ? params.fn
-        : undefined,
-    // product/sub only apply to IGT rows — a lingering param after switching
-    // the Function filter must not silently empty the list
-    // MULTI-SELECT (v33.3): every column filter can carry several picks as a
-    // comma list. Each pick is validated on its own, so one junk value in a
-    // hand-edited URL drops itself instead of the whole filter.
-    product: (!params.fn || params.fn === "IGT"
-      ? keepCsv(params.product, ["GTa", "GTe"])
-      : undefined) as AccountFilters["product"],
-    lane: keepCsv(params.lane, ["IGV", "IGT", "GTa", "GTe", "B2B", "BD", "B2C"]),
-    project: params.project || undefined,
-    stage: keepCsv(params.stage, undefined, (v) => v !== "Out of Process") as Stage | undefined,
-    lastStatus: params.lastStatus || undefined,
-    flag:
-      params.flag === "needs_podio" || params.flag === "next_step_missing"
-        ? params.flag
-        : undefined,
-    from: params.from || undefined,
-    to: params.to || undefined,
-    subProduct: params.sub && (!params.fn || params.fn === "IGT") ? params.sub : undefined,
-    // v33.38 — the funnels the columns were missing
-    industry: params.industry || undefined,
-    accountType: params.type || undefined,
-    proposal: keepCsv(params.proposal, ["sent", "not_sent"]),
-    deals: keepCsv(params.deals, ["has", "none"]),
-    podio: keepCsv(params.podio, [
-      "requested", "not_requested", "Checking", "Approved", "Rejected",
-    ]),
-    sort: params.sort || undefined,
-    dir: params.dir === "asc" ? "asc" : params.dir === "desc" ? "desc" : undefined,
-    // the Responsible filter — "none" = unassigned (imported market research)
-    responsibleId: params.resp || undefined,
-    teamId: params.team || undefined,
-    archived,
-  };
+  const filters: AccountFilters = accountFiltersFromParams(params, { archiveAllowed });
 
   // the list is PAGINATED since the big market-research import (v22) — the
   // server returns one page + the total match count. Page size is the user's
   // pick (?size=30|50|100|200, default 100).
-  const pageSize = pageSizeOf(params.size);
+  const pageSize = pageSizeOf(params.size, personalPageSize(viewer));
   const requestedPage = Math.max(0, (Number(params.page) || 1) - 1);
   const [{ rows, total, page }, members, reassignTo, manualArchived] = await Promise.all([
     listAccountsPage(viewer, filters, requestedPage, pageSize),
@@ -206,20 +167,4 @@ export default async function AccountsPage({
       }}
     />
   );
-}
-
-/** Keeps only the valid picks of a comma-joined filter value, so one bad
- *  entry in a hand-edited URL drops itself rather than the whole filter. */
-function keepCsv(
-  raw: string | undefined,
-  allowed?: string[],
-  extra?: (v: string) => boolean
-): string | undefined {
-  const kept = (raw ?? "")
-    .split(",")
-    .map((v) => v.trim())
-    .filter(Boolean)
-    .filter((v) => (allowed ? allowed.includes(v) : true))
-    .filter((v) => (extra ? extra(v) : true));
-  return kept.length > 0 ? kept.join(",") : undefined;
 }

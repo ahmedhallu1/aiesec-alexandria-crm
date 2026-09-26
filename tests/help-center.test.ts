@@ -21,6 +21,8 @@ const ROUTES = new Set([
   "/activation", "/activate26",
   // the CXP module (v35) — its first help article landed in v37
   "/cxp", "/cxp/weekly",
+  // the settings hub (v36.2; sections since v37.2)
+  "/profile/settings",
 ]);
 const CATEGORY_IDS = new Set([
   "getting-started", "raising", "ogx", "consideration", "b2c",

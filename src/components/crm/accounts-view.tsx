@@ -35,6 +35,7 @@ import { ActionDot } from "./action-dot";
 import { CopyNameButton } from "./copy-name-button";
 import { FileDrop } from "./file-drop";
 import { Hint } from "./hint";
+import { ExportButton } from "./export-button";
 import { QuickActions } from "./quick-actions";
 import {
   ColumnFilter, ColumnResizer, FilterSelect, multi, PageSizePicker, resizableCellStyle,
@@ -1147,6 +1148,8 @@ export function AccountsView({
               looking at: filter to IGV and it opens the IGV lane, so the
               dashboard answers for the same accounts. No filter (or several)
               → the viewer's own default lane. */}
+          {/* THE LIST AS A FILE (v37.2) — exactly the rows these filters show */}
+          <ExportButton kind="accounts" params={searchParams.toString()} size="default" />
           <Hint label="Your funnel in numbers — KPIs, conversions, leaderboards">
             <Button variant="outline" asChild>
               <Link prefetch={false} href={dashboardHref}>

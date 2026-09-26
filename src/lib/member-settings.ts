@@ -205,9 +205,30 @@ export const isNotifyTopic = (x: unknown): x is NotifyTopic =>
 
 export type NotifyPrefs = Record<NotifyTopic, Record<NotifyChannel, boolean>>;
 
+/** MY DEFAULTS (v37.2) — how Sodio opens for THIS person. Every field is read
+ *  by a real page (see `PERSONAL_DEFAULTS`), and null means "the system's own
+ *  default", which is exactly what happened before these existed. */
+export interface PersonalDefaults {
+  /** where "/" lands after signing in — a path from `homeOptionsFor` */
+  home: string | null;
+  /** the dashboard lane that opens when the URL names none */
+  dashboardLane: string | null;
+  /** rows per page on every list, unless the URL says otherwise */
+  pageSize: number | null;
+  /** the Sign-ups view that opens first */
+  signupsView: string | null;
+}
+
+export type PersonalDefaultKey = keyof PersonalDefaults;
+
+export const PERSONAL_DEFAULT_KEYS: readonly PersonalDefaultKey[] = [
+  "home", "dashboardLane", "pageSize", "signupsView",
+];
+
 export interface MemberSettings {
   /** per topic, per channel — ON unless the member switched it off */
   notify: NotifyPrefs;
+  defaults: PersonalDefaults;
 }
 
 /** Everything ON: exactly what shipped before any of this existed, so a member
@@ -216,7 +237,7 @@ export interface MemberSettings {
 export function defaultMemberSettings(): MemberSettings {
   const notify = {} as NotifyPrefs;
   for (const t of NOTIFY_TOPICS) notify[t.id] = { email: true, bell: true };
-  return { notify };
+  return { notify, defaults: { home: null, dashboardLane: null, pageSize: null, signupsView: null } };
 }
 
 export const MEMBER_SETTINGS_DEFAULTS: MemberSettings = defaultMemberSettings();
@@ -252,7 +273,32 @@ export function resolveMemberSettings(raw: unknown): MemberSettings {
       if (typeof row[c] === "boolean") out.notify[t.id][c] = row[c] as boolean;
     }
   }
+  // the defaults are only SHAPE-checked here; whether a value is still one the
+  // person may use (a lane they lost, a module they left) is checked where it
+  // is read, and a stale one simply falls back
+  const d = isObj(stored.defaults) ? stored.defaults : {};
+  const str = (x: unknown) => (typeof x === "string" && x.length > 0 && x.length < 80 ? x : null);
+  out.defaults = {
+    home: str(d.home) && String(d.home).startsWith("/") ? String(d.home) : null,
+    dashboardLane: str(d.dashboardLane),
+    pageSize: typeof d.pageSize === "number" && Number.isFinite(d.pageSize) ? d.pageSize : null,
+    signupsView: str(d.signupsView),
+  };
   return out;
+}
+
+/** The blob to write back after changing one default — a merge. `null`
+ *  clears it back to the system's own default. */
+export function withPersonalDefault(
+  raw: unknown,
+  key: PersonalDefaultKey,
+  value: string | number | null
+): Record<string, unknown> {
+  const stored: Record<string, unknown> = isObj(raw) ? { ...raw } : {};
+  const defaults = isObj(stored.defaults) ? { ...stored.defaults } : {};
+  if (value === null) delete defaults[key];
+  else defaults[key] = value;
+  return { ...stored, defaults };
 }
 
 /** Does this member still want `topic` on `channel`? Missing settings mean
@@ -472,7 +518,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
     description:
       "Podio cadence for new accounts, who may see the whole function, OGX claiming and referrals, TM's working-hours rules. These apply to everyone in the function, not just you.",
     keywords: ["function", "defaults", "podio", "cadence", "vp", "director", "settings"],
-    kind: { type: "jump", target: "profile-function-defaults", cta: "Open function defaults" },
+    kind: { type: "external", href: "/profile/settings?tab=function", cta: "Open My function" },
     needs: "leadsFunction",
   },
 

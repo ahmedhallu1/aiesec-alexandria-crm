@@ -14,7 +14,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-09-26 · Version: v37.1
+Last updated: 2026-09-26 · Version: v37.2
 
 ---
 
@@ -641,6 +641,11 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | Whose approvals plan a viewer sees | `ApprovalPlanSource` / `laneApprovals` in `src/lib/icx-approvals.ts` · `approvalPlanSourceFor` in `src/server/icx-approvals.ts` |
 | CXP Drive root | `app_settings` `cxp:drive-root` · `cxpRoot()` in `cxp-drive.ts` |
 | TL active/inactive for their team | `setTeamMemberActive` in `actions.ts` · `ActiveToggle` in `profile-view.tsx` · the TL branch of `profilePeople` |
+| Data export (what, who, which reader) | `src/server/exports.ts` · route `src/app/api/export` · `ExportButton` · `src/lib/export/book.ts` |
+| Personal defaults (home, lane, page size, sign-ups view) | `PersonalDefaults` in `lib/member-settings.ts` · `saveMyDefault` · `lib/home-options.ts` |
+| Settings sections per user type | `src/app/(app)/profile/settings/page.tsx` · `settings-hub.tsx` |
+| Membership source / upload / mirror | `membershipSource`, `applyMembershipGrid`, `previewMembershipGrid`, `mirrorMembershipToSheet` in `google/sheets.ts` · `lc-actions.ts` · `membership-upload-dialog.tsx` |
+| New peak / term, handover | `lib/lc-term.ts` · `server/lc-term.ts` · `server/lc-actions.ts` · `lc-settings-section.tsx` |
 | Rows-per-page pickers | `src/lib/page-size.ts` (`DEFAULT_PAGE_SIZE` — never a literal; pinned by `tests/page-size.test.ts`) |
 
 ---
@@ -712,6 +717,55 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-09-26 · v37.2** — **SETTINGS IN SECTIONS, EXPORT EVERYWHERE,
+  MEMBERSHIP IN SODIO, AND A REAL NEW-TERM / NEW-PEAK FLOW.** No migration
+  (everything new lives in `members.settings` and `app_settings`).
+  ① **PLANNING IS THE LEADERS'.** Members (and MMs) no longer receive their
+  managers' planning anywhere: the period-report cron sends TWO versions —
+  leaders (LCP/LCVP/Director/ADMIN_EMAILS) get the plan check and the MM plan
+  list, everyone else the same report without them — and the OGX lane's
+  "VPs' plan vs achieved" card is nulled server-side for non-leaders (an MM
+  keeps their own filed plan).
+  ② **EXPORT, FOR WHAT YOU CAN SEE.** `src/server/exports.ts` is the registry
+  (accounts · sign-ups · approvals · IR calls · partner LCs · CV pool ·
+  membership · members directory · attendance · CXP · dashboard workbook);
+  each export is built by the SAME scoped reader its page uses, with the SAME
+  URL filters (`src/lib/filters-from-params.ts`, now shared by the accounts
+  and sign-ups pages; `src/lib/dashboard-lanes.ts`, now shared by the
+  dashboard page). `/api/export` STREAMS the JSON book (a 4.5 MB body would
+  otherwise be refused) and audit-logs every export; `ExportButton` builds
+  Excel (every sheet) or CSV (one sheet, formula-injection-safe) in the
+  browser. Buttons on Raising, Sign-ups, the Dashboard, Consideration (the
+  open tab), Attendance, Members, CXP and Membership; Settings → My data lists
+  them all. Verified live: an admin exports 3,629 accounts, a Member 60.
+  ③ **SETTINGS, IN SECTIONS SHAPED TO THE PERSON** (`/profile/settings`,
+  `settings-hub.tsx`): Notifications & account (the existing panel) · **My
+  defaults** — home page, dashboard lane, rows per page, Sign-ups view, stored
+  in `members.settings.defaults` and READ by "/", the dashboard, the four
+  paged lists and Sign-ups (`saveMyDefault` validates each against what the
+  person may open) · **My team** (TL: active/inactive) · **My function**
+  (function defaults, moved off the profile) · **My data** · **Handover**
+  (leaders) · **LC & new term** (LCP/admins, `canRunLcTools`).
+  ④ **MEMBERSHIP LIVES IN SODIO** (the LC's decision). `app_settings`
+  `membership:source` defaults to "sodio": the 30-min sheet import is a no-op,
+  and the "CRM — Membership" sheet is a MIRROR (`mirrorMembershipToSheet`
+  rewrites it; per-member edits still write their row). The import was split
+  so a FILE runs the exact same rules (`applyMembershipGrid`), with a dry run
+  (`previewMembershipGrid`: new / changed-with-what / unchanged / unreadable
+  with the reason / leaving). /membership has Upload + Download + "Rewrite the
+  sheet". A plain update is the EB's; a **restart** (whoever isn't on the file
+  goes inactive — history kept) is the LCP's/admins', and refuses a file that
+  would deactivate more people than it lists. Verified: exporting today's 83
+  members and previewing that file = 83 unchanged, 0 new, 0 leaving.
+  ⑤ **NEW PEAK / NEW TERM** (Settings → LC & new term, `lc-actions.ts`,
+  `lib/lc-term.ts`): a PEAK restarts membership and keeps planning; a TERM
+  restarts both. Steps: planning (link the sheet — access checked — or upload
+  the planning workbook .xlsx, parsed by the same `importPlanningSheet` /
+  `importBdB2bPlanning` through `readPlanningTab`; "later" leaves a reminder),
+  membership restart from a file, handover (general + per function + links,
+  `lc:handover`, read by leaders in Settings → Handover), then Start (stamps
+  `lc:term`, keeps `lc:term-history`, fresh checklist, bells the EB).
 
 - **2026-09-26 · v37.1** — **A FRESH CXP DIRECTORY, PLANS THAT FOLLOW THE
   VIEWER, DEPARTED PEOPLE STOP OWING REPORTS, TLs MANAGE THEIR TEAM'S STATUS.**

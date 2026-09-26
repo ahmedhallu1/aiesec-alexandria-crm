@@ -282,6 +282,15 @@ import {
 const ROLE_WORDS = ["lcp", "lcvp", "director", "team leader", "coordinator", "member", "admin"];
 
 function parseSheetRow(row: string[], cols: ColumnMap): SheetMemberRow | null {
+  return parseSheetRowDetailed(row, cols).row;
+}
+
+/** The same parse, saying WHY a row was refused — the membership upload's
+ *  preview shows the reason next to the line (v37.2). */
+function parseSheetRowDetailed(
+  row: string[],
+  cols: ColumnMap
+): { row: SheetMemberRow | null; reason?: string } {
   const at = (field: string) => {
     const i = cols[field];
     return i === undefined ? undefined : row[i];
@@ -299,7 +308,7 @@ function parseSheetRow(row: string[], cols: ColumnMap): SheetMemberRow | null {
   const cleanPhone = phone?.trim();
   // email is OPTIONAL since v24 — a row needs a name plus an email OR a phone
   // (phone-only members sign in with their number until the email lands)
-  if (!name?.trim()) return null;
+  if (!name?.trim()) return { row: null, reason: "No name." };
   const hasEmail = !!cleanEmail && cleanEmail.includes("@");
   const phoneCheck = cleanPhone ? normalizePhone(cleanPhone) : null;
   // canonical +digits when possible so every digit-tail matcher agrees;
@@ -343,7 +352,12 @@ function parseSheetRow(row: string[], cols: ColumnMap): SheetMemberRow | null {
         `(email=${JSON.stringify(cleanEmail)} phone=${JSON.stringify(cleanPhone)} ` +
         `role=${JSON.stringify(role)} function=${JSON.stringify(fns)})`
     );
-    return null;
+    return {
+      row: null,
+      reason: nameProblem
+        ? `The name cell is wrong: ${nameProblem}`
+        : "The cells don't line up with their columns (an email in Phone, a role in Function, or a role we don't know) — check this line.",
+    };
   }
 
   // IDENTITY OR NOTHING (v33.7). This used to test the RAW cell — so a phone
@@ -358,10 +372,10 @@ function parseSheetRow(row: string[], cols: ColumnMap): SheetMemberRow | null {
         `Without one there is no way to tell them apart from a new person, ` +
         `and re-importing would create a duplicate every run.`
     );
-    return null;
+    return { row: null, reason: "No usable email or phone — one of them is required." };
   }
 
-  return {
+  return { row: {
     name: name.trim(),
     email: hasEmail ? cleanEmail : null,
     phone: storedPhone,
@@ -375,8 +389,10 @@ function parseSheetRow(row: string[], cols: ColumnMap): SheetMemberRow | null {
     ],
     stakeholder_name: stakeholder?.trim() || null,
     team_name: teamName?.trim() || null,
-    is_active: (active ?? "Yes").trim().toLowerCase() !== "no",
-  };
+    // "No" / "FALSE" / "0" / "inactive" all mean inactive (an exported file
+    // re-uploaded from Excel may carry any of them)
+    is_active: !["no", "false", "0", "inactive", "n"].includes((active ?? "Yes").trim().toLowerCase()),
+  } };
 }
 
 interface LinkableMember {
@@ -490,7 +506,21 @@ export async function markSheetSeen(key: string, token: string | null): Promise<
 /** Reads the Membership sheet and upserts the members table.
  *  Members missing from the sheet are deactivated (never deleted).
  *  `opts.force` skips the unchanged-since check (manual runs / after edits). */
+/** WHERE MEMBERSHIP LIVES (v37.2). "sodio" (the default since v37.2): Sodio is
+ *  the source of truth — edited, uploaded and exported inside the app — and
+ *  the "CRM — Membership" sheet is a MIRROR Sodio keeps writing. "sheet": the
+ *  old two-way sync, where the 30-minute import reads the sheet back. Set from
+ *  Settings → LC; stored in app_settings `membership:source`. */
+export async function membershipSource(): Promise<"sodio" | "sheet"> {
+  const { data } = await db().from("app_settings").select("value").eq("key", "membership:source").maybeSingle();
+  const v = (data?.value as { source?: string } | null)?.source;
+  return v === "sheet" ? "sheet" : "sodio";
+}
+
 export async function importMembership(opts?: { force?: boolean }): Promise<number> {
+  // SODIO IS THE SOURCE (v37.2): the sheet is a mirror, so reading it back
+  // would undo in-app edits every half hour. -1 = "skipped" (same as unchanged)
+  if ((await membershipSource()) === "sodio") return -1;
   const id = await ensureSpreadsheet("CRM — Membership", MEMBERSHIP_HEADERS);
   // nothing moved on the sheet since the last run → nothing to import (v33.19)
   const change = opts?.force
@@ -503,7 +533,24 @@ export async function importMembership(opts?: { force?: boolean }): Promise<numb
     range: "A1:Z1000",
   });
   const rows = (res.data.values ?? []) as string[][];
+  const count = await applyMembershipGrid(rows, { deactivateMissing: true });
+  await markSheetSeen("seen:membership", change.token);
+  return count;
+}
 
+/**
+ * THE MEMBERSHIP IMPORT, FROM ANY GRID (v37.2) — the Google Sheet, or a file
+ * uploaded in Sodio. One implementation, so an upload obeys every rule the
+ * sheet import learned: columns found by header, shifted rows refused,
+ * identity by email or exact phone, renames cascading, promotions releasing
+ * sign-ups, stale plans pruned, and — with `deactivateMissing` — everyone not
+ * on the list marked inactive (the "restart the membership" of a new peak).
+ * Returns the number of member rows read; 0 when the header isn't recognised.
+ */
+export async function applyMembershipGrid(
+  rows: string[][],
+  opts: { deactivateMissing: boolean }
+): Promise<number> {
   const digitsOf = (s: string | null | undefined) => (s ?? "").replace(/\D/g, "");
   // an email-less member is matched to their DB row by phone tail
   const findPhoneKeyed = async (
@@ -702,7 +749,7 @@ export async function importMembership(opts?: { force?: boolean }): Promise<numb
 
   // deactivate anyone removed from the sheet (admins stay; phone-keyed
   // members are recognized by their phone tail)
-  if (count > 0) {
+  if (opts.deactivateMissing && count > 0) {
     const { data: activeMembers } = await db()
       .from("members")
       .select("id, email, phone")
@@ -725,8 +772,129 @@ export async function importMembership(opts?: { force?: boolean }): Promise<numb
       }
     }
   }
-  await markSheetSeen("seen:membership", change.token);
   return count;
+}
+
+export interface MembershipPreviewLine {
+  /** the line number in the file (the header is line 1) */
+  line: number;
+  name: string;
+  email: string | null;
+  action: "new" | "update" | "same" | "invalid";
+  /** what would change, in words — "Role: Member → Team Leader" */
+  changes: string[];
+  reason?: string;
+}
+
+/** WHAT AN UPLOAD WOULD DO — without doing it (v37.2). The same parse and the
+ *  same identity matching as `applyMembershipGrid`, so the preview and the
+ *  apply can't disagree about who is new, who changes and who leaves. */
+export async function previewMembershipGrid(
+  rows: string[][],
+  opts: { deactivateMissing: boolean }
+): Promise<{
+  headerProblem: string | null;
+  lines: MembershipPreviewLine[];
+  leaving: { name: string; email: string | null }[];
+}> {
+  const cols = mapColumns((rows[0] ?? []) as string[]);
+  if (cols.name === undefined || (cols.email === undefined && cols.phone === undefined)) {
+    return {
+      headerProblem:
+        "The first row must be the headers, with at least Name and Email (or Phone). Download the current membership to get the exact columns.",
+      lines: [],
+      leaving: [],
+    };
+  }
+  const { data: members } = await db()
+    .from("members")
+    .select("id, name, email, phone, role, functions, sub_functions, stakeholder_name, is_active");
+  const all = (members ?? []) as {
+    id: string; name: string; email: string | null; phone: string | null; role: string;
+    functions: string[] | null; sub_functions: string[] | null; stakeholder_name: string | null;
+    is_active: boolean;
+  }[];
+  const digits = (x: string | null | undefined) => (x ?? "").replace(/\D/g, "");
+  const byEmail = new Map(all.filter((m) => m.email).map((m) => [m.email!.toLowerCase(), m]));
+  const matched = new Set<string>();
+  const lines: MembershipPreviewLine[] = [];
+  const fmtList = (a: string[] | null | undefined) => (a ?? []).join(", ") || "—";
+
+  rows.slice(1).forEach((raw, i) => {
+    if (raw.every((c) => !String(c ?? "").trim())) return; // a blank line
+    const { row, reason } = parseSheetRowDetailed(raw, cols);
+    const line = i + 2;
+    if (!row) {
+      const nameCell = cols.name !== undefined ? String(raw[cols.name] ?? "") : "";
+      lines.push({ line, name: nameCell.trim() || "—", email: null, action: "invalid", changes: [], reason });
+      return;
+    }
+    const existing =
+      (row.email ? byEmail.get(row.email) : undefined) ??
+      (row.phone ? all.find((m) => digits(m.phone) && digits(m.phone) === digits(row.phone)) : undefined);
+    if (!existing) {
+      lines.push({ line, name: row.name, email: row.email, action: "new", changes: [] });
+      return;
+    }
+    matched.add(existing.id);
+    const changes: string[] = [];
+    const diff = (label: string, a: string, b: string) => {
+      if (a !== b) changes.push(`${label}: ${a || "—"} → ${b || "—"}`);
+    };
+    diff("Name", existing.name, row.name);
+    diff("Email", existing.email ?? "", row.email ?? "");
+    diff("Phone", existing.phone ?? "", row.phone ?? "");
+    diff("Role", existing.role, row.role);
+    diff("Function", fmtList(existing.functions), fmtList(row.functions));
+    diff("Sub function", fmtList(existing.sub_functions), fmtList(row.sub_functions));
+    diff("Manager", existing.stakeholder_name ?? "", row.stakeholder_name ?? "");
+    diff("Active", existing.is_active ? "Yes" : "No", row.is_active ? "Yes" : "No");
+    lines.push({ line, name: row.name, email: row.email, action: changes.length ? "update" : "same", changes });
+  });
+
+  const anyValid = lines.some((l) => l.action !== "invalid");
+  const leaving =
+    opts.deactivateMissing && anyValid
+      ? all
+          .filter(
+            (m) =>
+              m.is_active &&
+              !matched.has(m.id) &&
+              !env.adminEmails.includes((m.email ?? "").toLowerCase())
+          )
+          .map((m) => ({ name: m.name, email: m.email }))
+          .sort((a, b) => a.name.localeCompare(b.name))
+      : [];
+  return { headerProblem: null, lines, leaving };
+}
+
+/** THE SHEET AS A MIRROR (v37.2): rewrite "CRM — Membership" from Sodio in one
+ *  go — every member, active and not, in the LC's 8 columns. Anyone reading
+ *  the sheet sees the truth; nobody's edit there is read back while Sodio is
+ *  the source. */
+export async function mirrorMembershipToSheet(): Promise<number> {
+  if (await sandboxSuppressed("membership sheet mirror")) return 0;
+  const { data } = await db()
+    .from("members")
+    .select("name, email, phone, role, functions, sub_functions, stakeholder_name, is_active")
+    .order("is_active", { ascending: false })
+    .order("name");
+  const rows = (data ?? []).map((m) => [
+    m.name,
+    m.email ?? "",
+    m.phone ?? "",
+    m.role,
+    (m.functions ?? []).join(", "),
+    (m.sub_functions ?? []).join(", "),
+    m.stakeholder_name ?? "",
+    m.is_active ? "Yes" : "No",
+  ]);
+  await overwriteSheet(
+    "CRM — Membership",
+    ["Name", "Email", "Phone", "Role", "Function", "Sub Function", "Manager", "Active"],
+    rows
+  );
+  return rows.length;
 }
 
 // ------------------------------------------------------------------ teams
@@ -1202,6 +1370,32 @@ async function planningSheetId(): Promise<string> {
   return spreadsheetId;
 }
 
+/** The planning workbook's tabs, uploaded as a file instead of read from the
+ *  Google Sheet (v37.2) — tab name → rows. The same parser reads both. */
+export type PlanningGrids = Record<string, unknown[][]>;
+
+/** One planning tab: from the uploaded workbook when one is given (tab names
+ *  matched loosely — emoji, spaces and case aside), else from the sheet. */
+async function readPlanningTab(
+  spreadsheetId: string | null,
+  tab: string,
+  range: string,
+  grids?: PlanningGrids
+): Promise<unknown[][]> {
+  if (grids) {
+    const key = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const hit = grids[tab] ?? Object.entries(grids).find(([k]) => key(k) === key(tab))?.[1];
+    if (!hit) throw new Error("this tab isn't in the uploaded file");
+    return hit;
+  }
+  const res = await clients().sheets.spreadsheets.values.get({
+    spreadsheetId: spreadsheetId!,
+    range: `'${tab}'!${range}`,
+    valueRenderOption: "UNFORMATTED_VALUE",
+  });
+  return (res.data.values ?? []) as unknown[][];
+}
+
 /** Re-imports the six goal-setting tabs into plan_cells. Returns cell count.
  *  febYear anchors the term (default: current term — Feb of this year, or of
  *  last year when we're in January). `monthsFilter` restricts the import to a
@@ -1209,9 +1403,10 @@ async function planningSheetId(): Promise<string> {
  *  term, which is the right default for any future re-import. */
 export async function importPlanningSheet(
   febYear?: number,
-  monthsFilter?: string[]
+  monthsFilter?: string[],
+  grids?: PlanningGrids
 ): Promise<{ cells: number; skipped: string[] }> {
-  const spreadsheetId = await planningSheetId();
+  const spreadsheetId = grids ? null : await planningSheetId();
 
   // anchor the term in Cairo time (matches src/lib/plan.ts) — the term starts
   // in February, so a January import belongs to the PREVIOUS Feb-anchored term
@@ -1219,7 +1414,6 @@ export async function importPlanningSheet(
   const year = febYear ?? (cairoNow.getMonth() === 0 ? cairoNow.getFullYear() - 1 : cairoNow.getFullYear());
   const months = monthsFilter?.length ? PLAN_MONTHS.filter((m) => monthsFilter.includes(m)) : PLAN_MONTHS;
 
-  const { sheets } = clients();
   const skipped: string[] = [];
   const rows: { fn: string; scope: string; period_start: string; metric: string; value: number }[] = [];
 
@@ -1227,12 +1421,7 @@ export async function importPlanningSheet(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let grid: any[][];
     try {
-      const res = await sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: `'${tab}'!A1:AZ80`,
-        valueRenderOption: "UNFORMATTED_VALUE",
-      });
-      grid = (res.data.values ?? []) as unknown[][];
+      grid = await readPlanningTab(spreadsheetId, tab, "A1:AZ80", grids);
     } catch (e) {
       skipped.push(`${tab}: ${e instanceof Error ? e.message : "unreadable"}`);
       continue;
@@ -1307,24 +1496,21 @@ export async function importPlanningSheet(
  *     Generated" / "IGV Slots" / "IGta slots" / "IGte slots", values in the
  *     row below. The tab's funnel detail below this is riddled with #DIV/0!
  *     errors from unfilled cells — deliberately NOT read. */
-export async function importBdB2bPlanning(febYear?: number): Promise<{ cells: number; skipped: string[] }> {
-  const spreadsheetId = await planningSheetId();
+export async function importBdB2bPlanning(
+  febYear?: number,
+  grids?: PlanningGrids
+): Promise<{ cells: number; skipped: string[] }> {
+  const spreadsheetId = grids ? null : await planningSheetId();
   const cairoNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Africa/Cairo" }));
   const year = febYear ?? (cairoNow.getMonth() === 0 ? cairoNow.getFullYear() - 1 : cairoNow.getFullYear());
   const periodStart = `${year}-02-01`;
 
-  const { sheets } = clients();
   const skipped: string[] = [];
   const rows: { fn: string; scope: string; period_start: string; metric: string; value: number }[] = [];
   const norm = (s: unknown) => String(s ?? "").trim().toLowerCase();
 
   try {
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: "'🎯BD | goal setting'!A1:AZ20",
-      valueRenderOption: "UNFORMATTED_VALUE",
-    });
-    const grid = (res.data.values ?? []) as unknown[][];
+    const grid = await readPlanningTab(spreadsheetId, "🎯BD | goal setting", "A1:AZ20", grids);
     // the marker cell is "BD Goal 26.27" on its own, not a sentence ending in
     // those words — the instructions column above it ("...in your BD goal")
     // would also match a loose `includes`, and land on the wrong column
@@ -1352,12 +1538,7 @@ export async function importBdB2bPlanning(febYear?: number): Promise<{ cells: nu
   }
 
   try {
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: "'🎯B2B | goal setting'!A1:AZ10",
-      valueRenderOption: "UNFORMATTED_VALUE",
-    });
-    const grid = (res.data.values ?? []) as unknown[][];
+    const grid = await readPlanningTab(spreadsheetId, "🎯B2B | goal setting", "A1:AZ10", grids);
     const hdrIdx = grid.findIndex((r) => r.some((c) => norm(c) === "revenue generated"));
     if (hdrIdx >= 0) {
       const hdr = grid[hdrIdx].map((c) => norm(c));

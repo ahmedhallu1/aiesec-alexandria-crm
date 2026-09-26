@@ -602,6 +602,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
   ],
   "summary": "Profile → Settings, a page of its own: for every kind of message, choose your inbox, the app, both or neither — plus phone alerts, how Sodio looks, and shortcuts to everything else about you.",
   "blocks": [
+   {"t": "callout", "tone": "info", "md": "**Since v37.2 Settings is one page in sections, shaped to you** — open it from your [profile](/profile) → Settings. Everyone has **Notifications & account**, **My defaults** (your home page, the dashboard lane you open on, rows per page, the Sign-ups view you land on — saved to your account, the same on every device) and **My data** (download what you can see). A Team Leader also has **My team** (mark members active or inactive), a VP or Director **My function** (the rules your function starts from) and the **Handover** the previous EB left, and the LCP and admins **LC & new term**."},
    {
     "t": "p",
     "md": "Everything you can change about *your own* Sodio lives on one page: **Profile → Settings**. It has a search box at the top that searches the descriptions as well as the titles — so type the problem, not the feature name: *\"too many emails\"*, *\"next step\"*, *\"password\"*, *\"dark\"*, *\"اشعارات\"*. Switches save the moment you flip them; there is no Save button."
@@ -3621,6 +3622,96 @@ export const HELP_ARTICLES: HelpArticle[] = [
   ]
  },
  {
+  "id": "export-data",
+  "title": "Download your data (Excel or CSV)",
+  "emoji": "📥",
+  "category": "getting-started",
+  "audience": "Everyone",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "export",
+   "download",
+   "excel",
+   "csv",
+   "xlsx",
+   "extract",
+   "report",
+   "spreadsheet",
+   "تحميل",
+   "اكسيل",
+   "تصدير"
+  ],
+  "summary": "Every list and dashboard has an Export button: the rows you see, with your filters, as Excel or CSV. Only what you can already see.",
+  "blocks": [
+   {
+    "t": "steps",
+    "title": "Export what's on screen",
+    "items": [
+     "Open the list — [Raising](/accounts), [Sign-ups](/signups), [Consideration](/consideration) (IR calls, CVs, partner LCs, approvals), [Attendance](/attendance), [CXP](/cxp), [Members](/members) — and set the filters you want.",
+     "Press **Export** at the top.",
+     "Pick **Excel (.xlsx)** for everything in one workbook, or a **CSV** (one sheet per file)."
+    ]
+   },
+   {
+    "t": "p",
+    "md": "**The dashboard exports as a workbook**: the lane's totals and conversions, every leaderboard, the MM and team boards and the drills — for the dates, team and member on the filter bar. EB members get the plan-vs-achieved rows too; everyone else gets the numbers without the planning."
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**You can only export what you can see.** Each export is built by the same reader as its page, so a file never holds a row that isn't already on your screen — and every export is recorded in the log. **Settings → My data** lists every export open to you in one place."
+   }
+  ]
+ },
+ {
+  "id": "new-term-peak",
+  "title": "Starting a new peak or term (LCP & admins)",
+  "emoji": "🧭",
+  "category": "leaders",
+  "audience": "The LCP and the admins",
+  "audienceKeys": [
+   "admin",
+   "eb"
+  ],
+  "keywords": [
+   "new term",
+   "new peak",
+   "handover",
+   "restart membership",
+   "planning",
+   "migration",
+   "transition",
+   "تسليم",
+   "ترم جديد",
+   "بيك جديد"
+  ],
+  "summary": "Settings → LC & new term walks you through it: planning (term only), restarting the membership from a file, the handover notes, then Start.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "A **peak** restarts the **membership** — people leave, new ones join — but keeps the **planning**, which belongs to the term (February → January). A **term** restarts both. Everything is in [Settings → LC & new term](/profile/settings?tab=lc)."
+   },
+   {
+    "t": "steps",
+    "title": "The steps",
+    "items": [
+     "**Pick what's starting** — a new peak or a new term.",
+     "**Planning (a new term only)** — paste the new planning sheet's link and press Link & import, or upload the planning workbook (.xlsx). Not ready yet? Tick “I'll add it later”; Sodio reminds you on the same page until it's in.",
+     "**Membership** — download the current list, keep who stays, add who joins, and upload it with **Restart**. Whoever isn't on it is marked inactive: they stop signing in, but their accounts, calls and history stay theirs, and it's reversible. You see every change before anything is written.",
+     "**Handover** — a note for the whole incoming EB, one for each function, and the links they'll need (Drive folders, the planning sheet, forms).",
+     "**Start** — records the new peak or term, starts a fresh checklist, and notifies the EB to read the handover."
+    ]
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**The handover** is read by every VP, Director and the LCP in **Settings → Handover** — the general note, the links, and their own function's notes. The **checklist** keeps the things Sodio can't do for you (Drive access for the new EB, each VP checking their function's defaults, new members signing in with Google once), ticked, so the next LCP sees what was done."
+   }
+  ]
+ },
+ {
   "id": "lc-partnerships",
   "title": "Partnerships with partner LCs",
   "emoji": "🤝",
@@ -5176,6 +5267,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
   ],
   "summary": "The Membership Google Sheet is the source of truth, synced both ways — here's how the EB edits members, what the two email fields mean, how managers default, and what the Reset password button really does.",
   "blocks": [
+   {"t": "callout", "tone": "info", "md": "**Sodio is the membership now (v37.2).** Edit people here, or press **Download**, change the list in Excel, and **Upload** it back: Sodio shows exactly who is new, what changes for whom, and any line it can't read (with the reason) before anything is written. The “CRM — Membership” sheet is a mirror Sodio keeps writing — edits made in the sheet are no longer read back. Team Leaders can also mark their own members inactive from their profile."},
    {
     "t": "p",
     "md": "Membership lives in the **CRM — Membership** Google Sheet, and it's genuinely two-way: the sheet is imported every 30 minutes, and every in-app edit is written straight back to it. Editing is an **EB** power — LCVPs and the LCP/admin on [/membership](/membership); Directors have function authority but don't edit membership."

@@ -19,6 +19,7 @@ import {
 } from "./data-table-kit";
 import { Hint } from "./hint";
 import { WhatsAppIcon } from "./icons";
+import { ExportButton } from "./export-button";
 
 /** v21 — each function has its own MOS, so the KPI set adapts per member:
  *  raising (ICX raising / B2B) → the funnel with OPENS as MOS ·
@@ -510,6 +511,8 @@ export function MembersView({
         <h1 className="flex items-center gap-2 text-2xl font-bold">
           <UsersRound className="size-6 text-primary" /> Members
           {navPending ? <Loader2 className="size-4 animate-spin text-primary" /> : null}
+          {/* the directory + MOS, for the window on the bar (v37.2) */}
+          <ExportButton kind="members_directory" params={searchParams.toString()} className="ml-auto" />
         </h1>
         <p className="text-sm text-muted-foreground">
           The whole LC in one view — info, MOS/KPIs and a direct line to everyone.

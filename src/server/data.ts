@@ -6646,7 +6646,9 @@ export interface OgxDashboardData {
      *  they did file, and the card says so. */
     mode: "month" | "sprint";
     label: string;
-    plan: { applicants: number; accepted: number; approvals: number };
+    /** the planning sheet's numbers — LEADERS ONLY (v37.2): null for
+     *  everyone else, who never receives their managers' planning */
+    plan: { applicants: number; accepted: number; approvals: number } | null;
     /** WHAT THE FUNCTION ACTUALLY DID THIS MONTH (v33.55) — a plan on its own
      *  is a wish; the card exists to be compared. Counted on the sign-ups
      *  WORKED this month (assigned_at, falling back to the sign-up's own
@@ -7012,10 +7014,13 @@ export async function ogxDashboard(
         const own = ((planRows ?? []) as any[]).find((p) => p.member_id === viewer.id);
         // an MM files a MONTH; half of it is the sprint's share (rounded up)
         const halve = (n: number) => (sprintMode ? Math.ceil(n / 2) : n);
+        const sheetReader =
+          viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
         lanePlan = {
           mode: sprintMode ? "sprint" : "month",
           label: win.label,
-          plan: sprintMode ? sprintPlan : monthPlan,
+          // the VPs' plan is for the leaders' eyes (v37.2)
+          plan: sheetReader ? (sprintMode ? sprintPlan : monthPlan) : null,
           achieved: tally(),
           mine: own
             ? {
@@ -7026,6 +7031,8 @@ export async function ogxDashboard(
             : null,
           mineAchieved: own ? tally(viewer.id) : null,
         };
+        // nothing left to show a Member
+        if (!lanePlan.plan && !lanePlan.mine) lanePlan = null;
       }
     }
   }

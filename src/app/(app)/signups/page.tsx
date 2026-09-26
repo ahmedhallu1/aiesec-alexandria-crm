@@ -9,7 +9,8 @@ import {
 import { hasOgxAccess, ogxFunctions } from "@/lib/rbac";
 import { SignupsView } from "@/components/crm/signups-view";
 import type { OgxFunction, SignupLog } from "@/lib/types";
-import { PAGE_SIZES, pageSizeOf } from "@/lib/page-size";
+import { PAGE_SIZES, pageSizeOf, personalPageSize } from "@/lib/page-size";
+import { signupFiltersFromParams } from "@/lib/filters-from-params";
 
 export const metadata = { title: "Sign-ups" };
 
@@ -41,31 +42,24 @@ export default async function SignupsPage({
   const page = Math.max(0, (parseInt(sp.page ?? "1", 10) || 1) - 1);
   // rows per page — anything off the list falls back to the default (a
   // hand-typed ?size can't ask the DB for 10k rows)
-  const size = pageSizeOf(sp.size);
+  const size = pageSizeOf(sp.size, personalPageSize(viewer));
   const [result, planCard, streak] = await Promise.all([
     listSignupsPage(
       viewer,
-      {
-        view: sp.view,
-        fn: fnAll ? undefined : activeFn,
-        batch: sp.batch,
-        program: sp.program,
-        status: sp.status,
-        potential: sp.potential,
-        interested: sp.interested,
-        contacted: sp.contacted,
-        country: sp.country,
-        personStatus: sp.personStatus,
-        assigned: sp.assigned,
-        campaign: sp.campaign,
-        cicMine: sp.cicMine === "1",
-        firstCaller: sp.firstCaller,
-        // validated in listSignupsPage, which also understands a comma list
-        phone: sp.phone,
-        q: sp.q,
-        sort: sp.sort,
-        dir: sp.dir === "asc" ? "asc" : sp.dir === "desc" ? "desc" : undefined,
-      },
+      // MY SIGN-UPS VIEW (v37.2): the view a person picked opens when the URL
+      // names none; `listSignupsPage` still refuses a view they may not open
+      signupFiltersFromParams(
+        sp.view
+          ? sp
+          : {
+              ...sp,
+              view:
+                (await import("@/lib/member-settings")).resolveMemberSettings(
+                  (viewer as { settings?: unknown }).settings
+                ).defaults.signupsView ?? undefined,
+            },
+        fnAll ? undefined : activeFn
+      ),
       page,
       size
     ),
