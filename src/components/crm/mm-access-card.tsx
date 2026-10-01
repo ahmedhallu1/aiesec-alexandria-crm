@@ -100,24 +100,23 @@ function MmRow({ fn, row, floorSize }: { fn: string; row: MmAccessRow; floorSize
           {" · reaches "}
           {reachCount === 0 ? "nobody else" : `${reachCount} ${reachCount === 1 ? "person" : "people"}`}
         </p>
+        <p className="text-[11px] text-muted-foreground/80">{MM_ACCESS_HINT[row.effective]}</p>
       </div>
       {row.override ? <Badge variant="outline" className="text-[10px]">set by you</Badge> : null}
       {pending ? <Loader2 className="size-4 animate-spin text-muted-foreground" /> : null}
       <Select value={row.override ?? "__default"} onValueChange={pick} disabled={pending}>
-        <SelectTrigger size="sm" className="w-52 text-xs">
+        <SelectTrigger size="sm" className="w-full shrink-0 text-xs sm:w-56">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="__default">
             Default — {MM_ACCESS_LABEL[row.role === "Team Leader" ? "team" : "none"].toLowerCase()}
           </SelectItem>
+          {/* the LABEL only — whatever is inside an item is also what the
+              closed trigger shows, and a two-line hint was cut off in it.
+              The hint for the current choice is printed under the name. */}
           {MM_ACCESS_MODES.map((m) => (
-            <SelectItem key={m} value={m}>
-              <span className="flex flex-col">
-                <span>{MM_ACCESS_LABEL[m]}</span>
-                <span className="text-[10px] text-muted-foreground">{MM_ACCESS_HINT[m]}</span>
-              </span>
-            </SelectItem>
+            <SelectItem key={m} value={m}>{MM_ACCESS_LABEL[m]}</SelectItem>
           ))}
         </SelectContent>
       </Select>

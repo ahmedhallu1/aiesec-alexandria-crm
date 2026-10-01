@@ -117,6 +117,9 @@ const LANE = (FAR + NEAR) / 2; // the centre line
 const WALK_Y = NEAR - 5;
 const START_X = 30;
 const FINISH_X = 726;
+/** a road fraction → x. The last 40 units before the gate are its own posts,
+ *  so the man (and every month post) walks the stretch before them. */
+const roadX = (f: number) => START_X + (FINISH_X - START_X - 40) * f;
 
 /** WHAT THE LC IS WALKING TOWARDS — the panel behind the banner (v33.58).
  *
@@ -239,7 +242,11 @@ export function ActivateStrip() {
   const { days, progress, day, total } = state;
   const line = days === 0 ? "TODAY" : days === 1 ? "TOMORROW" : `${days} DAYS`;
 
-  const manX = START_X + (FINISH_X - START_X - 40) * progress;
+  // ONE MAPPING FOR THE MAN AND THE POSTS (v37.5). The man used a road 40
+  // units shorter than the month posts did, so on 1 October (day 61 of 124)
+  // he stood visibly BEFORE the OCT post that was supposed to be under his
+  // feet, and the post read as still ahead. Both now go through roadX.
+  const manX = roadX(progress);
   const man = walker(manX, WALK_Y, 40);
   const posts = monthPosts();
 
@@ -328,8 +335,9 @@ export function ActivateStrip() {
                 that says SEP is a step you can actually feel being taken; the
                 four unlabelled fractions this replaces could not be. */}
             {posts.map((p) => {
-              const x = START_X + (FINISH_X - START_X) * p.at;
-              const done = x <= manX;
+              const x = roadX(p.at);
+              // passed by DATE, not by pixels: the 1st of the month IS the month
+              const done = p.at <= progress + 1e-9;
               return (
                 <g key={p.label}>
                   <rect x={x - 1} y={FAR - 13} width="2" height="13" fill="#ffffff" fillOpacity={done ? 0.75 : 0.28} />

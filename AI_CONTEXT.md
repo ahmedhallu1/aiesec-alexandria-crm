@@ -14,7 +14,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-10-01 · Version: v37.4
+Last updated: 2026-10-01 · Version: v37.5
 
 ---
 
@@ -719,6 +719,17 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-10-01 · v37.5** — Two visual fixes, no migration. ① **The Road to
+  Activate walker stood before the month he was in**: the man was placed on a
+  road 40 units shorter than the month posts were, so on 1 Oct (day 61/124) he
+  sat ~20 units short of OCT and OCT read as not yet passed. One `roadX`
+  mapping now places both, and a post counts as passed by DATE
+  (`p.at <= progress`), not by comparing pixels. ② **MM access select was cut
+  off**: each option carried a two-line hint, and whatever is inside a Radix
+  item is also what the closed trigger shows — so the trigger showed
+  "The wh…". Options are the label only; the hint for the current choice sits
+  under the MM's name, and the trigger is full-width on a phone.
 
 - **2026-10-01 · v37.4** — **THE B2C CALLER AND OUTCOME STOP CANCELLING EACH
   OTHER, AND VPs SET EACH MM'S ACCESS.** No migration.
