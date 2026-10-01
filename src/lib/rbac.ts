@@ -33,6 +33,10 @@ export interface Viewer extends Member {
   isAdmin: boolean;
   /** ids of members whose stakeholder is this viewer (their direct team) */
   teamMemberIds: string[];
+  /** WHOSE WORK THIS MM REACHES, as their VP set it (v37.4, Settings → My
+   *  function → MM access). Undefined = nothing set → the role rule
+   *  (`reachIds` below). Never read this directly — ask `reachIds`. */
+  reachMemberIds?: string[];
   /** set when an admin is test-viewing as this member ("View as" on profile) */
   impersonated?: boolean;
   /** sandbox test view: mutations are journaled and undone on exit, and
@@ -184,11 +188,35 @@ export function scopeFunctions(v: Viewer): AccountFunction[] {
 const isIcxLead = (v: Viewer) =>
   (v.role === "LCVP" || v.role === "Director") && scopeFunctions(v).length > 0;
 
+/** THE PEOPLE WHOSE WORK AN MM REACHES (v37.4).
+ *
+ *  The role rule, unless the function's VP set something for this MM in
+ *  Settings → My function → MM access: a Team Leader reaches their direct
+ *  team, a Coordinator nobody but themself — and the VP can widen either to
+ *  the whole function, or narrow a Team Leader to "only themself" (the
+ *  LC's way of turning a TL into a Coordinator without touching the sheet).
+ *
+ *  Every ACCESS check that used to read `v.role === "Team Leader" &&
+ *  v.teamMemberIds` reads this instead. Structural things — the team card,
+ *  the team plan, the team leaderboard, attendance and PDP — still follow the
+ *  Manager column, because who reports to whom did not change. */
+export function reachIds(v: Viewer): string[] {
+  if (v.role !== "Team Leader" && v.role !== "Coordinator") return [];
+  return v.reachMemberIds ?? (v.role === "Team Leader" ? v.teamMemberIds : []);
+}
+
+/** Does this MM act over OTHER people's work at all? A Team Leader holds the
+ *  seat even with nobody in reach (they still hand the pool to themself); a
+ *  Coordinator only once their VP has given them people. */
+export function actsOverOthers(v: Viewer): boolean {
+  return v.role === "Team Leader" || reachIds(v).length > 0;
+}
+
 export function accountScope(v: Viewer): AccountScope {
   if (master(v)) return { kind: "all" };
   if (isIcxLead(v)) return { kind: "functions", fns: scopeFunctions(v) };
-  if (v.role === "Team Leader")
-    return { kind: "members", ids: [v.id, ...v.teamMemberIds] };
+  if (v.role === "Team Leader" || v.role === "Coordinator")
+    return { kind: "members", ids: [v.id, ...reachIds(v)] };
   return { kind: "members", ids: [v.id] };
 }
 
@@ -556,8 +584,8 @@ export function canReassignAccount(v: Viewer, a: AccountLike): boolean {
   if (isClaimableAccount(v, a)) return true;
   if (isIcxLead(v))
     return a.function != null && scopeFunctions(v).includes(a.function as AccountFunction);
-  if (v.role === "Team Leader")
-    return a.responsible_id != null && [v.id, ...v.teamMemberIds].includes(a.responsible_id);
+  if (actsOverOthers(v))
+    return a.responsible_id != null && [v.id, ...reachIds(v)].includes(a.responsible_id);
   return false;
 }
 
@@ -841,8 +869,8 @@ export function canEditRequestState(v: Viewer, a: AccountLike): boolean {
       scopeFunctions(v).includes(a.function as AccountFunction))
   )
     return true;
-  if (v.role === "Team Leader")
-    return a.responsible_id != null && [v.id, ...v.teamMemberIds].includes(a.responsible_id);
+  if (actsOverOthers(v))
+    return a.responsible_id != null && [v.id, ...reachIds(v)].includes(a.responsible_id);
   if (v.role === "Coordinator" && a.responsible_id === v.id) return true;
   return hasPodioAccess(v) && a.responsible_id === v.id;
 }
@@ -982,8 +1010,7 @@ export function canWorkSignup(v: Viewer, s: SignupRow): boolean {
   if (!ogxFunctions(v).includes(s.fn)) return false;
   if (canEditSignupVpFields(v, s)) return true;
   if (s.assigned_to && s.assigned_to === v.id) return true;
-  if (v.role === "Team Leader" && s.assigned_to && v.teamMemberIds.includes(s.assigned_to))
-    return true;
+  if (s.assigned_to && reachIds(v).includes(s.assigned_to)) return true;
   return false;
 }
 

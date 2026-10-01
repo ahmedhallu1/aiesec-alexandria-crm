@@ -364,7 +364,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "im prompt",
    "broadcast",
    "اعلان",
-   "استبيان"
+   "استبيان",
+   "answers",
+   "results",
+   "who answered",
+   "close it"
   ],
   "summary": "A message the floor meets the next time they open Sodio — and, if you want, an answer back from each of them.",
   "blocks": [
@@ -385,6 +389,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
     "t": "callout",
     "tone": "info",
     "md": "**A skip is recorded too.** You should be able to see who never engaged, rather than a silent gap. Skipping once says the feedback matters and returns tomorrow; skipping twice retires it for good — and because the count lives on the row, that survives a new phone and a cleared browser."
+   },
+   {
+    "t": "p",
+    "md": "**Read the answers (v37.3).** Under the composer on [/admin](/admin), **What the LC answered** lists every prompt you sent: how many it reached, how many answered, skipped or are still waiting, the rating average and spread, every answer with the name and time, and who hasn't answered. **Close it** takes a prompt off the screens still waiting for it — the answers you already have stay. The answers also come out in **Settings → My data** (Prompts + Answers sheets)."
    }
   ]
  },
@@ -602,7 +610,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
   ],
   "summary": "Profile → Settings, a page of its own: for every kind of message, choose your inbox, the app, both or neither — plus phone alerts, how Sodio looks, and shortcuts to everything else about you.",
   "blocks": [
-   {"t": "callout", "tone": "info", "md": "**Since v37.2 Settings is one page in sections, shaped to you** — open it from your [profile](/profile) → Settings. Everyone has **Notifications & account**, **My defaults** (your home page, the dashboard lane you open on, rows per page, the Sign-ups view you land on — saved to your account, the same on every device) and **My data** (download what you can see). A Team Leader also has **My team** (mark members active or inactive), a VP or Director **My function** (the rules your function starts from) and the **Handover** the previous EB left, and the LCP and admins **LC & new term**."},
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**Since v37.2 Settings is one page in sections, shaped to you** — open it from your [profile](/profile) → Settings. Everyone has **Notifications & account**, **My defaults** (your home page, the dashboard lane you open on, rows per page, the Sign-ups view you land on — saved to your account, the same on every device) and **My data** (download what you can see). A Team Leader also has **My team** (mark members active or inactive), a VP or Director **My function** (the rules your function starts from) and the **Handover** the previous EB left, and the LCP and admins **LC & new term**."
+   },
    {
     "t": "p",
     "md": "Everything you can change about *your own* Sodio lives on one page: **Profile → Settings**. It has a search box at the top that searches the descriptions as well as the titles — so type the problem, not the feature name: *\"too many emails\"*, *\"next step\"*, *\"password\"*, *\"dark\"*, *\"اشعارات\"*. Switches save the moment you flip them; there is no Save button."
@@ -994,7 +1006,6 @@ export const HELP_ARTICLES: HelpArticle[] = [
    {
     "t": "p",
     "md": "**Tables are yours too.** Every big table (Raising, Sign-ups, members directory, attendance, the IR-call log…) carries a **⚙ Columns** control: drag columns to reorder, show or hide them, and **Reset** to defaults — dozens of optional columns ship hidden so your table starts clean. Click any header to **sort** (leaderboards even glide into their new order); the little **funnel** button on a column header filters by that column, Google-Sheets style; and the rows-per-page picker (30/50/100/200) lives by the pager. On the Raising table that now covers **every** column — Industry, Type, Proposal (sent / not sent), Deals (has / none) and Podio (requested / not / Checking / Approved / Rejected) each carry their funnel; show the column from ⚙ and filter from its header. On a phone, where cards replace tables, the same filters appear as labelled chips above the list — Raising, Sign-ups and the CV pool all carry them."
-
    },
    {
     "t": "callout",
@@ -1216,7 +1227,8 @@ export const HELP_ARTICLES: HelpArticle[] = [
     ]
    }
   ]
- }, {
+ },
+ {
   "id": "road-to-activate",
   "title": "🏆 What is Activate? (the blue bar at the top)",
   "emoji": "🏆",
@@ -1286,7 +1298,6 @@ export const HELP_ARTICLES: HelpArticle[] = [
    }
   ]
  },
-
  {
   "id": "violet-man",
   "title": "The Violet Man — your AI sidekick",
@@ -2770,7 +2781,10 @@ export const HELP_ARTICLES: HelpArticle[] = [
    "assign 2nd caller",
    "take the call back",
    "المكالمة التانية",
-   "سيك"
+   "سيك",
+   "b2c caller",
+   "b2c outcome",
+   "rang them again"
   ],
   "summary": "CIC hands a contacted-but-status-less sign-up to a second caller to verify and follow up — the first assignee keeps the row and their KPIs, and B2C runs its own selling calls on the same pool.",
   "blocks": [
@@ -2796,6 +2810,11 @@ export const HELP_ARTICLES: HelpArticle[] = [
    {
     "t": "p",
     "md": "**🛍️ B2C rides the same pool — to sell, never to verify.** The B2C crew opens Sign-ups → 📞 CIC across *both* OGX sides (the **Both** chip is their default; OGT/OGV only narrow) and pitches courses, events and student activities to people the first OGX call already reached. A B2C TL hands calls to themself or their team, a Coordinator takes them themself, the LCVP/Director hands to anyone in B2C. One sign-up can carry an open OGX second call *and* an open B2C call at once."
+   },
+   {
+    "t": "callout",
+    "tone": "tip",
+    "md": "**The B2C caller and the outcome stay put (v37.4).** The B2C columns always show the sign-up's *latest* B2C call: recording an outcome no longer clears the caller, and picking the same caller again doesn't start a new call or wipe the outcome. A recorded outcome stays editable in the cell. Pick a *different* caller after an outcome and they get a **new** call — the earlier one stays in the history under whoever made it, and the cell shows it underneath (\"before: Busy · Salma\"). Ringing the same person again yourself? Use **+ Rang them again** on the sign-up, or just tap Call/WhatsApp — the prompt opens a new call when the last one is already recorded."
    },
    {
     "t": "callout",
@@ -3313,7 +3332,8 @@ export const HELP_ARTICLES: HelpArticle[] = [
     "md": "**The confirmation comes from YOU (v33.40).** The IR's booking confirmation is sent from the host's own Gmail when their Google grant allows it — so the IR holds your real address and replies reach you directly. No grant yet? The system mailbox sends it with your address on Reply-To. Either way it is your **@aiesec.net** and never the backup personal Gmail (v33.41): a partner entity abroad must not end up writing to a private inbox."
    }
   ]
- }, {
+ },
+ {
   "id": "ir-call-hand-over",
   "title": "Hand a booked IR call to someone else",
   "emoji": "🤝",
@@ -3404,7 +3424,6 @@ export const HELP_ARTICLES: HelpArticle[] = [
    }
   ]
  },
-
  {
   "id": "consideration-partner-lcs-cvs",
   "title": "Partner LCs & the CV pool",
@@ -3825,7 +3844,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "p",
-    "md": "**Forgot one?** A booked call whose time passed while still unreported gets an **⏰ Time passed — report it** chip, and a banner counts them: *\"N calls need you\"* (bounced emails ride the same count). The banner follows the hierarchy — a member answers for their own calls, a Team Leader for the team's, a VP/Director/LCP for the whole floor — so a clean slate shows **no banner at all**. **Show them** narrows the list to exactly those rows, and a **Waiting to be reported** KPI sits on the dashboard lane."
+    "md": "**Forgot one?** A booked call whose time passed while still unreported gets an **⏰ Time passed — report it** chip, and a banner counts them: *\"N calls need you\"* (bounced emails ride the same count). The banner follows the hierarchy — a member answers for their own calls, a Team Leader for the team's (or the whole function's, if their VP set that in [MM access](/help?a=mm-access)), a VP/Director/LCP for the whole floor — so a clean slate shows **no banner at all**. **Show them** narrows the list to exactly those rows, and a **Waiting to be reported** KPI sits on the dashboard lane. A host who has **left the LC** (inactive) no longer counts: their past calls stay in the log, but nobody is chased to report them (v37.1)."
    },
    {
     "t": "steps",
@@ -5267,10 +5286,14 @@ export const HELP_ARTICLES: HelpArticle[] = [
   ],
   "summary": "The Membership Google Sheet is the source of truth, synced both ways — here's how the EB edits members, what the two email fields mean, how managers default, and what the Reset password button really does.",
   "blocks": [
-   {"t": "callout", "tone": "info", "md": "**Sodio is the membership now (v37.2).** Edit people here, or press **Download**, change the list in Excel, and **Upload** it back: Sodio shows exactly who is new, what changes for whom, and any line it can't read (with the reason) before anything is written. The “CRM — Membership” sheet is a mirror Sodio keeps writing — edits made in the sheet are no longer read back. Team Leaders can also mark their own members inactive from their profile."},
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**Sodio is the membership now (v37.2).** Edit people here, or press **Download**, change the list in Excel, and **Upload** it back: Sodio shows exactly who is new, what changes for whom, and any line it can't read (with the reason) before anything is written. The “CRM — Membership” sheet is a mirror Sodio keeps writing — edits made in the sheet are no longer read back. Team Leaders can also mark their own members inactive from their profile."
+   },
    {
     "t": "p",
-    "md": "Membership lives in the **CRM — Membership** Google Sheet, and it's genuinely two-way: the sheet is imported every 30 minutes, and every in-app edit is written straight back to it. Editing is an **EB** power — LCVPs and the LCP/admin on [/membership](/membership); Directors have function authority but don't edit membership."
+    "md": "Editing is an **EB** power — LCVPs and the LCP/admin on [/membership](/membership); Directors have function authority but don't edit membership. Since v37.2 **Sodio is the source**: the **CRM — Membership** Google Sheet is a mirror Sodio rewrites (**Rewrite the sheet** forces it), and the half-hourly import no longer reads it back. A plain **Upload** updates people; a **restart** upload (whoever isn't on the file goes inactive, history kept) is the LCP's/admins', for a new peak or term."
    },
    {
     "t": "steps",
@@ -5317,7 +5340,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     "faqItems": [
      {
       "q": "Can I just edit the Google Sheet directly?",
-      "a": "For membership, yes — it's the source of truth and imports every 30 minutes (there's also a `Sync now` button on /membership). The MIRROR sheets (Raising Accounts, Visits…) are the opposite: Sodio overwrites them hourly, edit in Sodio."
+      "a": "Not any more — since v37.2 the membership sheet is a MIRROR: Sodio writes it, and edits made there are not read back. Edit in Sodio, or Download → change it in Excel → Upload (you'll see every change before anything is written). The other mirror sheets (Raising Accounts, Visits…) work the same way."
      },
      {
       "q": "Why can't I pick a Member as someone's manager?",
@@ -5365,13 +5388,13 @@ export const HELP_ARTICLES: HelpArticle[] = [
   "blocks": [
    {
     "t": "p",
-    "md": "If you lead a function (LCVP or Director — LCP/admin get all eight: IGV, IGT, B2B, BD, B2C, OGT, OGV, TM), [your profile](/profile) carries a **Function defaults** card. Every switch on it replaces a constant that used to live in the code, and every one is wired to something real. A function whose leader never opens the card behaves exactly as it always did."
+    "md": "If you lead a function (LCVP or Director — LCP/admin get all eight: IGV, IGT, B2B, BD, B2C, OGT, OGV, TM), your function's switches live in **[Settings](/profile/settings?tab=function) → My function** (they moved off the profile in v37.2). Every switch replaces a constant that used to live in the code, and every one is wired to something real. A function whose leader never opens it behaves exactly as it always did. The same page holds **🔑 MM access** — whose work each of your MMs reaches ([how it works](/help?a=mm-access))."
    },
    {
     "t": "steps",
     "items": [
-     "Open [your profile](/profile) and find the **Function defaults** card — one block per function you lead.",
-     "Flip the switches you want. The card only shows the groups your function actually uses — a TM leader never sees a Podio cadence, a B2C leader never sees the OGX pool.",
+     "Open your [profile](/profile) → **Settings** → **My function** — one block per function you lead.",
+     "Flip the switches you want. Only the groups your function actually uses are shown — a TM leader never sees a Podio cadence, a B2C leader never sees the OGX pool.",
      "Hit `Save`. Only the switches on screen are sent; nothing off-screen can be blanked."
     ],
     "title": "Change a default"
@@ -5429,6 +5452,107 @@ export const HELP_ARTICLES: HelpArticle[] = [
      {
       "q": "What does an unset switch mean?",
       "a": "Exactly the behaviour that shipped before the card existed — that's locked by tests, so an LC that never opens it cannot notice it exists."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "mm-access",
+  "title": "MM access — whose work each MM can reach",
+  "emoji": "🔑",
+  "category": "leaders",
+  "audience": "VPs & Directors (and the MMs it's about)",
+  "audienceKeys": [
+   "leaders",
+   "eb",
+   "mm",
+   "admin"
+  ],
+  "keywords": [
+   "mm access",
+   "access",
+   "team leader",
+   "coordinator",
+   "my team",
+   "whole function",
+   "only themself",
+   "permissions",
+   "scope",
+   "who can see",
+   "reach",
+   "turn a tl into a coordinator",
+   "settings",
+   "my function",
+   "vp",
+   "director",
+   "صلاحيات",
+   "تيم ليدر",
+   "كوردينيتور"
+  ],
+  "summary": "A VP or Director decides, for each Team Leader and Coordinator in their function, whether they reach their own team, every member of the function, or only themself.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Until now the role decided it alone: a **Team Leader** reached their direct team, a **Coordinator** reached nobody but themself. Now the function's **LCVP or Director** decides it per MM, from **[Settings](/profile/settings?tab=function) → My function → 🔑 MM access**. It's there for every operations function — **IGV, IGT, B2B & BD, B2C, OGT and OGV** — and the LCP/admin can set it for all of them."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Setting",
+     "What the MM can do"
+    ],
+    "rows": [
+     [
+      "**Their team**",
+      "See and work their own team's accounts, sign-ups and calls — a Team Leader's normal access."
+     ],
+     [
+      "**The whole function**",
+      "See and work every member's accounts, sign-ups and calls in the function — like a Team Leader over the whole floor. Handy for an MM who runs the queue, or covers for a sprint."
+     ],
+     [
+      "**Only themself**",
+      "Their own work only — a Coordinator's normal access. This is how you turn a Team Leader into a Coordinator for access without touching the membership."
+     ],
+     [
+      "**Default**",
+      "No setting: Team Leaders get *their team*, Coordinators get *only themself* — exactly how Sodio behaved before."
+     ]
+    ]
+   },
+   {
+    "t": "steps",
+    "title": "Change an MM's access",
+    "items": [
+     "Open your [profile](/profile) → **Settings** → **My function**.",
+     "In **🔑 MM access**, find the MM (each function you lead has its own list; B2B and BD are one list).",
+     "Pick **Their team**, **The whole function**, **Only themself** — or **Default** to undo your choice. It saves the moment you pick, and the MM gets a bell telling them what changed."
+    ]
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "**What it covers:** whose accounts appear on the MM's Raising list and who they can edit and hand over, whose sign-ups they see under *My sign-ups* and can work or re-assign, who they can hand B2C calls to, which IR calls they answer for (the *calls need you* banner and handing a call over) and whose approvals they can correct. **What it doesn't change:** who reports to whom — the team card, the team plan, the team leaderboard, attendance and PDPs still follow the Manager column."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Does 'The whole function' include the VP's own accounts?",
+      "a": "No — the function's LCVPs, Directors and the LCP aren't part of the floor an MM reaches. It's every Member, Coordinator and Team Leader who works the function."
+     },
+     {
+      "q": "An MM works two functions with different VPs — what wins?",
+      "a": "Each VP sets their own function. Whatever was set explicitly is what counts (a 'none' on one isn't undone by the other function's untouched default); if both set something, the MM reaches the union."
+     },
+     {
+      "q": "Can a Team Leader set this for themself?",
+      "a": "No — it's the function's LCVP/Director (or LCP/admin), and it can't be changed from a test view."
+     },
+     {
+      "q": "I changed it and the MM still sees the old list.",
+      "a": "It applies within about a minute (settings are cached briefly on each server). A refresh after that shows the new reach."
      }
     ]
    }

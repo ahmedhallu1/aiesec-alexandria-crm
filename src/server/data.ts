@@ -1,4 +1,5 @@
 import "server-only";
+import { b2cCallUnrecorded, currentB2cCall } from "@/lib/b2c-cic";
 import { touchPointName } from "@/lib/touch-points";
 import { cache } from "react";
 import { redirect } from "next/navigation";
@@ -8,6 +9,7 @@ import { dashboardCacheKey } from "@/lib/dashboard-cache";
 import { env } from "@/lib/env";
 import {
   considerationFunctions,
+  reachIds,
   accountScope,
   allowedAccountFunctions as _allowedAccountFunctions,
   canSeeLcConcerns as _canSeeLcConcerns,
@@ -260,13 +262,9 @@ async function viewerFunctionSettings(m: {
   }
 }
 
-async function getViewerById(id: string): Promise<Viewer | null> {
-  const { data: member } = await db()
-    .from("members")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle<Member>();
-  if (!member || !member.is_active) return null;
+/** Everything a Viewer carries beyond the member row — one place, so the id
+ *  and email paths can never drift apart. */
+async function assembleViewer(member: Member): Promise<Viewer> {
   const [{ data: team }, fnConf] = await Promise.all([
     db()
       .from("members")
@@ -275,15 +273,62 @@ async function getViewerById(id: string): Promise<Viewer | null> {
       .eq("is_active", true),
     viewerFunctionSettings(member),
   ]);
+  const teamMemberIds = (team ?? []).map((t) => t.id as string);
   return {
     ...member,
     functions: member.functions ?? [],
     sub_functions: member.sub_functions ?? [],
     isAdmin: env.adminEmails.includes((member.email ?? "").toLowerCase()),
-    teamMemberIds: (team ?? []).map((t) => t.id),
+    teamMemberIds,
+    reachMemberIds: await viewerReach(member, teamMemberIds, fnConf.fnSettings),
     openViewFns: fnConf.openViewFns,
     fnSettings: fnConf.fnSettings,
   };
+}
+
+/** AN MM'S REACH (v37.4) — whose work they see and handle, as their VP set it
+ *  (Settings → My function → MM access). `undefined` when nothing was set, so
+ *  `reachIds` in rbac falls back to the role rule and behaviour is exactly as
+ *  before. Only an MM with a "whole function" setting costs a query. */
+async function viewerReach(
+  member: Member,
+  teamMemberIds: string[],
+  fnSettings: Record<string, import("@/lib/function-settings").FunctionSettings>
+): Promise<string[] | undefined> {
+  try {
+    const { resolveMmReach, inMmAccessFloor } = await import("@/lib/mm-access");
+    const maps = Object.fromEntries(
+      Object.entries(fnSettings).map(([fn, conf]) => [fn, conf.mmAccess])
+    );
+    const reach = resolveMmReach(member, maps);
+    if (!reach) return undefined;
+    const ids = new Set<string>(reach.team ? teamMemberIds : []);
+    if (reach.functions.length > 0) {
+      const { data } = await db()
+        .from("members")
+        .select("id, role, functions, sub_functions")
+        .eq("is_active", true);
+      for (const m of (data ?? []) as {
+        id: string; role: string; functions: string[] | null; sub_functions: string[] | null;
+      }[])
+        if (m.id !== member.id && reach.functions.some((fn) => inMmAccessFloor(m, fn)))
+          ids.add(m.id);
+    }
+    return [...ids];
+  } catch {
+    // an addition — if it can't be resolved, the role rule stands
+    return undefined;
+  }
+}
+
+async function getViewerById(id: string): Promise<Viewer | null> {
+  const { data: member } = await db()
+    .from("members")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle<Member>();
+  if (!member || !member.is_active) return null;
+  return assembleViewer(member);
 }
 
 export async function getViewerByEmail(email: string): Promise<Viewer | null> {
@@ -302,23 +347,7 @@ export async function getViewerByEmail(email: string): Promise<Viewer | null> {
     member = data;
   }
   if (!member || !member.is_active) return null;
-  const [{ data: team }, fnConf] = await Promise.all([
-    db()
-      .from("members")
-      .select("id")
-      .eq("stakeholder_id", member.id)
-      .eq("is_active", true),
-    viewerFunctionSettings(member),
-  ]);
-  return {
-    ...member,
-    functions: member.functions ?? [],
-    sub_functions: member.sub_functions ?? [],
-    isAdmin: env.adminEmails.includes((member.email ?? "").toLowerCase()),
-    teamMemberIds: (team ?? []).map((t) => t.id),
-    openViewFns: fnConf.openViewFns,
-    fnSettings: fnConf.fnSettings,
-  };
+  return assembleViewer(member);
 }
 
 // ------------------------------------------------------------------ teams registry
@@ -5951,6 +5980,8 @@ export type SignupListRow = SignupRow & {
    *  B2C MM" and would drift from `updateB2cCic`'s own gate the first time
    *  either changed. */
   my_open_b2c_call_id?: string | null;
+  /** v37.4 — that call already carries an outcome, so a fresh ring is a NEW call */
+  my_b2c_call_recorded?: boolean;
 };
 
 export interface SignupCicCall {
@@ -6028,9 +6059,7 @@ export async function listSignupsPage(
         const seesFloor = (viewer.openViewFns ?? []).some((f) => scopeFns.includes(f as OgxFunction));
         if (!seesFloor)
           q =
-            viewer.role === "Team Leader"
-              ? q.in("assigned_to", [viewer.id, ...viewer.teamMemberIds])
-              : q.eq("assigned_to", viewer.id);
+            q.in("assigned_to", [viewer.id, ...reachIds(viewer)]);
       }
     }
     else if (view === "cic") {
@@ -6061,22 +6090,19 @@ export async function listSignupsPage(
       // a personal inbox when it is their responsibility.
       const leader = viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
       if (leader) q = q.not("assigned_to", "is", null);
-      else if (viewer.role === "Team Leader")
-        q = q.in("assigned_to", [viewer.id, ...viewer.teamMemberIds]);
-      else q = q.eq("assigned_to", viewer.id);
+      // a Team Leader's team — or whatever their VP set as their reach
+      else q = q.in("assigned_to", [viewer.id, ...reachIds(viewer)]);
     }
     else if (view === "team")
-      q = q.in("assigned_to", [viewer.id, ...viewer.teamMemberIds]);
+      q = q.in("assigned_to", [viewer.id, ...reachIds(viewer)]);
     else if (view === "all" || view === "archived") {
       // leaders browse the whole function; non-leaders' archived view is
       // still scoped to what they could otherwise see
       const leader = viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
       if (!leader && view === "archived") {
-        if (viewer.role === "Team Leader")
-          q = q.or(
-            `assigned_to.is.null,assigned_to.in.(${[viewer.id, ...viewer.teamMemberIds].join(",")})`
-          );
-        else q = q.or(`assigned_to.is.null,assigned_to.eq.${viewer.id}`);
+        q = q.or(
+          `assigned_to.is.null,assigned_to.in.(${[viewer.id, ...reachIds(viewer)].join(",")})`
+        );
       }
     }
     // MULTI-SELECT (v33.3) — same rule as the accounts list: a comma-joined
@@ -6266,20 +6292,25 @@ export async function listSignupsPage(
     // implemented and behave as if it were not.
     //
     // Mirrors `updateB2cCic`'s own gate (the assigned caller, or any B2C MM),
-    // so the form the list offers is always one the server will accept. "Open"
-    // means nothing has been recorded yet — a call already marked answered, or
-    // busy/dead, is finished business and must not reopen as a prompt.
+    // so the form the list offers is always one the server will accept.
+    //
+    // It is the LATEST B2C call (v37.4), recorded or not — the same rule the
+    // list's B2C cells and the detail dialog follow. It used to be "the latest
+    // UNRECORDED one", so a B2C caller ringing somebody a second time was
+    // handed the OGX owner's form (and refused) the moment their first call
+    // carried an outcome. `my_b2c_call_recorded` tells the prompt to open a
+    // NEW call for the second ring instead of overwriting the first.
     const b2cMm = seesB2cCicQueue(viewer);
     rows = rows.map((r) => {
       const calls = byId.get(r.id) ?? [];
-      const mine = calls.find(
-        (c) =>
-          c.side === "B2C" &&
-          !c.outcome &&
-          !c.contact_status &&
-          (c.caller_id === viewer.id || b2cMm)
-      );
-      return { ...r, cic_calls: calls, my_open_b2c_call_id: mine?.id ?? null };
+      const latest = currentB2cCall(calls);
+      const mine = latest && (latest.caller_id === viewer.id || b2cMm) ? latest : null;
+      return {
+        ...r,
+        cic_calls: calls,
+        my_open_b2c_call_id: mine?.id ?? null,
+        my_b2c_call_recorded: !!mine && !b2cCallUnrecorded(mine),
+      };
     });
   }
   // COMMENTS ON THE LIST (v33.32.2) — the raising table has carried its
@@ -6457,10 +6488,8 @@ export async function signupReassignTargets(
   const inFn = (m: { functions?: string[]; sub_functions?: string[] }) =>
     [...(m.functions ?? []), ...(m.sub_functions ?? [])].includes(fn);
   let pool = all.filter((m) => inFn(m) && m.role !== "LCP");
-  if (viewer.role === "Team Leader")
-    pool = pool.filter((m) => m.id === viewer.id || viewer.teamMemberIds.includes(m.id));
-  else if (!viewer.isAdmin && !["LCP", "LCVP", "Director"].includes(viewer.role))
-    pool = pool.filter((m) => m.id === viewer.id);
+  if (!viewer.isAdmin && !["LCP", "LCVP", "Director"].includes(viewer.role))
+    pool = pool.filter((m) => m.id === viewer.id || reachIds(viewer).includes(m.id));
   return pool.map((m) => ({ id: m.id, label: m.name }));
 }
 
@@ -6494,9 +6523,7 @@ export async function b2cCicCallerTargets(
   const lead = _master(viewer) || ["LCVP", "Director"].includes(viewer.role);
   const allowed = lead
     ? b2c
-    : viewer.role === "Team Leader"
-      ? b2c.filter((m) => m.id === viewer.id || viewer.teamMemberIds.includes(m.id))
-      : b2c.filter((m) => m.id === viewer.id);
+    : b2c.filter((m) => m.id === viewer.id || reachIds(viewer).includes(m.id));
   return allowed.map((m) => ({ id: m.id, label: m.name }));
 }
 
@@ -8860,4 +8887,76 @@ export async function nextWorkingHoursFor(
     console.error("[next-step] working-hours lookup failed:", e);
     return null;
   }
+}
+
+/** MM ACCESS (v37.4) — the rows the VP's "MM access" card renders: every
+ *  active Team Leader and Coordinator of each operations function this viewer
+ *  leads, with what they reach today (their VP's setting, or the role default)
+ *  and how many people that is. B2B and BD are one block. */
+export interface MmAccessRow {
+  id: string;
+  name: string;
+  role: string;
+  teamSize: number;
+  /** null = no override, the role default applies */
+  override: import("@/lib/mm-access").MmAccess | null;
+  effective: import("@/lib/mm-access").MmAccess;
+}
+export interface MmAccessBlock {
+  fn: string;
+  label: string;
+  floorSize: number;
+  mms: MmAccessRow[];
+}
+
+export async function mmAccessBlocks(viewer: Viewer): Promise<MmAccessBlock[]> {
+  const [{ manageableFunctions, allFunctionSettings }, mm] = await Promise.all([
+    import("./function-settings"),
+    import("@/lib/mm-access"),
+  ]);
+  const keys = [
+    ...new Set(
+      manageableFunctions(viewer)
+        .filter((f) => (mm.MM_ACCESS_FUNCTIONS as readonly string[]).includes(f))
+        .map(mm.mmAccessKey)
+    ),
+  ];
+  if (keys.length === 0) return [];
+  const [all, { data }] = await Promise.all([
+    allFunctionSettings(),
+    db()
+      .from("members")
+      .select("id, name, role, functions, sub_functions, stakeholder_id")
+      .eq("is_active", true)
+      .order("name"),
+  ]);
+  const members = (data ?? []) as {
+    id: string; name: string; role: string;
+    functions: string[] | null; sub_functions: string[] | null; stakeholder_id: string | null;
+  }[];
+  const teamSize = new Map<string, number>();
+  for (const m of members)
+    if (m.stakeholder_id) teamSize.set(m.stakeholder_id, (teamSize.get(m.stakeholder_id) ?? 0) + 1);
+  return keys.map((fn) => {
+    const map = all[fn]?.mmAccess ?? {};
+    const inFn = members.filter((m) => mm.mmAccessFunctionsOf(m).includes(fn));
+    return {
+      fn,
+      label: fn === "B2B" ? "B2B & BD" : fn,
+      floorSize: inFn.filter((m) => mm.inMmAccessFloor(m, fn)).length,
+      mms: inFn
+        .filter((m) => m.role === "Team Leader" || m.role === "Coordinator")
+        .map((m) => {
+          const override = map[m.id] ?? null;
+          return {
+            id: m.id,
+            name: m.name,
+            role: m.role,
+            teamSize: teamSize.get(m.id) ?? 0,
+            override,
+            effective: override ?? mm.defaultMmAccess(m.role),
+          };
+        }),
+    };
+  });
 }

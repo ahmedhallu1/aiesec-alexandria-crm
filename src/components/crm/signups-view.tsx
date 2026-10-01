@@ -1,5 +1,6 @@
 "use client";
 
+import { b2cAssignPlan, b2cCallUnrecorded, currentB2cCall } from "@/lib/b2c-cic";
 import { useCallback, useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -819,7 +820,18 @@ function SignupContactPrompt({
           toast.error("Pick when to call them back.");
           return;
         }
-        const res = await updateB2cCic(b2cCallId, {
+        // a call that already carries an outcome is finished business: a new
+        // ring is a NEW call, never an overwrite of the first one (v37.4)
+        let callId = b2cCallId;
+        if (row.my_b2c_call_recorded) {
+          const fresh = await startB2cCall(row.id);
+          if (!fresh.ok || !fresh.data) {
+            toast.error(fresh.ok ? "Couldn't start the new call." : fresh.error);
+            return;
+          }
+          callId = fresh.data.id;
+        }
+        const res = await updateB2cCic(callId, {
           outcome,
           ...(needsTime ? { callBackAt: new Date(callBack).toISOString() } : {}),
         });
@@ -1470,27 +1482,43 @@ export function SignupsView({
       } else toast.error(res.error);
     });
 
-  /** B2C CIC (v33.29): the open call is the latest B2C row with no outcome —
-   *  assignment replaces its caller, recording closes it, clearing deletes it. */
-  const openB2c = (r: SignupListRow) =>
-    (r.cic_calls ?? []).find((c) => c.side === "B2C" && !c.contact_status) ?? null;
-  const latestB2c = (r: SignupListRow) =>
-    (r.cic_calls ?? []).find((c) => c.side === "B2C") ?? null;
+  /** B2C CIC — THE CALL ON SCREEN IS THE LATEST ONE, RECORDED OR NOT (v37.4).
+   *
+   *  ⚠️ It used to be "the latest B2C row with no outcome", and the two B2C
+   *  cells cancelled each other out: recording an outcome closed the row, so
+   *  the caller cell (which only read OPEN rows) went blank — and re-picking
+   *  yourself there inserted a fresh empty call, which blanked the outcome.
+   *  Production carried exactly that loop (Salma, 1 Oct: "Out of service",
+   *  then a second empty row a minute later). The detail dialog already read
+   *  the latest call since v36; the list now does too. `cic_calls` arrives
+   *  newest first, so the first B2C row IS the latest. */
+  const latestB2c = (r: SignupListRow) => currentB2cCall(r.cic_calls);
+  /** nothing written on the call yet — the only state it can be taken back in */
+  const b2cUnrecorded = (c: SignupCicCall | null) => b2cCallUnrecorded(c);
+  /** the B2C call before the current one — shown under a fresh call so a
+   *  hand-over never looks like the earlier outcome was wiped */
+  const previousB2c = (r: SignupListRow) =>
+    (r.cic_calls ?? []).filter((c) => c.side === "B2C")[1] ?? null;
 
   const assignB2c = (r: SignupListRow, callerId: string) =>
     start(async () => {
       if (callerId === "__none") {
-        const open = openB2c(r);
-        if (!open) return;
-        const res = await clearB2cCic(open.id);
+        const open = latestB2c(r);
+        if (!b2cUnrecorded(open)) return;
+        const res = await clearB2cCic(open!.id);
         if (res.ok) { toast.success("B2C call taken back"); router.refresh(); }
         else toast.error(res.error);
         return;
       }
+      // re-picking whoever already holds the call is not a new call
+      if (b2cAssignPlan(latestB2c(r), callerId) === "noop") return;
       const res = await assignB2cCic(r.id, callerId);
       if (res.ok) {
+        const who = b2cTargets.find((t) => t.id === callerId)?.label ?? "them";
         toast.success(
-          `📞 B2C call handed to ${b2cTargets.find((t) => t.id === callerId)?.label ?? "them"}`
+          res.data?.newCall
+            ? `📞 New B2C call for ${who} — the earlier one stays in the history`
+            : `📞 B2C call handed to ${who}`
         );
         router.refresh();
       } else toast.error(res.error);
@@ -1500,7 +1528,7 @@ export function SignupsView({
    *  supplies the time the reminder needs. */
   const inlineB2cOutcome = (r: SignupListRow, outcome: string, callBackAt?: string) =>
     start(async () => {
-      const open = openB2c(r);
+      const open = latestB2c(r);
       if (!open) return;
       const res = await updateB2cCic(open.id, {
         outcome: outcome || null,
@@ -1518,7 +1546,7 @@ export function SignupsView({
 
   const inlineB2c = (r: SignupListRow, field: "contactStatus" | "interested", v: string) =>
     start(async () => {
-      const open = openB2c(r);
+      const open = latestB2c(r);
       if (!open) return;
       const res = await updateB2cCic(
         open.id,
@@ -1730,13 +1758,14 @@ export function SignupsView({
               inlineCic(r, "interested", v))
           : yn(r.cic_interested);
       case "cic_b2c": {
-        // the SELLING side's caller — assigned from the cell by B2C MMs+
-        const open = openB2c(r);
+        // the SELLING side's caller — assigned from the cell by B2C MMs+.
+        // It reads the LATEST call, so recording an outcome never blanks it.
         const last = latestB2c(r);
+        const open = b2cUnrecorded(last) ? last : null;
         return viewer.canB2cCic && b2cTargets.length > 0 ? (
           <div onClick={(e) => e.stopPropagation()}>
             <Select
-              value={open?.caller_id ?? undefined}
+              value={last?.caller_id ?? undefined}
               onValueChange={(v) => assignB2c(r, v)}
             >
               <SelectTrigger
@@ -1759,9 +1788,9 @@ export function SignupsView({
               </SelectContent>
             </Select>
           </div>
-        ) : open || last ? (
+        ) : last ? (
           <span className="flex items-center gap-1 text-muted-foreground" dir="auto">
-            <PhoneCall className="size-3.5 shrink-0" /> {(open ?? last)!.caller_name}
+            <PhoneCall className="size-3.5 shrink-0" /> {last.caller_name}
           </span>
         ) : (
           <span className="text-muted-foreground">—</span>
@@ -1771,9 +1800,17 @@ export function SignupsView({
         // WHAT HAPPENED, NOT "CALLED YES/NO" (v35.1). Busy, rang out, dead
         // number and "ring me later" are four different situations with four
         // different next moves, and the old control called them all "No".
-        const open = openB2c(r);
+        // the LATEST call, recorded or not — a recorded outcome stays
+        // editable rather than vanishing from the cell (v37.4)
+        const open = latestB2c(r);
         const canRec = open && (open.caller_id === viewer.id || viewer.canB2cCic);
-        const shown = (open ?? latestB2c(r)) ?? null;
+        const shown = open;
+        const prev = b2cUnrecorded(open) ? previousB2c(r) : null;
+        const prevLine = prev?.outcome ? (
+          <span className="block text-[10px] text-muted-foreground" dir="auto">
+            before: {b2cOutcomeLabel(prev.outcome)} · {prev.caller_name}
+          </span>
+        ) : null;
         if (!canRec || !open)
           return shown?.outcome ? (
             <span className="whitespace-nowrap text-xs">
@@ -1788,6 +1825,7 @@ export function SignupsView({
             yn(shown?.contact_status ?? null)
           );
         return (
+          <div onClick={(e) => e.stopPropagation()}>
           <Select
             value={open.outcome ?? "__none"}
             onValueChange={(v) => {
@@ -1813,13 +1851,20 @@ export function SignupsView({
               ))}
             </SelectContent>
           </Select>
+          {open.outcome === "call_back" && open.call_back_at ? (
+            <span className="block text-[10px] text-muted-foreground">
+              {fmtDateTime(open.call_back_at)}
+            </span>
+          ) : null}
+          {prevLine}
+          </div>
         );
       }
       case "cic_b2c_interested": {
-        const open = openB2c(r);
+        const open = latestB2c(r);
         const canRec = open && (open.caller_id === viewer.id || viewer.canB2cCic);
         // an opinion only exists when they actually picked up
-        const reached = b2cOutcomeReached((open ?? latestB2c(r))?.outcome);
+        const reached = b2cOutcomeReached(open?.outcome);
         if (canRec && open && !open.outcome) return <span className="text-muted-foreground">—</span>;
         if (canRec && !reached)
           return <span className="text-xs text-muted-foreground">n/a</span>;

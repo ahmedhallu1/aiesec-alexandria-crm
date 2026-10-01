@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "@/lib/supabase";
-import { considerationFunctions, hasConsiderationAccess, icxFunctions, type Viewer } from "@/lib/rbac";
+import { considerationFunctions, hasConsiderationAccess, icxFunctions, reachIds, type Viewer } from "@/lib/rbac";
 import { accountSlug, cairoToday, normalizeLcName } from "@/lib/types";
 import {
   expaKey,
@@ -74,8 +74,7 @@ export function canEditApproval(
 ): boolean {
   if (!considerationFunctions(viewer).includes(row.function)) return false;
   if (row.logged_by === viewer.id || row.made_by === viewer.id) return true;
-  if (viewer.role === "Team Leader" && row.made_by && viewer.teamMemberIds.includes(row.made_by))
-    return true;
+  if (row.made_by && reachIds(viewer).includes(row.made_by)) return true;
   return isLead(viewer) && hasConsiderationAccess(viewer);
 }
 

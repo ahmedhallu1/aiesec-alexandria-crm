@@ -11,6 +11,7 @@
  */
 
 import { PODIO_UPDATE_DEFAULT_DAYS } from "./types";
+import { resolveMmAccessMap, type MmAccess } from "./mm-access";
 
 /** Which functions have defaults worth setting. Keyed by the string the
  *  membership sheet uses, so a leader's own Function cell resolves directly. */
@@ -71,6 +72,11 @@ export interface FunctionSettings {
   workingHoursAuto: boolean;
   /** this function is judged on working hours at all */
   workingHoursJudged: boolean;
+
+  // ---------------- MM access (v37.4, operations functions)
+  /** per-MM override of whose work they reach — see lib/mm-access.ts. An MM
+   *  with no entry keeps the role rule (TL → team, Coordinator → only self). */
+  mmAccess: Record<string, MmAccess>;
 }
 
 /** THE BUILT-IN BEHAVIOUR, per function — what the code did before 0054. */
@@ -92,6 +98,7 @@ export function functionDefaults(fn: string): FunctionSettings {
     attendanceReminders: true,
     workingHoursAuto: true,
     workingHoursJudged: true,
+    mmAccess: {},
   };
 }
 
@@ -126,6 +133,7 @@ export function resolveFunctionSettings(
     attendanceReminders: bool("attendanceReminders"),
     workingHoursAuto: bool("workingHoursAuto"),
     workingHoursJudged: bool("workingHoursJudged"),
+    mmAccess: resolveMmAccessMap(s.mmAccess),
   };
 }
 

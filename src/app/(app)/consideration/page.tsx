@@ -6,7 +6,7 @@ import {
   myIrBooking,
 } from "@/server/data";
 import {
-  canSeeCvPool, canUseIgtExpectationMail, fnSetting, hasConsiderationAccess, icxFunctions,
+  canSeeCvPool, canUseIgtExpectationMail, fnSetting, hasConsiderationAccess, icxFunctions, reachIds,
 } from "@/lib/rbac";
 import { env } from "@/lib/env";
 import {
@@ -176,7 +176,7 @@ export default async function ConsiderationPage({
         id: viewer.id,
         isVp: viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role),
         // a Team Leader answers for their team's calls too (v33.33)
-        teamIds: viewer.role === "Team Leader" ? viewer.teamMemberIds : [],
+        teamIds: reachIds(viewer),
         showCvs,
         showExpectation,
         // removing a partner LC is an MM-and-up act: it is the shared

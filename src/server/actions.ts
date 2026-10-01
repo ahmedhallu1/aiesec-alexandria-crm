@@ -36,6 +36,8 @@ import {
   master,
   openTargetFunctions,
   reassignTargetScope,
+  reachIds,
+  actsOverOthers,
 } from "@/lib/rbac";
 import {
   cairoDayIso, cascadeMemberRename, checkAccountName, getViewer, logAudit, type PipelineRow,
@@ -4202,11 +4204,26 @@ export async function saveFunctionSettings(
   patch: Record<string, unknown>
 ): Promise<ActionResult> {
   const viewer = await getViewer();
-  const { manageableFunctions, FUNCTION_SETTINGS_TAG } = await import("./function-settings");
+  const { manageableFunctions } = await import("./function-settings");
   if (!manageableFunctions(viewer).includes(fn as never))
     return fail("Only that function's VP or Director can change its defaults.", "forbidden");
-  const { resolveFunctionSettings } = await import("@/lib/function-settings");
 
+  // the per-MM access map has its own action (setMmAccess) with its own
+  // checks — this generic form never writes it, so a stale card can't wipe it
+  const { mmAccess: _ignored, ...cleanPatch } = patch;
+  void _ignored;
+  return writeFunctionSettings(viewer, fn, cleanPatch);
+}
+
+/** The shared write behind saveFunctionSettings and setMmAccess — the caller
+ *  has already checked who may write this function's row. */
+async function writeFunctionSettings(
+  viewer: Viewer,
+  fn: string,
+  patch: Record<string, unknown>
+): Promise<ActionResult> {
+  const { FUNCTION_SETTINGS_TAG } = await import("./function-settings");
+  const { resolveFunctionSettings } = await import("@/lib/function-settings");
   const { data: existing } = await db()
     .from("function_settings")
     .select("settings")
@@ -4244,6 +4261,75 @@ export async function saveFunctionSettings(
   updateTag(FUNCTION_SETTINGS_TAG);
   await logAudit(viewer.id, "function_settings_save", "function", fn, { settings: merged });
   refresh();
+  return { ok: true };
+}
+
+/** AN MM'S ACCESS, SET BY THEIR VP (v37.4) — Settings → My function → MM access.
+ *
+ *  `mode` null clears the override, putting the MM back on the role rule
+ *  (Team Leader → their team, Coordinator → only themself). Only the
+ *  function's own LCVP/Director (or LCP/admin) may set it, only for an active
+ *  Team Leader or Coordinator who actually works that function, and never
+ *  from a test view — it changes what a real person can open. */
+export async function setMmAccess(
+  fn: string,
+  memberId: string,
+  mode: string | null
+): Promise<ActionResult> {
+  const viewer = await getViewer();
+  if (viewer.impersonated)
+    return fail("Change access from your own view, not a test view.", "forbidden");
+  const { manageableFunctions } = await import("./function-settings");
+  const { MM_ACCESS_FUNCTIONS, mmAccessKey, mmAccessFunctionsOf, isMmAccess, MM_ACCESS_LABEL } =
+    await import("@/lib/mm-access");
+  if (!(MM_ACCESS_FUNCTIONS as readonly string[]).includes(fn))
+    return fail("MM access is set for the operations functions only.");
+  const key = mmAccessKey(fn);
+  if (!manageableFunctions(viewer).includes(key as never))
+    return fail("Only that function's VP or Director can set its MMs' access.", "forbidden");
+  if (mode !== null && !isMmAccess(mode)) return fail("Pick team, whole function or only themself.");
+  const { data: mm } = await db()
+    .from("members")
+    .select("id, name, role, functions, sub_functions, is_active")
+    .eq("id", memberId)
+    .maybeSingle<{
+      id: string; name: string; role: string; is_active: boolean;
+      functions: string[] | null; sub_functions: string[] | null;
+    }>();
+  if (!mm || !mm.is_active) return fail("Pick an active member.");
+  if (mm.role !== "Team Leader" && mm.role !== "Coordinator")
+    return fail("Access is set for MMs — Team Leaders and Coordinators.");
+  if (!mmAccessFunctionsOf(mm).includes(key))
+    return fail(`${mm.name} doesn't work ${key === "B2B" ? "B2B / BD" : key}.`);
+
+  const { functionSettingsFor } = await import("./function-settings");
+  const current = (await functionSettingsFor(key)).mmAccess ?? {};
+  const next = { ...current };
+  if (mode === null) delete next[mm.id];
+  else next[mm.id] = mode;
+  const res = await writeFunctionSettings(viewer, key, { mmAccess: next });
+  if (!res.ok) return res;
+  await logAudit(viewer.id, "mm_access_set", "member", mm.id, { fn: key, mode }, {
+    summary:
+      mode === null
+        ? `Put ${mm.name} back on the default ${key} access`
+        : `Set ${mm.name}'s ${key} access to "${MM_ACCESS_LABEL[mode as keyof typeof MM_ACCESS_LABEL]}"`,
+  });
+  if (mode !== null && mode !== (current[mm.id] ?? null)) {
+    const { notifyMembers } = await import("./notify");
+    await notifyMembers(
+      [mm.id],
+      "info",
+      `🔑 Your ${key === "B2B" ? "B2B / BD" : key} access changed`,
+      mode === "function"
+        ? "You can now see and work every member's accounts and sign-ups in the function."
+        : mode === "team"
+          ? "You see and work your own team's accounts and sign-ups."
+          : "You now work alone — your own accounts and sign-ups only.",
+      viewer.id,
+      "/help?a=mm-access"
+    );
+  }
   return { ok: true };
 }
 
@@ -7094,15 +7180,16 @@ export async function reassignSignup(
   if (signup.out_of_process)
     return fail("This sign-up is archived (Out of Process) — revive it first.");
   const isVp = canEditSignupVpFields(viewer, signup);
+  // a Team Leader — or a Coordinator their VP gave people to (v37.4)
   const isLeader =
-    isVp || (viewer.role === "Team Leader" && ogxFunctions(viewer).includes(signup.fn));
+    isVp || (actsOverOthers(viewer) && ogxFunctions(viewer).includes(signup.fn));
   if (!isLeader) return fail("Only Team Leaders and up re-assign sign-ups.", "forbidden");
-  // a TL only touches the pool + their own team's rows — never another team's
+  // a TL only touches the pool + the rows in their reach — never another team's
   if (
     !isVp &&
     signup.assigned_to &&
     signup.assigned_to !== viewer.id &&
-    !viewer.teamMemberIds.includes(signup.assigned_to)
+    !reachIds(viewer).includes(signup.assigned_to)
   )
     return fail("Team Leaders re-assign only their own team's sign-ups.", "forbidden");
   let target: { id: string; name: string } | null = null;
@@ -7123,9 +7210,9 @@ export async function reassignSignup(
     )
       return fail("Pick a member of the sign-up's function.", "forbidden");
     if (
-      viewer.role === "Team Leader" &&
+      !isVp &&
       data.id !== viewer.id &&
-      !viewer.teamMemberIds.includes(data.id)
+      !reachIds(viewer).includes(data.id)
     )
       return fail("Team Leaders assign within their own team.", "forbidden");
     target = data;
@@ -7818,7 +7905,7 @@ export async function assignB2cCic(
   signupId: string,
   callerId: string,
   opts: { quiet?: boolean } = {}
-): Promise<ActionResult> {
+): Promise<ActionResult<{ newCall: boolean }>> {
   const viewer = await getViewer();
   const { seesB2cCicQueue } = await import("./data");
   if (!seesB2cCicQueue(viewer))
@@ -7845,9 +7932,7 @@ export async function assignB2cCic(
   const lcpLevel = master(viewer) || ["LCVP", "Director"].includes(viewer.role);
   if (!lcpLevel) {
     // TL → self + own team · Coordinator → self
-    const mine =
-      caller.id === viewer.id ||
-      (viewer.role === "Team Leader" && viewer.teamMemberIds.includes(caller.id));
+    const mine = caller.id === viewer.id || reachIds(viewer).includes(caller.id);
     if (!mine)
       return fail(
         viewer.role === "Team Leader"
@@ -7855,29 +7940,34 @@ export async function assignB2cCic(
           : "As a B2C Coordinator you take the call yourself — leaders hand out further."
       );
   }
-  // ⚠️ REUSE THE LATEST UNRECORDED CALL — and "unrecorded" means NO OUTCOME,
-  // not "contact_status is null" (v36).
+  // ⚠️ THE CALL IS THE LATEST ROW — RECORDED OR NOT (v37.4).
   //
-  // That old test is what filled one production sign-up with EIGHT rows for the
-  // same caller, five of them carrying no outcome at all. `updateB2cCic` writes
-  // `contact_status`, and the CIC list's inline "called"/"interested" dropdowns
-  // call it directly — so touching either one made the row invisible to this
-  // query, and the next assign inserted a fresh one. Nobody meant to create
-  // any of them.
-  //
-  // The outcome is what v35.1 made the real record of a call, so it is what
-  // decides whether one has been made. A genuinely SECOND call is a deliberate
-  // act now — `startB2cCall`.
-  const { data: openRow } = await db()
+  // v36 reused "the latest call with no outcome", which was half the loop the
+  // floor reported as "the caller and the outcome cancel each other": once an
+  // outcome was recorded that row stopped counting, the list's caller cell
+  // went blank, and picking yourself again INSERTED a fresh empty call — which
+  // blanked the outcome cell in turn. So:
+  //   · the same caller again → nothing to do (it is already theirs)
+  //   · the latest call is still blank → hand THAT call over
+  //   · it was recorded and someone ELSE is picked → a genuinely new call for
+  //     them; the recorded one stays theirs in the history
+  // A second call by the SAME caller stays the deliberate `startB2cCall`.
+  const { data: latest } = await db()
     .from("signup_cic_calls")
-    .select("id, caller_name")
+    .select("id, caller_id, caller_name, outcome, contact_status")
     .eq("signup_id", signupId)
     .eq("side", "B2C")
-    .is("outcome", null)
     .order("created_at", { ascending: false })
     .limit(1)
-    .maybeSingle<{ id: string; caller_name: string }>();
-  if (openRow) {
+    .maybeSingle<{
+      id: string; caller_id: string | null; caller_name: string;
+      outcome: string | null; contact_status: string | null;
+    }>();
+  const { b2cAssignPlan } = await import("@/lib/b2c-cic");
+  const plan = b2cAssignPlan(latest, caller.id);
+  if (plan === "noop") return { ok: true, data: { newCall: false } };
+  let newCall = false;
+  if (latest && plan === "handover") {
     const { error } = await db()
       .from("signup_cic_calls")
       .update({
@@ -7885,16 +7975,17 @@ export async function assignB2cCic(
         assigned_by: viewer.id, assigned_by_name: viewer.name,
         assigned_at: new Date().toISOString(),
       })
-      .eq("id", openRow.id);
+      .eq("id", latest.id);
     if (error) return fail(error.message);
-    await logSignupChange(viewer, signupId, "cic_b2c_assigned", openRow.caller_name, caller.name);
+    await logSignupChange(viewer, signupId, "cic_b2c_assigned", latest.caller_name, caller.name);
   } else {
     const { error } = await db().from("signup_cic_calls").insert({
       signup_id: signupId, side: "B2C", caller_id: caller.id, caller_name: caller.name,
       assigned_by: viewer.id, assigned_by_name: viewer.name,
     });
     if (error) return fail(error.message);
-    await logSignupChange(viewer, signupId, "cic_b2c_assigned", null, caller.name);
+    newCall = !!latest;
+    await logSignupChange(viewer, signupId, "cic_b2c_assigned", latest?.caller_name ?? null, caller.name);
   }
   if (!opts.quiet)
     await import("./notify").then(({ notifyMembers }) =>
@@ -7908,9 +7999,9 @@ export async function assignB2cCic(
         "cic_calls"
       )
     );
-  await logAudit(viewer.id, "cic_b2c_assign", "signup", signupId, { caller: caller.id });
+  await logAudit(viewer.id, "cic_b2c_assign", "signup", signupId, { caller: caller.id, newCall });
   if (!opts.quiet) refresh();
-  return { ok: true };
+  return { ok: true, data: { newCall } };
 }
 
 /** B2C CIC in bulk — same per-row gate, one bell, one refresh. */
@@ -7956,7 +8047,7 @@ export async function bulkAssignB2cCic(
  *  needed a follow-up) and it deserves its own row. It just has to be asked
  *  for. Refused while the latest call is still blank, because that row IS the
  *  unrecorded call — a second empty one would only recreate the pile. */
-export async function startB2cCall(signupId: string): Promise<ActionResult> {
+export async function startB2cCall(signupId: string): Promise<ActionResult<{ id: string }>> {
   const viewer = await getViewer();
   const { seesB2cCicQueue, b2cCicAccess } = await import("./data");
   if (!b2cCicAccess(viewer)) return fail("B2C calls are the B2C crew's.", "forbidden");
@@ -8001,7 +8092,7 @@ export async function startB2cCall(signupId: string): Promise<ActionResult> {
     summary: `Started another B2C call on ${signup.name}`,
   });
   refresh();
-  return { ok: true };
+  return { ok: true, data: made ? { id: made.id } : undefined };
 }
 
 export async function updateB2cCic(
@@ -8089,17 +8180,17 @@ export async function clearB2cCic(callRowId: string): Promise<ActionResult> {
   const viewer = await getViewer();
   const { data: row } = await db()
     .from("signup_cic_calls")
-    .select("id, signup_id, side, caller_id, caller_name, contact_status")
+    .select("id, signup_id, side, caller_id, caller_name, contact_status, outcome")
     .eq("id", callRowId)
     .maybeSingle<{
       id: string; signup_id: string; side: string; caller_id: string | null;
-      caller_name: string; contact_status: string | null;
+      caller_name: string; contact_status: string | null; outcome: string | null;
     }>();
   if (!row || row.side !== "B2C") return { ok: true };
   const { seesB2cCicQueue } = await import("./data");
   if (row.caller_id !== viewer.id && !seesB2cCicQueue(viewer))
     return fail("Only the caller (or a B2C MM) can take the call back.", "forbidden");
-  if (row.contact_status)
+  if (row.contact_status || row.outcome)
     return fail("This call was already recorded — it's history now, not an open hand-out.");
   const { error } = await db().from("signup_cic_calls").delete().eq("id", callRowId);
   if (error) return fail(error.message);
@@ -10046,9 +10137,7 @@ export async function reassignIrCall(
   const lead = isConsiderationLead(viewer);
   const ownsIt =
     call.member_id === viewer.id ||
-    (viewer.role === "Team Leader" &&
-      !!call.member_id &&
-      viewer.teamMemberIds.includes(call.member_id));
+    (!!call.member_id && reachIds(viewer).includes(call.member_id));
   if (!ownsIt && !lead)
     return fail(
       "That call isn't yours to hand over — only its host, their Team Leader or a VP/Director can.",

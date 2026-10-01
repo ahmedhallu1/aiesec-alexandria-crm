@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { getViewer, profilePeople, signupViewsFor, b2cCicAccess } from "@/server/data";
+import { getViewer, profilePeople, signupViewsFor, b2cCicAccess, mmAccessBlocks } from "@/server/data";
 import {
   canRunLcTools, hasConsiderationAccess, hasOgxAccess, hasRaisingAccess, isB2C, ogxFunctions,
 } from "@/lib/rbac";
@@ -31,7 +31,7 @@ export default async function SettingsPage({
   const myFns = manageableFunctions(viewer);
   const isTl = viewer.role === "Team Leader";
 
-  const [settings, fnSettings, people, handover, lc] = await Promise.all([
+  const [settings, fnSettings, people, handover, lc, mmAccess] = await Promise.all([
     memberSettings(viewer.id),
     myFns.length > 0
       ? allFunctionSettings().then((all) => myFns.map((fn) => ({ fn, ...all[fn] })))
@@ -39,6 +39,8 @@ export default async function SettingsPage({
     isTl ? profilePeople(viewer).catch(() => null) : Promise.resolve(null),
     handoverFor(viewer).catch(() => null),
     lcOverview(viewer).catch(() => null),
+    // a test view shows the card, but setMmAccess refuses to save from one
+    myFns.length > 0 ? mmAccessBlocks(viewer).catch(() => []) : Promise.resolve([]),
   ]);
 
   const tabs: HubTab[] = [
@@ -86,6 +88,7 @@ export default async function SettingsPage({
         }}
         team={people ? people.people : isTl ? [] : null}
         fnSettings={fnSettings}
+        mmAccess={mmAccess}
         exports={exportsFor(viewer).map((e) => ({ id: e.id, label: e.label, description: e.description }))}
         handover={handover}
         lc={lc}

@@ -23,6 +23,8 @@ import { SettingsPanel } from "./settings-panel";
 import { ExportButton } from "./export-button";
 import { LcSettingsSection } from "./lc-settings-section";
 import { ActiveToggle, FunctionDefaultsBlock, type FunctionSettingsCard } from "./profile-view";
+import { MmAccessCard } from "./mm-access-card";
+import type { MmAccessBlock } from "@/server/data";
 
 export type HubTab = "notifications" | "defaults" | "team" | "function" | "data" | "handover" | "lc";
 
@@ -30,7 +32,7 @@ const TAB_META: Record<HubTab, { label: string; icon: typeof Bell; blurb: string
   notifications: { label: "Notifications & account", icon: Bell, blurb: "Every email and app notification, your sign-in details, how Sodio looks." },
   defaults: { label: "My defaults", icon: SlidersHorizontal, blurb: "How Sodio opens for you: your home page, dashboard, list sizes." },
   team: { label: "My team", icon: Users, blurb: "The people who report to you — who's active." },
-  function: { label: "My function", icon: Building2, blurb: "The rules your whole function starts from." },
+  function: { label: "My function", icon: Building2, blurb: "Your MMs' access and the rules your whole function starts from." },
   data: { label: "My data", icon: Database, blurb: "Download what you can see, as Excel or CSV." },
   handover: { label: "Handover", icon: BookOpen, blurb: "What the previous EB left for you." },
   lc: { label: "LC & new term", icon: Landmark, blurb: "New peak or term, membership, planning, handover." },
@@ -62,6 +64,7 @@ export function SettingsHub({
   defaults,
   team,
   fnSettings,
+  mmAccess = [],
   exports,
   handover,
   lc,
@@ -78,6 +81,7 @@ export function SettingsHub({
   };
   team: PersonCard[] | null;
   fnSettings: FunctionSettingsCard[];
+  mmAccess?: MmAccessBlock[];
   exports: { id: string; label: string; description: string }[];
   handover: { handover: Handover; functions: string[]; state: LcTermState | null } | null;
   lc: LcOverview | null;
@@ -156,13 +160,16 @@ export function SettingsHub({
             </CardContent>
           </Card>
         ) : tab === "function" ? (
-          <Card>
-            <CardContent className="space-y-4 pt-4">
-              {fnSettings.map((s) => (
-                <FunctionDefaultsBlock key={s.fn} settings={s} />
-              ))}
-            </CardContent>
-          </Card>
+          <div className="space-y-4">
+            <MmAccessCard blocks={mmAccess} />
+            <Card>
+              <CardContent className="space-y-4 pt-4">
+                {fnSettings.map((s) => (
+                  <FunctionDefaultsBlock key={s.fn} settings={s} />
+                ))}
+              </CardContent>
+            </Card>
+          </div>
         ) : tab === "data" ? (
           <div className="grid gap-2">
             {exports.map((e) => (

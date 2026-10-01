@@ -14,7 +14,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-09-26 · Version: v37.3
+Last updated: 2026-10-01 · Version: v37.4
 
 ---
 
@@ -646,6 +646,8 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | Settings sections per user type | `src/app/(app)/profile/settings/page.tsx` · `settings-hub.tsx` |
 | Membership source / upload / mirror | `membershipSource`, `applyMembershipGrid`, `previewMembershipGrid`, `mirrorMembershipToSheet` in `google/sheets.ts` · `lc-actions.ts` · `membership-upload-dialog.tsx` |
 | New peak / term, handover | `lib/lc-term.ts` · `server/lc-term.ts` · `server/lc-actions.ts` · `lc-settings-section.tsx` |
+| MM access (who an MM reaches: team / function / only self) | `src/lib/mm-access.ts` (pure) · `reachIds`/`actsOverOthers` in `rbac.ts` (EVERY access check — never `role === "Team Leader" && teamMemberIds` again) · `viewerReach` in `data.ts` · `setMmAccess` in `actions.ts` · `mmAccessBlocks` + `mm-access-card.tsx` (Settings → My function) |
+| B2C CIC — which call is "the" call, what assigning does | `src/lib/b2c-cic.ts` (pure, tested) · `assignB2cCic` in `actions.ts` · the `cic_b2c*` cells in `signups-view.tsx` |
 | Rows-per-page pickers | `src/lib/page-size.ts` (`DEFAULT_PAGE_SIZE` — never a literal; pinned by `tests/page-size.test.ts`) |
 
 ---
@@ -717,6 +719,53 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-10-01 · v37.4** — **THE B2C CALLER AND OUTCOME STOP CANCELLING EACH
+  OTHER, AND VPs SET EACH MM'S ACCESS.** No migration.
+  ① **B2C CIC: "assign myself, pick an outcome → I'm unassigned; assign
+  myself again → the outcome is gone."** The list's B2C cells read "the latest
+  B2C call with NO outcome", and `assignB2cCic` reused the same row. Recording
+  an outcome closed the row → the caller cell (open rows only) went blank →
+  re-picking yourself INSERTED a fresh empty row → the outcome cell went blank.
+  Production carried it on 1 Oct (Salma: "Out of service", then an empty row a
+  minute later — that one row was deleted). Now `src/lib/b2c-cic.ts` is the one
+  rule: the current call is the LATEST B2C row, recorded or not (the detail
+  dialog has done this since v36); re-picking the same caller is a no-op; a
+  blank call is handed over; a recorded call + a DIFFERENT caller = a new call
+  (the old one stays in History, shown as "before: …" under the cell). A
+  recorded outcome stays editable in the cell. `clearB2cCic` also refuses a row
+  that carries an outcome. The Call/WhatsApp prompt (`my_open_b2c_call_id` +
+  new `my_b2c_call_recorded`) now finds the latest call too and opens a NEW
+  call (`startB2cCall` returns its id) when the last one is recorded — it used
+  to hand a B2C caller with a recorded call the OGX owner's form, which refused.
+  ② **🔑 MM ACCESS** (Settings → My function): the function's LCVP/Director
+  (LCP/admin for all) sets, per Team Leader / Coordinator of IGV · IGT ·
+  B2B&BD (stored once under B2B) · B2C · OGT · OGV: **team** · **whole
+  function** · **only themself** · default (TL → team, Coordinator → self).
+  Stored in `function_settings.settings.mmAccess` ({memberId: mode}); the
+  generic `saveFunctionSettings` strips that key so a stale card can't wipe it,
+  `setMmAccess` validates (active MM who works the function, no test view) and
+  bells the MM. `getViewer` resolves `reachMemberIds` (`viewerReach`: explicit
+  settings only — an explicit "none" is never undone by another function's
+  untouched default; "function" = every active non-leader of that function, one
+  members query only when needed). `reachIds(v)`/`actsOverOthers(v)` in rbac
+  replace every ACCESS use of `role === "Team Leader" && teamMemberIds`:
+  `accountScope`, `canReassignAccount`, `canEditRequestState`,
+  `canWorkSignup`, the sign-ups mine/team/referral/archived views,
+  `signupReassignTargets`, `reassignSignup`, B2C CIC targets + `assignB2cCic`,
+  `reassignIrCall`, `canEditApproval`, the consideration "calls need you" scope.
+  STRUCTURE is untouched on purpose: team card, team plan, team leaderboard,
+  attendance, PDP, calendar-item assignees and email groups still follow the
+  Manager column. Nothing set = byte-for-byte the old behaviour (tested).
+  ③ **Help centre**: new 🔑 MM access article; CIC (the current-call rule),
+  Function defaults (moved to Settings in v37.2 — the article still said
+  profile), Edit the membership (still called the sheet two-way and said
+  "yes, edit the sheet" — wrong since v37.2), Say something to the LC (v37.3's
+  answers + Close it) and Reporting IR calls (departed hosts, v37.1) updated;
+  HELP_VERSION → v37.4; the Violet Man taught the same. **931 tests** (19 new
+  in `tests/mm-access.test.ts`), tsc clean, production build green.
+  ⚠️ Not clicked through in a browser — /signups and /profile/settings need a
+  signed-in session.
 
 - **2026-09-26 · v37.3** — **THE ANSWERS TO "SAY SOMETHING TO THE LC" ARE
   VISIBLE.** Since v34.7 every rating, sentence, acknowledgement and skip was
