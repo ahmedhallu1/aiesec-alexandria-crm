@@ -14,7 +14,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-10-01 · Version: v37.5
+Last updated: 2026-10-01 · Version: v37.6
 
 ---
 
@@ -719,6 +719,31 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 ---
 
 ## 10. Changelog
+
+- **2026-10-01 · v37.6** — **JULES'S 21 SUGGESTIONS, CHECKED ONE BY ONE.**
+  No migration. Two real bugs (neither the one Jules named), one real test gap;
+  the rest verified false and left alone.
+  ① **The sign-up column filters only ever saw the first 1000 rows.**
+  `signupFilterOptions` read each column with `.limit(5000)`, but the API caps
+  every response at 1000 — so OGV's Campaign funnel offered 13 of its 22
+  campaigns (verified against prod: old read 1000 rows / 13, new 2117 / 22).
+  Each column is now paged with `fetchAll` and the five run in parallel; the
+  page catches a failed read and shows no options rather than crashing.
+  ② **TM stats could drop attendance silently.** `tm-stats.ts` chunked the
+  `.in()` by 100 sessions (correct — URL length) but read each chunk in ONE
+  request, so >1000 attendance rows in a chunk (≈15 recorded LC sessions)
+  lost the rest. Each chunk is now paged. Latent — 0 recorded sessions in the
+  last 30 days today.
+  ③ `tests/avatars.test.ts` — the avatar URL builders had no tests.
+  **False, unchanged:** sane-date / dial-codes / filters-from-params /
+  looksLikeEmail "untested" (all already covered) · the bounces retry loop and
+  the pending-prompts guard loop (deliberate, ≤2 and ≤5 iterations) · the
+  "N+1" in tm-stats as described (one query would break the URL) ·
+  `Math.random()` in Meet `requestId` (an idempotency key, not a secret) · the
+  two `dangerouslySetInnerHTML` "XSS" (server-built from the VP's own form,
+  every field escaped; contentEditable needs HTML) · the two "bugs" in
+  comments (they describe fixed history) · the five refactor suggestions
+  (not bugs; high regression risk for no behaviour change).
 
 - **2026-10-01 · v37.5** — Two visual fixes, no migration. ① **The Road to
   Activate walker stood before the month he was in**: the man was placed on a

@@ -5716,15 +5716,28 @@ export async function signupFilterOptions(
       const crewLite = fnCrew.map((m) => ({ id: m.id, name: m.name, is_active: true }));
       const belongsToCurrent = (v: string) =>
         currentNames.has(collapse(v)) || matchMemberByName(v, crewLite) !== null;
-      for (const col of COLUMNS) {
-        const { data } = await db()
-          .from("signups")
-          .select(col)
-          .eq("fn", fn)
-          .not(col, "is", null)
-          .limit(5000);
+      // ⚠️ EVERY ROW, NOT THE FIRST 1000 (v37.6). This was `.limit(5000)` —
+      // but the API returns at most 1000 rows whatever the limit says, so a
+      // funnel was built from the first thousand rows of a column holding
+      // two to seven thousand: OGV's Campaign filter offered 13 of its 22
+      // campaigns and the rest could not be picked at all. `fetchAll` pages
+      // through; the five columns are read in parallel, not one after another.
+      const columnRows = await Promise.all(
+        COLUMNS.map((col) =>
+          fetchAll<Record<string, unknown>>(() =>
+            db()
+              .from("signups")
+              .select(`id, ${col}`)
+              .eq("fn", fn)
+              .not(col, "is", null)
+              .order("id")
+          )
+        )
+      );
+      for (const [ci, col] of COLUMNS.entries()) {
+        const data = columnRows[ci];
         const seen = new Set<string>();
-        for (const row of (data ?? []) as unknown as Record<string, unknown>[]) {
+        for (const row of data) {
           const v = String(row[col] ?? "").trim();
           if (v) seen.add(v);
         }

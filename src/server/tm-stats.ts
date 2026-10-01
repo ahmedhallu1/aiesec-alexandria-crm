@@ -116,12 +116,24 @@ export async function tmStats(viewer: Viewer): Promise<TmStats | null> {
   const kindBy = new Map(recorded.map((t) => [t.id, t.kind]));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const attRows: any[] = [];
+  // Chunked by id (a long `.in()` list breaks the URL) AND paged inside each
+  // chunk (v37.6): the API returns at most 1000 rows per request, and an LC
+  // session alone carries ~70 attendance rows — fifteen of them in one chunk
+  // silently dropped the rest of the register from every number below.
   for (let i = 0; i < recordedIds.length; i += 100) {
-    const { data } = await db()
-      .from("touch_point_attendance")
-      .select("touch_point_id, member_id, status, excused")
-      .in("touch_point_id", recordedIds.slice(i, i + 100));
-    attRows.push(...(data ?? []));
+    const ids = recordedIds.slice(i, i + 100);
+    for (let off = 0; ; off += 1000) {
+      const { data, error } = await db()
+        .from("touch_point_attendance")
+        .select("touch_point_id, member_id, status, excused")
+        .in("touch_point_id", ids)
+        .order("touch_point_id")
+        .order("member_id")
+        .range(off, off + 999);
+      if (error) throw error;
+      attRows.push(...(data ?? []));
+      if ((data ?? []).length < 1000) break;
+    }
   }
 
   let attended = 0, late = 0, absent = 0, excused = 0;

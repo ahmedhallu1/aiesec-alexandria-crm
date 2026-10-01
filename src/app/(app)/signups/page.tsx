@@ -123,7 +123,7 @@ export default async function SignupsPage({
       pageSizeOptions={PAGE_SIZES}
       activeView={result.view}
       views={signupViewsFor(viewer)}
-      filterOptions={await signupFilterOptions(viewer, activeFn)}
+      filterOptions={await signupFilterOptions(viewer, activeFn).catch(() => ({}))}
       firstCallers={firstCallers}
       fns={fns}
       activeFn={activeFn}
