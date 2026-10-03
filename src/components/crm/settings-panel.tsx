@@ -96,7 +96,17 @@ export function SettingsPanel({
       const res = await saveMyNotifyPref(topic, channel, next);
       setSaving(null);
       if (!res.ok) {
-        setValues(before);
+        // (v37.8) put back ONLY the switches this call moved — restoring the
+        // whole snapshot also undid other switches flipped while it was in
+        // flight (they had saved fine)
+        setValues((v) => {
+          const notify = { ...v.notify };
+          for (const t of NOTIFY_TOPICS) {
+            const hit = topic === "all" ? t.channels.includes(channel) : t.id === topic;
+            if (hit) notify[t.id] = { ...notify[t.id], [channel]: before.notify[t.id]?.[channel] };
+          }
+          return { ...v, notify };
+        });
         toast.error(res.error);
       } else if (topic === "all") {
         const what = channel === "email" ? "email" : "app notification";

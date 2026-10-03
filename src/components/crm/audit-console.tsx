@@ -108,10 +108,11 @@ export function AuditConsole({
                 variant="ghost"
                 size="sm"
                 className="h-8"
-                onClick={() =>
+                onClick={() => {
+                  setQ(""); // (v37.8) the box was seeded once and kept the old query after Clear
                   go({ actor: null, action: null, entity: null, cat: null,
-                       outcome: null, q: null, afrom: null, ato: null })
-                }
+                       outcome: null, q: null, afrom: null, ato: null });
+                }}
               >
                 <RotateCcw className="size-3.5" /> Clear
               </Button>

@@ -68,35 +68,46 @@ export function NotificationsBell({
   const [composeOpen, setComposeOpen] = useState(false);
   const [items, setItems] = useState<NotificationRow[] | null>(null);
   const [unread, setUnread] = useState(0);
+  // (v37.8) a failed load used to wipe the list to "All quiet…" (or spin forever)
+  const [loadError, setLoadError] = useState(false);
 
   const load = async () => {
-    const res = await getMyNotifications();
-    if (res.ok && res.data) {
-      setItems(res.data.items);
-      setUnread(res.data.unread);
-    } else {
-      setItems([]);
+    try {
+      const res = await getMyNotifications();
+      if (res.ok && res.data) {
+        setItems(res.data.items);
+        setUnread(res.data.unread);
+        setLoadError(false);
+      } else {
+        setLoadError(true); // keep whatever we already had
+      }
+    } catch {
+      setLoadError(true);
     }
   };
 
   // badge count on mount (light call, no polling) — state is only set inside
   // the promise callback, never synchronously in the effect body
   useEffect(() => {
-    getMyNotifications().then((res) => {
-      if (res.ok && res.data) {
-        setItems(res.data.items);
-        setUnread(res.data.unread);
-      } else {
-        setItems([]);
-      }
-    });
+    getMyNotifications()
+      .then((res) => {
+        if (res.ok && res.data) {
+          setItems(res.data.items);
+          setUnread(res.data.unread);
+        }
+        // on failure items stay null: opening the popup retries via load()
+      })
+      .catch(() => {});
   }, []);
 
   const openPopup = async () => {
     setOpen(true);
     await load();
     if (unread > 0) {
-      markNotificationsRead().then(() => setUnread(0));
+      // (v37.8) only zero the badge when the server actually marked them read
+      markNotificationsRead()
+        .then((r) => { if (r.ok) setUnread(0); })
+        .catch(() => {});
     }
   };
 
@@ -106,6 +117,7 @@ export function NotificationsBell({
         variant="ghost"
         size="icon"
         title="Notifications"
+        aria-label={`Notifications${unread > 0 ? `, ${unread} unread` : ""}`}
         className={cn(
           "relative text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground",
           className
@@ -138,9 +150,18 @@ export function NotificationsBell({
           </DialogHeader>
 
           {items === null ? (
-            <div className="flex justify-center py-6">
-              <Loader2 className="size-5 animate-spin text-primary" />
-            </div>
+            loadError ? (
+              <div className="py-6 text-center text-sm text-muted-foreground">
+                <p>Couldn&apos;t load your notifications.</p>
+                <Button variant="outline" size="sm" className="mt-2" onClick={load}>
+                  Try again
+                </Button>
+              </div>
+            ) : (
+              <div className="flex justify-center py-6">
+                <Loader2 className="size-5 animate-spin text-primary" />
+              </div>
+            )
           ) : items.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
               All quiet… suspiciously quiet 🤫
@@ -157,7 +178,7 @@ export function NotificationsBell({
                     role={go ? "button" : undefined}
                     tabIndex={go ? 0 : undefined}
                     onClick={go}
-                    onKeyDown={go ? (e) => { if (e.key === "Enter") go(); } : undefined}
+                    onKeyDown={go ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } } : undefined}
                     className={cn(
                       "rounded-lg border p-2.5 text-sm",
                       !n.read_at && "border-primary/40 bg-primary/5",
@@ -215,16 +236,23 @@ function BroadcastDialog({
   const [roles, setRoles] = useState<string[]>([]);
   const [memberIds, setMemberIds] = useState<string[]>([]);
   const [targets, setTargets] = useState<{ id: string; label: string; role: string }[]>([]);
+  // (v37.8) the members list used to spin forever when the fetch failed or came back empty
+  const [targetsStatus, setTargetsStatus] = useState<"idle" | "done" | "error">("idle");
   const [alsoEmail, setAlsoEmail] = useState(false);
   const [pending, start] = useTransition();
 
   useEffect(() => {
-    if (open && audience === "members" && targets.length === 0) {
-      listBroadcastTargets().then((res) => {
-        if (res.ok && res.data) setTargets(res.data);
-      });
+    if (open && audience === "members" && targets.length === 0 && targetsStatus === "idle") {
+      listBroadcastTargets()
+        .then((res) => {
+          if (res.ok && res.data) {
+            setTargets(res.data);
+            setTargetsStatus("done");
+          } else setTargetsStatus("error");
+        })
+        .catch(() => setTargetsStatus("error"));
     }
-  }, [open, audience, targets.length]);
+  }, [open, audience, targets.length, targetsStatus]);
 
   const toggle = (list: string[], set: (v: string[]) => void, v: string) =>
     set(list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
@@ -304,7 +332,19 @@ function BroadcastDialog({
           {audience === "members" ? (
             <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto rounded-md border p-2">
               {targets.length === 0 ? (
-                <Loader2 className="size-4 animate-spin text-primary" />
+                targetsStatus === "idle" ? (
+                  <Loader2 className="size-4 animate-spin text-primary" />
+                ) : targetsStatus === "error" ? (
+                  <span className="text-xs text-muted-foreground">
+                    Couldn&apos;t load members.{" "}
+                    <button type="button" className="font-medium text-primary hover:underline"
+                      onClick={() => setTargetsStatus("idle")}>
+                      Retry
+                    </button>
+                  </span>
+                ) : (
+                  <span className="text-xs text-muted-foreground">No members to pick.</span>
+                )
               ) : (
                 targets.map((t) => (
                   <button

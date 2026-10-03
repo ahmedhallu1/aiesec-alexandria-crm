@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { COUNTRIES } from "@/lib/countries";
 import { cn } from "@/lib/utils";
@@ -38,6 +38,10 @@ export function CountryInput({
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const wrapRef = useRef<HTMLDivElement>(null);
+  // (v37.8) ids so assistive tech can follow the arrow-key highlight, and the
+  // last value committed so a pick followed by blur doesn't save twice
+  const listId = useId();
+  const lastCommitted = useRef<string | null>(null);
   const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(
     null
   );
@@ -77,6 +81,7 @@ export function CountryInput({
   const pick = (c: string) => {
     onChange(c);
     setOpen(false);
+    lastCommitted.current = c;
     onCommit?.(c);
   };
 
@@ -89,6 +94,8 @@ export function CountryInput({
         autoComplete="off"
         role="combobox"
         aria-expanded={showList}
+        aria-controls={showList ? listId : undefined}
+        aria-activedescendant={showList ? `${listId}-${clampedActive}` : undefined}
         aria-autocomplete="list"
         onChange={(e) => {
           onChange(e.target.value);
@@ -98,6 +105,8 @@ export function CountryInput({
         onFocus={() => setOpen(true)}
         onBlur={() => {
           setOpen(false);
+          if (lastCommitted.current === value) return;
+          lastCommitted.current = value;
           onCommit?.(value);
         }}
         onKeyDown={(e) => {
@@ -122,6 +131,7 @@ export function CountryInput({
       {showList && rect
         ? createPortal(
             <div
+              id={listId}
               role="listbox"
               data-country-list=""
               // inline pointerEvents beats the body lock Radix applies while
@@ -140,6 +150,7 @@ export function CountryInput({
               {matches.map((c, i) => (
                 <div
                   key={c}
+                  id={`${listId}-${i}`}
                   role="option"
                   aria-selected={i === clampedActive}
                   ref={

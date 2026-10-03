@@ -271,8 +271,9 @@ function PasswordDoor({ route }: { route: LoginRoute }) {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-1.5">
-            <Label>Your email</Label>
+            <Label htmlFor="reset-email">Your email</Label>
             <Input
+              id="reset-email"
               type="email"
               value={resetEmail}
               onChange={(e) => setResetEmail(e.target.value)}

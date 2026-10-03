@@ -466,7 +466,7 @@ function PartnerLcsTab({
             <div className="grid gap-1.5">
               <Label>Name</Label>
               <Input
-                value={lcForm.name || editingLc?.name || ""}
+                value={lcForm.name}
                 onChange={(e) => setLcForm((f) => ({ ...f, name: e.target.value }))}
               />
             </div>
@@ -739,11 +739,17 @@ function PartnerLcsTab({
                   </Hint>
                   {viewer.canManageLcs ? (
                     <Hint label="Edit this LC's name or country">
-                      <Button
+                      <Button aria-label="Edit this LC"
                         size="icon"
                         variant="ghost"
                         className="size-7 shrink-0 text-muted-foreground hover:text-primary"
-                        onClick={() => setEditingLc(lc)}
+                        onClick={() => {
+                          // (v37.8) seed here — Radix never fires onOpenChange(true) for a
+                          // controlled open, so the form used to start blank (saving a
+                          // rename wiped the country) or keep the LAST LC's name.
+                          setLcForm({ name: lc.name, country: lc.country ?? "" });
+                          setEditingLc(lc);
+                        }}
                       >
                         <Pencil className="size-3.5" />
                       </Button>
@@ -751,7 +757,7 @@ function PartnerLcsTab({
                   ) : null}
                   {viewer.canManageLcs ? (
                     <Hint label="Remove this LC — only works when no call or CV still points at it">
-                      <Button
+                      <Button aria-label="Remove this LC"
                         size="icon"
                         variant="ghost"
                         className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
@@ -888,7 +894,7 @@ function PartnerLcsTab({
                 ) : (
                   lc.contacts.map((c, i) => (
                     <div
-                      key={`${c.email ?? c.name ?? i}`}
+                      key={c.manualId ?? `${c.email ?? c.name ?? "ir"}-${i}`}
                       className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-2.5 py-1.5"
                     >
                       <div className="min-w-0">
@@ -913,6 +919,7 @@ function PartnerLcsTab({
                               size="icon"
                               variant="outline"
                               className="size-7"
+                              aria-label={`Notes about ${c.name ?? "this IR"}`}
                               onClick={() => { setNotesAbout(c.manualId!); setNotesFor(lc); }}
                             >
                               <MessageSquare className="size-3.5" />
@@ -923,6 +930,7 @@ function PartnerLcsTab({
                           <Hint label={`WhatsApp ${c.name ?? "them"} — ${c.phone}`}>
                             <Button asChild size="icon" variant="outline" className="size-7">
                               <a
+                                aria-label={`WhatsApp ${c.name ?? "them"}`}
                                 href={`https://wa.me/${c.phone.replace(/[^\d]/g, "")}`}
                                 target="_blank"
                                 rel="noreferrer"
@@ -984,6 +992,9 @@ function LcNotesDialog({
   const notes = lc?.comments ?? [];
   const nameOf = (id: string | null) =>
     id ? people.find((p) => p.manualId === id)?.name ?? "an IR" : null;
+  // (v37.8) an IR picked on LC A is not on LC B's list — the Select went blank
+  // and the note failed with "That IR isn't on this LC." Fall back to the LC.
+  const aboutNow = about !== "lc" && !people.some((p) => p.manualId === about) ? "lc" : about;
 
   return (
     <Dialog
@@ -1001,7 +1012,7 @@ function LcNotesDialog({
 
         <div className="grid gap-2">
           {people.length > 0 ? (
-            <Select value={about} onValueChange={setAbout}>
+            <Select value={aboutNow} onValueChange={setAbout}>
               <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="lc">About the LC</SelectItem>
@@ -1029,7 +1040,7 @@ function LcNotesDialog({
                   if (!lc) return;
                   const res = await addPartnerLcComment({
                     partnerLcId: lc.id,
-                    contactId: about === "lc" ? null : about,
+                    contactId: aboutNow === "lc" ? null : aboutNow,
                     body,
                   });
                   if (!res.ok) toast.error(res.error);
@@ -1383,7 +1394,7 @@ function PartnerLcPicker({
         </Select>
         {manage ? (
           <Hint label="Manage the partner LCs list">
-            <Button
+            <Button aria-label="Manage the partner LCs list"
               type="button"
               variant="ghost"
               size="icon"
@@ -1530,10 +1541,10 @@ function PartnerLcManageDialog({
                     placeholder="Country"
                     className="h-9 w-32"
                   />
-                  <Button size="sm" onClick={saveEdit} disabled={pending || !name.trim()}>
+                  <Button size="sm" aria-label="Save" onClick={saveEdit} disabled={pending || !name.trim()}>
                     {pending ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => setEditingId(null)}>
+                  <Button variant="ghost" size="sm" aria-label="Cancel editing" onClick={() => setEditingId(null)}>
                     <X className="size-4" />
                   </Button>
                 </div>
@@ -1579,12 +1590,12 @@ function PartnerLcManageDialog({
                   {canEdit ? (
                     <div className="flex shrink-0 items-center gap-1">
                       <Hint label="Edit the name / country">
-                        <Button variant="ghost" size="icon" className="size-8" onClick={() => startEdit(lc)}>
+                        <Button aria-label="Edit the name and country" variant="ghost" size="icon" className="size-8" onClick={() => startEdit(lc)}>
                           <Pencil className="size-3.5" />
                         </Button>
                       </Hint>
                       <Hint label="Delete (only when unused)">
-                        <Button
+                        <Button aria-label="Delete this LC"
                           variant="ghost"
                           size="icon"
                           className="size-8 text-muted-foreground hover:text-destructive"
@@ -1673,6 +1684,9 @@ function RecordPartnershipDialog({
   // re-seed when the dialog opens on a (different) LC
   const openKey = open ? `${lc?.id ?? "new"}:${initialProduct ?? ""}` : "";
   const [seededKey, setSeededKey] = useState("");
+  // (v37.8) forget the key on close — otherwise reopening on the same LC (or
+  // "new") matched the old key and brought back the previous IR/date/product.
+  if (!open && seededKey !== "") setSeededKey("");
   if (open && seededKey !== openKey) {
     setSeededKey(openKey);
     setForm({
@@ -1910,6 +1924,9 @@ function AssignPartnershipDialog({
   });
   const openKey = open ? (lc?.id ?? "new") : "";
   const [seededKey, setSeededKey] = useState("");
+  // (v37.8) forget the key on close — otherwise reopening on the same LC (or
+  // "new") matched the old key and brought back the previous IR/date/product.
+  if (!open && seededKey !== "") setSeededKey("");
   if (open && seededKey !== openKey) {
     setSeededKey(openKey);
     setForm({
@@ -2107,7 +2124,9 @@ function PartnershipRoad({
           </Hint>
         ))}
       </span>
-      {canMove ? (
+      {/* (v37.8) "group_made" is the made partnership itself, not a stage anyone
+          picks — it has no option, so the Select rendered blank; show the label */}
+      {canMove && p.stage !== "group_made" ? (
         <Select
           value={p.stage ?? "__none"}
           onValueChange={(v) =>
@@ -2436,7 +2455,7 @@ function TimeSelect({
   // `shrink-0` matters on a phone: these children are fixed width, so any flex
   // squeeze turns straight back into clipping.
   return (
-    <div className="flex shrink-0 items-center gap-1" aria-label={ariaLabel}>
+    <div className="flex shrink-0 items-center gap-1" role="group" aria-label={ariaLabel}>
       <Select value={String(hour12)} onValueChange={(v) => emit(Number(v), minute5, isPm)}>
         <SelectTrigger className="h-9 w-16 gap-1 px-2"><SelectValue /></SelectTrigger>
         <SelectContent>
@@ -2930,7 +2949,7 @@ function BookingLinkCard({ booking, origin }: { booking: MyIrBooking; origin: st
                       ariaLabel="To"
                     />
                     <Hint label="Remove this window">
-                      <Button
+                      <Button aria-label="Remove this window"
                         variant="ghost"
                         size="icon"
                         className="size-9 text-muted-foreground hover:text-destructive"
@@ -3180,9 +3199,11 @@ function IrCallsTab({
   /** the slot has passed and the call is still just "scheduled" */
   const pastDue = useCallback(
     // a host who has LEFT will never report it — not flagged (v37.1)
+    // (v37.8) reads the 60s clock state, not new Date(), so the banner count
+    // (needsAttention) moves when a slot passes, like the row chips do.
     (c: IrCallRow) =>
-      c.status === "scheduled" && new Date(c.called_at) < new Date() && !c.host_inactive,
-    []
+      c.status === "scheduled" && new Date(c.called_at).getTime() < nowTs && !c.host_inactive,
+    [nowTs]
   );
   /** WHOSE PROBLEM IS IT? (v33.33)
    *
@@ -3202,6 +3223,10 @@ function IrCallsTab({
     () => data.scheduled.filter((c) => mine(c) && (pastDue(c) || c.email_bounced_at)),
     [data.scheduled, pastDue, mine]
   );
+  // (v37.8) the "needs you" filter lives only while the banner that toggles it
+  // does — filing the last overdue report used to leave an empty list and no
+  // control to turn the filter off.
+  const needyOn = schedNeedy && needsAttention.length > 0;
   const schedWithOptions = [
     ...new Set(
       data.scheduled.filter((c) => c.member_id !== viewer.id).map((c) => c.member_name)
@@ -3219,7 +3244,7 @@ function IrCallsTab({
       new Date(nowTs)
     );
     const rows = data.scheduled.filter((c) => {
-      if (schedNeedy && !(mine(c) && (pastDue(c) || !!c.email_bounced_at))) return false;
+      if (needyOn && !(mine(c) && (pastDue(c) || !!c.email_bounced_at))) return false;
       if (schedMine && c.member_id !== viewer.id) return false;
       if (schedWith && c.member_name !== schedWith) return false;
       if (schedProduct && c.product !== schedProduct) return false;
@@ -3248,9 +3273,14 @@ function IrCallsTab({
     };
     return [...rows].sort(cmp[schedSort]);
   }, [
-    data.scheduled, schedNeedy, schedMine, schedWith, schedProduct, schedLc,
+    data.scheduled, needyOn, schedMine, schedWith, schedProduct, schedLc,
     schedWhen, schedFlag, schedSort, viewer.id, mine, pastDue, nowTs,
   ]);
+
+  const schedFiltered = !!(
+    schedMine || schedWith || schedLc || schedProduct || schedWhen ||
+    schedFlag || schedSort !== "soonest"
+  );
 
   const canTouch = (c: IrCallRow) => viewer.isVp || c.member_id === viewer.id;
   const [deleting, setDeleting] = useState<IrCallRow | null>(null);
@@ -3335,7 +3365,13 @@ function IrCallsTab({
     );
   };
   const [searchDraft, setSearchDraft] = useState(filters.q ?? "");
-  const anyCallFilter = Object.values(filters).some(Boolean);
+  // (v37.8) sort/dir are how the log is ordered, not a filter: counting them
+  // showed "Clear filters" (and "No calls match these filters") for a bare
+  // column sort that the button could not undo. `has` IS a filter, and the
+  // clear patch below now resets it too.
+  const anyCallFilter = Object.entries(filters).some(
+    ([k, v]) => k !== "sort" && k !== "dir" && !!v
+  );
 
   /** One call-log cell, by column key. */
   const callCell = (c: IrCallRow, key: string): React.ReactNode => {
@@ -3359,7 +3395,7 @@ function IrCallsTab({
       case "actions":
         return canTouch(c) ? (
           <Hint label="Delete this log — for a duplicate or a mistake">
-            <Button
+            <Button aria-label="Delete this log"
               size="icon"
               variant="ghost"
               className="size-7 text-muted-foreground hover:text-destructive"
@@ -3467,7 +3503,7 @@ function IrCallsTab({
                 onClick={() => setSchedNeedy((v) => !v)}
                 className={cn(
                   "flex w-full items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-left text-sm transition-colors hover:bg-amber-500/15",
-                  schedNeedy && "ring-2 ring-amber-500/40"
+                  needyOn && "ring-2 ring-amber-500/40"
                 )}
               >
                 <CalendarClock className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
@@ -3478,11 +3514,12 @@ function IrCallsTab({
                   passed with no report, or the IR&apos;s email bounced.
                 </span>
                 <span className="shrink-0 text-xs font-semibold text-amber-700 dark:text-amber-400">
-                  {schedNeedy ? "Show all" : "Show them"}
+                  {needyOn ? "Show all" : "Show them"}
                 </span>
               </button>
             ) : null}
-            {data.scheduled.length > 3 ? (
+            {/* (v37.8) also shown while any filter is set, even with <=3 calls left */}
+            {data.scheduled.length > 3 || schedFiltered ? (
               <div className="flex flex-wrap items-center gap-2 pb-1">
                 <Hint label="Only the calls you take">
                   <Button
@@ -3584,10 +3621,9 @@ function IrCallsTab({
                     <SelectItem value="booked">Sort: just booked</SelectItem>
                   </SelectContent>
                 </Select>
-                {schedMine || schedWith || schedLc || schedProduct || schedWhen ||
-                schedFlag || schedSort !== "soonest" ? (
+                {schedFiltered ? (
                   <Hint label="Clear the filters">
-                    <Button
+                    <Button aria-label="Clear the filters"
                       variant="ghost"
                       size="icon"
                       className="size-8 text-muted-foreground"
@@ -3758,7 +3794,7 @@ function IrCallsTab({
                       </Hint>
                     ) : null}
                     <Hint label="Cancel this call — the IR gets your reason by email">
-                      <Button
+                      <Button aria-label="Cancel this call"
                         variant="ghost"
                         size="icon"
                         className="size-9 text-muted-foreground hover:text-destructive"
@@ -3903,7 +3939,7 @@ function IrCallsTab({
                 size="sm"
                 onClick={() => {
                   setSearchDraft("");
-                  onFilter({ q: "", product: "", status: "", member: "", lc: "", from: "", to: "" });
+                  onFilter({ q: "", product: "", status: "", member: "", lc: "", has: "", from: "", to: "" });
                 }}
               >
                 <X className="size-4" /> Clear filters
@@ -4264,6 +4300,18 @@ function ManualCallForm({
 
 /** The in-call notes: fills demand + notes + screenshot and
  *  flips the scheduled call to completed. */
+/* (v37.8) Hoisted out of IrCallDetailDialog: defined inside the render it was a
+ * NEW component type every keystroke, so the "Fix it" email Input remounted and
+ * lost focus after each character (the phone keyboard closed). */
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-[7rem_1fr] items-start gap-2 text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <div className="min-w-0 break-words" dir="auto">{children}</div>
+    </div>
+  );
+}
+
 /** THE WHOLE CALL ON ONE CARD (v33.29 part 2) — every row in the scheduled
  *  list and the log opens into this: who the IR is (role, email, phone), when
  *  in BOTH clocks, what they want to talk about, the Meet link, the host, the
@@ -4281,8 +4329,19 @@ function IrCallDetailDialog({
   const router = useRouter();
   const [fixOpen, setFixOpen] = useState(false);
   const [newEmail, setNewEmail] = useState("");
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const chip = call ? (CALL_STATUS_CHIP[call.status] ?? CALL_STATUS_CHIP.completed) : null;
+
+  // (v37.8) a fix box opened (and prefilled) on call A must not follow the
+  // dialog onto call B — "Save & re-invite" would move B's Meet invite to A's
+  // address. Reset whenever the call changes or the dialog closes.
+  if (!call && loadedFor !== null) setLoadedFor(null);
+  if (call && loadedFor !== call.id) {
+    setFixOpen(false);
+    setNewEmail("");
+    setLoadedFor(call.id);
+  }
 
   const submitFix = () => {
     if (!call) return;
@@ -4303,13 +4362,6 @@ function IrCallDetailDialog({
       router.refresh();
     });
   };
-
-  const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
-    <div className="grid grid-cols-[7rem_1fr] items-start gap-2 text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      <div className="min-w-0 break-words" dir="auto">{children}</div>
-    </div>
-  );
 
   return (
     <Dialog open={!!call} onOpenChange={(o) => { if (!o) { setFixOpen(false); setNewEmail(""); onClose(); } }}>
@@ -4749,6 +4801,16 @@ function RequestRescheduleDialog({
   const router = useRouter();
   const [pending, start] = useTransition();
   const [why, setWhy] = useState("");
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+
+  // (v37.8) same reset the sibling Cancel/HandOver dialogs do: a reason typed
+  // for call A (then dismissed) must never come back prefilled on call B's
+  // "goes to them word for word" email.
+  if (!call && loadedFor !== null) setLoadedFor(null);
+  if (call && loadedFor !== call.id) {
+    setWhy("");
+    setLoadedFor(call.id);
+  }
   const ask = () => {
     if (!call) return;
     if (why.trim().length < 3) {
@@ -4848,8 +4910,14 @@ function DriveImportDialog({
   const [running, setRunning] = useState(false);
   const [scanning, startScan] = useTransition();
 
+  // (v37.8) bumped on close: a scan that returns after the dialog was closed
+  // must not repaint a plan (and an LC guess) into the next opening
+  const scanToken = useRef(0);
+
   const reset = () => {
+    scanToken.current++;
     setLink("");
+    setLcId("");
     setPlan(null);
     setPicked(new Set());
     setResults({});
@@ -4858,7 +4926,9 @@ function DriveImportDialog({
 
   const scan = () =>
     startScan(async () => {
+      const token = scanToken.current;
       const res = await scanDriveCvFolder(link);
+      if (token !== scanToken.current) return;
       if (!res.ok || !res.data) {
         toast.error(res.ok ? "Couldn't read that folder." : res.error);
         return;
@@ -4885,6 +4955,7 @@ function DriveImportDialog({
     let imported = 0;
     let skipped = 0;
     let failed = 0;
+    const failedIds = new Set<string>();
     for (let i = 0; i < todo.length; i++) {
       const c = todo[i];
       setProgress({ done: i, total: todo.length, current: c.person ?? c.name });
@@ -4902,6 +4973,7 @@ function DriveImportDialog({
         });
         if (!res.ok) {
           failed++;
+          failedIds.add(c.fileId);
           setResults((r) => ({ ...r, [c.fileId]: { ok: false, text: res.error } }));
         } else if (res.data?.status === "skipped") {
           skipped++;
@@ -4918,12 +4990,14 @@ function DriveImportDialog({
         }
       } catch {
         failed++;
+        failedIds.add(c.fileId);
         setResults((r) => ({ ...r, [c.fileId]: { ok: false, text: "lost the connection" } }));
       }
     }
     setProgress(null);
     setRunning(false);
-    setPicked(new Set());
+    // (v37.8) the failures stay ticked, so "Import" retries just them
+    setPicked(failedIds);
     toast.success(
       `${imported} CV${imported === 1 ? "" : "s"} imported` +
         (skipped ? ` · ${skipped} already in the pool` : "") +
@@ -5012,7 +5086,7 @@ function DriveImportDialog({
                       type="checkbox"
                       className="mt-1 size-4 accent-primary"
                       checked={picked.has(c.fileId)}
-                      disabled={already || running || !!result}
+                      disabled={already || running || !!result?.ok}
                       onChange={() => toggle(c.fileId)}
                     />
                     <span className="min-w-0 flex-1">
@@ -5175,6 +5249,8 @@ function CvsTab({
       setPhase("uploading");
       let done = 0;
       const troubles: string[] = [];
+      // (v37.8) the files whose upload actually threw — only these stay picked
+      const failed: File[] = [];
       try {
         for (let i = 0; i < files.length; i++) {
           const f = files[i];
@@ -5187,6 +5263,7 @@ function CvsTab({
               troubles.push(`"${f.name}" can't be auto-read — fill its fields manually`);
             else if (status !== "done") troubles.push(`"${f.name}": extraction didn't stick — try Re-run`);
           } catch (e) {
+            failed.push(f);
             troubles.push(`"${f.name}": ${e instanceof Error ? e.message : "failed"}`);
           }
         }
@@ -5196,7 +5273,9 @@ function CvsTab({
           );
         for (const t of troubles) toast(t);
         if (done > 0) {
-          setFiles([]);
+          // keep the failed ones picked so the retry is one tap, not a hunt
+          // through the toasts for which files to find again
+          setFiles(failed);
           router.refresh();
         }
       } finally {
@@ -5228,13 +5307,20 @@ function CvsTab({
     const win = window.open("about:blank", "_blank");
     if (win) win.opener = null;
     start(async () => {
-      const res = await getCvFileUrl(cv.id);
-      if (res.ok && res.data) {
-        if (win) win.location.href = res.data.url;
-        else window.open(res.data.url, "_blank");
-      } else if (!res.ok) {
+      // (v37.8) a throw (dropped connection) or an ok-without-data used to leave
+      // the pre-opened blank tab behind with no message
+      try {
+        const res = await getCvFileUrl(cv.id);
+        if (res.ok && res.data) {
+          if (win) win.location.href = res.data.url;
+          else window.open(res.data.url, "_blank");
+        } else {
+          win?.close();
+          toast.error(res.ok ? "Could not open the file." : res.error);
+        }
+      } catch {
         win?.close();
-        toast.error(res.error);
+        toast.error("Couldn't reach the server — check your connection and try again.");
       }
     });
   };
@@ -5428,6 +5514,7 @@ function CvsTab({
                 <Button
                   variant="outline"
                   size="sm"
+                  aria-label="Re-run the AI read"
                   onClick={() => rerun(cv)}
                   disabled={rerunning === cv.id}
                 >
@@ -5442,7 +5529,7 @@ function CvsTab({
             {canManage ? (
               <>
                 <Hint label="Delete this CV (file included)">
-                  <Button
+                  <Button aria-label="Delete this CV"
                     variant="ghost"
                     size="icon"
                     className="size-8 text-destructive hover:text-destructive"
@@ -5788,12 +5875,12 @@ function CvsTab({
                       {canManage ? (
                         <>
                           <Hint label="Fix the extracted fields">
-                            <Button variant="ghost" size="icon" className="size-9" onClick={() => setEditing(cv)}>
+                            <Button aria-label="Fix the extracted fields" variant="ghost" size="icon" className="size-9" onClick={() => setEditing(cv)}>
                               <Pencil className="size-4" />
                             </Button>
                           </Hint>
                           <Hint label="Delete this CV (file included)">
-                            <Button
+                            <Button aria-label="Delete this CV"
                               variant="ghost"
                               size="icon"
                               className="size-9 text-destructive hover:text-destructive"
@@ -5897,14 +5984,20 @@ function CvEditDialog({
     if (!cv) return;
     const w = window.open("", "_blank");
     start(async () => {
-      const res = await getCvFileUrl(cv.id, download);
-      if (!res.ok || !res.data) {
+      // (v37.8) a throw used to leave the pre-opened blank tab with no message
+      try {
+        const res = await getCvFileUrl(cv.id, download);
+        if (!res.ok || !res.data) {
+          w?.close();
+          toast.error(res.ok ? "Could not open the file." : res.error);
+          return;
+        }
+        if (w) w.location.href = res.data.url;
+        else window.location.href = res.data.url;
+      } catch {
         w?.close();
-        toast.error(res.ok ? "Could not open the file." : res.error);
-        return;
+        toast.error("Couldn't reach the server — check your connection and try again.");
       }
-      if (w) w.location.href = res.data.url;
-      else window.location.href = res.data.url;
     });
   };
 

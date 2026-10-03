@@ -284,8 +284,11 @@ function HeroForm({ hero, onSave }: { hero: HeroContent; onSave: (h: HeroContent
           disabled={!valid || busy}
           onClick={async () => {
             setBusy(true);
-            await onSave(h);
-            setBusy(false);
+            try {
+              await onSave(h);
+            } finally {
+              setBusy(false); // (v37.8) a throw used to leave "Saving…" stuck
+            }
           }}
         >
           {busy ? "Saving…" : "Save the headline"}

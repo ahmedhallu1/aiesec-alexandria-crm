@@ -165,15 +165,19 @@ export function ActivationBoard({
         const row = planRef.current.rows.find((r) => r.id === rowId);
         if (!row) return;
         setPlan((p) => ({ ...p, rows: p.rows.filter((r) => r.id !== rowId) }));
-        void run([rowId], () => deleteActivationRow(rowId));
-        toast("Row deleted", {
-          action: {
-            label: "Undo",
-            onClick: () => {
-              setPlan((p) => ({ ...p, rows: [...p.rows, row] }));
-              void run([rowId], () => restoreActivationRow(rowId));
+        // (v37.8) say "deleted" only once the server agreed (as deleteRows does); a
+        // rejected delete reloads the row, and Undo must never append it twice
+        void run([rowId], () => deleteActivationRow(rowId)).then((ok) => {
+          if (!ok) return;
+          toast("Row deleted", {
+            action: {
+              label: "Undo",
+              onClick: () => {
+                setPlan((p) => ({ ...p, rows: [...p.rows.filter((r) => r.id !== rowId), row] }));
+                void run([rowId], () => restoreActivationRow(rowId));
+              },
             },
-          },
+          });
         });
       },
       deleteRows: (rowIds) => {
@@ -187,7 +191,7 @@ export function ActivationBoard({
             action: {
               label: "Undo",
               onClick: () => {
-                setPlan((p) => ({ ...p, rows: [...p.rows, ...gone] }));
+                setPlan((p) => ({ ...p, rows: [...p.rows.filter((r) => !ids.has(r.id)), ...gone] }));
                 void run([...ids], () => deleteActivationRows([...ids], true));
               },
             },
@@ -585,6 +589,9 @@ function InlineText({
 }: { value: string; onSave: (v: string) => void; className?: string; label: string; placeholder?: string }) {
   const [draft, setDraft] = useState(value);
   const [focused, setFocused] = useState(false);
+  // (v37.8) Escape = cancel. setDraft(value) is queued but blur() runs at once,
+  // so onBlur still saw the EDITED draft in its closure and saved it for everyone
+  const cancelled = useRef(false);
   const shown = focused ? draft : value;
   return (
     <input
@@ -598,11 +605,16 @@ function InlineText({
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => {
         setFocused(false);
+        if (cancelled.current) {
+          cancelled.current = false;
+          return;
+        }
         if (draft.trim() !== value.trim() && (draft.trim() || label !== "Section title")) onSave(draft.trim());
       }}
       onKeyDown={(e) => {
         if (e.key === "Enter") (e.target as HTMLInputElement).blur();
         if (e.key === "Escape") {
+          cancelled.current = true;
           setDraft(value);
           (e.target as HTMLInputElement).blur();
         }
@@ -636,6 +648,7 @@ function SectionTools({
           <label className={pill}>
             List title
             <input
+              key={section.config.listTitle ?? "Mapping"} // (v37.8) remount when the stored value changes (rollback / another editor)
               defaultValue={section.config.listTitle ?? "Mapping"}
               onBlur={(e) => {
                 const v = e.target.value.trim() || "Mapping";
@@ -656,6 +669,7 @@ function SectionTools({
           <label className={pill}>
             LC capacity
             <input
+              key={String(section.config.capacity ?? 0)}
               type="number"
               min={0}
               defaultValue={section.config.capacity ?? 0}
@@ -674,6 +688,7 @@ function SectionTools({
             <label key={day} className={pill}>
               {day}:
               <input
+                key={section.config.dayNotes?.[day] ?? ""}
                 defaultValue={section.config.dayNotes?.[day] ?? ""}
                 placeholder="a line for this day"
                 onBlur={(e) => {
@@ -839,18 +854,20 @@ function Dock({
           <Plus className="size-4" /> <span className="hidden sm:inline">Section</span>
         </button>
       ) : null}
-      <span className="hidden items-center gap-1.5 px-2 text-xs sm:inline-flex" aria-live="polite">
+      {/* (v37.8) shown on phones too (icon only below sm): with no status there, a failed save
+          left optimistic edits on screen and no way to reload from the server */}
+      <span className="inline-flex items-center gap-1.5 px-1 text-xs sm:px-2" aria-live="polite">
         {saving > 0 ? (
           <>
-            <Loader2 className="size-3.5 animate-spin" /> Saving…
+            <Loader2 className="size-3.5 animate-spin" /> <span className="hidden sm:inline">Saving…</span>
           </>
         ) : trouble ? (
-          <button type="button" onClick={onReload} className="!p-0 text-[#ff8a98]">
-            <TriangleAlert className="size-3.5" /> Reload
+          <button type="button" onClick={onReload} className="!p-0 text-[#ff8a98]" aria-label="Reload from the server">
+            <TriangleAlert className="size-3.5" /> <span className="hidden sm:inline">Reload</span>
           </button>
         ) : (
           <>
-            <Check className="size-3.5 text-[var(--cz-gold)]" /> All saved
+            <Check className="size-3.5 text-[var(--cz-gold)]" /> <span className="hidden sm:inline">All saved</span>
           </>
         )}
       </span>

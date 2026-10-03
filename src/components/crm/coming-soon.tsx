@@ -64,7 +64,8 @@ export function ComingSoon({ functions }: { functions: string[] }) {
         <h1 className="text-2xl font-black tracking-tight">
           Soon<span className="text-primary">.</span>
         </h1>
-        <p key={idx} className="fade-swap max-w-md text-sm font-medium">
+        {/* (v37.8) the random start differs between server and client: suppress the (harmless) text mismatch */}
+        <p key={idx} suppressHydrationWarning className="fade-swap max-w-md text-sm font-medium">
           {LINES[idx]}
         </p>
         <p className="max-w-md text-xs text-muted-foreground">

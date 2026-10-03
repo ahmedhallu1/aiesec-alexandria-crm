@@ -34,6 +34,7 @@ const DRAFT_KEY = "sodio-email-draft";
 const MAX_ATTACH = 3_200_000; // Vercel's action body cap, minus the frame
 
 interface Attachment {
+  id: string; // (v37.8) same-named files (two image.jpg) must not collide
   name: string;
   mimeType: string;
   dataBase64: string;
@@ -203,10 +204,25 @@ export function EmailsView({
   const addFiles = async (files: FileList | null) => {
     if (!files?.length) return;
     const next: Attachment[] = [...attachments];
-    for (const f of Array.from(files).slice(0, 8)) {
-      const buf = await f.arrayBuffer();
-      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-      next.push({ name: f.name, mimeType: f.type || "application/octet-stream", dataBase64: b64, size: f.size });
+    try {
+      for (const f of Array.from(files).slice(0, 8)) {
+        const buf = new Uint8Array(await f.arrayBuffer());
+        // (v37.8) Encode in slices: spreading the whole file into
+        // String.fromCharCode(...) throws a RangeError above ~64-120 KB, so
+        // any real photo/PDF silently failed to attach.
+        let bin = "";
+        for (let o = 0; o < buf.length; o += 0x8000) {
+          bin += String.fromCharCode(...buf.subarray(o, o + 0x8000));
+        }
+        next.push({
+          id: `${Date.now()}-${next.length}-${Math.random().toString(36).slice(2, 7)}`,
+          name: f.name, mimeType: f.type || "application/octet-stream",
+          dataBase64: btoa(bin), size: f.size,
+        });
+      }
+    } catch {
+      toast.error("Couldn't read that file — try another one.");
+      return;
     }
     const total = next.reduce((n, a) => n + a.size, 0);
     if (total > MAX_ATTACH) {
@@ -292,7 +308,7 @@ export function EmailsView({
 
   const tool = (label: string, icon: React.ReactNode, onClick: () => void) => (
     <Hint label={label}>
-      <Button size="sm" variant="ghost" className="size-8 p-0" onClick={onClick}>
+      <Button size="sm" variant="ghost" className="size-8 p-0" aria-label={label} onClick={onClick}>
         {icon}
       </Button>
     </Hint>
@@ -626,14 +642,14 @@ export function EmailsView({
                 <div className="flex flex-wrap gap-1.5">
                   {attachments.map((a) => (
                     <span
-                      key={a.name}
+                      key={a.id}
                       className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs"
                     >
                       📎 {a.name} · {Math.round(a.size / 1024)} KB
                       <button
                         type="button"
                         aria-label={`Remove ${a.name}`}
-                        onClick={() => setAttachments((cur) => cur.filter((x) => x.name !== a.name))}
+                        onClick={() => setAttachments((cur) => cur.filter((x) => x.id !== a.id))}
                         className="text-muted-foreground hover:text-destructive"
                       >
                         <X className="size-3" />

@@ -39,6 +39,8 @@ export function PdpForm({
   const router = useRouter();
   const [pending, start] = useTransition();
   const [numbers, setNumbers] = useState<PdpNumbers | null>(null);
+  // (v37.8) null alone meant "still loading" forever after a failed fetch
+  const [numbersFailed, setNumbersFailed] = useState(false);
   const existing = data.authored.find((p) => p.member_id === target.id) ?? null;
 
   const [o2o, setO2o] = useState<Record<string, string>>(
@@ -67,8 +69,8 @@ export function PdpForm({
   useEffect(() => {
     let live = true;
     pdpNumbersForTarget(target.id)
-      .then((n) => { if (live) setNumbers(n); })
-      .catch(() => { if (live) setNumbers(null); });
+      .then((n) => { if (live) { setNumbers(n); if (!n) setNumbersFailed(true); } })
+      .catch(() => { if (live) { setNumbers(null); setNumbersFailed(true); } });
     return () => { live = false; };
   }, [target.id]);
 
@@ -107,7 +109,7 @@ export function PdpForm({
     });
 
   return (
-    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+    <Dialog open onOpenChange={(o) => { if (!o && !pending) onClose(); }}>
       <DialogContent className="max-h-[92dvh] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle dir="auto">📋 {target.name} · {data.monthLabel}</DialogTitle>
@@ -149,7 +151,11 @@ export function PdpForm({
               Last month{numbers?.monthLabel ? ` — ${numbers.monthLabel}` : ""}
             </h3>
             {!numbers ? (
-              <p className="text-sm text-muted-foreground">Reading their numbers…</p>
+              <p className="text-sm text-muted-foreground">
+                {numbersFailed
+                  ? "Couldn't load their numbers. Fill the target and the gap in by hand."
+                  : "Reading their numbers…"}
+              </p>
             ) : numbers.snapshot ? (
               <>
                 <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
@@ -185,6 +191,7 @@ export function PdpForm({
             <h3 className="text-sm font-semibold">🌱 The skill they want to build</h3>
             <Input
               dir="auto"
+              aria-label="The skill they want to build"
               value={personalSkill}
               onChange={(e) => setPersonalSkill(e.target.value)}
               placeholder="e.g. Saying no without losing the room"
@@ -192,6 +199,7 @@ export function PdpForm({
             <Textarea
               rows={2}
               dir="auto"
+              aria-label="What better looks like by the end of the month"
               value={personalGoal}
               onChange={(e) => setPersonalGoal(e.target.value)}
               placeholder="What does better look like by the end of the month?"
@@ -206,12 +214,14 @@ export function PdpForm({
                 type="number"
                 min={0}
                 className="w-28"
+                aria-label="The month's target (number)"
                 value={profTarget}
                 onChange={(e) => setProfTarget(e.target.value)}
                 placeholder="12"
               />
               <Input
                 dir="auto"
+                aria-label="The target's metric"
                 value={profMetric}
                 onChange={(e) => setProfMetric(e.target.value)}
                 placeholder="opens · approvals · partnerships"
@@ -220,6 +230,7 @@ export function PdpForm({
             <Textarea
               rows={2}
               dir="auto"
+              aria-label="How they will get to the target"
               value={profGoal}
               onChange={(e) => setProfGoal(e.target.value)}
               placeholder="How are they going to get there?"
@@ -231,6 +242,7 @@ export function PdpForm({
             <h3 className="text-sm font-semibold">🔎 The gap to close</h3>
             <Input
               dir="auto"
+              aria-label="The funnel step to close the gap on"
               value={gapStep}
               onChange={(e) => setGapStep(e.target.value)}
               placeholder="which funnel step"
@@ -238,6 +250,7 @@ export function PdpForm({
             <Textarea
               rows={2}
               dir="auto"
+              aria-label="Why the gap is thin and what changes it"
               value={gapNote}
               onChange={(e) => setGapNote(e.target.value)}
               placeholder="Why is it thin, and what changes it?"
@@ -283,6 +296,7 @@ function Weeks({
           <Input
             dir="auto"
             className="h-8"
+            aria-label={`${pdpTrackLabel(track)} week ${w.week}`}
             value={steps[track]?.[String(w.week)] ?? ""}
             onChange={(e) => onChange(track, w.week, e.target.value)}
             placeholder="…"

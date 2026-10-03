@@ -179,12 +179,13 @@ export function AdminView({
                   const stale = cronStale(c);
                   return (
                     <div key={c.label} className="flex items-center gap-2 rounded-lg border p-2.5">
-                      <span className={cn("size-2 shrink-0 rounded-full", stale ? "bg-warning" : "bg-success")} />
+                      {/* (v37.8) ago()/cronStale() read Date.now(): SSR and hydration can differ by a minute */}
+                      <span suppressHydrationWarning className={cn("size-2 shrink-0 rounded-full", stale ? "bg-warning" : "bg-success")} />
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-semibold">{c.label}</p>
                         <p className="text-xs text-muted-foreground">{c.note}</p>
                       </div>
-                      <span className={cn("shrink-0 text-xs font-medium", stale ? "text-warning" : "text-muted-foreground")}>
+                      <span suppressHydrationWarning className={cn("shrink-0 text-xs font-medium", stale ? "text-warning" : "text-muted-foreground")}>
                         {ago(c.lastRun)}
                       </span>
                     </div>

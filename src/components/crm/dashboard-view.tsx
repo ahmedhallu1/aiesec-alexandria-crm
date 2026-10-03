@@ -80,29 +80,34 @@ interface Props {
 const pct = (num: number, den: number) =>
   den > 0 ? `${Math.min(100, Math.round((num / den) * 100))}%` : "—";
 
-const isoDay = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+// (v37.8) Both ranges come from the CAIRO calendar day (the same `cairoToday()`
+// the date inputs clamp to) — the server renders in UTC and a phone in its own
+// zone, so `new Date()` could pick a different month/sprint near midnight and
+// flip the "This month/sprint" highlight after hydration.
+const cairoParts = () => {
+  const [y, m, d] = cairoToday().split("-").map(Number);
+  return { y, m, d, last: new Date(Date.UTC(y, m, 0)).getUTCDate() };
+};
+const ymd = (y: number, m: number, d: number) =>
+  `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 
 function monthRange(): { from: string; to: string; label: string } {
-  const now = new Date();
-  const from = new Date(now.getFullYear(), now.getMonth(), 1);
-  const to = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const { y, m, last } = cairoParts();
   return {
-    from: isoDay(from),
-    to: isoDay(to),
-    label: now.toLocaleString("en", { month: "long", year: "numeric" }),
+    from: ymd(y, m, 1),
+    to: ymd(y, m, last),
+    label: new Date(Date.UTC(y, m - 1, 1)).toLocaleString("en", {
+      month: "long", year: "numeric", timeZone: "UTC",
+    }),
   };
 }
 
 /** The current SPRINT = half-month: day 1–15, or 16–end (v24). */
 function sprintRange(): { from: string; to: string } {
-  const now = new Date();
-  const first = now.getDate() <= 15;
-  const from = new Date(now.getFullYear(), now.getMonth(), first ? 1 : 16);
-  const to = first
-    ? new Date(now.getFullYear(), now.getMonth(), 15)
-    : new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  return { from: isoDay(from), to: isoDay(to) };
+  const { y, m, d, last } = cairoParts();
+  return d <= 15
+    ? { from: ymd(y, m, 1), to: ymd(y, m, 15) }
+    : { from: ymd(y, m, 16), to: ymd(y, m, last) };
 }
 
 export function DashboardView({
@@ -468,7 +473,9 @@ export function DashboardView({
           <CardContent>
             {/* "By MM" opens by default (v33.17) — who's carrying the lane is
               the first thing a leader looks for; products are one tap away */}
-          <Tabs defaultValue={showTeamDrill ? "team" : "function"}>
+          {/* key: defaultValue is read on mount only — re-seed when the lane
+              drops/gains the "By MM" tab (v37.8) */}
+          <Tabs key={showTeamDrill ? "team" : "function"} defaultValue={showTeamDrill ? "team" : "function"}>
               <TabsList className="flex-wrap">
                 {byFunction.length > 1 ? <TabsTrigger value="function">By product</TabsTrigger> : null}
                 {showTeamDrill ? <TabsTrigger value="team">By MM</TabsTrigger> : null}
@@ -1885,7 +1892,13 @@ function Leaderboard({
   dealsOnly?: boolean;
 }) {
   const metrics = dealsOnly ? BOARD_METRICS.filter((m) => m.key !== "slots") : BOARD_METRICS;
-  const [metricKey, setMetricKey] = useState<keyof FunnelStats>(dealsOnly ? "deals" : "slots");
+  const [pickedKey, setMetricKey] = useState<keyof FunnelStats>(dealsOnly ? "deals" : "slots");
+  // (v37.8) the board stays mounted across lane switches — a key picked on an ICX
+  // lane ("slots") doesn't exist on B2C, which left no column highlighted and a
+  // blank label. Fall back to the lane's default when the pick isn't offered.
+  const metricKey: keyof FunnelStats = metrics.some((m) => m.key === pickedKey)
+    ? pickedKey
+    : dealsOnly ? "deals" : "slots";
   // Ties fall back RIGHT TO LEFT along the funnel: level on the ranked metric?
   // compare the last column (Opens), then Deals, then Done, then Visits, then
   // Contacted, then MR. Deeper work outranks earlier work, which is the order

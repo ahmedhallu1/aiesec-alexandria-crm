@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Archive, Check, Copy, Heart, Inbox, RotateCcw } from "lucide-react";
 import { setFeedbackStatus, thankFeedback } from "@/server/actions";
 import { cn } from "@/lib/utils";
+import { fmtDateTime } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -66,8 +67,13 @@ export function FeedbackInboxView({ items }: { items: FeedbackItem[] }) {
   };
 
   const copyEmail = async (email: string) => {
-    await navigator.clipboard.writeText(email);
-    toast.success(`${email} copied — go say something nice`);
+    // (v37.8) the clipboard can be refused (webviews, denied permission)
+    try {
+      await navigator.clipboard.writeText(email);
+      toast.success(`${email} copied — go say something nice`);
+    } catch {
+      toast.error(`Couldn't copy — the address is ${email}`);
+    }
   };
 
   return (
@@ -123,7 +129,8 @@ export function FeedbackInboxView({ items }: { items: FeedbackItem[] }) {
                   ) : null}
                   <span className="text-sm font-semibold">{who}</span>
                   <span className="text-xs text-muted-foreground">
-                    {new Date(f.created_at).toLocaleString()}
+                    {/* (v37.8) Cairo + en-US: the raw toLocaleString differed server vs browser */}
+                    {fmtDateTime(f.created_at)}
                   </span>
                   {(f.status || "new") !== "new" ? (
                     <Badge

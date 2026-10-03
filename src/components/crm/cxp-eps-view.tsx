@@ -152,6 +152,15 @@ export function CxpEpsView({
   const [navPending, startNav] = useTransition();
   const [q, setQ] = useState(search);
   const [colFilter, setColFilter] = useState<Record<string, string>>({});
+  // (v37.8) the chip Links keep this instance alive across side/scope changes,
+  // so a filter picked for one view silently hid everything in the next: reset
+  // it when the view changes (adjust-state-during-render, no effect).
+  const viewKey = `${side ?? ""}|${scope}`;
+  const [seenView, setSeenView] = useState(viewKey);
+  if (seenView !== viewKey) {
+    setSeenView(viewKey);
+    setColFilter({});
+  }
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   const cols = useTableColumns(`cxp-eps:${side ?? "all"}`, COLUMNS);
@@ -288,7 +297,10 @@ export function CxpEpsView({
           </Button>
         ) : null}
         <span className="text-xs text-muted-foreground">
-          {filtered.length} of {rows.length} EP(s)
+          {/* (v37.8) the table is cut at the page size; say so instead of implying every match is on screen */}
+          {page.length < filtered.length
+            ? `Showing ${page.length} of ${filtered.length} EP(s)${filtered.length !== rows.length ? ` (${rows.length} total)` : ""} — raise rows per page or filter to see the rest`
+            : `${filtered.length} of ${rows.length} EP(s)`}
         </span>
         <div className="ml-auto flex items-center gap-2">
           <PageSizePicker value={pageSize} options={PAGE_SIZES} onChange={setPageSize} />
@@ -331,9 +343,10 @@ export function CxpEpsView({
                   colSpan={cols.visible.length}
                   className="py-10 text-center text-sm text-muted-foreground"
                 >
-                  {scope === "previous"
-                    ? "Nothing left over from last month. 🎉"
-                    : "No submissions match these filters."}
+                  {/* (v37.8) filters/search first: an empty FILTERED result is not "all caught up" */}
+                  {anyFilter || scope !== "previous"
+                    ? "No submissions match these filters."
+                    : "Nothing left over from last month. 🎉"}
                 </TableCell>
               </TableRow>
             ) : (
@@ -388,6 +401,7 @@ function cell(
               type="button"
               onClick={copy(r.epName, "EP name")}
               title="Copy name"
+              aria-label={`Copy ${r.epName}`}
               className="shrink-0 rounded p-0.5 text-muted-foreground/70 transition hover:bg-muted hover:text-foreground"
             >
               {copied === r.epName ? (

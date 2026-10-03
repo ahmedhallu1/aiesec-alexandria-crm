@@ -1,7 +1,7 @@
 "use client";
 
 import { b2cAssignPlan, b2cCallUnrecorded, currentB2cCall } from "@/lib/b2c-cic";
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useId, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -56,10 +56,72 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 
 const waDigits = (phone: string | null) => {
-  const d = (phone ?? "").replace(/\D/g, "");
+  const raw = (phone ?? "").trim();
+  const d = raw.replace(/\D/g, "");
   if (!d) return null;
+  // (v37.8) An explicit "+" or "00" prefix is already international — never glue
+  // Egypt's 20 onto it (a "+966…" number opened wa.me/20966…).
+  if (raw.startsWith("+") && !d.startsWith("20")) return d;
+  if (d.startsWith("00") && d.length > 4) return d.slice(2);
   return d.startsWith("20") ? d : d.startsWith("0") ? `2${d}` : `20${d}`;
 };
+
+/** (v37.8) A stored UTC instant -> the "YYYY-MM-DDTHH:mm" a datetime-local input
+ *  wants, in the BROWSER's zone — the same zone `new Date(value)` reads it back
+ *  in on save. `.slice(0, 16)` of the ISO string seeded the UTC clock time, so
+ *  every open-and-save moved the call-back by the UTC offset. */
+const toLocalInput = (iso: string) => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+/** (v37.8) Module scope: it used to be declared inside SignupsView, so every
+ *  render made a NEW component type and React remounted the header cells — and
+ *  the ColumnFilter popovers inside them — on any refresh or transition. */
+function SortHead({
+  field, defaultDir = "desc", children, className, filter, sortField, sortDir, sortBy,
+}: {
+  sortField: string;
+  sortDir: "asc" | "desc";
+  sortBy: (field: string, defaultDir?: "asc" | "desc") => void;
+  field: string;
+  defaultDir?: "asc" | "desc";
+  children: React.ReactNode;
+  className?: string;
+  /** the column's funnel button, beside the sortable name */
+  filter?: React.ReactNode;
+}) {
+  return (
+    <TableHead className={className}>
+      <span className="inline-flex items-center gap-1">
+      <button
+        type="button"
+        onClick={() => sortBy(field, defaultDir)}
+        className={cn(
+          "group/sort -mx-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 transition-all duration-150 hover:bg-muted hover:text-foreground active:scale-95",
+          sortField === field && "font-bold text-primary"
+        )}
+        title="Sort by this column"
+      >
+        {children}
+        {sortField === field ? (
+          <span>{sortDir === "asc" ? "↑" : "↓"}</span>
+        ) : (
+          <span
+            aria-hidden
+            className="-translate-y-0.5 opacity-0 transition-all duration-150 group-hover/sort:translate-y-0 group-hover/sort:opacity-60"
+          >
+            ↕
+          </span>
+        )}
+      </button>
+      {filter}
+      </span>
+    </TableHead>
+  );
+}
 
 /** A usable phone has DIGITS — tracker placeholders like "-" or "deleted
  *  phone number" are truthy strings, and gating on truthiness rendered dead
@@ -155,6 +217,7 @@ function SelectDot({ checked, onToggle }: { checked: boolean; onToggle: () => vo
   return (
     <button
       type="button"
+      aria-label="Select sign-up"
       aria-pressed={checked}
       onClick={(e) => {
         e.stopPropagation();
@@ -339,7 +402,9 @@ function ReferralDialog({
         email: form.email || null,
         dob: form.dob || null,
         country: form.country || null,
-        subProduct: form.subProduct || null,
+        // (v37.8) only OGT has a sub product — a leftover GTe from before the
+        // function select moved to OGV must not ride along
+        subProduct: form.fn === "OGT" ? form.subProduct || null : null,
         referredBy: form.referredBy || null,
         contacted: form.contacted || null,
         interested: form.interested || null,
@@ -375,7 +440,12 @@ function ReferralDialog({
           {fns.length > 1 ? (
             <div className="grid gap-1.5">
               <Label>Function</Label>
-              <Select value={form.fn} onValueChange={(v) => set("fn", v)}>
+              <Select
+                value={form.fn}
+                onValueChange={(v) =>
+                  setForm((f) => ({ ...f, fn: v, subProduct: v === "OGT" ? f.subProduct : "" }))
+                }
+              >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {fns.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
@@ -724,7 +794,7 @@ function CallBackDialog({
     const pad = (n: number) => String(n).padStart(2, "0");
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   })();
-  const [when, setWhen] = useState(call.call_back_at ? call.call_back_at.slice(0, 16) : initial);
+  const [when, setWhen] = useState(call.call_back_at ? toLocalInput(call.call_back_at) || initial : initial);
   const [pending, start] = useTransition();
 
   const save = () =>
@@ -842,11 +912,15 @@ function SignupContactPrompt({
         // The comment lands in B2C's OWN thread (author_class 'b2c') — that is
         // what addSignupComment gives a B2C caller, and it is deliberately not
         // written back to the OGX tracker sheet.
+        // (v37.8) the call IS recorded, so the dialog must close (re-submitting
+        // would start another call) — but say plainly that the note was lost.
+        let noteLost: string | null = null;
         if (comment.trim()) {
           const c = await addSignupComment(row.id, comment.trim());
-          if (!c.ok) toast.error(c.error);
+          if (!c.ok) noteLost = c.error;
         }
-        toast.success(
+        if (noteLost) toast.error(`Call recorded, but your comment was NOT saved: ${noteLost}`);
+        else toast.success(
           needsTime
             ? "⏰ Call back saved — you'll get a reminder when it's due"
             : "B2C call recorded 🛍"
@@ -872,11 +946,14 @@ function SignupContactPrompt({
         toast.error(res.error);
         return;
       }
+      // (v37.8) don't follow a lost comment with a success toast
+      let noteLost: string | null = null;
       if (comment.trim()) {
         const c = await addSignupComment(row.id, comment.trim());
-        if (!c.ok) toast.error(c.error);
+        if (!c.ok) noteLost = c.error;
       }
-      toast.success(
+      if (noteLost) toast.error(`Contact logged, but your comment was NOT saved: ${noteLost}`);
+      else toast.success(
         unassigned ? "Logged — and it's yours now ✍️" : "Contact logged ✍️"
       );
       onClose();
@@ -1124,44 +1201,6 @@ export function SignupsView({
     else setParams({ sort: field, dir: defaultDir });
   };
 
-  const SortHead = ({
-    field, defaultDir = "desc", children, className, filter,
-  }: {
-    field: string;
-    defaultDir?: "asc" | "desc";
-    children: React.ReactNode;
-    className?: string;
-    /** the column's funnel button, beside the sortable name */
-    filter?: React.ReactNode;
-  }) => (
-    <TableHead className={className}>
-      <span className="inline-flex items-center gap-1">
-      <button
-        type="button"
-        onClick={() => sortBy(field, defaultDir)}
-        className={cn(
-          "group/sort -mx-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 transition-all duration-150 hover:bg-muted hover:text-foreground active:scale-95",
-          sortField === field && "font-bold text-primary"
-        )}
-        title="Sort by this column"
-      >
-        {children}
-        {sortField === field ? (
-          <span>{sortDir === "asc" ? "↑" : "↓"}</span>
-        ) : (
-          <span
-            aria-hidden
-            className="-translate-y-0.5 opacity-0 transition-all duration-150 group-hover/sort:translate-y-0 group-hover/sort:opacity-60"
-          >
-            ↕
-          </span>
-        )}
-      </button>
-      {filter}
-      </span>
-    </TableHead>
-  );
-
   const openDetail = (id: string) => {
     setDetailLoading(id);
     start(async () => {
@@ -1204,7 +1243,12 @@ export function SignupsView({
           memberId,
           notifyOnAssign
         );
-        if (!res.ok) { toast.error(res.error); return; }
+        if (!res.ok) {
+          // (v37.8) earlier chunks already landed — say so and refresh the list
+          toast.error(done ? `${res.error} (${done} done before it stopped)` : res.error);
+          if (done) router.refresh();
+          return;
+        }
         done += res.data?.done ?? 0;
         failed += res.data?.failed ?? 0;
       }
@@ -1229,7 +1273,12 @@ export function SignupsView({
       let failed = 0;
       for (let i = 0; i < ids.length; i += 50) {
         const res = await bulkReviveSignups(ids.slice(i, i + 50));
-        if (!res.ok) { toast.error(res.error); return; }
+        if (!res.ok) {
+          // (v37.8) earlier chunks already landed — say so and refresh the list
+          toast.error(done ? `${res.error} (${done} done before it stopped)` : res.error);
+          if (done) router.refresh();
+          return;
+        }
         done += res.data?.done ?? 0;
         failed += res.data?.failed ?? 0;
       }
@@ -1396,7 +1445,7 @@ export function SignupsView({
         <>
           <Hint label={`WhatsApp ${r.phone}`}>
             <Button asChild variant="outline" size={size === "icon" ? "icon" : "sm"} className={size === "icon" ? "size-7" : "flex-1"}>
-              <a href={`https://wa.me/${waDigits(r.phone)}`} target="_blank" rel="noreferrer">
+              <a href={`https://wa.me/${waDigits(r.phone)}`} target="_blank" rel="noreferrer" aria-label={`WhatsApp ${r.name}`}>
                 <WhatsAppIcon className={size === "icon" ? "size-3.5" : "size-4"} />
                 {size === "icon" ? null : " WhatsApp"}
               </a>
@@ -1404,7 +1453,7 @@ export function SignupsView({
           </Hint>
           <Hint label={`Call ${r.phone}`}>
             <Button asChild variant="outline" size={size === "icon" ? "icon" : "sm"} className={size === "icon" ? "size-7" : "flex-1"}>
-              <a href={`tel:${r.phone}`}>
+              <a href={`tel:${r.phone}`} aria-label={`Call ${r.name}`}>
                 <Phone className={size === "icon" ? "size-3.5" : "size-4"} />
                 {size === "icon" ? null : " Call"}
               </a>
@@ -1415,7 +1464,7 @@ export function SignupsView({
       {r.email ? (
         <Hint label={`Email ${r.email}`}>
           <Button asChild variant="outline" size={size === "icon" ? "icon" : "sm"} className={size === "icon" ? "size-7" : "flex-1"}>
-            <a href={`mailto:${r.email}`}>
+            <a href={`mailto:${r.email}`} aria-label={`Email ${r.name}`}>
               <Mail className={size === "icon" ? "size-3.5" : "size-4"} />
               {size === "icon" ? null : " Email"}
             </a>
@@ -1563,7 +1612,12 @@ export function SignupsView({
       let why: string | undefined;
       for (let i = 0; i < ids.length; i += 50) {
         const res = await bulkAssignB2cCic(ids.slice(i, i + 50), callerId);
-        if (!res.ok) { toast.error(res.error); return; }
+        if (!res.ok) {
+          // (v37.8) earlier chunks already landed — say so and refresh the list
+          toast.error(done ? `${res.error} (${done} done before it stopped)` : res.error);
+          if (done) router.refresh();
+          return;
+        }
         done += res.data?.done ?? 0;
         failed += res.data?.failed ?? 0;
         why ||= res.data?.why;
@@ -1591,7 +1645,12 @@ export function SignupsView({
       let why: string | undefined;
       for (let i = 0; i < ids.length; i += 50) {
         const res = await bulkAssignCicCaller(ids.slice(i, i + 50), callerId, notifyOnAssign);
-        if (!res.ok) { toast.error(res.error); return; }
+        if (!res.ok) {
+          // (v37.8) earlier chunks already landed — say so and refresh the list
+          toast.error(done ? `${res.error} (${done} done before it stopped)` : res.error);
+          if (done) router.refresh();
+          return;
+        }
         done += res.data?.done ?? 0;
         failed += res.data?.failed ?? 0;
         why ||= res.data?.why;
@@ -2293,6 +2352,11 @@ export function SignupsView({
               tabIndex={0}
               className={cn("cursor-pointer active:bg-muted/40", contactTint(r.contact_status))}
               onClick={() => openDetail(r.id)}
+              // (v37.8) role=button without a key handler was unreachable by keyboard
+              onKeyDown={(e) => {
+                if (e.target !== e.currentTarget) return;
+                if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDetail(r.id); }
+              }}
             >
               <CardContent className="space-y-1.5 p-3.5">
                 <p className="flex items-center gap-2 font-semibold">
@@ -2374,6 +2438,9 @@ export function SignupsView({
                   return sort ? (
                     <SortHead
                       key={c.key}
+                      sortField={sortField}
+                      sortDir={sortDir === "asc" ? "asc" : "desc"}
+                      sortBy={sortBy}
                       field={sort.field}
                       defaultDir={sort.dir}
                       filter={filter}
@@ -2627,6 +2694,8 @@ export function SignupsView({
       />
 
       <ReferralDialog
+        // (v37.8) re-seeds the dialog's function when the function tab changes
+        key={activeFn}
         open={referralOpen}
         onOpenChange={setReferralOpen}
         fns={fns}
@@ -2710,23 +2779,40 @@ function Field({ label, value }: { label: string; value: string | null }) {
 /** The sign-up's edit history (v33.19) — collapsed by default, fetched the
  *  first time it's opened through the page's `loadLogs` server function. */
 function SignupHistory({
-  signupId, loadLogs,
+  signupId, loadLogs, version,
 }: {
   signupId: string;
   loadLogs: (signupId: string) => Promise<SignupLog[]>;
+  /** changes whenever the parent reloads the sign-up after an edit */
+  version?: unknown;
 }) {
   const [open, setOpen] = useState(false);
   const [logs, setLogs] = useState<SignupLog[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+  // (v37.8) The list was fetched once and kept forever, so an edit made in the
+  // same dialog never showed up. When the sign-up reloads, drop the cache and
+  // fold the section — the next open fetches fresh. (State adjusted during
+  // render, the pattern React documents for "reset on prop change".)
+  const [seenVersion, setSeenVersion] = useState(version);
+  if (seenVersion !== version) {
+    setSeenVersion(version);
+    setLogs(null);
+    setFailed(false);
+    setOpen(false);
+  }
 
   const toggle = () => {
     const next = !open;
     setOpen(next);
     if (!next || logs || loading) return;
     setLoading(true);
+    setFailed(false);
     loadLogs(signupId)
       .then((rows) => setLogs(rows))
-      .catch(() => setLogs([]))
+      // a failed load is NOT "nothing recorded" — and is not cached, so
+      // re-opening retries
+      .catch(() => setFailed(true))
       .finally(() => setLoading(false));
   };
 
@@ -2766,6 +2852,10 @@ function SignupHistory({
               </p>
             ))}
           </div>
+        ) : failed ? (
+          <p className="text-xs text-destructive">
+            Couldn&apos;t load the history — fold this and open it again to retry.
+          </p>
         ) : (
           <p className="text-xs text-muted-foreground">
             Nothing recorded yet — edits from here on show up in this list.
@@ -2788,6 +2878,7 @@ function ReferralDetailsCard({
   signup: SignupRow;
   onSaved: () => void;
 }) {
+  const uid = useId(); // (v37.8) pairs each Label with its input (tap label = focus)
   const [open, setOpen] = useState(false);
   const [pending, start] = useTransition();
   const [form, setForm] = useState({
@@ -2833,20 +2924,20 @@ function ReferralDetailsCard({
       <p className="text-sm font-semibold">Referral details</p>
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="grid gap-1.5">
-          <Label>Name *</Label>
-          <Input dir="auto" value={form.name} onChange={(e) => set("name", e.target.value)} />
+          <Label htmlFor={`${uid}-name`}>Name *</Label>
+          <Input id={`${uid}-name`} dir="auto" value={form.name} onChange={(e) => set("name", e.target.value)} />
         </div>
         <div className="grid gap-1.5">
-          <Label>Date of birth</Label>
-          <Input type="date" value={form.dob} onChange={(e) => set("dob", e.target.value)} />
+          <Label htmlFor={`${uid}-dob`}>Date of birth</Label>
+          <Input id={`${uid}-dob`} type="date" value={form.dob} onChange={(e) => set("dob", e.target.value)} />
         </div>
         <div className="grid gap-1.5">
-          <Label>Phone</Label>
-          <Input value={form.phone} onChange={(e) => set("phone", e.target.value)} />
+          <Label htmlFor={`${uid}-phone`}>Phone</Label>
+          <Input id={`${uid}-phone`} value={form.phone} onChange={(e) => set("phone", e.target.value)} />
         </div>
         <div className="grid gap-1.5">
-          <Label>Email</Label>
-          <Input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} />
+          <Label htmlFor={`${uid}-email`}>Email</Label>
+          <Input id={`${uid}-email`} type="email" value={form.email} onChange={(e) => set("email", e.target.value)} />
         </div>
         <div className="grid gap-1.5">
           <Label>Country</Label>
@@ -3284,6 +3375,7 @@ function SignupDetailDialog({
                     value={oopReason}
                     onChange={(e) => setOopReason(e.target.value)}
                     placeholder="Reason (goes on the sheet too)"
+                    aria-label="Out of Process reason"
                     className="h-9 flex-1"
                   />
                   <Button
@@ -3294,7 +3386,7 @@ function SignupDetailDialog({
                   >
                     Archive
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setOopMode(false)}>
+                  <Button size="sm" variant="ghost" aria-label="Cancel" onClick={() => setOopMode(false)}>
                     <X className="size-4" />
                   </Button>
                 </div>
@@ -3313,6 +3405,9 @@ function SignupDetailDialog({
             is the reason they opened this. */}
         {detail.canB2c ? (
           <B2cCallSection
+            // (v37.8) the form is seeded once from `call` — a NEW call (rang
+            // them again) must remount it or it shows the last call's answers
+            key={detail.b2cCall?.id ?? "none"}
             signupId={detail.signup.id}
             call={detail.b2cCall}
             history={detail.b2cHistory}
@@ -3366,6 +3461,7 @@ function SignupDetailDialog({
             <div className="flex items-end gap-2">
               <Textarea
                 rows={2}
+                aria-label="Add a comment"
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
                 placeholder={
@@ -3395,7 +3491,7 @@ function SignupDetailDialog({
         </div>
 
         {/* who changed what, and when */}
-        <SignupHistory signupId={s.id} loadLogs={loadLogs} />
+        <SignupHistory signupId={s.id} loadLogs={loadLogs} version={detail} />
 
         <Button variant="outline" onClick={() => { onClose(); router.refresh(); }}>
           Close
@@ -3430,7 +3526,7 @@ function B2cCallSection({
   );
   const [interested, setInterested] = useState(call?.interested ?? "__unset");
   const [callBack, setCallBack] = useState(
-    call?.call_back_at ? call.call_back_at.slice(0, 16) : ""
+    call?.call_back_at ? toLocalInput(call.call_back_at) : ""
   );
   const [note, setNote] = useState(call?.note ?? "");
   const needsTime = outcome === "call_back";

@@ -91,14 +91,20 @@ export function ApiKeysCard({ keys, origin }: { keys: ApiKeyRow[]; origin: strin
               shown. Lose it and you issue a new one — there is no recovery.
             </p>
             <div className="mt-2 flex items-center gap-2">
-              <code className="min-w-0 flex-1 truncate rounded bg-background px-2 py-1.5 font-mono text-xs">
+              {/* (v37.8) break-all select-all, not truncate: the key is shown ONCE, so it must be readable/selectable in full on a phone */}
+              <code className="min-w-0 flex-1 select-all break-all rounded bg-background px-2 py-1.5 font-mono text-xs">
                 {fresh.key}
               </code>
               <Button
                 size="sm"
-                onClick={() => {
-                  navigator.clipboard?.writeText(fresh.key);
-                  toast.success("Key copied.");
+                onClick={async () => {
+                  // (v37.8) only claim success when the clipboard accepted it
+                  try {
+                    await navigator.clipboard.writeText(fresh.key);
+                    toast.success("Key copied.");
+                  } catch {
+                    toast.error("Couldn't copy. Select the key and copy it by hand.");
+                  }
                 }}
               >
                 <Copy className="size-3.5" /> Copy

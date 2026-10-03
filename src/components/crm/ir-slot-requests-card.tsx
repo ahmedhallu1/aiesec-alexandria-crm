@@ -36,8 +36,16 @@ export function IrSlotRequestsCard({
   const respond = (r: IrSlotRequest, decision: "accept" | "decline") =>
     start(async () => {
       setBusy(r.id);
-      const res = await respondToIrSlotRequest(r.id, decision, decision === "decline" ? comment : null);
-      setBusy(null);
+      // (v37.8) a throw / dropped connection used to leave the spinner stuck with no message
+      let res: Awaited<ReturnType<typeof respondToIrSlotRequest>>;
+      try {
+        res = await respondToIrSlotRequest(r.id, decision, decision === "decline" ? comment : null);
+      } catch {
+        toast.error("That didn't go through. Check your connection and try again.");
+        return;
+      } finally {
+        setBusy(null);
+      }
       if (!res.ok) {
         toast.error(res.error);
         return;

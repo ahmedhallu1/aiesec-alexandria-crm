@@ -136,17 +136,33 @@ function reconcile(stored: Prefs, all: TableColumn[]): Prefs {
     if (!knewAbout.has(c.key) && c.defaultHidden) hidden.add(c.key);
     if (c.required) hidden.delete(c.key);
   }
-  return { order, hidden: [...hidden] };
+  // (v37.8) widths used to be dropped here, so a dragged column width never
+  // survived a reload and any later move/hide wiped it. Keep known keys only.
+  const widths: Record<string, number> = {};
+  for (const [k, w] of Object.entries(stored.widths ?? {})) {
+    if (known.has(k) && typeof w === "number" && Number.isFinite(w)) widths[k] = w;
+  }
+  return { order, hidden: [...hidden], ...(Object.keys(widths).length ? { widths } : {}) };
 }
 
 function parse(raw: string): Prefs | null {
   try {
     const p = JSON.parse(raw) as unknown;
     if (!p || typeof p !== "object") return null;
-    const { order, hidden } = p as { order?: unknown; hidden?: unknown };
+    const { order, hidden, widths } = p as { order?: unknown; hidden?: unknown; widths?: unknown };
     if (!Array.isArray(order) || !order.every((x) => typeof x === "string")) return null;
     if (!Array.isArray(hidden) || !hidden.every((x) => typeof x === "string")) return null;
-    return { order: order as string[], hidden: hidden as string[] };
+    const w: Record<string, number> = {};
+    if (widths && typeof widths === "object" && !Array.isArray(widths)) {
+      for (const [k, v] of Object.entries(widths as Record<string, unknown>)) {
+        if (typeof v === "number" && Number.isFinite(v)) w[k] = v;
+      }
+    }
+    return {
+      order: order as string[],
+      hidden: hidden as string[],
+      ...(Object.keys(w).length ? { widths: w } : {}),
+    };
   } catch {
     return null;
   }
@@ -399,7 +415,7 @@ export function TableSettings({
                     checked={visible}
                     disabled={!!c.required}
                     onToggle={() => columns.toggle(c.key)}
-                    label={`${visible ? "Hide" : "Show"} ${c.label}`}
+                    label={`${visible ? "Hide" : "Show"} ${c.label || "actions"}`}
                   />
                   <span
                     className={cn(
@@ -420,7 +436,7 @@ export function TableSettings({
                       variant="ghost"
                       size="icon"
                       className="size-7"
-                      aria-label={`Move ${c.label} left`}
+                      aria-label={`Move ${c.label || "actions"} up`}
                       disabled={i === 0}
                       onClick={() => columns.move(c.key, -1)}
                     >
@@ -431,7 +447,7 @@ export function TableSettings({
                       variant="ghost"
                       size="icon"
                       className="size-7"
-                      aria-label={`Move ${c.label} right`}
+                      aria-label={`Move ${c.label || "actions"} down`}
                       disabled={i === columns.ordered.length - 1}
                       onClick={() => columns.move(c.key, 1)}
                     >
@@ -812,6 +828,7 @@ export function ColumnResizer({
         const up = () => {
           window.removeEventListener("pointermove", move);
           window.removeEventListener("pointerup", up);
+          window.removeEventListener("pointercancel", up); // (v37.8) a cancelled drag must clean up too
           document.body.style.cursor = "";
           document.body.style.userSelect = "";
           onCommit(next);
@@ -820,6 +837,7 @@ export function ColumnResizer({
         document.body.style.userSelect = "none";
         window.addEventListener("pointermove", move);
         window.addEventListener("pointerup", up);
+        window.addEventListener("pointercancel", up);
       }}
       className="absolute inset-y-0 -right-1.5 z-20 hidden w-3 cursor-col-resize touch-none select-none md:block hover:bg-primary/40"
     />

@@ -211,7 +211,9 @@ export function MembershipView({
 
   // click a header to sort the (already filtered) list; mobile cards follow
   const { sorted, sortKey, dir, toggle: toggleSort } = useTableSort(shown, MEMBER_SORTERS);
-  const SortHead = ({
+  // (v37.8) a render FUNCTION, not a component — as <SortHead/> it remounted
+  // every header (and its ColumnFilter menu) on each filter tick.
+  const renderSortHead = ({
     field, defaultDir = "asc", children, className,
   }: {
     field: string;
@@ -219,7 +221,7 @@ export function MembershipView({
     children: React.ReactNode;
     className?: string;
   }) => (
-    <TableHead className={className}>
+    <TableHead key={field} className={className}>
       <div className="flex items-center gap-1">
         <SortHeader
           label={children}
@@ -328,6 +330,21 @@ export function MembershipView({
           className="h-9 pl-8"
         />
       </div>
+      {/* (v37.8) phones have no table header to hang the funnels off — the
+          same row the Members directory has had since v33.36.2 */}
+      <div className="flex flex-wrap items-center gap-2 md:hidden">
+        {Object.entries(COL_FILTERS).map(([k, f]) => (
+          <span key={k} className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+            {f.label}
+            <ColumnFilter
+              label={f.label}
+              value={colFilter[f.key] ?? ""}
+              options={f.options(members)}
+              onChange={setCol(f.key)}
+            />
+          </span>
+        ))}
+      </div>
 
       <TeamsCard teams={teams} />
 
@@ -335,7 +352,20 @@ export function MembershipView({
       <div className="space-y-2.5 md:hidden">
         {sorted.map((m) => (
           <Card key={m.id} className={!m.is_active ? "opacity-50" : undefined}>
-            <CardContent className="space-y-1.5 p-3.5" onClick={() => setEditing(m)}>
+            <CardContent
+              className="space-y-1.5 p-3.5"
+              onClick={() => setEditing(m)}
+              // (v37.8) the card is the edit button on phones — reachable by keyboard / AT too
+              role="button"
+              tabIndex={0}
+              aria-label={`Edit ${m.name}`}
+              onKeyDown={(e) => {
+                if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+                  e.preventDefault();
+                  setEditing(m);
+                }
+              }}
+            >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate font-semibold">{m.name}</p>
@@ -380,13 +410,13 @@ export function MembershipView({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <SortHead field="member">Member</SortHead>
-                  <SortHead field="email">AIESEC Mail</SortHead>
-                  <SortHead field="role">Role</SortHead>
-                  <SortHead field="function">Function</SortHead>
-                  <SortHead field="sub">Sub function</SortHead>
-                  <SortHead field="manager">Manager</SortHead>
-                  <SortHead field="status">Status</SortHead>
+                  {renderSortHead({ field: "member", children: "Member" })}
+                  {renderSortHead({ field: "email", children: "AIESEC Mail" })}
+                  {renderSortHead({ field: "role", children: "Role" })}
+                  {renderSortHead({ field: "function", children: "Function" })}
+                  {renderSortHead({ field: "sub", children: "Sub function" })}
+                  {renderSortHead({ field: "manager", children: "Manager" })}
+                  {renderSortHead({ field: "status", children: "Status" })}
                   <TableHead />
                 </TableRow>
               </TableHeader>

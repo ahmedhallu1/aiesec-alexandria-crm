@@ -162,8 +162,12 @@ export function ContactDialog({
         target.id,
         oopReason || "No answer after 3 contact attempts"
       );
-      if (res.ok) toast.success("Account archived (Out of Process)");
-      else toast.error(res.error);
+      // (v37.8) on failure keep the dialog (and the typed reason) so it can be retried
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success("Account archived (Out of Process)");
       reset();
       onOpenChange(false);
     });
@@ -319,11 +323,10 @@ export function ContactDialog({
                         size="sm"
                         className="w-fit"
                         onClick={() => {
-                          const d = new Date();
-                          d.setDate(d.getDate() + 7);
-                          setNextStepDate(
-                            `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-                          );
+                          // (v37.8) a Cairo calendar day + 7 (the dialog compares against cairoToday())
+                          const d = new Date(`${cairoToday()}T00:00:00Z`);
+                          d.setUTCDate(d.getUTCDate() + 7);
+                          setNextStepDate(d.toISOString().slice(0, 10));
                         }}
                       >
                         Next week
@@ -341,13 +344,15 @@ export function ContactDialog({
                             );
                             return;
                           }
+                          // (v37.8) format the instant in Cairo, not the browser's zone
                           const d = new Date(res.data.startsAt);
-                          setNextStepDate(
-                            `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-                          );
-                          setNextStepTime(
-                            `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
-                          );
+                          const parts = new Intl.DateTimeFormat("en-CA", {
+                            timeZone: "Africa/Cairo", year: "numeric", month: "2-digit",
+                            day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+                          }).formatToParts(d);
+                          const pv = (t: string) => parts.find((x) => x.type === t)?.value ?? "00";
+                          setNextStepDate(`${pv("year")}-${pv("month")}-${pv("day")}`);
+                          setNextStepTime(`${pv("hour")}:${pv("minute")}`);
                           if (!nextStep.trim())
                             setNextStep("Contact them again during working hours");
                           toast.success("Next step set to your next working hours ⏰");

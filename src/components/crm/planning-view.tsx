@@ -1,16 +1,12 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
-import { toast } from "sonner";
+import { useMemo, useState } from "react";
 import {
   CalendarRange,
   ClipboardList,
-  Loader2,
-  RefreshCw,
   TrendingUp,
   UsersRound,
 } from "lucide-react";
-import { runPlanningImport } from "@/server/actions";
 import {
   METRIC_LABEL,
   PLAN_FUNNEL,
@@ -24,12 +20,10 @@ import {
 import type { MmPlanRow, PlanCell, TlPlanRow } from "@/server/data";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Hint } from "./hint";
 
 const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const shortMonth = (key: string) => MONTH_SHORT[Number(key.slice(5, 7)) - 1];
@@ -130,12 +124,19 @@ export function PlanningView({
   fns, cells, mmPlans, tlPlans, sprint, month, quarter, termMonths, peak, actuals, approvalActuals,
 }: Props) {
   const [fn, setFn] = useState<PlanFunction>(fns[0]);
-  const [pending, startImport] = useTransition();
 
   const ogx = isOgxPlanFn(fn);
   const funnel = PLAN_FUNNEL[ogx ? "ogx" : "icx"];
   const leadLabel = METRIC_LABEL[funnel[0]].toLowerCase(); // "opens" / "sign ups"
-  const s2Months = termMonths.slice(6); // Aug → Jan
+  // (v37.8) The PLANNED side of every "peak" figure must cover the same months
+  // the ACHIEVED side does (page.tsx queries peak.months). It was hard-wired to
+  // Aug → Jan, so Feb–Jun compared the summer peak's achieved to the winter plan.
+  // If the peak isn't inside this term's sheet yet (January → next summer), keep
+  // the old Aug → Jan figure rather than showing a bare zero.
+  const peakInTerm = peak.months.filter((m) => termMonths.includes(m));
+  const s2Months = peakInTerm.length > 0 ? peakInTerm : termMonths.slice(6);
+  const peakColLabel =
+    peakInTerm.length > 0 ? (peak.label.startsWith("Summer") ? "Peak S1 total" : "Peak S2 total") : "Peak S2 total";
 
   const fnCells = useMemo(() => cells.filter((c) => c.fn === fn), [cells, fn]);
   const sum = (scope: "month" | "sprint", keys: string[], metric: PlanMetric) =>
@@ -158,7 +159,7 @@ export function PlanningView({
     { label: "This sprint", scope: "sprint", keys: sprint.planKeys, win: "sprint" },
     { label: "This month", scope: "month", keys: month.planKeys, win: "month" },
     { label: `This quarter (${quarter.label})`, scope: "month", keys: quarter.planKeys, win: "quarter" },
-    { label: "Peak S2 total", scope: "month", keys: s2Months, win: "peak" },
+    { label: peakColLabel, scope: "month", keys: s2Months, win: "peak" },
     { label: "Term total", scope: "month", keys: termMonths, win: "term" },
   ];
   /** 🏆 approvals ACHIEVED for this lane in a window — ICX only (v37) */
@@ -216,18 +217,11 @@ export function PlanningView({
     return [...map.values()];
   }, [tlPlans, peak.months]);
 
-  const reimport = () =>
-    startImport(async () => {
-      const res = await runPlanningImport();
-      if (res.ok) toast.success(`${res.data?.cells ?? 0} plan cells refreshed`);
-      else toast.error(res.error);
-    });
-
   const hasPlan = fnCells.length > 0;
 
   return (
     <div className="mx-auto max-w-6xl space-y-4">
-      {/* header + re-import */}
+      {/* header (the self-serve re-import button stays removed — v26) */}
       <div className="flex flex-wrap items-start justify-between gap-3 rise-in">
         <div className="min-w-0">
           <h1 className="flex items-center gap-2 text-2xl font-bold">
@@ -261,7 +255,8 @@ export function PlanningView({
       {!hasPlan ? (
         <Card className="rise-in rise-in-2">
           <CardContent className="py-8 text-center text-sm text-muted-foreground">
-            No plan imported for {fn} yet — hit &ldquo;Re-import from the sheet&rdquo; above.
+            {/* (v37.8) the self-serve re-import button was removed in v26 — don't point at it */}
+            No plan has been imported for {fn} yet. Ask the admin to import it from the planning sheet.
           </CardContent>
         </Card>
       ) : (

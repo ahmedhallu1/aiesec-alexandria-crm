@@ -393,8 +393,10 @@ export function VioletManChat({
       </button>
 
       {/* chat popup */}
+      {/* (v37.8) inert while closed: h-0/opacity-0 alone left the textarea and buttons in the tab order and the a11y tree */}
       <div
         ref={panelRef}
+        inert={!open}
         className={cn(
           "fixed bottom-4 right-4 z-50 flex w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border bg-background shadow-2xl transition-all duration-200",
           open
@@ -429,6 +431,7 @@ export function VioletManChat({
             size="icon"
             className="size-7 text-primary-foreground hover:bg-white/15 hover:text-primary-foreground"
             onClick={() => setOpen(false)}
+            aria-label="Close the assistant"
           >
             <X className="size-4" />
           </Button>
@@ -565,7 +568,7 @@ export function VioletManChat({
             placeholder="Ask The Violet Man…"
             className="max-h-24 min-h-9 flex-1 resize-none rounded-lg border bg-transparent px-3 py-2 text-sm outline-none focus:border-primary"
           />
-          <Button type="submit" size="icon" className="size-9 shrink-0" disabled={busy || !input.trim()}>
+          <Button type="submit" size="icon" aria-label="Send" className="size-9 shrink-0" disabled={busy || !input.trim()}>
             <Send className="size-4" />
           </Button>
         </form>

@@ -147,6 +147,8 @@ export function IcxApprovalsTab({
                 onClick={() => {
                   setLane(l);
                   setProduct("");
+                  // (v37.8) the "made by" list is rebuilt per lane — a person from the old lane would leave the Select blank
+                  setMadeBy((m) => (m === "__me" ? m : ""));
                 }}
                 className={cn(
                   "rounded-md px-3 py-1 text-sm font-semibold transition-colors",

@@ -243,9 +243,13 @@ export function AppShell({
 
   // the nav is in arrange mode: grips, arrows and the home star show, and the
   // rows accept a drag (the rail has no room for any of it)
+  // (v37.8) navList/brand take `railed` as a parameter so the mobile drawer can
+  // ALWAYS render the expanded layout: the desktop "collapsed" preference used
+  // to leak into the Sheet (icon-only tabs, no labels, no Arrange row, and the
+  // only control that clears it is md:flex).
+  const renderNav = (railed: boolean) => {
   const arranging = sortMode && !railed;
-
-  const navList = (
+  return (
     // THE TABS SCROLL, THE FOOTER STAYS (v33.38): the nav is the only
     // scrollable region, so the profile block / theme / sign-out under the
     // divider are always in view — no more scrolling to find Sign out.
@@ -467,6 +471,7 @@ export function AppShell({
       </div>
     </nav>
   );
+  };
 
   const credit = (
     <a
@@ -588,7 +593,7 @@ export function AppShell({
     </button>
   );
 
-  const brand = (
+  const renderBrand = (railed: boolean) => (
     <Link prefetch={false}
       href={effectiveHome}
       onClick={() => setOpen(false)}
@@ -666,8 +671,8 @@ export function AppShell({
         )}
         data-railed={railed ? "true" : undefined}
       >
-        {brand}
-        {navList}
+        {renderBrand(railed)}
+        {renderNav(railed)}
         {railedToggle}
         {userBlock(false)}
         {railed ? null : credit}
@@ -690,8 +695,8 @@ export function AppShell({
           </SheetTrigger>
           <SheetContent side="left" className="flex w-64 flex-col bg-sidebar p-0 pb-[env(safe-area-inset-bottom)] border-sidebar-border">
             <SheetTitle className="sr-only">Navigation</SheetTitle>
-            {brand}
-            {navList}
+            {renderBrand(false)}
+            {renderNav(false)}
             {userBlock(true)}
             {credit}
           </SheetContent>

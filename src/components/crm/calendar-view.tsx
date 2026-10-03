@@ -935,6 +935,7 @@ export function CalendarView({
                         size="icon"
                         className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
                         disabled={deletePending}
+                        aria-label={`Remove ${it.title}`}
                         onClick={() => removeItem(it)}
                       >
                         <Trash2 className="size-3.5" />
@@ -1087,6 +1088,9 @@ function ExcuseDialog({
   const [reason, setReason] = useState("");
   const [pending, start] = useTransition();
   const router = useRouter();
+  // (v37.8) One reset for every way out (Cancel, overlay, Esc, sent) — Cancel used
+  // to skip it, so a typed reason + "late" leaked into the next session's dialog.
+  const reset = () => { setReason(""); setStatus("absent"); };
 
   const submit = () =>
     start(async () => {
@@ -1098,13 +1102,13 @@ function ExcuseDialog({
           ? "Told them you'll be late — thank you for saying so 🙏"
           : "Told them you can't make it — thank you for saying so 🙏"
       );
-      setReason("");
+      reset();
       onClose();
       router.refresh();
     });
 
   return (
-    <Dialog open={!!tp} onOpenChange={(o) => { if (!o) { setReason(""); onClose(); } }}>
+    <Dialog open={!!tp} onOpenChange={(o) => { if (!o) { reset(); onClose(); } }}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>🙏 {tp?.label}</DialogTitle>
@@ -1138,7 +1142,7 @@ function ExcuseDialog({
           </div>
         </div>
         <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={onClose} disabled={pending}>Cancel</Button>
+          <Button variant="outline" onClick={() => { reset(); onClose(); }} disabled={pending}>Cancel</Button>
           <Button onClick={submit} disabled={pending || reason.trim().length < 3}>
             {pending ? <Loader2 className="size-4 animate-spin" /> : null} Send it
           </Button>

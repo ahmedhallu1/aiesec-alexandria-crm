@@ -446,6 +446,7 @@ function RenameButton({ account }: { account: PipelineRow }) {
           variant="ghost"
           size="icon"
           className="size-7 text-muted-foreground"
+          aria-label="Rename account"
           onClick={() => setOpen(true)}
         >
           <Pencil className="size-3.5" />
@@ -844,6 +845,15 @@ function ContactInfoCard({
         ] as AccountContact[]);
   const [rows, setRows] = useState<AccountContact[]>(initial);
   const [dirty, setDirty] = useState(false);
+  // (v37.8) numbers added elsewhere (a leader, another tab) never showed here,
+  // and the next edit here would have saved the stale list over them. While
+  // nothing has been typed in THIS card, follow the server's list.
+  const serverContacts = JSON.stringify(initial);
+  const [seenContacts, setSeenContacts] = useState(serverContacts);
+  if (serverContacts !== seenContacts) {
+    setSeenContacts(serverContacts);
+    if (!dirty) setRows(initial);
+  }
   // a value this account is GAINING that another account already has (v36.5)
   const { clashes } = useContactClashes(rows, { excludeId: account.id, enabled: canEdit && dirty });
 
@@ -954,7 +964,7 @@ function PodioUpdateCard({ account, canEdit }: { account: PipelineRow; canEdit: 
             Off — turn on to keep this account refreshed on Podio every{" "}
             {podioDefaultDays(account.function)} days (with reminders).
           </p>
-          {canEdit ? <Switch checked={false} onCheckedChange={toggle} disabled={pending} /> : null}
+          {canEdit ? <Switch checked={false} onCheckedChange={toggle} disabled={pending} aria-label="Continuous updates on/off" /> : null}
         </CardContent>
       </Card>
     );
@@ -1050,8 +1060,17 @@ function PodioCard({
 
   const save = (patch: { requested_podio?: boolean; request_state?: "Checking" | "Approved" | "Rejected" }) =>
     start(async () => {
+      // (v37.8) the callers set the new value optimistically; `requested`/`state`
+      // here still hold the saved one — put it back when the server refuses, so
+      // a "Rejected"/"Approved" the server never stored stops being displayed
+      const before = { requested, state };
       const res = await updateAccount(account.id, patch);
-      if (!res.ok) { toast.error(res.error); return; }
+      if (!res.ok) {
+        setRequested(before.requested);
+        setState(before.state);
+        toast.error(res.error);
+        return;
+      }
       if (patch.request_state === "Rejected") {
         toast.success(`"${account.name}" archived — Podio request rejected.`);
         router.refresh();
@@ -1081,6 +1100,7 @@ function PodioCard({
           </div>
           <Switch
             checked={requested}
+            aria-label="Requested on Podio"
             disabled={!canEdit || pending}
             onCheckedChange={(v) => { setRequested(v); save({ requested_podio: v }); }}
           />
@@ -1172,6 +1192,20 @@ function NextStepCard({ account, canEdit }: { account: PipelineRow; canEdit: boo
     if (!res.ok) toast.error(res.error);
     return (res.ok ? { ok: true } : { ok: false, error: res.error }) satisfies SaveResult;
   });
+  // (v37.8) the card seeded once and never looked again, but the Contact log and
+  // the visit report both write the next step on the server — the card kept the
+  // old text and its next edit autosaved it back over the newer one. Adopt the
+  // server's value when it changes, unless something typed here is unsaved.
+  const serverKey = `${account.next_step ?? ""}|${account.next_step_date ?? ""}|${account.next_step_time ?? ""}`;
+  const [seenKey, setSeenKey] = useState(serverKey);
+  if (serverKey !== seenKey) {
+    setSeenKey(serverKey);
+    if (auto.status.kind === "idle" || auto.status.kind === "saved") {
+      setStep(account.next_step ?? "");
+      setDate(account.next_step_date ?? "");
+      setTime(account.next_step_time?.slice(0, 5) ?? "");
+    }
+  }
   const update = (patch: Partial<{ step: string; date: string; time: string }>) => {
     const next = { step, date, time, ...patch };
     setStep(next.step);
@@ -1419,6 +1453,7 @@ function CommentsCard({
                             size="icon"
                             className="size-6 text-muted-foreground hover:text-foreground"
                             disabled={pending}
+                            aria-label="Edit comment"
                             onClick={() => setEditing({ id: c.id, body: c.body })}
                           >
                             <Pencil className="size-3.5" />
@@ -1432,6 +1467,7 @@ function CommentsCard({
                             size="icon"
                             className="size-6 text-muted-foreground hover:text-warning"
                             disabled={pending}
+                            aria-label={c.pinned ? "Unpin comment" : "Pin comment"}
                             onClick={() => togglePin(c.id, !c.pinned)}
                           >
                             {c.pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
@@ -1444,6 +1480,7 @@ function CommentsCard({
                           size="icon"
                           className="size-6 text-muted-foreground hover:text-foreground"
                           disabled={pending}
+                          aria-label={c.archived ? "Restore comment" : "Archive comment"}
                           onClick={() => toggleArchive(c.id, !c.archived)}
                         >
                           {c.archived ? <ArchiveRestore className="size-3.5" /> : <Archive className="size-3.5" />}
@@ -1694,11 +1731,22 @@ function DealContracts({ deal, canEdit }: { deal: DealWithMember; canEdit: boole
   const contracts = deal.contracts ?? [];
 
   const openContract = async (path: string) => {
+    // (v37.8) phones (iOS Safari first) block window.open once an `await` has
+    // passed, so the tab is opened NOW, inside the tap, and pointed at the
+    // signed link when it arrives. (noopener would hand back no handle, so the
+    // opener is cut by hand.)
+    const tab = window.open("", "_blank");
+    if (tab) tab.opener = null;
     setOpening(path);
     const res = await getContractUrl(deal.id, path);
     setOpening(null);
-    if (res.ok && res.data) window.open(res.data.url, "_blank", "noopener");
-    else toast.error(res.ok ? "Could not open the contract." : res.error);
+    if (res.ok && res.data) {
+      if (tab) tab.location.href = res.data.url;
+      else window.open(res.data.url, "_blank", "noopener");
+    } else {
+      tab?.close();
+      toast.error(res.ok ? "Could not open the contract." : res.error);
+    }
   };
 
   const onPick = async (list: FileList | null) => {
@@ -1838,6 +1886,7 @@ function TimelineCard({
                         variant="ghost"
                         size="icon"
                         className="-mr-1 -mt-1 size-6 shrink-0 text-muted-foreground hover:text-foreground"
+                        aria-label={`Edit deal #${deals.length - i}`}
                         onClick={() => setEditDeal({ deal: d, no: deals.length - i })}
                       >
                         <Pencil className="size-3.5" />
@@ -1861,7 +1910,15 @@ function TimelineCard({
                   onClick={reportable ? () => onReportVisit!(v.id) : undefined}
                   onKeyDown={
                     reportable
-                      ? (e) => { if (e.key === "Enter" || e.key === " ") onReportVisit!(v.id); }
+                      ? (e) => {
+                          // (v37.8) a key pressed on the nested "Move it" button bubbles
+                          // here — don't open the report dialog on top of the move one
+                          if (e.target !== e.currentTarget) return;
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault(); // Space would also scroll the page
+                            onReportVisit!(v.id);
+                          }
+                        }
                       : undefined
                   }
                   className={cn(
@@ -1942,6 +1999,7 @@ function TimelineCard({
                       variant="ghost"
                       size="icon"
                       className="size-6 shrink-0 text-muted-foreground hover:text-foreground"
+                      aria-label="Edit contact log"
                       onClick={() => setEditAttempt(a)}
                     >
                       <Pencil className="size-3.5" />
@@ -2036,7 +2094,7 @@ function AttemptEditDialog({
                   if (m === "Call" && status === "Waiting for response") setStatus("No Response");
                 }}
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger aria-label="Method"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {(["Call", "WhatsApp", "Email"] as const).map((m) => (
                     <SelectItem key={m} value={m}>{m}</SelectItem>
@@ -2047,7 +2105,7 @@ function AttemptEditDialog({
             <div className="grid gap-1.5">
               <Label>Result</Label>
               <Select value={status || undefined} onValueChange={setStatus}>
-                <SelectTrigger><SelectValue placeholder={attempt.status} /></SelectTrigger>
+                <SelectTrigger aria-label="Result"><SelectValue placeholder={attempt.status} /></SelectTrigger>
                 <SelectContent>
                   {EDITABLE_ATTEMPT_RESULTS
                     .filter((s) => s !== "Waiting for response" || method !== "Call")
@@ -2372,6 +2430,7 @@ function VisitDialog({
     setSeeded(pendingVisit?.id ?? null);
     setDate(pendingVisit?.visit_date ?? "");
     setTime(pendingVisit?.visit_time?.slice(0, 5) ?? "");
+    setNotes(""); // (v37.8) another visit's notes must not ride on this one
   }
 
   const submit = () =>
@@ -2384,6 +2443,7 @@ function VisitDialog({
         toast.success(
           `Visit scheduled — a calendar invite is in the responsible's inbox${shared ? ` and shared with ${shared} leader${shared === 1 ? "" : "s"}` : ""}. Reminders 24h & 1h before 🗓️`
         );
+        setNotes(""); // (v37.8) sent — the next booking starts with an empty box
         onOpenChange(false);
       } else {
         // the invite email couldn't go out (mail pipeline) — visit is still saved
@@ -2393,7 +2453,7 @@ function VisitDialog({
     });
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) setFailed(false); onOpenChange(o); }}>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) { if (failed) setNotes(""); setFailed(false); } onOpenChange(o); }}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>{pendingVisit ? "Reschedule visit" : "Schedule visit"} — {account.name}</DialogTitle>
@@ -2508,7 +2568,7 @@ function ReportVisitDialog({
             <div className="grid gap-1.5">
               <Label>What came out of it? *</Label>
               <Select value={result || undefined} onValueChange={setResult}>
-                <SelectTrigger><SelectValue placeholder="Pick the result…" /></SelectTrigger>
+                <SelectTrigger aria-label="Visit result"><SelectValue placeholder="Pick the result…" /></SelectTrigger>
                 <SelectContent>
                   {VISIT_RESULTS.map((r) => (
                     <SelectItem key={r} value={r}>{r}</SelectItem>
@@ -2626,7 +2686,7 @@ function OopDialog({
               else { setOther(false); setReason(v); }
             }}
           >
-            <SelectTrigger><SelectValue placeholder="Why is it out?" /></SelectTrigger>
+            <SelectTrigger aria-label="Reason it is out of process"><SelectValue placeholder="Why is it out?" /></SelectTrigger>
             <SelectContent>
               {OOP_REASONS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
               <SelectItem value="Other">Other…</SelectItem>
@@ -2824,6 +2884,18 @@ function DealDialog({
   const [splitRows, setSplitRows] = useState<
     { memberId: string; igv: string; igta: string; igte: string }[]
   >([]);
+
+  // (v37.8) the account can change lane under this always-mounted dialog (an
+  // IGV account sold as IGT becomes IGT) — re-seed the programme + opens for
+  // the NEW lane, otherwise the next deal opens on the old lane's defaults
+  // ("They bought IGV, not IGT" preselected with igv=1).
+  const [seenFn, setSeenFn] = useState(fn);
+  if (fn !== seenFn) {
+    setSeenFn(fn);
+    setSoldAs(fn === "IGV" ? "IGV" : "IGT");
+    setIgv(fn === "IGV" ? "1" : "0"); setIgta("0"); setIgte("0");
+    setSplitOn(false); setSplitRows([]);
+  }
 
   // which product fields to show — for the programme being SOLD, not for the
   // label the account happens to carry right now

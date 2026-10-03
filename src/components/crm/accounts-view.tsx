@@ -302,11 +302,14 @@ function FlagToggle({
 }
 
 /** Minimal round checkbox for the bulk-selection mode. */
-function SelectDot({ checked, onToggle }: { checked: boolean; onToggle: () => void }) {
+function SelectDot({
+  checked, onToggle, label,
+}: { checked: boolean; onToggle: () => void; label?: string }) {
   return (
     <button
       type="button"
       aria-pressed={checked}
+      aria-label={label ?? "Select"}
       onClick={(e) => {
         e.stopPropagation();
         onToggle();
@@ -539,6 +542,59 @@ function accountColumns(viewer: ViewerInfo): TableColumn[] {
 
 // --------------------------------------------- contact-after-click prompt
 
+// (v37.8) Module scope: declared inside AccountsView it was a NEW component type
+// every render, so each header — and the column-filter menu living in it —
+// remounted on every navPending flip and closed the multi-select menu after
+// the first pick.
+function SortHead({
+  field, defaultDir = "desc", children, className, filter, style, after,
+  sort, dir, onSort,
+}: {
+  sort: string | undefined;
+  dir: string | undefined;
+  onSort: (field: string, defaultDir: "asc" | "desc") => void;
+  field: string;
+  defaultDir?: "asc" | "desc";
+  children: React.ReactNode;
+  className?: string;
+  /** the column's funnel button, sitting beside the sortable name */
+  filter?: React.ReactNode;
+  style?: React.CSSProperties;
+  /** the resize handle, positioned against the cell (v33.11) */
+  after?: React.ReactNode;
+}) {
+  return (
+    <TableHead className={className} style={style}>
+      <span className="inline-flex items-center gap-1">
+      <button
+        type="button"
+        onClick={() => onSort(field, defaultDir)}
+        className={cn(
+          "group/sort -mx-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 transition-all duration-150 hover:bg-muted hover:text-foreground active:scale-95",
+          sort === field && "font-bold text-primary"
+        )}
+        title="Sort by this column"
+      >
+        {children}
+        {sort === field ? (
+          <span>{dir === "asc" ? "↑" : "↓"}</span>
+        ) : (
+          // ghost arrows fade + drop in on hover — "you can click me"
+          <span
+            aria-hidden
+            className="-translate-y-0.5 opacity-0 transition-all duration-150 group-hover/sort:translate-y-0 group-hover/sort:opacity-60"
+          >
+            ↕
+          </span>
+        )}
+      </button>
+      {filter}
+      </span>
+      {after}
+    </TableHead>
+  );
+}
+
 /** Which contact method a quick-action link stands for — `null` for the
  *  social links (opening a LinkedIn page is not a contact attempt). */
 function methodFromHref(href: string): ContactMethod | null {
@@ -647,12 +703,29 @@ export function AccountsView({
     [router, searchParams]
   );
 
+  // (v37.8) `pushedQ` = the last search text THIS box put in (or cleared out
+  // of) the URL. It stops two bugs: Clear arming a stale debounce that
+  // re-applied the old filters 350ms later, and Back/forward re-pushing the
+  // typed text over the URL the browser just restored.
+  const [pushedQ, setPushedQ] = useState(filters.q);
+  const [seenQ, setSeenQ] = useState(filters.q);
+  if (filters.q !== seenQ) {
+    setSeenQ(filters.q);
+    if (filters.q !== pushedQ) {
+      // the URL changed from outside (Back/forward, a link) — adopt it
+      setPushedQ(filters.q);
+      if (filters.q !== q) setQ(filters.q);
+    }
+  }
   useEffect(() => {
-    if (q === filters.q) return;
+    if (q === filters.q || q === pushedQ) return;
     if (debounce.current) clearTimeout(debounce.current);
-    debounce.current = setTimeout(() => setParam("q", q), 350);
+    debounce.current = setTimeout(() => {
+      setPushedQ(q);
+      setParam("q", q);
+    }, 350);
     return () => { if (debounce.current) clearTimeout(debounce.current); };
-  }, [q, filters.q, setParam]);
+  }, [q, filters.q, pushedQ, setParam]);
 
   // column sorting (v24): click a header to sort by it, click again to flip
   const sortBy = useCallback(
@@ -669,49 +742,6 @@ export function AccountsView({
     },
     [router, searchParams, filters.sort, filters.dir]
   );
-  const SortHead = ({
-    field, defaultDir = "desc", children, className, filter, style, after,
-  }: {
-    field: string;
-    defaultDir?: "asc" | "desc";
-    children: React.ReactNode;
-    className?: string;
-    /** the column's funnel button, sitting beside the sortable name */
-    filter?: React.ReactNode;
-    style?: React.CSSProperties;
-    /** the resize handle, positioned against the cell (v33.11) */
-    after?: React.ReactNode;
-  }) => (
-    <TableHead className={className} style={style}>
-      <span className="inline-flex items-center gap-1">
-      <button
-        type="button"
-        onClick={() => sortBy(field, defaultDir)}
-        className={cn(
-          "group/sort -mx-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 transition-all duration-150 hover:bg-muted hover:text-foreground active:scale-95",
-          filters.sort === field && "font-bold text-primary"
-        )}
-        title="Sort by this column"
-      >
-        {children}
-        {filters.sort === field ? (
-          <span>{filters.dir === "asc" ? "↑" : "↓"}</span>
-        ) : (
-          // ghost arrows fade + drop in on hover — "you can click me"
-          <span
-            aria-hidden
-            className="-translate-y-0.5 opacity-0 transition-all duration-150 group-hover/sort:translate-y-0 group-hover/sort:opacity-60"
-          >
-            ↕
-          </span>
-        )}
-      </button>
-      {filter}
-      </span>
-      {after}
-    </TableHead>
-  );
-
   const archived = filters.archived === "1";
   // mobile render style (persisted): cards (default) · compact list · table
   const [mobileView, setMobileView] = useState<"cards" | "compact" | "table">("cards");
@@ -753,6 +783,10 @@ export function AccountsView({
     setSelected(new Set());
   }, [filterKey]);
   const anyFilter = Object.values(filters).some(Boolean);
+  // (v37.8) a search/filter that matches nothing is not "your first account"
+  const emptyText = anyFilter
+    ? "No accounts match these filters. Tap Clear to see them all."
+    : "No accounts here yet. Add your first one 🚀";
   const stageOptions = STAGES.filter((s) => s !== "Out of Process");
   // the Type column holds the raising pair's type for most, B2C's own three
   // for that world — offer what the viewer's accounts can actually carry
@@ -1089,6 +1123,11 @@ export function AccountsView({
 
   // archive = OOP accounts (paginated) + manually added names (shown with the
   // FIRST page only — repeating them on every page would duplicate the list)
+  // (v37.8) the manual names that match the search — ONE list feeds both the
+  // rows and the header count, so a search no longer says "40 names" over 1 row
+  const manualMatching = manualArchived.filter(
+    (e) => !q || e.name.toLowerCase().includes(q.trim().toLowerCase())
+  );
   const archivedItems: (
     | { kind: "account"; date: string; row: PipelineRow }
     | { kind: "manual"; date: string; entry: ManualEntry }
@@ -1099,8 +1138,7 @@ export function AccountsView({
           date: row.oop_at ?? row.updated_at ?? row.created_at,
           row,
         })),
-        ...(page === 0 ? manualArchived : [])
-          .filter((e) => !q || e.name.toLowerCase().includes(q.trim().toLowerCase()))
+        ...(page === 0 ? manualMatching : [])
           .map((entry) => ({ kind: "manual" as const, date: entry.createdAt, entry })),
       ].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""))
     : [];
@@ -1130,7 +1168,7 @@ export function AccountsView({
           </h1>
           <p className="text-sm text-muted-foreground">
             {archived
-              ? `${(total + manualArchived.length).toLocaleString("en")} archived name${total + manualArchived.length === 1 ? "" : "s"} — none of them can ever be re-added`
+              ? `${(total + manualMatching.length).toLocaleString("en")} archived name${total + manualMatching.length === 1 ? "" : "s"} — none of them can ever be re-added`
               : `${total.toLocaleString("en")} account${total === 1 ? "" : "s"} in your scope`}
           </p>
           {!archived ? (
@@ -1421,7 +1459,7 @@ export function AccountsView({
           />
         </div>
         {anyFilter ? (
-          <Button variant="ghost" size="sm" onClick={() => { setQ(""); startNav(() => router.replace("/accounts")); }}>
+          <Button variant="ghost" size="sm" onClick={() => { setQ(""); setPushedQ(""); startNav(() => router.replace("/accounts")); }}>
             <X className="size-4" /> Clear
           </Button>
         ) : null}
@@ -1455,6 +1493,8 @@ export function AccountsView({
             ] as const).map(([key, label]) => (
               <button
                 key={key}
+                type="button"
+                aria-pressed={mobileView === key}
                 onClick={() => pickMobileView(key)}
                 className={cn(
                   "flex-1 rounded-md py-1.5 text-xs font-medium transition-colors",
@@ -1473,7 +1513,7 @@ export function AccountsView({
             {rows.length === 0 ? (
               <Card>
                 <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                  No accounts here yet. Add your first one 🚀
+                  {emptyText}
                 </CardContent>
               </Card>
             ) : (
@@ -1513,6 +1553,7 @@ export function AccountsView({
                       <span className="flex shrink-0 items-center gap-1.5">
                         {selectMode ? (
                           <SelectDot
+                            label={`Select ${row.name}`}
                             checked={selected.has(row.id)}
                             onToggle={() => toggleSelected(row.id)}
                           />
@@ -1579,7 +1620,7 @@ export function AccountsView({
             {rows.length === 0 ? (
               <Card>
                 <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                  No accounts here yet. Add your first one 🚀
+                  {emptyText}
                 </CardContent>
               </Card>
             ) : (
@@ -1597,6 +1638,7 @@ export function AccountsView({
                   >
                     {selectMode ? (
                       <SelectDot
+                        label={`Select ${row.name}`}
                         checked={selected.has(row.id)}
                         onToggle={() => toggleSelected(row.id)}
                       />
@@ -1656,6 +1698,9 @@ export function AccountsView({
                       return sort ? (
                         <SortHead
                           key={c.key}
+                          sort={filters.sort}
+                          dir={filters.dir}
+                          onSort={sortBy}
                           field={sort.field}
                           defaultDir={sort.dir}
                           className={cn("relative", ACCOUNT_HEAD_CLASS[c.key])}
@@ -1688,7 +1733,7 @@ export function AccountsView({
                         colSpan={cols.visible.length + 1}
                         className="py-12 text-center text-muted-foreground"
                       >
-                        No accounts here yet. Add your first one 🚀
+                        {emptyText}
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -1700,6 +1745,7 @@ export function AccountsView({
                       >
                         <TableCell>
                           <SelectDot
+                            label={`Select ${row.name}`}
                             checked={selected.has(row.id)}
                             onToggle={() => toggleSelected(row.id)}
                           />
@@ -2054,7 +2100,21 @@ function ArchivedList({
           confirm.mode === "revive"
             ? await bulkReviveAccounts(chunk)
             : await bulkDeleteArchived(chunk);
-        if (!res.ok) { toast.error(res.error); return; }
+        if (!res.ok) {
+          // (v37.8) earlier chunks already went through — say so and realign
+          // the list, otherwise the done rows linger and a retry "fails" on them
+          if (done > 0) {
+            toast.error(
+              `${res.error} — ${done} account${done === 1 ? " was" : "s were"} already ${confirm.mode === "revive" ? "revived" : "deleted"} before it stopped`
+            );
+            setSelected(new Set());
+            setConfirm(null);
+            router.refresh();
+          } else {
+            toast.error(res.error);
+          }
+          return;
+        }
         done +=
           confirm.mode === "revive"
             ? (res.data as { revived: number }).revived
@@ -2088,13 +2148,14 @@ function ArchivedList({
                 <CardContent className="space-y-1.5 p-3.5">
                   <p className="flex items-center gap-2 font-semibold">
                     {selectable ? (
-                      <SelectDot checked={selected.has(item.row.id)} onToggle={() => toggle(item.row.id)} />
+                      <SelectDot label={`Select ${item.row.name}`} checked={selected.has(item.row.id)} onToggle={() => toggle(item.row.id)} />
                     ) : null}
                     <span className="min-w-0 flex-1 truncate">{item.row.name}</span>
                     {canManage ? (
                       <Button
                         variant="ghost" size="icon" disabled={pending}
                         className="size-7 shrink-0 text-muted-foreground hover:text-primary"
+                        aria-label={`Back to active: ${item.row.name}`}
                         onClick={(e) => {
                           e.stopPropagation();
                           setConfirm({ mode: "revive", ids: [item.row.id], label: `"${item.row.name}"` });
@@ -2120,6 +2181,7 @@ function ArchivedList({
                       <Button
                         variant="ghost" size="icon" disabled={pending}
                         className="size-7 text-muted-foreground hover:text-destructive"
+                        aria-label={`Remove ${item.entry.name} from the archive`}
                         onClick={() => remove(item.entry.id, item.entry.name)}
                       >
                         <Trash2 className="size-3.5" />
@@ -2152,6 +2214,7 @@ function ArchivedList({
                 {selectable ? (
                   <TableHead className="w-10">
                     <SelectDot
+                      label="Select all"
                       checked={accountIds.length > 0 && selected.size >= accountIds.length}
                       onToggle={() =>
                         setSelected(
@@ -2194,7 +2257,7 @@ function ArchivedList({
                     >
                       {selectable ? (
                         <TableCell onClick={(e) => e.stopPropagation()}>
-                          <SelectDot checked={selected.has(item.row.id)} onToggle={() => toggle(item.row.id)} />
+                          <SelectDot label={`Select ${item.row.name}`} checked={selected.has(item.row.id)} onToggle={() => toggle(item.row.id)} />
                         </TableCell>
                       ) : null}
                       {cols.visible.map((c) => (
@@ -2209,6 +2272,7 @@ function ArchivedList({
                               <Button
                                 variant="ghost" size="icon" disabled={pending}
                                 className="size-7 text-muted-foreground hover:text-primary"
+                                aria-label={`Back to active: ${item.row.name}`}
                                 onClick={() =>
                                   setConfirm({ mode: "revive", ids: [item.row.id], label: `"${item.row.name}"` })
                                 }
@@ -2227,6 +2291,7 @@ function ArchivedList({
                               <Button
                                 variant="ghost" size="icon" disabled={pending}
                                 className="size-7 text-muted-foreground hover:text-destructive"
+                                aria-label={`Delete permanently: ${item.row.name}`}
                                 onClick={() =>
                                   setConfirm({ mode: "delete", ids: [item.row.id], label: `"${item.row.name}"` })
                                 }
@@ -2252,6 +2317,7 @@ function ArchivedList({
                             <Button
                               variant="ghost" size="icon" disabled={pending}
                               className="size-7 text-muted-foreground hover:text-destructive"
+                              aria-label={`Remove ${item.entry.name} from the archive`}
                               onClick={() => remove(item.entry.id, item.entry.name)}
                             >
                               <Trash2 className="size-3.5" />
@@ -2518,7 +2584,7 @@ function BulkReassignDialog({
           </Select>
         </div>
         <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border p-3">
-          <SelectDot checked={notify} onToggle={() => setNotify((n) => !n)} />
+          <SelectDot label="Email them about it" checked={notify} onToggle={() => setNotify((n) => !n)} />
           <span className="text-sm">
             <span className="font-medium">Email them about it 📬</span>
             <span className="block text-xs text-muted-foreground">
@@ -2556,14 +2622,17 @@ function BulkEditDialog({
   onDone: () => void;
 }) {
   const router = useRouter();
-  const [fn, setFn] = useState<string>("keep");
+  const [pickedFn, setFn] = useState<string>("keep");
   const [comment, setComment] = useState("");
   const [pending, start] = useTransition();
+  const shared = new Set(currentFns);
+  const offer = shared.size === 1 ? functions.filter((f) => !shared.has(f)) : functions;
+  // (v37.8) a pick the current selection no longer offers (it was chosen for an
+  // earlier selection, then the dialog was closed) must not ride along unseen
+  const fn = (offer as string[]).includes(pickedFn) ? pickedFn : "keep";
   const moving = fn !== "keep";
   const note = comment.trim();
   const canSave = !pending && ids.length > 0 && (moving || note.length > 0);
-  const shared = new Set(currentFns);
-  const offer = shared.size === 1 ? functions.filter((f) => !shared.has(f)) : functions;
 
   const submit = () =>
     start(async () => {
@@ -2737,7 +2806,11 @@ function AddArchivedDialog({
   );
 }
 
-interface ArchivedDraft { name: string; reason: string }
+// (v37.8) `id` is a stable key: rows were keyed by index, so removing one made
+// the next row inherit its ReasonField state and shifted the result badges.
+interface ArchivedDraft { id: number; name: string; reason: string }
+let archivedDraftSeq = 0;
+type ArchivedResult = { ok: boolean; error?: string };
 
 function ImportArchivedDialog({
   open, onOpenChange,
@@ -2747,7 +2820,7 @@ function ImportArchivedDialog({
   const [rows, setRows] = useState<ArchivedDraft[]>([]);
   const [fileName, setFileName] = useState("");
   const [parsing, setParsing] = useState(false);
-  const [results, setResults] = useState<{ name: string; ok: boolean; error?: string }[] | null>(null);
+  const [results, setResults] = useState<Record<number, ArchivedResult> | null>(null);
   const [pending, start] = useTransition();
 
   const parseFile = async (file: File) => {
@@ -2772,6 +2845,7 @@ function ImportArchivedDialog({
       const drafts: ArchivedDraft[] = grid
         .slice(1)
         .map((line) => ({
+          id: ++archivedDraftSeq,
           name: String(line[nameCol] ?? "").trim(),
           // free-form reasons from old sheets are kept as-is
           reason: String(line[reasonCol] ?? "").trim(),
@@ -2797,21 +2871,30 @@ function ImportArchivedDialog({
     }
   };
 
-  const update = (i: number, patch: Partial<ArchivedDraft>) =>
-    setRows((r) => r.map((row, j) => (j === i ? { ...row, ...patch } : row)));
-  const removeRow = (i: number) => setRows((r) => r.filter((_, j) => j !== i));
+  const update = (id: number, patch: Partial<ArchivedDraft>) =>
+    setRows((r) => r.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  const removeRow = (id: number) => setRows((r) => r.filter((row) => row.id !== id));
 
+  // (v37.8) names that already went in are never re-sent — a second click
+  // after fixing the blocked ones used to report the first batch as duplicates
+  const todo = rows.filter((r) => !results?.[r.id]?.ok);
   // only the name is required — reasons are optional in the archive
-  const invalid = rows.filter((r) => r.name.trim().length < 2).length;
+  const invalid = todo.filter((r) => r.name.trim().length < 2).length;
 
   const submit = () =>
     start(async () => {
-      const res = await importArchivedBulk(rows.map((r) => ({ name: r.name.trim(), reason: r.reason.trim() })));
+      const sent = todo;
+      const res = await importArchivedBulk(sent.map((r) => ({ name: r.name.trim(), reason: r.reason.trim() })));
       if (!res.ok) { toast.error(res.error); return; }
       const { results: rr, created } = res.data!;
-      setResults(rr);
-      if (created === rows.length) toast.success(`All ${created} names archived 🗄️`);
-      else toast.warning(`${created} archived · ${rows.length - created} blocked — see the rows.`);
+      // the server answers in the order it was sent
+      setResults((prev) => {
+        const next = { ...(prev ?? {}) };
+        sent.forEach((r, i) => { next[r.id] = { ok: !!rr[i]?.ok, error: rr[i]?.error }; });
+        return next;
+      });
+      if (created === sent.length) toast.success(`All ${created} names archived 🗄️`);
+      else toast.warning(`${created} archived · ${sent.length - created} blocked — see the rows.`);
       router.refresh();
     });
 
@@ -2858,21 +2941,21 @@ function ImportArchivedDialog({
               <TableHeader>
                 <TableRow>
                   <TableHead className="min-w-40">Name *</TableHead>
-                  <TableHead className="min-w-48">Reason *</TableHead>
+                  <TableHead className="min-w-48">Reason</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((r, i) => {
-                  const result = results?.[i];
+                {rows.map((r) => {
+                  const result = results?.[r.id];
                   return (
-                    <TableRow key={i} className={cn(result && !result.ok && "bg-destructive/5")}>
+                    <TableRow key={r.id} className={cn(result && !result.ok && "bg-destructive/5")}>
                       <TableCell>
-                        <Input className="h-8" value={r.name} onChange={(e) => update(i, { name: e.target.value })} />
+                        <Input className="h-8" value={r.name} onChange={(e) => update(r.id, { name: e.target.value })} />
                       </TableCell>
                       <TableCell>
-                        <ReasonField compact value={r.reason} onChange={(v) => update(i, { reason: v })} />
+                        <ReasonField compact value={r.reason} onChange={(v) => update(r.id, { reason: v })} />
                       </TableCell>
                       <TableCell>
                         {result ? (
@@ -2885,8 +2968,11 @@ function ImportArchivedDialog({
                               <XCircle className="size-3" /> {result.error?.slice(0, 32)}
                             </Badge>
                           )
-                        ) : r.name.trim().length < 2 || !r.reason.trim() ? (
+                        ) : r.name.trim().length < 2 ? (
                           <Badge className="border-transparent bg-warning/15 text-warning">incomplete</Badge>
+                        ) : !r.reason.trim() ? (
+                          // (v37.8) reasons are optional — neutral, not a warning
+                          <Badge variant="outline" className="text-muted-foreground">no reason</Badge>
                         ) : (
                           <Badge variant="outline">ready</Badge>
                         )}
@@ -2895,7 +2981,8 @@ function ImportArchivedDialog({
                         <Button
                           variant="ghost" size="icon"
                           className="size-7 text-muted-foreground hover:text-destructive"
-                          onClick={() => removeRow(i)}
+                          aria-label={`Remove row: ${r.name || "empty"}`}
+                          onClick={() => removeRow(r.id)}
                         >
                           <Trash2 className="size-3.5" />
                         </Button>
@@ -2913,11 +3000,11 @@ function ImportArchivedDialog({
         )}
 
         <DialogFooter>
-          <Button onClick={submit} disabled={pending || rows.length === 0 || invalid > 0}>
+          <Button onClick={submit} disabled={pending || todo.length === 0 || invalid > 0}>
             {pending ? (
               <><Loader2 className="size-4 animate-spin" /> Importing…</>
             ) : (
-              <>Archive {rows.length || ""} name{rows.length === 1 ? "" : "s"}</>
+              <>Archive {todo.length || ""} name{todo.length === 1 ? "" : "s"}</>
             )}
           </Button>
         </DialogFooter>

@@ -196,8 +196,9 @@ export function ProfileView({
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="grid gap-1.5">
-              <Label>Phone</Label>
+              <Label htmlFor="profile-phone">Phone</Label>
               <Input
+                id="profile-phone"
                 value={phone}
                 inputMode="tel"
                 onChange={(e) => { setPhone(e.target.value); setDirty(true); }}
@@ -214,13 +215,14 @@ export function ProfileView({
                 landed yet still needs to RECEIVE things: password resets,
                 the calendar invites behind their IR calls. Never a login. */}
             <div className="grid gap-1.5">
-              <Label>Personal Gmail — backup only (until your AIESEC Mail arrives)</Label>
+              <Label htmlFor="profile-backup-gmail">Personal Gmail — backup only (until your AIESEC Mail arrives)</Label>
               {/* THE BROWSER WAS FILLING THIS WITH THEIR AIESEC ADDRESS
                   (v33.33). A bare type="email" field is an open invitation to
                   autofill, and the one address Chrome has saved for this site
                   is the one they sign in with — so the "backup" inbox quietly
                   became the same inbox. A name of its own and autofill off. */}
               <Input
+                id="profile-backup-gmail"
                 type="email"
                 name="backup-personal-gmail"
                 autoComplete="off"
@@ -293,8 +295,9 @@ export function ProfileView({
         <CardContent className="grid gap-3 sm:grid-cols-3">
           {member.hasPassword ? (
             <div className="grid gap-1.5">
-              <Label>Current password</Label>
+              <Label htmlFor="profile-pw-current">Current password</Label>
               <PasswordInput
+                id="profile-pw-current"
                 autoComplete="current-password"
                 value={current}
                 onChange={(e) => setCurrent(e.target.value)}
@@ -302,8 +305,9 @@ export function ProfileView({
             </div>
           ) : null}
           <div className="grid gap-1.5">
-            <Label>New password</Label>
+            <Label htmlFor="profile-pw-new">New password</Label>
             <PasswordInput
+              id="profile-pw-new"
               autoComplete="new-password"
               value={next}
               onChange={(e) => setNext(e.target.value)}
@@ -311,8 +315,9 @@ export function ProfileView({
             />
           </div>
           <div className="grid gap-1.5">
-            <Label>Confirm new password</Label>
+            <Label htmlFor="profile-pw-confirm">Confirm new password</Label>
             <PasswordInput
+              id="profile-pw-confirm"
               autoComplete="new-password"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
@@ -578,13 +583,25 @@ export function FunctionDefaultsBlock({ settings }: { settings: FunctionSettings
   const [dirty, setDirty] = useState(false);
   const [pending, start] = useTransition();
   const groups = settingGroupsFor(settings.fn);
+  // (v37.8) the days box keeps what is TYPED; `form.podioUpdateDays` only
+  // ever holds a valid 1-90 value. Mapping an empty box straight to 14 made
+  // it impossible to clear and retype ("1430").
+  const [daysText, setDaysText] = useState(String(settings.podioUpdateDays));
+  const daysValid = (t: string) => {
+    const n = Number(t);
+    return /^\d+$/.test(t.trim()) && n >= 1 && n <= 90;
+  };
 
   const set = <K extends keyof FunctionSettings>(k: K, v: FunctionSettings[K]) => {
     setForm((f) => ({ ...f, [k]: v }));
     setDirty(true);
   };
 
-  const save = () =>
+  const save = () => {
+    if (groups.accounts && !daysValid(daysText)) {
+      toast.error("Update every… needs a number of days from 1 to 90.");
+      return;
+    }
     start(async () => {
       // only the keys this block actually renders — the server merges the rest
       const patch: Record<string, unknown> = {};
@@ -620,6 +637,7 @@ export function FunctionDefaultsBlock({ settings }: { settings: FunctionSettings
         router.refresh();
       } else toast.error(res.error);
     });
+  };
 
   const row = (
     label: string,
@@ -714,10 +732,15 @@ export function FunctionDefaultsBlock({ settings }: { settings: FunctionSettings
                   min={1}
                   max={90}
                   className="h-9 w-20"
-                  value={form.podioUpdateDays}
+                  value={daysText}
+                  aria-invalid={!daysValid(daysText)}
                   onChange={(e) => {
-                    const n = parseInt(e.target.value, 10);
-                    set("podioUpdateDays", Number.isFinite(n) ? n : 14);
+                    setDaysText(e.target.value);
+                    setDirty(true);
+                    if (daysValid(e.target.value)) set("podioUpdateDays", Number(e.target.value));
+                  }}
+                  onBlur={() => {
+                    if (!daysValid(daysText)) setDaysText(String(form.podioUpdateDays));
                   }}
                 />
                 <span className="text-xs text-muted-foreground">days</span>
@@ -1079,8 +1102,19 @@ function AvatarDialog({
     </button>
   );
 
+  // (v37.8) closing WITHOUT saving drops the unsaved pick — the dialog stays
+  // mounted, so an abandoned choice used to reopen already ticked. (The save
+  // path calls the prop directly: its pick IS the new current.)
+  const dismiss = (o: boolean) => {
+    if (!o) {
+      setSelected(current);
+      setUploaded(current?.startsWith("data:") ? current : null);
+    }
+    onOpenChange(o);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={dismiss}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -1198,6 +1232,7 @@ function AvatarDialog({
                           variant="outline"
                           size="icon"
                           className="size-8 shrink-0"
+                          aria-label="Random avatar seed"
                           onClick={() => updateCreator({ seed: randomAvatarSeed() })}
                         >
                           <Dices className="size-4" />
@@ -1286,7 +1321,7 @@ function AvatarDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
+          <Button variant="outline" onClick={() => dismiss(false)} disabled={pending}>
             Cancel
           </Button>
           <Button onClick={save} disabled={pending || busy}>

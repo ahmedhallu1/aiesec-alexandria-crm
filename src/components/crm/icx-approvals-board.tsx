@@ -196,11 +196,12 @@ function ProgressCard({
         <p className="text-[11px] text-muted-foreground">{subtitle}</p>
         <p className="mt-1.5 text-3xl font-black leading-none tabular-nums">
           {achieved}
-          {planned != null ? (
+          {planned != null && planned > 0 ? (
             <span className="text-lg font-bold text-muted-foreground"> / {planned}</span>
           ) : null}
         </p>
-        {planned != null ? (
+        {/* (v37.8) a plan of 0 has no percentage — treat it as "no plan" instead of a bare "% of the plan" */}
+        {planned != null && planned > 0 ? (
           <>
             <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
               <div

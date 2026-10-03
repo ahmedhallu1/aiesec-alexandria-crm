@@ -68,6 +68,12 @@ export function ViewAsBanner({
   const [pending, start] = useTransition();
   /** two-step Exit in a sandbox — the first click asks, the second discards */
   const [confirmExit, setConfirmExit] = useState(false);
+  // (v37.8) the armed "Discard & exit?" used to stay red forever — disarm after a few seconds
+  useEffect(() => {
+    if (!confirmExit) return;
+    const t = setTimeout(() => setConfirmExit(false), 4000);
+    return () => clearTimeout(t);
+  }, [confirmExit]);
 
   const [mode, setMode] = useState<Mode>(modeProp);
   useEffect(() => setMode(modeProp), [modeProp]);
@@ -184,6 +190,7 @@ export function ViewAsBanner({
   };
 
   const toggleCollapsed = (c: boolean) => {
+    setConfirmExit(false);
     setCollapsed(c);
     persist({ edge, frac, collapsed: c });
   };
@@ -191,6 +198,7 @@ export function ViewAsBanner({
   // ------------------------------------------------------------- actions
   const switchTo = (id: string) => {
     if (id === activeId) return;
+    setConfirmExit(false);
     start(async () => {
       const res = await startViewAs(id, mode); // switching keeps the current mode
       if (res.ok) {
@@ -202,6 +210,7 @@ export function ViewAsBanner({
 
   const changeMode = (m: Mode) => {
     if (m === mode || pending) return;
+    setConfirmExit(false);
     const prev = mode;
     setMode(m); // optimistic — the ring recolors instantly
     start(async () => {

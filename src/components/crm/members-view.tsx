@@ -415,7 +415,10 @@ export function MembersView({
   };
   const anyColFilter = Object.values(colFilter).some(Boolean);
 
-  const SortHead = ({
+  // (v37.8) a render FUNCTION, not a component: declared as <SortHead/> inside
+  // render it got a new identity every render, remounting each header and
+  // snapping the multi-select column menu shut after every tick.
+  const renderSortHead = ({
     field, defaultDir = "asc", children, className,
   }: {
     field: string;
@@ -423,7 +426,7 @@ export function MembersView({
     children: React.ReactNode;
     className?: string;
   }) => (
-    <TableHead className={className}>
+    <TableHead key={field} className={className}>
       <div className="flex items-center gap-1">
         <SortHeader
           label={children}
@@ -677,13 +680,11 @@ export function MembersView({
                       {c.label}
                     </ResizableHead>
                   ) : (
-                    <SortHead
-                      key={c.key}
-                      field={c.key}
-                      defaultDir={DIRECTORY_DESC_FIRST.has(c.key) ? "desc" : "asc"}
-                    >
-                      {c.label}
-                    </SortHead>
+                    renderSortHead({
+                      field: c.key,
+                      defaultDir: DIRECTORY_DESC_FIRST.has(c.key) ? "desc" : "asc",
+                      children: c.label,
+                    })
                   )
                 )}
               </TableRow>

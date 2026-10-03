@@ -114,7 +114,13 @@ export function AudiencePicker({
         <button
           type="button"
           className="font-medium text-primary hover:underline"
-          onClick={() => onChange([])}
+          // (v37.8) with a search active these act on the rows you can SEE
+          // (the "n of m shown" counter promised as much)
+          onClick={() => {
+            if (!q.trim()) return onChange([]);
+            const ids = new Set(shown.map((m) => m.id));
+            onChange(excluded.filter((x) => !ids.has(x)));
+          }}
         >
           Select all
         </button>
@@ -124,9 +130,19 @@ export function AudiencePicker({
           className="font-medium text-primary hover:underline"
           // unticking everyone would be a touch point with nobody in it —
           // the server refuses that, so the control never offers it either
-          onClick={() => onChange(people.slice(1).map((m) => m.id))}
+          onClick={() => {
+            if (!q.trim()) return onChange(people.slice(1).map((m) => m.id));
+            const next = [...new Set([...excluded, ...shown.map((m) => m.id)])];
+            // never leave the guest list empty — keep the first person in
+            onChange(
+              next.length >= people.length
+                ? next.filter((x) => x !== people[0]?.id)
+                : next
+            );
+          }}
         >
-          Select none
+          {/* (v37.8) honest label: one person always stays ticked */}
+          {q.trim() ? "Untick shown" : "Only the first person"}
         </button>
         {q ? (
           <>

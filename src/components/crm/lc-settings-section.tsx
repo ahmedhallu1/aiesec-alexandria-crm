@@ -247,7 +247,7 @@ export function LcSettingsSection({ lc }: { lc: LcOverview }) {
                   disabled={pending}
                   onClick={() => {
                     setConfirmStart(false);
-                    run(() => startLcPeriod(kind, { planningLater }), "Started.");
+                    run(() => startLcPeriod(kind, { planningLater: kind === "term" && planningLater }), "Started.");
                   }}
                 >
                   {pending ? <Loader2 className="size-4 animate-spin" /> : <Rocket className="size-4" />}

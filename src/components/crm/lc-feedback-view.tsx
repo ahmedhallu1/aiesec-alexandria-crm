@@ -204,6 +204,9 @@ export function LcFeedbackView({
         setPositive(true);
         setRating(0);
         setQuery("");
+        // (v37.8) the screenshot of one concern must not ride along on the
+        // next, unrelated, feedback
+        setAttachments([]);
       } else {
         toast.error(res.error);
       }
@@ -578,13 +581,20 @@ function LcFeedbackInbox({
   const run = (id: string, fn: () => Promise<{ ok: boolean; error?: string }>, ok: string) => {
     setPendingId(id);
     startTransition(async () => {
-      const res = await fn();
-      if (!res.ok) toast.error(res.error);
-      else {
-        toast.success(ok);
-        router.refresh();
+      // (v37.8) try/finally — a thrown action used to leave the row's
+      // buttons disabled for good, with no message
+      try {
+        const res = await fn();
+        if (!res.ok) toast.error(res.error);
+        else {
+          toast.success(ok);
+          router.refresh();
+        }
+      } catch {
+        toast.error("That didn't work — try again.");
+      } finally {
+        setPendingId(null);
       }
-      setPendingId(null);
     });
   };
 
@@ -803,10 +813,17 @@ function AttachmentChip({ path, name }: { path: string; name: string }) {
         // open the tab BEFORE the await, or Safari blocks it as a popup
         const tab = window.open("", "_blank");
         setBusy(true);
-        const res = await getFeedbackFileUrl(path);
-        setBusy(false);
-        if (res.ok && res.data) tab?.location.assign(res.data.url);
-        else { tab?.close(); toast.error(res.ok ? "Could not open it." : res.error); }
+        try {
+          const res = await getFeedbackFileUrl(path);
+          if (res.ok && res.data) tab?.location.assign(res.data.url);
+          else { tab?.close(); toast.error(res.ok ? "Could not open it." : res.error); }
+        } catch {
+          // (v37.8) don't strand a blank tab or a stuck button
+          tab?.close();
+          toast.error("Could not open it.");
+        } finally {
+          setBusy(false);
+        }
       }}
       className="rounded-full border px-2.5 py-1 text-xs hover:bg-muted"
     >
@@ -836,10 +853,14 @@ function ShareFeedbackDialog({
       .slice(0, 40);
   }, [people, q]);
 
+  // (v37.8) Cancel used to call onClose directly and skip the reset, so the
+  // next row opened with the last row's people and note still filled in.
+  const close = () => { onClose(); setPicked([]); setNote(""); setQ(""); };
+
   return (
     <Dialog
       open={!!row}
-      onOpenChange={(o) => { if (!o) { onClose(); setPicked([]); setNote(""); setQ(""); } }}
+      onOpenChange={(o) => { if (!o) close(); }}
     >
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
@@ -892,7 +913,7 @@ function ShareFeedbackDialog({
           placeholder="Anything you want to add (optional)…"
         />
         <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={close}>Cancel</Button>
           <Button
             disabled={picked.length === 0 || pending}
             onClick={() =>
@@ -926,8 +947,10 @@ function TellAuthorDialog({
 }) {
   const [note, setNote] = useState("");
   const [pending, start] = useTransition();
+  // (v37.8) same as the share dialog — Cancel must clear the note too
+  const close = () => { onClose(); setNote(""); };
   return (
-    <Dialog open={!!row} onOpenChange={(o) => { if (!o) { onClose(); setNote(""); } }}>
+    <Dialog open={!!row} onOpenChange={(o) => { if (!o) close(); }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Tell them it&apos;s handled</DialogTitle>
@@ -946,7 +969,7 @@ function TellAuthorDialog({
           placeholder="What happened, in a line or two (optional)…"
         />
         <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={close}>Cancel</Button>
           <Button
             disabled={pending}
             onClick={() =>

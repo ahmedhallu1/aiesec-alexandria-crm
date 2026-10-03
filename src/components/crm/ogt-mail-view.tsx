@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { ArrowLeft, Eye, Mail, Plus, Send, X } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -46,11 +46,13 @@ function YesNoField({
   value: YesNo;
   onChange: (v: YesNo) => void;
 }) {
+  // (v37.8) label ↔ control association (tap the label to focus; screen readers name the field)
+  const id = useId();
   return (
     <div className="grid gap-2">
-      <Label>{label}</Label>
+      <Label htmlFor={id}>{label}</Label>
       <Select value={value} onValueChange={(v) => onChange(v as YesNo)}>
-        <SelectTrigger><SelectValue /></SelectTrigger>
+        <SelectTrigger id={id}><SelectValue /></SelectTrigger>
         <SelectContent>
           <SelectItem value="yes">Yes</SelectItem>
           <SelectItem value="no">No</SelectItem>
@@ -344,8 +346,8 @@ export function OgtMailView({
               </p>
             </div>
             <div className="grid gap-2">
-              <Label>Subject</Label>
-              <Input
+              <Label htmlFor="ogt-f1">Subject</Label>
+              <Input id="ogt-f1"
                 value={subject}
                 onChange={(e) => {
                   setSubject(e.target.value);
@@ -446,8 +448,8 @@ export function OgtMailView({
         <CardContent className="grid gap-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
-              <Label>EP email</Label>
-              <Input
+              <Label htmlFor="ogt-f2">EP email</Label>
+              <Input id="ogt-f2"
                 type="email"
                 value={toEp}
                 onChange={(e) => setToEp(e.target.value)}
@@ -455,8 +457,8 @@ export function OgtMailView({
               />
             </div>
             <div className="grid gap-2">
-              <Label>IR email</Label>
-              <Input
+              <Label htmlFor="ogt-f3">IR email</Label>
+              <Input id="ogt-f3"
                 type="email"
                 value={toIr}
                 onChange={(e) => setToIr(e.target.value)}
@@ -465,8 +467,8 @@ export function OgtMailView({
             </div>
           </div>
           <div className="grid gap-2">
-            <Label>CC — always included</Label>
-            <Input value={FIXED_CC} readOnly className="text-muted-foreground" />
+            <Label htmlFor="ogt-f4">CC — always included</Label>
+            <Input id="ogt-f4" value={FIXED_CC} readOnly className="text-muted-foreground" />
           </div>
         </CardContent>
       </Card>
@@ -478,24 +480,24 @@ export function OgtMailView({
         <CardContent className="grid gap-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
-              <Label>Hosting entity — &ldquo;Dear AIESEC in ___&rdquo;</Label>
-              <Input
+              <Label htmlFor="ogt-f5">Hosting entity — &ldquo;Dear AIESEC in ___&rdquo;</Label>
+              <Input id="ogt-f5"
                 value={hostingEntity}
                 onChange={(e) => setHostingEntity(e.target.value)}
                 placeholder="e.g. Cairo University"
               />
             </div>
             <div className="grid gap-2">
-              <Label>Host LC — &ldquo;an opportunity with AIESEC in ___&rdquo;</Label>
-              <Input value={hostLcName} onChange={(e) => setHostLcName(e.target.value)} />
+              <Label htmlFor="ogt-f6">Host LC — &ldquo;an opportunity with AIESEC in ___&rdquo;</Label>
+              <Input id="ogt-f6" value={hostLcName} onChange={(e) => setHostLcName(e.target.value)} />
             </div>
             <div className="grid gap-2">
-              <Label>EP name</Label>
-              <Input value={epName} onChange={(e) => setEpName(e.target.value)} />
+              <Label htmlFor="ogt-f7">EP name</Label>
+              <Input id="ogt-f7" value={epName} onChange={(e) => setEpName(e.target.value)} />
             </div>
             <div className="grid gap-2">
-              <Label>EP ID</Label>
-              <Input
+              <Label htmlFor="ogt-f8">EP ID</Label>
+              <Input id="ogt-f8"
                 inputMode="numeric"
                 value={epId}
                 onChange={(e) => setEpId(digitsOnly(e.target.value))}
@@ -503,8 +505,8 @@ export function OgtMailView({
               />
             </div>
             <div className="grid gap-2">
-              <Label>OPP ID</Label>
-              <Input
+              <Label htmlFor="ogt-f9">OPP ID</Label>
+              <Input id="ogt-f9"
                 inputMode="numeric"
                 value={oppId}
                 onChange={(e) => setOppId(digitsOnly(e.target.value))}
@@ -521,27 +523,27 @@ export function OgtMailView({
         </CardHeader>
         <CardContent className="grid gap-4">
           <div className="grid gap-2">
-            <Label>Opportunity name</Label>
-            <Input value={oppName} onChange={(e) => setOppName(e.target.value)} />
+            <Label htmlFor="ogt-f10">Opportunity name</Label>
+            <Input id="ogt-f10" value={oppName} onChange={(e) => setOppName(e.target.value)} />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
-              <Label>Slot start date</Label>
-              <Input
+              <Label htmlFor="ogt-f11">Slot start date</Label>
+              <Input id="ogt-f11"
                 type="date"
                 value={slotStart}
                 onChange={(e) => setSlotStart(e.target.value)}
               />
             </div>
             <div className="grid gap-2">
-              <Label>Slot end date</Label>
-              <Input type="date" value={slotEnd} onChange={(e) => setSlotEnd(e.target.value)} />
+              <Label htmlFor="ogt-f12">Slot end date</Label>
+              <Input id="ogt-f12" type="date" value={slotEnd} onChange={(e) => setSlotEnd(e.target.value)} />
             </div>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
-              <Label>Working hours</Label>
-              <Input
+              <Label htmlFor="ogt-f13">Working hours</Label>
+              <Input id="ogt-f13"
                 value={workingHours}
                 onChange={(e) => setWorkingHours(e.target.value)}
                 placeholder="e.g. 6 hours/day"
@@ -549,8 +551,8 @@ export function OgtMailView({
             </div>
             {variant === "OGT" ? (
               <div className="grid gap-2">
-                <Label>Salary (if any)</Label>
-                <Input
+                <Label htmlFor="ogt-f14">Salary (if any)</Label>
+                <Input id="ogt-f14"
                   value={salary}
                   onChange={(e) => setSalary(e.target.value)}
                   placeholder="Left empty → N/A"
@@ -560,8 +562,8 @@ export function OgtMailView({
           </div>
           {variant === "OGV" ? (
             <div className="grid gap-2">
-              <Label>TN Fee and what it covers</Label>
-              <Textarea
+              <Label htmlFor="ogt-f15">TN Fee and what it covers</Label>
+              <Textarea id="ogt-f15"
                 rows={2}
                 value={tnFee}
                 onChange={(e) => setTnFee(e.target.value)}
@@ -645,8 +647,8 @@ export function OgtMailView({
             </Button>
           </div>
           <div className="grid gap-2">
-            <Label>Working-days note (optional)</Label>
-            <Input
+            <Label htmlFor="ogt-f16">Working-days note (optional)</Label>
+            <Input id="ogt-f16"
               value={daysNote}
               onChange={(e) => setDaysNote(e.target.value)}
               placeholder="e.g. Saturday is on the weekend"
@@ -680,8 +682,8 @@ export function OgtMailView({
           </div>
           {needsTransportDetail ? (
             <div className="grid gap-2">
-              <Label>Transportation — daily cost, duration &amp; method</Label>
-              <Textarea
+              <Label htmlFor="ogt-f17">Transportation — daily cost, duration &amp; method</Label>
+              <Textarea id="ogt-f17"
                 rows={2}
                 value={transportationDetail}
                 onChange={(e) => setTransportationDetail(e.target.value)}
@@ -705,8 +707,8 @@ export function OgtMailView({
               </Select>
             </div>
             <div className="grid gap-2">
-              <Label>Meals provided</Label>
-              <Input
+              <Label htmlFor="ogt-f18">Meals provided</Label>
+              <Input id="ogt-f18"
                 value={meals}
                 onChange={(e) => setMeals(e.target.value)}
                 placeholder="e.g. 2 meals/day — or None"
@@ -715,8 +717,8 @@ export function OgtMailView({
           </div>
           {needsAccommodationDetail ? (
             <div className="grid gap-2">
-              <Label>{accommodationType} — EPs per room &amp; bathroom</Label>
-              <Textarea
+              <Label htmlFor="ogt-f19">{accommodationType} — EPs per room &amp; bathroom</Label>
+              <Textarea id="ogt-f19"
                 rows={2}
                 value={accommodationDetail}
                 onChange={(e) => setAccommodationDetail(e.target.value)}

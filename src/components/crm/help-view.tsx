@@ -258,6 +258,19 @@ export function HelpView({ viewer }: { viewer: HelpViewer }) {
   const categoryId = searchParams.get("c");
   const urlQuery = searchParams.get("q") ?? "";
   const [query, setQuery] = useState(urlQuery);
+  // (v37.8) The box only ever READ the URL once, so Back or a category chip left
+  // old text in it. `written` is the last value THIS box put in the URL: when the
+  // URL's q changes to anything else (Back, a chip clearing it) the box follows;
+  // when it is just our own debounced write landing, typing is left alone.
+  const [written, setWritten] = useState(urlQuery);
+  const [seenUrlQuery, setSeenUrlQuery] = useState(urlQuery);
+  if (seenUrlQuery !== urlQuery) {
+    setSeenUrlQuery(urlQuery);
+    if (urlQuery !== written) {
+      setQuery(urlQuery);
+      setWritten(urlQuery);
+    }
+  }
   const [forMe, setForMe] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -296,7 +309,10 @@ export function HelpView({ viewer }: { viewer: HelpViewer }) {
   // the search box writes the URL debounced — back button = previous search
   useEffect(() => {
     const t = setTimeout(() => {
-      if (query !== urlQuery) go({ q: query || null, a: null, c: null }, { scroll: false });
+      if (query !== urlQuery) {
+        setWritten(query);
+        go({ q: query || null, a: null, c: null }, { scroll: false });
+      }
     }, 250);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -541,11 +557,15 @@ export function HelpView({ viewer }: { viewer: HelpViewer }) {
               <span>{category.emoji}</span> {category.title}
             </h2>
             <span className="text-xs text-muted-foreground">{category.blurb}</span>
+            {/* (v37.8) the empty-state copy points at this toggle, which only
+                existed on home/search — a shared ?c= link had no way to switch
+                "For me" off */}
+            <span className="ml-auto"><ForMeToggle forMe={forMe} setForMe={setForMe} /></span>
           </div>
           {catArticles.map((a) => articleRow(a))}
           {catArticles.length === 0 ? (
             <p className="px-1 py-4 text-sm text-muted-foreground">
-              Nothing here for your filter — switch off &quot;For me&quot; above.
+              Nothing here for your filter — switch off &quot;For me&quot; at the top right.
             </p>
           ) : null}
         </div>

@@ -54,19 +54,28 @@ export function TouchPointManageDialog({
   const [crewLocked, setCrewLocked] = useState(false);
   const [crewOpen, setCrewOpen] = useState(false);
   const [crewLoaded, setCrewLoaded] = useState(false);
+  // (v37.8) "loaded" now means loaded OK. A failed fetch used to flip it anyway,
+  // leaving an empty list with "Save the guest list" enabled — and saving an
+  // empty crew with no exclusions sends null, which resets a custom list to everyone.
+  const [crewError, setCrewError] = useState(false);
   useEffect(() => {
-    if (!crewOpen || crewLoaded) return;
+    if (!crewOpen || crewLoaded || crewError) return;
     let alive = true;
     touchPointGuestList(tp.id)
       .then((res) => {
-        if (!alive || !res.ok || !res.data) return;
+        if (!alive) return;
+        if (!res.ok || !res.data) {
+          setCrewError(true);
+          return;
+        }
         setCrew(res.data.people);
         setExcluded(res.data.excluded);
         setCrewLocked(res.data.locked);
+        setCrewLoaded(true);
       })
-      .finally(() => alive && setCrewLoaded(true));
+      .catch(() => { if (alive) setCrewError(true); });
     return () => { alive = false; };
-  }, [crewOpen, crewLoaded, tp.id]);
+  }, [crewOpen, crewLoaded, crewError, tp.id]);
 
   const saveCrew = () =>
     start(async () => {
@@ -201,6 +210,17 @@ export function TouchPointManageDialog({
                     <p className="py-2 text-xs text-muted-foreground">
                       This one&apos;s register was signed off — changing who was
                       invited now would rewrite it.
+                    </p>
+                  ) : crewError ? (
+                    <p className="py-2 text-xs text-muted-foreground">
+                      Couldn&apos;t load the guest list.{" "}
+                      <button
+                        type="button"
+                        className="font-medium text-primary hover:underline"
+                        onClick={() => setCrewError(false)}
+                      >
+                        Try again
+                      </button>
                     </p>
                   ) : (
                     <>

@@ -7,6 +7,42 @@
 > ~87% of it. This file is NOT auto-loaded — grep it for the reasoning behind
 > a past decision before changing that behaviour.
 
+- **2026-10-03 · v37.8** — **THE UI AUDIT: ALL ~54k LINES OF COMPONENTS.**
+  No migration, no server changes. 22 read-only auditors (every file in
+  src/components/crm, activation and ui) found 143 candidates; five fixers
+  re-checked each against the code — **139 fixed, 4 skipped** (U049: the
+  whole-row CV editor is deliberate, v33.8; U065: not user-visible; U108:
+  showing attachments in the product-feedback inbox is a new feature; U116
+  needs feedback-attachments.tsx). The ones that mattered:
+  ① **Emails tab: attaching any real photo/PDF failed silently** — the file
+  was spread into `String.fromCharCode(...)`, which throws past ~64–120 KB;
+  now encoded in slices, with a toast if a file can't be read.
+  ② **Components defined inside render** (the react-hooks/static-components
+  errors) remounted on every keystroke: the IR-call dialog's email-fix box lost
+  focus after each letter; SortHead in accounts / sign-ups / members /
+  membership closed the column-filter menu on every render. Moved to module
+  scope.
+  ③ **Dialogs that never re-seeded**: Edit-LC opened blank (saving a rename
+  WIPED the country) or with the previous LC's name; Record/Assign partnership,
+  reschedule reason, excuse, share/tell-author, B2C call section, referral and
+  NextStep cards kept the last target's values. The B2C call-back time shifted
+  by the UTC offset on every re-save (datetime-local seeded from UTC).
+  ④ **Action results ignored**: spinners stuck when an action threw, optimistic
+  switches never rolled back (Podio card, settings), chunked bulk revive/delete
+  left the dialog half-done, API-key copy claimed success before the clipboard
+  answered, a failed guest-list load could reset a custom guest list to
+  everyone.
+  ⑤ Smaller: filters that "Clear" didn't clear, stale filters across lane/week
+  switches, dashboard month/sprint ranges in the browser's zone (now Cairo),
+  index keys on removable rows, popup-blocked contract opening on phones,
+  the sidebar's collapsed preference leaking into the mobile drawer, column
+  widths never persisting, the activation sheet's first click opening the
+  editor and Escape saving instead of cancelling, plus aria-labels on
+  icon-only buttons throughout.
+  Lint errors 59 → 37 (the rest are set-state-in-effect patterns that are
+  deliberate post-mount localStorage reads). 950 tests, tsc clean, build green.
+  ⚠️ Not clicked through in a browser — every page involved needs a session.
+
 - **2026-10-03 · v37.7** — **A FULL AUDIT: SECURITY FIRST, THEN THE SERVER CORE.**
   Migration **0084 applied** (via MCP); **0077's file recreated** from the live
   definition (it was applied in v36.3 but never committed — a rebuild would

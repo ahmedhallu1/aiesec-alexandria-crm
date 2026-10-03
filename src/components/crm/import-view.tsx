@@ -181,7 +181,12 @@ export function ImportView({
 
   const update = (i: number, patch: Partial<DraftRow>) =>
     setRows((r) => r.map((row, j) => (j === i ? { ...row, ...patch } : row)));
-  const removeRow = (i: number) => setRows((r) => r.filter((_, j) => j !== i));
+  const removeRow = (i: number) => {
+    setRows((r) => r.filter((_, j) => j !== i));
+    // (v37.8) results are matched to rows BY INDEX — drop the same slot so
+    // the imported/blocked badges don't slide onto the wrong account.
+    setResults((res) => (res ? res.filter((_, j) => j !== i) : res));
+  };
 
   /** Exactly what the server will refuse, said before the upload. */
   const rowIssue = (r: DraftRow): string | null => {
@@ -201,7 +206,11 @@ export function ImportView({
 
   const submit = () =>
     start(async () => {
-      const res = await importAccountsBulk(
+      // (v37.8) a thrown action (a 500-row import timing out) used to end
+      // with no message at all, and people clicked Import twice.
+      let res: Awaited<ReturnType<typeof importAccountsBulk>>;
+      try {
+        res = await importAccountsBulk(
         rows.map((r) => ({
           function: r.function,
           name: r.name.trim(),
@@ -221,7 +230,11 @@ export function ImportView({
           comment: r.comment || null,
           responsible_id: r.responsible_id || null,
         }))
-      );
+        );
+      } catch {
+        toast.error("That didn't go through. Check the accounts list before importing again — some rows may already be in.");
+        return;
+      }
       if (!res.ok) {
         toast.error(res.error);
         return;
@@ -490,6 +503,7 @@ export function ImportView({
                             variant="ghost"
                             size="icon"
                             className="size-7 text-muted-foreground hover:text-destructive"
+                            aria-label="Remove row"
                             onClick={() => removeRow(i)}
                           >
                             <Trash2 className="size-3.5" />

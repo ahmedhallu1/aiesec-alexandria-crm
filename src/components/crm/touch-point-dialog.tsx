@@ -183,7 +183,8 @@ export function TouchPointDialog({
       const res = await createTouchPoint({
         scope,
         kind,
-        virtual: kind === "meeting" ? virtual : false,
+        // (v37.8) the Virtual switch only exists when booking ahead — a logged past meeting is never virtual
+        virtual: kind === "meeting" && !logging ? virtual : false,
         functionKey: scope === "lc" ? null : fn,
         teamName: scope === "team" ? team : null,
         date,
@@ -351,7 +352,7 @@ export function TouchPointDialog({
               </div>
             </div>
 
-            {!(kind === "meeting" && virtual) ? (
+            {!(kind === "meeting" && virtual && !logging) ? (
               <div className="grid gap-1.5">
                 <Label>Where (optional)</Label>
                 <Input

@@ -100,6 +100,15 @@ export function CxpWeeklyView({
   // opening an EP is a navigation — show that the click landed
   const [navPending, startNav] = useTransition();
   const [colFilter, setColFilter] = useState<Record<string, string>>({});
+  // (v37.8) the week/side chips are Links to the same route, so this instance
+  // survives them; a filter picked for one week (e.g. a due date) then matched
+  // nothing in the next and showed the celebratory empty state. Reset on change.
+  const weekKey = `${side ?? ""}|${selected}`;
+  const [seenWeek, setSeenWeek] = useState(weekKey);
+  if (seenWeek !== weekKey) {
+    setSeenWeek(weekKey);
+    setColFilter({});
+  }
   const cols = useTableColumns("cxp-weekly", COLUMNS);
 
   // THE WEEKLY FOLDER (leaders only — it writes shortcuts into Drive). The
@@ -204,7 +213,8 @@ export function CxpWeeklyView({
     return `/cxp/weekly?${p.toString()}`;
   };
 
-  const today = new Date().toISOString().slice(0, 10);
+  // (v37.8) Cairo's calendar day, not UTC's (deadlines are Cairo dates)
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo" }).format(new Date());
 
   return (
     <div className="grid gap-4">
@@ -397,7 +407,9 @@ export function CxpWeeklyView({
                   colSpan={cols.visible.length}
                   className="py-10 text-center text-sm text-muted-foreground"
                 >
-                  Nothing outstanding for this deadline. 🎉
+                  {Object.values(colFilter).some(Boolean)
+                    ? "No documents match these filters."
+                    : "Nothing outstanding for this deadline. 🎉"}
                 </TableCell>
               </TableRow>
             ) : (

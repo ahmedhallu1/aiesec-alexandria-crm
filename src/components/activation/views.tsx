@@ -32,10 +32,11 @@ export function CheckpointsView({ section, rows }: { section: ActivationSection;
   const teams = (section.config.columns ?? []).filter((c) => !["name", "date"].includes(c.key) && !c.hidden);
   // these are the plan's stops, not tasks to tick off (v36.8) — the page
   // opens on the next one coming up
-  const upcomingIdx = Math.max(0, list.findIndex((r) => str(r.data.date) >= today));
-  const upcoming = list[upcomingIdx];
+  // (v37.8) -1 = every checkpoint is behind us: no "Next stop", and the page opens on the last one
+  const upcomingIdx = list.findIndex((r) => str(r.data.date) >= today);
+  const upcoming = upcomingIdx >= 0 ? list[upcomingIdx] : undefined;
   const [selId, setSelId] = useState<string | null>(null);
-  const active = list.find((r) => r.id === selId) ?? upcoming;
+  const active = list.find((r) => r.id === selId) ?? upcoming ?? list[list.length - 1];
   const n = list.length;
   const pts = list.map((_, i) => ({ x: ((i + 0.5) / Math.max(1, n)) * 1000, y: i % 2 === 0 ? 62 : 150 }));
   const path = pts.reduce(
@@ -295,7 +296,11 @@ function FlipRole({ r, i }: { r: ActivationRow; i: number }) {
 const POS_COLOR: Record<string, string> = { EB: "#f7c65b", MM: "#d7263d", Member: "#2ec4b6" };
 
 export function PeopleView({ section, rows }: { section: ActivationSection; rows: ActivationRow[] }) {
-  const people: (Record<string, CellValue> & { id: string })[] = rows.map((r) => ({ ...r.data, id: r.id }));
+  // (v37.8) memoised on `rows`, so the prefs memo below isn't recomputed on every search keystroke
+  const people = useMemo<(Record<string, CellValue> & { id: string })[]>(
+    () => rows.map((r) => ({ ...r.data, id: r.id })),
+    [rows]
+  );
   const hasNames = people.some((p) => str(p.name));
   const capacity = section.config.capacity ?? people.length;
   const expected = people.filter((p) => str(p.expected_oc).toLowerCase() === "yes").length;

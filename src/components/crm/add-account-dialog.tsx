@@ -208,6 +208,7 @@ export function AddAccountDialog({
       setForm({});
       setContacts([{ tag: "Contact", kind: "phone", value: "" }]);
       setRequestedPodio(false);
+      setRequestState(""); // (v37.8) "Add another" must not carry the Podio state over
       setResponsible(viewer.id);
       setAdded({ name: form.name ?? "", slug: res.data!.slug });
       onOpenChange(false);

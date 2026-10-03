@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Loader2, Upload, UserMinus, UserPlus, UserPen, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -47,8 +47,12 @@ export function MembershipUploadDialog({
   const [preview, setPreview] = useState<Preview | null>(null);
   const [confirmRestart, setConfirmRestart] = useState(false);
   const [pending, start] = useTransition();
+  // (v37.8) only the LATEST preview request may write state — Restart → Update
+  // quickly could otherwise show the older mode's preview under the new mode
+  const previewReq = useRef(0);
 
   const reset = () => {
+    previewReq.current += 1;
     setFileName(null);
     setGrid(null);
     setPreview(null);
@@ -75,7 +79,9 @@ export function MembershipUploadDialog({
 
   const runPreview = (g: string[][], m: "update" | "restart") =>
     start(async () => {
+      const req = ++previewReq.current;
       const r = await previewMembershipUpload(g, m);
+      if (req !== previewReq.current) return;
       if (r.ok && r.data) setPreview(r.data as Preview);
       else if (!r.ok) {
         setPreview(null);

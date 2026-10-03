@@ -33,6 +33,8 @@ export function TestViewButton({
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [pending, start] = useTransition();
+  // (v37.8) which row was tapped — the spinner belongs to that row alone
+  const [startingId, setStartingId] = useState<string | null>(null);
   const router = useRouter();
 
   const shown = useMemo(() => {
@@ -50,7 +52,9 @@ export function TestViewButton({
 
   const begin = (id: string, name: string) =>
     start(async () => {
+      setStartingId(id);
       const res = await startViewAs(id);
+      setStartingId(null);
       if (!res.ok) { toast.error(res.error); return; }
       toast.success(`👁 Now viewing as ${res.data?.name ?? name} — Exit on the banner to come back.`);
       setOpen(false);
@@ -114,7 +118,7 @@ export function TestViewButton({
                       {t.functions ? ` · ${t.functions}` : ""}
                     </span>
                   </span>
-                  {pending ? <Loader2 className="size-4 shrink-0 animate-spin" /> : null}
+                  {pending && startingId === t.id ? <Loader2 className="size-4 shrink-0 animate-spin" /> : null}
                 </button>
               ))
             )}

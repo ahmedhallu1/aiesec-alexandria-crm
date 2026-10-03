@@ -810,7 +810,10 @@ function ItemForm({
       ? "Pick real dates."
       : d.end < d.start
         ? "It can't end before it starts."
-        : null;
+        : // (v37.8) an item wholly outside the road matches no week, so the Week and Agenda views silently dropped it
+          d.start > max || d.end < min
+          ? `That's outside the road (${fmtDay(min)} – ${fmtDay(max)}). Pick dates inside it.`
+          : null;
   return (
     <>
       <DialogHeader>
@@ -1003,8 +1006,11 @@ function LanesForm({
           disabled={!valid || busy}
           onClick={async () => {
             setBusy(true);
-            await onSave({ lanes: list.map((l) => ({ ...l, label: l.label.trim() })), start: s, end: e });
-            setBusy(false);
+            try {
+              await onSave({ lanes: list.map((l) => ({ ...l, label: l.label.trim() })), start: s, end: e });
+            } finally {
+              setBusy(false); // (v37.8) a throw used to leave "Saving…" stuck
+            }
           }}
         >
           {busy ? "Saving…" : "Save"}

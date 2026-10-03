@@ -85,6 +85,7 @@ export function SheetGrid({
   const [setAll, setSetAll] = useState("");
   const committing = useRef(false);
   const dragging = useRef(false);
+  const wasSelected = useRef(false); // (v37.8) was the pressed cell already selected? (second tap edits)
 
   // a drag ends wherever the mouse is let go, inside the grid or not
   useEffect(() => {
@@ -222,6 +223,11 @@ export function SheetGrid({
     if (edit || !sel || rows.length === 0) return;
     const { r, c } = sel;
     const col = vis[c];
+    // (v37.8) a hidden column / deleted row can leave `sel` pointing at nothing
+    if (!col || !rows[r]) {
+      if (e.key === "Escape") setSel(null);
+      return;
+    }
     const mod = e.metaKey || e.ctrlKey;
     const move = (dr: number, dc: number) => {
       e.preventDefault();
@@ -549,6 +555,9 @@ export function SheetGrid({
                       className={cn(isSel && !isEdit && "is-sel", isEdit && "is-edit", !isEdit && inRange(r, c) && "in-range")}
                       onMouseDown={(e) => {
                         if (isEdit) return;
+                        // (v37.8) remember whether this cell was ALREADY selected before this press:
+                        // setSel below re-renders before the click event, so onClick's isSel was always true
+                        wasSelected.current = isSel;
                         if (edit) finishEdit(true);
                         if (e.shiftKey && sel) {
                           e.preventDefault();
@@ -564,7 +573,9 @@ export function SheetGrid({
                       }}
                       onClick={(e) => {
                         // a second tap on the selected cell edits it (phones have no double-click)
-                        if (!e.shiftKey && isSel && !ext && !isEdit && col.type !== "checkbox") startEdit(r, c);
+                        const already = wasSelected.current;
+                        wasSelected.current = false;
+                        if (!e.shiftKey && already && isSel && !ext && !isEdit && col.type !== "checkbox") startEdit(r, c);
                       }}
                       onDoubleClick={() => !isEdit && startEdit(r, c)}
                     >
@@ -664,6 +675,7 @@ function CellView({
         type="button"
         role="checkbox"
         aria-checked={!!value}
+        aria-label={col.label}
         onClick={(e) => {
           e.stopPropagation();
           onToggle();

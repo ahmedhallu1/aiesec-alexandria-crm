@@ -51,7 +51,12 @@ export function Stars({ value, onPick }: { value: number; onPick: (n: number) =>
           type="button"
           aria-label={`${n} star${n === 1 ? "" : "s"}`}
           onMouseEnter={() => setHover(n)}
-          onClick={() => onPick(n === value ? 0 : n)}
+          onClick={() => {
+            // (v37.8) a tap fires an emulated mouseenter that left `hover` stuck on
+            // this star, so un-picking (tap it again) still looked filled
+            setHover(0);
+            onPick(n === value ? 0 : n);
+          }}
           className="rounded p-0.5 text-3xl leading-none transition-transform hover:scale-110"
         >
           <span className={(hover || value) >= n ? "opacity-100" : "opacity-30"}>

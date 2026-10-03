@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { ArrowLeft, ExternalLink, Eye, FileText, Loader2, Pencil, Send } from "lucide-react";
 import { previewProposalEmail, sendProposalEmail } from "@/server/actions";
@@ -108,6 +108,10 @@ export function ProposalDialog({
     attachPdfs,
   };
   const draftKey = JSON.stringify(draftInput);
+  // (v37.8) what is on screen RIGHT NOW, so a slow preview that lands after the
+  // dialog closed / the fields changed is dropped instead of flipping the view
+  const latest = useRef({ open, draftKey });
+  useEffect(() => { latest.current = { open, draftKey }; });
   const liveEdits = edited && edited.key === draftKey ? edited : null;
   const liveRender = rendered && rendered.key === draftKey ? rendered : null;
 
@@ -133,6 +137,7 @@ export function ProposalDialog({
         return;
       }
       const res = await previewProposalEmail(draftInput);
+      if (!latest.current.open || latest.current.draftKey !== draftKey) return;
       if (res.ok && res.data) {
         setRendered({ key: draftKey, subject: res.data.subject, html: res.data.html });
         setSubjectDraft(res.data.subject);

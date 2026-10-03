@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useId, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Footprints, Loader2 } from "lucide-react";
@@ -48,6 +48,8 @@ export function DirectVisitDialog({
   canSetRequestState: boolean;
 }) {
   const router = useRouter();
+  // (v37.8) ids tie every <Label> to its control (tap-to-focus, screen-reader names)
+  const uid = useId();
   const [pending, start] = useTransition();
   const today = cairoToday();
   const [fn, setFn] = useState<AccountFunction>(allowedFns[0] ?? "IGV");
@@ -87,6 +89,7 @@ export function DirectVisitDialog({
     setAccountType(""); setIndustry(""); setContacts([]); setComment("");
     setNextDate(""); setNextTime(""); setOutcome("presented"); setVisitDate(today);
     setRequestedPodio(false); setRequestState(""); setOop(false);
+    setVisitTime("12:00"); setOopReason("Not Interested"); // (v37.8) were left stale
   };
 
   const submit = () =>
@@ -161,11 +164,15 @@ export function DirectVisitDialog({
               backwards. */}
           <div className="grid gap-3 sm:grid-cols-2">
             <div className={cn("grid gap-1.5", allowedFns.length > 1 ? "" : "sm:col-span-2")}>
-              <Label>Account name *</Label>
-              <Input
+              <Label htmlFor={`${uid}-1`}>Account name *</Label>
+              <Input id={`${uid}-1`}
                 dir="auto"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  // (v37.8) "I already submitted it" belonged to the name that was checked
+                  setRequestedPodio(false);
+                }}
                 placeholder="Exactly as the LC would write it"
                 maxLength={120}
                 autoFocus
@@ -173,9 +180,9 @@ export function DirectVisitDialog({
             </div>
             {allowedFns.length > 1 ? (
               <div className="grid gap-1.5">
-                <Label>Function *</Label>
+                <Label htmlFor={`${uid}-2`}>Function *</Label>
                 <Select value={fn} onValueChange={(v) => setFn(v as AccountFunction)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger id={`${uid}-2`}><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {allowedFns.map((f) => (
                       <SelectItem key={f} value={f}>{f}</SelectItem>
@@ -249,9 +256,9 @@ export function DirectVisitDialog({
           {fn === "IGT" ? (
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="grid gap-1.5">
-                <Label>Product *</Label>
+                <Label htmlFor={`${uid}-3`}>Product *</Label>
                 <Select value={product || undefined} onValueChange={setProduct}>
-                  <SelectTrigger><SelectValue placeholder="GTa or GTe" /></SelectTrigger>
+                  <SelectTrigger id={`${uid}-3`}><SelectValue placeholder="GTa or GTe" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="GTa">GTa — Global Talent</SelectItem>
                     <SelectItem value="GTe">GTe — Global Teacher</SelectItem>
@@ -259,9 +266,9 @@ export function DirectVisitDialog({
                 </Select>
               </div>
               <div className="grid gap-1.5">
-                <Label>Sub product</Label>
+                <Label htmlFor={`${uid}-4`}>Sub product</Label>
                 <Select value={subProduct || undefined} onValueChange={setSubProduct}>
-                  <SelectTrigger><SelectValue placeholder="Their field" /></SelectTrigger>
+                  <SelectTrigger id={`${uid}-4`}><SelectValue placeholder="Their field" /></SelectTrigger>
                   <SelectContent>
                     {IGT_SUB_PRODUCTS.map((p) => (
                       <SelectItem key={p} value={p}>{p}</SelectItem>
@@ -273,9 +280,9 @@ export function DirectVisitDialog({
           ) : null}
           {fn === "IGV" ? (
             <div className="grid gap-1.5">
-              <Label>Project *</Label>
+              <Label htmlFor={`${uid}-5`}>Project *</Label>
               <Select value={project || undefined} onValueChange={setProject}>
-                <SelectTrigger><SelectValue placeholder="Which project" /></SelectTrigger>
+                <SelectTrigger id={`${uid}-5`}><SelectValue placeholder="Which project" /></SelectTrigger>
                 <SelectContent>
                   {IGV_PROJECTS.map((p) => (
                     <SelectItem key={p} value={p}>{p}</SelectItem>
@@ -290,9 +297,9 @@ export function DirectVisitDialog({
                 {/* B2C CARRIES ITS OWN THREE TYPES (v23, missed in v33.24) —
                     Courses / Events / Student activities, not the raising
                     account types. It has no industry either. */}
-                <Label>Type{fn === "B2C" ? " *" : ""}</Label>
+                <Label htmlFor={`${uid}-6`}>Type{fn === "B2C" ? " *" : ""}</Label>
                 <Select value={accountType || undefined} onValueChange={setAccountType}>
-                  <SelectTrigger>
+                  <SelectTrigger id={`${uid}-6`}>
                     <SelectValue placeholder={fn === "B2C" ? "What is it?" : "Optional"} />
                   </SelectTrigger>
                   <SelectContent>
@@ -304,9 +311,9 @@ export function DirectVisitDialog({
               </div>
               {fn !== "B2C" ? (
                 <div className="grid gap-1.5">
-                  <Label>Industry</Label>
+                  <Label htmlFor={`${uid}-7`}>Industry</Label>
                   <Select value={industry || undefined} onValueChange={setIndustry}>
-                    <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
+                    <SelectTrigger id={`${uid}-7`}><SelectValue placeholder="Optional" /></SelectTrigger>
                     <SelectContent>
                       {INDUSTRIES.map((t) => (
                         <SelectItem key={t} value={t}>{t}</SelectItem>
@@ -348,8 +355,8 @@ export function DirectVisitDialog({
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="grid gap-1.5">
-              <Label>When you went *</Label>
-              <Input
+              <Label htmlFor={`${uid}-8`}>When you went *</Label>
+              <Input id={`${uid}-8`}
                 type="date"
                 max={today}
                 value={visitDate}
@@ -357,15 +364,15 @@ export function DirectVisitDialog({
               />
             </div>
             <div className="grid gap-1.5">
-              <Label>Time</Label>
-              <Input type="time" value={visitTime} onChange={(e) => setVisitTime(e.target.value)} />
+              <Label htmlFor={`${uid}-9`}>Time</Label>
+              <Input id={`${uid}-9`} type="time" value={visitTime} onChange={(e) => setVisitTime(e.target.value)} />
             </div>
           </div>
 
           <div className="grid gap-1.5">
-            <Label>How did it end? *</Label>
+            <Label htmlFor={`${uid}-10`}>How did it end? *</Label>
             <Select value={outcome} onValueChange={setOutcome}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger id={`${uid}-10`}><SelectValue /></SelectTrigger>
               <SelectContent>
                 {DIRECT_VISIT_OUTCOMES.map((o) => (
                   <SelectItem key={o.key} value={o.key}>{o.label}</SelectItem>
@@ -379,10 +386,11 @@ export function DirectVisitDialog({
             <div className="grid gap-1.5">
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="grid gap-1.5">
-                  <Label>
+                  <Label htmlFor={`${uid}-13`}>
                     {outcome === "revisit" ? "Going back on (optional)" : "Follow up on"}
                   </Label>
                   <Input
+                    id={`${uid}-13`}
                     type="date"
                     value={nextDate}
                     onChange={(e) => {
@@ -392,8 +400,8 @@ export function DirectVisitDialog({
                   />
                 </div>
                 <div className="grid gap-1.5">
-                  <Label>Time (optional)</Label>
-                  <Input
+                  <Label htmlFor={`${uid}-11`}>Time (optional)</Label>
+                  <Input id={`${uid}-11`}
                     type="time"
                     value={nextTime}
                     disabled={!nextDate}
@@ -438,8 +446,8 @@ export function DirectVisitDialog({
           ) : null}
 
           <div className="grid gap-1.5">
-            <Label>What happened? *</Label>
-            <Textarea
+            <Label htmlFor={`${uid}-12`}>What happened? *</Label>
+            <Textarea id={`${uid}-12`}
               dir="auto"
               rows={3}
               value={comment}
@@ -450,7 +458,7 @@ export function DirectVisitDialog({
         </div>
 
         <div className="flex flex-wrap justify-end gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
+          <Button variant="outline" onClick={() => { reset(); onOpenChange(false); }} disabled={pending}>
             Cancel
           </Button>
           <Button disabled={!canSubmit} onClick={submit}>

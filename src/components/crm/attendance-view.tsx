@@ -370,6 +370,8 @@ function RecordDialog({
                               key={s}
                               type="button"
                               onClick={() => set(r.memberId, { status: s })}
+                              aria-pressed={d.status === s}
+                              aria-label={`${STATUS_LABEL[s]} — ${r.name}`}
                               className={cn(
                                 "rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors",
                                 d.status === s
@@ -966,7 +968,7 @@ export function AttendanceView({
             ))}
           </SelectContent>
         </Select>
-        {filters.from || filters.to || filters.kind || filters.status ? (
+        {filters.from || filters.to || filters.kind || filters.status || filters.member || filters.fn ? (
           <Button
             size="sm"
             variant="ghost"
@@ -981,8 +983,10 @@ export function AttendanceView({
       {history.length === 0 ? (
         <Card className="rise-in rise-in-3">
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
-            Nothing recorded yet. Attendance shows up here the moment a touch
-            point is filled in.
+            {/* (v37.8) say so when filters (incl. the member/function funnels) are what emptied it */}
+            {filters.from || filters.to || filters.kind || filters.status || filters.member || filters.fn
+              ? "No records match these filters."
+              : "Nothing recorded yet. Attendance shows up here the moment a touch point is filled in."}
           </CardContent>
         </Card>
       ) : (
@@ -1104,7 +1108,7 @@ export function AttendanceView({
         </>
       )}
 
-      {recording ? <RecordDialog touchPointId={recording} onClose={closeSheet} /> : null}
+      {recording ? <RecordDialog key={recording} touchPointId={recording} onClose={closeSheet} /> : null}
       {appealing ? <AppealDialog row={appealing} onClose={() => setAppealing(null)} /> : null}
     </div>
   );
