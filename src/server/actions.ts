@@ -1,5 +1,6 @@
 "use server";
 
+import { isSafeStorageKey } from "@/lib/storage-key";
 import { revalidatePath } from "next/cache";
 import { touchPointName } from "@/lib/touch-points";
 import crypto from "node:crypto";
@@ -10,6 +11,7 @@ import { db } from "@/lib/supabase";
 import { env } from "@/lib/env";
 import { checkVisitTime } from "@/lib/visit-time";
 import { isSaneIsoDate, isSaneTime } from "@/lib/sane-date";
+import { exactIlike } from "@/lib/like-pattern";
 import { memberEmailProblem, memberNameProblem } from "@/lib/member-fields";
 import { mintKey } from "./api-keys";
 import { API_FIELDS, API_FUNCTIONS } from "@/lib/api-scope";
@@ -20,6 +22,7 @@ import {
   canEditAccount,
   canEditRequestState,
   canManageMembership,
+  isEb,
   canSeeLcConcerns,
   canCheckPodio,
   canSetRequestStateOnCreate,
@@ -49,7 +52,7 @@ import { diffFields } from "./audit";
 import { recordUndo, sandboxSuppressed, snapshotForUndo } from "./sandbox";
 // v29: every real piece of work stamps work_activity — the raw material of
 // AUTOMATIC working-hours attendance (see src/server/attendance.ts)
-import { stampWork } from "./attendance";
+import { stampWork } from "./work-activity";
 import { sendEmail } from "@/lib/google/gmail";
 import { visitReportEmail } from "@/lib/email/templates";
 import {
@@ -181,7 +184,9 @@ async function syncNextStepReminder(accountId: string): Promise<void> {
       !account.out_of_process && !!account.next_step_date && account.next_step_date >= today;
 
     if (!wanted) {
-      if (account.next_step_event_id) {
+      // (v37.7) the delete helpers aren't sandbox-aware (only create/upsert
+      // are) — a test-view edit must not remove a REAL event it can't restore
+      if (account.next_step_event_id && !(await sandboxSuppressed("next-step event delete"))) {
         await deleteFollowupEvent(token, account.next_step_event_id);
         await db().from("accounts").update({ next_step_event_id: null }).eq("id", accountId);
       }
@@ -581,7 +586,7 @@ export async function renameAccount(
         calendar_event_id: string;
         member: { google_refresh_token: string | null } | null;
       }>();
-    if (pv?.calendar_event_id) {
+    if (pv?.calendar_event_id && !(await sandboxSuppressed("visit event rename"))) {
       const { renameVisitEventSummary, renameMailboxVisitEventSummary } = await import(
         "@/lib/google/calendar"
       );
@@ -1142,7 +1147,9 @@ export async function setOutOfProcess(
     .eq("account_id", accountId)
     .is("done", null)
     .maybeSingle<Visit>();
-  if (pending?.calendar_event_id) {
+  // (v37.7) sandbox: leave the real event alone — rollback restores the row,
+  // never a deleted Google event
+  if (pending?.calendar_event_id && !(await sandboxSuppressed("visit event delete"))) {
     // the event may live on the responsible's own calendar (tier 1) OR the
     // shared "Sodio — LC Visits" calendar (tier 2) — try both
     const { data: owner } = await db()
@@ -1603,16 +1610,38 @@ export async function requestFeedbackUploads(
   return { ok: true, data: { uploads } };
 }
 
-/** A 10-minute link to an attachment — inbox owners and the author. */
+/** A 10-minute link to an attachment — inbox owners and the author.
+ *
+ *  Takes a stored key the viewer may open, or (v37.7) an opaque
+ *  `ref:<lc|fb>:<row id>:<index>` — what an ANONYMOUS row's attachments are
+ *  shipped as, because their real keys start with the author's member id. */
 export async function getFeedbackFileUrl(path: string): Promise<ActionResult<{ url: string }>> {
   const viewer = await getViewer();
   if (!viewer?.id) return fail("Sign in first.", "forbidden");
-  // a path always starts with the author's id, so this is cheap to check
-  const ownPath = path.startsWith(`${viewer.id}/`);
   const { canSeeFeedbackInbox } = await import("@/lib/rbac");
-  if (!ownPath && !canSeeFeedbackInbox(viewer) && !canSeeLcConcerns(viewer))
-    return fail("Not yours to open.", "forbidden");
-  const { data, error } = await db().storage.from("feedback").createSignedUrl(path, 600);
+  let key = path;
+  const ref = /^ref:(lc|fb):([0-9a-f-]{36}):(\d{1,2})$/.exec(path ?? "");
+  if (ref) {
+    const [, kind, rowId, idx] = ref;
+    if (kind === "lc" ? !canSeeLcConcerns(viewer) : !canSeeFeedbackInbox(viewer))
+      return fail("Not yours to open.", "forbidden");
+    const { data: row } = await db()
+      .from(kind === "lc" ? "lc_feedback" : "feedback")
+      .select("attachments")
+      .eq("id", rowId)
+      .maybeSingle<{ attachments: { path: string }[] | null }>();
+    const stored = row?.attachments?.[Number(idx)]?.path;
+    if (!stored) return fail("That file is gone.");
+    key = stored;
+  } else {
+    // a path always starts with the author's id, so this is cheap to check
+    const ownPath = (path ?? "").startsWith(`${viewer.id}/`);
+    if (!ownPath && !canSeeFeedbackInbox(viewer) && !canSeeLcConcerns(viewer))
+      return fail("Not yours to open.", "forbidden");
+  }
+  // a "<own id>/../../contracts/…" key walked out of this bucket (v37.7)
+  if (!isSafeStorageKey(key)) return fail("That file does not exist.");
+  const { data, error } = await db().storage.from("feedback").createSignedUrl(key, 600);
   if (error || !data) return fail(error?.message ?? "Could not open the file.");
   return { ok: true, data: { url: data.signedUrl } };
 }
@@ -1664,7 +1693,7 @@ export async function confirmContractUploads(
   // only paths issued for THIS deal can be recorded on it
   const prefix = `${loaded.deal.account_id}/${dealId}/`;
   const clean = uploaded
-    .filter((u) => u.path.startsWith(prefix))
+    .filter((u) => typeof u?.path === "string" && u.path.startsWith(prefix) && isSafeStorageKey(u.path))
     .map((u) => ({
       path: u.path,
       name: u.name.slice(0, 120),
@@ -1703,7 +1732,9 @@ export async function getContractUrl(
   // not make other functions' signed contract files world-downloadable
   if (!loaded || !canEditAccount(viewer, loaded.account))
     return fail("You are not allowed to view this account.", "forbidden");
-  if (!path.startsWith(`${loaded.deal.account_id}/${dealId}/`))
+  // sign only a file RECORDED on this deal, never a key the browser made up —
+  // "<prefix>/../../<key>" walked into other deals and buckets (v37.7)
+  if (!isSafeStorageKey(path) || !(loaded.deal.contracts ?? []).some((c) => c.path === path))
     return fail("That file does not belong to this deal.");
 
   const { data, error } = await db().storage.from("contracts").createSignedUrl(path, 600);
@@ -2660,10 +2691,29 @@ export async function cancelDeal(
     deal.slots_igte ? `${deal.slots_igte} IGTe` : null,
   ].filter(Boolean).join(" · ");
 
+  // (v37.7) a delete can't be journaled for rollback (the journal replays an
+  // "update" as UPDATE … WHERE id, which matches nothing once the row is
+  // gone), and the contract files can't come back at all — so, like
+  // deleteAccount, a sandbox/LC-test session refuses instead of lying.
+  if (viewer.sandbox)
+    return fail("Cancelling a deal is disabled in the sandbox test view — it can't be undone on exit.");
+  {
+    const { lcTestSession } = await import("./sandbox");
+    if (await lcTestSession())
+      return fail("A cancelled deal can't be rolled back — wait until the LC testing session ends.");
+  }
+
   // the contract files go with it — no foreign key reaches the bucket
   const paths = ((deal.contracts ?? []) as DealContract[])
     .map((c) => c?.path)
     .filter((p): p is string => typeof p === "string" && p.length > 0);
+
+  await snapshotForUndo("deals", dealId);
+  const { error } = await db().from("deals").delete().eq("id", dealId);
+  if (error) return fail(error.message);
+
+  // (v37.7) files only AFTER the row is really gone — a failed delete used to
+  // leave a live deal pointing at deleted contracts
   if (paths.length > 0) {
     try {
       await db().storage.from("contracts").remove(paths);
@@ -2671,10 +2721,6 @@ export async function cancelDeal(
       console.error("[cancel-deal] contract cleanup failed:", e);
     }
   }
-
-  await snapshotForUndo("deals", dealId);
-  const { error } = await db().from("deals").delete().eq("id", dealId);
-  if (error) return fail(error.message);
 
   // THE COUNTERS ARE DERIVED — recompute from what is left, exactly as an
   // opens edit does. Dropping to zero deals also drops the account's stage
@@ -2790,8 +2836,16 @@ const contactSchema = z.object({
   ]),
   comment: z.string().trim().optional(),
   nextStep: z.string().trim().optional(),
-  nextStepDate: z.string().optional(),
-  nextStepTime: z.string().optional(),
+  // (v37.7) same sanity check as the account-edit schema — a year-9999 next
+  // step satisfied the "no floating account" rule forever and never reminded.
+  nextStepDate: z
+    .string()
+    .optional()
+    .refine((v) => !v || isSaneIsoDate(v), "That date doesn't look right — check the year."),
+  nextStepTime: z
+    .string()
+    .optional()
+    .refine((v) => !v || isSaneTime(v), "That time doesn't look right."),
   /** required when status = "Call Scheduled" */
   scheduledDate: z.string().optional(),
   scheduledTime: z.string().optional(),
@@ -2879,7 +2933,7 @@ export async function logContact(
 
   if (notInterested) {
     await snapshotForUndo("accounts", accountId);
-    await db()
+    const { error: oopErr } = await db()
       .from("accounts")
       .update({
         out_of_process: true,
@@ -2887,6 +2941,10 @@ export async function logContact(
         oop_at: new Date().toISOString(),
       })
       .eq("id", accountId);
+    // (v37.7) a swallowed error here reported success while the account stayed
+    // in the pipeline un-archived
+    if (oopErr)
+      return fail(`The contact was logged, but archiving the account failed: ${oopErr.message}`);
     await logAudit(viewer.id, "out_of_process", "account", accountId, {
       reason: "Not interested",
     });
@@ -2908,7 +2966,7 @@ export async function logContact(
 
   if (nextStep || nextStepDate) {
     await snapshotForUndo("accounts", accountId);
-    await db()
+    const { error: stepErr } = await db()
       .from("accounts")
       .update({
         next_step: nextStep || null,
@@ -2916,6 +2974,8 @@ export async function logContact(
         next_step_time: nextStepTime || null,
       })
       .eq("id", accountId);
+    if (stepErr)
+      return fail(`The contact was logged, but the next step wasn't saved: ${stepErr.message}`);
     await syncNextStepReminder(accountId);
   }
 
@@ -3221,10 +3281,13 @@ export async function scheduleVisit(
   let visitId = pending?.id ?? null;
   if (pending) {
     await snapshotForUndo("visits", pending.id);
-    await db()
+    const { error: moveErr } = await db()
       .from("visits")
       .update({ visit_date: visitDate, visit_time: visitTime, followup_prompt_sent_at: null })
       .eq("id", pending.id);
+    // (v37.7) abort BEFORE any invite or announcement goes out for a time
+    // that was never saved
+    if (moveErr) return fail(moveErr.message);
   } else {
     const { data: created, error } = await db()
       .from("visits")
@@ -3267,8 +3330,10 @@ export async function scheduleVisit(
       if (eventId) {
         calendarLinked = true;
         inviteSent = true; // Google invited the attendees
-        if (eventId !== pending?.calendar_event_id)
-          await db().from("visits").update({ calendar_event_id: eventId }).eq("id", visitId);
+        if (eventId !== pending?.calendar_event_id) {
+          const { error: evErr } = await db().from("visits").update({ calendar_event_id: eventId }).eq("id", visitId);
+          if (evErr) console.error("[visits] could not store the calendar event id:", evErr);
+        }
       }
     } catch (e) {
       console.error("[visits] responsible-calendar insert failed, trying mailbox:", e);
@@ -3290,8 +3355,10 @@ export async function scheduleVisit(
         if (eventId) {
           calendarLinked = true;
           inviteSent = true; // Google emailed the invites itself
-          if (eventId !== pending?.calendar_event_id)
-            await db().from("visits").update({ calendar_event_id: eventId }).eq("id", visitId);
+          if (eventId !== pending?.calendar_event_id) {
+            const { error: evErr } = await db().from("visits").update({ calendar_event_id: eventId }).eq("id", visitId);
+            if (evErr) console.error("[visits] could not store the calendar event id:", evErr);
+          }
         }
       }
     } catch (e) {
@@ -3556,8 +3623,11 @@ export async function sendComposedEmail(
   if (bytes > 3_200_000)
     return fail("Those attachments are over ~3 MB together — send the big ones as a link.");
 
+  // (v37.7) one answer to "did this leave as a draft?" for the send, the log
+  // and the audit row — a files-only draft was being recorded as "sent".
+  const asDraft = !!d.draft || files.length > 0;
   try {
-    if (d.draft || files.length > 0) {
+    if (asDraft) {
       // an email WITH files is always left as a draft: Gmail is where the
       // member sees the attachments land, and it is one click from there
       const { createMemberDraft } = await import("@/lib/google/gmail");
@@ -3582,16 +3652,16 @@ export async function sendComposedEmail(
     cc_addresses: [...cc, ...bcc],
     subject: d.subject,
     body_html: html,
-    status: d.draft ? "draft" : "sent",
+    status: asDraft ? "draft" : "sent",
     template: d.template || null,
   });
-  await logAudit(viewer.id, d.draft ? "email_draft" : "email_sent", "member", viewer.id, {
+  await logAudit(viewer.id, asDraft ? "email_draft" : "email_sent", "member", viewer.id, {
     to: to.length,
     subject: d.subject,
   });
   await stampWork(viewer.id, "email_sent");
   revalidatePath("/emails");
-  return { ok: true, data: { draft: !!d.draft || files.length > 0, to: to.length } };
+  return { ok: true, data: { draft: asDraft, to: to.length } };
 }
 
 /** THE VIOLET MAN, ON A LETTER (v33.24). Write it from a brief, or rework what
@@ -3677,8 +3747,14 @@ const directVisitSchema = z.object({
   outcome: z.enum(["turned_away", "revisit", "send_info", "presented", "deal"]),
   comment: z.string().trim().min(2, "Say what happened in a line"),
   /** revisit → when you're going back; send_info / presented → the follow-up */
-  nextDate: z.string().optional(),
-  nextTime: z.string().optional(),
+  nextDate: z
+    .string()
+    .optional()
+    .refine((v) => !v || isSaneIsoDate(v), "That date doesn't look right — check the year."),
+  nextTime: z
+    .string()
+    .optional()
+    .refine((v) => !v || isSaneTime(v), "That time doesn't look right."),
   nextStep: z.string().trim().optional(),
   /** turned away AND clearly dead — archive it there and then (v33.25) */
   outOfProcess: z.boolean().optional(),
@@ -3925,7 +4001,10 @@ const reportSchema = z.object({
   done: z.boolean(),
   comment: z.string().trim().min(2, "Add a short comment about the visit"),
   nextStep: z.string().trim().optional(),
-  nextStepDate: z.string().optional(),
+  nextStepDate: z
+    .string()
+    .optional()
+    .refine((v) => !v || isSaneIsoDate(v), "That date doesn't look right — check the year."),
   /** v33 — what came out of a COMPLETED visit; drives what happens next */
   result: z.string().trim().optional(),
 });
@@ -4032,7 +4111,9 @@ function cleanAttachments(
   viewerId: string
 ): { path: string; name: string }[] {
   return (raw ?? [])
-    .filter((a) => typeof a?.path === "string" && a.path.startsWith(`${viewerId}/`))
+    .filter(
+      (a) => typeof a?.path === "string" && a.path.startsWith(`${viewerId}/`) && isSafeStorageKey(a.path)
+    )
     .slice(0, 5)
     .map((a) => ({ path: a.path, name: String(a.name ?? "file").slice(0, 120) }));
 }
@@ -4083,7 +4164,11 @@ export async function submitFeedback(input: {
   sendEmail({ topic: "feedback", to: [...FEEDBACK_INBOX_EMAILS], ...mail }).catch((e) =>
     console.error("[feedback] notification email failed:", e)
   );
-  await logAudit(viewer.id, "feedback", "feedback", null, { type: input.type });
+  // an anonymous report must not name its author in the log either — the
+  // /admin console sits beside the inbox (lc feedback does this since v33.30)
+  await logAudit(input.anonymous ? null : viewer.id, "feedback", "feedback", null, {
+    type: input.type,
+  });
   return { ok: true };
 }
 
@@ -4259,7 +4344,9 @@ async function writeFunctionSettings(
   const { bustFunctionSettings } = await import("./function-settings");
   bustFunctionSettings();
   updateTag(FUNCTION_SETTINGS_TAG);
-  await logAudit(viewer.id, "function_settings_save", "function", fn, { settings: merged });
+  // (v37.7) entity_id is a uuid column — the function KEY ("OGT") made every
+  // insert fail, so no save was ever recorded. Key goes in the details.
+  await logAudit(viewer.id, "function_settings_save", "function", null, { fn, settings: merged });
   refresh();
   return { ok: true };
 }
@@ -4734,6 +4821,41 @@ export async function upsertMember(
   if (!parsed.success) return fail(parsed.error.issues[0].message);
   const m = parsed.data;
 
+  // (v37.7) WHO MAY CHANGE WHAT. canManageMembership also admits TM's Team
+  // Leaders/Coordinators (to keep active/manager/team true), but the schema
+  // takes every role and function — so one of them could make themself LCP,
+  // and an LCVP could too. Role/function authority stays with the EB; LCP is
+  // granted/removed only by the LCP or admin; nobody re-roles themself.
+  {
+    const wantEmail = (m.email ?? "").trim().toLowerCase();
+    type Cur = { id: string; role: string; functions: string[] | null; sub_functions: string[] | null };
+    const q = db().from("members").select("id, role, functions, sub_functions");
+    const emailPat = wantEmail ? exactIlike(wantEmail) : null;
+    const { data: cur } = m.id
+      ? await q.eq("id", m.id).maybeSingle<Cur>()
+      : emailPat
+        ? await q.ilike("email", emailPat).maybeSingle<Cur>()
+        : { data: null as Cur | null };
+    const sameSet = (a: string[] | null | undefined, b: string[] | null | undefined) => {
+      const x = [...new Set(a ?? [])].sort().join("|");
+      const y = [...new Set(b ?? [])].sort().join("|");
+      return x === y;
+    };
+    const masterLevel = viewer.isAdmin || viewer.role === "LCP";
+    if (!isEb(viewer)) {
+      // the TM-MM path: new people only as plain Members, existing people's
+      // role/functions untouched
+      if (cur
+        ? cur.role !== m.role || !sameSet(cur.functions, m.functions) || !sameSet(cur.sub_functions, m.sub_functions)
+        : m.role !== "Member")
+        return fail("You can keep who is active, their manager and team true — role and function changes are the EB's.", "forbidden");
+    }
+    if (((cur?.role === "LCP") !== (m.role === "LCP")) && !masterLevel)
+      return fail("Only the LCP or an admin can give or take the LCP role.", "forbidden");
+    if (cur && cur.id === viewer.id && cur.role !== m.role && !viewer.isAdmin)
+      return fail("You can't change your own role — ask another EB member.", "forbidden");
+  }
+
   // a phone-only member's phone IS their identity — block a second member
   // with the same number (the DB partial index would reject it cryptically)
   if (!m.email && m.phone) {
@@ -5041,6 +5163,10 @@ export async function runMembershipImport(): Promise<ActionResult<{ imported: nu
 export async function runSheetsExport(): Promise<ActionResult> {
   const viewer = await getViewer();
   if (!canManageMembership(viewer)) return fail("Admins only.", "forbidden");
+  // (v37.7) a sandbox view holds un-rolled-back test edits — never push them
+  // into the shared Drive mirrors by hand
+  if (await sandboxSuppressed("sheets export"))
+    return fail("Sandbox test view is active — exit it to export the sheets.");
   const { exportAllSheets } = await import("@/lib/google/sheets");
   try {
     await exportAllSheets();
@@ -6295,7 +6421,6 @@ export async function submitLcFeedback(input: {
       return fail("That touch point was cancelled — there was no session to review.");
     if (new Date(tp.starts_at).getTime() > Date.now())
       return fail("That touch point hasn't happened yet 🙂");
-    const { touchPointLabel } = await import("@/lib/types");
     const { cairoWhen } = await import("@/lib/touch-points");
     message =
       `📍 ${"⭐".repeat(rating ?? 0)} (${rating}/5) — ${touchPointName(tp)} on ${cairoWhen(tp.starts_at)}` +
@@ -7064,7 +7189,6 @@ export async function createIgtExpectationDraft(input: IgtReviewedMail): Promise
 
 import {
   canEditSignupVpFields,
-  canViewSignup,
   canWorkSignup,
   ogxFunctions,
 } from "@/lib/rbac";
@@ -9673,12 +9797,27 @@ export async function respondToIrSlotRequest(
 
   // ── DECLINE ───────────────────────────────────────────────────────────
   if (decision === "decline") {
-    const { error } = await db()
+    // (v37.7) .select() so a request someone else just answered is caught
+    // here, not announced to the IR twice with opposite answers
+    const { data: declinedRow, error } = await db()
       .from("ir_slot_requests")
       .update({ status: "declined", responded_at: new Date().toISOString(), response_comment: note })
       .eq("id", id)
-      .eq("status", "pending");
+      .eq("status", "pending")
+      .select("id");
     if (error) return fail(error.message);
+    if (!declinedRow || declinedRow.length === 0)
+      return fail("This request was just answered by someone else.");
+
+    // (v37.7) when a lead declines, the email must name the HOST — req.lc_name
+    // is the IR's own LC, which read "AIESEC in Kocaeli can't do …" to them.
+    let hostName = viewer.id === req.member_id ? viewer.name : null;
+    if (!hostName) {
+      const { data: host } = await db()
+        .from("members").select("name").eq("id", req.member_id)
+        .maybeSingle<{ name: string }>();
+      hostName = host?.name ?? "our team";
+    }
 
     const { data: settings } = await db()
       .from("ir_booking_settings")
@@ -9690,7 +9829,7 @@ export async function respondToIrSlotRequest(
       to: [req.booker_email],
       ...irSlotDeclinedEmail({
         bookerName: req.booker_name,
-        memberName: viewer.id === req.member_id ? viewer.name : req.lc_name,
+        memberName: hostName,
         whenLabel: theirLabel ?? cairoLabel,
         comment: note,
         bookingUrl: `${env.appUrl}/book/${settings?.slug ?? ""}`,
@@ -9731,6 +9870,34 @@ export async function respondToIrSlotRequest(
     }
   }
 
+  // (v37.7) a time that has already passed can't become a call (and Google
+  // would be handed an event in the past). Overlaps are NOT refused here on
+  // purpose — accepting is the host's explicit override (v34.5 note).
+  if (new Date(req.requested_at).getTime() <= Date.now())
+    return fail("That time has already passed — decline this one so they can pick another.");
+
+  // (v37.7) CLAIM FIRST. The decline path updates with a pending guard; this
+  // one didn't, so an accept racing a decline booked a call AND mailed a
+  // decline. Whoever flips pending → accepted first owns the request; it is
+  // handed back below if the call can't be booked.
+  const { data: claimed, error: claimErr } = await db()
+    .from("ir_slot_requests")
+    .update({ status: "accepted", responded_at: new Date().toISOString(), response_comment: note })
+    .eq("id", id)
+    .eq("status", "pending")
+    .select("id");
+  if (claimErr) return fail(claimErr.message);
+  if (!claimed || claimed.length === 0)
+    return fail("This request was just answered by someone else.");
+  const releaseClaim = async () => {
+    await db()
+      .from("ir_slot_requests")
+      .update({ status: "pending", responded_at: null, response_comment: null })
+      .eq("id", id)
+      .eq("status", "accepted")
+      .is("ir_call_id", null);
+  };
+
   const manageToken = crypto.randomBytes(16).toString("hex");
   const { data: created, error } = await db()
     .from("ir_calls")
@@ -9755,6 +9922,7 @@ export async function respondToIrSlotRequest(
     .select("id")
     .single();
   if (error) {
+    await releaseClaim();
     // the same partial unique index the public path hits: this host already
     // has a scheduled call at that exact time
     if (error.code === "23505")
@@ -9807,15 +9975,11 @@ export async function respondToIrSlotRequest(
     console.error("[ir-request] calendar failed:", e);
   }
 
-  await db()
+  const { error: linkErr } = await db()
     .from("ir_slot_requests")
-    .update({
-      status: "accepted",
-      responded_at: new Date().toISOString(),
-      response_comment: note,
-      ir_call_id: created.id,
-    })
+    .update({ ir_call_id: created.id })
     .eq("id", id);
+  if (linkErr) console.error("[ir-request] could not link the call to its request:", linkErr);
 
   // the IR gets the SAME confirmation the public page would have sent
   const { irBookingConfirmEmail } = await import("@/lib/email/templates");
@@ -10473,18 +10637,22 @@ export async function updateIrBookerEmail(id: string, emailRaw: string): Promise
   // the LC's contact row follows; unique (partner_lc_id, lower(email)) means
   // a row already holding the NEW email wins and the wrong one is removed.
   // A retry changes nothing here — the row is already right.
-  if (call.partner_lc_id && oldEmail && !retry) {
+  // (v37.7) exact match — a raw ilike treated `_` in john_doe@x.org as a
+  // wildcard and rewrote (then deleted) john-doe's neighbour too. A value
+  // with `*` can't be matched exactly, so it matches nothing.
+  const oldPat = oldEmail ? exactIlike(oldEmail) : null;
+  if (call.partner_lc_id && oldEmail && !retry && oldPat) {
     const { error: cErr } = await db()
       .from("partner_lc_contacts")
       .update({ email })
       .eq("partner_lc_id", call.partner_lc_id)
-      .ilike("email", oldEmail);
+      .ilike("email", oldPat);
     if (cErr)
       await db()
         .from("partner_lc_contacts")
         .delete()
         .eq("partner_lc_id", call.partner_lc_id)
-        .ilike("email", oldEmail);
+        .ilike("email", oldPat);
   }
 
   // ---- THE INVITE FOLLOWS THE CORRECTION (v33.32)
@@ -11943,7 +12111,7 @@ export async function confirmCvUpload(input: {
   if (viewer.sandbox)
     return fail("CV uploads are disabled in the sandbox test view — the file and AI extraction can't be undone on exit.");
   // only paths shaped like the ones requestCvUpload issues are recordable
-  if (!/^\d{10,}-[0-9a-f][0-9a-f-]{30,40}-/.test(input.path ?? ""))
+  if (!/^\d{10,}-[0-9a-f][0-9a-f-]{30,40}-/.test(input.path ?? "") || !isSafeStorageKey(input.path))
     return fail("Nothing was uploaded.");
 
   // v29: every CV belongs to an LC — the pool is worthless without it

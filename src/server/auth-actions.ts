@@ -1,5 +1,6 @@
 "use server";
 
+import { exactIlike } from "@/lib/like-pattern";
 import crypto from "node:crypto";
 import { AuthError } from "next-auth";
 import { redirect } from "next/navigation";
@@ -61,10 +62,14 @@ async function lookupIdentity(identifier: string): Promise<IdentityRow | null> {
   });
 
   if (identifier.includes("@")) {
+    // exact match only: unescaped `%`/`_` let the public login page answer
+    // patterns like "%hallul%@%" and rebuild the member list (v37.7)
+    const pattern = exactIlike(identifier);
+    if (!pattern) return null;
     const { data } = await db()
       .from("members")
       .select(cols)
-      .ilike("email", identifier)
+      .ilike("email", pattern)
       .maybeSingle<Raw>();
     return data ? shape(data) : null;
   }
@@ -141,6 +146,8 @@ export async function identifyMember(rawIdentifier: string): Promise<IdentifyRes
   const identifier = normalizeIdentifier(rawIdentifier);
   if (!identifier)
     return { route: null, error: "Type your AIESEC email or your phone number." };
+  if (identifier.length > 254)
+    return { route: null, error: "That's too long to be an email or a phone number." };
   if (!(await identifyThrottle()))
     return {
       route: null,
@@ -188,6 +195,8 @@ export async function loginWithPassword(
   const password = String(formData.get("password") ?? "");
   if (!typed || !password)
     return { error: "Enter your email (or phone) and a password." };
+  if (typed.length > 254 || password.length > 256)
+    return { error: "That's too long to be an email, a phone number or a password." };
   const identifier = normalizeIdentifier(typed);
   const found = await lookupIdentity(identifier).catch(() => null);
   // deactivated members get the dedicated screen, not a cryptic error
@@ -201,6 +210,14 @@ export async function loginWithPassword(
   } catch (e) {
     if (e instanceof AuthError) {
       if (e.type === "CredentialsSignin") {
+        // `authorize` throws this one on purpose (v37.7) — a wrong-password
+        // message would send them straight back to guessing
+        if ((e as { code?: string }).code === "throttled")
+          return {
+            error:
+              "Too many sign-in attempts for this account or network — wait an hour and try again, or message the IM team on WhatsApp.",
+            needsHuman: true,
+          };
         // ONE STRING NO LONGER SERVES THREE PEOPLE (v36). The split lives in
         // `src/lib/login-routing.ts`, pure and pinned by tests/auth-login.test.ts,
         // so the message a member reads is decided by the state of their row
@@ -231,12 +248,28 @@ export async function loginWithGoogle(): Promise<void> {
 }
 
 /** "Forgot password": a fresh password is generated and EMAILED straight to
- *  the member. Their old password keeps working until they change it, so
- *  nobody can lock anyone out by spamming this. */
+ *  the member. Their old password keeps working until they change it.
+ *
+ *  v37.7: this endpoint is public, and every call used to bcrypt, overwrite
+ *  the emailed temp password, send a mail and ring a bell — so a loop could
+ *  flood a member, keep replacing the password they were about to type, and
+ *  burn the IM mailbox's daily Gmail quota for the whole LC. Now: ten requests
+ *  an hour per network, and a member gets at most one fresh password per ten
+ *  minutes (five an hour); anything over that answers exactly like a success,
+ *  so the limit reveals nothing about who is a member. */
 export async function requestPasswordReset(
   email: string
 ): Promise<{ ok: boolean; message: string }> {
   const clean = (email ?? "").trim().toLowerCase();
+  if (clean.length > 254)
+    return { ok: false, message: "That's too long to be an email address." };
+  const { clientIp, underHourlyLimit } = await import("./rate-limit");
+  if (!(await underHourlyLimit("resetip", await clientIp(), 10)))
+    return {
+      ok: false,
+      message:
+        "Too many reset requests from this network — wait an hour, or message the IM team on WhatsApp.",
+    };
   if (!clean.includes("@"))
     return {
       ok: false,
@@ -254,19 +287,22 @@ export async function requestPasswordReset(
     // them was missing.
     // ILIKE takes LIKE metacharacters, and `_` is legal in an email local
     // part — an unescaped one would match a DIFFERENT member's address.
-    const pattern = clean.replaceAll("\\", "").replaceAll("%", "\\%").replaceAll("_", "\\_");
+    const pattern = exactIlike(clean);
     type Row = {
       id: string; name: string; email: string | null;
       fallback_email: string | null; is_active: boolean;
+      temp_password_at: string | null;
     };
     const find = async (column: "email" | "fallback_email") =>
-      (
-        await db()
-          .from("members")
-          .select("id, name, email, fallback_email, is_active")
-          .ilike(column, pattern)
-          .limit(2)
-      ).data as Row[] | null;
+      pattern
+        ? ((
+            await db()
+              .from("members")
+              .select("id, name, email, fallback_email, is_active, temp_password_at")
+              .ilike(column, pattern)
+              .limit(2)
+          ).data as Row[] | null)
+        : [];
     let rows = (await find("email")) ?? [];
     if (rows.length === 0) rows = (await find("fallback_email")) ?? [];
 
@@ -305,10 +341,21 @@ export async function requestPasswordReset(
       };
     }
     if (member) {
-      await logAuth("password_reset_requested", member.id, { identifier: clean });
-      const { issueTempPassword } = await import("./password");
-      const res = await issueTempPassword(member);
-      if (!res.ok) return { ok: false, message: res.error ?? "Couldn't send the password." };
+      const fresh =
+        !!member.temp_password_at &&
+        Date.now() - Date.parse(member.temp_password_at) < 10 * 60_000;
+      if (fresh || !(await underHourlyLimit("resetmember", member.id, 5))) {
+        // the password mailed minutes ago still works — answer as if sent
+        await logAuth("password_reset_requested", member.id, {
+          identifier: clean,
+          reason: "cooldown",
+        }, "failed");
+      } else {
+        await logAuth("password_reset_requested", member.id, { identifier: clean });
+        const { issueTempPassword } = await import("./password");
+        const res = await issueTempPassword(member);
+        if (!res.ok) return { ok: false, message: res.error ?? "Couldn't send the password." };
+      }
     } else {
       // no row at all: log it (so a burst of these is visible in the console)
       // and answer exactly as if it had worked

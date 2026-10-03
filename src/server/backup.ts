@@ -86,6 +86,33 @@ const BACKUP_TABLES = [
   "function_settings",
 ] as const;
 
+/** WHAT THE EB-VISIBLE DRIVE COPY MUST NEVER CARRY (v37.7): password and
+ *  temp-password hashes, Google refresh tokens, IR manage tokens (a bearer
+ *  link that cancels or moves a call), and who wrote an anonymous note.
+ *  Everything else stays, so the copy still reads as the LC's data. */
+export function redactForSharedCopy(payload: Record<string, unknown>): Record<string, unknown> {
+  const data = (payload.data ?? {}) as Record<string, Record<string, unknown>[]>;
+  const SECRET = /password|token|secret|_hash$/i;
+  const out: Record<string, unknown[]> = {};
+  for (const [table, rows] of Object.entries(data)) {
+    out[table] = rows.map((row) => {
+      const r: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(row)) if (!SECRET.test(k)) r[k] = v;
+      if ((table === "lc_feedback" || table === "feedback") && row.anonymous) {
+        if ("author_id" in r) r.author_id = null;
+        if ("member_id" in r) r.member_id = null;
+        if ("attachments" in r) r.attachments = [];
+      }
+      return r;
+    });
+  }
+  return {
+    ...payload,
+    note: "Sodio logical backup — REDACTED shared copy (no credentials, no anonymous authors). Restore from the private bucket or emailed copy.",
+    data: out,
+  };
+}
+
 const PAGE = 1000;
 /** Keep a month — long enough to notice a slow corruption. */
 const KEEP_DAYS = 30;
@@ -207,7 +234,10 @@ array.</p>
       folderName: "CRM — Backups",
       fileName,
       mimeType: "application/gzip",
-      data: gz,
+      // the EB can open this folder: never hand it credentials or the authors
+      // of anonymous feedback (v37.7). The bucket and email copies stay
+      // complete — those are the ones you restore from.
+      data: gzipSync(Buffer.from(JSON.stringify(redactForSharedCopy(payload)), "utf8")),
     });
     drive = true;
   } catch (e) {

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
-import { getRealViewer, logAudit } from "./data";
+import { fetchAll, getRealViewer, logAudit } from "./data";
 import { canUseAdminTools } from "@/lib/rbac";
 
 /**
@@ -52,25 +52,41 @@ export async function loadImPromptResults(): Promise<
   const viewer = await getRealViewer();
   if (!canUseAdminTools(viewer)) return { ok: false, error: "Admin tools only." };
 
-  const [{ data: prompts, error }, { data: responses }, { data: pending }, { data: members }] =
-    await Promise.all([
-      db()
-        .from("im_prompts")
-        .select("id, title, body, response_kind, response_label, audience, audience_values, dismissible, active, created_at, created_by")
-        .order("created_at", { ascending: false })
-        .limit(100),
-      db()
-        .from("im_prompt_responses")
-        .select("prompt_id, member_id, rating, text_answer, acknowledged, skipped, created_at")
-        .limit(10000),
-      db()
-        .from("pending_prompts")
-        .select("ref_id, member_id, resolved")
-        .eq("kind", "im_prompt")
-        .limit(20000),
-      db().from("members").select("id, name, role"),
-    ]);
+  const [{ data: prompts, error }, { data: members }] = await Promise.all([
+    db()
+      .from("im_prompts")
+      .select("id, title, body, response_kind, response_label, audience, audience_values, dismissible, active, created_at, created_by")
+      .order("created_at", { ascending: false })
+      .limit(100),
+    db().from("members").select("id, name, role"),
+  ]);
   if (error) return { ok: false, error: error.message };
+
+  // (v37.7) answers and "sent" rows only for the prompts being shown, PAGED —
+  // the old .limit(10000/20000) reads were capped at 1000 rows by PostgREST,
+  // so once an LC-wide prompt or two had been sent the counts went wrong
+  const promptIds = (prompts ?? []).map((p) => p.id as string);
+  type RespRow = { prompt_id: string; member_id: string; rating: number | null; text_answer: string | null; acknowledged: boolean; skipped: boolean; created_at: string };
+  type PendRow = { ref_id: string; member_id: string; resolved: boolean };
+  const [responses, pending] = promptIds.length
+    ? await Promise.all([
+        fetchAll<RespRow>(() =>
+          db()
+            .from("im_prompt_responses")
+            .select("prompt_id, member_id, rating, text_answer, acknowledged, skipped, created_at")
+            .in("prompt_id", promptIds)
+            .order("id")
+        ).catch(() => [] as RespRow[]),
+        fetchAll<PendRow>(() =>
+          db()
+            .from("pending_prompts")
+            .select("ref_id, member_id, resolved")
+            .eq("kind", "im_prompt")
+            .in("ref_id", promptIds)
+            .order("id")
+        ).catch(() => [] as PendRow[]),
+      ])
+    : [[] as RespRow[], [] as PendRow[]];
 
   const who = new Map((members ?? []).map((m) => [m.id as string, { name: m.name as string, role: m.role as string }]));
   const person = (id: string) => who.get(id) ?? { name: "—", role: "" };

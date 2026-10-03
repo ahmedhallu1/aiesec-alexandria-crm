@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import {
-  getAccount, getDashboard, getViewer, listAccounts, listIrCalls, listPartnerLcDetails,
+  fetchAll, getAccount, getDashboard, getViewer, listAccounts, listIrCalls, listPartnerLcDetails,
   listSignupsPage, listVisibleMembers, searchCvs,
 } from "@/server/data";
 import type { AccountFilters, PipelineRow } from "@/server/data";
@@ -13,6 +13,9 @@ import {
 import { accountSlug, fmtDay } from "@/lib/types";
 
 export const maxDuration = 60;
+
+/** distinct industry / account_type values, module memory (v37.7) */
+const DISTINCT_CACHE = new Map<string, { at: number; vals: string[] }>();
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -332,12 +335,21 @@ export async function POST(req: Request) {
   const valuesLike = async (column: "industry" | "account_type", term: string) => {
     const t = term.replace(/[%_,()"]/g, " ").trim();
     if (!t) return { hits: [] as string[], all: [] as string[] };
-    const { data } = await db().from("accounts").select(column).not(column, "is", null).limit(5000);
-    const all = [
-      ...new Set(
-        ((data ?? []) as Record<string, string | null>[]).map((r) => r[column]).filter((x): x is string => !!x)
-      ),
-    ];
+    // (v37.7) the DISTINCT values come from a FULL paged read — the old
+    // .limit(5000) was capped at 1000 arbitrary rows by PostgREST, so most
+    // industries "did not exist". Cached a few minutes (two slim columns).
+    let all = DISTINCT_CACHE.get(column)?.vals;
+    if (!all || Date.now() - (DISTINCT_CACHE.get(column)?.at ?? 0) > 5 * 60_000) {
+      try {
+        const rows = await fetchAll<Record<string, string | null>>(() =>
+          db().from("accounts").select(column).not(column, "is", null).order("id")
+        );
+        all = [...new Set(rows.map((r) => r[column]).filter((x): x is string => !!x))];
+        DISTINCT_CACHE.set(column, { at: Date.now(), vals: all });
+      } catch {
+        all = all ?? [];
+      }
+    }
     const words = fold(t).split(/\s+/).filter(Boolean);
     return { hits: all.filter((v) => words.every((w) => fold(v).includes(w))), all };
   };

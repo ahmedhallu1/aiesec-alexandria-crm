@@ -12,6 +12,14 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
+const INLINE_SAFE_TYPES = new Set([
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+]);
+
 /**
  * GET /api/cxp/file?ep=<EP/OPP ID>&stage=<key>&req=<key>[&dl=1]
  *
@@ -66,9 +74,14 @@ export async function GET(req: NextRequest) {
       /[\\/:*?"<>|]/g,
       "_"
     );
+    // INLINE ONLY FOR TYPES A BROWSER SHOWS INERTLY (v37.7). The stored type
+    // came from the uploader and this route serves from Sodio's own origin:
+    // an uploaded HTML or SVG shown inline ran as a Sodio page with the
+    // viewer's session. Anything else downloads as plain bytes.
+    const inlineOk = !download && INLINE_SAFE_TYPES.has((file.mimeType || "").toLowerCase());
     const headers: Record<string, string> = {
-      "Content-Type": file.mimeType,
-      "Content-Disposition": contentDisposition(download ? "attachment" : "inline", niceName),
+      "Content-Type": inlineOk ? file.mimeType : "application/octet-stream",
+      "Content-Disposition": contentDisposition(inlineOk ? "inline" : "attachment", niceName),
       "Cache-Control": "private, no-store",
       "X-Content-Type-Options": "nosniff",
     };

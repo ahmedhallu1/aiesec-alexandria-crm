@@ -231,12 +231,18 @@ export interface VisitEventInput {
   attendees?: string[];
 }
 
+/** Wall-clock end = start + `addMinutes`, computed on a REAL date so 23:30 + 1h
+ *  rolls to 00:30 on the NEXT day (v37.7). The old dummy-date maths kept the
+ *  input date, so Google got end < start and answered 400 "time range is empty". */
+function localEnd(date: string, hhmm: string, addMinutes: number): string {
+  const [y, mo, d] = date.slice(0, 10).split("-").map(Number);
+  const [h, m] = hhmm.split(":").map(Number);
+  return new Date(Date.UTC(y, mo - 1, d, h, m + addMinutes)).toISOString().slice(0, 19);
+}
+
 function eventBody(input: VisitEventInput) {
   const start = `${input.visitDate}T${input.visitTime.slice(0, 5)}:00`;
-  const [h, m] = input.visitTime.split(":").map(Number);
-  const endDate = new Date(Date.UTC(2000, 0, 1, h, m));
-  endDate.setUTCHours(endDate.getUTCHours() + 1);
-  const end = `${input.visitDate}T${String(endDate.getUTCHours()).padStart(2, "0")}:${String(endDate.getUTCMinutes()).padStart(2, "0")}:00`;
+  const end = localEnd(input.visitDate, input.visitTime.slice(0, 5), 60);
   const attendees = [...new Set((input.attendees ?? []).filter(Boolean))];
   return {
     summary: `AIESEC visit — ${input.accountName}`,
@@ -364,10 +370,7 @@ export interface FollowupEventInput {
 function followupEventBody(input: FollowupEventInput) {
   const time = (input.time ?? "11:00").slice(0, 5);
   const start = `${input.date}T${time}:00`;
-  const [h, m] = time.split(":").map(Number);
-  const endDate = new Date(Date.UTC(2000, 0, 1, h, m));
-  endDate.setUTCMinutes(endDate.getUTCMinutes() + 30);
-  const end = `${input.date}T${String(endDate.getUTCHours()).padStart(2, "0")}:${String(endDate.getUTCMinutes()).padStart(2, "0")}:00`;
+  const end = localEnd(input.date, time, 30);
   return {
     summary: `AIESEC follow-up — ${input.accountName}`,
     description: `${input.step ? `Next step: ${input.step}\n` : ""}Account: ${input.detailsUrl}`,

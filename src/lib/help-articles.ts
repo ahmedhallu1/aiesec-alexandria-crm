@@ -957,6 +957,14 @@ export const HELP_ARTICLES: HelpArticle[] = [
      {
       "q": "Can I just always sign in with Google instead?",
       "a": "Yes — Google sign-in works forever, password or no password."
+     },
+     {
+      "q": "I asked again and no second email came.",
+      "a": "Sodio sends at most one fresh password every 10 minutes (and a few an hour), so nobody can flood your inbox or keep replacing the password you're about to type. The one already in your inbox works — use that."
+     },
+     {
+      "q": "It says \"too many sign-in attempts\".",
+      "a": "After about ten wrong passwords in an hour for one account (or a lot from one network), Sodio pauses password sign-in for that hour so nobody can guess their way in. Wait it out, sign in with Google, or message the IM team on WhatsApp."
      }
     ]
    }

@@ -530,7 +530,7 @@ export async function importMembership(opts?: { force?: boolean }): Promise<numb
   const { sheets } = clients();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: id,
-    range: "A1:Z1000",
+    range: "A1:Z20000", // (v37.7) was A1:Z1000 — rows past 1000 were dropped/duplicated
   });
   const rows = (res.data.values ?? []) as string[][];
   const count = await applyMembershipGrid(rows, { deactivateMissing: true });
@@ -1074,7 +1074,7 @@ export async function writeMemberToSheet(m: MemberWriteBack): Promise<void> {
   const { sheets } = clients();
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: id,
-    range: "A1:Z1000",
+    range: "A1:Z20000", // (v37.7) was A1:Z1000 — rows past 1000 were dropped/duplicated
   });
   const rows = (res.data.values ?? []) as string[][];
   const cols = mapColumns((rows[0] ?? []) as string[]);
@@ -1233,9 +1233,18 @@ export async function exportAllSheets(): Promise<void> {
   // BD deals' MOS is money — total EGP per account. Pre-migration-0015 the
   // select returns an error (never throws) and the column just stays empty.
   const amountByAccount = new Map<string, number>();
-  const { data: dealAmounts } = await db().from("deals").select("account_id, amount");
+  // (v37.7) Paged — an unpaged read stops at 1000 rows, understating amounts
+  // past that. A failed read keeps the old behaviour (column stays empty)
+  // rather than failing the whole export.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const d of (dealAmounts ?? []) as any[]) {
+  let dealAmounts: any[] = [];
+  try {
+    dealAmounts = await pageAll(() => db().from("deals").select("account_id, amount").order("id"));
+  } catch (e) {
+    console.error("[sheets] deal amounts read failed:", e instanceof Error ? e.message : e);
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const d of dealAmounts as any[]) {
     if (d.amount > 0)
       amountByAccount.set(d.account_id, (amountByAccount.get(d.account_id) ?? 0) + d.amount);
   }

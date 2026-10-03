@@ -1,7 +1,6 @@
 import { db } from "@/lib/supabase";
 import { canRecordAttendance, isTmCore, type Viewer } from "@/lib/rbac";
 import {
-  touchPointLabel,
   WORK_BURST_ACTIONS,
   WORK_MIN_ACTIONS,
   WORK_MIN_GAP_MINUTES,
@@ -200,6 +199,29 @@ async function inChunks<T>(
   return out;
 }
 
+/** Pages one query past PostgREST's 1000-row response cap (v37.7). `build`
+ *  must return a fresh query with a STABLE order (id tiebreak) each call;
+ *  a failed page stops the loop and returns what was read, after logging. */
+async function pageAll<T>(
+  label: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  build: () => any
+): Promise<T[]> {
+  const out: T[] = [];
+  const PAGE = 1000;
+  for (let off = 0; off < 50_000; off += PAGE) {
+    const { data, error } = await build().range(off, off + PAGE - 1);
+    if (error) {
+      console.error(`[attendance] ${label} failed:`, error.message);
+      break;
+    }
+    const chunk = (data ?? []) as T[];
+    out.push(...chunk);
+    if (chunk.length < PAGE) break;
+  }
+  return out;
+}
+
 /** The touch points this viewer OWES an attendance record for — started, still
  *  scheduled, nothing recorded. The deep-link target of every reminder. */
 export async function touchPointsNeedingRecord(viewer: Viewer): Promise<TouchPointRow[]> {
@@ -320,19 +342,17 @@ export async function listAttendanceHistory(
   let rows = await inChunks<AttendanceRow>(
     touchPoints.map((t) => t.id),
     80,
-    async (chunk) => {
-      let q = db().from("touch_point_attendance").select("*").in("touch_point_id", chunk);
-      if (scope) q = q.in("member_id", scope);
-      const st = picks(filters.status);
-      if (st.length === 1) q = q.eq("status", st[0]);
-      else if (st.length > 1) q = q.in("status", st);
-      const { data, error } = await q;
-      if (error) {
-        console.error("[attendance] history rows failed:", error.message);
-        return [];
-      }
-      return (data ?? []) as AttendanceRow[];
-    }
+    // (v37.7) paged: 80 big-audience touch points hold far more than the
+    // 1000 rows PostgREST returns per request
+    async (chunk) =>
+      pageAll<AttendanceRow>("history rows", () => {
+        let q = db().from("touch_point_attendance").select("*").in("touch_point_id", chunk);
+        if (scope) q = q.in("member_id", scope);
+        const st = picks(filters.status);
+        if (st.length === 1) q = q.eq("status", st[0]);
+        else if (st.length > 1) q = q.in("status", st);
+        return q.order("id");
+      })
   );
   if (rows.length === 0) return { ...empty, totals: totalsOf([]) };
 
@@ -494,17 +514,17 @@ export interface OpenAppeal {
 }
 
 export async function listOpenAppeals(viewer: Viewer): Promise<OpenAppeal[]> {
-  const { data, error } = await db()
-    .from("attendance_appeals")
-    .select("*")
-    .eq("resolved", false)
-    .order("created_at", { ascending: false })
-    .limit(100);
-  if (error) {
-    console.error("[attendance] appeals query failed:", error.message);
-    return [];
-  }
-  const appeals = (data ?? []) as AppealRow[];
+  // (v37.7) read EVERY unresolved appeal, then filter by authority: the old
+  // newest-100 cut dropped a recorder's older appeal once 100 newer ones
+  // existed LC-wide. Unresolved appeals are few, so paging them is cheap.
+  const appeals = await pageAll<AppealRow>("appeals query", () =>
+    db()
+      .from("attendance_appeals")
+      .select("*")
+      .eq("resolved", false)
+      .order("created_at", { ascending: false })
+      .order("id")
+  );
   if (appeals.length === 0) return [];
 
   const rows = await inChunks<AttendanceRow>(
@@ -569,21 +589,19 @@ export async function workingHoursVerdicts(tp: TouchPointRow): Promise<WorkVerdi
   const acts = await inChunks<{ member_id: string; at: string }>(
     audience.map((m) => m.id),
     100,
-    async (chunk) => {
-      const { data, error } = await db()
-        .from("work_activity")
-        .select("member_id, at")
-        .in("member_id", chunk)
-        .gte("at", from)
-        .lte("at", to)
-        .order("at");
-      if (error) {
-        console.error("[attendance] work activity query failed:", error.message);
-        return [];
-      }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return (data ?? []) as any[];
-    }
+    // (v37.7) paged — every action stamps, so 100 members over a 4h window can
+    // pass 1000 rows and the cap would drop the LATEST stamps (→ false absent)
+    async (chunk) =>
+      pageAll<{ member_id: string; at: string }>("work activity query", () =>
+        db()
+          .from("work_activity")
+          .select("member_id, at")
+          .in("member_id", chunk)
+          .gte("at", from)
+          .lte("at", to)
+          .order("at")
+          .order("id")
+      )
   );
 
   const byMember = new Map<string, number[]>();

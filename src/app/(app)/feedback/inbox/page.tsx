@@ -26,11 +26,13 @@ export default async function FeedbackInboxPage() {
       </div>
       <FeedbackInboxView
         items={((items ?? []) as (FeedbackItem & { status?: string; anonymous?: boolean })[]).map(
-          (f) => ({
-            ...f,
-            status: f.status ?? "new",
-            anonymous: f.anonymous ?? false,
-          })
+          (f) => {
+            const row = { ...f, status: f.status ?? "new", anonymous: f.anonymous ?? false };
+            // the view shows no attachments, and an anonymous row's keys start
+            // with the AUTHOR's member id — never ship them (v37.7)
+            delete (row as { attachments?: unknown }).attachments;
+            return row;
+          }
         )}
       />
     </div>

@@ -172,8 +172,11 @@ export function matchMemberByName(raw: string | null, members: MemberLite[]): st
   const q = norm(raw ?? "");
   if (!q) return null;
   // full name or exactly
-  const exact = members.find((m) => norm(m.name) === q || norm("") === q);
-  if (exact) return exact.id;
+  // (v37.7) two members with the same full name are ambiguous — leave the row
+  // unmatched for a leader to assign rather than picking whichever is first
+  const exacts = members.filter((m) => norm(m.name) === q);
+  if (exacts.length === 1) return exacts[0].id;
+  if (exacts.length > 1) return null;
 
   // v29: a BARE FIRST NAME is never enough. "Ahmed" on a tracker row used to
   // resolve to whichever Ahmed happened to be the only prefix hit — which
@@ -247,12 +250,16 @@ export async function importSignups(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const existing = new Map<string, any>();
     for (let off = 0; ; off += 1000) {
-      const { data } = await db()
+      const { data, error: exErr } = await db()
         .from("signups")
         .select("*")
         .eq("source", cfg.source)
         .order("id")
         .range(off, off + 999);
+      // (v37.7) a failed read must not look like "no existing rows" — every
+      // sheet row would then look new and the tab would be marked seen. Throw
+      // before markSheetSeen so the next run retries the whole tab.
+      if (exErr) throw new Error(`signups import: existing-rows read failed (${cfg.source}): ${exErr.message}`);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       for (const r of (data ?? []) as any[]) existing.set(r.ep_id, r);
       if ((data ?? []).length < 1000) break;
@@ -407,6 +414,35 @@ interface SheetCommentCheck {
   vpCell: string | null;
 }
 
+/** Every comment for these sign-ups, grouped by sign-up (v37.7). Ids go in
+ *  chunks of 200 (a long .in() list overflows PostgREST's URL limit) and each
+ *  chunk is paged past the API's 1000-row cap with a stable order. THROWS on
+ *  any error — callers must never treat a failed read as "no comments". */
+async function readCommentsFor(ids: string[]): Promise<Map<string, SignupComment[]>> {
+  const out = new Map<string, SignupComment[]>();
+  for (let i = 0; i < ids.length; i += 200) {
+    const chunk = ids.slice(i, i + 200);
+    for (let off = 0; ; off += 1000) {
+      const { data, error } = await db()
+        .from("signup_comments")
+        .select("*")
+        .in("signup_id", chunk)
+        .order("created_at")
+        .order("id")
+        .range(off, off + 999);
+      if (error) throw new Error(`signup_comments read failed: ${error.message}`);
+      const page = (data ?? []) as SignupComment[];
+      for (const c of page) {
+        const list = out.get(c.signup_id) ?? [];
+        list.push(c);
+        out.set(c.signup_id, list);
+      }
+      if (page.length < 1000) break;
+    }
+  }
+  return out;
+}
+
 /** Sheet-typed comments must survive: for each existing row, compare the
  *  sheet's Comment / VP Comment cells with what our log would render —
  *  untouched rows REPLACE their "Sheet" entry when the cell changed; touched
@@ -418,21 +454,16 @@ async function captureSheetComments(checks: SheetCommentCheck[]): Promise<void> 
   if (withCells.length === 0) return;
   const byId = new Map(withCells.map((c) => [c.signupId, c]));
 
-  // all comments for the involved sign-ups, paged in id chunks
-  const ids = [...byId.keys()];
-  const comments = new Map<string, SignupComment[]>();
-  for (let i = 0; i < ids.length; i += 200) {
-    const chunk = ids.slice(i, i + 200);
-    const { data } = await db()
-      .from("signup_comments")
-      .select("*")
-      .in("signup_id", chunk)
-      .order("created_at");
-    for (const c of (data ?? []) as SignupComment[]) {
-      const list = comments.get(c.signup_id) ?? [];
-      list.push(c);
-      comments.set(c.signup_id, list);
-    }
+  // all comments for the involved sign-ups, paged in id chunks. (v37.7) A
+  // failed or truncated read would make `expected` wrong and re-insert
+  // existing log text as duplicate "Sheet" comments — so skip the capture
+  // for this run instead (the next run retries).
+  let comments: Map<string, SignupComment[]>;
+  try {
+    comments = await readCommentsFor([...byId.keys()]);
+  } catch (e) {
+    console.error("[signups] comment capture skipped:", e instanceof Error ? e.message : e);
+    return;
   }
 
   for (const check of withCells) {
@@ -766,7 +797,9 @@ export async function writeSignupsBackBatch(entries: SignupBackEntry[]): Promise
     const rowByEp = new Map<string, number>();
     rows.forEach((r, i) => {
       if (i > 0) {
-        const ep = (r[H.ep_id] ?? "").trim();
+        // (v37.7) same cleaning the import applies (cell()) — otherwise an EP ID
+        // with a zero-width char imports fine but is never found here
+        const ep = stripInvisibles(r[H.ep_id] ?? "").trim();
         if (ep && !rowByEp.has(ep)) rowByEp.set(ep, i);
       }
     });
@@ -808,53 +841,6 @@ export async function writeSignupsBackBatch(entries: SignupBackEntry[]): Promise
     }
   }
   return missed;
-}
-
-export async function writeSignupBack(
-  signup: SignupRow,
-  comments: SignupComment[],
-  assignedDisplay: string | null
-): Promise<void> {
-  if (await sandboxSuppressed("signup sheet write-back")) return;
-  const cfg = SIGNUP_TABS.find((t) => t.source === signup.source);
-  if (!cfg) return;
-  const { sheets } = clients();
-
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: cfg.spreadsheetId,
-    range: `'${cfg.tab}'!${TAB_RANGE}`,
-    majorDimension: "ROWS",
-  });
-  const rows = (res.data.values ?? []) as string[][];
-  const H = mapHeaders(rows[0] ?? []);
-  if (H.ep_id === undefined) return;
-  const rowIdx = rows.findIndex(
-    (r, i) => i > 0 && (r[H.ep_id] ?? "").trim() === signup.ep_id
-  );
-  if (rowIdx < 0) return; // row vanished sheet-side — the import will recreate it
-
-  const data = signupCellValues(signup, comments, assignedDisplay)
-    .filter((v) => H[v.field] !== undefined)
-    .map((v) => ({
-      range: `'${cfg.tab}'!${colLetter(H[v.field])}${rowIdx + 1}`,
-      values: [[v.value]],
-    }));
-  if (data.length === 0) return;
-  // guard against a sheet-side sort/insert between our read and this write:
-  // re-check that the located row still holds OUR EP ID
-  const verify = await sheets.spreadsheets.values.get({
-    spreadsheetId: cfg.spreadsheetId,
-    range: `'${cfg.tab}'!${colLetter(H.ep_id)}${rowIdx + 1}`,
-  });
-  const nowEp = ((verify.data.values ?? [])[0]?.[0] ?? "").trim();
-  if (nowEp !== signup.ep_id) {
-    console.warn(`[signups] row moved under us (${signup.ep_id} → ${nowEp}) — skipping write-back`);
-    return; // the 15-min import will reconcile; better skipped than misplaced
-  }
-  await sheets.spreadsheets.values.batchUpdate({
-    spreadsheetId: cfg.spreadsheetId,
-    requestBody: { valueInputOption: "RAW", data },
-  });
 }
 
 /** THE HOURLY MIRROR — SIGN-UP EDITS STOPPED PAYING FOR GOOGLE (v36).
@@ -922,18 +908,15 @@ export async function exportDirtySignups(
   // comments and the assignee label, for every row in one pass each
   const ids = signups.map((s) => s.id);
   const memberIds = [...new Set(signups.map((s) => s.assigned_to).filter(Boolean))] as string[];
-  const [{ data: allComments }, { data: members }] = await Promise.all([
-    db().from("signup_comments").select("*").in("signup_id", ids).order("created_at"),
+  // (v37.7) chunked + paged + throws on error: one uncapped .in() over up to
+  // 1000 ids failed (URL too long) or truncated, and the ignored error then
+  // blanked the sheet's Comment cells AND advanced the watermark.
+  const byId = await readCommentsFor(ids);
+  const [{ data: members }] = await Promise.all([
     memberIds.length > 0
       ? db().from("members").select("id, name").in("id", memberIds)
       : Promise.resolve({ data: [] as { id: string; name: string }[] }),
   ]);
-  const byId = new Map<string, SignupComment[]>();
-  for (const c of (allComments ?? []) as SignupComment[]) {
-    const list = byId.get(c.signup_id) ?? [];
-    list.push(c);
-    byId.set(c.signup_id, list);
-  }
   const nameOf = new Map(
     ((members ?? []) as { id: string; name: string }[]).map((m) => [m.id, m.name])
   );

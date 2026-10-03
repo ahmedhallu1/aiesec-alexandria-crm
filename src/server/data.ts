@@ -1,4 +1,5 @@
 import "server-only";
+import { exactIlike } from "@/lib/like-pattern";
 import { b2cCallUnrecorded, currentB2cCall } from "@/lib/b2c-cic";
 import { touchPointName } from "@/lib/touch-points";
 import { cache } from "react";
@@ -118,10 +119,12 @@ async function sessionKeyIsInactiveMember(email: string): Promise<boolean> {
     const m = await memberByPhoneDigits(phoneDigits, "id, is_active, email, phone");
     return !!m && !(m as { is_active: boolean }).is_active;
   }
+  const pattern = exactIlike(email);
+  if (!pattern) return false;
   const { data } = await db()
     .from("members")
     .select("id, is_active")
-    .ilike("email", email)
+    .ilike("email", pattern)
     .limit(1);
   const row = (data ?? [])[0] as { is_active: boolean } | undefined;
   return !!row && !row.is_active;
@@ -215,6 +218,11 @@ export const getViewer = cache(async (): Promise<Viewer> => {
   const sandbox = mode === "sandbox" && !!sessionId;
   return {
     ...target,
+    // A TEST VIEW NEVER GRANTS MORE THAN ITS DRIVER HOLDS (v37.7). `isAdmin`
+    // comes from the TARGET's email, so an Admin-tools holder picking an
+    // ADMIN_EMAILS member inherited ADMIN_EMAILS-only powers — unmasking
+    // anonymous LC feedback among them (v33.30: a test view must never unmask).
+    isAdmin: target.isAdmin && real.isAdmin,
     impersonated: true,
     sandbox,
     sandboxSession: sandbox ? sessionId : null,
@@ -339,11 +347,11 @@ export async function getViewerByEmail(email: string): Promise<Viewer | null> {
   if (phoneDigits) {
     member = (await memberByPhoneDigits(phoneDigits, "*")) as Member | null;
   } else {
-    const { data } = await db()
-      .from("members")
-      .select("*")
-      .ilike("email", email)
-      .maybeSingle<Member>();
+    // exact match only: an unescaped `_` matched a DIFFERENT member (v37.7)
+    const pattern = exactIlike(email);
+    const { data } = pattern
+      ? await db().from("members").select("*").ilike("email", pattern).maybeSingle<Member>()
+      : { data: null };
     member = data;
   }
   if (!member || !member.is_active) return null;
@@ -864,6 +872,12 @@ export async function unreportedVisits(viewer: Viewer): Promise<UnreportedVisit[
   // to-do any more, it is history, and a banner that never empties is noise
   const since = new Date(Date.now() - 60 * 86_400_000).toISOString().slice(0, 10);
   const nowIso = new Date().toISOString();
+  // A visit can only be "unreported" once its day has come (v37.7): without
+  // an upper bound the newest-200 cut was filled by FUTURE bookings and other
+  // functions' visits, so genuinely overdue ones never reached the JS filter.
+  // Paged instead of capped — the window is 60 days of still-pending visits.
+  const today = cairoDayIso();
+  const buildQ = () => {
   let q = db()
     .from("visits")
     .select(
@@ -879,13 +893,18 @@ export async function unreportedVisits(viewer: Viewer): Promise<UnreportedVisit[
     // +2h prompt, the week-later nag, the account page) uses `is null`.
     .is("done", null)
     .gte("visit_date", since)
+    .lte("visit_date", today)
     .order("visit_date", { ascending: false })
-    .limit(200);
+    .order("id");
   // the hierarchy, applied to the VISIT's owner (who owes the report)
   if (scope.kind === "members") q = q.in("member_id", scope.ids);
-  const { data, error } = await q;
-  if (error) {
-    console.error("[visits] unreported query failed:", error.message);
+  return q;
+  };
+  let data: unknown[];
+  try {
+    data = await fetchAll(buildQ, 5000);
+  } catch (e) {
+    console.error("[visits] unreported query failed:", e instanceof Error ? e.message : e);
     return [];
   }
   const out: UnreportedVisit[] = [];
@@ -1328,11 +1347,22 @@ async function buildAccountsQuery(
     }
   }
   // accounts can't be created in the future — clamp the range to today
-  const today = new Date().toISOString().slice(0, 10);
+  // Cairo days, not UTC ones (v37.7): an account created at 01:30 Cairo on the
+  // 5th is the 5th. Same half-open bounds the rest of this file uses; a
+  // malformed hand-typed value keeps the old string path rather than throwing.
+  const today = cairoDayIso();
   const from = filters.from && filters.from <= today ? filters.from : filters.from ? today : undefined;
   const to = filters.to && filters.to <= today ? filters.to : filters.to ? today : undefined;
-  if (from) query = query.gte("created_at", `${from}T00:00:00Z`);
-  if (to) query = query.lte("created_at", `${to}T23:59:59Z`);
+  const isDay = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d);
+  if (from)
+    query = query.gte(
+      "created_at",
+      isDay(from) ? cairoToUtc(from, "00:00").toISOString() : `${from}T00:00:00Z`
+    );
+  if (to)
+    query = isDay(to)
+      ? query.lt("created_at", cairoToUtc(nextDayIso(to), "00:00").toISOString())
+      : query.lte("created_at", `${to}T23:59:59Z`);
   // NEEDS PODIO CHECKING: never submitted and nobody has set a request state,
   // so nobody knows whether the partner is already taken (v33)
   if (filters.flag === "needs_podio")
@@ -2527,8 +2557,10 @@ export async function getDashboard(
         "slots_igv, slots_igta, slots_igte, deal:deals!inner(created_at, account:accounts!inner(is_test))"
       )
       .in("member_id", [...planScopeIds])
-      .gte("deal.created_at", `${win.start}T00:00:00`)
-      .lte("deal.created_at", `${win.end}T23:59:59`);
+      // Cairo-day half-open bounds, like the KPIs (v37.7): bare
+      // "YYYY-MM-DDT00:00:00" strings were read as UTC, 2-3h off Cairo
+      .gte("deal.created_at", cairoToUtc(win.start, "00:00").toISOString())
+      .lt("deal.created_at", cairoToUtc(nextDayIso(win.end), "00:00").toISOString());
     if (!viewer.testMode) q = q.eq("deal.account.is_test", false);
     const { data: monthAllocs } = await q;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2608,7 +2640,8 @@ export async function getDashboard(
         cells.find((c) => c.fn === fn && c.scope === "term" && c.metric === metric)?.value ?? 0;
       const year = currentTermFebYear();
       const start = termStartIso(year);
-      const today = new Date().toISOString().slice(0, 10);
+      // Cairo "today" (v37.7): the UTC day lagged 00:00-03:00 Cairo
+      const today = cairoDayIso();
       const [bdActual, b2bActual] = await Promise.all([
         dealsTotalsForAccountFn("BD", start, today),
         dealsTotalsForAccountFn("B2B", start, today),
@@ -2860,6 +2893,12 @@ const DIRECTORY_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const nextDayIso = (day: string): string =>
   new Date(new Date(`${day}T00:00:00Z`).getTime() + 86_400_000).toISOString().slice(0, 10);
 
+/** A plain YYYY-MM-DD stays as it is; a full ISO instant (tm-stats passes
+ *  one) is turned into its CAIRO day, so the bounds below never see an
+ *  unparseable "…ZT00:00" (v37.7). */
+const asCairoDay = (v: string): string =>
+  /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : cairoDayIso(new Date(v));
+
 /** Sanitize ?from/?to before they touch a query: real YYYY-MM-DD days only,
  *  never in the future (Cairo "today" is the ceiling — work can't be logged
  *  ahead of time), and an inverted range self-heals instead of returning an
@@ -2905,9 +2944,9 @@ type DirectoryWork =
  *    · deals / opens / BD money → deals.created_at (opens via that deal's
  *                        allocations, so split deals still credit correctly)
  *    · filed plans     → mm_plans.month, counted when the month OVERLAPS
- *    · sign-ups        → signed_up_at, the very column the OGX dashboard lane
- *                        filters on (no status carries its own date; the row's
- *                        import stamp is the fallback). */
+ *    · sign-ups        → assigned_at, then signed_up_at — the dates the OGX
+ *                        dashboard lane filters on (no status carries its own
+ *                        date; the row's import stamp is the fallback). */
 export async function listMembersDirectory(
   viewer: Viewer,
   range: DirectoryWindow = {}
@@ -3044,7 +3083,7 @@ export async function listMembersDirectory(
       fetchAll<any>(() =>
         db()
           .from("signups")
-          .select("assigned_to, contact_status, interested, status, signed_up_at, created_at")
+          .select("assigned_to, contact_status, interested, status, assigned_at, signed_up_at, created_at")
           .eq("out_of_process", false)
           .not("assigned_to", "is", null)
           .order("id")
@@ -3171,7 +3210,15 @@ export async function listMembersDirectory(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const s of ogxSignups as any[]) {
     if (!s.assigned_to) continue;
-    if (windowed && !inDayWindow(signupDayIso(s.signed_up_at) ?? s.created_at)) continue;
+    // assigned_at first, like the OGX dashboard and report (v37.7): an old
+    // backlog handed out this month is this month's work
+    if (
+      windowed &&
+      !inDayWindow(
+        signupDayIso(s.assigned_at) ?? signupDayIso(s.signed_up_at) ?? s.created_at
+      )
+    )
+      continue;
     const k = agg(s.assigned_to);
     k.signupTotal += 1;
     if (_ogxYes(s.contact_status)) k.signupContacted += 1;
@@ -3714,13 +3761,25 @@ export async function dealsTotalsForAccountFn(
   fromIso: string,
   toIso: string
 ): Promise<{ amount: number; slotsIgv: number; slotsIgta: number; slotsIgte: number; contracts: number }> {
-  const { data } = await db()
-    .from("deals")
-    .select("amount, slots_igv, slots_igta, slots_igte, created_at, account:accounts!inner(function, is_test)")
-    .eq("account.function", fn)
-    .eq("account.is_test", false)
-    .gte("created_at", `${fromIso}T00:00:00`)
-    .lte("created_at", `${toIso}T23:59:59`);
+  // Paged (v37.7): a whole term of BD + B2B deals can pass Supabase's
+  // 1000-row cap. A failed read stays "no rows" exactly as before — this card
+  // must never take the dashboard down.
+  let data: unknown[] = [];
+  try {
+    data = await fetchAll(() =>
+      db()
+        .from("deals")
+        .select("id, amount, slots_igv, slots_igta, slots_igte, created_at, account:accounts!inner(function, is_test)")
+        .eq("account.function", fn)
+        .eq("account.is_test", false)
+        // Cairo-day half-open bounds (v37.7) — see the KPI reads
+        .gte("created_at", cairoToUtc(asCairoDay(fromIso), "00:00").toISOString())
+        .lt("created_at", cairoToUtc(nextDayIso(asCairoDay(toIso)), "00:00").toISOString())
+        .order("id")
+    );
+  } catch (e) {
+    console.error("[dealsTotalsForAccountFn]", e);
+  }
   const out = { amount: 0, slotsIgv: 0, slotsIgta: 0, slotsIgte: 0, contracts: 0 };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const d of (data ?? []) as any[]) {
@@ -3936,7 +3995,7 @@ export async function releaseSignupsOnPromotion(
     .eq("out_of_process", false);
   const rows = (before ?? []) as { id: string; assigned_name: string | null }[];
   if (rows.length === 0) return 0;
-  const { data } = await db()
+  const { data, error: relErr } = await db()
     .from("signups")
     .update({
       assigned_to: null,
@@ -3957,6 +4016,7 @@ export async function releaseSignupsOnPromotion(
     .is("status", null)
     .eq("out_of_process", false)
     .select("id");
+  if (relErr) console.error("[signups] release update failed:", relErr.message);
   const n = (data ?? []).length;
   if (n > 0) {
     // an audit trail per row: 61 sign-ups leaving someone's list with no
@@ -3981,12 +4041,24 @@ export async function releaseSignupsOnPromotion(
     // would blank the sheet's comment cells)
     try {
       const ids = rows.map((r) => r.id);
-      const [{ data: full }, { data: cmts }] = await Promise.all([
-        db().from("signups").select("*").in("id", ids),
-        db().from("signup_comments").select("*").in("signup_id", ids).order("created_at"),
-      ]);
+      // CHUNKED (v37.7): one `.in()` over several hundred uuids can pass the
+      // URL limit, and the unchecked error left the write-back with nothing to
+      // send. Each failure is logged — the import reconciles the sheet anyway.
+      const full: unknown[] = [];
+      const cmts: { signup_id: string }[] = [];
+      for (let i = 0; i < ids.length; i += 100) {
+        const chunk = ids.slice(i, i + 100);
+        const [{ data: f, error: fErr }, { data: c, error: cErr }] = await Promise.all([
+          db().from("signups").select("*").in("id", chunk),
+          db().from("signup_comments").select("*").in("signup_id", chunk).order("created_at"),
+        ]);
+        if (fErr) console.error("[signups] release re-read failed:", fErr.message);
+        if (cErr) console.error("[signups] release comments re-read failed:", cErr.message);
+        full.push(...(f ?? []));
+        cmts.push(...((c ?? []) as { signup_id: string }[]));
+      }
       const byId = new Map<string, unknown[]>();
-      for (const c of (cmts ?? []) as { signup_id: string }[]) {
+      for (const c of cmts) {
         const list = byId.get(c.signup_id) ?? [];
         list.push(c);
         byId.set(c.signup_id, list);
@@ -4186,15 +4258,32 @@ export async function tlPlanForProfile(viewer: Viewer): Promise<TlPlanData | nul
   const { peakForPlanning } = await import("@/lib/plan");
   const peak = peakForPlanning();
   const teamIds = [viewer.id, ...(viewer.teamMemberIds ?? [])];
-  const [{ data: planRows }, { data: allocRows }] = await Promise.all([
+  // Only the peak's own months are ever shown, so read only those (v37.7): the
+  // all-time read was unpaged and silently capped at 1000 allocations. Bounds
+  // are Cairo days, half-open, like every other window in this file.
+  const firstMonth = peak.months[0];
+  const lastMonth = peak.months[peak.months.length - 1];
+  const afterPeak = new Date(
+    Date.UTC(Number(lastMonth.slice(0, 4)), Number(lastMonth.slice(5, 7)), 1)
+  )
+    .toISOString()
+    .slice(0, 10);
+  const peakFromTs = cairoToUtc(firstMonth, "00:00").toISOString();
+  const peakToTs = cairoToUtc(afterPeak, "00:00").toISOString();
+  const [{ data: planRows }, allocRows] = await Promise.all([
     db().from("tl_plans").select("month, opens").eq("member_id", viewer.id),
-    db()
-      .from("deal_allocations")
-      .select(
-        "slots_igv, slots_igta, slots_igte, deal:deals!inner(created_at, account:accounts!inner(is_test))"
-      )
-      .in("member_id", teamIds)
-      .eq("deal.account.is_test", false),
+    fetchAll<unknown>(() =>
+      db()
+        .from("deal_allocations")
+        .select(
+          "id, slots_igv, slots_igta, slots_igte, deal:deals!inner(created_at, account:accounts!inner(is_test))"
+        )
+        .in("member_id", teamIds)
+        .eq("deal.account.is_test", false)
+        .gte("deal.created_at", peakFromTs)
+        .lt("deal.created_at", peakToTs)
+        .order("id")
+    ).catch(() => []),
   ]);
   const planByMonth = new Map(
     // normalize: PG dates can round-trip with a day component
@@ -4206,7 +4295,9 @@ export async function tlPlanForProfile(viewer: Viewer): Promise<TlPlanData | nul
   for (const a of (allocRows ?? []) as any[]) {
     const created = a.deal?.created_at as string | undefined;
     if (!created) continue;
-    const key = `${created.slice(0, 7)}-01`;
+    // the Cairo month, not the UTC one (v37.7): a deal at 01:00 Cairo on the
+    // 1st belongs to the new month
+    const key = `${cairoDayIso(new Date(created)).slice(0, 7)}-01`;
     const v = (a.slots_igv ?? 0) + (a.slots_igta ?? 0) + (a.slots_igte ?? 0);
     actualByMonth.set(key, (actualByMonth.get(key) ?? 0) + v);
   }
@@ -4298,8 +4389,9 @@ export async function laneOpensActual(
   const { data } = await db()
     .from("deals")
     .select("slots_igv, slots_igta, slots_igte, created_at, account:accounts!account_id(is_test)")
-    .gte("created_at", `${fromIso}T00:00:00`)
-    .lte("created_at", `${toIso}T23:59:59`);
+    // Cairo-day half-open bounds (v37.7) — see the KPI reads
+    .gte("created_at", cairoToUtc(asCairoDay(fromIso), "00:00").toISOString())
+    .lt("created_at", cairoToUtc(nextDayIso(asCairoDay(toIso)), "00:00").toISOString());
   const out = { IGV: 0, IGTa: 0, IGTe: 0 };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const d of (data ?? []) as any[]) {
@@ -4977,8 +5069,14 @@ export async function buildFunctionReport(
       .lte("approved_on", window.end);
     const approvalsInWindow = (apprRows ?? []) as { made_by: string | null; approved_on: string }[];
 
-    const inWin = (iso: string | null | undefined) =>
-      !!iso && iso >= window.start && iso <= `${window.end}T23:59:59`;
+    // called_at is a UTC instant, made_on a plain date: judge both by their
+    // CAIRO day (v37.7) — a 01:00 Cairo call on the 16th is the 16th, not the
+    // 15th's last sprint
+    const inWin = (iso: string | null | undefined) => {
+      if (!iso) return false;
+      const day = iso.length > 10 ? cairoDayIso(new Date(iso)) : iso;
+      return day >= window.start && day <= window.end;
+    };
 
     const per = new Map<string, { done: number; upcoming: number; lcs: Set<string>; partnerships: number; approvals: number }>();
     const bump = (id: string) =>
@@ -5365,7 +5463,13 @@ export async function listLcFeedback(viewer: Viewer): Promise<LcFeedbackRow[]> {
         ? `${touchPointName(tp)} · ${cairoWhen(tp.starts_at)}`
         : null,
       message: r.message,
-      attachments: Array.isArray(r.attachments) ? r.attachments : [],
+      // an anonymous row's stored keys start with the AUTHOR's member id
+      // (uploads are keyed by uploader), so readers who are not ADMIN_EMAILS
+      // get opaque references that getFeedbackFileUrl resolves (v37.7)
+      attachments: (Array.isArray(r.attachments) ? r.attachments : []).map(
+        (a: { path: string; name: string }, i: number) =>
+          r.anonymous && !viewer.isAdmin ? { name: a.name, path: `ref:lc:${r.id}:${i}` } : a
+      ),
       status: (r.status === "done" || r.status === "archived"
         ? r.status
         : "new") as LcFeedbackRow["status"],
@@ -5436,14 +5540,20 @@ export async function auditFilterOptions(): Promise<AuditFilterOptions> {
   // across 14k rows today), so a windowed scan of the recent past is both
   // cheaper and more useful than a full-table distinct: an action nobody has
   // taken in months is not worth offering.
-  const { data } = await db()
-    .from("audit_log")
-    .select("action, entity, category, actor_id")
-    .order("created_at", { ascending: false })
-    .limit(4000);
-  const rows = (data ?? []) as {
+  // fetchAll, not `.limit(4000)` (v37.7): the API caps one response at 1000,
+  // so the window was ~7 days instead of the intended ~16 and members/actions
+  // that acted 10 days ago were missing from the dropdowns.
+  const rows = await fetchAll<{
     action: string; entity: string; category: string | null; actor_id: string | null;
-  }[];
+  }>(
+    () =>
+      db()
+        .from("audit_log")
+        .select("action, entity, category, actor_id")
+        .order("created_at", { ascending: false })
+        .order("id"),
+    4000
+  ).catch(() => []);
 
   const actorIds = [...new Set(rows.map((r) => r.actor_id).filter(Boolean))] as string[];
   const actors: { value: string; label: string }[] = [];
@@ -5586,6 +5696,7 @@ export async function listAuditPage(
       ? anonAuthors.get(r.details.feedback_id) ?? null
       : null;
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped PostgREST join rows
   const one = (r: Record<string, any>) => {
     const real = Array.isArray(r.real_actor) ? r.real_actor[0] : r.real_actor;
     return {
@@ -5799,13 +5910,18 @@ export async function cicFirstCallerOptions(
   const { unstable_cache } = await import("next/cache");
   const read = unstable_cache(
     async () => {
-      const { data } = await cicPoolFilter(
-        db().from("signups").select("assigned_to, assigned_name").in("fn", want)
-      ).limit(5000);
-      const rows = (data ?? []) as {
+      // EVERY ROW, NOT THE FIRST 1000 (v37.7): `.limit(5000)` is capped at
+      // 1000 by the API and had no order, so a first caller whose rows all fell
+      // outside that arbitrary slice was missing from the funnel — the same
+      // cap v37.6 fixed in signupFilterOptions.
+      const rows = await fetchAll<{
         assigned_to: string | null;
         assigned_name: string | null;
-      }[];
+      }>(() =>
+        cicPoolFilter(
+          db().from("signups").select("id, assigned_to, assigned_name").in("fn", want)
+        ).order("id")
+      ).catch(() => []);
       const byId = new Map<string, string>();
       for (const r of rows) {
         if (!r.assigned_to) continue;
@@ -5901,15 +6017,18 @@ export interface B2cCicStats {
 
 export async function b2cCicStats(viewer: Viewer): Promise<B2cCicStats | null> {
   if (!b2cCicAccess(viewer) && !_master(viewer)) return null;
-  const { data } = await db()
-    .from("signup_cic_calls")
-    .select("caller_name, contact_status, interested, assigned_at")
-    .eq("side", "B2C")
-    .limit(5000);
-  const rows = (data ?? []) as {
+  // EVERY CALL ROW (v37.7): `.limit(5000)` was capped at 1000 by the API with
+  // no order, so past 1000 hand-outs every total was a different arbitrary slice.
+  const rows = await fetchAll<{
     caller_name: string; contact_status: string | null;
     interested: string | null; assigned_at: string;
-  }[];
+  }>(() =>
+    db()
+      .from("signup_cic_calls")
+      .select("id, caller_name, contact_status, interested, assigned_at")
+      .eq("side", "B2C")
+      .order("id")
+  ).catch(() => []);
   const monthStart = monthOf().start;
   const byMember = new Map<string, { name: string; assigned: number; called: number; interested: number }>();
   for (const r of rows) {
@@ -6967,12 +7086,15 @@ export async function ogxDashboard(
 
   // ---- the fn's plan (mm_plans, current month) vs the LIVE pipeline -----
   const month = monthOf();
-  const { data: planRows } = await db()
+  const { data: planRows, error: planErr } = await db()
     .from("mm_plans")
     .select(
       "member_id, applicants, accepted, approvals, member:members!mm_plans_member_id_fkey(functions, sub_functions)"
     )
     .eq("month", month.start);
+  // a failed read is "unknown", not "nobody filed" — the nag below must not
+  // show on a transient error (v37.7)
+  if (planErr) console.error("[ogxDashboard] mm_plans read failed:", planErr.message);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const fnPlans = ((planRows ?? []) as any[]).filter((p) =>
     fns.some((f) => [...(p.member?.functions ?? []), ...(p.member?.sub_functions ?? [])].includes(f))
@@ -7079,6 +7201,7 @@ export async function ogxDashboard(
 
   // an OGX MM with no filed plan for this month gets told, not ignored
   const needsOwnPlan =
+    !planErr &&
     (viewer.role === "Team Leader" || viewer.role === "Coordinator") &&
     fns.some((f) => _ogxFunctions(viewer).includes(f)) &&
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -8869,18 +8992,27 @@ export async function nextWorkingHoursFor(
   viewer: Viewer
 ): Promise<{ id: string; startsAt: string; label: string } | null> {
   try {
-    const { data } = await db()
-      .from("touch_points")
-      .select("id, starts_at, scope, kind, function_key, team_name")
-      .eq("kind", "working_hours")
-      .eq("status", "scheduled")
-      .gte("starts_at", new Date().toISOString())
-      .order("starts_at", { ascending: true })
-      .limit(20);
-    const rows = (data ?? []) as {
+    // ALL upcoming sessions, then the viewer's own (v37.7): taking only the 20
+    // soonest LC-wide let other teams' sessions fill the slice, so a member of
+    // a later team got null although a session existed.
+    const nowIso = new Date().toISOString();
+    const rows = await fetchAll<{
       id: string; starts_at: string; scope: string;
-      function_key: string | null; team_name: string | null;
-    }[];
+      function_key: string | null; team_name: string | null; invited_teams: string[] | null;
+    }>(
+      () =>
+        db()
+          .from("touch_points")
+          .select("id, starts_at, scope, kind, function_key, team_name, invited_teams")
+          .eq("kind", "working_hours")
+          .eq("status", "scheduled")
+          .gte("starts_at", nowIso)
+          .order("starts_at", { ascending: true })
+          .order("id"),
+      3000
+    );
+    const { teamsOf } = await import("./touch-points-read");
+    const myTeams = teamsOf(viewer.team_name);
     if (rows.length === 0) return null;
     const fns = [...(viewer.functions ?? []), ...(viewer.sub_functions ?? [])];
     // the soonest session this member actually belongs to
@@ -8888,7 +9020,12 @@ export async function nextWorkingHoursFor(
       (r) =>
         r.scope === "lc" ||
         (r.scope === "function" && !!r.function_key && fns.includes(r.function_key)) ||
-        (r.scope === "team" && !!r.team_name && (viewer.team_name ?? "").includes(r.team_name))
+        // exact team match, invited teams included — a substring test put
+        // "IGV 10" in "IGV 1"'s session (v37.7)
+        (r.scope === "team" &&
+          [...(r.invited_teams ?? []), ...(r.team_name ? [r.team_name] : [])].some((t) =>
+            myTeams.includes(t)
+          ))
     );
     if (!mine) return null;
     return {

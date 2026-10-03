@@ -1,5 +1,7 @@
 "use server";
 
+import { isSafeStorageKey } from "@/lib/storage-key";
+import { cxpMimeType } from "@/lib/cxp/drive";
 import crypto from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/supabase";
@@ -131,7 +133,7 @@ export async function confirmCxpUpload(input: {
     return { ok: false, message: "Uploads are off in the sandbox test view." };
   }
   // only paths shaped like the ones requestCxpUpload issues
-  if (!/^\d{10,}-[0-9a-f][0-9a-f-]{30,40}-/.test(input.path ?? "")) {
+  if (!/^\d{10,}-[0-9a-f][0-9a-f-]{30,40}-/.test(input.path ?? "") || !isSafeStorageKey(input.path)) {
     return { ok: false, message: "Nothing was uploaded." };
   }
 
@@ -160,7 +162,9 @@ export async function confirmCxpUpload(input: {
       stageKey: input.stageKey,
       requirementKey: input.requirementKey,
       fileName: input.fileName,
-      mimeType: input.mimeType || blob.type || "application/octet-stream",
+      // from the extension, never the browser's claim: /api/cxp/file serves
+      // documents from Sodio's own origin (v37.7)
+      mimeType: cxpMimeType(input.fileName),
       data: Buffer.from(await blob.arrayBuffer()),
       uploadedBy: t.viewer.id,
     });

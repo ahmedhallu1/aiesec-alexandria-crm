@@ -1,4 +1,4 @@
-import NextAuth from "next-auth";
+import NextAuth, { CredentialsSignin } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { authConfig } from "./auth.config";
@@ -6,12 +6,24 @@ import { db } from "./supabase";
 import { sendEmail } from "./google/gmail";
 import { welcomeEmail } from "./email/templates";
 import { asciiDigits, phoneSessionKey, type Member } from "./types";
+import { exactIlike } from "./like-pattern";
+import { passwordAttemptAllowed } from "@/server/rate-limit";
+
+/** Thrown — not returned — so the login action can tell "too many tries"
+ *  apart from a wrong password; Auth.js hands `code` through to the caller. */
+class SignInThrottled extends CredentialsSignin {
+  code = "throttled";
+}
 
 async function findMember(email: string): Promise<Member | null> {
+  // exact match only: an unescaped `_` let "mona_ali@…" sign in as
+  // "mona.ali@…" (v37.7)
+  const pattern = exactIlike(email);
+  if (!pattern) return null;
   const { data: member } = await db()
     .from("members")
     .select("*")
-    .ilike("email", email)
+    .ilike("email", pattern)
     .maybeSingle<Member>();
   return member && member.is_active ? member : null;
 }
@@ -83,6 +95,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const identifier = String(creds?.email ?? "").trim().toLowerCase();
         const password = String(creds?.password ?? "");
         if (!identifier || !password) return null;
+        if (identifier.length > 254 || password.length > 256) return null;
+        if (!(await passwordAttemptAllowed(identifier))) throw new SignInThrottled();
         try {
           const member = await findMemberByIdentifier(identifier);
           if (!member) return null;
@@ -152,11 +166,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const member = await findMember(email);
         if (!member) {
           // deactivated members get the dedicated screen (unknown → denied)
-          const { data } = await db()
-            .from("members")
-            .select("is_active")
-            .ilike("email", email)
-            .maybeSingle<{ is_active: boolean }>();
+          const pattern = exactIlike(email);
+          const { data } = pattern
+            ? await db()
+                .from("members")
+                .select("is_active")
+                .ilike("email", pattern)
+                .maybeSingle<{ is_active: boolean }>()
+            : { data: null };
           return data && !data.is_active ? "/inactive" : false;
         }
 

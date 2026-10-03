@@ -1,16 +1,15 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { after } from "next/server";
 import { db } from "@/lib/supabase";
 import {
   canEditAttendanceRowOf,
+  canEditOwnAttendanceRow,
   canRecordAttendance,
   isTmCore,
 } from "@/lib/rbac";
 import {
   ATTENDANCE_STATUSES,
-  touchPointLabel,
   type AttendanceStatus,
 } from "@/lib/types";
 import { audienceLabel, cairoWhen, touchPointName } from "@/lib/touch-points";
@@ -53,33 +52,6 @@ const clean = (v: unknown, max: number) =>
 
 function refresh() {
   revalidatePath("/", "layout");
-}
-
-// ================================================================== work stamps
-
-/** Every meaningful piece of work stamps one `work_activity` row — the raw
- *  material of AUTOMATIC working-hours attendance. Fire-and-forget: wrapped in
- *  `after()` so Vercel can't freeze the lambda over a floating promise, and
- *  never allowed to break the action that earned it.
- *
- *  Call it as the LAST line of an action's success path:
- *      await stampWork(viewer.id, "contact");
- *  (the await only covers the sandbox check — the insert runs after the
- *  response, so it costs the member nothing). */
-export async function stampWork(viewerId: string, kind: string): Promise<void> {
-  if (!viewerId) return;
-  // a sandbox test view must never fabricate someone's working hours
-  if (await sandboxSuppressed(`work stamp (${kind})`)) return;
-  after(async () => {
-    try {
-      const { error } = await db()
-        .from("work_activity")
-        .insert({ member_id: viewerId, kind: String(kind).slice(0, 40) });
-      if (error) console.error("[attendance] work stamp failed:", error.message);
-    } catch (e) {
-      console.error("[attendance] work stamp failed:", e);
-    }
-  });
 }
 
 // ================================================================== the recording sheet
@@ -358,7 +330,11 @@ export async function saveAttendance(
 
   const now = new Date().toISOString();
   let unchanged = 0;
-  const payload = (rows ?? [])
+  // (v37.7) one entry per member (the last wins): a duplicate conflict key
+  // makes the single upsert fail with a raw "cannot affect row a second time"
+  const lastPerMember = new Map<string, AttendanceInputRow>();
+  for (const r of rows ?? []) if (r && typeof r.memberId === "string") lastPerMember.set(r.memberId, r);
+  const payload = [...lastPerMember.values()]
     // AUTHORITY FOLLOWS THE MEMBER (v33.40): each row must belong to the
     // audience AND to a function the recorder leads — the own-row rule
     // (nobody marks themself, v33.19.2) lives inside the same predicate.
@@ -597,6 +573,10 @@ export async function resolveAppeal(appealId: string): Promise<Result> {
   if (!row || !tp) return fail("That attendance record no longer exists.");
   if (!canRecordAttendance(viewer, tp) && !isTmCore(viewer))
     return fail("Only the recorder or TM can close an appeal.", "forbidden");
+  // (v37.7) nobody marks themself (v33.19.2) — and nobody closes their OWN
+  // appeal either: a recorder who appealed their own row waits for TM
+  if (appeal.member_id === viewer.id && !canEditOwnAttendanceRow(viewer, tp))
+    return fail("TM reviews your own appeal — you can't close it yourself.", "forbidden");
 
   await snapshotForUndo("attendance_appeals", appealId);
   const { error } = await db()

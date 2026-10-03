@@ -279,7 +279,23 @@ export async function approvalFormOptions(viewer: Viewer): Promise<{
 }> {
   const lanes = approvalLanes(viewer);
   if (lanes.length === 0) return { irCalls: [], cvs: [], accounts: [] };
-  const [{ data: calls }, { data: cvs }, { data: accounts }] = await Promise.all([
+  // (v37.7) the account picker is searched in the browser, so it needs EVERY
+  // open account — .limit(3000) was capped at 1000 by PostgREST (paged now)
+  const { fetchAll } = await import("./data");
+  const accountsP = fetchAll<{ id: string; name: string; function: string }>(() =>
+    db()
+      .from("accounts")
+      .select("id, name, function")
+      .in("function", [...lanes, "B2B", "BD"])
+      .eq("out_of_process", false)
+      .eq("is_test", false)
+      .order("name")
+      .order("id")
+  ).catch((e) => {
+    console.error("[approvals] account picker read failed:", e?.message ?? e);
+    return [] as { id: string; name: string; function: string }[];
+  });
+  const [{ data: calls }, { data: cvs }, accounts] = await Promise.all([
     db()
       .from("ir_calls")
       .select("id, called_at, partner_lc_id, partner_lc_name, booker_name, member_name, product, status")
@@ -291,14 +307,7 @@ export async function approvalFormOptions(viewer: Viewer): Promise<{
       .select("id, person_name, file_name, partner_lc_name, created_at")
       .order("created_at", { ascending: false })
       .limit(300),
-    db()
-      .from("accounts")
-      .select("id, name, function")
-      .in("function", [...lanes, "B2B", "BD"])
-      .eq("out_of_process", false)
-      .eq("is_test", false)
-      .order("name")
-      .limit(3000),
+    accountsP,
   ]);
   return {
     irCalls: (calls ?? []).map((c) => ({
@@ -313,10 +322,10 @@ export async function approvalFormOptions(viewer: Viewer): Promise<{
       id: c.id as string,
       label: `${c.person_name || c.file_name || "CV"}${c.partner_lc_name ? ` · ${c.partner_lc_name}` : ""}`,
     })),
-    accounts: (accounts ?? []).map((a) => ({
-      id: a.id as string,
-      name: a.name as string,
-      function: a.function as string,
+    accounts: accounts.map((a) => ({
+      id: a.id,
+      name: a.name,
+      function: a.function,
     })),
   };
 }

@@ -1,6 +1,5 @@
 import "server-only";
 import { cache } from "react";
-import { randomUUID } from "node:crypto";
 import { db } from "@/lib/supabase";
 
 /** Sandbox test-view plumbing (v21).
@@ -223,17 +222,25 @@ async function replayReverse(rows: any[]): Promise<{ undone: number; failed: num
   let failed = 0;
   for (const r of rows) {
     try {
+      // (v37.7) supabase-js RETURNS write errors instead of throwing, so each
+      // write's {error} is checked — a refused replay used to count as undone
+      let error: { message: string } | null = null;
       if (r.op === "insert") {
-        await db().from(r.tbl).delete().eq("id", r.row_id);
+        ({ error } = await db().from(r.tbl).delete().eq("id", r.row_id));
       } else if (r.op === "update" && r.before) {
         // strip identity + generated columns that reject an UPDATE
         const { id: _id, ...rest } = stripGenerated(r.tbl, r.before as Record<string, unknown>);
         void _id;
-        await db().from(r.tbl).update(rest).eq("id", r.row_id);
+        ({ error } = await db().from(r.tbl).update(rest).eq("id", r.row_id));
       } else if (r.op === "delete" && r.before) {
         // keep id (it's the PK for the re-insert) but drop generated columns
-        await db().from(r.tbl).upsert(stripGenerated(r.tbl, r.before as Record<string, unknown>));
+        ({ error } = await db().from(r.tbl).upsert(stripGenerated(r.tbl, r.before as Record<string, unknown>)));
       } else {
+        failed++;
+        continue;
+      }
+      if (error) {
+        console.error(`[journal] undo refused for ${r.tbl}/${r.row_id}:`, error.message);
         failed++;
         continue;
       }
@@ -249,15 +256,38 @@ async function replayReverse(rows: any[]): Promise<{ undone: number; failed: num
 /** Replays a session's journal in reverse and DELETES it, so it can never be
  *  replayed twice. Does NOT close the session. Returns rows undone. */
 export async function rollbackJournal(sessionId: string): Promise<number> {
-  const { data: rows } = await db()
-    .from("test_undo")
-    .select("id, tbl, row_id, op, before")
-    .eq("session_id", sessionId)
-    .order("id", { ascending: false });
-  const { undone } = await replayReverse((rows ?? []) as unknown[]);
-  // clear so a later exit (or a re-flip to sandbox) never re-applies these
-  await db().from("test_undo").delete().eq("session_id", sessionId);
-  return undone;
+  // (v37.7) PostgREST returns at most 1000 rows per read, and the old single
+  // read replayed only the newest 1000 then deleted EVERY row — losing the
+  // oldest (real pre-session) snapshots on a long LC test session. Loop:
+  // newest 1000 → replay → delete exactly those ids → repeat until empty.
+  let total = 0;
+  for (let guard = 0; guard < 200; guard++) {
+    const { data: rows, error } = await db()
+      .from("test_undo")
+      .select("id, tbl, row_id, op, before")
+      .eq("session_id", sessionId)
+      .order("id", { ascending: false })
+      .limit(1000);
+    if (error) {
+      console.error("[journal] rollback read failed:", error.message);
+      break;
+    }
+    const batch = (rows ?? []) as { id: number | string }[];
+    if (batch.length === 0) break;
+    const { undone } = await replayReverse(batch as unknown[]);
+    total += undone;
+    // clear exactly the rows just replayed so a later exit (or a re-flip to
+    // sandbox) never re-applies them
+    const { error: delErr } = await db()
+      .from("test_undo")
+      .delete()
+      .in("id", batch.map((r) => r.id));
+    if (delErr) {
+      console.error("[journal] rollback clear failed:", delErr.message);
+      break;
+    }
+  }
+  return total;
 }
 
 /** Reverses ONE audited action (all the journal rows sharing its change set),
