@@ -15,7 +15,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-10-03 · Version: v37.8
+Last updated: 2026-10-07 · Version: v37.9
 
 ---
 
@@ -25,7 +25,9 @@ Last updated: 2026-10-03 · Version: v37.8
 keys/cookies were always sodio-*, so nothing user-facing was ever lost) — a **100% free** CRM for AIESEC in
 Alexandria: the ICX functions
 (**IGV** & **IGT** raising, **B2B/BD**, **B2C**) plus — since v25 — the **OGX
-sign-ups module** (OGT & OGV, two-way synced with the LC's tracker sheets). The brand name is
+sign-ups module** (OGT & OGV, two-way synced with the LC's tracker sheets — `SIGNUP_TABS` in
+`google/signups.ts`: OGT New/Old SUs; OGV **New** = "OGV 26.2 New Signups" (`ogv_262`, shared with
+the service account by name), **Old** = 26.1 Main (`ogv_main`), **Older** = 26.1 Old (`ogv_old`) — v37.9). The brand name is
 **Sodio** (shown in the sidebar, tab titles, manifest, emails); the built-in
 AI assistant is **The Blue Man**. Members log accounts, contacts, visits and
 deals; leaders steer with goals, leaderboards and dashboards. The RBAC engine is
@@ -65,7 +67,7 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0061_touch_point_location` → `0062_close_rls_gaps` → `0063_prank_mode` →
 `0064_api_keys` → `0065_ir_slot_requests` → `0066_im_prompts` →
 `0067_member_settings` → `0068_cxp_module` → `0069_push_subscriptions` → `0070_b2c_cic_outcomes` →
-`0071_partnership_stage` → … → `0076_next_step_reminders` → `0077_visit_followups_gate` → `0078_contact_keys` → `0079_cv_drive_import` → `0080_redirect_links_and_locations` → `0081_activation_bid_and_tour_seen` → `0082_bd_b2b_planning` → `0083_cxp_staging_and_icx_approvals` → `0084_function_privileges_and_streak_index` (0077's FILE was recreated from prod in v37.7)
+`0071_partnership_stage` → … → `0076_next_step_reminders` → `0077_visit_followups_gate` → `0078_contact_keys` → `0079_cv_drive_import` → `0080_redirect_links_and_locations` → `0081_activation_bid_and_tour_seen` → `0082_bd_b2b_planning` → `0083_cxp_staging_and_icx_approvals` → `0084_function_privileges_and_streak_index` → `0085_signup_batch_older` (0077's FILE was recreated from prod in v37.7)
 (**all applied**, 0046–0063 during v33.22–v33.51, 0064–0067 during v34.5–v34.8,
 0069 during v35).
 
@@ -610,6 +612,7 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | LC people feedback | `submitLcFeedback` in `actions.ts` · `lc-feedback-view.tsx` · inbox via `listLcFeedback` |
 | Function defaults (shape + what unset means) | `src/lib/function-settings.ts` (pure) · reader `src/server/function-settings.ts` · `saveFunctionSettings` in `actions.ts` · card in `profile-view.tsx` |
 | Who may read a whole function (per-role) | `openViewFns`/`fnSettings` on the Viewer (`viewerFunctionSettings` in data.ts) · `canViewAccount`/`openViewFunctions` in rbac · the `openFns` OR in `applyScope` |
+| OGX tracker tabs (which sheets, New/Old/Older batch, header aliases, phone repair) | `SIGNUP_TABS` / `HEADER_ALIASES` / `trackerPhone` in `src/lib/google/signups.ts` · labels `signupBatchLabel` in `types.ts` · a new tab's sheet must be shared with the service account (Editor) · pinned by `tests/signup-tabs.test.ts` |
 | OGX referrals | `addSignupReferral` in `actions.ts` · `ReferralDialog` in `signups-view.tsx` (source='referral' — never synced to a tracker tab) |
 | IR email checks (pre-booking) | `src/lib/email-check.ts` |
 | IR bounce watcher + host alert | `src/server/bounces.ts` · `irEmailBouncedEmail` in `email/templates.ts` |

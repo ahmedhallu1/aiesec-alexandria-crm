@@ -3030,7 +3030,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
   "blocks": [
    {
     "t": "p",
-    "md": "**[Sign-ups](/signups) and the tracker sheet are the same data behind two doors.** Every 15 minutes the four tracker tabs import into Sodio, and every edit you make in Sodio — Contacted, Interested, a comment — is written straight back to the sheet's own cells. You never have to choose where to work; the sheet just follows."
+    "md": "**[Sign-ups](/signups) and the tracker sheet are the same data behind two doors.** Every 15 minutes the tracker tabs import into Sodio (OGT's New/Old SUs; OGV's **New** 26.2 sheet, **Old** 26.1 Main and **Older** 26.1 Old — filter them with the **Batch** funnel), and every edit you make in Sodio — Contacted, Interested, a comment — is written straight back to the sheet's own cells. You never have to choose where to work; the sheet just follows."
    },
    {
     "t": "callout",

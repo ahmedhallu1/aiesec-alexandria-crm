@@ -254,6 +254,23 @@ export type CommentLabel = "Member" | "TL" | "VP" | "Director" | "LCP" | "Admin"
 
 export type OgxFunction = "OGT" | "OGV";
 
+/** Which tracker generation a sign-up came from (v37.9). OGT runs two (New/Old
+ *  SUs); OGV runs three since the 26.2 sheet arrived: New (26.2) → Old (the
+ *  26.1 [New] "Main" tab) → Older (the 26.1 [Old] "Old" tab). */
+export type SignupBatch = "new" | "old" | "older";
+export const SIGNUP_BATCHES: readonly SignupBatch[] = ["new", "old", "older"];
+export const SIGNUP_BATCH_LABEL: Record<SignupBatch, string> = {
+  new: "New",
+  old: "Old",
+  older: "Older",
+};
+/** Unknown values read as "Old" — the pre-v37.9 two-state fallback. */
+export const signupBatchLabel = (b: string | null | undefined): string =>
+  SIGNUP_BATCH_LABEL[b as SignupBatch] ?? "Old";
+/** The batches a function's trackers actually have (OGT never had an Older). */
+export const signupBatchesFor = (fn: OgxFunction | null): readonly SignupBatch[] =>
+  fn === "OGT" ? ["new", "old"] : SIGNUP_BATCHES;
+
 /** VP-set sign-up statuses — "Approved" is the OGX MOS (accepted by the host
  *  entity, paid, contract signed, ready to start the travel process). */
 export const SIGNUP_STATUSES = [
@@ -267,7 +284,7 @@ export const SIGNUP_STATUSES = [
 export interface SignupRow {
   id: string;
   fn: OgxFunction;
-  batch: "new" | "old";
+  batch: SignupBatch;
   source: string;
   ep_id: string;
   name: string;

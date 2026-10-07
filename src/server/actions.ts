@@ -7581,7 +7581,7 @@ const contactAnswered = (v: string | null | undefined) => (v ?? "").trim() !== "
  *
  *  It carries `source = 'referral'`, which is what keeps the tracker sync away
  *  from it: the importer only ever touches rows whose source is one of the
- *  four sheet tabs, and BOTH write-back paths look the source up in
+ *  SIGNUP_TABS sheet tabs, and BOTH write-back paths look the source up in
  *  SIGNUP_TABS and return early when it isn't there. It is also born
  *  `sodio_touched`, so nothing tries to reconcile it with a sheet row that
  *  doesn't exist.

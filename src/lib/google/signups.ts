@@ -1,7 +1,7 @@
 import { db } from "@/lib/supabase";
 import { clients, serviceAccountEmail } from "./sheets";
 import { sandboxSuppressed } from "@/server/sandbox";
-import type { OgxFunction, SignupComment, SignupRow } from "@/lib/types";
+import type { OgxFunction, SignupBatch, SignupComment, SignupRow } from "@/lib/types";
 
 /** THE OGX SIGN-UP SYNC (v25). The LC's tracker sheets stay alive: Sodio
  *  imports every row (cron, 15 min) and writes each in-app edit straight back
@@ -12,13 +12,27 @@ import type { OgxFunction, SignupComment, SignupRow } from "@/lib/types";
  *  Sodio and imports stop overwriting them. */
 
 export interface SignupTabConfig {
+  /** row identity with ep_id — NEVER rename one: it would re-import the tab
+   *  as brand-new rows and orphan every claim, comment and status on the old */
   source: string;
   fn: OgxFunction;
-  batch: "new" | "old";
+  batch: SignupBatch;
   spreadsheetId: string;
   tab: string;
+  /** the tracker's Phone column lost its leading 0 (Sheets read "01012345678"
+   *  as a number) — put it back on Egyptian mobiles so Call works, not just
+   *  WhatsApp (v37.9: every OGV tab) */
+  restorePhoneZero?: boolean;
+  /** a BLANK Campaign cell never clears a campaign Sodio already holds. The
+   *  26.2 sheet arrived with Campaign Name empty on its first 1,519 rows (all
+   *  Techne Summit) and those were tagged in Sodio, not on the sheet — without
+   *  this the next import would wipe the tag. A filled cell still wins. */
+  keepCampaignWhenBlank?: boolean;
 }
 
+/** OGV rotates its tracker each term (v37.9): "OGV 26.2 New Signups" is New,
+ *  the 26.1 [New] "Main" tab became Old and the 26.1 [Old] "Old" tab Older.
+ *  Their `source` keys stay what they were — only the batch label moved. */
 export const SIGNUP_TABS: SignupTabConfig[] = [
   {
     source: "ogt_new",
@@ -37,20 +51,34 @@ export const SIGNUP_TABS: SignupTabConfig[] = [
   {
     source: "ogv_old",
     fn: "OGV",
-    batch: "old",
+    batch: "older",
     spreadsheetId: "1R_l1Pt2QyvSVoLvTd9Oja5JQHB2iKNr8cKwWpNHUWD4",
     tab: "Old",
+    restorePhoneZero: true,
   },
   {
+    // "Alexandria - oGV Tracker 26.1 [New]" — New until v37.9
     source: "ogv_main",
     fn: "OGV",
-    batch: "new",
+    batch: "old",
     spreadsheetId: "1nB86zagRaxpLZgPnTyLji7QUXS8tSRB4-uF1Nrn2Yj8",
     tab: "Main",
+    restorePhoneZero: true,
+  },
+  {
+    // "Alexandria - OGV 26.2 New Signups" (v37.9). Not link-shared like the
+    // 26.1 trackers: the service account was added as Editor by name.
+    source: "ogv_262",
+    fn: "OGV",
+    batch: "new",
+    spreadsheetId: "1Lgnl3XRQ4RbBgN6zLKSgkH6Jf-uYRDCFQmrsPkoPHRI",
+    tab: "Main",
+    restorePhoneZero: true,
+    keepCampaignWhenBlank: true,
   },
 ];
 
-/** canonical field → the header spellings seen across the four tabs */
+/** canonical field → the header spellings seen across the tabs */
 const HEADER_ALIASES: Record<string, string[]> = {
   ep_id: ["ep id"],
   name: ["name", "ep name"],
@@ -61,12 +89,13 @@ const HEADER_ALIASES: Record<string, string[]> = {
   dob: ["dob"],
   person_status: ["person status"],
   program: ["program"],
-  referral: ["referral"],
+  // 26.2: the member who signed the EP up at the booth
+  referral: ["referral", "aiesec representative"],
   grad_year: ["grad year"],
   university: ["university"],
   background: ["backgrounds", "background"],
   home_lc: ["home lc"],
-  campaign: ["campaign tag", "campaign"],
+  campaign: ["campaign tag", "campaign", "campaign name"],
   assigned_name: ["assigned to"],
   contact_status: ["contact status", "contacted"],
   interested: ["interested", "intersted"],
@@ -79,7 +108,7 @@ const HEADER_ALIASES: Record<string, string[]> = {
   out_of_process: ["out of process"],
   reasons_not_travel: ["reasons not to travel"],
   assigned_date: ["assigned date"],
-  contacted_date: ["contacted date"],
+  contacted_date: ["contacted date", "contact date"],
 };
 
 const norm = (s: string) => (s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -131,6 +160,28 @@ const cell = (row: string[], idx: number | undefined): string | null => {
   const v = stripInvisibles(String(row[idx] ?? "")).trim();
   return v === "" ? null : v;
 };
+
+/** One tracker Phone cell → a stored phone, or null when it isn't one.
+ *  Tracker placeholders ("-", "deleted phone number") are not phones — null,
+ *  so the UI never renders dead Call/WhatsApp buttons. Arabic-Indic digits
+ *  ("٠١٠٠…") become ASCII and bidi marks (a pasted RLM) go, or a real number
+ *  failed the digit test. With `restoreZero`, a bare 10-digit Egyptian mobile
+ *  ("1012345678" — the sheet ate the 0) gets its leading 0 back; anything
+ *  else is kept exactly as typed. Pure — pinned by tests/signup-tabs.test.ts. */
+export function trackerPhone(raw: string | null, restoreZero = false): string | null {
+  if (!raw) return null;
+  const p = raw
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/[\u200E\u200F\u061C\u202A-\u202E\u2066-\u2069]/g, "")
+    .trim();
+  if (!/\d/.test(p)) return null;
+  if (restoreZero) {
+    const compact = p.replace(/[\s-]/g, "");
+    if (/^1[0125]\d{8}$/.test(compact)) return `0${compact}`;
+  }
+  return p;
+}
 
 const yesish = (v: string | null) => !!v && /^(yes|y|true|✓)/i.test(v.trim());
 
@@ -278,17 +329,14 @@ export async function importSignups(
       if (seenEpIds.has(epId)) continue; // duplicate EP ID in the tab — first wins
       seenEpIds.add(epId);
 
+      const prior = existing.get(epId);
+      const campaignCell = cell(row, H.campaign);
       const intake = {
         fn: cfg.fn,
         batch: cfg.batch,
         name,
         signed_up_at: cell(row, H.signed_up_at),
-        // tracker placeholders ("-", "deleted phone number") are not phones —
-        // store null so the UI never renders dead Call/WhatsApp buttons
-        phone: (() => {
-          const p = cell(row, H.phone);
-          return p && /\d/.test(p) ? p : null;
-        })(),
+        phone: trackerPhone(cell(row, H.phone), cfg.restorePhoneZero),
         email: cell(row, H.email),
         gender: cell(row, H.gender),
         dob: cell(row, H.dob),
@@ -299,7 +347,8 @@ export async function importSignups(
         university: cell(row, H.university),
         background: cell(row, H.background),
         home_lc: cell(row, H.home_lc),
-        campaign: cell(row, H.campaign),
+        campaign:
+          campaignCell ?? (cfg.keepCampaignWhenBlank ? (prior?.campaign ?? null) : null),
       };
       const rawAssigned = cell(row, H.assigned_name);
       const oopCell = cell(row, H.out_of_process);
@@ -321,7 +370,6 @@ export async function importSignups(
         contacted_at: parseSheetDate(cell(row, H.contacted_date)),
       };
 
-      const prior = existing.get(epId);
       if (!prior) {
         inserts.push({ source: cfg.source, ep_id: epId, ...intake, ...workflow });
         legacyByEp.set(epId, {

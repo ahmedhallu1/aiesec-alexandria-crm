@@ -24,7 +24,7 @@ import type {
   OgxPlanCard, SignupCicCall, SignupDetail, SignupListRow, StreakStats,
 } from "@/server/data";
 import {
-  fmtDateTime, SIGNUP_STATUSES,
+  fmtDateTime, SIGNUP_STATUSES, SIGNUP_BATCH_LABEL, signupBatchLabel, signupBatchesFor,
   B2C_CALL_OUTCOMES, b2cOutcomeLabel, b2cOutcomeReached,
   type OgxFunction, type SignupLog, type SignupRow,
 } from "@/lib/types";
@@ -1346,8 +1346,12 @@ export function SignupsView({
     );
     switch (key) {
       case "batch":
-        return pick("Batch", filters.batch ?? "", [["new", "New SUs"], ["old", "Old SUs"]],
-          (v) => setParams({ batch: v || null }));
+        return pick(
+          "Batch",
+          filters.batch ?? "",
+          signupBatchesFor(fnAll ? null : activeFn).map((b): [string, string] => [b, `${SIGNUP_BATCH_LABEL[b]} SUs`]),
+          (v) => setParams({ batch: v || null })
+        );
       case "program":
         return activeFn === "OGT"
           ? pick("Program", filters.program ?? "", [["GTa", "GTa"], ["GTe", "GTe"]],
@@ -1723,7 +1727,7 @@ export function SignupsView({
           <>
             {r.signed_up_at ?? "—"}
             <span className="block text-[10px] opacity-70">
-              {r.batch === "new" ? "New" : "Old"} SUs
+              {signupBatchLabel(r.batch)} SUs
             </span>
           </>
         );
@@ -1981,7 +1985,7 @@ export function SignupsView({
       case "ep_id":
         return r.ep_id;
       case "batch":
-        return r.batch === "new" ? "New" : "Old";
+        return signupBatchLabel(r.batch);
       case "university":
         return <span dir="auto">{r.university ?? "—"}</span>;
       case "grad_year":
@@ -2254,9 +2258,10 @@ export function SignupsView({
         >
           <SelectTrigger className="h-9 w-28"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">New + Old</SelectItem>
-            <SelectItem value="new">New SUs</SelectItem>
-            <SelectItem value="old">Old SUs</SelectItem>
+            <SelectItem value="all">All batches</SelectItem>
+            {signupBatchesFor(fnAll ? null : activeFn).map((b) => (
+              <SelectItem key={b} value={b}>{SIGNUP_BATCH_LABEL[b]} SUs</SelectItem>
+            ))}
           </SelectContent>
         </Select>
         {activeFn === "OGT" ? (
@@ -2368,7 +2373,7 @@ export function SignupsView({
                 </p>
                 <div className="flex flex-wrap items-center gap-1.5 text-xs">
                   <ProgramBadge program={r.program} fn={r.fn} className="text-[10px]" />
-                  <Badge variant="outline" className="text-[10px]">{r.batch === "new" ? "New" : "Old"}</Badge>
+                  <Badge variant="outline" className="text-[10px]">{signupBatchLabel(r.batch)}</Badge>
                   {r.status ? <Badge className="text-[10px]">{r.status}</Badge> : null}
                   <span className="text-muted-foreground">
                     {r.assigned_to || r.assigned_name ? `👤 ${r.assigned_name ?? "assigned"}` : "🆕 unassigned"}
@@ -3027,7 +3032,7 @@ function SignupDetailDialog({
           <DialogTitle className="flex flex-wrap items-center gap-2" dir="auto">
             <span className="min-w-0 break-words">{s.name}</span>
             <ProgramBadge program={s.program} fn={s.fn} />
-            <Badge variant="outline">{s.batch === "new" ? "New" : "Old"} SUs</Badge>
+            <Badge variant="outline">{signupBatchLabel(s.batch)} SUs</Badge>
             {s.out_of_process ? (
               <Badge variant="destructive">Out of Process</Badge>
             ) : s.status ? (

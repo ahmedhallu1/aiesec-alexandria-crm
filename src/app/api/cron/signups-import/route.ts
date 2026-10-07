@@ -23,8 +23,8 @@ function sleepingHours(): boolean {
 
 export const maxDuration = 300;
 
-/** OGX sign-ups import (v25): every 15 min, pull the 4 tracker tabs (OGT
- *  New/Old SUs, OGV Old/Main) into the signups table. Rows already touched in
+/** OGX sign-ups import (v25): every 15 min, pull the tracker tabs in SIGNUP_TABS (OGT
+ *  New/Old SUs, OGV 26.2 Main/26.1 Main/26.1 Old) into the signups table. Rows already touched in
  *  Sodio keep their workflow fields (Sodio is authoritative after first edit);
  *  everything else tracks the sheet. */
 export async function GET(req: NextRequest) {

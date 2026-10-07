@@ -7,6 +7,42 @@
 > ~87% of it. This file is NOT auto-loaded — grep it for the reasoning behind
 > a past decision before changing that behaviour.
 
+- **2026-10-07 · v37.9** — **OGV 26.2: A THIRD TRACKER, AND THE BATCHES SHIFT.**
+  "Alexandria - OGV 26.2 New Signups" (tab **Main**, 1,519 Techne Summit
+  sign-ups on arrival, more to be uploaded) is now synced exactly like the
+  26.1 trackers — import every 15 min, workflow cells written back hourly.
+  Source key **`ogv_262`**. OGV now has THREE batches: **New** = 26.2,
+  **Old** = the 26.1 [New] "Main" tab (`ogv_main`, was New), **Older** = the
+  26.1 [Old] "Old" tab (`ogv_old`, was Old). Source keys never change (they
+  are row identity) — only the batch label moved. OGT stays New/Old.
+  Migration **0085_signup_batch_older** (check now allows `older` + re-tags
+  the two OGV sources). `SignupBatch` / `signupBatchLabel` /
+  `signupBatchesFor` in types.ts; the Batch filters offer Older for OGV only.
+  ① **Access**: unlike the 26.1 trackers (link-shared "anyone can edit"),
+  this sheet is shared by name — the service account
+  `crm-sheets@gen-lang-client-0055329754.iam.gserviceaccount.com` was added
+  as Editor from the IM mailbox. If the import ever 403s, check that share.
+  ② **Header differences**, all mapped by name: no Email column;
+  "Campaign Name" (alias), "Contact date" (alias of Contacted Date),
+  **"AIESEC Representative" → the Referral field** (the member who signed
+  the EP up at the booth). "Campus" and "EP Manager" are empty and left
+  unmapped. The single "Status" column is the VP status; "Person Status" the
+  intake one.
+  ③ **Phones lost their leading 0** on the sheet ("1012345678") — and so had
+  ~775 rows of the 26.1 Main tab. `trackerPhone` (signups.ts) puts the 0 back
+  on bare 10-digit Egyptian mobiles for every OGV tab (`restorePhoneZero`),
+  turns Arabic-Indic digits into ASCII and drops pasted bidi marks (all
+  tabs). Anything else stays as typed. 1,514 of the 1,519 fixed; the other 5
+  are genuinely malformed on the sheet. Sodio-side only — the sheet keeps its
+  values (phone is intake, never written back).
+  ④ **Techne Summit tag**: the sheet's Campaign Name was empty on all 1,519
+  rows, so they were tagged `campaign = 'Techne Summit'` IN SODIO by EP ID
+  after the first import (not on the sheet, by request). The tab's
+  `keepCampaignWhenBlank` stops a blank cell from wiping that tag; a filled
+  Campaign Name cell still wins. Later uploads carry their own campaign.
+  `tests/signup-tabs.test.ts` pins the real 26.2 + 26.1 header rows, the
+  phone repair and the tab/batch wiring.
+
 - **2026-10-03 · v37.8** — **THE UI AUDIT: ALL ~54k LINES OF COMPONENTS.**
   No migration, no server changes. 22 read-only auditors (every file in
   src/components/crm, activation and ui) found 143 candidates; five fixers

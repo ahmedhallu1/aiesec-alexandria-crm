@@ -5733,7 +5733,7 @@ import {
   ogxFunctions as _ogxFunctions,
   ogxLanes as _ogxLanes,
 } from "@/lib/rbac";
-import { SIGNUP_STATUSES } from "@/lib/types";
+import { SIGNUP_BATCHES, SIGNUP_STATUSES } from "@/lib/types";
 import type { OgxFunction, SignupComment, SignupRow } from "@/lib/types";
 
 export interface SignupFilters {
@@ -6240,7 +6240,9 @@ export async function listSignupsPage(
     // MULTI-SELECT (v33.3) — same rule as the accounts list: a comma-joined
     // value means "any of these".
     {
-      const batches = pickList(filters.batch).filter((b) => b === "new" || b === "old");
+      const batches = pickList(filters.batch).filter((b) =>
+        (SIGNUP_BATCHES as readonly string[]).includes(b)
+      );
       if (batches.length === 1) q = q.eq("batch", batches[0]);
       else if (batches.length > 1) q = q.in("batch", batches);
     }
