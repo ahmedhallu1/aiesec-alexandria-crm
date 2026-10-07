@@ -7,6 +7,40 @@
 > ~87% of it. This file is NOT auto-loaded — grep it for the reasoning behind
 > a past decision before changing that behaviour.
 
+- **2026-10-07 · v37.10** — **JULES'S SECOND BATCH (56), CHECKED ONE BY ONE.**
+  No migration. Three real fixes, one test gap closed; the rest verified false.
+  ① **The AI email draft went into the live editor unsanitized.**
+  `draftEmailWithAi` stripped `<script>` only, then the Emails tab set
+  `innerHTML` to the model's output — so an `<img onerror=…>` (which pasted
+  text could talk the model into writing) would run in Sodio's origin. It now
+  goes through `sanitizeEditedEmailHtml`, the proposal editor's sanitizer.
+  (Jules flagged the wrong line — the `dangerouslySetInnerHTML` there is a
+  constant `<p>Hi,</p>`; its other two "XSS" hits are server-built from the
+  VP's own form with every field escaped.)
+  ② **Two same-named contract files in one upload could overwrite each other**
+  (`<ms>-<name>` paths, no unique part). Paths now carry a UUID slice — found
+  while checking Jules's "parallelise these" suggestion, which would have made
+  the collision MORE likely. Signed URLs (contracts + feedback) and the
+  proposal-deck downloads now run in parallel, in order.
+  ③ **Saving the O2O questions ignored failed writes** and still said saved;
+  retiring removed questions is one `.in()` update; every write is checked.
+  ④ `tests/coverage-gaps.test.ts` (15) — member-fields shape checks,
+  `personalPageSize`, the approvals lane maps, `isB2B/isBd/isB2C`,
+  `icxFunctions`, `fnSetting`, `canRunLcTools`, `canSeePlanning`,
+  `canWorkArchived`, and that the AI draft stays sanitized.
+  **False, unchanged:** the assistant "unsafe query params" (every model
+  filter is AND-ed onto `applyScope`, it can only narrow) · the bulk-delete,
+  sandbox-undo and CXP-ZIP loops (sequential on purpose: abort-before-delete,
+  journal order, one file in memory) · `ensurePath`/Drive folder walks (each
+  step depends on the last; the files.get "loop" is a fallback chain) ·
+  snapshot/Map-population micro-optimisations · the "console.log" hits (they
+  are intentional operational logs) · "TODO" (a variable named `todo`) ·
+  "commented-out code" (an explanatory comment) · the two comment "bugs" ·
+  already-tested functions (`canSeeActivationBid`, `actsOverOthers`,
+  `reachIds`, `resolveCountry`, `withPersonalDefault`) · long-function
+  refactors (no behaviour change, real regression risk) · test-data seeding
+  loops (admin-only tooling). **983 tests**, tsc clean.
+
 - **2026-10-07 · v37.9** — **OGV 26.2: A THIRD TRACKER, AND THE BATCHES SHIFT.**
   "Alexandria - OGV 26.2 New Signups" (tab **Main**, 1,519 Techne Summit
   sign-ups on arrival, more to be uploaded) is now synced exactly like the

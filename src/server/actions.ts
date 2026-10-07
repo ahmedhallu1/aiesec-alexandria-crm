@@ -1596,10 +1596,16 @@ export async function requestFeedbackUploads(
   }
 
   const uploads: { path: string; signedUrl: string; name: string }[] = [];
-  for (const f of files) {
-    const safeName = f.name.replace(/[^\w.\- ()]+/g, "_").slice(-80);
-    const path = `${viewer.id}/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
-    const { data, error } = await db().storage.from("feedback").createSignedUploadUrl(path);
+  // independent signed URLs — asked for together, returned in file order
+  const signed = await Promise.all(
+    files.map(async (f) => {
+      const safeName = f.name.replace(/[^\w.\- ()]+/g, "_").slice(-80);
+      const path = `${viewer.id}/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
+      const { data, error } = await db().storage.from("feedback").createSignedUploadUrl(path);
+      return { safeName, data, error };
+    })
+  );
+  for (const { safeName, data, error } of signed) {
     if (error || !data) {
       if (error?.message?.toLowerCase().includes("bucket"))
         return fail("Feedback storage isn't set up yet — run migration 0042.");
@@ -1666,10 +1672,18 @@ export async function requestContractUploads(
   }
 
   const uploads: { path: string; signedUrl: string }[] = [];
-  for (const f of files) {
-    const safeName = f.name.replace(/[^\w.\- ()]+/g, "_").slice(-80);
-    const path = `${loaded.deal.account_id}/${dealId}/${Date.now()}-${safeName}`;
-    const { data, error } = await db().storage.from("contracts").createSignedUploadUrl(path);
+  // ⚠️ A UNIQUE PART IN EVERY PATH (v37.10). It was `<ms>-<name>`, so two
+  // files with the same name in one upload (two "contract.pdf" scans) could
+  // land on the same key and the second overwrote the first. The feedback
+  // uploads above have always carried a UUID; contracts now do too.
+  const signed = await Promise.all(
+    files.map(async (f) => {
+      const safeName = f.name.replace(/[^\w.\- ()]+/g, "_").slice(-80);
+      const path = `${loaded.deal.account_id}/${dealId}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}-${safeName}`;
+      return db().storage.from("contracts").createSignedUploadUrl(path);
+    })
+  );
+  for (const { data, error } of signed) {
     if (error || !data) {
       if (error?.message?.toLowerCase().includes("bucket"))
         return fail("The contracts storage isn't set up yet — run migration 0012 in the Supabase SQL editor.");
@@ -3707,11 +3721,15 @@ ${instruction}`;
     };
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
     if (!text.trim()) return fail("The AI helper came back empty — try rephrasing.");
-    const html = text
-      .replace(/^```(?:html)?/i, "")
-      .replace(/```$/i, "")
-      .replace(/<script[\s\S]*?<\/script>/gi, "")
-      .trim();
+    // ⚠️ THE MODEL'S HTML GOES STRAIGHT INTO THE LIVE EDITOR (innerHTML), so
+    // it is cleaned with the same sanitizer as an edited proposal (v37.10).
+    // Stripping <script> alone was never enough: an `<img onerror=…>` — which
+    // pasted text could talk the model into writing — runs in Sodio's own
+    // origin the moment it is inserted.
+    const { sanitizeEditedEmailHtml } = await import("@/lib/email/edited-html");
+    const html = sanitizeEditedEmailHtml(
+      text.replace(/^```(?:html)?/i, "").replace(/```$/i, "")
+    ).trim();
     return { ok: true, data: { html } };
   } catch (e) {
     console.error("[mailbox] ai draft failed:", e);
@@ -5980,9 +5998,15 @@ export async function sendProposalEmail(
   // which filled the Vercel team's Function Storage. They are uploaded once by
   // `scripts/upload-proposals.mjs` and fetched here only when an email asks.
   const attachments: { filename: string; mimeType: string; contentBase64: string }[] = [];
-  for (const p of wanted) {
-    const { path, filename } = proposalPdfFile(p);
-    const { data: pdf, error } = await db().storage.from(PROPOSALS_BUCKET).download(path);
+  // the decks are independent reads — fetched together, kept in pick order
+  const fetched = await Promise.all(
+    wanted.map(async (p) => {
+      const { path, filename } = proposalPdfFile(p);
+      const { data: pdf, error } = await db().storage.from(PROPOSALS_BUCKET).download(path);
+      return { p, path, filename, pdf, error };
+    })
+  );
+  for (const { p, path, filename, pdf, error } of fetched) {
     if (error || !pdf) {
       console.error(`[proposal] ${path} could not be read from storage:`, error);
       return fail(

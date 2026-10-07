@@ -359,22 +359,25 @@ export async function savePdpQuestions(
     .select("id")
     .is("cycle_id", null);
   const keep = new Set(wanted.map((q) => q.id).filter(Boolean) as string[]);
-  for (const row of (current ?? []) as { id: string }[]) {
-    if (!keep.has(row.id))
-      await db().from("pdp_questions").update({ active: false }).eq("id", row.id);
+  // one statement for every question that left the list (v37.10) — and every
+  // write below is CHECKED: a failed one used to be ignored and the page still
+  // said "saved", leaving a half-edited question set behind
+  const retire = ((current ?? []) as { id: string }[]).map((r) => r.id).filter((id) => !keep.has(id));
+  if (retire.length > 0) {
+    const { error } = await db().from("pdp_questions").update({ active: false }).in("id", retire);
+    if (error) return fail(`Could not retire the removed questions: ${error.message}`);
   }
 
   for (const q of wanted) {
-    if (q.id) {
-      await db()
-        .from("pdp_questions")
-        .update({ prompt: q.prompt, hint: clean(q.hint, 300), idx: q.idx, active: true })
-        .eq("id", q.id);
-    } else {
-      await db()
-        .from("pdp_questions")
-        .insert({ prompt: q.prompt, hint: clean(q.hint, 300), idx: q.idx, active: true });
-    }
+    const { error } = q.id
+      ? await db()
+          .from("pdp_questions")
+          .update({ prompt: q.prompt, hint: clean(q.hint, 300), idx: q.idx, active: true })
+          .eq("id", q.id)
+      : await db()
+          .from("pdp_questions")
+          .insert({ prompt: q.prompt, hint: clean(q.hint, 300), idx: q.idx, active: true });
+    if (error) return fail(`Could not save "${(q.prompt ?? "").slice(0, 40)}": ${error.message}`);
   }
 
   await logAudit(viewer.id, "pdp_questions", "pdp", null, { count: wanted.length }, {
