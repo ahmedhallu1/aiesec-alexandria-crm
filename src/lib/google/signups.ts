@@ -21,7 +21,7 @@ export interface SignupTabConfig {
   tab: string;
   /** the tracker's Phone column lost its leading 0 (Sheets read "01012345678"
    *  as a number) — put it back on Egyptian mobiles so Call works, not just
-   *  WhatsApp (v37.9: every OGV tab) */
+   *  WhatsApp (v37.9: every OGV tab; v37.9.1: OGT too, so every tab) */
   restorePhoneZero?: boolean;
   /** a BLANK Campaign cell never clears a campaign Sodio already holds. The
    *  26.2 sheet arrived with Campaign Name empty on its first 1,519 rows (all
@@ -40,6 +40,7 @@ export const SIGNUP_TABS: SignupTabConfig[] = [
     batch: "new",
     spreadsheetId: "1cI4aicSewADosDmB-Shq6p8z-QEgnrbZHH-ykgRrWQY",
     tab: "New SUs",
+    restorePhoneZero: true,
   },
   {
     source: "ogt_old",
@@ -47,6 +48,7 @@ export const SIGNUP_TABS: SignupTabConfig[] = [
     batch: "old",
     spreadsheetId: "1cI4aicSewADosDmB-Shq6p8z-QEgnrbZHH-ykgRrWQY",
     tab: "Old SUs",
+    restorePhoneZero: true,
   },
   {
     source: "ogv_old",

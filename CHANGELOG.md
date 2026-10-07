@@ -7,6 +7,17 @@
 > ~87% of it. This file is NOT auto-loaded — grep it for the reasoning behind
 > a past decision before changing that behaviour.
 
+- **2026-10-07 · v37.11** — **OGT PHONES GET THEIR 0 BACK TOO.** The OGT
+  tracker tabs had the same eaten leading 0 as OGV (~2,031 rows,
+  "1012345678"). `restorePhoneZero` is now on every SIGNUP_TABS entry, and the
+  existing OGT rows were fixed once in SQL with the identical rule (so the
+  import has nothing to rewrite). Sodio-side only — phone is intake and is
+  never written back. ⚠️ A bulk UPDATE on `signups` bumps `updated_at` via
+  trigger, which the hourly export reads as "edited": after it, the export
+  watermark (`signups:last-export`) was moved past the bulk update (> 60 s
+  overlap) and only rows with a real edit since the old mark re-bumped — so
+  no tracker cells (or Time Stamps) were rewritten for nothing.
+
 - **2026-10-07 · v37.10** — **JULES'S SECOND BATCH (56), CHECKED ONE BY ONE.**
   No migration. Three real fixes, one test gap closed; the rest verified false.
   ① **The AI email draft went into the live editor unsanitized.**

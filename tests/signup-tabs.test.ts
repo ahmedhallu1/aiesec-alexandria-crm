@@ -128,8 +128,8 @@ describe("SIGNUP_TABS", () => {
     });
   });
 
-  it("every OGV tab repairs phones; no OGT tab does", () => {
-    for (const t of SIGNUP_TABS) expect(!!t.restorePhoneZero).toBe(t.fn === "OGV");
+  it("every tab repairs phones (OGV v37.9, OGT v37.9.1)", () => {
+    for (const t of SIGNUP_TABS) expect(t.restorePhoneZero).toBe(true);
   });
 
   it("sources and (spreadsheet, tab) pairs are unique", () => {
