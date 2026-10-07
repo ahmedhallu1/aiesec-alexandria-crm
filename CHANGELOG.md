@@ -7,6 +7,21 @@
 > ~87% of it. This file is NOT auto-loaded — grep it for the reasoning behind
 > a past decision before changing that behaviour.
 
+- **2026-10-07 · v37.12** — **THE PAGE CONTROLS STOP DISAPPEARING.** No
+  migration. Reported from OGV → Unassigned: "the next page and the 20/50…
+  chooser all disappeared". The logs show why — the pool had been filtered by
+  Campaign (`Techne_summit_alex_25` = 14 unassigned rows, `Alex Event` = 6),
+  and both Raising and Sign-ups wrapped their WHOLE footer in
+  `total > Math.min(...pageSizeOptions)`, so once the rows fitted on one page
+  the rows-per-page chooser, the count and the page buttons all vanished. The
+  footer now always shows "Showing a–b of N" (or "No sign-ups"/"No accounts")
+  and the size chooser; Prev/Next appear only when there is a second page.
+  A filtered Sign-ups view that matches nothing now offers **Clear filters**
+  (one pick at 19:26 was the old `Techne Summit` tag — the 26.2 rows are
+  `Techne Summit 26` — which left an empty page with the cause hidden in a
+  column header). Pinned in `tests/page-size.test.ts`. The other paginated
+  lists (IR calls, CVs, attendance, CXP) already kept their chooser.
+
 - **2026-10-07 · v37.11** — **OGT PHONES GET THEIR 0 BACK TOO.** The OGT
   tracker tabs had the same eaten leading 0 as OGV (~2,031 rows,
   "1012345678"). `restorePhoneZero` is now on every SIGNUP_TABS entry, and the

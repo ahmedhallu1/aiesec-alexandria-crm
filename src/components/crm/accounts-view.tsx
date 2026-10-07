@@ -1772,13 +1772,21 @@ export function AccountsView({
         </>
       )}
 
-      {/* pagination (v22 — the market-research import made the list BIG) */}
-      {total > Math.min(...pageSizeOptions) ? (
+      {/* pagination (v22 — the market-research import made the list BIG).
+          ALWAYS shown since v37.12 — hiding it whenever the list fitted on one
+          page took the rows-per-page chooser away with it. */}
+      {(
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
           <span className="flex items-center gap-2">
-            Showing {(page * pageSize + 1).toLocaleString("en")}–
-            {Math.min(total, (page + 1) * pageSize).toLocaleString("en")} of{" "}
-            {total.toLocaleString("en")}
+            {total === 0 ? (
+              "No accounts"
+            ) : (
+              <>
+                Showing {(page * pageSize + 1).toLocaleString("en")}–
+                {Math.min(total, (page + 1) * pageSize).toLocaleString("en")} of{" "}
+                {total.toLocaleString("en")}
+              </>
+            )}
             <PageSizePicker
               value={pageSize}
               options={pageSizeOptions}
@@ -1791,6 +1799,7 @@ export function AccountsView({
               }
             />
           </span>
+          {total > pageSize ? (
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
@@ -1812,8 +1821,9 @@ export function AccountsView({
               Next →
             </Button>
           </div>
+          ) : null}
         </div>
-      ) : null}
+      )}
 
       {/* bulk-selection action bar — shows once anything is selected (or in
           the mobile Select mode) */}

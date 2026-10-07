@@ -1179,6 +1179,26 @@ export function SignupsView({
     [router, searchParams]
   );
 
+  /** A filtered view that matches nothing gets a way out (v37.12) — a stale
+   *  pick (a campaign renamed since, a member who left) otherwise leaves an
+   *  empty page with the cause buried in a column header. */
+  const FILTER_KEYS = [
+    "batch", "program", "status", "potential", "interested", "contacted", "country",
+    "personStatus", "assigned", "campaign", "firstCaller", "phone", "q",
+  ];
+  const hasFilters = FILTER_KEYS.some((k) => searchParams.get(k));
+  const clearFiltersButton = hasFilters ? (
+    <div className="mt-3">
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => setParams(Object.fromEntries(FILTER_KEYS.map((k) => [k, null])))}
+      >
+        Clear filters
+      </Button>
+    </div>
+  ) : null;
+
   const goPage = (p: number) => {
     const params = new URLSearchParams(searchParams.toString());
     params.set("page", String(p + 1));
@@ -2344,6 +2364,7 @@ export function SignupsView({
           <Card>
             <CardContent className="py-10 text-center text-sm text-muted-foreground">
               Nothing here — try another view or filter.
+              {clearFiltersButton}
             </CardContent>
           </Card>
         ) : (
@@ -2471,6 +2492,7 @@ export function SignupsView({
                     className="py-12 text-center text-muted-foreground"
                   >
                     Nothing here — try another view or filter.
+                    {clearFiltersButton}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -2510,9 +2532,18 @@ export function SignupsView({
         </div>
       </div>
 
-      {/* pagination + rows per page */}
-      {total > Math.min(...pageSizeOptions) ? (
+      {/* pagination + rows per page — ALWAYS shown (v37.12). It used to hide
+          itself whenever the list fitted on one page, so narrowing the pool
+          to a 14-row campaign made the size chooser and the page controls
+          vanish, which read as the page breaking. Prev/Next still only
+          appear when there is more than one page. */}
+      {(
         <div className="flex flex-wrap items-center justify-center gap-3 text-sm">
+          <span className="tabular-nums text-muted-foreground">
+            {total === 0
+              ? "No sign-ups"
+              : `Showing ${(page * pageSize + 1).toLocaleString("en")}–${Math.min(total, (page + 1) * pageSize).toLocaleString("en")} of ${total.toLocaleString("en")}`}
+          </span>
           <PageSizePicker
             value={pageSize}
             options={pageSizeOptions}
@@ -2540,7 +2571,7 @@ export function SignupsView({
             </>
           ) : null}
         </div>
-      ) : null}
+      )}
 
       {/* bulk-selection action bar — shows once anything is selected */}
       {canBulk && selected.size > 0 ? (

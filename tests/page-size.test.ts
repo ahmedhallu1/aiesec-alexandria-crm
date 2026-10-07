@@ -31,3 +31,18 @@ describe("rows per page", () => {
     expect(guilty).toEqual([]);
   });
 });
+
+/** THE ROWS-PER-PAGE CHOOSER NEVER HIDES ITSELF (v37.12). Raising and
+ *  Sign-ups wrapped their whole footer in `total > Math.min(...sizes)`, so a
+ *  filter that left one page's worth of rows took the chooser away with it —
+ *  reported as "the next page and the 20/50 chooser disappeared". */
+describe("the pagination footer stays on screen", () => {
+  it("no list gates its footer on the smallest page size", async () => {
+    const { readFileSync } = await import("fs");
+    for (const f of ["accounts-view.tsx", "signups-view.tsx"]) {
+      const src = readFileSync(`src/components/crm/${f}`, "utf8");
+      expect(src, f).not.toMatch(/total\s*>\s*Math\.min\(\s*\.\.\.pageSizeOptions\s*\)/);
+      expect(src, f).toContain("<PageSizePicker");
+    }
+  });
+});
