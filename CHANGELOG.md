@@ -80,8 +80,8 @@
   tabs). Anything else stays as typed. 1,514 of the 1,519 fixed; the other 5
   are genuinely malformed on the sheet. Sodio-side only — the sheet keeps its
   values (phone is intake, never written back).
-  ④ **Techne Summit tag**: the sheet's Campaign Name was empty on all 1,519
-  rows, so they were tagged `campaign = 'Techne Summit'` IN SODIO by EP ID
+  ④ **Techne Summit 26 tag** (renamed from "Techne Summit" the same day; last year's is `Techne_summit_alex_25`): the sheet's Campaign Name was empty on all 1,519
+  rows, so they were tagged `campaign = 'Techne Summit 26'` IN SODIO by EP ID
   after the first import (not on the sheet, by request). The tab's
   `keepCampaignWhenBlank` stops a blank cell from wiping that tag; a filled
   Campaign Name cell still wins. Later uploads carry their own campaign.

@@ -17,5 +17,5 @@ update signups set batch = 'old'   where source = 'ogv_main' and batch <> 'old';
 -- Campaign Name column was empty — so they were tagged here, not on the sheet
 -- (the importer's keepCampaignWhenBlank keeps the tag). Later uploads carry
 -- their own campaign. Run as:
---   update signups set campaign = 'Techne Summit'
+--   update signups set campaign = 'Techne Summit 26'
 --   where source = 'ogv_262' and campaign is null and ep_id in (<the 1,519>);
