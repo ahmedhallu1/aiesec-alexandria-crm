@@ -4172,7 +4172,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "p",
-    "md": "The form checks each availability row **as you type**: a backwards or under-10-minute window, a missing day/date, or an overlap with another window on the same day gets outlined with the reason, and Save waits until it's fixed. Two IRs racing for the same slot can't collide either — the second one is told the slot was just taken and shown fresh ones."
+    "md": "The form checks each availability row **as you type**: a backwards or under-10-minute window, a missing day/date, or an overlap with another window on the same day gets outlined with the reason — **every** row in the clash, and a one-date row that collides with that weekday's weekly window too — and Save waits until it's fixed. Two IRs racing for the same slot can't collide either — the second one is told the slot was just taken and shown fresh ones."
    },
    {
     "t": "p",

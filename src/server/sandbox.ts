@@ -104,18 +104,34 @@ export async function recordUndo(
   before?: unknown,
   label?: string
 ): Promise<void> {
-  if (!journalReady()) return;
+  await recordUndoMany(tbl, [{ rowId, op, before, label }]);
+}
+
+/** recordUndo for many rows of one table in ONE insert (v37.13) — a save
+ *  that touches a whole audience (attendance) used to pay a round trip per
+ *  person. Rows keep their array order, which is the order a replay
+ *  (newest id first) reverses them in. */
+export async function recordUndoMany(
+  tbl: string,
+  entries: { rowId: string; op: "insert" | "update" | "delete"; before?: unknown; label?: string }[]
+): Promise<void> {
+  if (!journalReady() || entries.length === 0) return;
   try {
-    const { error } = await db().from("test_undo").insert({
-      session_id: await journalSession(),
-      change_set: currentChangeSet(),
-      actor_id: await journalActorId(),
-      tbl,
-      row_id: rowId,
-      op,
-      before: before ?? null,
-      label: label ?? null,
-    });
+    const session_id = await journalSession();
+    const change_set = currentChangeSet();
+    const actor_id = await journalActorId();
+    const { error } = await db().from("test_undo").insert(
+      entries.map((e) => ({
+        session_id,
+        change_set,
+        actor_id,
+        tbl,
+        row_id: e.rowId,
+        op: e.op,
+        before: e.before ?? null,
+        label: e.label ?? null,
+      }))
+    );
     if (error?.code === "42703") {
       // 0033 hasn't been run yet — stand down BRIEFLY, then try again, so the
       // journal comes back on its own once the migration lands
@@ -152,6 +168,26 @@ export async function snapshotForUndo(tbl: string, rowId: string): Promise<void>
   try {
     const { data } = await db().from(tbl).select("*").eq("id", rowId).maybeSingle();
     if (data) await recordUndo(tbl, rowId, "update", data, describeRow(tbl, data));
+  } catch (e) {
+    console.error("[journal] snapshot failed:", e);
+  }
+}
+
+/** snapshotForUndo for many rows of one table: one read per 100 ids and one
+ *  journal insert, instead of two round trips per row (v37.13). */
+export async function snapshotManyForUndo(tbl: string, rowIds: string[]): Promise<void> {
+  if (!journalReady() || rowIds.length === 0) return;
+  try {
+    const rows: Record<string, unknown>[] = [];
+    for (let i = 0; i < rowIds.length; i += 100) {
+      const { data, error } = await db().from(tbl).select("*").in("id", rowIds.slice(i, i + 100));
+      if (error) throw new Error(error.message);
+      rows.push(...((data ?? []) as Record<string, unknown>[]));
+    }
+    await recordUndoMany(
+      tbl,
+      rows.map((r) => ({ rowId: String(r.id), op: "update" as const, before: r, label: describeRow(tbl, r) }))
+    );
   } catch (e) {
     console.error("[journal] snapshot failed:", e);
   }

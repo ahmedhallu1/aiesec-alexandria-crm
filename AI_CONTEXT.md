@@ -15,7 +15,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-10-07 · Version: v37.12
+Last updated: 2026-10-15 · Version: v37.13
 
 ---
 
@@ -42,7 +42,7 @@ the blueprint for future OGX/other-function modules.
 | Stack | Next.js 16 (App Router, Turbopack) · React 19 · Tailwind v4 · shadcn/ui · Supabase (Postgres, project `iesrpuuoduxtihuaqfic`) |
 | Auth | Auth.js v5: **FIRST sign-in is Google-only** (grants `calendar` + `gmail.compose`) → onboarding sets a password → afterwards **email OR phone + password**, or Google, all work. **Members with NO email yet (v24) sign in with their phone in BOTH fields** until a password is set; adding their email closes that door (Google once, then password). Deactivated members land on **/inactive**. **Forgot password emails a fresh password** (`issueTempPassword` in `server/password.ts`); the old password still works until the member changes it (no lockouts) |
 | Google | Service account (Sheets sync, folder creation) · **the IM mailbox token carries mail + calendar + drive + sheets** — every Drive FILE is written as the mailbox, because a service account has no storage quota · Calendar events on each member's own calendar |
-| Cron | **v36.3: visit-followups = pg_cron every 15 min, GATED by `visit_followups_due()` — Vercel is only called when a reminder is due; the IR bounce scan (`ir-bounces`) and sheets-export run on GitHub Actions `crons.yml`.** Supabase `pg_cron` + `pg_net` → `/api/cron/*`, **10 jobs** (visit-followups 15 min · signups-import "15 min" — on GitHub Actions, whose scheduler really runs it ~4–12× a day; left as is on purpose, it costs Vercel nothing · membership-import 30 min · sheets-export hourly :05 · **backup daily 02:00 UTC** · podio-updates daily 05:00 · period-reports daily 07:00 (sprint + month, no quarters) · streak-nags daily 16:00 · touch-point-feedback daily 19:00 · attendance-reminders daily 20:59) |
+| Cron | **v36.3: visit-followups = pg_cron every 15 min, GATED by `visit_followups_due()` — Vercel is only called when a reminder is due; the IR bounce scan (`ir-bounces`) and sheets-export run on GitHub Actions `crons.yml`.** Supabase `pg_cron` + `pg_net` → `/api/cron/*`, **10 jobs** (visit-followups 15 min · signups-import "15 min" — on GitHub Actions, whose scheduler really runs it ~4–12× a day; left as is on purpose, it costs Vercel nothing · membership-import 30 min · sheets-export hourly :05 · **backup daily 02:00 UTC** · podio-updates daily 05:00 · period-reports daily 07:00 (sprint + month, no quarters) · streak-nags daily 16:00 · touch-point-feedback daily 19:00 · attendance-reminders daily 20:59) — **plus the four CXP pg_cron jobs** (cxp-sync hourly :20 · cxp-drive-scan hourly :35 · cxp-document-digest daily 06:00 · cxp-reminders daily 08:00), so pg_cron holds **11** jobs (all in `supabase/cron.sql`; verified green 2026-10-15) |
 | Admin | `ADMIN_EMAILS` env (= IM director, treated as LCP) |
 
 **Migrations** live in `supabase/migrations/` and are run **manually** in the
@@ -656,6 +656,8 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | Identity lookups by email (sign-in, viewer, reset) | `exactIlike` in `src/lib/like-pattern.ts` — never `.ilike("email", raw)` (pinned by `tests/security-hardening.test.ts`) |
 | Password / reset throttles | `src/server/rate-limit.ts` (`passwordAttemptAllowed`, `underHourlyLimit`) · `authorize` in `src/lib/auth.ts` · `requestPasswordReset` in `auth-actions.ts` |
 | Work-activity stamps (working-hours raw material) | `stampWork` in `src/server/work-activity.ts` — NOT in a "use server" file (that made it a public endpoint) |
+| IR availability rules (what the form marks vs what Save refuses) | `src/lib/availability.ts` (pure, the form) · the overlap block in `saveIrBookingSettings` (actions.ts) — the two must agree, one-date rows included (pinned by `tests/jules-review-3.test.ts`) |
+| Journalling many rows in one action | `recordUndoMany` / `snapshotManyForUndo` in `src/server/sandbox.ts` — never a per-row `await recordUndo` loop over an audience |
 | Rows-per-page pickers | `src/lib/page-size.ts` (`DEFAULT_PAGE_SIZE` — never a literal; pinned by `tests/page-size.test.ts`) |
 
 ---

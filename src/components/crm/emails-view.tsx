@@ -13,6 +13,7 @@ import {
 } from "@/server/actions";
 import type { SentEmailRow } from "@/server/data";
 import type { ComposeTemplate, LayoutOption } from "@/lib/email/compose";
+import { sanitizeEditedEmailHtml } from "@/lib/email/edited-html";
 import { fmtDateTime } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -97,7 +98,11 @@ export function EmailsView({
         setTemplate(d.template ?? "blank");
         if (d.cc?.length) setShowCc(true);
         if (d.bcc?.length) setShowBcc(true);
-        if (editor.current && d.body) editor.current.innerHTML = d.body;
+        // (v37.13) the same sanitizer as the AI draft: localStorage is only
+        // ever written by this editor, but it is still text read back into
+        // innerHTML, and nothing that runs belongs in a letter anyway
+        if (editor.current && typeof d.body === "string" && d.body)
+          editor.current.innerHTML = sanitizeEditedEmailHtml(d.body);
       }
     } catch {
       /* a corrupt draft is not worth an error message */

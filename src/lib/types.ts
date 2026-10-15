@@ -690,8 +690,10 @@ export const CONTACT_TAGS = [
 export function phoneTagsFor(value: string): string[] {
   const v = cleanPhone(value ?? "");
   if (HOTLINE_RE.test(v)) return ["Hotline", "Contact", "Other"];
-  // Egyptian landlines: +203… / +202… (or the local 03…/02… form)
-  const landline = /^(\+?20)?[23]\d{7,8}$/.test(v);
+  // Egyptian landlines: +203… / +202… / 00203… (or the local 03…/02… form —
+  // v37.13: the old pattern had no leading-0 branch, so a landline typed the
+  // way it is dialled locally was still offered the WhatsApp tag)
+  const landline = /^(?:(?:\+|00)?20|0)?[23]\d{7,8}$/.test(v);
   if (landline) return CONTACT_TAGS.filter((t) => t !== "Whatsapp" && t !== "Hotline");
   return CONTACT_TAGS.filter((t) => t !== "Hotline");
 }

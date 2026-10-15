@@ -14,7 +14,9 @@ import {
 } from "@/lib/types";
 import { audienceLabel, cairoWhen, touchPointName } from "@/lib/touch-points";
 import { getViewer, logAudit } from "./data";
-import { recordUndo, sandboxSuppressed, snapshotForUndo } from "./sandbox";
+import {
+  recordUndo, recordUndoMany, sandboxSuppressed, snapshotForUndo, snapshotManyForUndo,
+} from "./sandbox";
 import { notifyTouchPointAudience } from "./tm-notify";
 import { sendEmail } from "@/lib/google/gmail";
 import {
@@ -381,10 +383,15 @@ export async function saveAttendance(
 
   if (payload.length > 0) {
     // journal the rows that already existed, so a sandbox exit can restore them
-    for (const p of payload) {
-      const prior = byMember.get(p.member_id);
-      if (prior) await snapshotForUndo("touch_point_attendance", prior.id);
-    }
+    // (v37.13: one read + one journal insert for the whole audience, not two
+    // round trips per person)
+    await snapshotManyForUndo(
+      "touch_point_attendance",
+      payload.flatMap((p) => {
+        const prior = byMember.get(p.member_id);
+        return prior ? [prior.id] : [];
+      })
+    );
 
     const { data: saved, error } = await db()
       .from("touch_point_attendance")
@@ -395,9 +402,12 @@ export async function saveAttendance(
         return fail("Attendance needs migration 0031 — run it in the Supabase SQL editor.");
       return fail(error.message);
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const s of ((saved ?? []) as any[]))
-      if (!byMember.has(s.member_id)) await recordUndo("touch_point_attendance", s.id, "insert");
+    await recordUndoMany(
+      "touch_point_attendance",
+      ((saved ?? []) as { id: string; member_id: string }[])
+        .filter((s) => !byMember.has(s.member_id))
+        .map((s) => ({ rowId: s.id, op: "insert" as const }))
+    );
   }
 
   // A ONE-PERSON manual fix must not pass for a confirmation: a working-hours

@@ -146,10 +146,12 @@ export async function runVisitFollowups(
         `/accounts/${visit.account.id}`,
         "visit_followups"
       );
-      await db()
+      const { error: stampErr } = await db()
         .from("visits")
         .update({ followup_prompt_sent_at: new Date().toISOString() })
         .eq("id", visit.id);
+      // checked (v37.13): an unstamped visit is picked up again next run
+      if (stampErr) throw new Error(`stamp failed: ${stampErr.message}`);
       sent += 1;
     } catch (e) {
       console.error(`[cron] follow-up for visit ${visit.id} failed:`, e);
@@ -196,10 +198,11 @@ export async function runVisitFollowups(
         `/accounts/${visit.account.id}`,
         "visit_followups"
       );
-      await db()
+      const { error: stampErr } = await db()
         .from("visits")
         .update({ forgotten_nag_sent_at: new Date().toISOString() })
         .eq("id", visit.id);
+      if (stampErr) throw new Error(`stamp failed: ${stampErr.message}`);
       nagged += 1;
     } catch (e) {
       console.error(`[cron] forgotten-nag for visit ${visit.id} failed:`, e);
@@ -337,11 +340,21 @@ async function runNextStepReminders(): Promise<number> {
         });
         await sendEmail({ topic: "next_steps", to: [to], ...mail });
       }
+      // v37.13 — one write per distinct key (usually one: they're all due
+      // today), and CHECKED: supabase-js returns a failed write instead of
+      // throwing, and an unstamped account is "due" again in 15 minutes —
+      // the owner would get this reminder every run until the write landed
+      const byKey = new Map<string, string[]>();
       for (const a of items) {
-        await db()
+        const key = nextStepKey(a.next_step_date, a.next_step_time);
+        byKey.set(key, [...(byKey.get(key) ?? []), a.id]);
+      }
+      for (const [key, ids] of byKey) {
+        const { error } = await db()
           .from("accounts")
-          .update({ next_step_reminded_key: nextStepKey(a.next_step_date, a.next_step_time) })
-          .eq("id", a.id);
+          .update({ next_step_reminded_key: key })
+          .in("id", ids);
+        if (error) throw new Error(`stamp failed: ${error.message}`);
       }
       reminded += items.length;
     } catch (e) {
@@ -392,10 +405,11 @@ async function runB2cCallBacks(): Promise<number> {
       );
       // stamped only AFTER the nudge is actually out, so a failure retries on
       // the next pass instead of going silent (the v34.1 Podio-digest lesson)
-      await db()
+      const { error: stampErr } = await db()
         .from("signup_cic_calls")
         .update({ call_back_reminded_at: new Date().toISOString() })
         .eq("id", row.id);
+      if (stampErr) throw new Error(`stamp failed: ${stampErr.message}`);
       nudged++;
     } catch (e) {
       console.error(`[cron] call-back nudge ${row.id} failed:`, e);

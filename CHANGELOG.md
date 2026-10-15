@@ -7,6 +7,58 @@
 > ~87% of it. This file is NOT auto-loaded — grep it for the reasoning behind
 > a past decision before changing that behaviour.
 
+- **2026-10-15 · v37.13** — **JULES'S THIRD BATCH (37) + A FULL SYSTEM CHECK.**
+  No migration. The check first: tsc clean, lint identical to the v37.8
+  baseline (37 set-state-in-effect errors kept on purpose), production build
+  green, production = HEAD (a8bf4ea, READY), no runtime errors in the last 7
+  days but wrong-password sign-ins, all 11 pg_cron jobs green for 7 days, the
+  GitHub Actions crons (imports + sheets-export) succeeding, migrations
+  through 0085 live (0075's `b2c` comment class included), Supabase advisors
+  INFO-only (deny-all RLS by design, unindexed FKs on a small DB).
+  Then Jules, one by one — four real fixes, five real test gaps:
+  ① **The visit-followups cron ignored failed stamps.** Four writes —
+  `followup_prompt_sent_at`, `forgotten_nag_sent_at`,
+  `next_step_reminded_key`, `call_back_reminded_at` — were fire-and-forget;
+  supabase-js RETURNS a failed write, so an unstamped row was "due" again
+  15 minutes later and its owner would get the same email/bell every run.
+  All four are checked now (a failure is logged and not counted). The
+  next-step stamp is one `.in()` write per distinct key instead of one per
+  account (Jules's N+1 flag on the same loop).
+  ② **Availability overlaps only compared neighbours.** 09–17, 10–11, 12–13
+  marked the second row but not the third (it sits inside the first). It
+  never let a bad set through — any overlap has an adjacent one, so Save was
+  still blocked — but the form didn't outline every offending row. Now swept
+  against the window that reaches furthest. And the form now also checks a
+  one-date row against that weekday's weekly windows, exactly as
+  `saveIrBookingSettings` does — before, Save was offered and then refused.
+  ③ **`phoneTagsFor` missed the local landline form.** Its comment promised
+  "03…/02…" but the pattern had no leading-0 branch, so a landline typed the
+  way it's dialled (and `00203…`) was still offered the WhatsApp tag.
+  ④ **Attendance journalled per person** — two round trips per existing row
+  plus one per new row, so saving a 60-person session paid ~100 sequential
+  writes. `snapshotManyForUndo` / `recordUndoMany` (sandbox.ts) do it in one
+  read + one insert each; `recordUndo` now delegates to the batch writer.
+  Hardening: the Emails tab's restored localStorage draft goes through
+  `sanitizeEditedEmailHtml` like the AI draft (not exploitable — only this
+  editor writes that key — but it is text read back into innerHTML).
+  `tests/jules-review-3.test.ts` (31): the overlap sweep, `monthOf` /
+  `quarterOf` / `peakOf` / `peakForPlanning` / `sprintOf` / `inPeriod`
+  edges, contact auto-tagging + phone tag choices, B2C outcomes, the email
+  check's DNS step with fetch mocked (MX, A fallback, near-miss, fail-open),
+  and pins for ①, ④ and the draft sanitize. Help: the booking-link article
+  says every clashing row is outlined. HELP_VERSION → v37.13.
+  **False or already covered, unchanged:** the IGT expectation preview's
+  `dangerouslySetInnerHTML` (server-built, every field `esc()`-ed) · the 12
+  "console.log" hits (intentional operational logs, as in v37.10) ·
+  `serviceAccountEmail` "unguarded JSON.parse" (it's in a try/catch) ·
+  `funnelGap`, `b2cAssignPlan`, `time.ts`, `windowIssue`, `sane-date`,
+  `emailDomainIssue` (all already tested) · `parseSubscription` and the
+  "PDF.js" CV path (neither exists — CVs go to Gemini) · `podioCheckUrl`
+  (Jules showed a stub that isn't the code) · the pending-prompt resolve loop
+  (a queue drain: each read depends on the resolve before it) · the sandbox
+  replay loop (sequential on purpose, journal order) · the four "checklist"
+  items (history comments about bugs already fixed). **1015 tests**.
+
 - **2026-10-07 · v37.12** — **THE PAGE CONTROLS STOP DISAPPEARING.** No
   migration. Reported from OGV → Unassigned: "the next page and the 20/50…
   chooser all disappeared". The logs show why — the pool had been filtered by

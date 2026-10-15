@@ -47,30 +47,52 @@ export function windowIssue(w: AvailabilityWindow): string | null {
   return null;
 }
 
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
 /** Which rows CLASH with an earlier row — two windows on the same day would
  *  mint two overlapping slot grids, and the same minute would be offered
  *  twice. Returns a message per offending row index. */
 export function overlapIssues(windows: AvailabilityWindow[]): Map<number, string> {
   const out = new Map<number, string>();
-  const groups = new Map<string, { i: number; from: number; to: number }[]>();
+  type Span = { i: number; from: number; to: number };
+  const groups = new Map<string, Span[]>();
+  const weekly = new Map<number, Span[]>();
+  const dated: (Span & { date: string })[] = [];
   windows.forEach((w, i) => {
     if (windowIssue(w)) return; // a broken row reports its own problem first
+    const span = { i, from: toMin(String(w.from)), to: toEndMin(String(w.to)) };
     const key = w.date != null ? `d:${w.date}` : `w:${w.day}`;
-    const list = groups.get(key) ?? [];
-    list.push({ i, from: toMin(String(w.from)), to: toEndMin(String(w.to)) });
-    groups.set(key, list);
+    groups.set(key, [...(groups.get(key) ?? []), span]);
+    if (w.date != null) dated.push({ ...span, date: String(w.date) });
+    else weekly.set(Number(w.day), [...(weekly.get(Number(w.day)) ?? []), span]);
   });
   for (const list of groups.values()) {
+    // v37.13 — compare against the window that reaches FURTHEST so far, not
+    // just the previous one: 09:00–17:00, 10:00–11:00, 12:00–13:00 used to
+    // mark only the second row, though the third sits inside the first too
     const sorted = [...list].sort((a, b) => a.from - b.from);
-    for (let k = 1; k < sorted.length; k++) {
-      const prev = sorted[k - 1];
-      const cur = sorted[k];
-      if (cur.from < prev.to)
+    let reach = sorted[0];
+    for (const cur of sorted.slice(1)) {
+      if (cur.from < reach.to)
         out.set(
           cur.i,
-          `This overlaps another window on the same day — the one starting ${hhmm(prev.from)}.`
+          `This overlaps another window on the same day — the one starting ${hhmm(reach.from)}.`
         );
+      if (cur.to > reach.to) reach = cur;
     }
+  }
+  // a one-off date ALSO carries that weekday's weekly windows — the server
+  // (saveIrBookingSettings) merges the two before its own overlap check, so
+  // the form must too, or Save is offered and then refused
+  for (const d of dated) {
+    if (out.has(d.i)) continue;
+    const dow = new Date(`${d.date}T12:00:00Z`).getUTCDay();
+    const hit = (weekly.get(dow) ?? []).find((w) => d.from < w.to && w.from < d.to);
+    if (hit)
+      out.set(
+        d.i,
+        `This overlaps your weekly ${DAY_NAMES[dow]} window starting ${hhmm(hit.from)}.`
+      );
   }
   return out;
 }
