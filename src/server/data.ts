@@ -1,6 +1,7 @@
 import "server-only";
 import { exactIlike } from "@/lib/like-pattern";
 import { b2cCallUnrecorded, currentB2cCall } from "@/lib/b2c-cic";
+import { contactDaysByMember } from "@/lib/streak";
 import { touchPointName } from "@/lib/touch-points";
 import { cache } from "react";
 import { redirect } from "next/navigation";
@@ -522,26 +523,24 @@ export async function considerationStats(
       .eq("month", monthStart),
     db().from("members").select("id, name, role, stakeholder_id, functions, sub_functions, is_active"),
     // 🤝 partnerships (v33.38) — small table; pre-0059 grace: fail to empty
-    (async () => {
-      const { data } = await db()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    fetchAll<any>(() =>
+      db()
         .from("lc_partnerships")
         .select(
           "product, status, partnership_date, made_by, assigned_to, " +
             "maker:members!lc_partnerships_made_by_fkey(name)"
         )
-        .limit(5000);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return (data ?? []) as any[];
-    })().catch(() => []),
+        .order("id")
+    ).catch(() => []),
     // 🏆 approvals (v37) — the lane's own product(s); pre-0083: none
-    (async () => {
-      const { data } = await db()
+    fetchAll<import("@/lib/icx-approvals").LaneApprovalRow>(() =>
+      db()
         .from("icx_approvals")
         .select("approved_on, product, made_by, made_by_name, partner_lc_name, source")
         .eq("function", fn)
-        .limit(5000);
-      return (data ?? []) as import("@/lib/icx-approvals").LaneApprovalRow[];
-    })().catch(() => [] as import("@/lib/icx-approvals").LaneApprovalRow[]),
+        .order("id")
+    ).catch(() => [] as import("@/lib/icx-approvals").LaneApprovalRow[]),
     listPlanCells(planFnsOfLane(fn)).catch(() => [] as PlanCell[]),
   ]);
   const now = new Date();
@@ -3626,11 +3625,9 @@ export async function getSystemHealth(): Promise<SystemHealth> {
         detail: "Missing — set NEXT_PUBLIC_VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY",
       });
     } else {
-      const { data: subs } = await db()
-        .from("push_subscriptions")
-        .select("member_id")
-        .limit(5000);
-      const rows = (subs ?? []) as { member_id: string }[];
+      const rows = await fetchAll<{ member_id: string }>(() =>
+        db().from("push_subscriptions").select("member_id").order("id")
+      );
       const people = new Set(rows.map((r) => r.member_id)).size;
       const { count: active } = await db()
         .from("members")
@@ -5774,6 +5771,37 @@ const SIGNUP_SORTABLE = new Set([
   "status", "country", "created_at", "updated_at", "assigned_at",
 ]);
 
+/** FILTER LISTS LIVE IN MODULE MEMORY, NOT `unstable_cache` (v37.14).
+ *
+ *  The sign-up, CIC and IR-call funnels each page through a whole table to
+ *  learn what values a column holds, and each was wrapped in `unstable_cache`
+ *  for five minutes. But `refresh()` → `revalidatePath("/", "layout")` runs on
+ *  every sign-up edit and evicts ALL `unstable_cache` entries (the v33.46
+ *  lesson the dashboard already learnt), so the five minutes never happened:
+ *  the five OGV columns alone were ~40 paged reads per sign-ups render — the
+ *  top four queries in production by volume (~6,800 a day). Same five-minute
+ *  promise, kept where revalidatePath can't reach it. The PROMISE is stored,
+ *  so renders that land together share one read; a failed read is dropped at
+ *  once rather than served for five minutes. Keys are lanes, not viewers —
+ *  callers gate access BEFORE asking. */
+const OPTIONS_TTL_MS = 5 * 60_000;
+const optionsMemo = new Map<string, { at: number; value: Promise<unknown> }>();
+function memoOptions<T>(key: string, read: () => Promise<T>): Promise<T> {
+  const hit = optionsMemo.get(key);
+  if (hit && Date.now() - hit.at < OPTIONS_TTL_MS) return hit.value as Promise<T>;
+  const value = read();
+  optionsMemo.set(key, { at: Date.now(), value });
+  value.catch(() => {
+    if (optionsMemo.get(key)?.value === value) optionsMemo.delete(key);
+  });
+  // a guardrail, not a working limit — the key space is a handful of lanes
+  if (optionsMemo.size > 64) {
+    const oldest = optionsMemo.keys().next().value;
+    if (oldest !== undefined) optionsMemo.delete(oldest);
+  }
+  return value;
+}
+
 /** Which list views this viewer may open (server-enforced). */
 /** THE VALUES A COLUMN ACTUALLY HOLDS, across the WHOLE set (v33.15).
  *
@@ -5793,79 +5821,73 @@ export async function signupFilterOptions(
   // column funnels would otherwise be present but empty
   if (!_ogxLanes(viewer).includes(fn) && !b2cCicAccess(viewer)) return {};
   const COLUMNS = ["campaign", "person_status", "assigned_name", "country", "program"];
-  const { unstable_cache } = await import("next/cache");
-  const read = unstable_cache(
-    async () => {
-      const out: Record<string, string[]> = {};
-      // CURRENT membership of this function — the Assigned filter must offer
-      // the people who work the lane TODAY, not every name the trackers ever
-      // held (ex-members and people who moved functions kept appearing there)
-      const { data: crew } = await db()
-        .from("members")
-        .select("id, name, role, functions, sub_functions")
-        .eq("is_active", true);
-      const fnCrew = (
-        (crew ?? []) as {
-          id: string;
-          name: string;
-          role: string;
-          functions: string[] | null;
-          sub_functions: string[] | null;
-        }[]
-      ).filter(
-        (m) =>
-          m.role !== "LCP" &&
-          [...(m.functions ?? []), ...(m.sub_functions ?? [])].includes(fn)
-      );
-      const collapse = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
-      const currentNames = new Set(fnCrew.map((m) => collapse(m.name)));
-      // the trackers hold loose spellings ("A.Samir", first+last) that the
-      // importer's matcher DOES resolve to current members — those stored
-      // values must stay filterable, or filtering by the member's full name
-      // would return nothing (the query matches assigned_name verbatim)
-      const { matchMemberByName } = await import("@/lib/google/signups");
-      const crewLite = fnCrew.map((m) => ({ id: m.id, name: m.name, is_active: true }));
-      const belongsToCurrent = (v: string) =>
-        currentNames.has(collapse(v)) || matchMemberByName(v, crewLite) !== null;
-      // ⚠️ EVERY ROW, NOT THE FIRST 1000 (v37.6). This was `.limit(5000)` —
-      // but the API returns at most 1000 rows whatever the limit says, so a
-      // funnel was built from the first thousand rows of a column holding
-      // two to seven thousand: OGV's Campaign filter offered 13 of its 22
-      // campaigns and the rest could not be picked at all. `fetchAll` pages
-      // through; the five columns are read in parallel, not one after another.
-      const columnRows = await Promise.all(
-        COLUMNS.map((col) =>
-          fetchAll<Record<string, unknown>>(() =>
-            db()
-              .from("signups")
-              .select(`id, ${col}`)
-              .eq("fn", fn)
-              .not(col, "is", null)
-              .order("id")
-          )
+  return memoOptions(`signup-filter-options:${fn}`, async () => {
+    const out: Record<string, string[]> = {};
+    // CURRENT membership of this function — the Assigned filter must offer
+    // the people who work the lane TODAY, not every name the trackers ever
+    // held (ex-members and people who moved functions kept appearing there)
+    const { data: crew } = await db()
+      .from("members")
+      .select("id, name, role, functions, sub_functions")
+      .eq("is_active", true);
+    const fnCrew = (
+      (crew ?? []) as {
+        id: string;
+        name: string;
+        role: string;
+        functions: string[] | null;
+        sub_functions: string[] | null;
+      }[]
+    ).filter(
+      (m) =>
+        m.role !== "LCP" &&
+        [...(m.functions ?? []), ...(m.sub_functions ?? [])].includes(fn)
+    );
+    const collapse = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+    const currentNames = new Set(fnCrew.map((m) => collapse(m.name)));
+    // the trackers hold loose spellings ("A.Samir", first+last) that the
+    // importer's matcher DOES resolve to current members — those stored
+    // values must stay filterable, or filtering by the member's full name
+    // would return nothing (the query matches assigned_name verbatim)
+    const { matchMemberByName } = await import("@/lib/google/signups");
+    const crewLite = fnCrew.map((m) => ({ id: m.id, name: m.name, is_active: true }));
+    const belongsToCurrent = (v: string) =>
+      currentNames.has(collapse(v)) || matchMemberByName(v, crewLite) !== null;
+    // ⚠️ EVERY ROW, NOT THE FIRST 1000 (v37.6). This was `.limit(5000)` —
+    // but the API returns at most 1000 rows whatever the limit says, so a
+    // funnel was built from the first thousand rows of a column holding
+    // two to seven thousand: OGV's Campaign filter offered 13 of its 22
+    // campaigns and the rest could not be picked at all. `fetchAll` pages
+    // through; the five columns are read in parallel, not one after another.
+    const columnRows = await Promise.all(
+      COLUMNS.map((col) =>
+        fetchAll<Record<string, unknown>>(() =>
+          db()
+            .from("signups")
+            .select(`id, ${col}`)
+            .eq("fn", fn)
+            .not(col, "is", null)
+            .order("id")
         )
-      );
-      for (const [ci, col] of COLUMNS.entries()) {
-        const data = columnRows[ci];
-        const seen = new Set<string>();
-        for (const row of data) {
-          const v = String(row[col] ?? "").trim();
-          if (v) seen.add(v);
-        }
-        const values =
-          col === "assigned_name"
-            ? // keep the STORED casing (the filter queries eq/in on it), but
-              // only names that belong to the lane's current membership
-              [...seen].filter(belongsToCurrent)
-            : [...seen];
-        out[col] = values.sort((a, b) => a.localeCompare(b)).slice(0, 200);
+      )
+    );
+    for (const [ci, col] of COLUMNS.entries()) {
+      const data = columnRows[ci];
+      const seen = new Set<string>();
+      for (const row of data) {
+        const v = String(row[col] ?? "").trim();
+        if (v) seen.add(v);
       }
-      return out;
-    },
-    ["signup-filter-options", fn],
-    { revalidate: 300 }
-  );
-  return read();
+      const values =
+        col === "assigned_name"
+          ? // keep the STORED casing (the filter queries eq/in on it), but
+            // only names that belong to the lane's current membership
+            [...seen].filter(belongsToCurrent)
+          : [...seen];
+      out[col] = values.sort((a, b) => a.localeCompare(b)).slice(0, 200);
+    }
+    return out;
+  });
 }
 
 /** THE CIC POOL, as a predicate (v34.11): held by a real member, the first
@@ -5907,45 +5929,39 @@ export async function cicFirstCallerOptions(
   // list has to span it too, or half the callers are unreachable
   const want = fn && scope.includes(fn) ? [fn] : scope;
 
-  const { unstable_cache } = await import("next/cache");
-  const read = unstable_cache(
-    async () => {
-      // EVERY ROW, NOT THE FIRST 1000 (v37.7): `.limit(5000)` is capped at
-      // 1000 by the API and had no order, so a first caller whose rows all fell
-      // outside that arbitrary slice was missing from the funnel — the same
-      // cap v37.6 fixed in signupFilterOptions.
-      const rows = await fetchAll<{
-        assigned_to: string | null;
-        assigned_name: string | null;
-      }>(() =>
-        cicPoolFilter(
-          db().from("signups").select("id, assigned_to, assigned_name").in("fn", want)
-        ).order("id")
-      ).catch(() => []);
-      const byId = new Map<string, string>();
-      for (const r of rows) {
-        if (!r.assigned_to) continue;
-        if (!byId.get(r.assigned_to)) byId.set(r.assigned_to, (r.assigned_name ?? "").trim());
-      }
-      if (byId.size === 0) return [];
-      const { data: people } = await db()
-        .from("members")
-        .select("id, name")
-        .in("id", [...byId.keys()]);
-      for (const m of (people ?? []) as { id: string; name: string | null }[]) {
-        // the member's name today beats whatever spelling the sheet stored —
-        // a caller who has since left keeps their snapshot rather than
-        // vanishing from the funnel while their rows sit in the queue
-        if (m.name?.trim()) byId.set(m.id, m.name.trim());
-      }
-      return [...byId.entries()]
-        .map(([value, label]) => ({ value, label: label || "—" }))
-        .sort((a, b) => a.label.localeCompare(b.label));
-    },
-    ["cic-first-callers", want.join(",")],
-    { revalidate: 300 }
-  );
-  return read();
+  return memoOptions(`cic-first-callers:${want.join(",")}`, async () => {
+    // EVERY ROW, NOT THE FIRST 1000 (v37.7): `.limit(5000)` is capped at
+    // 1000 by the API and had no order, so a first caller whose rows all fell
+    // outside that arbitrary slice was missing from the funnel — the same
+    // cap v37.6 fixed in signupFilterOptions.
+    const rows = await fetchAll<{
+      assigned_to: string | null;
+      assigned_name: string | null;
+    }>(() =>
+      cicPoolFilter(
+        db().from("signups").select("id, assigned_to, assigned_name").in("fn", want)
+      ).order("id")
+    ).catch(() => []);
+    const byId = new Map<string, string>();
+    for (const r of rows) {
+      if (!r.assigned_to) continue;
+      if (!byId.get(r.assigned_to)) byId.set(r.assigned_to, (r.assigned_name ?? "").trim());
+    }
+    if (byId.size === 0) return [];
+    const { data: people } = await db()
+      .from("members")
+      .select("id, name")
+      .in("id", [...byId.keys()]);
+    for (const m of (people ?? []) as { id: string; name: string | null }[]) {
+      // the member's name today beats whatever spelling the sheet stored —
+      // a caller who has since left keeps their snapshot rather than
+      // vanishing from the funnel while their rows sit in the queue
+      if (m.name?.trim()) byId.set(m.id, m.name.trim());
+    }
+    return [...byId.entries()]
+      .map(([value, label]) => ({ value, label: label || "—" }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  });
 }
 
 /** MMs and above (the people who distribute) — TL/Coordinator/VP/Director/
@@ -7398,34 +7414,41 @@ export async function listPartnerLcDetails(viewer: Viewer): Promise<PartnerLcDet
     // IRs added BY HAND (v33.9) — the ones who never booked a call themselves
     (async (): Promise<ManualLcContact[]> => {
       // pre-0041 grace: the table may not exist yet on a lagging database
-      const { data } = await db()
-        .from("partner_lc_contacts")
-        .select("id, partner_lc_id, name, role, email, phone, product, source")
-        .order("created_at");
-      return (data ?? []) as ManualLcContact[];
+      // paged (v37.14) — the registry now holds every booked IR, and a plain
+      // read stops at the API's 1000-row cap without a word
+      return await fetchAll<ManualLcContact>(() =>
+        db()
+          .from("partner_lc_contacts")
+          .select("id, partner_lc_id, name, role, email, phone, product, source")
+          .order("created_at")
+          .order("id")
+      );
     })().catch(() => [] as ManualLcContact[]),
     // notes the crew left on an LC or on one of its IRs (v33.23)
     (async () => {
-      const { data } = await db()
-        .from("partner_lc_comments")
-        .select("id, partner_lc_id, contact_id, body, author_id, author_name, created_at")
-        .order("created_at", { ascending: false })
-        .limit(2000);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return (data ?? []) as any[];
+      return await fetchAll<any>(() =>
+        db()
+          .from("partner_lc_comments")
+          .select("id, partner_lc_id, contact_id, body, author_id, author_name, created_at")
+          .order("created_at", { ascending: false })
+          .order("id"),
+        2000
+      );
     })().catch(() => []),
     // 🤝 partnerships + targets (v33.38) — pre-0059 grace: fail to empty
     (async () => {
-      const { data } = await db()
-        .from("lc_partnerships")
-        .select(
-          "id, partner_lc_id, product, status, assigned_to, partnership_date, ir_name, stage, " +
-            "assigned:members!lc_partnerships_assigned_to_fkey(name), " +
-            "maker:members!lc_partnerships_made_by_fkey(name)"
-        )
-        .limit(5000);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return (data ?? []) as any[];
+      return await fetchAll<any>(() =>
+        db()
+          .from("lc_partnerships")
+          .select(
+            "id, partner_lc_id, product, status, assigned_to, partnership_date, ir_name, stage, " +
+              "assigned:members!lc_partnerships_assigned_to_fkey(name), " +
+              "maker:members!lc_partnerships_made_by_fkey(name)"
+          )
+          .order("id")
+      );
     })().catch(() => []),
     // the LC's derived assignees need each caller's Team Leader (v33.39)
     (async () => {
@@ -7774,30 +7797,24 @@ export async function irCallFilterOptions(
   viewer: Viewer
 ): Promise<{ members: string[]; lcs: string[] }> {
   if (!_hasConsiderationAccess(viewer)) return { members: [], lcs: [] };
-  const { unstable_cache } = await import("next/cache");
-  const read = unstable_cache(
-    async () => {
-      const rows = await fetchAll<{ member_name: string | null; partner_lc_name: string | null }>(
-        () =>
-          db()
-            .from("ir_calls")
-            .select("member_name, partner_lc_name")
-            .neq("status", "scheduled")
-            .order("id")
-      );
-      const members = new Set<string>();
-      const lcs = new Set<string>();
-      for (const r of rows) {
-        if (r.member_name?.trim()) members.add(r.member_name.trim());
-        if (r.partner_lc_name?.trim()) lcs.add(r.partner_lc_name.trim());
-      }
-      const sorted = (s: Set<string>) => [...s].sort((a, b) => a.localeCompare(b)).slice(0, 300);
-      return { members: sorted(members), lcs: sorted(lcs) };
-    },
-    ["ir-call-filter-options"],
-    { revalidate: 300 }
-  );
-  return read();
+  return memoOptions("ir-call-filter-options", async () => {
+    const rows = await fetchAll<{ member_name: string | null; partner_lc_name: string | null }>(
+      () =>
+        db()
+          .from("ir_calls")
+          .select("member_name, partner_lc_name")
+          .neq("status", "scheduled")
+          .order("id")
+    );
+    const members = new Set<string>();
+    const lcs = new Set<string>();
+    for (const r of rows) {
+      if (r.member_name?.trim()) members.add(r.member_name.trim());
+      if (r.partner_lc_name?.trim()) lcs.add(r.partner_lc_name.trim());
+    }
+    const sorted = (s: Set<string>) => [...s].sort((a, b) => a.localeCompare(b)).slice(0, 300);
+    return { members: sorted(members), lcs: sorted(lcs) };
+  });
 }
 
 /** IR calls — one SHARED international-relations effort: every module member
@@ -8887,36 +8904,15 @@ export async function streakStats(
     return null;
   }
 
-  // signup → the members who personally logged a contact on it (first day each)
-  const ownContactDay = new Map<string, Map<string, string>>();
-  for (const l of contactLogs) {
-    if (!l.member_id) continue;
-    const per = ownContactDay.get(l.signup_id) ?? new Map<string, string>();
-    const day = cairoDayIso(new Date(l.at));
-    const prev = per.get(l.member_id);
-    if (!prev || day < prev) per.set(l.member_id, day);
-    ownContactDay.set(l.signup_id, per);
-  }
-
-  // member → the Cairo days they contacted on, and today's tally
+  // member → the Cairo days they contacted on, and today's tally. The referral
+  // rule (v33.39) lives in `contactDaysByMember`, shared with the 19:00 nag
+  // cron since v37.14 so the two can't disagree about a day.
   const byMember = new Map<string, { days: Set<string>; today: number }>();
-  for (const r of rows) {
-    if (!r.assigned_to) continue;
-    let day: string;
-    if (r.source === "referral") {
-      // THE ABUSE FIX (v33.39): a referral arrives pre-contacted by whoever
-      // LOGGED it. It saves the assignee's streak only when the assignee
-      // themselves flipped the contact (their own log), on that day.
-      const own = ownContactDay.get(r.id)?.get(r.assigned_to);
-      if (!own) continue;
-      day = own;
-    } else {
-      day = cairoDayIso(new Date(r.contacted_at));
-    }
-    const e = byMember.get(r.assigned_to) ?? { days: new Set<string>(), today: 0 };
-    e.days.add(day);
-    if (day === today) e.today += 1;
-    byMember.set(r.assigned_to, e);
+  for (const [memberId, dayList] of contactDaysByMember(rows, contactLogs)) {
+    byMember.set(memberId, {
+      days: new Set(dayList),
+      today: dayList.filter((d) => d === today).length,
+    });
   }
 
   const mine = byMember.get(viewer.id) ?? { days: new Set<string>(), today: 0 };

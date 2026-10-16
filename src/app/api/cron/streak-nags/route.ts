@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { notifyMembers } from "@/server/notify";
-import { cairoDayIso, markCronRun, streakEndingAt } from "@/server/data";
+import { cairoDayIso, fetchAll, markCronRun, streakEndingAt } from "@/server/data";
+import {
+  contactDaysByMember,
+  type StreakContactLog,
+  type StreakContactRow,
+} from "@/lib/streak";
 import { db } from "@/lib/supabase";
 import { env } from "@/lib/env";
 import { sendEmail } from "@/lib/google/gmail";
@@ -69,30 +74,41 @@ export async function GET(req: NextRequest) {
   {
     // DERIVED from the live sign-ups, exactly like the card (v32.4) — reading
     // the old activity stamps here would nag on streaks the card no longer
-    // shows, because an undone contact still left a stamp behind
-    const PAGE = 1000;
-    for (let off = 0; off < 40000; off += PAGE) {
-      const { data, error } = await db()
-        .from("signups")
-        .select("assigned_to, contacted_at")
-        .in("assigned_to", mms.map((m) => m.id))
-        // "yes"/"YES" count too — the same y% rule as the card (v33.37)
-        .ilike("contact_status", "y%")
-        .not("contacted_at", "is", null)
-        .gte("contacted_at", `${cutoff}T00:00:00`)
-        .order("id")
-        .range(off, off + PAGE - 1);
-      if (error) {
-        console.error("[streak-nags] activity query failed:", error.message);
-        return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-      }
-      for (const r of (data ?? []) as { assigned_to: string; contacted_at: string }[]) {
-        const set = days.get(r.assigned_to) ?? new Set<string>();
-        set.add(cairoDayIso(new Date(r.contacted_at)));
-        days.set(r.assigned_to, set);
-      }
-      if ((data ?? []).length < PAGE) break;
+    // shows, because an undone contact still left a stamp behind. And the
+    // card's REFERRAL rule too (v37.14): `contactDaysByMember` is the one
+    // definition both read, so the nag and the card agree on what saved a day.
+    let rows: StreakContactRow[];
+    let logs: StreakContactLog[];
+    try {
+      [rows, logs] = await Promise.all([
+        fetchAll<StreakContactRow>(() =>
+          db()
+            .from("signups")
+            .select("id, assigned_to, contacted_at, source")
+            .in("assigned_to", mms.map((m) => m.id))
+            // "yes"/"YES" count too — the same y% rule as the card (v33.37)
+            .ilike("contact_status", "y%")
+            .not("contacted_at", "is", null)
+            .gte("contacted_at", `${cutoff}T00:00:00`)
+            .order("id")
+        ),
+        fetchAll<StreakContactLog>(() =>
+          db()
+            .from("signup_logs")
+            .select("signup_id, member_id, at")
+            .eq("field", "contacted")
+            .ilike("new_value", "y%")
+            .gte("at", `${cutoff}T00:00:00`)
+            .order("id")
+        ),
+      ]);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String((e as { message?: string })?.message ?? e);
+      console.error("[streak-nags] activity query failed:", message);
+      return NextResponse.json({ ok: false, error: message }, { status: 500 });
     }
+    for (const [memberId, dayList] of contactDaysByMember(rows, logs))
+      days.set(memberId, new Set(dayList));
   }
 
   const sent: string[] = [];

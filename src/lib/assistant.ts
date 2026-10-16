@@ -1,7 +1,7 @@
 import "server-only";
 import type { Viewer } from "@/lib/rbac";
 import {
-  listAllMembers, getDashboard, listAccounts, listVisibleMembers } from "@/server/data";
+  listAllMembers, getDashboard, listAccounts } from "@/server/data";
 import { accountSlug } from "@/lib/types";
 import { buildCoreContext } from "@/lib/core-analytics";
 import { cairoDay, resolvePeriod } from "@/lib/ask-period";

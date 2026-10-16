@@ -15,7 +15,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-10-15 · Version: v37.13
+Last updated: 2026-10-16 · Version: v37.14
 
 ---
 
@@ -67,7 +67,7 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0061_touch_point_location` → `0062_close_rls_gaps` → `0063_prank_mode` →
 `0064_api_keys` → `0065_ir_slot_requests` → `0066_im_prompts` →
 `0067_member_settings` → `0068_cxp_module` → `0069_push_subscriptions` → `0070_b2c_cic_outcomes` →
-`0071_partnership_stage` → … → `0076_next_step_reminders` → `0077_visit_followups_gate` → `0078_contact_keys` → `0079_cv_drive_import` → `0080_redirect_links_and_locations` → `0081_activation_bid_and_tour_seen` → `0082_bd_b2b_planning` → `0083_cxp_staging_and_icx_approvals` → `0084_function_privileges_and_streak_index` → `0085_signup_batch_older` (0077's FILE was recreated from prod in v37.7)
+`0071_partnership_stage` → … → `0076_next_step_reminders` → `0077_visit_followups_gate` → `0078_contact_keys` → `0079_cv_drive_import` → `0080_redirect_links_and_locations` → `0081_activation_bid_and_tour_seen` → `0082_bd_b2b_planning` → `0083_cxp_staging_and_icx_approvals` → `0084_function_privileges_and_streak_index` → `0085_signup_batch_older` → `0086_list_indexes_and_ir_registry` (0077's FILE was recreated from prod in v37.7)
 (**all applied**, 0046–0063 during v33.22–v33.51, 0064–0067 during v34.5–v34.8,
 0069 during v35).
 
@@ -329,7 +329,9 @@ mutation through a `can*` predicate, **server-side**.
   rows only). Golden rule: every in-process account carries a next step with a
   date or a pending visit; 3 unanswered attempts → OOP prompt.
 - **Visits**: calendar event on the responsible's Google Calendar (24h + 1h
-  reminders), +2h follow-up email, report emails to VP + manager (never LCP).
+  reminders), +2h follow-up email, report emails to the function's head(s) —
+  LCVPs AND Directors, B2B/BD matched as one function (v37.14) — + manager
+  (never LCP).
   `scheduleVisit` returns a `calendarHint` (`linked`/`no_grant`/`relogin`/
   `error`) so the UI says exactly why a reminder wasn't created (dead Google
   grant → re-login) instead of failing silently.
@@ -344,6 +346,11 @@ mutation through a `can*` predicate, **server-side**.
   - **Shared with leaders** (calendar attendees, Google invite): a **Member's**
     visit is shared with their **Team Leader + function VP(s)**; a **Team Leader
     or Coordinator's** with the **VP(s)**. Raising only (not consideration).
+    A **Director** rides the invite for their OWN function's visits only
+    (v37.14 — B2B & BD, B2C); the IGV/IGT→B2B widening stays an LCVP rule.
+  - **Archiving clears the calendar on every path** (`clearArchivedCalendar`,
+    v37.14): the archive button, a *Not Interested* contact result and a Podio
+    *Rejected* all drop the pending visit's event and the next-step event.
   - **Function-wide announcement**: booking a visit **emails + in-app notifies
     the whole product's raising crew + B2B** (IGV visit → IGV raising + B2B;
     IGT → IGT raising + B2B; B2B → IGV + IGT raising + B2B) — an FYI, no
@@ -659,6 +666,13 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | IR availability rules (what the form marks vs what Save refuses) | `src/lib/availability.ts` (pure, the form) · the overlap block in `saveIrBookingSettings` (actions.ts) — the two must agree, one-date rows included (pinned by `tests/jules-review-3.test.ts`) |
 | Journalling many rows in one action | `recordUndoMany` / `snapshotManyForUndo` in `src/server/sandbox.ts` — never a per-row `await recordUndo` loop over an audience |
 | Rows-per-page pickers | `src/lib/page-size.ts` (`DEFAULT_PAGE_SIZE` — never a literal; pinned by `tests/page-size.test.ts`) |
+| The OGX streak's day rule (card AND 19:00 nag) | `contactDaysByMember` in `src/lib/streak.ts` (pure, tested) — the referral rule lives there and nowhere else |
+| Fire-and-forget emails/bells from an action | `keepAlive(promise)` in `src/server/background.ts` (Next `after()` → waitUntil) — never a bare un-awaited `sendEmail(…)` (pinned) |
+| What archiving takes off the calendar | `clearArchivedCalendar` in `actions.ts` — every archive path calls it (pinned) |
+| Storing an IR call's calendar event / registering the IR | `linkIrCallEvent` (checked write, one retry) · `registerBookingContact` (plain insert; 23505 = already there) in `actions.ts` |
+| Deal counters + the Deal Done stage | DERIVED from the `deals` table in `recordDeal`/`updateDeal`/`cancelDeal` — the last cancel clears `slot_raised` (the view's stage reads it) |
+| Column-filter option lists (sign-ups, CIC, IR calls) | `memoOptions` in `data.ts` — module memory, 5 min; NOT `unstable_cache` (revalidatePath evicts it) |
+| Throttle buckets in app_settings | `RATE_BUCKET_SCOPES` + `pruneRateBuckets` in `src/server/rate-limit.ts` (nightly, after the backup) — a new scope must be added to the list (pinned) |
 
 ---
 

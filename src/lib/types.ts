@@ -1339,11 +1339,14 @@ export function fmtClock12(hhmm: string | null | undefined): string {
  *  prefilling date pickers with the previous day, so a member logging work
  *  after midnight got the wrong date typed in for them, and it made
  *  "is this next step overdue?" answer no for a step that expired hours ago.
- *  Every "today" the user can see or be judged against comes from here. */
-export function cairoToday(): string {
+ *  Every "today" the user can see or be judged against comes from here.
+ *
+ *  Pass an instant to get ITS Cairo day (v37.14) — the same trap applies to
+ *  any timestamp turned into a calendar day, not only to now. */
+export function cairoToday(at: Date = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: CAIRO, year: "numeric", month: "2-digit", day: "2-digit",
-  }).format(new Date());
+  }).format(at);
 }
 
 /** "2:05 PM" from an ISO timestamp (12-hour, Cairo time — see fmtDateTime). */

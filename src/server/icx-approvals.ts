@@ -18,6 +18,28 @@ import {
 } from "@/lib/icx-approvals";
 import { monthOf, peakOf, sprintOf } from "@/lib/plan";
 
+/** EVERY ROW A QUERY MATCHES (v37.14). `.limit(5000)` and `.limit(10000)` read
+ *  like room to grow, but the API answers at most 1000 rows per request
+ *  whatever the limit says — so the boards, the MOS and the "already logged"
+ *  check would all have stopped counting at the 1000th approval, silently.
+ *  Paged here (not via data.ts's fetchAll, which this file only reaches by
+ *  dynamic import). The builder must carry a stable order. */
+async function readAll<T>(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  build: () => any,
+  max = 20_000
+): Promise<{ data: T[]; error: { message: string } | null }> {
+  const out: T[] = [];
+  for (let off = 0; off < max; off += 1000) {
+    const { data, error } = await build().range(off, Math.min(off + 1000, max) - 1);
+    if (error) return { data: out, error };
+    const chunk = (data ?? []) as T[];
+    out.push(...chunk);
+    if (chunk.length < 1000) break;
+  }
+  return { data: out, error: null };
+}
+
 /**
  * ICX APPROVALS — the reads (v37).
  *
@@ -197,7 +219,7 @@ export async function approvalSuggestions(viewer: Viewer): Promise<ApprovalSugge
       .not("approval_date", "is", null)
       .gte("approval_date", sinceDay)
       .order("submission_month", { ascending: false }),
-    db().from("icx_approvals").select("expa_id"),
+    readAll<{ expa_id: string | null }>(() => db().from("icx_approvals").select("expa_id").order("id")),
     db().from("partner_lcs").select("id, name"),
   ]);
 
@@ -341,11 +363,13 @@ export async function approvalBoards(
   if (lanes.length === 0) return {};
   const { listPlanCells, cairoDayIso } = await import("./data");
   const [{ data: rows }, { data: members }, cells] = await Promise.all([
-    db()
-      .from("icx_approvals")
-      .select("function, approved_on, product, made_by, made_by_name, partner_lc_name, source")
-      .in("function", lanes)
-      .limit(5000),
+    readAll<LaneApprovalRow>(() =>
+      db()
+        .from("icx_approvals")
+        .select("function, approved_on, product, made_by, made_by_name, partner_lc_name, source")
+        .in("function", lanes)
+        .order("id")
+    ),
     db().from("members").select("id, name, role, stakeholder_id"),
     listPlanCells(lanes.flatMap(planFnsOfLane)),
   ]);
@@ -393,12 +417,14 @@ export async function approvalsByWindow<K extends string>(
   if (keys.length === 0) return out;
   const from = keys.map((k) => windows[k].start).sort()[0];
   const to = keys.map((k) => windows[k].end).sort().slice(-1)[0];
-  const { data, error } = await db()
-    .from("icx_approvals")
-    .select("product, approved_on")
-    .gte("approved_on", from)
-    .lte("approved_on", to)
-    .limit(10000);
+  const { data, error } = await readAll<{ product: string; approved_on: string }>(() =>
+    db()
+      .from("icx_approvals")
+      .select("product, approved_on")
+      .gte("approved_on", from)
+      .lte("approved_on", to)
+      .order("id")
+  );
   if (error) return out;
   for (const r of data ?? []) {
     const lane = r.product === "GV" ? "IGV" : r.product === "GTa" ? "IGTa" : "IGTe";
@@ -419,7 +445,9 @@ export async function approvalMosByMonth(
   const out = new Map<string, Map<string, number>>();
   if (memberIds.length === 0) return out;
   const [{ data: rows, error }, { data: members }] = await Promise.all([
-    db().from("icx_approvals").select("approved_on, made_by, made_by_name").limit(10000),
+    readAll<{ approved_on: string; made_by: string | null; made_by_name: string }>(() =>
+      db().from("icx_approvals").select("approved_on, made_by, made_by_name").order("id")
+    ),
     db().from("members").select("id, name, role, stakeholder_id"),
   ]);
   if (error) return out;

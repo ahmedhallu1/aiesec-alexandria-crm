@@ -7,6 +7,82 @@
 > ~87% of it. This file is NOT auto-loaded — grep it for the reasoning behind
 > a past decision before changing that behaviour.
 
+- **2026-10-16 · v37.14** — **A FULL SYSTEM AUDIT, DRIVEN BY PRODUCTION DATA.**
+  Migration **0086** (indexes + data repairs, applied with the release).
+  Baseline first: 1015 tests green, tsc clean, build green, lint at the v37.8
+  baseline. Then the database and the logs were asked what the code reviews
+  couldn't see — every finding below was confirmed against production rows.
+  ① **Every booked IR was refused by the contacts registry.** 0049's
+  one-per-person index is `(partner_lc_id, lower(email)) WHERE email IS NOT
+  NULL`; the booking upserted `on_conflict=partner_lc_id,email`, which names
+  no index → 42P10 → a 400 on every booking since August, and the
+  `.then(undefined, …)` meant to log it never fired (supabase-js RESOLVES with
+  an error). 128 of 170 calls had no contact. Now a plain insert (23505 =
+  already there) via `registerBookingContact`, also on an ACCEPTED slot
+  request (which never registered anyone); 0086 backfills the missing rows.
+  ② **A cancelled last deal left the account at "Deal Done".** The view's
+  stage reads `slot_raised`; cancelDeal recomputed counters but never cleared
+  it (its comment claimed the view read deals_count). Leader Gym sat at Deal
+  Done with 0 deals for seven weeks, inside every Visit Done → Deal rate.
+  Fixed + repaired. recordDeal now derives its counters from the stored deals
+  too (two deals closed together could lose one to a stale base).
+  ③ **Archiving by "Not Interested" left the calendar behind.** Only the
+  archive button removed the pending visit's event and the next-step event; a
+  Not Interested result removed neither, a Podio Rejected kept the visit
+  event. 12 archived accounts still had a follow-up event (all past-dated, left
+  in place). One `clearArchivedCalendar` for all three paths.
+  ④ **B2B/BD visit reports reached nobody.** The report looked for LCVPs whose
+  functions contain the account's exact label; B2B & BD are led by a Director
+  and a "BD" account never matched "B2B" — 20 reports, none stamped sent.
+  Reports now go to LCVPs AND Directors (B2B/BD as one function). Visit
+  INVITES: a Director rides their own function's visits (the code always said
+  "VPs/Directors" but read LCVP); the IGV/IGT→B2B widening stays LCVP-only, so
+  the B2B Director is not suddenly invited to every IGV/IGT visit.
+  ⑤ **Accepting an IR's requested time didn't invite the host** to a mailbox
+  event (`ownerEmail: null`) — no calendar entry, and a Meet whose only owner
+  never admits anyone. Same rule as a direct booking now.
+  ⑥ **IR calendar ids are stored with a checked write** (`linkIrCallEvent`,
+  one retry). The hand-over deleted the OLD event even when saving the new id
+  failed — the call then pointed at a deleted event; now the new one is rolled
+  back instead and the old one kept.
+  ⑦ **The 19:00 streak nag and the card disagreed.** The card applies the
+  v33.39 referral rule; the nag counted any contacted referral, so an MM whose
+  only "contact" was someone else's pre-contacted referral was never nagged and
+  lost the streak. Both read `contactDaysByMember` (`src/lib/streak.ts`).
+  ⑧ **Membership import's identity lookup used a raw ilike** — `_` as a
+  wildcard could resolve "mona_ali@…" to "mona.ali@…" and send the wrong
+  member's id the rename cascade and the promotion's sign-up release. `exactIlike`, like every
+  other identity lookup (the pin now scans all of src, not three files).
+  ⑨ **Fire-and-forget emails are kept alive** (`keepAlive` → `after()`): ten
+  un-awaited sends in actions/sign-in could be cut off when the lambda froze.
+  ⑩ **Email preheaders are escaped** in the shared shell (bodies always were;
+  member-typed text — a feedback message — reached the preheader raw).
+  ⑪ **Dates**: Podio-due dot, referral sign-up date, partnership date default
+  and IR-screenshot names now use the CAIRO day, not a UTC slice.
+  **Performance.** `accounts_pipeline` ran five lateral lookups on ALL ~5,650
+  accounts before sorting a page: indexes on the list orders + a partial
+  pinned-comment index → list page 70 ms → 3.5 ms, full-read page 290 → 16 ms
+  (measured on prod). The sign-up/CIC/IR filter dropdowns were `unstable_cache`d
+  — but every sign-up edit's `revalidatePath` evicts that (the v33.46 lesson),
+  so OGV's five columns were ~40 paged reads per render, the top four queries in
+  production (~6,800/day): module memory now (`memoOptions`). Podio stamps batch
+  per pass. Approvals/partnership/registry reads that relied on `.limit(5000)`
+  (silently 1000) page through.
+  **Data repairs in 0086:** IR registry backfill · Leader Gym out of Deal Done
+  · 19 impossible next-step dates (years 8999–275760, one member's, set before
+  the v37.7 check) cleared, step text kept · ~340 dead rate-limit buckets
+  deleted (and pruned nightly after the backup from now on).
+  **Diagnostics:** the one production error ("[audit] insert failed:
+  undefined") now logs code/details/hint; CXP reminder/digest log writes (the
+  resend guard) report failures instead of swallowing them.
+  **Left alone, needs a decision:** 300 open sign-ups still sit with two
+  deactivated OGV members (275 + 25) — a release policy is the LC's call (as
+  v37.7 said). Lint: 37 errors unchanged (the intentional
+  set-state-in-effect baseline), warnings 26 → 13 (dead imports, a dead PDP
+  helper). `tests/system-audit-v37-14.test.ts` (30). Help: visit reports/invites
+  for Director-led functions, archiving clears the calendar on every path, IRs
+  join the registry automatically. HELP_VERSION → v37.14. **1045 tests**.
+
 - **2026-10-15 · v37.13** — **JULES'S THIRD BATCH (37) + A FULL SYSTEM CHECK.**
   No migration. The check first: tsc clean, lint identical to the v37.8
   baseline (37 set-state-in-effect errors kept on purpose), production build

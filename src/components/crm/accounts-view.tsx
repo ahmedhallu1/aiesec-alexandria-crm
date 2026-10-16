@@ -1143,8 +1143,6 @@ export function AccountsView({
       ].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""))
     : [];
 
-  const archivedCount = archivedItems.length;
-
   /** Which dashboard lane this list is currently about. A single function
    *  filter maps 1:1 (IGT + a product pick lands on IGTa/IGTe); several picks
    *  or none has no single answer, so the dashboard opens on the viewer's own

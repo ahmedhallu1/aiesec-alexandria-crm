@@ -308,7 +308,7 @@ export function CalendarView({
       (effectiveScope === "mine" || effectiveScope === "team"
         ? touchPoints.filter((t) => t.mine)
         : touchPoints
-      ).filter((t) => kindOn("touchPoints")),
+      ).filter(() => kindOn("touchPoints")),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [touchPoints, viewScope, kinds]
   );

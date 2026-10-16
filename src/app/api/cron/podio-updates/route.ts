@@ -248,17 +248,22 @@ export async function GET(req: NextRequest) {
         await sendEmail({ topic: "podio", to: [...new Set(bucket.emails)], ...mail });
       }
 
-      // stamp only AFTER the digest went out — a failed send must retry
-      for (const d of bucket.due) {
+      // stamp only AFTER the digest went out — a failed send must retry.
+      // One write per PASS, not per account (v37.14): a digest of twenty
+      // accounts was twenty sequential round trips.
+      for (const [list, patch] of [
+        [first, { podio_update_notified_at: now.toISOString() }],
+        [second, { podio_update_second_notified_at: now.toISOString() }],
+      ] as const) {
+        if (list.length === 0) continue;
         const { error: stampError } = await db()
           .from("accounts")
-          .update(
-            d.pass === 2
-              ? { podio_update_second_notified_at: now.toISOString() }
-              : { podio_update_notified_at: now.toISOString() }
-          )
-          .eq("id", d.id);
-        if (stampError) throw new Error(`stamp failed for ${d.name}: ${stampError.message}`);
+          .update(patch)
+          .in("id", list.map((d) => d.id));
+        if (stampError)
+          throw new Error(
+            `stamp failed for ${list.map((d) => d.name).join(", ")}: ${stampError.message}`
+          );
       }
       sent.push(`${bucket.name}: ${bucket.due.length} account(s)`);
     } catch (e) {

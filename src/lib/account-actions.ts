@@ -86,7 +86,10 @@ export function podioDueDay(a: ActionableAccount): string | null {
   const every = a.podio_update_every_days ?? PODIO_UPDATE_DEFAULT_DAYS;
   const due = new Date(new Date(anchorIso).getTime() + every * DAY_MS);
   if (Number.isNaN(due.getTime())) return null;
-  return due.toISOString().slice(0, 10);
+  // the CAIRO day it falls due (v37.14) — it is compared against cairoToday(),
+  // and a refresh due at 01:00 Cairo was the previous day as a UTC slice, so
+  // the dot said "due" a day before the cron did
+  return cairoToday(due);
 }
 
 export function accountActions(

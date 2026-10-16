@@ -55,6 +55,13 @@ function emailHeader(): string {
         </tr>`;
 }
 
+/** THE PREHEADER IS TEXT, NOT MARKUP (v37.14). Callers build it from whatever
+ *  the email is about — a feedback message, an account or LC name, a member's
+ *  name — and it went into the HTML raw while every body escaped the same
+ *  values, so `</div><a href=…>` typed into a feedback message became a
+ *  visible link in an official LC email. (The public booking page strips tags
+ *  from its inputs already; member-typed text never was.) Escaped here, once,
+ *  for every template. */
 function shell(opts: { preheader?: string; header: string; body: string; footer: string }): string {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -65,7 +72,7 @@ function shell(opts: { preheader?: string; header: string; body: string; footer:
   <meta name="supported-color-schemes" content="light">
 </head>
 <body style="margin:0;padding:0;background-color:#eef0f4;font-family:Karla,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;">
-  ${opts.preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${opts.preheader}</div>` : ""}
+  ${opts.preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${escapeHtml(opts.preheader)}</div>` : ""}
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#eef0f4;padding:30px 12px;">
     <tr><td align="center">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;border-collapse:separate;">

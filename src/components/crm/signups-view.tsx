@@ -31,7 +31,7 @@ import {
 import { cn } from "@/lib/utils";
 import { CountryInput } from "./country-input";
 import {
-  ColumnFilter, PageSizePicker, resizableCellStyle, ResizableHead, TableSettings, useTableColumns, type TableColumn,
+  ColumnFilter, PageSizePicker, resizableCellStyle, TableSettings, useTableColumns, type TableColumn,
 } from "./data-table-kit";
 import { Hint } from "./hint";
 import { ExportButton } from "./export-button";

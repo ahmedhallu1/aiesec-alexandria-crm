@@ -1817,7 +1817,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "p",
-    "md": "**Who else hears about it?** Two different things happen. First, the **calendar invite**: a Member's visit invites their Team Leader + the function VP(s) as attendees; a Team Leader's or Coordinator's invites the VP(s). Second, the **announcement** (v33.42, narrowed): a **new booking** reaches the function's **Members** plus the responsible's own Team Leader — not the other MMs, since another team's TL has no call to make about it; a **move** reaches only the responsible's Team Leader, and nobody at all when an MM moves their own visit. LCVPs/Directors join those emails only if their function's defaults say so (they always ride the calendar invite). You can see everyone's visits on the [Calendar](/calendar)."
+    "md": "**Who else hears about it?** Two different things happen. First, the **calendar invite**: a Member's visit invites their Team Leader + the function VP(s) as attendees; a Team Leader's or Coordinator's invites the VP(s). Where a **Director** leads the function (B2B & BD, B2C), the Director rides the invite for their own function's visits. Second, the **announcement** (v33.42, narrowed): a **new booking** reaches the function's **Members** plus the responsible's own Team Leader — not the other MMs, since another team's TL has no call to make about it; a **move** reaches only the responsible's Team Leader, and nobody at all when an MM moves their own visit. LCVPs/Directors join those emails only if their function's defaults say so (they always ride the calendar invite). You can see everyone's visits on the [Calendar](/calendar)."
    },
    {
     "t": "steps",
@@ -1830,7 +1830,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "p",
-    "md": "**After the visit**, a follow-up email arrives about **2 hours later** asking how it went — report the result from the account. If you're a Member or Coordinator, your Team Leader gets that email too. A visit still unreported **one week later** triggers one firmer reminder: report it, or mark the account Out of Process if they're not interested."
+    "md": "**After the visit**, a follow-up email arrives about **2 hours later** asking how it went — report the result from the account. If you're a Member or Coordinator, your Team Leader gets that email too. A visit still unreported **one week later** triggers one firmer reminder: report it, or mark the account Out of Process if they're not interested. **Your report** goes to your manager and the function's head — the VP, or the Director for B2B & BD and B2C (B2B and BD count as one function here)."
    },
    {
     "t": "callout",
@@ -2203,7 +2203,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "callout",
-    "md": "**The calendar does the remembering.** Whenever a next step gets a date, Sodio upserts a follow-up event on your Google Calendar — at the step's time, or at **11:00** when you set only a date. Change the step and the event moves; clear it (or archive the account) and the event disappears. One step, one event, always in sync.",
+    "md": "**The calendar does the remembering.** Whenever a next step gets a date, Sodio upserts a follow-up event on your Google Calendar — at the step's time, or at **11:00** when you set only a date. Change the step and the event moves; clear it (or archive the account — by the button, a *Not Interested* result or a Podio *Rejected*) and the event disappears, along with a pending visit's invite. One step, one event, always in sync.",
     "tone": "info"
    },
    {
@@ -3466,7 +3466,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
    },
    {
     "t": "p",
-    "md": "**The registry** (⚙ on the IR-calls tab) is the LC's memory of every partner entity. Each LC carries its country, **GV/GT badges derived from the calls actually made** (never stored, never stale), its IR people — every IR is a real contact row with a pick-list role, email and WhatsApp — plus **notes** on the LC itself or on any single IR (the 💬 button on their row). The **History** button opens one timeline — calls, CVs and notes, newest first — each call entry naming both the IR *and* the member who took it, with the IR's own \"what I'd like to talk about\" note and the in-call notes. \"Have we spoken to these people before?\" is one click now."
+    "md": "**The registry** (⚙ on the IR-calls tab) is the LC's memory of every partner entity. Each LC carries its country, **GV/GT badges derived from the calls actually made** (never stored, never stale), its IR people — every IR is a real contact row with a pick-list role, email and WhatsApp, and an IR who books through your link (or whose requested time you accept) is added automatically — plus **notes** on the LC itself or on any single IR (the 💬 button on their row). The **History** button opens one timeline — calls, CVs and notes, newest first — each call entry naming both the IR *and* the member who took it, with the IR's own \"what I'd like to talk about\" note and the in-call notes. \"Have we spoken to these people before?\" is one click now."
    },
    {
     "t": "p",

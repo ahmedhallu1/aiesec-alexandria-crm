@@ -6,6 +6,7 @@ import {
   normalizePhone, LC_FUNCTIONS, SUB_FUNCTIONS, MANAGER_ROLES } from "@/lib/types";
 import type { Member, MemberRole } from "@/lib/types";
 import { memberNameProblem } from "@/lib/member-fields";
+import { exactIlike } from "@/lib/like-pattern";
 
 /** Google Sheets mirror layer.
  *
@@ -642,11 +643,19 @@ export async function applyMembershipGrid(
       seenEmails.push(row.email);
       // "the email just landed": adopt the phone-keyed row instead of
       // inserting a duplicate — the member keeps their id, accounts, history
-      const { data: existing } = await db()
-        .from("members")
-        .select("id, name, role")
-        .ilike("email", row.email)
-        .maybeSingle<{ id: string; name: string; role: string }>();
+      // EXACT (v37.14) — the one identity lookup v37.7's sweep missed. A raw
+      // ilike reads `_` as a wildcard, so "mona_ali@…" could resolve to
+      // "mona.ali@…" and hand the WRONG member's id the rename cascade and the
+      // promotion's sign-up release. A value with `*` can't be matched
+      // exactly; it falls through to the email upsert below.
+      const emailPat = exactIlike(row.email);
+      const { data: existing } = emailPat
+        ? await db()
+            .from("members")
+            .select("id, name, role")
+            .ilike("email", emailPat)
+            .maybeSingle<{ id: string; name: string; role: string }>()
+        : { data: null };
       // a corrected SPELLING must travel to the snapshot columns (v33.18) —
       // otherwise the old string keeps appearing in every filter built from
       // them ("Elina Tallat" beside "Elina Talaat")

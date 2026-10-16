@@ -36,6 +36,38 @@ export async function underHourlyLimit(
   }
 }
 
+/** Every scope that writes an hourly bucket into app_settings — the booking,
+ *  login, reset and API throttles. Keep this list in step with the callers. */
+export const RATE_BUCKET_SCOPES = [
+  "bookrl", "loginrl", "pwid", "pwip", "resetip", "resetmember", "apirl",
+] as const;
+
+/** DEAD BUCKETS GO (v37.14). A bucket is keyed by the hour it counts, so it is
+ *  garbage the moment that hour ends — but nothing ever deleted one, and
+ *  app_settings had collected ~340 of them (most of the table), every one
+ *  copied into each night's backup.
+ *  Anything untouched for two days is removed; run nightly by the backup cron.
+ *  Never throws: housekeeping must not fail the job that calls it. */
+export async function pruneRateBuckets(): Promise<number> {
+  try {
+    const cutoff = new Date(Date.now() - 2 * 86_400_000).toISOString();
+    const { data, error } = await db()
+      .from("app_settings")
+      .delete()
+      .or(RATE_BUCKET_SCOPES.map((s) => `key.like.${s}:%`).join(","))
+      .lt("updated_at", cutoff)
+      .select("key");
+    if (error) {
+      console.error("[rate] bucket prune failed:", error.message);
+      return 0;
+    }
+    return (data ?? []).length;
+  } catch (e) {
+    console.error("[rate] bucket prune failed:", e);
+    return 0;
+  }
+}
+
 /** PASSWORD GUESSES COST SOMETHING (v37.7). Ten tries per identifier and a
  *  hundred per network an hour — no member signing in gets near either, and
  *  guessing eighty passwords stops being a loop. Checked inside `authorize`, so

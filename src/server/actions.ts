@@ -53,6 +53,7 @@ import { recordUndo, sandboxSuppressed, snapshotForUndo } from "./sandbox";
 // v29: every real piece of work stamps work_activity — the raw material of
 // AUTOMATIC working-hours attendance (see src/server/attendance.ts)
 import { stampWork } from "./work-activity";
+import { keepAlive } from "./background";
 import { sendEmail } from "@/lib/google/gmail";
 import { visitReportEmail } from "@/lib/email/templates";
 import {
@@ -715,8 +716,10 @@ export async function updateAccount(
         : error.message
     );
   // next step touched (or the account auto-archived) → keep the calendar
-  // follow-up reminder in sync
-  if (
+  // follow-up reminder in sync; an auto-archive also drops the visit event
+  if (update.out_of_process === true) {
+    await clearArchivedCalendar(accountId);
+  } else if (
     "next_step" in update || "next_step_date" in update ||
     "next_step_time" in update || "out_of_process" in update
   ) {
@@ -1119,6 +1122,36 @@ export async function moveAccountFunction(
   return { ok: true };
 }
 
+/** WHAT ARCHIVING TAKES OFF THE CALENDAR — every way an account is archived
+ *  (v37.14). The archive button did both halves; the two AUTOMATIC archives
+ *  didn't: a "Not Interested" contact result removed neither, and a Podio
+ *  "Rejected" kept the visit event. Twelve archived accounts still had a
+ *  "follow up with …" event on someone's Google Calendar on 2026-10-16, all
+ *  from the Not Interested path. One helper, so the paths can't drift again. */
+async function clearArchivedCalendar(accountId: string): Promise<void> {
+  // the pending visit's reminder, if one exists
+  const { data: pending } = await db()
+    .from("visits")
+    .select("*")
+    .eq("account_id", accountId)
+    .is("done", null)
+    .maybeSingle<Visit>();
+  // (v37.7) sandbox: leave the real event alone — rollback restores the row,
+  // never a deleted Google event
+  if (pending?.calendar_event_id && !(await sandboxSuppressed("visit event delete"))) {
+    // the event may live on the responsible's own calendar (tier 1) OR the
+    // shared "Sodio — LC Visits" calendar (tier 2) — try both
+    const { data: owner } = await db()
+      .from("members")
+      .select("google_refresh_token")
+      .eq("id", pending.member_id)
+      .maybeSingle<{ google_refresh_token: string | null }>();
+    await deleteVisitEvent(owner?.google_refresh_token ?? null, pending.calendar_event_id).catch(() => {});
+    await deleteMailboxVisitEvent(pending.calendar_event_id).catch(() => {});
+  }
+  await syncNextStepReminder(accountId); // drop the follow-up reminder too
+}
+
 export async function setOutOfProcess(
   accountId: string,
   reason: string
@@ -1140,27 +1173,7 @@ export async function setOutOfProcess(
     .eq("id", accountId);
   if (error) return fail(error.message);
 
-  // drop the pending visit reminder if one exists
-  const { data: pending } = await db()
-    .from("visits")
-    .select("*")
-    .eq("account_id", accountId)
-    .is("done", null)
-    .maybeSingle<Visit>();
-  // (v37.7) sandbox: leave the real event alone — rollback restores the row,
-  // never a deleted Google event
-  if (pending?.calendar_event_id && !(await sandboxSuppressed("visit event delete"))) {
-    // the event may live on the responsible's own calendar (tier 1) OR the
-    // shared "Sodio — LC Visits" calendar (tier 2) — try both
-    const { data: owner } = await db()
-      .from("members")
-      .select("google_refresh_token")
-      .eq("id", pending.member_id)
-      .maybeSingle<{ google_refresh_token: string | null }>();
-    await deleteVisitEvent(owner?.google_refresh_token ?? null, pending.calendar_event_id).catch(() => {});
-    await deleteMailboxVisitEvent(pending.calendar_event_id).catch(() => {});
-  }
-  await syncNextStepReminder(accountId); // drop the follow-up reminder too
+  await clearArchivedCalendar(accountId);
   await stampWork(viewer.id, "account_archived"); // v33.18
   await logAudit(viewer.id, "out_of_process", "account", accountId, { reason });
   refresh(accountId);
@@ -1443,15 +1456,41 @@ export async function recordDeal(
     }
     for (const a of insertedAllocs ?? []) await recordUndo("deal_allocations", a.id, "insert");
   }
-  const totals = {
-    slot_raised: true,
-    slot_raised_at: new Date().toISOString(),
-    slots_count: (account.slots_count ?? 0) + cleanSlots,
-    deals_count: (account.deals_count ?? 0) + 1,
-    slots_igv_count: (account.slots_igv_count ?? 0) + igv,
-    slots_igta_count: (account.slots_igta_count ?? 0) + igta,
-    slots_igte_count: (account.slots_igte_count ?? 0) + igte,
-  };
+  // THE COUNTERS ARE DERIVED — from the deals table, like updateDeal and
+  // cancelDeal already did (v37.14). Adding this deal to the counters READ
+  // BEFORE the insert lost one of two deals recorded close together (two
+  // people closing on one partner, a retried submit): each added itself to
+  // the same stale base. Summing what is actually stored can't drift.
+  const { data: dealSums, error: sumError } = await db()
+    .from("deals")
+    .select("slots, slots_igv, slots_igta, slots_igte")
+    .eq("account_id", accountId);
+  const stored = sumError ? null : ((dealSums ?? []) as {
+    slots: number | null; slots_igv: number | null; slots_igta: number | null; slots_igte: number | null;
+  }[]);
+  const sumOf = (k: "slots" | "slots_igv" | "slots_igta" | "slots_igte") =>
+    (stored ?? []).reduce((n, d) => n + (d[k] ?? 0), 0);
+  const totals = stored
+    ? {
+        slot_raised: true,
+        slot_raised_at: new Date().toISOString(),
+        slots_count: sumOf("slots"),
+        deals_count: stored.length,
+        slots_igv_count: sumOf("slots_igv"),
+        slots_igta_count: sumOf("slots_igta"),
+        slots_igte_count: sumOf("slots_igte"),
+      }
+    : {
+        // the re-read failed — fall back to the old increment rather than
+        // leave the account showing no deal at all
+        slot_raised: true,
+        slot_raised_at: new Date().toISOString(),
+        slots_count: (account.slots_count ?? 0) + cleanSlots,
+        deals_count: (account.deals_count ?? 0) + 1,
+        slots_igv_count: (account.slots_igv_count ?? 0) + igv,
+        slots_igta_count: (account.slots_igta_count ?? 0) + igta,
+        slots_igte_count: (account.slots_igte_count ?? 0) + igte,
+      };
   // THE ACCOUNT FOLLOWS THE OPEN (v34.10). IGV and IGT share one uniqueness
   // world ("ICX"), so no name re-check is needed here the way a move to
   // BD/B2C would need one — this can only ever be a relabel inside that world.
@@ -2379,8 +2418,10 @@ export async function bulkReassignAccounts(
             accountNames: names,
             accountsUrl: `${env.appUrl}/accounts`,
           });
-          sendEmail({ topic: "accounts_assigned", to: [target.email], ...mail }).catch((e) =>
-            console.error("[bulk-reassign] email failed:", e)
+          keepAlive(
+            sendEmail({ topic: "accounts_assigned", to: [target.email], ...mail }).catch((e) =>
+              console.error("[bulk-reassign] email failed:", e)
+            )
           );
         }
       }
@@ -2737,8 +2778,14 @@ export async function cancelDeal(
   }
 
   // THE COUNTERS ARE DERIVED — recompute from what is left, exactly as an
-  // opens edit does. Dropping to zero deals also drops the account's stage
-  // back out of "Deal Done", because the pipeline view reads deals_count.
+  // opens edit does.
+  //
+  // ⚠️ AND THE STAGE (v37.14). This comment used to say dropping to zero deals
+  // drops the stage out of "Deal Done" because the view reads deals_count —
+  // it doesn't: accounts_pipeline's stage reads `slot_raised`, which nothing
+  // here touched. Leader Gym's only deal was cancelled on 2026-08-28 and the
+  // account sat at "Deal Done" with 0 deals for seven weeks, counted in every
+  // Visit Done → Deal conversion since. The last deal leaving now clears it.
   const { data: sums } = await db()
     .from("deals")
     .select("slots, slots_igv, slots_igta, slots_igte")
@@ -2746,7 +2793,7 @@ export async function cancelDeal(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const all = (sums ?? []) as any[];
   const agg = (k: string) => all.reduce((n, d) => n + (d[k] ?? 0), 0);
-  await db()
+  const { error: countersError } = await db()
     .from("accounts")
     .update({
       slots_count: agg("slots"),
@@ -2754,8 +2801,11 @@ export async function cancelDeal(
       slots_igta_count: agg("slots_igta"),
       slots_igte_count: agg("slots_igte"),
       deals_count: all.length,
+      ...(all.length === 0 ? { slot_raised: false, slot_raised_at: null } : {}),
     })
     .eq("id", deal.account_id);
+  if (countersError)
+    console.error("[cancel-deal] account counters not updated:", countersError.message);
 
   // the record a human will actually look for
   const { data: cancelNote } = await db().from("account_comments").insert({
@@ -2959,6 +3009,7 @@ export async function logContact(
     // in the pipeline un-archived
     if (oopErr)
       return fail(`The contact was logged, but archiving the account failed: ${oopErr.message}`);
+    await clearArchivedCalendar(accountId);
     await logAudit(viewer.id, "out_of_process", "account", accountId, {
       reason: "Not interested",
     });
@@ -3159,8 +3210,18 @@ async function resolveVisitRecipients(
   // does not exist, so the pre-0054 behaviour applies (v33.32).
   const visitSettings = await fnSettingsForVisit(account.function ?? "");
   const attendees = new Set<string>();
+  // Directors too (v37.14) — the note below has always said "VPs/Directors
+  // ride the calendar INVITE", but this read LCVP only, so the functions a
+  // Director leads (B2B & BD, B2C) put no visit on their head's calendar.
+  // A Director rides their OWN function's visits only (`announceFns`): the
+  // B2B widening of IGV/IGT invites stays an LCVP rule, or the B2B Director
+  // would start receiving every IGV and IGT visit in the LC.
   const vps = visitSettings.visitInviteLeaders
-    ? members.filter((m) => m.role === "LCVP" && inFns(shareFns, m))
+    ? members.filter(
+        (m) =>
+          (m.role === "LCVP" && inFns(shareFns, m)) ||
+          (m.role === "Director" && inFns(announceFns, m))
+      )
     : [];
   if (responsible.role === "Member") {
     const tl = responsible.stakeholder_id ? byId.get(responsible.stakeholder_id) : null;
@@ -3476,8 +3537,10 @@ export async function scheduleVisit(
         accountUrl: `${env.appUrl}/accounts/${slug}`,
         moved: announceAsMove,
       });
-      sendEmail({ topic: "visit_announcements", to: [env.gmailSender || viewer.email || ""].filter(Boolean), bcc: announceEmails, ...mail }).catch(
-        (e) => console.error("[visits] announcement email failed:", e)
+      keepAlive(
+        sendEmail({ topic: "visit_announcements", to: [env.gmailSender || viewer.email || ""].filter(Boolean), bcc: announceEmails, ...mail }).catch(
+          (e) => console.error("[visits] announcement email failed:", e)
+        )
       );
     }
   }
@@ -4079,13 +4142,23 @@ export async function reportVisit(
     await syncNextStepReminder(visit.account_id);
   }
 
-  // notify: function VP(s) + the responsible's stakeholder (deduped)
+  // notify: the function's head(s) + the responsible's stakeholder (deduped).
+  //
+  // THE HEAD MAY BE A DIRECTOR, AND B2B IS BD (v37.14). This asked for LCVPs
+  // whose functions contain the account's exact label — but B2B & BD are led
+  // by a Director, and a "BD" account never matched a head listed as "B2B".
+  // So every B2B/BD visit report went to the stakeholder alone, and when the
+  // Director reported it themself, to nobody: 20 B2B/BD reports by
+  // 2026-10-16, not one stamped as sent.
+  // Directors carry a VP's function authority (rbac.ts), so they're heads too.
+  const headLabels =
+    account.function === "B2B" || account.function === "BD" ? ["B2B", "BD"] : [account.function];
   const [{ data: responsible }, { data: vps }] = await Promise.all([
     db().from("members").select("*, stakeholder:members!members_stakeholder_id_fkey(*)")
       .eq("id", visit.member_id).maybeSingle(),
     db().from("members").select("*")
-      .eq("role", "LCVP")
-      .contains("functions", [account.function])
+      .in("role", ["LCVP", "Director"])
+      .overlaps("functions", headLabels)
       .eq("is_active", true),
   ]);
   const recipients = new Map<string, string>();
@@ -4108,9 +4181,11 @@ export async function reportVisit(
       nextStep: nextStep || null,
       accountUrl: `${env.appUrl}/accounts/${account.id}`,
     });
-    sendEmail({ topic: "visit_results", to: [...recipients.values()], ...mail })
-      .then(() => db().from("visits").update({ report_sent_at: new Date().toISOString() }).eq("id", visitId))
-      .catch((e) => console.error("[visits] report email failed:", e));
+    keepAlive(
+      sendEmail({ topic: "visit_results", to: [...recipients.values()], ...mail })
+        .then(() => db().from("visits").update({ report_sent_at: new Date().toISOString() }).eq("id", visitId))
+        .catch((e) => console.error("[visits] report email failed:", e))
+    );
   }
 
   await logAudit(viewer.id, "report_visit", "visit", visitId, { done });
@@ -4179,8 +4254,10 @@ export async function submitFeedback(input: {
     message: input.message.trim(),
     inboxUrl: `${env.appUrl}/feedback/inbox`,
   });
-  sendEmail({ topic: "feedback", to: [...FEEDBACK_INBOX_EMAILS], ...mail }).catch((e) =>
-    console.error("[feedback] notification email failed:", e)
+  keepAlive(
+    sendEmail({ topic: "feedback", to: [...FEEDBACK_INBOX_EMAILS], ...mail }).catch((e) =>
+      console.error("[feedback] notification email failed:", e)
+    )
   );
   // an anonymous report must not name its author in the log either — the
   // /admin console sits beside the inbox (lc feedback does this since v33.30)
@@ -6170,8 +6247,10 @@ export async function sendBroadcast(
       body: b.body,
       senderName: viewer.name,
     });
-    sendEmail({ topic: "broadcasts", to: [viewer.email || env.gmailSender].filter(Boolean), bcc: targets.map((t) => t.email), ...mail }).catch(
-      (e) => console.error("[broadcast] email failed:", e)
+    keepAlive(
+      sendEmail({ topic: "broadcasts", to: [viewer.email || env.gmailSender].filter(Boolean), bcc: targets.map((t) => t.email), ...mail }).catch(
+        (e) => console.error("[broadcast] email failed:", e)
+      )
     );
   }
 
@@ -6240,8 +6319,10 @@ export async function thankFeedback(feedbackId: string): Promise<ActionResult> {
     memberFirstName: f.member.name.split(" ")[0],
     feedbackSnippet: f.message.slice(0, 160),
   });
-  sendEmail({ topic: "feedback", to: [f.member.email], ...mail }).catch((e) =>
-    console.error("[feedback] thanks email failed:", e)
+  keepAlive(
+    sendEmail({ topic: "feedback", to: [f.member.email], ...mail }).catch((e) =>
+      console.error("[feedback] thanks email failed:", e)
+    )
   );
 
   await logAudit(viewer.id, "feedback_thanks", "feedback", feedbackId);
@@ -6546,13 +6627,17 @@ export async function submitLcFeedback(input: {
     if (withMail.length === 1) {
       const t = withMail[0];
       const mail = lcShoutoutEmail({ firstName: t.name.split(" ")[0], from, message });
-      sendEmail({ topic: "shoutouts", to: [t.email], ...mail }).catch((e) =>
-        console.error("[lc-feedback] shout-out email failed:", e)
+      keepAlive(
+        sendEmail({ topic: "shoutouts", to: [t.email], ...mail }).catch((e) =>
+          console.error("[lc-feedback] shout-out email failed:", e)
+        )
       );
     } else if (withMail.length > 1) {
       const mail = lcShoutoutEmail({ firstName: null, from, message });
-      sendEmail({ topic: "shoutouts", to: [], bcc: withMail.map((t) => t.email), ...mail }).catch((e) =>
-        console.error("[lc-feedback] shout-out email failed:", e)
+      keepAlive(
+        sendEmail({ topic: "shoutouts", to: [], bcc: withMail.map((t) => t.email), ...mail }).catch((e) =>
+          console.error("[lc-feedback] shout-out email failed:", e)
+        )
       );
     }
   }
@@ -7739,7 +7824,9 @@ export async function addSignupReferral(input: {
       program: fn === "OGV" ? "GV" : clean(input.subProduct, 20),
       referral: clean(input.referredBy, 120),
       campaign: "Referral",
-      signed_up_at: now.toISOString().slice(0, 10),
+      // the Cairo day (v37.14) — a referral logged after midnight was dated
+      // the day before as a UTC slice
+      signed_up_at: cairoToday(now),
       assigned_to: owner.id,
       assigned_name: owner.name,
       assigned_at: now.toISOString(),
@@ -8933,7 +9020,7 @@ export async function recordIrCall(input: {
   if (input.screenshot?.dataBase64) {
     const up = await uploadIrScreenshot(
       input.screenshot,
-      `IR call — ${lc.name} — ${calledAt.toISOString().slice(0, 10)}`
+      `IR call — ${lc.name} — ${cairoToday(calledAt)}`
     );
     if ("error" in up) return up.error;
     screenshot = up.file;
@@ -9180,6 +9267,54 @@ const bookingPlain = (v: unknown, max: number) =>
     .trim()
     .slice(0, max);
 
+/** THE CALL REMEMBERS ITS EVENT — CHECKED (v37.14). Every path that creates an
+ *  IR-call calendar event then stores its id on the call, and none of them
+ *  looked at whether that write landed. When it doesn't, the call points at
+ *  nothing (or at an event that was just deleted) and a later reschedule or
+ *  cancel can't reach the invite the IR is holding. One retry, then `false`
+ *  so the caller can decide what an unrecorded event means for it. */
+async function linkIrCallEvent(
+  callId: string,
+  event: { id: string; meetLink?: string | null },
+  calendar: "owner" | "mailbox"
+): Promise<boolean> {
+  const patch = { calendar_event_id: event.id, meet_link: event.meetLink ?? null, event_calendar: calendar };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { error } = await db().from("ir_calls").update(patch).eq("id", callId);
+    if (!error) return true;
+    console.error(`[ir-calls] could not store event ${event.id} on call ${callId}:`, error.message);
+  }
+  return false;
+}
+
+/** An IR who booked (or whose requested time was accepted) becomes a row in
+ *  the partner LC's registry — once per person per LC. See the note at the
+ *  call in `bookIrCall` for why this is an insert and not an upsert. */
+async function registerBookingContact(
+  lcId: string,
+  ir: {
+    name: string | null;
+    role: string | null;
+    email: string | null;
+    phone: string | null;
+    product: string | null;
+  }
+): Promise<void> {
+  const email = (ir.email ?? "").trim().toLowerCase();
+  if (!email) return;
+  const { error } = await db().from("partner_lc_contacts").insert({
+    partner_lc_id: lcId,
+    name: ir.name?.trim() || email.split("@")[0],
+    role: ir.role,
+    email,
+    phone: ir.phone,
+    product: ir.product,
+    source: "booking",
+  });
+  if (error && error.code !== "23505")
+    console.error("[ir-booking] contact insert failed:", error.message);
+}
+
 /** Shared per-IP throttle for EVERY public booking mutation (book, reschedule,
  *  cancel): 3 actions/hour per IP. Returns a fail() when over, null when OK —
  *  and never blocks the action on a throttle-infra error. */
@@ -9379,21 +9514,22 @@ export async function bookIrCall(input: {
   // exist only as a snapshot on the call, which is why nothing could be
   // attached to them — no note, no product tag, no correction. Best-effort:
   // a failure here must never cost the booking.
-  await db()
-    .from("partner_lc_contacts")
-    .upsert(
-      {
-        partner_lc_id: lc.id,
-        name: bookerName,
-        role: bookerRole,
-        email: bookerEmail,
-        phone: bookerPhone,
-        product: irProductForMember(owner),
-        source: "booking",
-      },
-      { onConflict: "partner_lc_id,email", ignoreDuplicates: true }
-    )
-    .then(undefined, (e) => console.error("[ir-booking] contact upsert failed:", e));
+  //
+  // A PLAIN INSERT, NOT AN UPSERT (v37.14). The one-per-person rule is the
+  // index on (partner_lc_id, lower(email)) WHERE email IS NOT NULL — an
+  // expression AND a partial index, which `on_conflict=partner_lc_id,email`
+  // can never name. Postgres answered every booking with 42P10, and the
+  // `.then(undefined, …)` that was meant to log it never fired, because
+  // supabase-js RESOLVES with an error instead of rejecting. 128 of 170 IRs
+  // never reached the registry. A duplicate (23505) is the "already there"
+  // case and is fine; anything else is now said out loud.
+  await registerBookingContact(lc.id, {
+    name: bookerName,
+    role: bookerRole,
+    email: bookerEmail,
+    phone: bookerPhone,
+    product: irProductForMember(owner),
+  });
 
   // the public manage link's key — lets the IR reschedule/cancel accountless
   const manageToken = crypto.randomBytes(16).toString("hex");
@@ -9465,10 +9601,7 @@ export async function bookIrCall(input: {
       : null;
     if (own) {
       meetLink = own.meetLink;
-      await db()
-        .from("ir_calls")
-        .update({ calendar_event_id: own.id, meet_link: own.meetLink, event_calendar: "owner" })
-        .eq("id", created.id);
+      await linkIrCallEvent(created.id, own, "owner");
     } else {
       // TIER 2 — the member has no Google grant (password sign-in): host the
       // event + Meet on the IM MAILBOX calendar so the IR still gets an invite
@@ -9486,13 +9619,7 @@ export async function bookIrCall(input: {
       });
       if (viaMailbox) {
         meetLink = viaMailbox.meetLink;
-        await db()
-          .from("ir_calls")
-          .update({
-            calendar_event_id: viaMailbox.id, meet_link: viaMailbox.meetLink,
-            event_calendar: "mailbox",
-          })
-          .eq("id", created.id);
+        await linkIrCallEvent(created.id, viaMailbox, "mailbox");
       }
     }
   } catch (e) {
@@ -9870,10 +9997,11 @@ export async function respondToIrSlotRequest(
   // ── ACCEPT ────────────────────────────────────────────────────────────
   const { data: owner } = await db()
     .from("members")
-    .select("id, name, google_refresh_token, functions, sub_functions")
+    .select("id, name, email, fallback_email, google_refresh_token, functions, sub_functions")
     .eq("id", req.member_id)
     .maybeSingle<{
-      id: string; name: string; google_refresh_token: string | null;
+      id: string; name: string; email: string | null; fallback_email: string | null;
+      google_refresh_token: string | null;
       functions: string[] | null; sub_functions: string[] | null;
     }>();
   if (!owner) return fail("The host is no longer on the membership.");
@@ -9954,6 +10082,16 @@ export async function respondToIrSlotRequest(
     return fail("Could not book it — try again.");
   }
 
+  // the IR joins the LC's registry, exactly as a direct booking does
+  if (lcId)
+    await registerBookingContact(lcId, {
+      name: req.booker_name,
+      role: req.booker_role,
+      email: req.booker_email,
+      phone: req.booker_phone,
+      product: irProductForMember(owner),
+    });
+
   // best-effort calendar + Meet, exactly as the public booking path does: the
   // owner's own calendar first, the IM mailbox when they have no live grant
   let meetLink: string | null = null;
@@ -9978,7 +10116,13 @@ export async function respondToIrSlotRequest(
       ? null
       : await createIrCallEventOnMailbox({
           partnerLc: lcName, start, minutes: req.duration_minutes,
-          attendeeEmail: req.booker_email, ownerEmail: null, description,
+          attendeeEmail: req.booker_email,
+          // THE HOST IS INVITED (v37.14) — this said `null`, so a host with
+          // no Google grant got a mailbox event they weren't on: nothing on
+          // their calendar, and a Meet whose only owner (the IM mailbox)
+          // never admits anyone. Same rule as the public booking path.
+          ownerEmail: owner.email ?? owner.fallback_email ?? null,
+          description,
         }).catch((e) => {
           console.error("[ir-request] mailbox calendar failed:", e);
           return null;
@@ -9986,14 +10130,7 @@ export async function respondToIrSlotRequest(
     const made = ev ?? onMailbox;
     if (made) {
       meetLink = made.meetLink ?? null;
-      await db()
-        .from("ir_calls")
-        .update({
-          calendar_event_id: made.id,
-          meet_link: made.meetLink ?? null,
-          event_calendar: ev ? "owner" : "mailbox",
-        })
-        .eq("id", created.id);
+      await linkIrCallEvent(created.id, made, ev ? "owner" : "mailbox");
     }
   } catch (e) {
     console.error("[ir-request] calendar failed:", e);
@@ -10442,16 +10579,22 @@ export async function reassignIrCall(
           ownerEmail: to.email ?? to.fallback_email ?? null,
           description,
         }));
-      if (made) {
+      const linked = made ? await linkIrCallEvent(id, made, own ? "owner" : "mailbox") : false;
+      if (made && !linked) {
+        // THE CALL STILL POINTS AT THE OLD EVENT (v37.14) — so the old one
+        // must stay, and the new one goes: an invite nothing tracks is one
+        // no reschedule or cancel can ever reach.
+        try {
+          if (own) await deleteIrCallEvent(to.google_refresh_token ?? null, made.id);
+          else await deleteIrCallEventOnMailbox(made.id);
+        } catch (e) {
+          console.error("[ir-calls] hand-over: untracked new event delete failed:", e);
+        }
+        warning =
+          `The call is ${to.name}'s now, but the calendar didn't follow — the invite is still on ` +
+          `${fromName}'s calendar. Try the hand-over again, or check both calendars by hand.`;
+      } else if (made) {
         meetLink = made.meetLink;
-        await db()
-          .from("ir_calls")
-          .update({
-            calendar_event_id: made.id,
-            meet_link: made.meetLink,
-            event_calendar: own ? "owner" : "mailbox",
-          })
-          .eq("id", id);
         // only now is the old one safe to remove
         if (call.calendar_event_id) {
           try {
@@ -10774,14 +10917,9 @@ export async function updateIrBookerEmail(id: string, emailRaw: string): Promise
       if (rebuilt) {
         meetLink = rebuilt.meetLink;
         inviteSwapped = true;
-        await db()
-          .from("ir_calls")
-          .update({
-            calendar_event_id: rebuilt.id,
-            meet_link: rebuilt.meetLink,
-            event_calendar: made ? "owner" : "mailbox",
-          })
-          .eq("id", id);
+        // the old event is already gone, so there is nothing to roll back to —
+        // but an unrecorded id is now logged instead of silently lost (v37.14)
+        await linkIrCallEvent(id, rebuilt, made ? "owner" : "mailbox");
       }
     } catch (e) {
       console.error("[ir-calls] invite rebuild failed:", e);

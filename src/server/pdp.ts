@@ -495,20 +495,6 @@ export interface PdpRow extends Pdp {
   steps: PdpStep[];
 }
 
-/** The manager link of a set of members, for `canReadPdp`. */
-async function managersOf(ids: string[]): Promise<Map<string, string | null>> {
-  const out = new Map<string, string | null>();
-  const wanted = [...new Set(ids.filter(Boolean))];
-  if (wanted.length === 0) return out;
-  const { data } = await db()
-    .from("members")
-    .select("id, name, stakeholder_id")
-    .in("id", wanted);
-  for (const m of (data ?? []) as { id: string; stakeholder_id: string | null }[])
-    out.set(m.id, m.stakeholder_id);
-  return out;
-}
-
 async function attachSteps(pdps: Pdp[]): Promise<Map<string, PdpStep[]>> {
   const byPdp = new Map<string, PdpStep[]>();
   if (pdps.length === 0) return byPdp;

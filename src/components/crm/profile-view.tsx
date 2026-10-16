@@ -16,7 +16,7 @@ import { Switch } from "@/components/ui/switch";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { ADMIN_EMAIL, adminWhatsAppLink, cleanPhone, FUNCTION_COLORS, normalizePhone, PHONE_RE } from "@/lib/types";
+import { adminWhatsAppLink, cleanPhone, FUNCTION_COLORS, normalizePhone, PHONE_RE } from "@/lib/types";
 import type { MmPlanData, PersonCard, TlPlanData } from "@/server/data";
 import { TlPlanForm } from "./tl-plan-form";
 import { MmPlanForm } from "./mm-plan-form";
@@ -103,12 +103,6 @@ export function ProfileView({
     !!fallbackEmail.trim() &&
     !!member.email &&
     fallbackEmail.trim().toLowerCase() === member.email.toLowerCase();
-
-  const fixInfoMailto = `mailto:${ADMIN_EMAIL}?subject=${encodeURIComponent(
-    "Sodio — my info needs a correction"
-  )}&body=${encodeURIComponent(
-    `Hi Ahmed,\n\nMy info in the Sodio membership needs a correction.\n\nMy email: ${member.email}\nWhat is wrong: \nWhat it should be: \n\nThanks!`
-  )}`;
 
   const saveProfile = () =>
     start(async () => {

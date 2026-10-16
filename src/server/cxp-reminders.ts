@@ -263,8 +263,16 @@ export async function runWeeklyReminders(opts: {
         reason,
         mode,
       })
-      // a logging failure must never break a send that already happened
-      .then(undefined, () => {});
+      // a logging failure must never break a send that already happened —
+      // but it must be SAID (v37.14): this row is the only thing stopping the
+      // next run from sending the same email again. supabase-js resolves with
+      // an error rather than rejecting, so the old `.then(undefined, …)` never
+      // saw one. A forced resend colliding with the first `sent` row (23505)
+      // is expected.
+      .then(({ error }) => {
+        if (error && error.code !== "23505")
+          console.error(`[cxp-reminders] email log write failed — the next run may resend:`, error.message);
+      }, (e) => console.error("[cxp-reminders] email log write failed:", e));
 
     results.push({
       function: fn,
@@ -354,6 +362,10 @@ async function writeWeeklySnapshot(
       .upsert(payload.slice(i, i + 250), {
         onConflict: "function,deadline_date,ep_opp_id,stage_key,requirement_key",
       })
-      .then(undefined, () => {});
+      .then(({ error }) => {
+        // the weekly board reads these rows — a failed write is a stale board,
+        // so it is logged (v37.14), never thrown (the email already went)
+        if (error) console.error("[cxp-reminders] weekly-missing write failed:", error.message);
+      }, (e) => console.error("[cxp-reminders] weekly-missing write failed:", e));
   }
 }

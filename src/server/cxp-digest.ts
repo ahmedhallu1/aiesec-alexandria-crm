@@ -147,7 +147,11 @@ export async function runDailyDigest(
         reason,
         mode,
       })
-      .then(undefined, () => {});
+      // see cxp-reminders.ts — this row is the only resend guard (v37.14)
+      .then(({ error }) => {
+        if (error && error.code !== "23505")
+          console.error(`[cxp-digest] email log write failed — the next run may resend:`, error.message);
+      }, (e) => console.error("[cxp-digest] email log write failed:", e));
 
     results.push({
       function: fn,

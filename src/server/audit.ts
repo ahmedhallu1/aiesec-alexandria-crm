@@ -250,7 +250,15 @@ async function writeRow(
     if (!MISSING_COLUMN.has(error.code ?? "")) {
       // a real failure (RLS, a bad uuid, the database being down) — say so once
       // and stop. Retrying at a narrower shape would only hide the cause.
-      console.error("[audit] insert failed:", error.message);
+      // EVERY field, not just `message` (v37.14): production logged
+      // "[audit] insert failed: undefined" — a gateway/network failure comes
+      // back with no message at all, and the code/details/hint are then the
+      // only clue there is.
+      console.error(
+        "[audit] insert failed:",
+        error.message || "(no message)",
+        JSON.stringify({ code: error.code, details: error.details, hint: error.hint, action: base.action })
+      );
       return;
     }
     if (attempt === "legacy") {

@@ -29,7 +29,7 @@ import type {
 import {
   PARTNERSHIP_STAGES, stageLabel, stageRank,
 } from "@/lib/partnership-stage";
-import { IR_ROLES, normalizePhone, fmtDateTime } from "@/lib/types";
+import { IR_ROLES, normalizePhone, fmtDateTime, cairoToday } from "@/lib/types";
 import type { DriveCvPlan } from "@/lib/drive-cv-plan";
 import { phoneExample } from "@/lib/dial-codes";
 import { whenLabelInZone } from "@/lib/timezones";
@@ -38,7 +38,7 @@ import { cn } from "@/lib/utils";
 import { CountryInput } from "./country-input";
 import {
   ColumnFilter,
-  DateRangeFilter, FilterSelect, PageSizePicker, resizableCellStyle, ResizableHead,
+  DateRangeFilter, FilterSelect, PageSizePicker, ResizableHead,
   SortHeader, TableSettings, useTableColumns, useTableSort, type TableColumn,
 } from "./data-table-kit";
 import { FileDrop } from "./file-drop";
@@ -1674,7 +1674,8 @@ function RecordPartnershipDialog({
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  const todayStr = new Date().toISOString().slice(0, 10);
+  // the Cairo day (v37.14) — a UTC slice made "today" yesterday until 02:00–03:00
+  const todayStr = cairoToday();
   const [form, setForm] = useState({
     lcId: "", newLc: false, newName: "", newCountry: "",
     product: "" as "" | "GV" | "GT",

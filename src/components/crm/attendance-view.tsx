@@ -29,7 +29,7 @@ import {
   ATTENDANCE_STATUSES, TOUCH_POINT_KINDS, type AttendanceStatus,
 } from "@/lib/types";
 import {
-  PageSizePicker, resizableCellStyle, ResizableHead,
+  PageSizePicker, ResizableHead,
 } from "./data-table-kit";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -45,7 +45,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+  Table, TableBody, TableCell, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import {

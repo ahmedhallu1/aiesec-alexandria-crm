@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { markCronRun } from "@/server/data";
 import { runBackup } from "@/server/backup";
+import { pruneRateBuckets } from "@/server/rate-limit";
 
 export const dynamic = "force-dynamic";
 // a full dump of every table takes longer than the default budget
@@ -23,13 +24,16 @@ export async function GET(req: NextRequest) {
 
   try {
     const res = await runBackup();
+    // AFTER the dump, so the night's backup still holds whatever was counted
+    const buckets = await pruneRateBuckets();
     await markCronRun("backup");
     console.log(
       `[backup] ${res.rows} rows across ${res.tables} tables → ${res.fileName}` +
         (res.pruned ? ` · pruned ${res.pruned} old` : "") +
+        (buckets ? ` · ${buckets} dead rate buckets` : "") +
         (res.failed.length ? ` · ${res.failed.length} table(s) failed` : "")
     );
-    return NextResponse.json({ ok: true, ...res });
+    return NextResponse.json({ ok: true, ...res, buckets });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     console.error("[backup] FAILED:", message);

@@ -8,6 +8,7 @@ import { welcomeEmail } from "./email/templates";
 import { asciiDigits, phoneSessionKey, type Member } from "./types";
 import { exactIlike } from "./like-pattern";
 import { passwordAttemptAllowed } from "@/server/rate-limit";
+import { keepAlive } from "@/server/background";
 
 /** Thrown — not returned — so the login action can tell "too many tries"
  *  apart from a wrong password; Auth.js hands `code` through to the caller. */
@@ -55,18 +56,21 @@ async function findMemberByIdentifier(identifier: string): Promise<Member | null
 
 function markFirstLogin(member: Member) {
   if (member.first_login_at) return;
-  db()
-    .from("members")
-    .update({ first_login_at: new Date().toISOString() })
-    .eq("id", member.id)
-    .then(() => {
+  // kept alive past the sign-in response (v37.14) — see server/background.ts
+  keepAlive(
+    Promise.resolve(
+      db()
+        .from("members")
+        .update({ first_login_at: new Date().toISOString() })
+        .eq("id", member.id)
+    ).then(async () => {
       if (member.email) {
         const mail = welcomeEmail(member);
-        sendEmail({ to: [member.email], ...mail }).catch((e) =>
+        await sendEmail({ to: [member.email], ...mail }).catch((e) =>
           console.error("[auth] welcome email failed:", e)
         );
       }
-      import("@/server/notify").then(({ notifyMembers }) =>
+      await import("@/server/notify").then(({ notifyMembers }) =>
         notifyMembers(
           [member.id],
           "welcome",
@@ -74,7 +78,8 @@ function markFirstLogin(member: Member) {
           "Sodio is yours — the Violet Man walks beside you from here."
         )
       );
-    });
+    }).catch((e) => console.error("[auth] first-login stamp failed:", e))
+  );
 }
 
 /** Full auth config (Node.js only). Sign-in is allowed exclusively for active
@@ -188,16 +193,22 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
         if (firstLogin) {
           const mail = welcomeEmail(member);
-          sendEmail({ to: [member.email ?? email], ...mail }).catch((e) =>
-            console.error("[auth] welcome email failed:", e)
-          );
-          import("@/server/notify").then(({ notifyMembers }) =>
-            notifyMembers(
-              [member.id],
-              "welcome",
-              "Welcome to Sodio 🎉",
-              "Sodio is yours — the Violet Man walks beside you from here."
+          keepAlive(
+            sendEmail({ to: [member.email ?? email], ...mail }).catch((e) =>
+              console.error("[auth] welcome email failed:", e)
             )
+          );
+          keepAlive(
+            import("@/server/notify")
+              .then(({ notifyMembers }) =>
+                notifyMembers(
+                  [member.id],
+                  "welcome",
+                  "Welcome to Sodio 🎉",
+                  "Sodio is yours — the Violet Man walks beside you from here."
+                )
+              )
+              .catch((e) => console.error("[auth] welcome bell failed:", e))
           );
         }
         return true;

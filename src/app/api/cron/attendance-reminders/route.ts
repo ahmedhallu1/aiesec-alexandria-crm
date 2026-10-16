@@ -6,7 +6,6 @@ import { db } from "@/lib/supabase";
 import { env } from "@/lib/env";
 import { sendEmail } from "@/lib/google/gmail";
 import { attendanceDueEmail } from "@/lib/email/attendance-templates";
-import { touchPointLabel } from "@/lib/types";
 import { audienceLabel, cairoWhen, touchPointName } from "@/lib/touch-points";
 import type { TouchPointRow } from "@/server/touch-points-read";
 import {

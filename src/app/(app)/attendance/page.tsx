@@ -3,11 +3,9 @@ import { isTmCore } from "@/lib/rbac";
 import {
   ATTENDANCE_STATUSES,
   TOUCH_POINT_KINDS,
-  touchPointLabel,
 } from "@/lib/types";
 import { audienceLabel, cairoWhen, touchPointName } from "@/lib/touch-points";
 import {
-  ATTENDANCE_PAGE_SIZE,
   PAGE_SIZE_OPTIONS,
   listAttendanceHistory,
   listOpenAppeals,

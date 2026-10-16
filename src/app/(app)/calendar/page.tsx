@@ -16,7 +16,7 @@ import {
   invitableTeams, listTouchPoints, memberInTouchPointAudience, ownTeamName,
 } from "@/server/touch-points-read";
 import { assignableForItems, listCalendarItems } from "@/server/calendar-items";
-import { LC_FUNCTIONS, NO_WORKING_HOURS_FUNCTIONS, touchPointLabel } from "@/lib/types";
+import { LC_FUNCTIONS, NO_WORKING_HOURS_FUNCTIONS } from "@/lib/types";
 import { audienceLabel, expandTouchPointFns, touchPointName } from "@/lib/touch-points";
 import { cairoToUtc } from "@/lib/time";
 import { CalendarView } from "@/components/crm/calendar-view";
