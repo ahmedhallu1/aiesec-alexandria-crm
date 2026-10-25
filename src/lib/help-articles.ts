@@ -109,7 +109,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
   "blocks": [
    {
     "t": "p",
-    "md": "**/no-peace** is the war board everyone can open — no account needed, made for phones. It counts down to **Activate 26'** at the top and to the **end of the war** under the title, shows Alexandria's **national rank from CORE** per program, the **podium**, **every soldier's points**, a **live feed of who just scored**, the **point system**, the **rewards** (tap a medal, or a falling parachute) and the **rules**. When a point is logged it lands on every open copy within a second — no refresh."
+    "md": "**/no-peace** is the war board everyone can open — no account needed, made for phones. The **leaderboard** is the page: the top three, then everyone else, with search, a function filter and a **35+ only** switch — tap a name to see what they scored. Beside it (under it on a phone) sit the **live feed** of who just scored, the **rewards** (tap one for who holds it right now) and **Alexandria's national rank from CORE**. The bar at the top counts down to **Activate 26'** and jumps to any section; the header counts down to the **end of the war**. When a point is logged it lands on every open copy within a second — no refresh."
    },
    {
     "t": "table",

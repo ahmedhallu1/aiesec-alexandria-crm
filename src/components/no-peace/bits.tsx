@@ -71,18 +71,6 @@ export function Odometer({ value, className = "" }: { value: number; className?:
   );
 }
 
-/** Split-flap face: re-keys on every change so the flip replays. */
-export function Flip({ value, label, size }: { value: string; label?: string; size: string }) {
-  return (
-    <span className="np-clock-unit">
-      <span className="np-clock-face np-stencil np-num" style={{ fontSize: size }}>
-        <span key={value}>{value}</span>
-      </span>
-      {label ? <span className="np-clock-label">{label}</span> : null}
-    </span>
-  );
-}
-
 /** FLIP reorder: rows glide from where they were to where they are. */
 export function useFlip(dep: string) {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -107,47 +95,6 @@ export function useFlip(dep: string) {
     last.current = next;
   }, [dep]);
   return ref;
-}
-
-export function Plane({ className = "", style }: { className?: string; style?: React.CSSProperties }) {
-  return (
-    <svg viewBox="0 0 120 50" className={className} style={style} aria-hidden fill="currentColor">
-      <path d="M2 24c10-2 30-3 44-3l14-18h8l-7 18c14 0 30 1 40 2 6 1 10 2 13 3-3 1-7 2-13 3-10 1-26 2-40 2l7 18h-8L46 31c-14 0-34-1-44-3l-2-2z" />
-      <path d="M8 24l-6-10h5l9 9zM8 28l-6 10h5l9-9z" />
-      <circle cx="104" cy="26" r="2" fill="#000" opacity=".4" />
-    </svg>
-  );
-}
-
-export function Chute({ label }: { label?: string }) {
-  return (
-    <svg viewBox="0 0 80 110" width="100%" aria-hidden>
-      <path d="M4 34C4 14 22 2 40 2s36 12 36 32c-6-5-12-5-18 0-6-5-12-5-18 0-6-5-12-5-18 0-6-5-12-5-18 0z" fill="#e9dcb8" stroke="#3a2e1c" strokeWidth="2" />
-      <path d="M22 34c0-14 6-26 18-32M58 34c0-14-6-26-18-32" stroke="#3a2e1c" strokeWidth="1.4" fill="none" opacity=".6" />
-      <path d="M4 34l30 50M22 34l14 50M58 34L44 84M76 34L46 84" stroke="#3a2e1c" strokeWidth="1" opacity=".7" />
-      <rect x="28" y="82" width="24" height="20" rx="2" fill="#6a5532" stroke="#2e2414" strokeWidth="2" />
-      <path d="M28 92h24M40 82v20" stroke="#2e2414" strokeWidth="1.4" />
-      {label ? (
-        <text x="40" y="96" textAnchor="middle" fontSize="7" fill="#f6d48a" fontWeight="700">{label}</text>
-      ) : null}
-    </svg>
-  );
-}
-
-export function Tank() {
-  return (
-    <svg viewBox="0 0 64 34" width="56" aria-hidden>
-      <rect x="18" y="6" width="22" height="10" rx="3" fill="#5d6638" stroke="#2c311a" strokeWidth="1.5" />
-      <rect x="38" y="9" width="24" height="3.5" rx="1.5" fill="#2c311a" />
-      <rect x="4" y="15" width="52" height="9" rx="3" fill="#6f7a44" stroke="#2c311a" strokeWidth="1.5" />
-      <rect x="2" y="23" width="56" height="9" rx="4.5" fill="#2c311a" />
-      {[8, 16, 24, 32, 40, 48].map((x) => (
-        <circle key={x} cx={x + 2} cy="27.5" r="2.6" fill="#8b8b74" />
-      ))}
-      <rect x="26" y="1" width="1.6" height="7" fill="#2c311a" />
-      <path d="M27.6 1h7l-2 2 2 2h-7z" fill="#b8432d" />
-    </svg>
-  );
 }
 
 export function initials(name: string): string {

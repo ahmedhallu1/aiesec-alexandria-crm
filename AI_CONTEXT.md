@@ -15,7 +15,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-10-25 · Version: v38
+Last updated: 2026-10-25 · Version: v38.1
 
 ---
 
@@ -162,7 +162,14 @@ the new snapshot over Supabase Realtime (`server/realtime.ts`, channel
 `no-peace`, publishable key `SUPABASE_PUBLISHABLE_KEY` handed to the browser)
 — instant, zero Vercel invocations per viewer; without the key it refreshes
 every 60 s. It also shows Alexandria's national rank from CORE
-(`parseNationalStanding`, top 10 per program only).
+(`parseNationalStanding`, top 10 per program only). **v38.1 layout: the
+LEADERBOARD IS THE PAGE** — a short hero (war clock) then the leaderboard as
+the main column (podium + searchable/filterable list), with the live feed,
+rewards and national rank in a rail; a sticky section nav (scroll-spy) reaches
+everything. The backdrop is VECTOR (`scene.tsx` — Qaitbay + the LC-logo
+lighthouse); never put a raster poster behind it again (v38's was a 1280px
+image stretched ×2 and read as pixelated). Logos are pre-resampled PNGs at
+1×/2×/3× in `public/brand/no-peace/` (a 716px logo drawn at 22px aliased).
 
 **Profile "my people" card** (`profilePeople` in data.ts): Team Leader → their
 direct team · VP/Director → their whole function · LCP/admin → the EB
@@ -704,7 +711,7 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | Deal counters + the Deal Done stage | DERIVED from the `deals` table in `recordDeal`/`updateDeal`/`cancelDeal` — the last cancel clears `slot_raised` (the view's stage reads it) |
 | Column-filter option lists (sign-ups, CIC, IR calls) | `memoOptions` in `data.ts` — module memory, 5 min; NOT `unstable_cache` (revalidatePath evicts it) |
 | Who sees which tab (rules, dates, retire, public twin) | `src/lib/tabs.ts` (pure, tested — `TAB_REGISTRY` lists every tab) · `src/server/tabs.ts` (`gateTab` on EVERY tab's page) · `src/server/tab-actions.ts` · `tab-manager.tsx` (Settings → Tabs) · a NEW tab = registry + shell `candidates` + `gateTab` in its page (pinned by `tests/tabs.test.ts`) |
-| The No Peace war (scoring, competitors, clock, public snapshot) | `src/lib/war/model.ts` (pure, tested) · reads `src/server/war.ts` · writes `src/server/war-actions.ts` (every write → `publish()` broadcast) · editor `src/components/war/war-room-view.tsx` · public `src/components/no-peace/*` (`no-peace.css` namespaced `.np`) · route `src/app/no-peace` |
+| The No Peace war (scoring, competitors, clock, public snapshot) | `src/lib/war/model.ts` (pure, tested) · reads `src/server/war.ts` · writes `src/server/war-actions.ts` (every write → `publish()` broadcast) · editor `src/components/war/war-room-view.tsx` · public `src/components/no-peace/*` (`board.tsx` layout, `scene.tsx` vector backdrop, `no-peace.css` namespaced `.np`) · route `src/app/no-peace` |
 | Live pushes to a public page | `broadcast`/`realtimeClientConfig` in `src/server/realtime.ts` · `useWarLive` in `components/no-peace/live.ts` · `wss://*.supabase.co` in the CSP |
 | CORE national ranking (per program/stage) | `src/lib/core-national.ts` (pure) · `coreNationalStanding` in `core-analytics.ts` |
 | Throttle buckets in app_settings | `RATE_BUCKET_SCOPES` + `pruneRateBuckets` in `src/server/rate-limit.ts` (nightly, after the backup) — a new scope must be added to the list (pinned) |

@@ -7,6 +7,26 @@
 > ~87% of it. This file is NOT auto-loaded — grep it for the reasoning behind
 > a past decision before changing that behaviour.
 
+- **2026-10-25 · v38.1** — **/no-peace REDESIGNED AROUND THE LEADERBOARD.**
+  Feedback on v38: the leaderboard sat mid-page with no way to jump to it,
+  the background was pixelated, the AIESEC in Alexandria logo looked broken,
+  and the whole page "looked like AI made too much". ① The leaderboard is the
+  main column, directly under a short hero and overlapping its sea; live feed,
+  rewards and the national rank sit in a rail beside it (below it on phones).
+  A sticky nav with scroll-spy (a second, swipeable row on phones) reaches
+  every section. ② The backdrop is an SVG harbour scene — the Citadel of
+  Qaitbay and the lighthouse from the LC's logo, its beam sweeping the bay —
+  instead of the 1280×400 poster stretched to ~2,500px; the full-page noise
+  layer is gone too. ③ The logo was a 716px raster drawn at 22px; the browser's
+  one-step downscale shredded its thin letters. It now ships pre-resampled
+  (Lanczos) at 1×/2×/3× and is drawn at 44px. ④ "Created by 2.0" in the
+  footer is the 2.0 logo, linked to elevate2point0.com like the sidebar's.
+  ⑤ Restraint: two typefaces (the stencil for display; Karla + Plex Mono for
+  reading), no planes, parachutes, typing, flip cards or confetti. Live
+  updates kept: a toast, rolling numbers, rows sliding to their new rank with
+  ▲/▼ arrows, a shine on a new #1. Verified on desktop and a 375px phone with
+  temporary `zz-test` entries (deleted after).
+
 - **2026-10-25 · v38** — **THE TAB MANAGER + THE "NO PEACE" WAR.** Migration
   **0087** (`tab_rules`, `war_campaigns`, `war_entries`; RLS on, no policies;
   applied with the release). ① **Settings → Tabs** (LCP + admins): every
