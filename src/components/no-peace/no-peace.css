@@ -76,17 +76,20 @@
 .np-nav a[aria-current="true"]::after {
   content: ""; position: absolute; left: 12px; right: 12px; bottom: 2px; height: 2px; border-radius: 2px; background: var(--np-brass);
 }
-.np-head-right { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+.np-head-right { display: flex; align-items: center; gap: 18px; flex-shrink: 0; }
 .np-activate { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; }
 .np-activate b { font-family: var(--np-mono); font-size: 14px; font-weight: 600; color: var(--np-text); font-variant-numeric: tabular-nums; }
 .np-live { display: inline-flex; align-items: center; gap: 7px; font-family: var(--np-mono); font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--np-muted); }
 .np-dot { position: relative; width: 8px; height: 8px; border-radius: 50%; background: var(--np-mint); flex-shrink: 0; }
-.np-dot::after { content: ""; position: absolute; inset: -5px; border-radius: 50%; border: 1.5px solid var(--np-mint); animation: np-ping 2s ease-out infinite; }
+/* the pulse stays inside the dot's own margin box — v38's ring spread over
+ * the Rewards button beside it on phones */
+.np-dot { margin: 0 3px; }
+.np-dot::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 1.5px solid var(--np-mint); animation: np-ping 2s ease-out infinite; pointer-events: none; }
 .np-live[data-state="connecting"] .np-dot { background: var(--np-brass); }
 .np-live[data-state="connecting"] .np-dot::after { border-color: var(--np-brass); }
 .np-live[data-state="offline"] .np-dot { background: var(--np-faint); }
 .np-live[data-state="offline"] .np-dot::after { display: none; }
-@keyframes np-ping { from { transform: scale(.5); opacity: .9; } to { transform: scale(1.6); opacity: 0; } }
+@keyframes np-ping { from { transform: scale(.5); opacity: .9; } to { transform: scale(1.35); opacity: 0; } }
 
 /* the mobile second row: the same sections, one swipeable strip */
 .np-subnav { display: none; }
@@ -96,7 +99,7 @@
   .np-brand img { height: 36px; }
   .np-brand-sep, .np-brand-name { display: none; }
   .np-head-right { margin-left: auto; }
-  .np-subnav { display: flex; gap: 6px; overflow-x: auto; padding: 0 16px 10px; scrollbar-width: none; }
+  .np-subnav { position: relative; display: flex; gap: 6px; overflow-x: auto; padding: 0 16px 10px; scrollbar-width: none; }
   .np-subnav::-webkit-scrollbar { display: none; }
   .np-subnav a { flex-shrink: 0; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--np-line-2); font-size: 13px; font-weight: 700; color: var(--np-muted); }
   .np-subnav a[aria-current="true"] { background: var(--np-text); color: var(--np-bg); border-color: var(--np-text); }

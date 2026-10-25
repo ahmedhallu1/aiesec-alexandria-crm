@@ -1,7 +1,7 @@
 "use client";
 
 import "./no-peace.css";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BONUS, rewardFor, splitDuration, warClock, warDay, warPhase, warProgress,
   type FeedItem, type NationalStanding, type PointGroup, type Reward, type StandingRow, type WarSnapshot,
@@ -247,6 +247,15 @@ function Header({
   const clock = warClock(s);
   const left = now ? splitDuration(clock.activate - now) : null;
   const on = now !== null && now >= clock.activate;
+  // on a phone the section strip scrolls sideways — keep the current chip in
+  // view (scrolling the strip itself, never the page)
+  const strip = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const el = strip.current;
+    const chip = el?.querySelector<HTMLElement>('[aria-current="true"]');
+    if (!el || !chip || el.scrollWidth <= el.clientWidth) return;
+    el.scrollTo({ left: chip.offsetLeft - (el.clientWidth - chip.offsetWidth) / 2, behavior: "smooth" });
+  }, [active]);
   const links = (cls?: string) =>
     sections.map((x) => (
       <a key={x.id} href={`#${x.id}`} aria-current={active === x.id ? "true" : undefined} className={cls} onClick={() => onPick(x.id)}>
@@ -279,7 +288,7 @@ function Header({
           </span>
         </div>
       </div>
-      <nav className="np-subnav" aria-label="Sections">
+      <nav className="np-subnav" aria-label="Sections" ref={strip}>
         {links()}
       </nav>
     </header>

@@ -7,6 +7,16 @@
 > ~87% of it. This file is NOT auto-loaded — grep it for the reasoning behind
 > a past decision before changing that behaviour.
 
+- **2026-10-25 · v38.2** — **/no-peace phone polish.** The reports that came in
+  (the front line had to be scrolled sideways, the live pulse spread over the
+  Rewards button, the "Classified" stamp sat on the rules text) were all v38
+  parts that v38.1 had already replaced — production was still serving v38
+  while the v38.1 build ran. Checked on a 375px phone against production after
+  it landed: the war timeline fits inside the clock card, the rules are a
+  plain numbered list. Still tightened: the live pulse ring is smaller and
+  kept 14px clear of the Activate countdown, and the swipeable section strip
+  now slides the current section's chip into view.
+
 - **2026-10-25 · v38.1** — **/no-peace REDESIGNED AROUND THE LEADERBOARD.**
   Feedback on v38: the leaderboard sat mid-page with no way to jump to it,
   the background was pixelated, the AIESEC in Alexandria logo looked broken,

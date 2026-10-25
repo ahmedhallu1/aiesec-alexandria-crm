@@ -15,7 +15,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-10-25 · Version: v38.1
+Last updated: 2026-10-25 · Version: v38.2
 
 ---
 
