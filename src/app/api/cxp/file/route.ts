@@ -2,9 +2,10 @@ import { Readable } from "node:stream";
 import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/supabase";
 import { getViewer, logAudit } from "@/server/data";
+import { tabAllows } from "@/server/tabs";
 import { openCxpDriveFile } from "@/server/cxp-drive";
 import { contentDisposition } from "@/server/cxp-download";
-import { canViewCxpFunction } from "@/lib/cxp/rbac";
+import { canViewCxpFunction, hasCxpAccess } from "@/lib/cxp/rbac";
 import { findRequirement } from "@/lib/cxp/requirements";
 import { CXP_STAGE_KEYS, type CxpFunction, type CxpStageKey } from "@/lib/cxp/types";
 
@@ -41,6 +42,10 @@ export async function GET(req: NextRequest) {
   if (!ep || !CXP_STAGE_KEYS.includes(stage) || !reqKey) return notFound();
 
   const viewer = await getViewer();
+  // the CXP tab's rule (Settings → Tabs) closes the downloads too (v38.3) —
+  // a hidden module must not stay reachable by URL; the per-function check
+  // below still decides WHICH files
+  if (!(await tabAllows(viewer, "/cxp", hasCxpAccess(viewer)))) return notFound();
   const { data: record } = await db()
     .from("cxp_ep_records")
     .select("function, ep_name")

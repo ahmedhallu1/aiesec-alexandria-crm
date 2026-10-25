@@ -1,5 +1,4 @@
 import { gateTab } from "@/server/tabs";
-import { redirect } from "next/navigation";
 import { getViewer, laneOpensActual, listMmPlans, listPlanCells, listTlPlans } from "@/server/data";
 import { canSeePlanning } from "@/lib/rbac";
 import {
@@ -22,14 +21,31 @@ export const metadata = { title: "Planning" };
  *  on first sign-in. Leadership only (canSeePlanning). */
 export default async function PlanningPage() {
   const viewer = await getViewer();
-  await gateTab(viewer, "/planning", canSeePlanning(viewer));
+  // the code rule here is canSeePlanning, NOT canOpenPlanning: a master with
+  // no planned function still passes the gate and meets the empty state below
+  // rather than a bounce — the tab and home use canOpenPlanning, so nobody is
+  // SENT here to meet it
+  const leads = canSeePlanning(viewer);
+  await gateTab(viewer, "/planning", leads);
 
   // LCP/admin see all six lanes; VPs/Directors just their own family pair(s).
   const fns: PlanFunction[] =
     viewer.isAdmin || viewer.role === "LCP"
       ? [...PLAN_FUNCTIONS]
       : planFunctionsFor(viewer.functions);
-  if (fns.length === 0) redirect("/");
+  // NO PLANNED FUNCTION (v38.3) — an empty state, never a redirect: this
+  // page used to send them to "/", and "/" sent a person the tab rules had
+  // opened Planning to straight back here, forever. Planning is not
+  // widened to every lane for them either.
+  if (fns.length === 0)
+    return (
+      <div className="mx-auto max-w-md py-16 text-center">
+        <h1 className="text-xl font-bold">Planning</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          No planning lanes for your function yet — the planning sheet covers IGV, IGT, OGV and OGT.
+        </p>
+      </div>
+    );
 
   const sprint = sprintOf();
   const month = monthOf();
@@ -42,6 +58,12 @@ export default async function PlanningPage() {
   // v25: a VP/Director sees only THEIR function's MM plans (LCP/admin: all)
   const mmScope =
     viewer.isAdmin || viewer.role === "LCP" ? undefined : viewer.functions;
+  // OPENED BY A TAB RULE (v38.3), not by the code: the lane plan is theirs to
+  // read (every lane member already sees it on the dashboard's plan card),
+  // but the MM plans are each MM's own numbers, which only the function's
+  // leaders read — so only their OWN plan rides along. Defence in depth
+  // behind Settings → Tabs, whatever audience a rule names.
+  const ownOnly = leads ? undefined : [viewer.id];
   // 🏆 approvals achieved (v37) — the same windows, from icx_approvals
   const y0 = Number(month.start.slice(0, 4));
   const m0 = Number(month.start.slice(5, 7));
@@ -63,8 +85,8 @@ export default async function PlanningPage() {
     : null;
   const [cells, mmPlans, tlPlans, sprintActual, monthActual, quarterActual] = await Promise.all([
     listPlanCells(fns),
-    listMmPlans(undefined, mmScope),
-    listTlPlans(undefined, mmScope),
+    listMmPlans(ownOnly, mmScope),
+    listTlPlans(ownOnly, mmScope),
     hasIcx ? laneOpensActual(sprint.start, sprint.end, opts) : Promise.resolve(null),
     hasIcx ? laneOpensActual(month.start, month.end, opts) : Promise.resolve(null),
     hasIcx ? laneOpensActual(quarter.start, quarter.end, opts) : Promise.resolve(null),

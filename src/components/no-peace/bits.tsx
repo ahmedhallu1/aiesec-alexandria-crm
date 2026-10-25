@@ -71,23 +71,41 @@ export function Odometer({ value, className = "" }: { value: number; className?:
   );
 }
 
-/** FLIP reorder: rows glide from where they were to where they are. */
-export function useFlip(dep: string) {
-  const ref = useRef<HTMLDivElement | null>(null);
+/** FLIP reorder: rows glide from where they were to where they are.
+ *
+ *  Positions are measured against the list itself, not the viewport — a
+ *  viewport top moves with every scroll, and v38 sent rows flying across the
+ *  page whenever the list changed after the reader had scrolled. A row caught
+ *  mid-glide carries on from where it visibly is. Runs only when the order
+ *  (`dep`) changes: the board re-renders every second for its clock, and
+ *  those renders must not touch a glide in flight. */
+export function useFlip<T extends HTMLElement = HTMLDivElement>(dep: string) {
+  const ref = useRef<T | null>(null);
   const last = useRef(new Map<string, number>());
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
     const kids = [...el.querySelectorAll<HTMLElement>("[data-flip]")];
+    // where a running glide has each row right now, before it is stopped
+    const offset = new Map<HTMLElement, number>();
+    for (const k of kids) {
+      const t = getComputedStyle(k).transform;
+      offset.set(k, t && t !== "none" ? new DOMMatrixReadOnly(t).m42 : 0);
+    }
+    // read everything first, then write — one style pass, not one per row
+    for (const k of kids) for (const a of k.getAnimations()) a.cancel();
+    const top = el.getBoundingClientRect().top;
     const next = new Map<string, number>();
-    for (const k of kids) next.set(k.dataset.flip!, k.getBoundingClientRect().top);
+    for (const k of kids) next.set(k.dataset.flip!, k.getBoundingClientRect().top - top);
     if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       for (const k of kids) {
         const before = last.current.get(k.dataset.flip!);
-        const now = next.get(k.dataset.flip!)!;
-        if (before === undefined || Math.abs(before - now) < 2) continue;
+        if (before === undefined) continue;
+        const delta = before - next.get(k.dataset.flip!)! + (offset.get(k) ?? 0);
+        // a jump of more than a screen (a filter, "Show all") just lands
+        if (Math.abs(delta) < 2 || Math.abs(delta) > window.innerHeight) continue;
         k.animate(
-          [{ transform: `translateY(${before - now}px)` }, { transform: "translateY(0)" }],
+          [{ transform: `translateY(${delta}px)` }, { transform: "translateY(0)" }],
           { duration: 900, easing: "cubic-bezier(.2,.8,.2,1)" }
         );
       }

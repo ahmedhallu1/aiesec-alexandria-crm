@@ -3,13 +3,8 @@ import { cookies } from "next/headers";
 import { getViewer, listViewAsTargets, needsMmPlan, needsTlPlan } from "@/server/data";
 import { PLAN_SKIP_COOKIE } from "@/lib/plan-skip";
 import { prankIsOn } from "@/lib/types";
-import {
-  hasRaisingAccess, hasTmAccess, hasOgxAccess, hasConsiderationAccess,
-  canManageMembership, canSeePlanning, canUseAdminTools, canUseMailboxTab,
-  isB2C, isTmCore, seesEveryLane,
-} from "@/lib/rbac";
-import { hasCxpAccess } from "@/lib/cxp/rbac";
-import { canSeeActivationBid, canSeeWarRoom } from "@/lib/rbac";
+import { canUseAdminTools } from "@/lib/rbac";
+import { homeFor, navFlagsFor } from "@/lib/home-options";
 import { tabRules } from "@/server/tabs";
 import { tabOverridesFor } from "@/lib/tabs";
 import { signOut } from "@/lib/auth";
@@ -55,64 +50,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   )
     redirect("/welcome/plan-tl");
 
-  const raising = hasRaisingAccess(viewer);
-  const tm = hasTmAccess(viewer);
-  // the OGX workspace (v25): OGT/OGV crews live in /signups
-  const ogx = hasOgxAccess(viewer);
-  // B2C CIC (v33.29): the B2C crew enters /signups for the CIC queue they
-  // sell into — both OGX sides, read through their own gate server-side
-  const b2cCic = isB2C(viewer);
-  // the Consideration module (v26): IR calls + the CV pool
-  const consideration = hasConsiderationAccess(viewer);
-  // the CXP module (v35): ECB submission tracking for all four product
-  // functions, gated per SIDE — see src/lib/cxp/rbac.ts for the rules
-  const cxp = hasCxpAccess(viewer);
-  const membership = canManageMembership(viewer);
-  const planning = canSeePlanning(viewer);
-  // OGT & OGV VPs/Directors (+ LCP/admin): the Expectation-Setting mail composer
-  const ogtMail =
-    viewer.isAdmin ||
-    viewer.role === "LCP" ||
-    ((viewer.role === "LCVP" || viewer.role === "Director") &&
-      ["OGT", "OGV"].some(
-        (f) => viewer.functions.includes(f) || viewer.sub_functions.includes(f)
-      ));
-  // routes a non-raising member still gets: their TM module, the membership
-  // editor for EB members of other functions (e.g. an OGX LCVP), and the
-  // planning board for OGX VPs/Directors
-  // the calendar belongs to every module member now (touch points, v29)
-  const calendar = raising || consideration || ogx || tm;
-  // /dashboard = anyone who owns at least one LANE there — raising (ICX / B2B /
-  // B2C), OGX (the OGT & OGV sign-up funnels, v28) or Consideration (the split
-  // IR-call lanes, v29). Mirrors how dashboard/page.tsx builds `views`, so the
-  // tab never leads someone to an empty page.
-  // v32: the LC-wide overseers (TM & F&L leadership) own no module of their
-  // own but read EVERY lane, so the tab has to exist for them too.
-  // v33.17: TM core (incl. TM's TLs/Coordinators) gained the TM lane
-  const dashboard =
-    raising || ogx || consideration || seesEveryLane(viewer) || isTmCore(viewer);
-  const extraRoutes = [
-    ...(calendar ? ["/calendar"] : []),
-    ...(tm ? ["/members"] : []),
-    ...(membership ? ["/membership"] : []),
-    ...(planning ? ["/planning"] : []),
-    ...(ogx || b2cCic ? ["/signups"] : []),
-    ...(consideration ? ["/consideration"] : []),
-    ...(cxp ? ["/cxp"] : []),
-    ...(dashboard ? ["/dashboard"] : []),
-    ...(ogtMail ? ["/ogt-mail"] : []),
-  ];
-  // v29: /attendance belongs to EVERY member, module or not — but it must not
-  // count as "having a module" (that flag is what decides Soon vs bounce-home,
-  // and a module-less viewer bouncing home would loop through "/" → /accounts)
-  // v33.24 — the Emails tab is MMs and above, module or not: writing to a
-  // partner is part of every MM's job. It rides the gate like /attendance.
-  const mailbox = canUseMailboxTab(viewer);
-  // v36.8 — the Activate 26' bid: MMs and above, module or not. Like
-  // /attendance it rides the gate without counting as "having a module".
-  const activation = canSeeActivationBid(viewer);
-  // v38 — the No Peace War Room: the F&L VP (+ LCP/admins) by code
-  const warRoom = canSeeWarRoom(viewer);
+  // the code's answer per module — ONE function (lib/home-options.ts) shared
+  // with "/", the logo and the home picker, so they can never disagree
+  const nav = navFlagsFor(viewer);
+  const { raising, tm, ogx, consideration, calendar } = nav;
   // v38 — THE TAB MANAGER's rules for this person (Settings → Tabs). A tab
   // they are shown by a rule joins the gate's routes; a hidden one is cut
   // from the sidebar here and refused by its page (`tabAllows`).
@@ -124,14 +65,41 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const tabPositions = Object.fromEntries(
     rules.filter((r) => r.position !== null).map((r) => [r.href, r.position as number])
   );
+  // routes a non-raising member still gets: their TM module, the membership
+  // editor for EB members of other functions (e.g. an OGX LCVP), and the
+  // planning board for OGX VPs/Directors
+  const extraRoutes = [
+    ...(nav.calendar ? ["/calendar"] : []),
+    ...(nav.tm ? ["/members"] : []),
+    ...(nav.membership ? ["/membership"] : []),
+    ...(nav.planning ? ["/planning"] : []),
+    ...(nav.signups ? ["/signups"] : []),
+    ...(nav.consideration ? ["/consideration"] : []),
+    ...(nav.cxp ? ["/cxp"] : []),
+    ...(nav.dashboard ? ["/dashboard"] : []),
+    // the Expectation mail is a button inside Emails — it goes where the
+    // Emails tab goes (v38.3: a hidden Emails tab takes it along)
+    ...(nav.ogtMail && tabOverrides["/emails"] !== "hide" ? ["/ogt-mail"] : []),
+  ];
+  // v29: /attendance belongs to EVERY member, module or not — but it must not
+  // count as "having a module" (that flag is what decides Soon vs bounce-home).
+  // Emails (v33.24), the Activate 26' bid (v36.8) and the War Room (v38) ride
+  // the gate the same way.
   const gateRoutes = [
     "/attendance",
-    ...(mailbox ? ["/emails"] : []),
-    ...(activation ? ["/activation"] : []),
-    ...(warRoom ? ["/war-room"] : []),
+    ...(nav.mailbox ? ["/emails"] : []),
+    ...(nav.activation ? ["/activation"] : []),
+    ...(nav.warRoom ? ["/war-room"] : []),
     ...extraRoutes,
     ...Object.keys(tabOverrides).filter((h) => tabOverrides[h] === "show"),
   ];
+  // "having a module" counts only what they can still SEE (v38.3): a module
+  // the LC's rules hide is not one, and a tab a rule opens to them is
+  const hasModule =
+    extraRoutes.some((h) => tabOverrides[h] !== "hide") ||
+    Object.values(tabOverrides).includes("show");
+  // where "/", the logo and the gate's bounce all land
+  const home = homeFor(viewer, tabOverrides, nav);
 
   // THE GRANT NUDGE (v33.40): an AIESEC email exists on the row but no Google
   // grant does — the member signed in before the address landed and has been
@@ -180,18 +148,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       nav={{
         calendar,
         raising,
-        dashboard,
+        dashboard: nav.dashboard,
         tm,
-        membership,
-        planning,
-        ogtMail,
-        signups: ogx || b2cCic,
+        membership: nav.membership,
+        planning: nav.planning,
+        ogtMail: nav.ogtMail,
+        signups: nav.signups,
         consideration,
-        mailbox,
-        cxp,
-        activation,
-        warRoom,
+        mailbox: nav.mailbox,
+        cxp: nav.cxp,
+        activation: nav.activation,
+        warRoom: nav.warRoom,
       }}
+      homeHref={home}
       tabs={{ overrides: tabOverrides, labels: tabLabels, positions: tabPositions }}
       signOutAction={async () => {
         "use server";
@@ -210,7 +179,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <GateClient mode="allowed" extra={gateRoutes}>
             {children}
           </GateClient>
-          <GateClient mode="soon" extra={gateRoutes} hasModule={extraRoutes.length > 0}>
+          <GateClient mode="soon" extra={gateRoutes} hasModule={hasModule} home={home}>
             <ComingSoon functions={viewer.functions} />
           </GateClient>
         </>

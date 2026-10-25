@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -19,7 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { fmtDateTime, LC_FUNCTIONS, MEMBER_ROLES } from "@/lib/types";
 import {
-  TAB_REGISTRY, describeRule, publicTwinLive, tabIsGone,
+  SHOWN_DEFAULT, TAB_REGISTRY, describeRule, publicTwinLive, tabCanWiden, tabIsGone,
   type TabAudience, type TabBase, type TabDef, type TabRule,
 } from "@/lib/tabs";
 import { resetTabRule, restoreTab, retireTab, saveTabOrder, saveTabRule } from "@/server/tab-actions";
@@ -51,27 +51,42 @@ export function TabManager({ rules, people }: { rules: TabRule[]; people: PickPe
       .sort((a, b) => a.k - b.k)
       .map((x) => x.t);
   }, [byHref]);
-  // one clock per render pass — set once, the list is refreshed on every save
-  const [now] = useState(() => Date.now());
+  // THE CLOCK (v38.3) — a frozen one kept a tab whose remove date had
+  // passed in the live list, still saying "removed <date>". It ticks every
+  // minute and jumps on every save.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, []);
   const live = ordered.filter((t) => !byHref.get(t.href) || !tabIsGone(byHref.get(t.href)!, now));
   const gone = ordered.filter((t) => byHref.get(t.href) && tabIsGone(byHref.get(t.href)!, now));
 
-  const run = (fn: () => Promise<{ ok: boolean; error?: string }>, okMsg: string) =>
+  const run = (
+    fn: () => Promise<{ ok: boolean; error?: string; publicLive?: boolean }>,
+    okMsg: string | ((res: { publicLive?: boolean }) => string)
+  ) =>
     start(async () => {
       const res = await fn();
       if (!res.ok) toast.error(res.error ?? "Couldn't save.");
       else {
-        toast.success(okMsg);
+        toast.success(typeof okMsg === "function" ? okMsg(res) : okMsg);
+        setNow(Date.now());
         router.refresh();
       }
     });
 
+  // the arrows move a tab past its VISIBLE neighbour (v38.3): swapping with
+  // the next tab in the full list could swap it with a retired one nobody
+  // sees here, and the click looked like it did nothing
   const move = (href: string, dir: -1 | 1) => {
+    const i = live.findIndex((t) => t.href === href);
+    const neighbour = live[i + dir];
+    if (i === -1 || !neighbour) return;
     const hrefs = ordered.map((t) => t.href);
-    const i = hrefs.indexOf(href);
-    const j = i + dir;
-    if (j < 0 || j >= hrefs.length) return;
-    [hrefs[i], hrefs[j]] = [hrefs[j], hrefs[i]];
+    const a = hrefs.indexOf(href);
+    const b = hrefs.indexOf(neighbour.href);
+    [hrefs[a], hrefs[b]] = [hrefs[b], hrefs[a]];
     run(() => saveTabOrder(hrefs), "Order saved — new sidebars start like this.");
   };
 
@@ -81,10 +96,10 @@ export function TabManager({ rules, people }: { rules: TabRule[]; people: PickPe
         <CardContent className="space-y-1.5 pt-4">
           <p className="pb-2 text-xs text-muted-foreground">
             Every tab follows its rule in the code until you set one here. A tab you hide is gone from
-            the sidebar <b>and</b> its page sends that person home. A tab you show to someone the code
-            would refuse opens the page for them, but what&apos;s inside still follows their role, so
-            a data module can look empty to them. Members can still arrange their own sidebar; the
-            order here is where a fresh sidebar starts.
+            the sidebar <b>and</b> its page sends that person home. Showing a tab to someone the code
+            would refuse means something different per tab — each tab&apos;s editor says what it hands
+            them. Health &amp; Logs and Membership can only be hidden. Members can still arrange their
+            own sidebar; the order here is where a fresh sidebar starts.
           </p>
           {live.map((t, i) => {
             const rule = byHref.get(t.href);
@@ -192,7 +207,20 @@ export function TabManager({ rules, people }: { rules: TabRule[]; people: PickPe
                       {t.publicHref ? ` · ${t.publicHref} ${publicTwinLive(rule, now) ? "still live" : "down"}` : ""}
                     </p>
                   </div>
-                  <Button size="sm" variant="outline" disabled={pending} onClick={() => run(() => restoreTab(t.href), `${t.label} is back.`)}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={pending}
+                    onClick={() =>
+                      run(() => restoreTab(t.href), (res) =>
+                        res.publicLive === undefined
+                          ? `${t.label} is back.`
+                          : res.publicLive
+                            ? `${t.label} is back, and ${t.publicHref} is live.`
+                            : `${t.label} is back. ${t.publicHref} stays down — it was switched off on its own (Edit to turn it on).`
+                      )
+                    }
+                  >
                     <Undo2 className="size-3.5" /> Restore
                   </Button>
                 </div>
@@ -210,6 +238,7 @@ export function TabManager({ rules, people }: { rules: TabRule[]; people: PickPe
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
+            setNow(Date.now());
             router.refresh();
           }}
         />
@@ -218,12 +247,17 @@ export function TabManager({ rules, people }: { rules: TabRule[]; people: PickPe
       {retiring ? (
         <RetireDialog
           def={retiring}
+          rule={byHref.get(retiring.href)}
           pending={pending}
           onClose={() => setRetiring(null)}
           onConfirm={(publicToo) => {
             const t = retiring;
             setRetiring(null);
-            run(() => retireTab(t.href, publicToo), `${t.label} retired. Restore it any time below.`);
+            run(() => retireTab(t.href, publicToo), (res) =>
+              res.publicLive === undefined
+                ? `${t.label} retired. Restore it any time below.`
+                : `${t.label} retired — ${t.publicHref} is ${res.publicLive ? "still live" : "down"}. Restore it any time below.`
+            );
           }}
         />
       ) : null}
@@ -232,14 +266,18 @@ export function TabManager({ rules, people }: { rules: TabRule[]; people: PickPe
 }
 
 function RetireDialog({
-  def, pending, onClose, onConfirm,
+  def, rule, pending, onClose, onConfirm,
 }: {
   def: TabDef;
+  rule: TabRule | undefined;
   pending: boolean;
   onClose: () => void;
   onConfirm: (publicToo: boolean) => void;
 }) {
-  const [publicToo, setPublicToo] = useState(true);
+  // starts where the tab's own "goes down with the tab" switch is (on when
+  // nothing was ever set); it makes the public page FOLLOW the tab, so a
+  // restore brings it back
+  const [publicToo, setPublicToo] = useState(rule?.publicWithTab ?? true);
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
@@ -251,12 +289,19 @@ function RetireDialog({
           </DialogDescription>
         </DialogHeader>
         {def.publicHref ? (
-          <label className="flex items-center justify-between gap-3 rounded-lg border p-3 text-sm">
-            <span>
-              Also take the public page <code>{def.publicHref}</code> down
-            </span>
-            <Switch checked={publicToo} onCheckedChange={setPublicToo} />
-          </label>
+          rule?.publicOff ? (
+            <p className="rounded-lg border p-3 text-sm text-muted-foreground">
+              The public page <code>{def.publicHref}</code> is already down — it was switched off on its own and
+              stays off after a restore too.
+            </p>
+          ) : (
+            <label className="flex items-center justify-between gap-3 rounded-lg border p-3 text-sm">
+              <span>
+                Also take the public page <code>{def.publicHref}</code> down while it&apos;s retired
+              </span>
+              <Switch checked={publicToo} onCheckedChange={setPublicToo} />
+            </label>
+          )
         ) : null}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
@@ -307,9 +352,15 @@ function EditTabDialog({
   onSaved: () => void;
 }) {
   const [pending, start] = useTransition();
+  // HIDE-ONLY tabs (lib/tabs.ts `widen: false`): no "Everyone", no "show"
+  const widen = tabCanWiden(def.href);
   const [label, setLabel] = useState(rule?.label ?? "");
-  const [base, setBase] = useState<TabBase>(rule?.base ?? "default");
-  const [show, setShow] = useState<TabAudience>(rule?.show ?? { members: [], roles: [], functions: [] });
+  const [base, setBase] = useState<TabBase>(
+    !widen && rule?.base === "everyone" ? "default" : (rule?.base ?? "default")
+  );
+  const [show, setShow] = useState<TabAudience>(
+    widen && rule?.show ? rule.show : { members: [], roles: [], functions: [] }
+  );
   const [hide, setHide] = useState<TabAudience>(rule?.hide ?? { members: [], roles: [], functions: [] });
   const [visibleFrom, setVisibleFrom] = useState(toLocalInput(rule?.visibleFrom ?? null));
   const [removeAt, setRemoveAt] = useState(toLocalInput(rule?.removeAt ?? null));
@@ -349,8 +400,12 @@ function EditTabDialog({
 
   const BASES: { v: TabBase; title: string; hint: string }[] = [
     { v: "default", title: "As the code says", hint: def.builtIn },
-    { v: "everyone", title: "Everyone", hint: "Every signed-in member" },
-    { v: "nobody", title: "Nobody", hint: "Only the people / groups you add below" },
+    ...(widen ? [{ v: "everyone" as const, title: "Everyone", hint: "Every signed-in member" }] : []),
+    {
+      v: "nobody",
+      title: "Nobody",
+      hint: widen ? "Only the people / groups you add below" : "Nobody — not even the people the code gives it to",
+    },
   ];
 
   return (
@@ -372,7 +427,7 @@ function EditTabDialog({
 
           <div className="grid gap-1.5">
             <Label>Who sees it, to start with</Label>
-            <div className="grid gap-2 sm:grid-cols-3">
+            <div className={cn("grid gap-2", widen ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
               {BASES.map((b) => (
                 <button
                   key={b.v}
@@ -390,14 +445,18 @@ function EditTabDialog({
             </div>
           </div>
 
-          <AudienceBlock
-            title="Also show it to"
-            hint="Opens the tab for these, even if the code wouldn't."
-            value={show}
-            onChange={setShow}
-            people={people}
-            tone="primary"
-          />
+          {widen ? (
+            <AudienceBlock
+              title="Also show it to"
+              hint={`Opens the tab for these, even if the code wouldn't. ${def.shown ?? SHOWN_DEFAULT}`}
+              value={show}
+              onChange={setShow}
+              people={people}
+              tone="primary"
+            />
+          ) : (
+            <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">{def.shown}</p>
+          )}
           <AudienceBlock
             title="Hide it from"
             hint="Takes the tab away from these, and blocks its page."

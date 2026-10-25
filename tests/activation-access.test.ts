@@ -26,13 +26,14 @@ describe("who can reach the bid page", () => {
     const always = /const ALWAYS_ALLOWED = \[([^]*?)\];/.exec(gate)?.[1] ?? "";
     expect(always.replace(/\/\/.*$/gm, "")).not.toContain('"/activation"');
     // …but opened by the layout, the nav and the page for exactly them
+    // (v38.3: the layout's flags come from navFlagsFor in lib/home-options.ts)
+    expect(read("src/lib/home-options.ts")).toContain("activation: canSeeActivationBid(v)");
     const layout = read("src/app/(app)/layout.tsx");
-    expect(layout).toContain("canSeeActivationBid(viewer)");
     expect(layout).toMatch(/activation \? \["\/activation"\]/);
     // v38 — the shell lists every tab with its code rule, and the page asks
     // the tab rule (Settings → Tabs) on top of it
     expect(read("src/components/crm/app-shell.tsx")).toMatch(/href: "\/activation",[^\n]*builtIn: nav\.activation/);
-    expect(read("src/app/(app)/activation/page.tsx")).toMatch(/gateTab\(viewer, "\/activation", canSeeActivationBid\(viewer\)/);
+    expect(read("src/app/(app)/activation/page.tsx")).toMatch(/gateTab\(\s*viewer,\s*ACTIVATION_TAB,\s*canSeeActivationBid\(viewer\)/);
   });
 });
 
@@ -47,10 +48,12 @@ describe("the MM+ rule itself", () => {
   it("the admin always gets in, whatever the membership row says", () => {
     expect(canSeeActivationBid(v("Member", { isAdmin: true }))).toBe(true);
   });
-  it("every action — reads included — refuses a Member on the server", () => {
+  it("every action — reads included — asks the same rule as the page (v38.3: the tab rule on top)", () => {
     const actions = read("src/server/activation-actions.ts");
-    expect(actions).toMatch(/if \(!canSeeActivationBid\(viewer\)\) return \{ viewer, error: MM_ONLY \}/);
-    expect(actions.match(/if \(!canSeeActivationBid\(viewer\)\) return fail\(MM_ONLY\)/g)?.length).toBe(2);
+    expect(actions).toMatch(/tabAllows\(viewer, ACTIVATION_TAB, canSeeActivationBid\(viewer\)\)/);
+    expect(actions).toMatch(/if \(!\(await mayUseBid\(viewer\)\)\) return \{ viewer, error: MM_ONLY \}/);
+    expect(actions.match(/if \(!\(await mayUseBid\(viewer\)\)\) return fail\(MM_ONLY\)/g)?.length).toBe(2);
+    expect(actions).not.toMatch(/if \(!canSeeActivationBid\(viewer\)\)/);
   });
 });
 

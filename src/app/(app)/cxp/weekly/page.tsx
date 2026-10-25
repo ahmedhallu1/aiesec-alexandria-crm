@@ -31,7 +31,9 @@ export default async function CxpWeeklyPage({
   // `weeklyBoard` validates the deadline against the six it offers, so a
   // hand-edited URL cannot select a week the board does not have
   const board = await weeklyBoard({ side, selected: sp.deadline ?? null });
-  if (!board) redirect("/");
+  // null = no CXP function to read (a person a tab rule opened CXP to): back
+  // to the module's own page, never "/" after the gate passed (v38.3)
+  if (!board) redirect("/cxp");
 
   return (
     <div className="grid gap-5">

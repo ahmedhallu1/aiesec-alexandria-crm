@@ -1,10 +1,10 @@
 "use client";
 
 import "./no-peace.css";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BONUS, rewardFor, splitDuration, warClock, warDay, warPhase, warProgress,
-  type FeedItem, type NationalStanding, type PointGroup, type Reward, type StandingRow, type WarSnapshot,
+  type FeedItem, type FunctionRow, type NationalStanding, type PointGroup, type Reward, type StandingRow, type WarSnapshot,
 } from "@/lib/war/model";
 import { marker, stencil } from "./fonts";
 import { useWarLive, type LiveState } from "./live";
@@ -20,12 +20,19 @@ import { Odometer, Reveal, initials, useFlip, useNow } from "./bits";
  *  every number is edited in Sodio's War Room and arrives over the live wire
  *  (live.ts). */
 
-type Events = { at: string; fresh: FeedItem[]; deltas: Record<string, number>; enlisted: string[]; up: string[]; newLeader: string | null };
-const NO_EVENTS: Events = { at: "", fresh: [], deltas: {}, enlisted: [], up: [], newLeader: null };
+type Events = { at: string; fresh: FeedItem[]; deltas: Record<string, number>; enlisted: string[]; up: string[]; fnUp: string[]; newLeader: string | null };
+const NO_EVENTS: Events = { at: "", fresh: [], deltas: {}, enlisted: [], up: [], fnUp: [], newLeader: null };
 
 function diff(prev: WarSnapshot, next: WarSnapshot): Events {
   const seen = new Set(prev.feed.map((f) => f.id));
-  const fresh = next.feed.filter((f) => !seen.has(f.id));
+  // only entries newer than the newest one already shown: deleting an entry
+  // pulls an OLD one back into the 40-item feed, and that is not news. An
+  // empty feed with entries behind it is a hidden feed — nothing to compare.
+  const since = prev.feed[0] ? Date.parse(prev.feed[0].at) : 0;
+  const fresh =
+    prev.feed.length === 0 && prev.totals.entries > 0
+      ? []
+      : next.feed.filter((f) => !seen.has(f.id) && Date.parse(f.at) >= since);
   const before = new Map(prev.rows.map((r) => [r.id, r]));
   const deltas: Record<string, number> = {};
   const enlisted: string[] = [];
@@ -33,12 +40,16 @@ function diff(prev: WarSnapshot, next: WarSnapshot): Events {
   for (const r of next.rows) {
     const b = before.get(r.id);
     if (!b) continue;
-    if (b.rank !== r.rank) deltas[r.id] = b.rank - r.rank;
+    // unscored rows all share a rank — moving among them is not a move
+    if (b.rank !== r.rank && b.points > 0 && r.points > 0) deltas[r.id] = b.rank - r.rank;
     if (!b.eligible && r.eligible) enlisted.push(r.id);
     if (r.points > b.points) up.push(r.id);
   }
   const lead = (s: WarSnapshot) => s.rows.find((r) => r.points > 0)?.id ?? null;
-  return { at: next.at, fresh, deltas, enlisted, up, newLeader: lead(next) !== lead(prev) ? lead(next) : null };
+  // functions whose total went up — their row flashes like a person's
+  const fnBefore = new Map((prev.functions ?? []).map((f) => [f.fn, f.points]));
+  const fnUp = (next.functions ?? []).filter((f) => f.points > (fnBefore.get(f.fn) ?? 0)).map((f) => f.fn);
+  return { at: next.at, fresh, deltas, enlisted, up, fnUp, newLeader: lead(next) !== lead(prev) ? lead(next) : null };
 }
 
 const fmtDay = (iso: string) =>
@@ -48,14 +59,40 @@ const firstName = (n: string) => n.split(/\s+/)[0] ?? n;
 
 function ago(iso: string, now: number | null): string {
   if (!now) return "";
-  const s = Math.max(0, Math.round((now - Date.parse(iso)) / 1000));
-  if (s < 45) return "now";
-  if (s < 3600) return `${Math.round(s / 60)}m`;
-  if (s < 86400) return `${Math.round(s / 3600)}h`;
-  return `${Math.round(s / 86400)}d`;
+  // floor in every bucket — rounding showed "60m" and "24h"
+  const s = Math.max(0, Math.floor((now - Date.parse(iso)) / 1000));
+  if (s < 60) return "now";
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
 }
 
 const GROUP_LABEL: Record<PointGroup, string> = { OGX: "OGX", ICX: "ICX", LC: "Across the LC" };
+
+/** Who a reward's place belongs to right now. Ties share a rank, so a tie
+ *  of n at rank R covers places R … R+n−1: two people tied first are BOTH in
+ *  line for the 1st and the 2nd reward, and the LC decides who gets which. */
+type Claim = { tied: boolean; who: StandingRow[] };
+function claimsByPlace(rows: StandingRow[]): Map<number, Claim> {
+  const groups = new Map<number, StandingRow[]>();
+  for (const r of rows) if (r.eligible) groups.set(r.rank, [...(groups.get(r.rank) ?? []), r]);
+  const m = new Map<number, Claim>();
+  for (const [rank, who] of groups) for (let p = rank; p < rank + who.length; p++) m.set(p, { tied: who.length > 1, who });
+  return m;
+}
+const joinNames = (who: StandingRow[]) => {
+  const n = who.map((x) => firstName(x.name));
+  return n.length > 3 ? `${n.slice(0, 3).join(", ")} +${n.length - 3}` : n.length > 1 ? `${n.slice(0, -1).join(", ")} & ${n.at(-1)}` : n[0];
+};
+function claimLine(c: Claim | undefined): string {
+  if (!c) return "Unclaimed";
+  return c.tied ? `Tied: ${joinNames(c.who)} — LC decides` : `Held by ${joinNames(c.who)}`;
+}
+const TIE_NOTE = "Ties share a rank; the LC decides who gets which reward.";
+
+function scoreText(f: FeedItem, more: number): string {
+  return `${f.name} ${f.points >= 0 ? "scored +" : "lost "}${Math.abs(f.points)} · ${f.label}${f.kind !== BONUS && f.qty > 1 ? ` ×${f.qty}` : ""}${more ? ` · ${more} more` : ""}`;
+}
 
 export function NoPeaceBoard({
   initial,
@@ -84,15 +121,30 @@ export function NoPeaceBoard({
     return () => clearTimeout(t);
   }, [events.at]);
 
+  // the toast has its own ~4.7 s life (the 60 s window above is for row
+  // flashes and feed highlights): v38 left it on screen, invisible but
+  // catching taps, for the whole minute. A timer, not onAnimationEnd — under
+  // reduced motion there is no animation to end.
+  const [toastDone, setToastDone] = useState("");
+  // the screen-reader line: empty when a new score lands, filled a beat later,
+  // so the live region is heard changing (a region mounted full often isn't)
+  const [said, setSaid] = useState({ at: "", text: "" });
+  useEffect(() => {
+    if (!events.at) return;
+    const at = events.at;
+    const f = events.fresh[0];
+    const t1 = setTimeout(() => setToastDone(at), 4700);
+    const t2 = f ? setTimeout(() => setSaid({ at, text: scoreText(f, events.fresh.length - 1) }), 100) : undefined;
+    return () => {
+      clearTimeout(t1);
+      if (t2) clearTimeout(t2);
+    };
+  }, [events.at, events.fresh]);
+
   const [modal, setModal] = useState<{ kind: "all" } | { kind: "one"; reward: Reward } | null>(null);
-  const holders = useMemo(() => {
-    const m = new Map<number, StandingRow[]>();
-    for (const r of snap.rows) {
-      const rw = rewardFor(r, s.rewards);
-      if (rw) m.set(rw.rank, [...(m.get(rw.rank) ?? []), r]);
-    }
-    return m;
-  }, [snap.rows, s.rewards]);
+  const closeModal = useCallback(() => setModal(null), []);
+  const openAll = useCallback(() => setModal({ kind: "all" }), []);
+  const claims = useMemo(() => claimsByPlace(snap.rows), [snap.rows]);
 
   const sections = [
     { id: "leaderboard", label: "Leaderboard" },
@@ -104,26 +156,26 @@ export function NoPeaceBoard({
   ];
   const spy = useScrollSpy(sections.map((x) => x.id));
 
-  const latest = events.fresh[0];
+  const latest = events.at && events.at !== toastDone ? events.fresh[0] : undefined;
 
   return (
     <div className={`np ${stencil.variable} ${marker.variable}`}>
       <Header snap={snap} now={now} state={state} sections={sections} active={spy.active} onPick={spy.pick} />
-      <Hero snap={snap} now={now} onRewards={() => setModal({ kind: "all" })} />
+      <Hero snap={snap} now={now} onRewards={openAll} />
 
-      <div className="np-wrap">
+      <main className="np-wrap">
         <div className="np-main">
           <Leaderboard snap={snap} events={events} />
           <aside className="np-rail" aria-label="Live feed, rewards and national rank">
             {s.show.feed ? <LiveFeed feed={snap.feed} now={now} state={state} fresh={events.fresh} /> : null}
-            <RewardsCard rewards={s.rewards} minPoints={s.minPoints} holders={holders} onOpen={(r) => setModal({ kind: "one", reward: r })} />
+            <RewardsCard rewards={s.rewards} minPoints={s.minPoints} claims={claims} onOpen={(r) => setModal({ kind: "one", reward: r })} onAll={openAll} />
             {s.show.national ? <National data={national} /> : null}
           </aside>
         </div>
 
         <PointSystem snap={snap} />
         {s.rules.length ? <Rules rules={s.rules} /> : null}
-      </div>
+      </main>
 
       <footer className="np-foot">
         <div className="np-wrap">
@@ -146,8 +198,11 @@ export function NoPeaceBoard({
         </div>
       </footer>
 
+      <div className="np-sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {said.at === events.at ? said.text : ""}
+      </div>
       {latest ? (
-        <div key={`t-${events.at}`} className="np-toast" role="status" aria-live="polite">
+        <div key={`t-${events.at}`} className={`np-toast ${latest.points < 0 ? "neg" : ""}`} aria-hidden>
           <b className="np-mono">
             {latest.points >= 0 ? "+" : ""}
             {latest.points}
@@ -165,10 +220,10 @@ export function NoPeaceBoard({
           modal={modal}
           rewards={s.rewards}
           minPoints={s.minPoints}
-          holders={holders}
+          claims={claims}
           onPick={(r) => setModal({ kind: "one", reward: r })}
-          onAll={() => setModal({ kind: "all" })}
-          onClose={() => setModal(null)}
+          onAll={openAll}
+          onClose={closeModal}
         />
       ) : null}
     </div>
@@ -178,7 +233,12 @@ export function NoPeaceBoard({
 /** Which section the reader is in — the last one whose top has crossed a
  *  line 35% down the screen. A nav click wins outright for a moment, so the
  *  item you pressed lights up even when the page can't scroll that section
- *  all the way to the top (the last ones, near the bottom). */
+ *  all the way to the top (the last ones, near the bottom).
+ *
+ *  From 1100px the rail sits BESIDE the leaderboard, so its cards' tops cross
+ *  the line while the reader is still on the board — there they are skipped
+ *  and light up only from a click. */
+const RAIL_IDS = new Set(["live", "rewards", "national"]);
 function useScrollSpy(ids: string[]): { active: string; pick: (id: string) => void } {
   const key = ids.join(",");
   const [active, setActive] = useState(ids[0] ?? "");
@@ -189,9 +249,11 @@ function useScrollSpy(ids: string[]): { active: string; pick: (id: string) => vo
     const read = () => {
       raf = 0;
       if (Date.now() < lockUntil) return;
+      const twoCol = window.matchMedia("(min-width: 1100px)").matches;
       const line = window.innerHeight * 0.35;
       let cur = list[0];
       for (const id of list) {
+        if (twoCol && RAIL_IDS.has(id)) continue;
         const el = document.getElementById(id);
         if (el && el.getBoundingClientRect().top <= line) cur = id;
       }
@@ -201,9 +263,11 @@ function useScrollSpy(ids: string[]): { active: string; pick: (id: string) => vo
       if (!raf) raf = requestAnimationFrame(read);
     };
     window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
     onScroll();
     return () => {
       window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
       if (raf) cancelAnimationFrame(raf);
     };
   }, [key, lockUntil]);
@@ -256,6 +320,27 @@ function Header({
     if (!el || !chip || el.scrollWidth <= el.clientWidth) return;
     el.scrollTo({ left: chip.offsetLeft - (el.clientWidth - chip.offsetWidth) / 2, behavior: "smooth" });
   }, [active]);
+  // fade the strip's right edge while there are more chips off-screen —
+  // otherwise nothing says the strip scrolls at all
+  const count = sections.length;
+  useEffect(() => {
+    const el = strip.current;
+    if (!el) return;
+    const check = () => {
+      if (el.scrollLeft + el.clientWidth < el.scrollWidth - 1) el.dataset.more = "";
+      else delete el.dataset.more;
+    };
+    check();
+    el.addEventListener("scroll", check, { passive: true });
+    window.addEventListener("resize", check);
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(check);
+    ro?.observe(el);
+    return () => {
+      el.removeEventListener("scroll", check);
+      window.removeEventListener("resize", check);
+      ro?.disconnect();
+    };
+  }, [count]);
   const links = (cls?: string) =>
     sections.map((x) => (
       <a key={x.id} href={`#${x.id}`} aria-current={active === x.id ? "true" : undefined} className={cls} onClick={() => onPick(x.id)}>
@@ -304,10 +389,11 @@ function Hero({ snap, now, onRewards }: { snap: WarSnapshot; now: number | null;
   const left = now ? splitDuration((phase === "before" ? clock.start : clock.end) - now) : null;
   const p = now ? warProgress(clock, now) : 0;
   const day = now ? warDay(clock, now) : 0;
+  const dhm = left ? `${left.d}d ${pad(left.h)}h ${pad(left.m)}m` : "—";
   return (
     <section className="np-hero" id="top">
       <HarbourScene />
-      <span className="np-coords">31.2140° N · 29.8856° E</span>
+      <span className="np-coords" aria-hidden>31.2140° N · 29.8856° E</span>
       <div className="np-wrap np-hero-grid">
         <div>
           <span className="np-eyebrow">
@@ -351,8 +437,21 @@ function Hero({ snap, now, onRewards }: { snap: WarSnapshot; now: number | null;
               ))}
             </div>
           ) : (
-            <p className="np-display" style={{ fontSize: 30, marginTop: 10 }}>Final standings</p>
+            <p className="np-display np-clock-final" style={{ fontSize: 30, marginTop: 10 }}>Final standings</p>
           )}
+          {/* phones and short landscape screens: the whole clock on one line,
+              so the leaderboard starts on the first screen */}
+          <p className="np-clock-line">
+            {phase === "before" ? (
+              <>Starts in {dhm}</>
+            ) : phase === "live" ? (
+              <>
+                {dhm} left <span>· Day {day} of {clock.totalDays}</span>
+              </>
+            ) : (
+              <>The war is over <span>· all {clock.totalDays} days fought</span></>
+            )}
+          </p>
           <div className="np-track" aria-hidden>
             <i style={{ width: `${p * 100}%` }} />
             <b style={{ left: `${p * 100}%` }} />
@@ -384,6 +483,46 @@ function Avatar({ row }: { row: StandingRow }) {
 
 const PAGE = 20;
 
+const nf = new Intl.NumberFormat("en-GB");
+
+/** The function race (v38.3): one row per function, a bar against the leader,
+ *  total points rolling like the people's. Ties share a rank; a function
+ *  nobody has scored for yet shows "—". */
+function FunctionRace({ rows, up }: { rows: FunctionRow[]; up: string[] }) {
+  const lead = Math.max(1, rows[0]?.points ?? 0);
+  const flipRef = useFlip<HTMLOListElement>(rows.map((f) => f.fn).join(","));
+  return (
+    <ol className="np-frows" ref={flipRef} aria-label="Function standings">
+      {rows.map((f) => (
+        <li
+          key={f.fn}
+          data-flip={f.fn}
+          className={`np-frow ${f.points > 0 && f.rank === 1 ? "np-flead" : ""}`}
+          data-flash={up.includes(f.fn) ? "true" : undefined}
+        >
+          <span className="np-frank" aria-label={f.points > 0 ? `rank ${f.rank}` : "unranked"}>
+            {f.points > 0 ? f.rank : "—"}
+          </span>
+          <span className="np-fbody">
+            <span className="np-fhead">
+              <span className="np-fname">{f.fn}</span>
+              <span className="np-fmeta">
+                {f.scorers} of {f.troops} scored{f.top ? ` · top: ${firstName(f.top.name)} (${f.top.points})` : ""}
+              </span>
+            </span>
+            <span className="np-fbar" aria-hidden>
+              <i style={{ width: `${(Math.max(0, f.points) / lead) * 100}%` }} />
+            </span>
+          </span>
+          <span className="np-fpts">
+            <Odometer value={f.points} />
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function Leaderboard({ snap, events }: { snap: WarSnapshot; events: Events }) {
   const s = snap.settings;
   const [q, setQ] = useState("");
@@ -391,6 +530,16 @@ function Leaderboard({ snap, events }: { snap: WarSnapshot; events: Events }) {
   const [onlyEnlisted, setOnlyEnlisted] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const [all, setAll] = useState(false);
+  // v38.3 — people race people, functions race functions; one card, two views.
+  // A shared link can open straight on the function race with #functions.
+  const fnRace = snap.functions ?? [];
+  const [view, setView] = useState<"people" | "functions">("people");
+  useEffect(() => {
+    if (window.location.hash !== "#functions") return;
+    // after hydration (the server can't see the hash), never during render
+    const t = setTimeout(() => setView("functions"), 0);
+    return () => clearTimeout(t);
+  }, []);
   const fns = useMemo(() => [...new Set(snap.rows.map((r) => r.fn))].sort(), [snap.rows]);
   const types = useMemo(() => new Map(s.pointTypes.map((t) => [t.key, t])), [s.pointTypes]);
 
@@ -405,166 +554,221 @@ function Leaderboard({ snap, events }: { snap: WarSnapshot; events: Events }) {
   const shown = all || filtering ? list : list.slice(0, PAGE);
   const scale = Math.max(s.minPoints * 1.4, ...snap.rows.map((r) => r.points), 1);
   const flipRef = useFlip(shown.map((r) => r.id).join(","));
+  // "From #4" was wrong under ties — name the first rank actually listed
+  const from = list[0] && list[0].points > 0 ? `From #${list[0].rank}` : "Name";
 
   return (
     <section className="np-card" id="leaderboard" aria-labelledby="np-lb-title">
       <div className="np-board-head">
         <div>
           <h2 className="np-h2" id="np-lb-title">Leaderboard</h2>
-          <p className="np-board-sub">
-            <b>{snap.totals.troops}</b> in the race · <b>{snap.totals.enlisted}</b> over the {s.minPoints}-point line ·{" "}
-            <b>{snap.totals.points.toLocaleString()}</b> war points so far
-          </p>
-        </div>
-      </div>
-
-      {podium.length ? (
-        <div className="np-podium">
-          {[podium[1], podium[0], podium[2]].map((r, i) =>
-            r ? (
-              <div
-                key={r.id}
-                className={`np-pod ${i === 1 ? "np-first" : i === 2 ? "np-third" : ""} ${events.newLeader === r.id ? "np-shine" : ""}`}
-              >
-                <span className="np-pod-rank">{r.rank}</span>
-                <Avatar row={r} />
-                <span className="np-pod-name" dir="auto">{r.name}</span>
-                <span className="np-pod-fn">{r.fn}</span>
-                <span className="np-pod-pts">
-                  <Odometer value={r.points} />
-                </span>
-                {(() => {
-                  const rw = rewardFor(r, s.rewards);
-                  return rw ? (
-                    <span className="np-pod-reward">{rw.emoji} {rw.title}</span>
-                  ) : (
-                    <span className="np-pod-reward np-off">
-                      {r.eligible ? "Enlisted" : `${s.minPoints - r.points} to the ${s.minPoints} line`}
-                    </span>
-                  );
-                })()}
-              </div>
-            ) : (
-              <div key={`empty-${i}`} />
-            )
+          {view === "functions" ? (
+            <p className="np-board-sub">
+              <b>{fnRace.length}</b> functions at war · total war points, each person counted for their main function
+            </p>
+          ) : (
+            <p className="np-board-sub">
+              <b>{snap.totals.troops}</b> in the race · <b>{snap.totals.enlisted}</b> over the {s.minPoints}-point line ·{" "}
+              <b>{nf.format(snap.totals.points)}</b> war points so far
+            </p>
           )}
         </div>
+        {fnRace.length ? (
+          <div className="np-seg np-view" role="group" aria-label="Who is racing">
+            <button type="button" aria-pressed={view === "people"} onClick={() => setView("people")}>
+              People
+            </button>
+            <button type="button" aria-pressed={view === "functions"} onClick={() => setView("functions")}>
+              Functions
+            </button>
+          </div>
+        ) : null}
+      </div>
+
+      {view === "functions" && fnRace.length ? (
+        <FunctionRace rows={fnRace} up={events.fnUp} />
+      ) : snap.rows.length === 0 ? (
+        <p className="np-empty">Nobody is in the race yet.</p>
       ) : (
-        <p className="np-empty">No points logged yet. The first ones take the top of the board.</p>
-      )}
-
-      <div className="np-tools">
-        <label className="np-search">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-            <circle cx="11" cy="11" r="7" />
-            <path d="m20 20-3.5-3.5" />
-          </svg>
-          <input className="np-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find someone…" aria-label="Search by name" />
-        </label>
-        <select className="np-select" value={fn} onChange={(e) => setFn(e.target.value)} aria-label="Function">
-          <option value="">All functions</option>
-          {fns.map((f) => (
-            <option key={f} value={f}>
-              {f}
-            </option>
-          ))}
-        </select>
-        <button type="button" className="np-toggle" aria-pressed={onlyEnlisted} onClick={() => setOnlyEnlisted((v) => !v)}>
-          {s.minPoints}+ only
-        </button>
-      </div>
-
-      <div className="np-thead np-label" aria-hidden>
-        <span>#</span>
-        <span>{filtering ? `${matches.length} found` : podium.length ? `From #${podium.length + 1}` : "Everyone"}</span>
-        <span>Progress to {s.minPoints}</span>
-        <span>Points</span>
-      </div>
-
-      <div className="np-rows" ref={flipRef}>
-        {shown.map((r) => {
-          const d = events.deltas[r.id];
-          const reward = rewardFor(r, s.rewards);
-          const isOpen = open === r.id;
-          return (
-            <div
-              key={r.id}
-              data-flip={r.id}
-              className="np-row"
-              data-eligible={r.eligible}
-              data-flash={events.up.includes(r.id) ? "true" : undefined}
-              role="button"
-              tabIndex={0}
-              aria-expanded={isOpen}
-              onClick={() => setOpen(isOpen ? null : r.id)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  setOpen(isOpen ? null : r.id);
-                }
-              }}
-            >
-              <span className="np-rank">
-                {r.rank}
-                {d ? <span className={`np-move ${d > 0 ? "up" : "down"}`}>{d > 0 ? `▲${d}` : `▼${-d}`}</span> : null}
-              </span>
-              <span className="np-who">
-                <Avatar row={r} />
-                <span style={{ minWidth: 0 }}>
-                  <span className="np-name" dir="auto" style={{ display: "block" }}>
-                    {r.name}
-                    {reward ? <span title={reward.title}> {reward.emoji}</span> : null}
-                    {r.eligible ? (
-                      <span className={`np-tag ${events.enlisted.includes(r.id) ? "np-new" : ""}`} title={`${s.minPoints}+ war points — in the race for rewards`}>
-                        Enlisted
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="np-meta" style={{ display: "block" }}>
-                    {r.fn} · {r.role}
-                  </span>
-                </span>
-              </span>
-              <span className="np-bar-cell">
-                <span className="np-bar" title={`${r.points} of ${s.minPoints}`} style={{ display: "block" }}>
-                  <i style={{ width: `${Math.min(100, (Math.max(0, r.points) / scale) * 100)}%` }} />
-                  <b style={{ left: `${(s.minPoints / scale) * 100}%` }} />
-                </span>
-              </span>
-              <span className="np-pts">
-                <Odometer value={r.points} />
-              </span>
-              {isOpen ? (
-                <span className="np-break">
-                  {Object.keys(r.breakdown).length === 0 ? (
-                    <span>{s.show.breakdown ? "No points yet." : "Breakdowns are private."}</span>
-                  ) : (
-                    Object.entries(r.breakdown).map(([k, v]) =>
-                      k === BONUS ? (
-                        <span key={k}>
-                          Bonus <b>{v >= 0 ? "+" : ""}{v}</b>
+        <>
+          {podium.length ? (
+            <div className="np-podium">
+              {[podium[1], podium[0], podium[2]].map((r, i) =>
+                r ? (
+                  <div
+                    key={r.id}
+                    // size follows the slot (the middle one is the tallest),
+                    // colour follows the RANK — a tied #2 is silver, not bronze
+                    className={`np-pod ${i === 1 ? "np-center" : ""} ${r.rank === 1 ? "np-gold" : r.rank === 2 ? "" : "np-bronze"} ${events.newLeader === r.id ? "np-shine" : ""}`}
+                  >
+                    <span className="np-pod-rank">{r.rank}</span>
+                    <Avatar row={r} />
+                    <span className="np-pod-name" dir="auto" title={r.name}>
+                      <span className="np-pod-full">{r.name}</span>
+                      <span className="np-pod-first" aria-hidden>{firstName(r.name)}</span>
+                    </span>
+                    <span className="np-pod-fn">{r.fn}</span>
+                    <span className="np-pod-pts">
+                      <Odometer value={r.points} />
+                    </span>
+                    {(() => {
+                      const rw = rewardFor(r, s.rewards);
+                      return rw ? (
+                        <span className="np-pod-reward" title={rw.title}>
+                          {rw.emoji}
+                          <span className="np-pod-reward-t"> {rw.title}</span>
                         </span>
                       ) : (
-                        <span key={k}>
-                          {types.get(k)?.label ?? k} ×{v} = <b>{(types.get(k)?.points ?? 0) * v}</b>
+                        <span className="np-pod-reward np-off">
+                          {r.eligible ? "Enlisted" : `${s.minPoints - r.points} to the ${s.minPoints} line`}
                         </span>
-                      )
-                    )
-                  )}
-                </span>
-              ) : null}
+                      );
+                    })()}
+                  </div>
+                ) : (
+                  <div key={`empty-${i}`} />
+                )
+              )}
             </div>
-          );
-        })}
-        {shown.length === 0 ? <p className="np-empty">{filtering ? "Nobody matches that." : "Everyone in the race is on the podium."}</p> : null}
-      </div>
-      {!all && !filtering && list.length > shown.length ? (
-        <div className="np-more">
-          <button type="button" className="np-btn np-btn-ghost" onClick={() => setAll(true)}>
-            Show all {snap.rows.length}
-          </button>
-        </div>
-      ) : null}
+          ) : (
+            <p className="np-empty">No points logged yet. The first ones take the top of the board.</p>
+          )}
+
+          <div className="np-tools">
+            <label className="np-search">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" />
+              </svg>
+              <input className="np-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find someone…" aria-label="Search by name" />
+            </label>
+            <select className="np-select" value={fn} onChange={(e) => setFn(e.target.value)} aria-label="Function">
+              <option value="">All functions</option>
+              {fns.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+            <button type="button" className="np-toggle" aria-pressed={onlyEnlisted} onClick={() => setOnlyEnlisted((v) => !v)}>
+              {s.minPoints}+ only
+            </button>
+          </div>
+
+          <div className="np-thead np-label" aria-hidden>
+            <span>#</span>
+            <span>{filtering ? `${matches.length} found` : podium.length ? from : "Everyone"}</span>
+            <span>Progress to {s.minPoints}</span>
+            <span>Points</span>
+          </div>
+
+          <div className="np-rows" ref={flipRef}>
+            {shown.map((r) => {
+              const scored = r.points > 0;
+              const d = scored ? events.deltas[r.id] : undefined;
+              const reward = rewardFor(r, s.rewards);
+              const isOpen = open === r.id;
+              const tag = (where: "wide" | "narrow") =>
+                r.eligible ? (
+                  <span
+                    className={`np-tag np-tag-${where} ${events.enlisted.includes(r.id) ? "np-new" : ""}`}
+                    title={`${s.minPoints}+ war points — in the race for rewards`}
+                  >
+                    Enlisted
+                  </span>
+                ) : null;
+              return (
+                <div key={r.id} data-flip={r.id} className="np-row" data-eligible={r.eligible} data-open={isOpen ? "true" : undefined}>
+                  {/* a second score inside the 60 s window remounts this and flashes again */}
+                  {events.up.includes(r.id) ? <span key={events.at} className="np-row-flash" aria-hidden /> : null}
+                  <button
+                    type="button"
+                    className="np-row-btn"
+                    aria-expanded={isOpen}
+                    aria-controls={`np-br-${r.id}`}
+                    onClick={() => setOpen(isOpen ? null : r.id)}
+                  >
+                    <span className="np-rank">
+                      {scored ? (
+                        r.rank
+                      ) : (
+                        <>
+                          <span aria-hidden>—</span>
+                          <span className="np-sr-only">unranked</span>
+                        </>
+                      )}
+                      {d ? (
+                        <span className={`np-move ${d > 0 ? "up" : "down"}`}>
+                          <span aria-hidden>{d > 0 ? `▲${d}` : `▼${-d}`}</span>
+                          <span className="np-sr-only">{d > 0 ? `up ${d}` : `down ${-d}`}</span>
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="np-who">
+                      <Avatar row={r} />
+                      <span className="np-who-text">
+                        <span className="np-name-line">
+                          <span className="np-name" dir="auto" title={r.name}>
+                            {r.name}
+                          </span>
+                          {reward ? (
+                            <span className="np-name-emoji" title={reward.title}>
+                              {reward.emoji}
+                            </span>
+                          ) : null}
+                          {tag("wide")}
+                        </span>
+                        <span className="np-meta">
+                          {tag("narrow")}
+                          <span className="np-meta-t">
+                            {r.fn} · {r.role}
+                          </span>
+                        </span>
+                      </span>
+                    </span>
+                    <span className="np-bar-cell">
+                      <span className="np-bar" title={`${r.points} of ${s.minPoints}`}>
+                        <i style={{ width: `${Math.min(100, (Math.max(0, r.points) / scale) * 100)}%` }} />
+                        <b style={{ left: `${(s.minPoints / scale) * 100}%` }} />
+                      </span>
+                    </span>
+                    <span className="np-pts">
+                      <Odometer value={r.points} />
+                    </span>
+                  </button>
+                  <ul className="np-break" id={`np-br-${r.id}`} hidden={!isOpen} aria-label={`${r.name}'s points`}>
+                    {Object.keys(r.breakdown).length === 0 ? (
+                      <li>{s.show.breakdown ? "No points yet." : "Breakdowns are private."}</li>
+                    ) : (
+                      Object.entries(r.breakdown).map(([k, v]) =>
+                        k === BONUS ? (
+                          <li key={k}>
+                            Bonus <b>{v >= 0 ? "+" : ""}{v}</b>
+                          </li>
+                        ) : (
+                          <li key={k}>
+                            {types.get(k)?.label ?? k} ×{v} = <b>{(types.get(k)?.points ?? 0) * v}</b>
+                          </li>
+                        )
+                      )
+                    )}
+                  </ul>
+                </div>
+              );
+            })}
+            {shown.length === 0 ? (
+              <p className="np-empty">{filtering ? "Nobody matches that." : podium.length ? "Everyone in the race is on the podium." : null}</p>
+            ) : null}
+          </div>
+          {!all && !filtering && list.length > shown.length ? (
+            <div className="np-more">
+              <button type="button" className="np-btn np-btn-ghost" onClick={() => setAll(true)}>
+                Show all {snap.rows.length}
+              </button>
+            </div>
+          ) : null}
+        </>
+      )}
     </section>
   );
 }
@@ -609,28 +813,34 @@ function LiveFeed({ feed, now, state, fresh }: { feed: FeedItem[]; now: number |
 }
 
 function RewardsCard({
-  rewards, minPoints, holders, onOpen,
+  rewards, minPoints, claims, onOpen, onAll,
 }: {
   rewards: Reward[];
   minPoints: number;
-  holders: Map<number, StandingRow[]>;
+  claims: Map<number, Claim>;
   onOpen: (r: Reward) => void;
+  onAll: () => void;
 }) {
   return (
     <section className="np-card" id="rewards" aria-labelledby="np-rw-title">
       <div className="np-card-head">
         <h2 className="np-card-title" id="np-rw-title">War rewards</h2>
+        {/* the hero's "War rewards" button is hidden on phones — this is its way in there */}
+        <button type="button" className="np-link-btn" onClick={onAll}>
+          See all
+        </button>
       </div>
-      {rewards.map((r) => {
-        const h = holders.get(r.rank);
+      {rewards.map((r, i) => {
+        const c = claims.get(r.rank);
         return (
-          <button key={`${r.rank}-${r.title}`} type="button" className="np-reward" onClick={() => onOpen(r)}>
+          // by index: two rewards may share a rank and a title while being edited
+          <button key={i} type="button" className="np-reward" onClick={() => onOpen(r)}>
             <span className="np-reward-emoji" aria-hidden>{r.emoji}</span>
             <span style={{ minWidth: 0 }}>
               <span className="np-label" style={{ display: "block", fontSize: 10.5 }}>{r.place}</span>
               <span className="np-reward-title" style={{ display: "block" }}>{r.title}</span>
               <span className="np-reward-holder" style={{ display: "block" }}>
-                {h?.length ? `Held by ${h.map((x) => firstName(x.name)).join(" & ")}` : "Unclaimed"}
+                {claimLine(c)}
               </span>
             </span>
             <svg className="np-reward-go" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
@@ -639,7 +849,7 @@ function RewardsCard({
           </button>
         );
       })}
-      <p className="np-note">At least {minPoints} war points to compete. Ties share a rank.</p>
+      <p className="np-note">At least {minPoints} war points to compete. {TIE_NOTE}</p>
     </section>
   );
 }
@@ -654,9 +864,9 @@ function National({ data }: { data: NationalStanding | null }) {
       <div className="np-card-head">
         <h2 className="np-card-title" id="np-nat-title">Alexandria in Egypt</h2>
         {data ? (
-          <div className="np-seg" role="tablist" aria-label="Stage">
+          <div className="np-seg" role="group" aria-label="Stage">
             {data.stages.map((x, i) => (
-              <button key={x.stage} type="button" role="tab" aria-selected={i === stage} onClick={() => setStage(i)}>
+              <button key={x.stage} type="button" aria-pressed={i === stage} onClick={() => setStage(i)}>
                 {x.label}
               </button>
             ))}
@@ -692,7 +902,7 @@ function National({ data }: { data: NationalStanding | null }) {
           ))}
           <p className="np-note">
             From{" "}
-            <a href="https://core.aiesec.org.eg" target="_blank" rel="noreferrer" style={{ textDecoration: "underline" }}>
+            <a href="https://core.aiesec.org.eg" target="_blank" rel="noreferrer" className="np-core-link">
               CORE
             </a>{" "}
             · bars compare us with #1 · CORE lists the top 10 only
@@ -777,78 +987,115 @@ function Rules({ rules }: { rules: string[] }) {
 // ------------------------------------------------------------------ rewards modal
 
 function RewardModal({
-  modal, rewards, minPoints, holders, onPick, onAll, onClose,
+  modal, rewards, minPoints, claims, onPick, onAll, onClose,
 }: {
   modal: { kind: "all" } | { kind: "one"; reward: Reward };
   rewards: Reward[];
   minPoints: number;
-  holders: Map<number, StandingRow[]>;
+  claims: Map<number, Claim>;
   onPick: (r: Reward) => void;
   onAll: () => void;
   onClose: () => void;
 }) {
+  const back = useRef<HTMLDivElement | null>(null);
+  const x = useRef<HTMLButtonElement | null>(null);
+  const close = useRef(onClose);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    close.current = onClose;
+  });
+  // once per opening: lock the page behind, make it inert (so Tab and a
+  // screen reader stay inside the dialog), and on close hand focus back to
+  // whatever opened it
+  useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close.current();
     window.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    const root = back.current?.parentElement;
+    const behind = root ? [...root.querySelectorAll<HTMLElement>(":scope > header, :scope > .np-hero, :scope > .np-wrap, :scope > footer")] : [];
+    for (const el of behind) el.inert = true;
     return () => {
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
+      for (const el of behind) el.inert = false;
+      if (opener?.isConnected) opener.focus();
     };
-  }, [onClose]);
+  }, []);
+  // the button that switched views is gone — keep focus in the dialog
+  const view = modal.kind === "one" ? `one-${modal.reward.rank}-${modal.reward.title}` : "all";
+  useEffect(() => {
+    x.current?.focus();
+  }, [view]);
+
+  const c = modal.kind === "one" ? claims.get(modal.reward.rank) : undefined;
   return (
-    <div className="np-modal-back" onClick={onClose} role="presentation">
-      <div className="np-modal" role="dialog" aria-modal="true" aria-label="War rewards" onClick={(e) => e.stopPropagation()}>
-        <button type="button" className="np-x" onClick={onClose} aria-label="Close" autoFocus>
+    <div className="np-modal-back" onClick={onClose} role="presentation" ref={back}>
+      <div
+        className="np-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={modal.kind === "one" ? modal.reward.title : "War rewards"}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button type="button" className="np-x" onClick={onClose} aria-label="Close" ref={x}>
           ×
         </button>
-        {modal.kind === "one" ? (
-          <>
-            <div className="np-modal-emoji" aria-hidden>{modal.reward.emoji}</div>
-            <p className="np-label" style={{ marginTop: 14, color: "var(--np-brass)" }}>{modal.reward.place}</p>
-            <h3 className="np-display" style={{ margin: "6px 0 0", fontSize: 30, lineHeight: 1.05 }}>{modal.reward.title}</h3>
-            {modal.reward.detail ? <p style={{ marginTop: 12, color: "var(--np-muted)" }}>{modal.reward.detail}</p> : null}
-            <div className="np-modal-holder">
-              {holders.get(modal.reward.rank)?.length ? (
-                <>
-                  In line right now:{" "}
-                  <b>{holders.get(modal.reward.rank)!.map((h) => `${h.name} (${h.points})`).join(", ")}</b>
-                </>
-              ) : (
-                <>Nobody holds it yet. Reach {minPoints} war points and climb.</>
-              )}
-            </div>
-            <button type="button" className="np-btn np-btn-ghost" style={{ marginTop: 16 }} onClick={onAll}>
-              All rewards
-            </button>
-          </>
-        ) : (
-          <>
-            <h3 className="np-display" style={{ margin: 0, fontSize: 30 }}>War rewards</h3>
-            <p style={{ marginTop: 6, color: "var(--np-muted)", fontSize: 14 }}>At least {minPoints} war points to compete.</p>
-            <div style={{ marginTop: 16, textAlign: "left", border: "1px solid var(--np-line)", borderRadius: 14, overflow: "hidden" }}>
-              {rewards.map((r, i) => (
-                <button
-                  key={`${r.rank}-${r.title}`}
-                  type="button"
-                  className="np-reward"
-                  style={i === 0 ? { borderTop: 0 } : undefined}
-                  onClick={() => onPick(r)}
-                >
-                  <span className="np-reward-emoji" aria-hidden>{r.emoji}</span>
-                  <span style={{ minWidth: 0 }}>
-                    <span className="np-label" style={{ display: "block", fontSize: 10.5 }}>{r.place}</span>
-                    <span className="np-reward-title" style={{ display: "block" }}>{r.title}</span>
-                  </span>
-                  <svg className="np-reward-go" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
-                    <path d="m9 6 6 6-6 6" />
-                  </svg>
-                </button>
-              ))}
-            </div>
-          </>
-        )}
+        {/* the body scrolls, the × stays put — on a landscape phone it used to scroll away */}
+        <div className="np-modal-body">
+          {modal.kind === "one" ? (
+            <>
+              <div className="np-modal-emoji" aria-hidden>{modal.reward.emoji}</div>
+              <p className="np-label" style={{ marginTop: 14, color: "var(--np-brass)" }}>{modal.reward.place}</p>
+              <h3 className="np-display" style={{ margin: "6px 0 0", fontSize: 30, lineHeight: 1.05 }}>{modal.reward.title}</h3>
+              {modal.reward.detail ? <p style={{ marginTop: 12, color: "var(--np-muted)" }}>{modal.reward.detail}</p> : null}
+              <div className="np-modal-holder">
+                {c ? (
+                  <>
+                    {c.tied ? "Tied for it right now: " : "In line right now: "}
+                    <b>{c.who.map((h) => `${h.name} (${h.points})`).join(", ")}</b>
+                    {c.tied ? <> — the LC decides who gets which reward.</> : null}
+                  </>
+                ) : (
+                  <>Nobody holds it yet. Reach {minPoints} war points and climb.</>
+                )}
+              </div>
+              <button type="button" className="np-btn np-btn-ghost" style={{ marginTop: 16 }} onClick={onAll}>
+                All rewards
+              </button>
+            </>
+          ) : (
+            <>
+              <h3 className="np-display" style={{ margin: 0, fontSize: 30 }}>War rewards</h3>
+              <p style={{ marginTop: 6, color: "var(--np-muted)", fontSize: 14 }}>
+                At least {minPoints} war points to compete. {TIE_NOTE}
+              </p>
+              <div style={{ marginTop: 16, textAlign: "left", border: "1px solid var(--np-line)", borderRadius: 14, overflow: "hidden" }}>
+                {rewards.map((r, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    className="np-reward"
+                    style={i === 0 ? { borderTop: 0 } : undefined}
+                    onClick={() => onPick(r)}
+                  >
+                    <span className="np-reward-emoji" aria-hidden>{r.emoji}</span>
+                    <span style={{ minWidth: 0 }}>
+                      <span className="np-label" style={{ display: "block", fontSize: 10.5 }}>{r.place}</span>
+                      <span className="np-reward-title" style={{ display: "block" }}>{r.title}</span>
+                      <span className="np-reward-holder" style={{ display: "block" }}>
+                        {claimLine(claims.get(r.rank))}
+                      </span>
+                    </span>
+                    <svg className="np-reward-go" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
+                      <path d="m9 6 6 6-6 6" />
+                    </svg>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

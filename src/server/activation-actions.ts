@@ -26,14 +26,19 @@ import {
 } from "@/lib/activation/model";
 import { CORE_SECTION_IDS } from "@/lib/activation/seed";
 import { canSeeActivationBid } from "@/lib/rbac";
+import { ACTIVATION_TAB } from "@/lib/tabs";
+import { tabAllows } from "@/server/tabs";
 
 /** WRITES for the Activate 26' bid page (v36.7).
  *
- *  WHO: every signed-in Sodio member may edit — that is the ask ("editable for
- *  Sodio users, view-only for everyone else"). A visitor without a session
- *  never reaches these: `getViewer` sends them to /login, and the public page
- *  renders the board read-only. An admin's TEST VIEW may not edit, because
- *  the edit would be credited to the member being impersonated.
+ *  WHO: whoever the bid TAB is open to — MMs and above by code (v36.8), plus
+ *  or minus whoever Settings → Tabs names (v38.3: the actions ask the same
+ *  `tabAllows` as the page, so a tab shown to someone is a plan they can
+ *  edit, and a tab hidden or retired closes the edits too). A visitor
+ *  without a session never reaches these: `getViewer` sends them to /login,
+ *  and the public page renders the board read-only. An admin's TEST VIEW may
+ *  not edit, because the edit would be credited to the member being
+ *  impersonated.
  *
  *  HOW: a cell edit merges ONE key into the row in a single statement
  *  (`activation_set_cells`), so two people typing in different cells of the
@@ -47,11 +52,16 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SECTION_ID = /^[a-z0-9][a-z0-9_-]{0,48}$/;
 const HEX = /^#[0-9a-f]{6}$/i;
 
-const MM_ONLY = "The bid plan is for MMs and above — the public page is open to everyone.";
+const MM_ONLY = "The bid plan isn't open to you — the public page is open to everyone.";
+
+/** The bid tab's rule for this person: the code's MM+ answer, with the LC's
+ *  tab rule on top — exactly what the page asks. */
+const mayUseBid = async (viewer: Awaited<ReturnType<typeof getViewer>>) =>
+  tabAllows(viewer, ACTIVATION_TAB, canSeeActivationBid(viewer));
 
 async function editor() {
   const viewer = await getViewer();
-  if (!canSeeActivationBid(viewer)) return { viewer, error: MM_ONLY };
+  if (!(await mayUseBid(viewer))) return { viewer, error: MM_ONLY };
   if (viewer.impersonated)
     return { viewer, error: "Exit the test view to edit the bid plan — the edit would be credited to someone else." };
   return { viewer, error: null as string | null };
@@ -513,7 +523,7 @@ export async function moveActivationSection(sectionId: string, direction: -1 | 1
 /** What changed since the board's last sync — polled while someone edits. */
 export async function getActivationDelta(since: string): Promise<Res<ActivationDelta>> {
   const viewer = await getViewer();
-  if (!canSeeActivationBid(viewer)) return fail(MM_ONLY);
+  if (!(await mayUseBid(viewer))) return fail(MM_ONLY);
   if (typeof since !== "string" || Number.isNaN(Date.parse(since))) return fail("Bad cursor.");
   try {
     return { ok: true, data: await loadActivationDelta(since) };
@@ -525,7 +535,7 @@ export async function getActivationDelta(since: string): Promise<Res<ActivationD
 /** The whole plan again — the recovery path after a save was refused. */
 export async function getActivationPlan(): Promise<Res<ActivationPlan>> {
   const viewer = await getViewer();
-  if (!canSeeActivationBid(viewer)) return fail(MM_ONLY);
+  if (!(await mayUseBid(viewer))) return fail(MM_ONLY);
   try {
     return { ok: true, data: await loadActivationPlan({ publicView: false }) };
   } catch (e) {

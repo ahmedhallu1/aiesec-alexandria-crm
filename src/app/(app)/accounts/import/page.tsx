@@ -9,7 +9,9 @@ export const metadata = { title: "Import accounts" };
 export default async function ImportPage() {
   const viewer = await getViewer();
   await gateTab(viewer, "/accounts");
-  if (!hasRaisingAccess(viewer)) redirect("/");
+  // never "/" after the gate passed (v38.3): a person a tab rule opened
+  // Raising to goes back to Raising
+  if (!hasRaisingAccess(viewer)) redirect("/accounts");
   const allowedFns = allowedAccountFunctions(viewer);
   if (allowedFns.length === 0) redirect("/accounts");
 

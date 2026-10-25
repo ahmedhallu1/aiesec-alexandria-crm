@@ -12,7 +12,7 @@ import { PAGE_SIZES } from "@/lib/page-size";
 import { exportsFor } from "@/server/exports";
 import { handoverFor, lcOverview } from "@/server/lc-term";
 import { SettingsHub, type HubTab } from "@/components/crm/settings-hub";
-import { tabManagerData } from "@/server/tabs";
+import { tabManagerData, tabOverridesForViewer } from "@/server/tabs";
 
 export const metadata = { title: "Settings" };
 
@@ -85,7 +85,8 @@ export default async function SettingsPage({
         }}
         defaults={{
           values: settings.defaults,
-          homeOptions: homeOptionsFor(viewer),
+          // a tab the LC's rules hide from them is never offered (v38.3)
+          homeOptions: homeOptionsFor(viewer, await tabOverridesForViewer(viewer)),
           laneOptions: dashboardLaneViews(viewer).map((v) => ({ value: v.key, label: v.label })),
           pageSizes: PAGE_SIZES,
           signupViews: hasOgxAccess(viewer) || b2cCicAccess(viewer) ? signupViewsFor(viewer) : [],

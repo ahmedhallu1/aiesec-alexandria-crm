@@ -15,7 +15,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-10-25 · Version: v38.2
+Last updated: 2026-10-25 · Version: v38.3
 
 ---
 
@@ -170,6 +170,19 @@ everything. The backdrop is VECTOR (`scene.tsx` — Qaitbay + the LC-logo
 lighthouse); never put a raster poster behind it again (v38's was a 1280px
 image stretched ×2 and read as pixelated). Logos are pre-resampled PNGs at
 1×/2×/3× in `public/brand/no-peace/` (a 716px logo drawn at 22px aliased).
+**v38.3 — the FUNCTION RACE**: functions compete on TOTAL war points, each
+person counted for their MAIN function only (`StandingRow.fn`); B2B and BD race
+separately; CXP, TM, IM and F&L are out by default (`settings.functionBoard`,
+editable in War Room → Settings). `functionStandings` in model.ts; the public
+leaderboard card has a People / Functions switch (`#functions` opens it). **The
+live channel is PRIVATE** (migration 0088: anon may only LISTEN on topic
+`no-peace`); Realtime's "Allow public access" project setting must be OFF, or
+a public REST broadcast can still reach private listeners (tested). **Never
+seed test rows to look at a page — there is ONE database and the public board
+is live**; render the component on a temporary local route with fake data.
+Gating (v38.3): `homeRouteFor` (tabs.ts) is the only home rule; /admin and
+/membership are HIDE-ONLY in the tab manager (their pages expose data with no
+role check); `publicPageLive` fails CLOSED.
 
 **Profile "my people" card** (`profilePeople` in data.ts): Team Leader → their
 direct team · VP/Director → their whole function · LCP/admin → the EB

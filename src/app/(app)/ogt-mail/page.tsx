@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 import { getViewer } from "@/server/data";
+import { gateTab } from "@/server/tabs";
+import { canUseMailboxTab } from "@/lib/rbac";
 import { OgtMailView } from "@/components/crm/ogt-mail-view";
 
 export const metadata = { title: "Expectation mail" };
@@ -18,6 +20,9 @@ export default async function OgtMailPage() {
   const allowed =
     viewer.isAdmin || viewer.role === "LCP" || (leader && ownPrograms.length > 0);
   if (!allowed) redirect("/");
+  // the composer is a button inside the Emails tab, so it follows that tab's
+  // rule too (v38.3): hiding Emails from someone closes this door as well
+  await gateTab(viewer, "/emails", canUseMailboxTab(viewer));
 
   const programs: ("OGT" | "OGV")[] =
     viewer.isAdmin || viewer.role === "LCP" || ownPrograms.length === 0

@@ -7,6 +7,36 @@
 > ~87% of it. This file is NOT auto-loaded — grep it for the reasoning behind
 > a past decision before changing that behaviour.
 
+- **2026-10-25 · v38.3** — **THE FUNCTION RACE + A 272-AGENT AUDIT OF v38.**
+  Migration **0088** (the war's Realtime channel is listen-only for browsers;
+  applied). ① **Function leaderboard**: functions race on TOTAL war points,
+  each person counted for their main function only; B2B and BD separate;
+  CXP, TM, IM and F&L excluded (editable: War Room → Settings → Function race).
+  On /no-peace the leaderboard card switches People / Functions (`#functions`
+  deep link); the War Room's Standings tab shows the same table. ② An audit
+  workflow (7 reviewers, every finding put to 3 skeptics) confirmed 86
+  findings, merged to 58 fixes, all applied by four file-owning agents. Among
+  them:
+  - **Security:** anyone holding the public key could broadcast a forged board.
+    The channel is now private. Realtime's "Allow public access" must be off to
+    close the public-REST path too.
+  - **/admin and /membership:** the tab manager can only hide them. A "show"
+    rule would have exposed logs, API keys and every member's details.
+  - **Home routing:** hiding a module tab can no longer strand a member on a
+    blank home.
+  - **Public page:** rows no longer fly across the screen on reorder; the toast
+    no longer blocks taps for 60s; the leaderboard starts at ~400px on phones;
+    ties colour the podium by rank and say "LC decides"; the lighthouse is
+    clear of the clock card.
+  - **War Room on phones:** card lists, 44px tabs, no iOS zoom.
+  - **Settings:** saves re-seed from what the server stored, and duplicate
+    reward ranks are refused.
+  - **Dates:** the date window is checked on edit, and "Day N" uses Cairo
+    calendar days after the DST change.
+  ⚠️ The audit seeded `zz-test` entries into the ONE production database. They
+  showed on the live board until an LCVP deleted them, and are now hard-deleted.
+  Never again — see AI_CONTEXT.
+
 - **2026-10-25 · v38.2** — **/no-peace phone polish.** The reports that came in
   (the front line had to be scrolled sideways, the live pulse spread over the
   Rewards button, the "Classified" stamp sat on the rules text) were all v38

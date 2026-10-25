@@ -3,6 +3,7 @@ import { loadActivationPlan } from "@/server/activation";
 import { ActivationBoard } from "@/components/activation/board";
 import { notFound } from "next/navigation";
 import { publicPageLive } from "@/server/tabs";
+import { ACTIVATION_TAB } from "@/lib/tabs";
 
 /** PUBLIC (v36.7, no session — exempted in src/proxy.ts): AIESEC in
  *  Alexandria's bid to host Activate 26', read-only. The plan is edited inside
@@ -27,7 +28,7 @@ export const metadata: Metadata = {
 
 export default async function ActivatePublicPage() {
   // v38 — the LCP/admins can take the public copy down (Settings → Tabs)
-  if (!(await publicPageLive("/activation"))) notFound();
+  if (!(await publicPageLive(ACTIVATION_TAB))) notFound();
   const plan = await loadActivationPlan({ publicView: true });
   return <ActivationBoard initial={plan} editable={false} publicUrl="" embedded={false} />;
 }

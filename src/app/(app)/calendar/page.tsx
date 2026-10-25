@@ -6,10 +6,9 @@ import {
   calendarItemScopes,
   canCreateCalendarItems,
   canEditTouchPoint,
+  canOpenCalendar,
   hasConsiderationAccess,
-  hasOgxAccess,
   hasRaisingAccess,
-  hasTmAccess,
   isTmCore,
 } from "@/lib/rbac";
 import {
@@ -51,7 +50,9 @@ export default async function CalendarPage({
   const consideration = hasConsiderationAccess(viewer);
   // every module member has a calendar now — touch points concern everyone
   // v38 — the tab rule (Settings → Tabs) can open or close it on top
-  await gateTab(viewer, "/calendar", raising || consideration || hasOgxAccess(viewer) || hasTmAccess(viewer));
+  // canOpenCalendar is the SAME predicate the sidebar and the home picker use
+  // (v38.3) — they once disagreed, and a picked-but-refused home looped
+  await gateTab(viewer, "/calendar", canOpenCalendar(viewer));
   const params = await searchParams;
 
   // "this month" in Cairo time — the server clock is UTC on Vercel

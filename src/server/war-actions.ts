@@ -3,13 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/server/data";
 import { db } from "@/lib/supabase";
-import { logAudit } from "@/server/audit";
+import { logAudit, diffFields } from "@/server/audit";
 import { canSeeWarRoom } from "@/lib/rbac";
-import { tabAllows } from "@/server/tabs";
+import { bustTabRules, publicPageLive, tabAllows } from "@/server/tabs";
 import { broadcast } from "@/server/realtime";
 import { warSnapshot, loadWarSettings } from "@/server/war";
 import {
-  BONUS, LIMITS, WAR_PUBLIC_PATH, WAR_ROOM_PATH, WAR_SLUG, addDays, isIsoDate, resolveWarSettings,
+  BONUS, LIMITS, WAR_PUBLIC_PATH, WAR_ROOM_PATH, WAR_SLUG, inWarWindow, isIsoDate, resolveWarSettings,
+  warSettingsProblem, type WarSettings,
 } from "@/lib/war/model";
 import { cairoToday } from "@/lib/types";
 
@@ -22,7 +23,8 @@ import { cairoToday } from "@/lib/types";
  *  be credited to the impersonated member.
  *
  *  EVERY write ends in `publish()`: the new public snapshot is broadcast to
- *  every open /no-peace page, which is what makes the numbers move "instantly". */
+ *  every open /no-peace page, which is what makes the numbers move "instantly"
+ *  — unless the public page is switched off, when nothing is pushed. */
 
 type Res<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
 const fail = (error: string): { ok: false; error: string } => ({ ok: false, error });
@@ -41,6 +43,10 @@ async function publish() {
   revalidatePath(WAR_ROOM_PATH);
   revalidatePath(WAR_PUBLIC_PATH);
   try {
+    // a fresh read of the rules (not this instance's 30 s memo): a board taken
+    // down a moment ago must not keep receiving the standings
+    bustTabRules();
+    if (!(await publicPageLive(WAR_ROOM_PATH))) return;
     broadcast(WAR_SLUG, "snapshot", await warSnapshot());
   } catch (e) {
     console.error("[war] snapshot for broadcast failed:", e instanceof Error ? e.message : e);
@@ -76,9 +82,7 @@ export async function logWarEntries(input: LogInput): Promise<Res<{ count: numbe
   const note = (input.note ?? "").trim().slice(0, LIMITS.note) || null;
   const day = input.occurredOn || cairoToday();
   if (!isIsoDate(day)) return fail("The date isn't valid.");
-  // a few days of grace either side: the last day's numbers often land late
-  if (day < addDays(settings.startDate, -7) || day > addDays(settings.endDate, 7))
-    return fail("That date is outside the war.");
+  if (!inWarWindow(day, settings)) return fail("That date is outside the war.");
 
   // only people who exist — the FK would refuse anyway, this says it nicely
   const { data: found } = await db().from("members").select("id").in("id", ids);
@@ -111,7 +115,12 @@ export async function updateWarEntry(
   const { viewer, error } = await editor();
   if (error) return fail(error);
   if (!UUID.test(id)) return fail("Unknown entry.");
-  const { data: cur } = await db().from("war_entries").select("kind").eq("id", id).eq("campaign", WAR_SLUG).maybeSingle();
+  const { data: cur } = await db()
+    .from("war_entries")
+    .select("kind, member_id, qty, points, note, occurred_on")
+    .eq("id", id)
+    .eq("campaign", WAR_SLUG)
+    .maybeSingle();
   if (!cur) return fail("That entry is gone.");
   const upd: Record<string, unknown> = {};
   if (patch.qty !== undefined && cur.kind !== BONUS) {
@@ -127,12 +136,20 @@ export async function updateWarEntry(
   if (patch.note !== undefined) upd.note = (patch.note ?? "").trim().slice(0, LIMITS.note) || null;
   if (patch.occurredOn !== undefined) {
     if (!isIsoDate(patch.occurredOn)) return fail("The date isn't valid.");
+    // the same window as logging — but only for a date that actually moves,
+    // so fixing a typo on an old entry never trips over a changed war window
+    if (patch.occurredOn !== cur.occurred_on) {
+      const { settings } = await loadWarSettings();
+      if (!inWarWindow(patch.occurredOn, settings)) return fail("That date is outside the war.");
+    }
     upd.occurred_on = patch.occurredOn;
   }
   if (Object.keys(upd).length === 0) return fail("Nothing to change.");
   const { error: dbError } = await db().from("war_entries").update(upd).eq("id", id);
   if (dbError) return fail(dbError.message);
-  await logAudit(viewer.id, "war_entry_edit", "war_entries", id, upd);
+  await logAudit(viewer.id, "war_entry_edit", "war_entries", id, { ...upd, member_id: cur.member_id }, {
+    changed: diffFields(cur as Record<string, unknown>, upd),
+  });
   await publish();
   return { ok: true };
 }
@@ -160,6 +177,17 @@ export async function restoreWarEntries(ids: string[]): Promise<Res> {
   if (error) return fail(error);
   const clean = [...new Set((ids ?? []).filter((x) => UUID.test(x)))].slice(0, 500);
   if (clean.length === 0) return fail("Nothing selected.");
+  // an entry whose type was removed meanwhile would come back scoring 0 and
+  // then block every point-table save — refuse it, by name
+  const [{ settings }, { data: kinds, error: readError }] = await Promise.all([
+    loadWarSettings(),
+    db().from("war_entries").select("kind").in("id", clean).eq("campaign", WAR_SLUG),
+  ]);
+  if (readError) return fail("Couldn't check those entries — try again.");
+  const valid = new Set([BONUS, ...settings.pointTypes.map((t) => t.key)]);
+  const stale = [...new Set((kinds ?? []).map((k) => k.kind as string).filter((k) => !valid.has(k)))];
+  if (stale.length)
+    return fail(`Can't restore entries of a removed point type (${stale.join(", ")}). Add the type back first.`);
   const { error: dbError } = await db()
     .from("war_entries")
     .update({ deleted_at: null, deleted_by: null })
@@ -174,29 +202,46 @@ export async function restoreWarEntries(ids: string[]): Promise<Res> {
 /** Save the campaign's settings — the point table, rewards, rules, dates,
  *  who competes, what the page shows. Merged over the stored value and
  *  resolved, so a form only ever changes what it sends. A point type that
- *  still has entries can't be removed (its entries would silently score 0). */
-export async function saveWarSettings(patch: Record<string, unknown>): Promise<Res> {
+ *  still has entries can't be removed (its entries would silently score 0).
+ *
+ *  Returns the settings AS STORED, so the form can show what the server
+ *  actually kept (trimmed text, normalised keys, the name lists de-duplicated). */
+export async function saveWarSettings(patch: Record<string, unknown>): Promise<Res<{ settings: WarSettings }>> {
   const { viewer, error } = await editor();
   if (error) return fail(error);
-  if (!patch || typeof patch !== "object") return fail("Nothing to save.");
-  const { data: row } = await db().from("war_campaigns").select("name, settings").eq("slug", WAR_SLUG).maybeSingle();
-  const merged = resolveWarSettings(
-    { ...(row?.settings && typeof row.settings === "object" ? row.settings : {}), ...patch },
-    row?.name
-  );
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) return fail("Nothing to save.");
+  const { data: row, error: readError } = await db()
+    .from("war_campaigns")
+    .select("name, settings")
+    .eq("slug", WAR_SLUG)
+    .maybeSingle();
+  // a failed read would merge the patch over NOTHING and reset every other
+  // setting to its default — refuse instead
+  if (readError) return fail("Couldn't read the current settings — try again.");
+  const stored = row?.settings && typeof row.settings === "object" ? (row.settings as Record<string, unknown>) : {};
+  const problem = warSettingsProblem(patch, stored);
+  if (problem) return fail(problem);
+  const merged = resolveWarSettings({ ...stored, ...patch }, row?.name);
   if ("pointTypes" in patch) {
-    // ask the database for live entries whose type is NOT in the new table
-    // (keys are [a-z0-9_] by construction, safe inside the in-list)
-    const keep = [...merged.pointTypes.map((t) => t.key), BONUS];
-    const { data: orphans } = await db()
-      .from("war_entries")
-      .select("kind")
-      .eq("campaign", WAR_SLUG)
-      .is("deleted_at", null)
-      .not("kind", "in", `(${keep.join(",")})`)
-      .limit(50);
-    const gone = [...new Set((orphans ?? []).map((o) => o.kind as string))];
-    if (gone.length) return fail(`Can't remove a type that already has points logged (${gone.join(", ")}). Set its points instead, or delete its entries first.`);
+    // only the keys THIS save removes — an orphan left by an earlier removal
+    // (or a restore) must not block every later save of the table
+    const before = new Map(resolveWarSettings(stored, row?.name).pointTypes.map((t) => [t.key, t.label]));
+    const after = new Set(merged.pointTypes.map((t) => t.key));
+    const removed = [...before.keys()].filter((k) => !after.has(k));
+    if (removed.length) {
+      // keys are [a-z0-9_] by construction, safe inside the in-list
+      const { data: orphans, error: orphanError } = await db()
+        .from("war_entries")
+        .select("kind")
+        .eq("campaign", WAR_SLUG)
+        .is("deleted_at", null)
+        .in("kind", removed)
+        .limit(50);
+      // fail CLOSED: a removal we couldn't check could zero someone's points
+      if (orphanError) return fail("Couldn't check entries — try again.");
+      const gone = [...new Set((orphans ?? []).map((o) => before.get(o.kind as string) ?? (o.kind as string)))];
+      if (gone.length) return fail(`Can't remove a type that already has points logged (${gone.join(", ")}). Set its points instead, or delete its entries first.`);
+    }
   }
   const { error: dbError } = await db()
     .from("war_campaigns")
@@ -207,5 +252,5 @@ export async function saveWarSettings(patch: Record<string, unknown>): Promise<R
   if (dbError) return fail(dbError.message);
   await logAudit(viewer.id, "war_settings", "war_campaigns", null, { keys: Object.keys(patch) });
   await publish();
-  return { ok: true };
+  return { ok: true, data: { settings: merged } };
 }

@@ -60,7 +60,7 @@ export function HarbourScene() {
         <path d="M40 280h300M460 280h180M760 280h240M1120 280h340" />
       </g>
       {/* the lamp's light on the water */}
-      <rect x="1238" y="214" width="56" height="90" fill="url(#np-glint)" />
+      <rect x="1352" y="214" width="56" height="90" fill="url(#np-glint)" />
 
       {/* the Citadel of Qaitbay, on its promontory */}
       <g fill={WALL}>
@@ -76,31 +76,32 @@ export function HarbourScene() {
         {/* the minaret */}
         <path d="M296 102V60h12v42zM292 80h20v4h-20zM298 60l4-16 4 16z" />
       </g>
-      {/* lit windows */}
+      {/* lit windows — on the outer wall only: the keep's sat in the tagline at 1920px */}
       <g fill="#e2b354">
-        <rect x="262" y="128" width="5" height="9" rx="2.5" opacity="0.55" />
-        <rect x="300" y="122" width="5" height="9" rx="2.5" opacity="0.35" />
-        <rect x="336" y="130" width="5" height="9" rx="2.5" opacity="0.5" />
         <rect x="128" y="192" width="4" height="7" rx="2" opacity="0.3" />
         <rect x="462" y="190" width="4" height="7" rx="2" opacity="0.4" />
       </g>
 
-      {/* the lighthouse from the LC's logo */}
-      {/* its beam, swinging slowly across the bay */}
-      <path className="np-lamp-beam" d="M1266 79L1000 40V118Z" fill="url(#np-beam)" />
-      <g fill={WALL}>
-        <path d="M1210 230l22-16h70l24 16v90h-116z" />
-        <path d="M1244 214l9-120h26l9 120z" />
-        <path d="M1240 96h52v6h-52z" />
-        <path d="M1252 92V70h28v22z" />
-        <path d="M1248 70l18-14 18 14z" />
+      {/* the lighthouse from the LC's logo — at the band's right edge (it
+          was drawn 114 units further left, behind the clock card) */}
+      {/* its beam, swinging slowly across the bay — drawn in place, not in the
+          shifted group, so its CSS pivot (1380px 79px) is unambiguous */}
+      <path className="np-lamp-beam" d="M1380 79L1114 40V118Z" fill="url(#np-beam)" />
+      <g transform="translate(114 0)">
+        <g fill={WALL}>
+          <path d="M1210 230l22-16h70l24 16v90h-116z" />
+          <path d="M1244 214l9-120h26l9 120z" />
+          <path d="M1240 96h52v6h-52z" />
+          <path d="M1252 92V70h28v22z" />
+          <path d="M1248 70l18-14 18 14z" />
+        </g>
+        {/* the stripes — a shade lighter than the tower */}
+        <g fill="#ecdcb6" opacity="0.08">
+          <path d="M1247 186l40-28 1 16-42 30zM1250 146l35-24 1 15-37 26zM1252 110l31-20 1 14-33 22z" />
+        </g>
+        <circle cx="1266" cy="80" r="22" fill="url(#np-lamp)" className="np-lamp-glow" />
+        <rect x="1257" y="74" width="18" height="12" rx="1" fill="#ffe3a0" />
       </g>
-      {/* the stripes — a shade lighter than the tower */}
-      <g fill="#ecdcb6" opacity="0.08">
-        <path d="M1247 186l40-28 1 16-42 30zM1250 146l35-24 1 15-37 26zM1252 110l31-20 1 14-33 22z" />
-      </g>
-      <circle cx="1266" cy="80" r="22" fill="url(#np-lamp)" className="np-lamp-glow" />
-      <rect x="1257" y="74" width="18" height="12" rx="1" fill="#ffe3a0" />
     </svg>
   );
 }

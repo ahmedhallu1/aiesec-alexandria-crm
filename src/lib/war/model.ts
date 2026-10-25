@@ -49,6 +49,18 @@ export interface WarCompetitors {
   include: string[];
 }
 
+/** THE FUNCTION RACE (v38.3). Each competitor's points go to their MAIN
+ *  function only (the first one listed — the same label shown beside their
+ *  name), so the function totals add up to the LC total minus the excluded
+ *  functions. B2B and BD race separately (BD signs deals, B2B raises opens).
+ *  Ranked on TOTAL points, as the LC asked — bigger functions are meant to
+ *  carry more. */
+export interface FunctionBoardSettings {
+  enabled: boolean;
+  /** functions that don't take part (their people still race as people) */
+  exclude: string[];
+}
+
 export interface WarSettings {
   name: string;
   tagline: string;
@@ -67,6 +79,8 @@ export interface WarSettings {
   motto: string;
   competitors: WarCompetitors;
   show: { national: boolean; feed: boolean; breakdown: boolean; avatars: boolean };
+  /** v38.3 — functions race each other on total points (see functionStandings) */
+  functionBoard: FunctionBoardSettings;
 }
 
 export const DEFAULT_POINT_TYPES: PointType[] = [
@@ -114,6 +128,8 @@ export const DEFAULT_WAR: WarSettings = {
     include: [],
   },
   show: { national: true, feed: true, breakdown: true, avatars: true },
+  // the LC's call: CXP, TM, IM and F&L are not part of the function race
+  functionBoard: { enabled: true, exclude: ["CXP", "TM", "IM", "F&L"] },
 };
 
 export const COMPETITOR_ROLES = ["Member", "Coordinator", "Team Leader", "Director", "LCVP", "LCP"] as const;
@@ -138,8 +154,13 @@ const int = (v: unknown, min: number, max: number, fallback: number): number => 
   const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
   return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.round(n))) : fallback;
 };
-export const isIsoDate = (v: unknown): v is string =>
-  typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(`${v}T00:00:00Z`));
+/** A real calendar date — the round trip refuses "2026-02-31", which
+ *  Date.parse would otherwise roll over into March. */
+export const isIsoDate = (v: unknown): v is string => {
+  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const t = Date.parse(`${v}T00:00:00Z`);
+  return Number.isFinite(t) && new Date(t).toISOString().slice(0, 10) === v;
+};
 const isHm = (v: unknown): v is string => typeof v === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
 const strList = (v: unknown, maxItems: number, maxLen: number): string[] =>
   Array.isArray(v) ? v.map((x) => str(x, maxLen)).filter(Boolean).slice(0, maxItems) : [];
@@ -198,10 +219,12 @@ export function resolveWarSettings(raw: unknown, name?: string | null): WarSetti
   const d = DEFAULT_WAR;
   const comp = r.competitors && typeof r.competitors === "object" ? (r.competitors as Record<string, unknown>) : {};
   const show = r.show && typeof r.show === "object" ? (r.show as Record<string, unknown>) : {};
+  const fb = r.functionBoard && typeof r.functionBoard === "object" ? (r.functionBoard as Record<string, unknown>) : {};
   const bool = (v: unknown, fb: boolean) => (typeof v === "boolean" ? v : fb);
   const startDate = isIsoDate(r.startDate) ? r.startDate : d.startDate;
   let endDate = isIsoDate(r.endDate) ? r.endDate : d.endDate;
   if (endDate < startDate) endDate = startDate;
+  const exclude = strList(comp.exclude, 400, 40);
   return {
     name: str(r.name, 40) || str(name, 40) || d.name,
     tagline: "tagline" in r ? str(r.tagline, LIMITS.text) : d.tagline,
@@ -222,8 +245,13 @@ export function resolveWarSettings(raw: unknown, name?: string | null): WarSetti
         "excludeFunctionRoles" in comp
           ? strList(comp.excludeFunctionRoles, 30, 40).filter((p) => /^[^:]+:[^:]+$/.test(p))
           : d.competitors.excludeFunctionRoles,
-      exclude: strList(comp.exclude, 400, 40),
-      include: strList(comp.include, 400, 40),
+      exclude,
+      // out wins (isCompetitor) — so a name on both lists is only "out"
+      include: strList(comp.include, 400, 40).filter((id) => !exclude.includes(id)),
+    },
+    functionBoard: {
+      enabled: bool(fb.enabled, d.functionBoard.enabled),
+      exclude: "exclude" in fb ? strList(fb.exclude, 30, 20) : d.functionBoard.exclude,
     },
     show: {
       national: bool(show.national, d.show.national),
@@ -232,6 +260,66 @@ export function resolveWarSettings(raw: unknown, name?: string | null): WarSetti
       avatars: bool(show.avatars, d.show.avatars),
     },
   };
+}
+
+/** What Save refuses, said plainly — the server half of the War Room form's
+ *  own checks. `resolveWarSettings` would otherwise drop a blank row, clamp a
+ *  date or merge two rewards for one rank without a word, and the editor would
+ *  believe it was saved. `stored` is the raw stored JSON the patch lands on
+ *  (for a start date checked against an end date the patch doesn't carry). */
+export function warSettingsProblem(patch: Record<string, unknown>, stored: unknown = {}): string | null {
+  const whole = (v: unknown, min: number, max: number): boolean => {
+    const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+    return Number.isInteger(n) && n >= min && n <= max;
+  };
+  const rows = (v: unknown) =>
+    (v as unknown[]).map((x) => (x && typeof x === "object" ? (x as Record<string, unknown>) : {}));
+
+  if ("pointTypes" in patch) {
+    if (!Array.isArray(patch.pointTypes)) return "The point table didn't come through — reload and try again.";
+    if (patch.pointTypes.length > LIMITS.pointTypes) return `At most ${LIMITS.pointTypes} point types.`;
+    for (const t of rows(patch.pointTypes)) {
+      if (!str(t.label, LIMITS.label)) return "Every point type needs a name.";
+      if (!whole(t.points, 0, 1000)) return `"${str(t.label, LIMITS.label)}" needs whole points from 0 to 1000.`;
+    }
+  }
+  if ("rewards" in patch) {
+    if (!Array.isArray(patch.rewards)) return "The rewards didn't come through — reload and try again.";
+    if (patch.rewards.length > LIMITS.rewards) return `At most ${LIMITS.rewards} rewards.`;
+    const ranks = new Set<number>();
+    for (const r of rows(patch.rewards)) {
+      if (!str(r.title, 60)) return "Every reward needs a title.";
+      if (!whole(r.rank, 1, 99)) return `"${str(r.title, 60)}" needs a whole rank from 1 to 99.`;
+      // two rewards for one rank: the board would show one and silently drop the other
+      const rank = Number(r.rank);
+      if (ranks.has(rank)) return `Two rewards are set for rank ${rank} — give each rank one reward.`;
+      ranks.add(rank);
+    }
+  }
+  if ("minPoints" in patch && !whole(patch.minPoints, 0, 10000))
+    return "Points to compete must be a whole number from 0 to 10000.";
+  for (const [key, what] of [["startDate", "start date"], ["endDate", "end date"], ["activateDate", "countdown date"]] as const)
+    if (key in patch && !isIsoDate(patch[key])) return `The ${what} isn't a real date.`;
+  if ("activateTime" in patch && !isHm(patch.activateTime)) return "The countdown time isn't valid (HH:MM).";
+  const was = stored && typeof stored === "object" ? (stored as Record<string, unknown>) : {};
+  const start = "startDate" in patch ? patch.startDate : isIsoDate(was.startDate) ? was.startDate : DEFAULT_WAR.startDate;
+  const end = "endDate" in patch ? patch.endDate : isIsoDate(was.endDate) ? was.endDate : DEFAULT_WAR.endDate;
+  if (isIsoDate(start) && isIsoDate(end) && end < start) return "The war can't end before it starts.";
+  return null;
+}
+
+/** The dates an entry may carry: the war plus a week of grace either side —
+ *  the last day's numbers often land late, and a checkpoint can be logged a
+ *  little early. One rule for logging AND editing. */
+export const WAR_DATE_GRACE_DAYS = 7;
+
+export function warDateWindow(s: Pick<WarSettings, "startDate" | "endDate">): { min: string; max: string } {
+  return { min: addDays(s.startDate, -WAR_DATE_GRACE_DAYS), max: addDays(s.endDate, WAR_DATE_GRACE_DAYS) };
+}
+
+export function inWarWindow(day: string, s: Pick<WarSettings, "startDate" | "endDate">): boolean {
+  const { min, max } = warDateWindow(s);
+  return isIsoDate(day) && day >= min && day <= max;
 }
 
 // ------------------------------------------------------------------ who competes
@@ -427,10 +515,16 @@ export function warPhase(c: WarClock, now: number): WarPhase {
   return now < c.start ? "before" : now >= c.end ? "over" : "live";
 }
 
-/** 1-based day of the war (clamped), e.g. "Day 3 of 32". */
+/** The Cairo calendar day an instant falls on, as a day number. */
+const cairoDayNumber = (at: number): number => Math.floor((at + cairoOffsetMinutes(at) * 60000) / DAY_MS);
+
+/** 1-based day of the war (clamped), e.g. "Day 3 of 32". Counted in Cairo
+ *  CALENDAR days, not 24-hour blocks from the start: once summer time ends
+ *  the war's days are 25 h / 23 h apart in UTC, and a block count would turn
+ *  the day over an hour early. */
 export function warDay(c: WarClock, now: number): number {
   if (now < c.start) return 0;
-  return Math.min(c.totalDays, Math.floor((now - c.start) / DAY_MS) + 1);
+  return Math.min(c.totalDays, Math.max(1, cairoDayNumber(now) - cairoDayNumber(c.start) + 1));
 }
 
 export function warProgress(c: WarClock, now: number): number {
@@ -469,6 +563,45 @@ export interface NationalStanding {
   fetchedAt: string;
 }
 
+export interface FunctionRow {
+  fn: string;
+  points: number;
+  /** shared on ties, like people */
+  rank: number;
+  /** people from this function in the race */
+  troops: number;
+  /** how many of them have scored */
+  scorers: number;
+  /** their best scorer (null until someone scores) */
+  top: { name: string; points: number } | null;
+}
+
+/** The function race: every competitor's points summed under their MAIN
+ *  function (`StandingRow.fn`), excluded functions left out. Functions with
+ *  people in the race but no points yet still appear, at the bottom. */
+export function functionStandings(rows: StandingRow[], fb: FunctionBoardSettings): FunctionRow[] {
+  if (!fb.enabled) return [];
+  const out = new Map<string, FunctionRow>();
+  for (const r of rows) {
+    if (!r.fn || r.fn === "—" || fb.exclude.includes(r.fn)) continue;
+    const f = out.get(r.fn) ?? { fn: r.fn, points: 0, rank: 0, troops: 0, scorers: 0, top: null };
+    f.points += r.points;
+    f.troops += 1;
+    if (r.points > 0) {
+      f.scorers += 1;
+      if (!f.top || r.points > f.top.points) f.top = { name: r.name, points: r.points };
+    }
+    out.set(r.fn, f);
+  }
+  const list = [...out.values()].sort((a, b) => b.points - a.points || a.fn.localeCompare(b.fn));
+  let rank = 0;
+  list.forEach((f, i) => {
+    if (i === 0 || f.points !== list[i - 1].points) rank = i + 1;
+    f.rank = rank;
+  });
+  return list;
+}
+
 /** What /no-peace renders and what every live update carries. Public by
  *  design: names (the LC chose full names), points, what they scored. Never
  *  an email, a phone, a note or who logged it. */
@@ -476,6 +609,8 @@ export interface WarSnapshot {
   settings: Omit<WarSettings, "competitors">;
   rows: StandingRow[];
   feed: FeedItem[];
+  /** the function race (empty when switched off) */
+  functions: FunctionRow[];
   totals: { points: number; entries: number; troops: number; enlisted: number; byKind: Record<string, { qty: number; points: number }> };
   at: string;
 }
@@ -484,7 +619,10 @@ export function buildSnapshot(
   people: WarPerson[],
   entries: WarEntry[],
   s: WarSettings,
-  feedSize = 40
+  feedSize = 40,
+  /** when the reads were made — the caller stamps it BEFORE reading, so a
+   *  page can trust "newer `at`" to mean "newer data" */
+  at: string = new Date().toISOString()
 ): WarSnapshot {
   const types = new Map(s.pointTypes.map((t) => [t.key, t]));
   const rows = standings(people, entries, s, { avatars: s.show.avatars });
@@ -517,6 +655,7 @@ export function buildSnapshot(
     settings: pub,
     rows: s.show.breakdown ? rows : rows.map((r) => ({ ...r, breakdown: {} })),
     feed,
+    functions: functionStandings(rows, s.functionBoard),
     totals: {
       points: rows.reduce((a, r) => a + r.points, 0),
       entries: counted.length,
@@ -524,6 +663,6 @@ export function buildSnapshot(
       enlisted: rows.filter((r) => r.eligible).length,
       byKind,
     },
-    at: new Date().toISOString(),
+    at,
   };
 }

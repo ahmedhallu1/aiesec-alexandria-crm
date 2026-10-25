@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { gateTab } from "@/server/tabs";
 import { auditFilterOptions, getRealViewer, getSystemHealth, listAuditPage } from "@/server/data";
 import { listApiKeys } from "@/server/api-keys";
@@ -24,6 +25,10 @@ export default async function AdminPage({
 }) {
   const viewer = await getRealViewer();
   await gateTab(viewer, "/admin", canUseAdminTools(viewer));
+  // DEFENCE IN DEPTH (v38.3): the readers below carry no role check of their
+  // own, and /admin is hide-only in Settings → Tabs (lib/tabs.ts) — this line
+  // keeps it so even if that ever changes
+  if (!canUseAdminTools(viewer)) redirect("/profile");
 
   const { cookies } = await import("next/headers");
   const showTestData = (await cookies()).get("sodio-test-mode")?.value === "1";

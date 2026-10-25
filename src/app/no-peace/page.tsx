@@ -31,8 +31,14 @@ export const metadata: Metadata = {
 export const viewport: Viewport = { themeColor: "#091417" };
 
 export default async function NoPeacePage() {
-  if (!(await publicPageLive(WAR_ROOM_PATH))) notFound();
-  const snapshot = await warSnapshot();
-  const national = snapshot.settings.show.national ? await coreNationalStanding().catch(() => null) : null;
+  // all three at once — CORE is a slow outside fetch (cached 15 min), and it
+  // used to wait for the snapshot before it even started
+  const [live, snapshot, core] = await Promise.all([
+    publicPageLive(WAR_ROOM_PATH),
+    warSnapshot(),
+    coreNationalStanding().catch(() => null),
+  ]);
+  if (!live) notFound();
+  const national = snapshot.settings.show.national ? core : null;
   return <NoPeaceBoard initial={snapshot} national={national} realtime={realtimeClientConfig()} />;
 }

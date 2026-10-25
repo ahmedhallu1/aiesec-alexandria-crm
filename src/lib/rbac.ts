@@ -7,6 +7,7 @@ import {
 } from "./types";
 import { expandTouchPointFns } from "./touch-points";
 import { functionDefaults, type FunctionSettings } from "./function-settings";
+import { planFunctionsFor } from "./plan";
 
 /** A function's defaults as this request resolved them — falling back to the
  *  built-in behaviour, so a viewer assembled before v33.32 (or in a test)
@@ -241,6 +242,16 @@ export function canSeePlanning(v: Viewer): boolean {
   if (master(v)) return true;
   if (v.role !== "LCVP" && v.role !== "Director") return false;
   return v.functions.some((f) => ["IGV", "IGT", "OGV", "OGT"].includes(f));
+}
+
+/** May /planning OPEN for them — not only "may they see the tab". `master`
+ *  reaches canSeePlanning (every F&L member, the IM lead) without a planned
+ *  function of their own, and the board has nothing to show them: the page
+ *  gives all six lanes to the admins and the LCP only. Offering it as a home
+ *  or ranking it in the home order sent those people round "/" (v38.3). */
+export function canOpenPlanning(v: Viewer): boolean {
+  if (!canSeePlanning(v)) return false;
+  return v.isAdmin || v.role === "LCP" || planFunctionsFor(v.functions).length > 0;
 }
 
 /** Whether the ICX Raising module is visible at all for this user. */
@@ -1141,4 +1152,12 @@ export function canSeeLcConcerns(v: Viewer): boolean {
 export function canSeeFeedbackInbox(v: Viewer): boolean {
   const email = (v.email ?? "").toLowerCase();
   return v.isAdmin || (FEEDBACK_INBOX_EMAILS as readonly string[]).includes(email);
+}
+
+/** THE CALENDAR (v29) — every module member: raising visits, consideration
+ *  IR calls, OGX and TM touch points. ONE predicate for the page, the
+ *  sidebar and the home picker: the picker once offered it on "any module"
+ *  (CXP, membership) and the page then sent those people round "/" (v38.3). */
+export function canOpenCalendar(v: Viewer): boolean {
+  return hasRaisingAccess(v) || hasConsiderationAccess(v) || hasOgxAccess(v) || hasTmAccess(v);
 }

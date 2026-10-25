@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/supabase";
 import { getViewer, logAudit } from "@/server/data";
+import { tabAllows } from "@/server/tabs";
 import { collectedForWeek } from "@/server/cxp-drive";
 import {
   buildReadme,
@@ -9,7 +10,7 @@ import {
   zipEpFolder,
   type ZipEntry,
 } from "@/server/cxp-download";
-import { cxpFunctions } from "@/lib/cxp/rbac";
+import { cxpFunctions, hasCxpAccess } from "@/lib/cxp/rbac";
 import { requirementsForStage } from "@/lib/cxp/requirements";
 import { zipFileName } from "@/lib/cxp/drive";
 import { fmtDateTime } from "@/lib/types";
@@ -41,6 +42,9 @@ export async function GET(req: NextRequest) {
   const viewer = await getViewer();
   const allowed = cxpFunctions(viewer);
   const notFound = () => new NextResponse("Not found.", { status: 404 });
+  // the CXP tab's rule (Settings → Tabs) closes the downloads too (v38.3);
+  // `allowed` above still decides which functions
+  if (!(await tabAllows(viewer, "/cxp", hasCxpAccess(viewer)))) return notFound();
   const generatedAt = fmtDateTime(new Date().toISOString());
 
   const ep = (url.searchParams.get("ep") ?? "").trim();

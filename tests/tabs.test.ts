@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "fs";
 import { join } from "path";
+
+const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 import {
-  TAB_REGISTRY, publicTwinLive, ruleFromRow, tabIsDown, tabOverride, tabOverridesFor, tabVisible,
+  TAB_REGISTRY, publicTwinLive, ruleFromRow, tabCanWiden, tabIsDown, tabOverride, tabOverridesFor, tabVisible,
   type TabRule, type TabWho,
 } from "@/lib/tabs";
 
@@ -85,6 +87,80 @@ describe("tab rules", () => {
     expect(r.show).toEqual({ members: [], roles: [], functions: [] });
     expect(r.hide.roles).toEqual(["Member"]);
     expect(r.removeAt).toBeNull();
+  });
+});
+
+describe("hide-only tabs (v38.3)", () => {
+  const showAll = {
+    base: "everyone" as const,
+    show: { members: ["m1"], roles: ["Member"], functions: ["IGV"] },
+  };
+  it("Health & Logs and Membership can be hidden but never shown", () => {
+    for (const href of ["/admin", "/membership"]) {
+      expect(tabCanWiden(href), href).toBe(false);
+      // a row saved before the lock (or by hand) is neutralised
+      expect(tabOverride(rule({ href, ...showAll }), member, NOW), href).toBeNull();
+      expect(tabOverride(rule({ href, base: "nobody" }), member, NOW), href).toBe("hide");
+      // a named "show" no longer beats a role-level hide
+      const r = rule({ href, ...showAll, hide: { members: [], roles: ["Member"], functions: [] } });
+      expect(tabOverride(r, member, NOW), href).toBe("hide");
+      expect(tabOverride(rule({ href, retiredAt: "2026-10-30T00:00:00Z" }), member, NOW), href).toBe("hide");
+    }
+  });
+  it("the War Room and the bid stay widenable — that is how the LC hands them out", () => {
+    for (const href of ["/war-room", "/activation", "/planning", "/emails"]) {
+      expect(tabCanWiden(href), href).toBe(true);
+      expect(tabOverride(rule({ href, ...showAll }), member, NOW), href).toBe("show");
+    }
+  });
+  it("every hide-only tab says why in the manager", () => {
+    for (const t of TAB_REGISTRY.filter((x) => x.widen === false)) expect(t.shown, t.href).toBeTruthy();
+  });
+  it("the server refuses to save a show rule on one, and its page re-checks the role", () => {
+    const actions = read("src/server/tab-actions.ts");
+    expect(actions).toMatch(/!tabCanWiden\(def\.href\) && \(base === "everyone"/);
+    expect(read("src/app/(app)/admin/page.tsx")).toMatch(/if \(!canUseAdminTools\(viewer\)\) redirect\("\/profile"\)/);
+    expect(read("src/app/(app)/membership/page.tsx")).toMatch(/if \(!canManageMembership\(viewer\)\) redirect\("\/profile"\)/);
+  });
+  it("Planning opened by a rule shows only the viewer's own MM plans, and never bounces", () => {
+    const page = read("src/app/(app)/planning/page.tsx");
+    expect(page).toMatch(/const ownOnly = leads \? undefined : \[viewer\.id\]/);
+    expect(page).toMatch(/listMmPlans\(ownOnly, mmScope\)/);
+    expect(page).toMatch(/listTlPlans\(ownOnly, mmScope\)/);
+    expect(page).not.toMatch(/redirect\(/);
+  });
+});
+
+describe("the tab writes (v38.3)", () => {
+  const actions = read("src/server/tab-actions.ts");
+  const body = (name: string) =>
+    [...actions.matchAll(/export async function \w+\([^]*?\n\}/g)]
+      .map((x) => x[0])
+      .find((b) => b.startsWith(`export async function ${name}(`)) ?? "";
+  it("retiring makes the public page FOLLOW the tab; restoring never switches a page on", () => {
+    expect(body("retireTab")).toMatch(/public_with_tab: publicToo === true/);
+    expect(body("retireTab")).not.toMatch(/public_off/);
+    expect(body("restoreTab")).not.toMatch(/public_off/);
+  });
+  it("reordering writes only the position, and a reset keeps it", () => {
+    expect(body("saveTabOrder")).toMatch(/\(\{ href, position: i \}\)/);
+    expect(body("saveTabOrder")).not.toMatch(/updated_by/);
+    expect(body("resetTabRule")).toMatch(/typeof current\?\.position === "number"/);
+  });
+  it("every write that can flip /no-peace tells the open boards", () => {
+    for (const name of ["saveTabRule", "retireTab", "restoreTab", "resetTabRule"]) {
+      expect(body(name), name).toMatch(/const before = await twinLive\(/);
+      expect(body(name), name).toMatch(/await announceTwin\(/);
+    }
+    expect(actions).toMatch(/broadcast\(WAR_SLUG, "closed", \{\}\)/);
+    expect(actions).toMatch(/broadcast\(WAR_SLUG, "snapshot", await warSnapshot\(\)\)/);
+  });
+  it("the public pages fail CLOSED when the rules can't be read; signed-in tabs fail open", () => {
+    const server = read("src/server/tabs.ts");
+    expect(server).toMatch(/if \(!ok\) return false;/);
+    expect(server).toMatch(/return \{ rules: \[\], ok: false \}/);
+    // a failure is never memoised
+    expect(server).not.toMatch(/memo = \{[^}]*ok: false/);
   });
 });
 

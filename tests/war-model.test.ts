@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "fs";
 import { join } from "path";
 import {
-  BONUS, DEFAULT_WAR, buildSnapshot, cairoInstant, entryPoints, isCompetitor, publicAvatar, resolveWarSettings,
-  rewardFor, standings, warClock, warDay, warPhase, type WarEntry, type WarPerson,
+  functionStandings, BONUS, DEFAULT_WAR, buildSnapshot, cairoInstant, entryPoints, inWarWindow, isCompetitor, isIsoDate, publicAvatar,
+  resolveWarSettings, rewardFor, standings, warClock, warDateWindow, warDay, warPhase, warSettingsProblem,
+  type WarEntry, type WarPerson,
 } from "@/lib/war/model";
 import { parseNationalStanding } from "@/lib/core-national";
 
@@ -90,6 +91,61 @@ describe("settings", () => {
     expect(new Set(keys).size).toBe(keys.length);
     expect(keys).not.toContain(BONUS);
   });
+  it("a name on both Always in and Always out is only out", () => {
+    const s = resolveWarSettings({ competitors: { include: ["x", "y"], exclude: ["y"] } });
+    expect(s.competitors.include).toEqual(["x"]);
+    expect(s.competitors.exclude).toEqual(["y"]);
+  });
+});
+
+describe("what Save refuses (the server half of the form's checks)", () => {
+  const types = DEFAULT_WAR.pointTypes;
+  const rewards = DEFAULT_WAR.rewards;
+  it("the current settings pass", () => {
+    expect(warSettingsProblem({ pointTypes: types, rewards, startDate: "2026-10-25", endDate: "2026-11-25", minPoints: 35 })).toBeNull();
+  });
+  it("no blank point-type name or reward title", () => {
+    expect(warSettingsProblem({ pointTypes: [...types, { key: "t_x", label: "  ", points: 5, group: "LC", hint: "" }] })).toMatch(/needs a name/);
+    expect(warSettingsProblem({ rewards: [...rewards, { rank: 5, place: "5th", title: "", detail: "", emoji: "" }] })).toMatch(/needs a title/);
+  });
+  it("ranks are whole numbers 1–99, one reward per rank", () => {
+    const one = (rank: unknown) => warSettingsProblem({ rewards: [{ ...rewards[0], rank }] });
+    expect(one(0)).toMatch(/whole rank/);
+    expect(one(1.5)).toMatch(/whole rank/);
+    expect(one(100)).toMatch(/whole rank/);
+    expect(one("")).toMatch(/whole rank/);
+    expect(one(99)).toBeNull();
+    expect(warSettingsProblem({ rewards: [rewards[0], { ...rewards[1], rank: 1 }] })).toMatch(/rank 1/);
+  });
+  it("points to compete is a whole number 0–10000", () => {
+    expect(warSettingsProblem({ minPoints: -1 })).toMatch(/Points to compete/);
+    expect(warSettingsProblem({ minPoints: 2.5 })).toMatch(/Points to compete/);
+    expect(warSettingsProblem({ minPoints: 0 })).toBeNull();
+  });
+  it("real dates only, and the war can't end before it starts — against the stored end too", () => {
+    expect(warSettingsProblem({ startDate: "2026-02-31" })).toMatch(/start date/);
+    expect(warSettingsProblem({ startDate: "2026-11-02", endDate: "2026-11-01" })).toMatch(/end before/);
+    expect(warSettingsProblem({ startDate: "2026-12-01" }, { endDate: "2026-11-25" })).toMatch(/end before/);
+    expect(warSettingsProblem({ startDate: "2026-11-25" }, { endDate: "2026-11-25" })).toBeNull();
+  });
+});
+
+describe("the war's dates", () => {
+  it("isIsoDate refuses dates that don't exist", () => {
+    expect(isIsoDate("2026-02-31")).toBe(false);
+    expect(isIsoDate("2026-02-29")).toBe(false);
+    expect(isIsoDate("2028-02-29")).toBe(true);
+    expect(isIsoDate("2026-13-01")).toBe(false);
+    expect(isIsoDate("2026-10-25")).toBe(true);
+  });
+  it("an entry may sit a week either side of the war, inclusive", () => {
+    expect(warDateWindow(DEFAULT_WAR)).toEqual({ min: "2026-10-18", max: "2026-12-02" });
+    expect(inWarWindow("2026-10-18", DEFAULT_WAR)).toBe(true);
+    expect(inWarWindow("2026-10-17", DEFAULT_WAR)).toBe(false);
+    expect(inWarWindow("2026-12-02", DEFAULT_WAR)).toBe(true);
+    expect(inWarWindow("2026-12-03", DEFAULT_WAR)).toBe(false);
+    expect(inWarWindow("2026-11-31", DEFAULT_WAR)).toBe(false);
+  });
 });
 
 describe("the Cairo clock", () => {
@@ -104,6 +160,16 @@ describe("the Cairo clock", () => {
     expect(warDay(c, Date.parse("2026-10-25T08:00:00Z"))).toBe(1);
     expect(warPhase(c, Date.parse("2026-11-25T21:59:00Z"))).toBe("live");
     expect(warPhase(c, Date.parse("2026-11-25T22:00:00Z"))).toBe("over");
+  });
+  it("counts Cairo calendar days — the last hour of a day after the clocks change is still that day", () => {
+    const c = warClock(DEFAULT_WAR);
+    // summer time ends as 29 Oct turns over, so 21:30Z is 23:30 Cairo (UTC+2) — still day 5,
+    // where a count of 24-hour blocks from the 21:00Z start already said 6
+    expect(warDay(c, Date.parse("2026-10-29T21:30:00Z"))).toBe(5);
+    expect(warDay(c, Date.parse("2026-10-30T21:30:00Z"))).toBe(6);
+    expect(warDay(c, Date.parse("2026-11-24T21:30:00Z"))).toBe(31);
+    expect(warDay(c, Date.parse("2026-11-25T21:59:00Z"))).toBe(32);
+    expect(warDay(c, Date.parse("2026-10-24T20:59:00Z"))).toBe(0);
   });
 });
 
@@ -120,6 +186,11 @@ describe("the public snapshot", () => {
     expect(publicAvatar("https://api.dicebear.com/9.x/x/svg?seed=a")).toMatch(/^https/);
     expect(publicAvatar(`data:image/png;base64,${"A".repeat(5000)}`)).toBeNull();
     expect(publicAvatar(null)).toBeNull();
+  });
+  it("`at` is the caller's stamp (taken before the reads), not the build time", () => {
+    const snap = buildSnapshot([p("a", "Member")], [], DEFAULT_WAR, 40, "2026-10-26T10:00:00.000Z");
+    expect(snap.at).toBe("2026-10-26T10:00:00.000Z");
+    expect(Date.parse(buildSnapshot([], [], DEFAULT_WAR).at)).toBeGreaterThan(0);
   });
   it("non-competitors' entries are not on the page", () => {
     const snap = buildSnapshot([p("a", "LCVP")], [e("a", "partner")], DEFAULT_WAR);
@@ -141,5 +212,33 @@ describe("CORE national rankings", () => {
   });
   it("no section → null", () => {
     expect(parseNationalStanding("<html>nothing</html>")).toBeNull();
+  });
+});
+
+describe("the function race", () => {
+  const people = [
+    p("a", "Member", ["IGV"]), p("b", "Team Leader", ["IGV"]), p("c", "Member", ["IGT", "B2B"]),
+    p("d", "Member", ["B2B"]), p("e", "Member", ["BD"]), p("f", "Member", ["CXP"]), p("g", "Member", ["OGV"]),
+  ];
+  const rows = standings(people, [e("a", "partner"), e("b", "igv_open"), e("c", "igt_open"), e("d", "igv_open", 2), e("e", "pr_deal"), e("f", "partner", 3)], DEFAULT_WAR);
+  const fns = functionStandings(rows, DEFAULT_WAR.functionBoard);
+  it("sums each person's points under their MAIN function only", () => {
+    expect(fns.find((f) => f.fn === "IGV")).toMatchObject({ points: 30, troops: 2, scorers: 2, top: { name: "A", points: 20 } });
+    expect(fns.find((f) => f.fn === "IGT")!.points).toBe(15);
+    // c's IGT points never count for B2B
+    expect(fns.find((f) => f.fn === "B2B")!.points).toBe(20);
+  });
+  it("B2B and BD race separately; CXP, TM, IM and F&L are out", () => {
+    expect(fns.find((f) => f.fn === "BD")!.points).toBe(12);
+    expect(fns.some((f) => f.fn === "CXP")).toBe(false);
+  });
+  it("ranks on total points, ties share, scoreless functions still listed", () => {
+    expect(fns.map((f) => [f.fn, f.points, f.rank])).toEqual([
+      ["IGV", 30, 1], ["B2B", 20, 2], ["IGT", 15, 3], ["BD", 12, 4], ["OGV", 0, 5],
+    ]);
+  });
+  it("switched off → no board; the snapshot carries it", () => {
+    expect(functionStandings(rows, { enabled: false, exclude: [] })).toEqual([]);
+    expect(buildSnapshot(people, [e("a", "partner")], DEFAULT_WAR).functions[0]).toMatchObject({ fn: "IGV", points: 20 });
   });
 });

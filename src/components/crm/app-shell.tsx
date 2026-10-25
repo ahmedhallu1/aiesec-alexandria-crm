@@ -67,6 +67,8 @@ interface ShellProps {
     labels: Record<string, string>;
     positions: Record<string, number>;
   };
+  /** where the logo lands — `homeRouteFor` (src/lib/tabs.ts), from the layout */
+  homeHref: string;
   signOutAction: () => Promise<void>;
   /** the admin's test-view pool — empty for everyone else (v33.42) */
   viewAsTargets?: ViewAsTarget[];
@@ -77,7 +79,7 @@ interface ShellProps {
 }
 
 export function AppShell({
-  user, nav, tabs, signOutAction, viewAsTargets = [], prank, children,
+  user, nav, tabs, homeHref, signOutAction, viewAsTargets = [], prank, children,
 }: ShellProps) {
   const ov = tabs?.overrides ?? {};
   const on = (href: string, builtIn: boolean) => tabVisible(builtIn, ov[href]);
@@ -97,22 +99,12 @@ export function AppShell({
   // admin + the EB (LCP / LCVPs) can broadcast messages to members
   const canBroadcast = user.isAdmin || user.role === "LCP" || user.role === "LCVP";
 
-  // The logo lands DIRECTLY on the viewer's home module (v28) — mirrors the
-  // "/" redirect priority. Never "/": for non-raising viewers "/" renders as
-  // a never-mounted child of the GateClient, so its redirect could never fire
-  // on client navigation (the blank-home bug).
-  // v38: a tab hidden from them by a rule is skipped
-  const homeHref =
-    ([
-      ["/accounts", nav.raising],
-      ["/signups", nav.signups],
-      ["/consideration", nav.consideration],
-      ["/members", nav.tm],
-      ["/membership", nav.membership],
-      ["/planning", nav.planning],
-    ] as [string, boolean][]).find(([href, builtIn]) => builtIn && on(href, builtIn))?.[0] ??
-    "/accounts";
-
+  // The logo lands DIRECTLY on the viewer's home module (v28). Never "/": for
+  // non-raising viewers "/" renders as a never-mounted child of the
+  // GateClient, so its redirect could never fire on client navigation (the
+  // blank-home bug). v38.3: the layout computes it (`homeRouteFor`, shared
+  // with "/" and the gate's bounce) — this shell kept its own list once, and
+  // that list falling back to /accounts was a blank page for a non-raiser.
   // The Dashboard belongs to ANYONE with a real lane — raising (ICX/B2B/B2C),
   // OGX (the OGT/OGV sign-up funnels, v28) and Consideration (v27/v29). It used
   // to be gated on `raising` alone, so OGX/Consideration crews could only reach

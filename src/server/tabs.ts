@@ -26,25 +26,36 @@ export function bustTabRules(): void {
   memo = null;
 }
 
-/** Every rule. FAILS OPEN TO THE CODE: if the table can't be read, the app
- *  behaves exactly as it did before 0087 — no rules, nobody locked out. */
-export async function tabRules(): Promise<TabRule[]> {
-  if (memo && Date.now() - memo.at < TTL_MS) return memo.rules;
-  const { data, error } = await db()
-    .from("tab_rules")
-    .select(
-      "href, label, position, base, show_to, hide_from, visible_from, remove_at, retired_at, public_off, public_with_tab, note, updated_at, updater:members!updated_by(name)"
-    );
-  if (error) {
-    console.error("[tabs] read failed:", error.message);
-    return [];
+/** One read of the table. `ok: false` = it could not be read — never
+ *  memoised, so the next request tries again instead of serving a failure
+ *  for 30 seconds. */
+async function loadRules(): Promise<{ rules: TabRule[]; ok: boolean }> {
+  if (memo && Date.now() - memo.at < TTL_MS) return { rules: memo.rules, ok: true };
+  try {
+    const { data, error } = await db()
+      .from("tab_rules")
+      .select(
+        "href, label, position, base, show_to, hide_from, visible_from, remove_at, retired_at, public_off, public_with_tab, note, updated_at, updater:members!updated_by(name)"
+      );
+    if (error) throw new Error(error.message);
+    const rules = (data ?? []).map((row) => {
+      const r = row as Record<string, unknown> & { updater?: { name?: string } | null };
+      return ruleFromRow({ ...r, updated_by_name: r.updater?.name ?? null });
+    });
+    memo = { at: Date.now(), rules };
+    return { rules, ok: true };
+  } catch (e) {
+    console.error("[tabs] read failed:", e instanceof Error ? e.message : e);
+    return { rules: [], ok: false };
   }
-  const rules = (data ?? []).map((row) => {
-    const r = row as Record<string, unknown> & { updater?: { name?: string } | null };
-    return ruleFromRow({ ...r, updated_by_name: r.updater?.name ?? null });
-  });
-  memo = { at: Date.now(), rules };
-  return rules;
+}
+
+/** Every rule. FAILS OPEN TO THE CODE: if the table can't be read, the app
+ *  behaves exactly as it did before 0087 — no rules, nobody locked out. Right
+ *  for the signed-in tabs (every page still has its own code rule); wrong for
+ *  a public page, which is why `publicPageLive` does not use this. */
+export async function tabRules(): Promise<TabRule[]> {
+  return (await loadRules()).rules;
 }
 
 export async function tabRule(href: string): Promise<TabRule | undefined> {
@@ -63,9 +74,13 @@ export async function tabAllows(v: Viewer, href: string, builtIn: boolean): Prom
   return tabVisible(builtIn, tabOverride(await tabRule(href), v));
 }
 
-/** Is a tab's public twin (/activate26, /no-peace) live? */
+/** Is a tab's public twin (/activate26, /no-peace) live? FAILS CLOSED
+ *  (v38.3): a page the LCP switched off must not come back for anyone with
+ *  the link because one read of the rules failed. */
 export async function publicPageLive(tabHref: string): Promise<boolean> {
-  return publicTwinLive(await tabRule(tabHref));
+  const { rules, ok } = await loadRules();
+  if (!ok) return false;
+  return publicTwinLive(rules.find((r) => r.href === tabHref));
 }
 
 export interface TabPickPerson {
@@ -104,5 +119,9 @@ export async function tabHidden(v: Viewer, href: string): Promise<boolean> {
  *  away to `elsewhere` when the answer is no. Pages with no code rule of
  *  their own pass `true` — then only a "hide" rule can close them. */
 export async function gateTab(v: Viewer, href: string, builtIn = true, elsewhere = "/"): Promise<void> {
+  // "/" is safe here and only here: home (`homeRouteFor`) never points at a
+  // tab this same check refuses. A page that refuses AFTER this has passed
+  // must send people to /profile or its own tab, never "/" (v38.3 — that
+  // was the /planning ⇄ "/" loop).
   if (!(await tabAllows(v, href, builtIn))) redirect(elsewhere);
 }

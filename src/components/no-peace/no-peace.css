@@ -47,6 +47,7 @@
 .np-mono { font-family: var(--np-mono); font-variant-numeric: tabular-nums; }
 .np-label { font-family: var(--np-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--np-muted); }
 .np-sm-only { display: none; }
+.np-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .np-wrap { width: 100%; max-width: 1240px; margin: 0 auto; padding: 0 16px; }
 @media (min-width: 768px) { .np-wrap { padding: 0 28px; } }
 .np [id] { scroll-margin-top: 128px; }
@@ -60,7 +61,7 @@
   border-bottom: 1px solid var(--np-line);
 }
 .np-header-row { display: flex; align-items: center; gap: 16px; height: 64px; }
-.np-brand { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+.np-brand { display: flex; align-items: center; gap: 14px; flex-shrink: 0; min-height: 44px; }
 .np-brand img { display: block; height: 44px; width: auto; }
 .np-brand-sep { width: 1px; height: 30px; background: var(--np-line-2); }
 .np-brand-name { font-family: var(--np-display); font-size: 20px; color: var(--np-brass); letter-spacing: 0.04em; line-height: 1; }
@@ -101,11 +102,16 @@
   .np-head-right { margin-left: auto; }
   .np-subnav { position: relative; display: flex; gap: 6px; overflow-x: auto; padding: 0 16px 10px; scrollbar-width: none; }
   .np-subnav::-webkit-scrollbar { display: none; }
-  .np-subnav a { flex-shrink: 0; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--np-line-2); font-size: 13px; font-weight: 700; color: var(--np-muted); }
+  /* 40px-tall chips: a thumb, not a cursor */
+  .np-subnav a { flex-shrink: 0; display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--np-line-2); font-size: 13px; font-weight: 700; color: var(--np-muted); }
   .np-subnav a[aria-current="true"] { background: var(--np-text); color: var(--np-bg); border-color: var(--np-text); }
-  .np [id] { scroll-margin-top: 112px; }
+  /* the right edge fades while more chips sit off-screen (board.tsx sets data-more) */
+  .np-subnav[data-more] { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent); }
+  .np [id] { scroll-margin-top: 118px; }
 }
-@media (min-width: 900px) and (max-width: 1099px) { .np-activate { display: none; } }
+/* 900–1099: the six nav links need the room — the countdown stays, the
+ * war's name beside the logo goes (it is the hero's title anyway) */
+@media (min-width: 900px) and (max-width: 1099px) { .np-brand-sep, .np-brand-name { display: none; } }
 
 /* ------------------------------------------------------------ hero */
 .np-hero {
@@ -126,7 +132,7 @@
   mask-image: radial-gradient(80% 70% at 50% 35%, #000 30%, transparent 85%);
 }
 .np-scene { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: auto; z-index: -1; display: block; }
-.np-lamp-beam { transform-box: view-box; transform-origin: 1266px 79px; animation: np-sweep 9s ease-in-out infinite alternate; }
+.np-lamp-beam { transform-box: view-box; transform-origin: 1380px 79px; animation: np-sweep 9s ease-in-out infinite alternate; }
 @keyframes np-sweep { from { transform: rotate(-9deg); } to { transform: rotate(11deg); } }
 .np-lamp-glow { animation: np-glow 3s ease-in-out infinite alternate; }
 @keyframes np-glow { from { opacity: .65; } to { opacity: 1; } }
@@ -137,28 +143,11 @@
 
 /* padding-BLOCK only: .np-wrap owns the sides (a shorthand here zeroed them on phones) */
 .np-hero-grid { display: grid; gap: 28px; align-items: center; padding-block: 40px clamp(110px, 17vw, 200px); }
-@media (min-width: 1000px) { .np-hero-grid { grid-template-columns: minmax(0, 1fr) 420px; padding-block: 52px 170px; } }
-@media (max-width: 640px) {
-  .np-hero-grid { gap: 20px; padding-block: 28px 104px; }
-  .np-eyebrow { font-size: 11px; letter-spacing: .1em; }
-  .np-eyebrow::before { width: 16px; }
-  .np-tagline { display: none; }
-  .np-lines { margin-top: 12px; font-size: 15px; }
-  .np-ctas { margin-top: 18px; }
-  .np-ctas { display: grid; grid-template-columns: 1.4fr 1fr; }
-  .np-ctas .np-btn { justify-content: center; padding: 0 12px; }
-  .np-sm-hide { display: none; }
-  .np-sm-only { display: inline; }
-  .np-clock-card { padding: 16px; }
-  .np-clock { gap: 6px; margin-top: 10px; }
-  .np-clock > div { padding: 9px 0 6px; }
-  .np-clock-n { font-size: 28px; }
-  .np-track { margin-top: 14px; }
-}
+@media (min-width: 1000px) { .np-hero-grid { grid-template-columns: minmax(0, 1fr) 420px; padding-block: 52px 190px; } }
 .np-eyebrow { display: inline-flex; align-items: center; gap: 10px; font-family: var(--np-mono); font-size: 12px; font-weight: 600; letter-spacing: .18em; text-transform: uppercase; color: var(--np-brass); }
 .np-eyebrow::before { content: ""; width: 26px; height: 2px; background: var(--np-rust); }
 .np-title { margin: 14px 0 0; font-family: var(--np-display); font-weight: 400; font-size: clamp(54px, 9vw, 112px); line-height: .86; color: var(--np-text); letter-spacing: .005em; text-shadow: 0 10px 40px rgba(0, 0, 0, .45); }
-.np-lines { margin-top: 18px; font-weight: 700; color: var(--np-brass-2); font-size: clamp(15px, 1.8vw, 18px); }
+.np-lines { margin-top: 18px; font-weight: 700; color: var(--np-brass-2); font-size: clamp(15px, 1.8vw, 18px); text-wrap: balance; }
 .np-tagline { margin-top: 8px; max-width: 560px; color: var(--np-muted); font-size: 15.5px; }
 .np-ctas { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 26px; }
 .np-btn {
@@ -183,11 +172,62 @@
 .np-clock { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
 .np-clock > div { text-align: center; padding: 12px 0 8px; border-radius: 10px; background: rgba(236, 228, 210, 0.04); border: 1px solid var(--np-line); }
 .np-clock-n { display: block; font-family: var(--np-display); font-size: clamp(30px, 4.4vw, 44px); line-height: 1; color: var(--np-text); font-variant-numeric: tabular-nums; }
-.np-clock-u { display: block; margin-top: 6px; font-family: var(--np-mono); font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--np-faint); }
+.np-clock-u { display: block; margin-top: 6px; font-family: var(--np-mono); font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--np-muted); }
 .np-track { position: relative; height: 6px; margin-top: 18px; border-radius: 3px; background: rgba(236, 228, 210, 0.09); }
 .np-track > i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: linear-gradient(90deg, var(--np-rust), var(--np-brass)); }
 .np-track > b { position: absolute; top: -4px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--np-brass-2); box-shadow: 0 0 0 4px rgba(226, 179, 84, 0.22); }
 .np-track-legend { display: flex; justify-content: space-between; gap: 8px; margin-top: 10px; font-size: 12.5px; color: var(--np-muted); }
+/* the one-line clock (phones, short landscape) — hidden on bigger screens */
+.np-clock-line { display: none; font-family: var(--np-mono); font-weight: 600; font-size: 15px; font-variant-numeric: tabular-nums; color: var(--np-text); }
+.np-clock-line span { color: var(--np-muted); font-weight: 500; }
+
+/* PHONES. After the base hero rules on purpose — v38.2 had this block above
+ * them, so every rule in it lost to the one it meant to override. */
+@media (max-width: 640px) {
+  .np-hero-grid { gap: 20px; }
+  .np-eyebrow { font-size: 11px; letter-spacing: .1em; }
+  .np-eyebrow::before { width: 16px; }
+  .np-tagline { display: none; }
+  .np-lines { margin-top: 12px; font-size: 15px; }
+  .np-ctas { display: grid; grid-template-columns: 1.4fr 1fr; margin-top: 18px; }
+  .np-ctas .np-btn { justify-content: center; padding: 0 12px; }
+  .np-sm-hide { display: none; }
+  .np-sm-only { display: inline; }
+  .np-clock-card { padding: 16px; }
+  .np-track { margin-top: 12px; }
+}
+/* Phones and short landscape screens: the leaderboard must start on the
+ * first screen. The clock folds to one line, the buttons go (the board is
+ * right below; the rewards card has its own "See all"). */
+@media (max-width: 640px), (max-height: 480px) {
+  .np-ctas { display: none; }
+  .np-hero-grid { gap: 18px; padding-block: 20px 76px; }
+  .np-clock-card { padding: 14px 16px; }
+  .np-clock-card > .np-label, .np-clock, .np-clock-final, .np-track-legend > :first-child { display: none; }
+  .np-clock-line { display: block; }
+  .np-track { margin-top: 12px; }
+  .np-track-legend { margin-top: 8px; justify-content: flex-end; }
+}
+@media (max-height: 480px) {
+  .np-lines, .np-tagline, .np-coords, .np-sm-hide { display: none; }
+  .np-title { font-size: clamp(44px, 7vw, 64px); }
+}
+/* landscape phones: the hero goes two-up, so the board's head shows above the fold */
+@media (min-width: 600px) and (max-height: 480px) {
+  .np-hero-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 320px); align-items: end; }
+}
+/* tablets: less sea under the clock, and from 760 the clock moves beside the title */
+@media (min-width: 641px) and (max-width: 999px) and (min-height: 481px) {
+  .np-hero-grid { padding-block: 32px clamp(96px, 12vw, 120px); }
+  .np-clock-card { max-width: 520px; }
+}
+@media (min-width: 760px) and (max-width: 999px) and (min-height: 481px) {
+  .np-hero-grid { grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; }
+  .np-title { font-size: clamp(54px, 7.4vw, 72px); }
+  .np-clock-card { padding: 18px; }
+  .np-clock { gap: 6px; }
+  .np-clock-n { font-size: 30px; }
+}
 
 /* ------------------------------------------------------------ main layout */
 /* the board rises over the hero's sea — the first thing below the clock */
@@ -196,10 +236,18 @@
   .np-main { grid-template-columns: minmax(0, 1fr) 360px; gap: 28px; align-items: start; margin-top: -96px; }
 }
 .np-rail { display: grid; gap: 16px; }
+/* below the two-column page the rail would stretch every card full width */
+@media (min-width: 760px) and (max-width: 1099px) {
+  .np-rail { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+  .np-rail > #live { grid-column: 1 / -1; }
+  .np-rail > #live .np-feed { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 8px; }
+}
 .np-card { background: var(--np-surface); border: 1px solid var(--np-line); border-radius: 16px; box-shadow: 0 1px 0 rgba(236, 228, 210, 0.04) inset; }
 .np-main > .np-card, .np-rail > .np-card:first-child { box-shadow: 0 30px 60px -24px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(236, 228, 210, 0.05) inset; }
 .np-card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 12px; padding: 16px 18px 12px; }
 .np-card-title { margin: 0; font-family: var(--font-app-display, var(--np-sans)); font-weight: 800; font-size: 16px; letter-spacing: -.01em; }
+.np-link-btn { min-height: 36px; margin: -8px -8px -8px 0; padding: 0 8px; border: 0; border-radius: 8px; background: none; color: var(--np-brass-2); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.np-link-btn:hover { background: rgba(236, 228, 210, 0.05); }
 
 /* ------------------------------------------------------------ leaderboard */
 .np-board-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; padding: 22px 22px 6px; }
@@ -207,7 +255,11 @@
 .np-board-sub { margin-top: 8px; color: var(--np-muted); font-size: 14px; }
 .np-board-sub b { color: var(--np-text); font-weight: 800; }
 
-.np-podium { display: grid; grid-template-columns: 1fr 1.08fr 1fr; gap: 12px; align-items: end; padding: 18px 22px 8px; }
+/* stretch + a top margin on the sides: the middle card stands tallest and
+ * every card ends on the same line (align-items:end let a long name push a
+ * side card above the winner on phones) */
+.np-podium { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr) minmax(0, 1fr); gap: 12px; align-items: stretch; padding: 18px 22px 8px; }
+.np-pod:not(.np-center) { margin-top: 20px; }
 .np-pod {
   --metal: var(--np-silver);
   position: relative; display: flex; flex-direction: column; align-items: center; text-align: center;
@@ -217,16 +269,21 @@
   overflow: hidden; color: inherit; font: inherit;
 }
 .np-pod::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--metal); }
-.np-pod.np-first { --metal: var(--np-gold); padding-top: 26px; padding-bottom: 22px; box-shadow: 0 18px 50px -12px rgba(231, 193, 94, 0.28); }
-.np-pod.np-third { --metal: var(--np-bronze); }
+/* size by SLOT (the middle card), metal by RANK — silver is the default */
+.np-pod.np-center { padding-top: 26px; padding-bottom: 22px; }
+.np-pod.np-gold { --metal: var(--np-gold); box-shadow: 0 18px 50px -12px rgba(231, 193, 94, 0.28); }
+.np-pod.np-bronze { --metal: var(--np-bronze); }
 .np-pod-rank { position: absolute; left: 12px; top: 10px; font-family: var(--np-display); font-size: 22px; line-height: 1; color: var(--metal); }
 .np-pod .np-avatar { width: 52px; height: 52px; font-size: 16px; }
-.np-pod.np-first .np-avatar { width: 64px; height: 64px; border-color: color-mix(in srgb, var(--metal) 60%, transparent); }
-.np-pod-name { margin-top: 10px; font-weight: 800; font-size: 15px; line-height: 1.2; overflow-wrap: anywhere; }
-.np-pod-fn { margin-top: 2px; font-size: 12px; color: var(--np-muted); }
+.np-pod.np-center .np-avatar { width: 64px; height: 64px; border-color: color-mix(in srgb, var(--metal) 60%, transparent); }
+/* two lines at most, broken between words — never mid-name */
+.np-pod-name, .np-pod-fn { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; max-width: 100%; }
+.np-pod-name { margin-top: 10px; font-weight: 800; font-size: 15px; line-height: 1.2; }
+.np-pod-first { display: none; }
+.np-pod-fn { margin-top: 2px; font-size: 12px; line-height: 1.3; color: var(--np-muted); }
 .np-pod-pts { margin-top: 10px; font-family: var(--np-display); font-size: clamp(28px, 3.6vw, 40px); line-height: 1; color: var(--np-text); }
 .np-pod-reward { margin-top: 8px; font-size: 12.5px; font-weight: 700; color: var(--metal); }
-.np-pod-reward.np-off { color: var(--np-faint); font-weight: 600; }
+.np-pod-reward.np-off { color: var(--np-muted); font-weight: 600; }
 .np-pod.np-shine::after {
   content: ""; position: absolute; inset: 0; pointer-events: none;
   background: linear-gradient(110deg, transparent 35%, rgba(255, 255, 255, .14) 50%, transparent 65%);
@@ -242,65 +299,103 @@
   color: var(--np-text); font: inherit; font-size: 14px; outline: none;
 }
 .np-input { width: 100%; padding: 0 12px 0 34px; }
-.np-input::placeholder { color: var(--np-faint); }
+.np-input::placeholder { color: var(--np-muted); }
 .np-select { padding: 0 32px 0 12px; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2393a3a0' stroke-width='2.5'><path d='m6 9 6 6 6-6'/></svg>"); background-repeat: no-repeat; background-position: right 11px center; }
 .np-select option { background: var(--np-surface); color: var(--np-text); }
 .np-input:focus, .np-select:focus { border-color: var(--np-brass); }
 .np-toggle { height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--np-line-2); background: none; color: var(--np-muted); font: inherit; font-size: 13.5px; font-weight: 700; cursor: pointer; white-space: nowrap; }
 .np-toggle[aria-pressed="true"] { background: rgba(226, 179, 84, 0.14); border-color: rgba(226, 179, 84, 0.55); color: var(--np-brass-2); }
 
-.np-thead, .np-row { display: grid; grid-template-columns: 56px minmax(0, 1fr) 200px 76px; gap: 14px; align-items: center; }
+/* a row = a wrapper (the FLIP target) holding a <button> (the grid) and the
+ * breakdown list beside it — a button can't contain a list */
+.np-thead, .np-row-btn { display: grid; grid-template-columns: 56px minmax(0, 1fr) 200px 76px; gap: 14px; align-items: center; }
 .np-thead { padding: 8px 22px; border-top: 1px solid var(--np-line); border-bottom: 1px solid var(--np-line); }
 .np-thead > :last-child { text-align: right; }
 .np-rows { padding: 4px 10px 10px; }
-.np-row {
-  position: relative; padding: 10px 12px; border-radius: 12px; cursor: pointer;
-  transition: background .15s ease;
-}
+.np-row { position: relative; border-radius: 12px; transition: background .15s ease; }
+.np-row-btn { width: 100%; padding: 10px 12px; border: 0; border-radius: 12px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .np-row:hover { background: rgba(236, 228, 210, 0.035); }
-.np-row[aria-expanded="true"] { background: rgba(236, 228, 210, 0.05); }
+.np-row[data-open] { background: rgba(236, 228, 210, 0.05); }
 .np-row + .np-row::before { content: ""; position: absolute; left: 12px; right: 12px; top: 0; height: 1px; background: var(--np-line); }
-.np-row[data-flash="true"] { animation: np-flash 2.2s ease-out 1; }
+/* an overlay keyed per score, so a second score inside a minute flashes again */
+.np-row-flash { position: absolute; inset: 0; border-radius: 12px; pointer-events: none; animation: np-flash 2.2s ease-out 1 both; }
 @keyframes np-flash { 0%, 30% { background: rgba(92, 211, 165, 0.14); } 100% { background: transparent; } }
 .np-rank { display: flex; align-items: center; gap: 6px; font-family: var(--np-mono); font-weight: 600; font-size: 15px; color: var(--np-text); }
 .np-move { font-family: var(--np-mono); font-size: 10.5px; font-weight: 600; padding: 1px 4px; border-radius: 4px; }
 .np-move.up { color: var(--np-mint); background: rgba(92, 211, 165, 0.12); }
-.np-move.down { color: var(--np-rust); background: rgba(224, 100, 74, 0.12); }
+.np-move.down { color: #ee7a62; background: rgba(224, 100, 74, 0.12); }
 .np-who { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .np-avatar { width: 38px; height: 38px; flex-shrink: 0; border-radius: 50%; object-fit: cover; background: var(--np-surface-2); display: grid; place-items: center; font-weight: 800; font-size: 13px; color: var(--np-muted); border: 1px solid var(--np-line-2); }
-.np-name { font-weight: 800; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.np-meta { font-size: 12.5px; color: var(--np-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.np-tag { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 5px; font-size: 10.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; vertical-align: 2px; color: var(--np-brass-2); background: rgba(226, 179, 84, 0.12); border: 1px solid rgba(226, 179, 84, 0.35); }
+.np-who-text { display: block; flex: 1; min-width: 0; }
+/* the ellipsis cuts the NAME only — the reward and the tag always show */
+.np-name-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.np-name { flex: 0 1 auto; min-width: 0; font-weight: 800; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np-name-emoji, .np-name-line .np-tag { flex-shrink: 0; }
+.np-meta { display: block; font-size: 12.5px; color: var(--np-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np-meta .np-tag { margin-right: 6px; vertical-align: 1px; }
+.np-tag-narrow { display: none !important; }
+.np-tag { display: inline-block; padding: 0 6px; border-radius: 5px; font-size: 10.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; vertical-align: 2px; color: var(--np-brass-2); background: rgba(226, 179, 84, 0.12); border: 1px solid rgba(226, 179, 84, 0.35); }
 .np-tag.np-new { animation: np-pop .6s cubic-bezier(.2, 1.5, .4, 1) 1; }
 @keyframes np-pop { from { transform: scale(.4); opacity: 0; } }
-.np-bar { position: relative; height: 6px; border-radius: 3px; background: rgba(236, 228, 210, 0.08); }
+.np-bar { position: relative; display: block; height: 6px; border-radius: 3px; background: rgba(236, 228, 210, 0.08); }
 .np-bar > i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--np-faint); transition: width 1s cubic-bezier(.2, .8, .2, 1); }
 .np-row[data-eligible="true"] .np-bar > i { background: linear-gradient(90deg, var(--np-rust), var(--np-brass)); }
 .np-bar > b { position: absolute; top: -4px; width: 2px; height: 14px; border-radius: 1px; background: var(--np-brass); opacity: .8; }
 .np-pts { text-align: right; font-family: var(--np-mono); font-weight: 600; font-size: 17px; color: var(--np-text); }
 .np-row[data-eligible="false"] .np-pts { color: var(--np-muted); }
-.np-break { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0 2px 70px; }
-.np-break span { font-size: 12.5px; padding: 3px 9px; border-radius: 7px; background: rgba(236, 228, 210, 0.05); border: 1px solid var(--np-line); color: var(--np-muted); }
-.np-break span b { color: var(--np-text); font-weight: 700; }
+.np-break { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0 12px 12px 82px; list-style: none; }
+.np-break[hidden] { display: none; }
+.np-break li { font-size: 12.5px; padding: 3px 9px; border-radius: 7px; background: rgba(236, 228, 210, 0.05); border: 1px solid var(--np-line); color: var(--np-muted); }
+.np-break li b { color: var(--np-text); font-weight: 700; }
 .np-more { display: flex; justify-content: center; padding: 6px 22px 22px; }
 .np-empty { padding: 28px 22px; text-align: center; color: var(--np-muted); }
 
+/* a narrower progress bar where the name column is tight — 641–899, and
+ * 1100–1279 where the rail takes 360px beside the board */
+@media (min-width: 641px) and (max-width: 899px), (min-width: 1100px) and (max-width: 1279px) {
+  .np-thead, .np-row-btn { grid-template-columns: 48px minmax(0, 1fr) 130px 64px; gap: 12px; }
+  .np-break { padding-left: 72px; }
+}
 @media (max-width: 640px) {
   .np-board-head, .np-tools { padding-left: 14px; padding-right: 14px; }
   .np-podium { padding: 16px 12px 4px; gap: 8px; }
   .np-pod { padding: 14px 6px 12px; }
-  .np-pod.np-first { padding-top: 20px; }
+  .np-pod:not(.np-center) { margin-top: 14px; }
+  .np-pod.np-center { padding-top: 20px; }
   .np-pod .np-avatar { width: 42px; height: 42px; }
-  .np-pod.np-first .np-avatar { width: 50px; height: 50px; }
+  .np-pod.np-center .np-avatar { width: 50px; height: 50px; }
   .np-pod-name { font-size: 13px; }
-  .np-pod-rank { left: 8px; top: 8px; font-size: 18px; }
+  .np-pod-rank { left: 6px; top: 6px; font-size: 16px; }
   .np-thead { display: none; }
-  .np-rows { padding: 2px 4px 8px; }
-  .np-row { grid-template-columns: 44px minmax(0, 1fr) 54px; gap: 10px; padding: 10px; }
-  .np-row .np-bar-cell { grid-column: 2 / 4; grid-row: 2; }
+  .np-rows { padding: 2px 0 8px; }
+  .np-row-btn { grid-template-columns: 34px minmax(0, 1fr) 48px; gap: 8px; padding: 10px 8px; }
+  .np-row-btn .np-bar-cell { grid-column: 2 / 4; grid-row: 2; }
+  /* the move pill goes UNDER the number — beside it, it ran into the avatar */
+  .np-rank { flex-direction: column; align-items: flex-start; gap: 2px; line-height: 1.1; }
   .np-avatar { width: 34px; height: 34px; }
-  .np-break { padding-left: 54px; }
+  .np-who { gap: 10px; }
+  /* a name gets two lines here instead of an ellipsis */
+  .np-name { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; line-height: 1.25; }
+  /* the tag moves down to the meta line, or at 320px it squeezes the name to nothing */
+  /* the tag and "IGV · Member" may sit on two lines, but each stays whole */
+  .np-name-line { align-items: flex-start; }
+  .np-meta { white-space: normal; }
+  .np-meta-t { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: top; }
+  .np-tag-wide { display: none !important; }
+  .np-tag-narrow { display: inline-block !important; }
+  .np-break { padding: 0 8px 12px 42px; }
   .np-select { flex: 1 1 auto; }
+}
+/* the smallest phones: first names on the podium, the reward as its emoji */
+@media (max-width: 400px) {
+  .np-podium { gap: 6px; padding-inline: 10px; }
+  .np-pod { padding-inline: 3px; }
+  .np-pod-full { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .np-pod-first { display: inline; }
+  /* a first name as long as "Abdelrahman" still fits at 320px; only a
+   * longer one than that breaks, as a last resort */
+  .np-pod-name { font-size: clamp(11px, 3.5vw, 13px); letter-spacing: -.01em; overflow-wrap: anywhere; }
+  .np-pod-reward-t { display: none; }
 }
 
 /* odometer */
@@ -319,7 +414,7 @@
 .np-feed-pts.neg { color: var(--np-rust); }
 .np-feed-name { font-weight: 800; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .np-feed-what { font-size: 12.5px; color: var(--np-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.np-feed-when { font-size: 11.5px; color: var(--np-faint); white-space: nowrap; }
+.np-feed-when { font-size: 11.5px; color: var(--np-muted); white-space: nowrap; }
 
 .np-reward { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 12px; align-items: center; width: 100%; padding: 11px 18px; background: none; border: 0; border-top: 1px solid var(--np-line); color: inherit; font: inherit; text-align: left; cursor: pointer; transition: background .15s; }
 .np-reward:hover { background: rgba(236, 228, 210, 0.035); }
@@ -329,9 +424,11 @@
 .np-reward-go { color: var(--np-faint); }
 .np-note { padding: 12px 18px 16px; font-size: 12.5px; color: var(--np-muted); border-top: 1px solid var(--np-line); }
 
-.np-seg { display: inline-flex; padding: 3px; gap: 2px; border-radius: 9px; background: rgba(236, 228, 210, 0.05); border: 1px solid var(--np-line); }
-.np-seg button { padding: 5px 9px; border-radius: 7px; border: 0; background: none; color: var(--np-muted); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
-.np-seg button[aria-selected="true"] { background: var(--np-text); color: var(--np-bg); }
+.np-seg { display: inline-flex; padding: 3px; gap: 4px; border-radius: 9px; background: rgba(236, 228, 210, 0.05); border: 1px solid var(--np-line); }
+.np-seg button { min-height: 36px; padding: 8px 12px; border-radius: 7px; border: 0; background: none; color: var(--np-muted); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.np-seg button[aria-pressed="true"] { background: var(--np-text); color: var(--np-bg); }
+.np-core-link { position: relative; text-decoration: underline; }
+.np-core-link::after { content: ""; position: absolute; inset: -12px -6px; }
 .np-nat-total { display: flex; align-items: baseline; gap: 12px; padding: 4px 18px 12px; }
 .np-nat-total .np-display { font-size: 54px; line-height: 1; color: var(--np-brass-2); }
 .np-nat-row { display: grid; grid-template-columns: 50px minmax(0, 1fr) 40px; gap: 10px; align-items: center; padding: 7px 18px; font-size: 13px; }
@@ -345,10 +442,11 @@
 .np-section-head p { margin-top: 8px; color: var(--np-muted); }
 .np-points { display: grid; gap: 14px; }
 @media (min-width: 760px) { .np-points { grid-template-columns: repeat(3, 1fr); } }
-.np-points .np-card { padding-bottom: 6px; }
+.np-points .np-card { height: 100%; padding-bottom: 6px; }
+.np-points > .np-reveal { height: 100%; }
 .np-point { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 18px; border-top: 1px solid var(--np-line); }
 .np-point-label { font-family: var(--np-display); font-size: 17px; letter-spacing: .02em; }
-.np-point-hint { font-size: 12.5px; color: var(--np-faint); }
+.np-point-hint { font-size: 12.5px; color: var(--np-muted); }
 .np-point-val { font-family: var(--np-display); font-size: 28px; line-height: 1; color: var(--np-brass-2); white-space: nowrap; }
 
 .np-memo {
@@ -361,35 +459,43 @@
 .np-memo li:first-child { border-top: 0; }
 .np-memo li::before {
   content: counter(rule, decimal-leading-zero); position: absolute; left: 0; top: 13px;
-  font-family: var(--np-display); font-size: 22px; color: #a8452c;
+  font-family: var(--np-display); font-size: 22px; color: #7d2f1b;
 }
 
 .np-foot { margin-top: 64px; padding: 44px 0 40px; border-top: 1px solid var(--np-line); text-align: center; }
 .np-motto { font-family: var(--np-marker), cursive; font-size: clamp(26px, 4vw, 40px); color: var(--np-brass-2); }
 .np-foot-logo { display: block; height: 72px; width: auto; margin: 22px auto 0; opacity: .92; }
 .np-credit { display: inline-flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px 14px; margin-top: 20px; font-size: 12.5px; color: var(--np-muted); }
-.np-credit a { display: inline-flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 8px; transition: background .15s, color .15s; }
+.np-credit a { display: inline-flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 8px; transition: background .15s, color .15s; }
 .np-credit a:hover { background: rgba(236, 228, 210, 0.06); color: var(--np-text); }
 .np-credit img { display: block; height: 18px; width: auto; }
 
 /* ------------------------------------------------------------ toast + modal */
+/* centred by margins, not translate(-50%): the keyframes own the transform,
+ * and with motion reduced a translate-centred toast sat half off-screen.
+ * It never takes a tap — it only says what just happened. */
 .np-toast {
-  position: fixed; left: 50%; top: 82px; z-index: 70; display: flex; align-items: center; gap: 12px;
-  max-width: calc(100vw - 32px); padding: 10px 16px 10px 12px; border-radius: 12px;
+  position: fixed; left: 16px; right: 16px; top: 82px; z-index: 70; display: flex; align-items: center; gap: 12px;
+  width: fit-content; max-width: calc(100vw - 32px); margin-inline: auto; padding: 10px 16px 10px 12px; border-radius: 12px;
   background: #102226; border: 1px solid rgba(92, 211, 165, 0.45); color: var(--np-text);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5); pointer-events: none;
   animation: np-toast 4.6s cubic-bezier(.2, .9, .2, 1) both;
 }
 .np-toast b.np-mono { color: var(--np-mint); font-size: 16px; }
+.np-toast.neg { border-color: rgba(224, 100, 74, 0.5); }
+.np-toast.neg b.np-mono { color: #ee7a62; }
 .np-toast span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@keyframes np-toast { 0% { transform: translate(-50%, -16px); opacity: 0; } 8%, 88% { transform: translate(-50%, 0); opacity: 1; } 100% { transform: translate(-50%, -10px); opacity: 0; } }
-@media (max-width: 899px) { .np-toast { top: 112px; } }
+@keyframes np-toast { 0% { transform: translateY(-16px); opacity: 0; } 8%, 88% { transform: none; opacity: 1; } 100% { transform: translateY(-10px); opacity: 0; } }
+@keyframes np-toast-fade { 0% { opacity: 0; } 5%, 90% { opacity: 1; } 100% { opacity: 0; } }
+@media (max-width: 899px) { .np-toast { top: 118px; } }
 
 .np-modal-back { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 16px; background: rgba(4, 10, 12, 0.7); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); animation: np-fade .2s ease both; }
 @keyframes np-fade { from { opacity: 0; } }
-.np-modal { position: relative; width: min(460px, 100%); max-height: calc(100dvh - 32px); overflow-y: auto; padding: 30px 24px 22px; border-radius: 18px; background: var(--np-surface); border: 1px solid var(--np-line-2); box-shadow: 0 40px 90px rgba(0, 0, 0, .6); animation: np-rise .3s cubic-bezier(.2, .9, .3, 1) both; text-align: center; }
+/* the dialog doesn't scroll, its body does — so the × never scrolls away */
+.np-modal { position: relative; display: flex; flex-direction: column; width: min(460px, 100%); max-height: calc(100dvh - 32px); overflow: hidden; padding: 0; border-radius: 18px; background: var(--np-surface); border: 1px solid var(--np-line-2); box-shadow: 0 40px 90px rgba(0, 0, 0, .6); animation: np-rise .3s cubic-bezier(.2, .9, .3, 1) both; text-align: center; }
 @keyframes np-rise { from { transform: translateY(14px) scale(.98); opacity: 0; } }
-.np-x { position: absolute; top: 12px; right: 12px; width: 34px; height: 34px; border-radius: 50%; border: 0; background: rgba(236, 228, 210, 0.06); color: var(--np-text); font-size: 18px; cursor: pointer; }
+.np-modal-body { min-height: 0; overflow-y: auto; padding: 30px 24px 22px; }
+.np-x { position: absolute; z-index: 1; top: 8px; right: 8px; width: 44px; height: 44px; border-radius: 50%; border: 0; background: rgba(236, 228, 210, 0.06); color: var(--np-text); font-size: 20px; cursor: pointer; }
 .np-modal-emoji { font-size: 76px; line-height: 1; }
 .np-modal-holder { margin-top: 18px; padding: 12px; border-radius: 12px; background: rgba(236, 228, 210, 0.04); border: 1px solid var(--np-line); font-size: 14px; color: var(--np-muted); }
 .np-modal-holder b { color: var(--np-text); }
@@ -397,7 +503,47 @@
 .np-reveal { opacity: 0; transform: translateY(14px); transition: opacity .6s ease, transform .6s cubic-bezier(.2, .8, .2, 1); }
 .np-reveal.np-in { opacity: 1; transform: none; }
 
+/* landscape phones: a sticky two-row header took over a quarter of the
+ * screen — here it scrolls away with the page */
+@media (max-width: 899px) and (max-height: 480px) and (orientation: landscape) {
+  .np-header { position: relative; }
+  .np [id] { scroll-margin-top: 16px; }
+  .np-toast { top: 16px; }
+}
+
+/* error.tsx — the board's own recovery screen */
+.np-fail { display: grid; gap: 16px; justify-items: start; align-content: center; min-height: 100dvh; max-width: 560px; }
+.np-fail p { color: var(--np-muted); }
+
+/* ------------------------------------------------------------ the function race (v38.3) */
+.np-view { flex-shrink: 0; }
+.np-frows { list-style: none; margin: 0; padding: 10px 10px 14px; display: grid; gap: 2px; }
+.np-frow { position: relative; display: grid; grid-template-columns: 44px minmax(0, 1fr) 76px; gap: 14px; align-items: center; padding: 12px; border-radius: 12px; }
+.np-frow + .np-frow::before { content: ""; position: absolute; left: 12px; right: 12px; top: 0; height: 1px; background: var(--np-line); }
+.np-frow[data-flash="true"] { animation: np-flash 2.2s ease-out 1; }
+.np-frank { font-family: var(--np-mono); font-weight: 600; font-size: 16px; }
+.np-fbody { min-width: 0; display: grid; gap: 8px; }
+.np-fhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; min-width: 0; }
+.np-fname { font-family: var(--np-display); font-size: 22px; line-height: 1; letter-spacing: .02em; }
+.np-fmeta { font-size: 12.5px; color: var(--np-muted); min-width: 0; }
+.np-fbar { position: relative; display: block; height: 10px; border-radius: 5px; background: rgba(236, 228, 210, 0.08); overflow: hidden; }
+.np-fbar > i { position: absolute; inset: 0 auto 0 0; border-radius: 5px; background: linear-gradient(90deg, #3d6b66, var(--np-mint)); transition: width 1s cubic-bezier(.2, .8, .2, 1); }
+.np-flead .np-fbar > i { background: linear-gradient(90deg, var(--np-rust), var(--np-gold)); }
+.np-flead .np-fname, .np-flead .np-frank { color: var(--np-gold); }
+.np-fpts { text-align: right; font-family: var(--np-mono); font-weight: 600; font-size: 19px; }
+@media (max-width: 640px) {
+  .np-board-head { align-items: flex-start; }
+  .np-view { width: 100%; }
+  .np-view button { flex: 1 1 0; }
+  .np-frows { padding: 6px 4px 10px; }
+  .np-frow { grid-template-columns: 30px minmax(0, 1fr) 56px; gap: 10px; padding: 12px 8px; }
+  .np-fname { font-size: 19px; }
+  .np-fpts { font-size: 17px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .np *, .np *::before, .np *::after { animation: none !important; transition: none !important; }
   .np-reveal { opacity: 1; transform: none; }
+  /* still shown — faded in and out in place, nothing moves */
+  .np .np-toast { animation: np-toast-fade 4.6s linear both !important; }
 }

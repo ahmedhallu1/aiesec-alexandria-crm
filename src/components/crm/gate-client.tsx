@@ -27,16 +27,22 @@ const ALWAYS_ALLOWED = [
  *  no module: allowed routes render normally, everything else shows "Soon".
  *  `hasModule` (v27): someone with ANY live module never sees Soon — an
  *  off-limits route just bounces them home to their own workspace.
+ *  v38.3: the bounce goes straight to `home` (the layout's `homeRouteFor`),
+ *  not to "/": "/" redirecting to a route this gate bounces again left the
+ *  pathname unchanged, so the effect never re-ran and the page stayed blank.
+ *  And never to the page they are already on.
  *  NOTE: cosmetic only — pages with sensitive data must ALSO gate server-side. */
 export function GateClient({
   mode,
   extra = [],
   hasModule = false,
+  home = "/",
   children,
 }: {
   mode: "allowed" | "soon";
   extra?: string[];
   hasModule?: boolean;
+  home?: string;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -44,10 +50,10 @@ export function GateClient({
   const allowed = [...ALWAYS_ALLOWED, ...extra].some(
     (p) => pathname === p || pathname.startsWith(p + "/")
   );
-  const bounce = !allowed && hasModule;
+  const bounce = !allowed && hasModule && pathname !== home;
   useEffect(() => {
-    if (mode === "soon" && bounce) router.replace("/");
-  }, [mode, bounce, router]);
+    if (mode === "soon" && bounce) router.replace(home);
+  }, [mode, bounce, router, home]);
   if (mode === "allowed") return allowed ? <>{children}</> : null;
   if (bounce) return null; // redirecting home — never flash the Soon screen
   return allowed ? null : <>{children}</>;
