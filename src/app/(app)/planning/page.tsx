@@ -1,3 +1,4 @@
+import { gateTab } from "@/server/tabs";
 import { redirect } from "next/navigation";
 import { getViewer, laneOpensActual, listMmPlans, listPlanCells, listTlPlans } from "@/server/data";
 import { canSeePlanning } from "@/lib/rbac";
@@ -21,7 +22,7 @@ export const metadata = { title: "Planning" };
  *  on first sign-in. Leadership only (canSeePlanning). */
 export default async function PlanningPage() {
   const viewer = await getViewer();
-  if (!canSeePlanning(viewer)) redirect("/");
+  await gateTab(viewer, "/planning", canSeePlanning(viewer));
 
   // LCP/admin see all six lanes; VPs/Directors just their own family pair(s).
   const fns: PlanFunction[] =

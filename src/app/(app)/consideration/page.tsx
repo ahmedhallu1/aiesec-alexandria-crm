@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { gateTab } from "@/server/tabs";
 import {
   getViewer, irCallFilterOptions, irCallHandoverTargets, listConsiderationCrew,
   listCvsPage, listIrCalls, listIrSlotRequests,
@@ -30,7 +30,7 @@ export default async function ConsiderationPage({
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const viewer = await getViewer();
-  if (!hasConsiderationAccess(viewer)) redirect("/");
+  await gateTab(viewer, "/consideration", hasConsiderationAccess(viewer));
   const sp = await searchParams;
 
   const showCvs = canSeeCvPool(viewer);

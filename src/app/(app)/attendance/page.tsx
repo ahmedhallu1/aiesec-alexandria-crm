@@ -1,3 +1,4 @@
+import { gateTab } from "@/server/tabs";
 import { getViewer } from "@/server/data";
 import { isTmCore } from "@/lib/rbac";
 import {
@@ -31,6 +32,7 @@ export default async function AttendancePage({
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const viewer = await getViewer();
+  await gateTab(viewer, "/attendance");
   const params = await searchParams;
 
   // THE FUNNELS ARE MULTI-SELECT, so these arrive as comma lists ("meeting,

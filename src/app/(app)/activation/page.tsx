@@ -1,5 +1,5 @@
+import { gateTab } from "@/server/tabs";
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 import { getViewer } from "@/server/data";
 import { canSeeActivationBid } from "@/lib/rbac";
 import { loadActivationPlan } from "@/server/activation";
@@ -13,7 +13,7 @@ export const metadata: Metadata = { title: "Activate 26' Bid" };
  *  — where a plain Member is sent, rather than to a dead end. */
 export default async function ActivationPage() {
   const viewer = await getViewer();
-  if (!canSeeActivationBid(viewer)) redirect(ACTIVATION_PUBLIC_PATH);
+  await gateTab(viewer, "/activation", canSeeActivationBid(viewer), ACTIVATION_PUBLIC_PATH);
   const plan = await loadActivationPlan({ publicView: false });
   const base = process.env.NEXT_PUBLIC_APP_URL ?? "https://sodio.vercel.app";
   return (

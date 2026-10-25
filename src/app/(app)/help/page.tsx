@@ -1,3 +1,4 @@
+import { gateTab } from "@/server/tabs";
 import {
   hasConsiderationAccess, hasOgxAccess, hasRaisingAccess, hasTmAccess,
 } from "@/lib/rbac";
@@ -13,6 +14,7 @@ export const metadata = { title: "Help" };
  *  help-content.ts) with every release, in the same commit. */
 export default async function HelpPage() {
   const viewer = await getViewer();
+  await gateTab(viewer, "/help");
   return (
     <HelpView
       viewer={{

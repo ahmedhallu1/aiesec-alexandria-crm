@@ -15,7 +15,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-10-16 · Version: v37.14
+Last updated: 2026-10-25 · Version: v38
 
 ---
 
@@ -67,7 +67,7 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0061_touch_point_location` → `0062_close_rls_gaps` → `0063_prank_mode` →
 `0064_api_keys` → `0065_ir_slot_requests` → `0066_im_prompts` →
 `0067_member_settings` → `0068_cxp_module` → `0069_push_subscriptions` → `0070_b2c_cic_outcomes` →
-`0071_partnership_stage` → … → `0076_next_step_reminders` → `0077_visit_followups_gate` → `0078_contact_keys` → `0079_cv_drive_import` → `0080_redirect_links_and_locations` → `0081_activation_bid_and_tour_seen` → `0082_bd_b2b_planning` → `0083_cxp_staging_and_icx_approvals` → `0084_function_privileges_and_streak_index` → `0085_signup_batch_older` → `0086_list_indexes_and_ir_registry` (0077's FILE was recreated from prod in v37.7)
+`0071_partnership_stage` → … → `0076_next_step_reminders` → `0077_visit_followups_gate` → `0078_contact_keys` → `0079_cv_drive_import` → `0080_redirect_links_and_locations` → `0081_activation_bid_and_tour_seen` → `0082_bd_b2b_planning` → `0083_cxp_staging_and_icx_approvals` → `0084_function_privileges_and_streak_index` → `0085_signup_batch_older` → `0086_list_indexes_and_ir_registry` → `0087_tab_rules_and_war` (0077's FILE was recreated from prod in v37.7)
 (**all applied**, 0046–0063 during v33.22–v33.51, 0064–0067 during v34.5–v34.8,
 0069 during v35).
 
@@ -134,6 +134,35 @@ MOS/KPIs (own accounts: MR·Contacted·Visits·Done·Deals·Opens) and
 email/call/WhatsApp shortcuts. TM users without raising access enter the
 shell for `/members` + `/playbook` (GateClient `extra` prefixes) — the page
 ALSO gates server-side (`redirect` + `listMembersDirectory` returns `[]`).
+
+**THE TAB MANAGER (v38, Settings → Tabs, `canRunLcTools` = LCP + admins)**:
+every sidebar tab (`TAB_REGISTRY` in `src/lib/tabs.ts`) follows its CODE rule
+until a `tab_rules` row overrides it: rename · LC default order · base
+(as the code says / everyone / nobody) · show-to and hide-from (roles,
+functions, named people — a named person beats a group, hide beats show on the
+same level) · show-from / remove-on dates · retire (= "delete": hidden from
+everyone, restorable) · the public twin's switches (/activate26, /no-peace).
+A hidden tab is cut from the sidebar AND refused by its page: every tab's
+page calls `gateTab(viewer, href, builtInRule)` (server/tabs.ts, 30 s module
+memo, busted on save). "Show to" OPENS the page for anyone (the user chose
+"any tab, anyone") but the data inside still follows RBAC. The test view
+applies the impersonated member's rules.
+
+**THE NO PEACE WAR (v38)**: the LC's points race, 25 Oct → 25 Nov 2026.
+The **War Room** (`/war-room`, code rule `canSeeWarRoom` = F&L VP + LCP +
+admins, widened from Settings → Tabs — the actions ask the same `tabAllows`)
+logs `war_entries` (achievement × qty, points from the campaign's point table
+AT READ TIME; or a bonus with its own number + an internal comment),
+soft-deleted with undo. Everything else is editable settings JSON in
+`war_campaigns` (point table, rewards, rules, dates, min points = 35, who
+competes = active Member/Coordinator/TL minus TM Coordinators, page toggles).
+No roll-up: a member's points are never their MM's. The public page
+**`/no-peace`** (no login) renders `buildSnapshot` and every write BROADCASTS
+the new snapshot over Supabase Realtime (`server/realtime.ts`, channel
+`no-peace`, publishable key `SUPABASE_PUBLISHABLE_KEY` handed to the browser)
+— instant, zero Vercel invocations per viewer; without the key it refreshes
+every 60 s. It also shows Alexandria's national rank from CORE
+(`parseNationalStanding`, top 10 per program only).
 
 **Profile "my people" card** (`profilePeople` in data.ts): Team Leader → their
 direct team · VP/Director → their whole function · LCP/admin → the EB
@@ -386,7 +415,9 @@ mutation through a `can*` predicate, **server-side**.
   v36.7 `/activate26` — the editable twin `/activation` stays protected, and
   since v36.8 is MMs and above only: `canSeeActivationBid` in rbac.ts gates the
   nav, the layout's gate routes, the page — a Member is sent to `/activate26`
-  — and every action, reads included).
+  — and every action, reads included), and since v38 `/no-peace` (the live
+  war board; its editor `/war-room` is deliberately NOT a `no-peace…` path,
+  which the prefix matcher would have made public).
   ⚠️ Any new public asset folder must be added to the matcher or the proxy
   307s it to /login.
 - `/api/cron/*` guarded by `CRON_SECRET`. Feedback inbox = ONLY
@@ -672,12 +703,20 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | Storing an IR call's calendar event / registering the IR | `linkIrCallEvent` (checked write, one retry) · `registerBookingContact` (plain insert; 23505 = already there) in `actions.ts` |
 | Deal counters + the Deal Done stage | DERIVED from the `deals` table in `recordDeal`/`updateDeal`/`cancelDeal` — the last cancel clears `slot_raised` (the view's stage reads it) |
 | Column-filter option lists (sign-ups, CIC, IR calls) | `memoOptions` in `data.ts` — module memory, 5 min; NOT `unstable_cache` (revalidatePath evicts it) |
+| Who sees which tab (rules, dates, retire, public twin) | `src/lib/tabs.ts` (pure, tested — `TAB_REGISTRY` lists every tab) · `src/server/tabs.ts` (`gateTab` on EVERY tab's page) · `src/server/tab-actions.ts` · `tab-manager.tsx` (Settings → Tabs) · a NEW tab = registry + shell `candidates` + `gateTab` in its page (pinned by `tests/tabs.test.ts`) |
+| The No Peace war (scoring, competitors, clock, public snapshot) | `src/lib/war/model.ts` (pure, tested) · reads `src/server/war.ts` · writes `src/server/war-actions.ts` (every write → `publish()` broadcast) · editor `src/components/war/war-room-view.tsx` · public `src/components/no-peace/*` (`no-peace.css` namespaced `.np`) · route `src/app/no-peace` |
+| Live pushes to a public page | `broadcast`/`realtimeClientConfig` in `src/server/realtime.ts` · `useWarLive` in `components/no-peace/live.ts` · `wss://*.supabase.co` in the CSP |
+| CORE national ranking (per program/stage) | `src/lib/core-national.ts` (pure) · `coreNationalStanding` in `core-analytics.ts` |
 | Throttle buckets in app_settings | `RATE_BUCKET_SCOPES` + `pruneRateBuckets` in `src/server/rate-limit.ts` (nightly, after the backup) — a new scope must be added to the list (pinned) |
 
 ---
 
 ## 9. Pending / operational notes
 
+- **`SUPABASE_PUBLISHABLE_KEY` (v38)** must exist in `.env.local` AND Vercel
+  (all environments) for /no-peace to be live; without it the page falls back
+  to a 60 s refresh. It is the project's publishable key — public by design
+  (RLS is on everywhere with no anon policies).
 - **VERCEL FUNCTION STORAGE (v36.1)**: Hobby includes 10 GB, and every
   retained deployment's functions count toward it. Since v36.1 a function
   traces ~5 MB instead of ~97 MB, but every OLDER deployment keeps its old

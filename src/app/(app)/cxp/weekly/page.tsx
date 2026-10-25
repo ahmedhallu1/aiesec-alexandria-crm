@@ -1,3 +1,5 @@
+import { getViewer } from "@/server/data";
+import { gateTab } from "@/server/tabs";
 import { redirect } from "next/navigation";
 import { cxpAccess, weeklyBoard } from "@/server/cxp";
 import { CxpWeeklyView } from "@/components/crm/cxp-weekly-view";
@@ -18,7 +20,8 @@ export default async function CxpWeeklyPage({
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const access = await cxpAccess();
-  if (!access.allowed) redirect("/");
+  // v38 — the tab rule (Settings → Tabs) can open or close it on top
+  await gateTab(await getViewer(), "/cxp", access.allowed);
   const sp = await searchParams;
 
   const requested = sp.side as CxpSide | undefined;

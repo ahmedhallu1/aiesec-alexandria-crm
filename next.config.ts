@@ -28,6 +28,8 @@ const CSP = [
   [
     "connect-src 'self'",
     "https://*.supabase.co",
+    // v38 — Realtime (the live /no-peace page listens on a broadcast channel)
+    "wss://*.supabase.co",
     "https://generativelanguage.googleapis.com",
     "https://www.googleapis.com",
     "https://podio.com",

@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { gateTab } from "@/server/tabs";
 import { getViewer, listAllMembers, listFunctionVisits, listIrCalls } from "@/server/data";
 import {
   accountScope,
@@ -50,8 +50,8 @@ export default async function CalendarPage({
   const raising = hasRaisingAccess(viewer);
   const consideration = hasConsiderationAccess(viewer);
   // every module member has a calendar now — touch points concern everyone
-  if (!raising && !consideration && !hasOgxAccess(viewer) && !hasTmAccess(viewer))
-    redirect("/");
+  // v38 — the tab rule (Settings → Tabs) can open or close it on top
+  await gateTab(viewer, "/calendar", raising || consideration || hasOgxAccess(viewer) || hasTmAccess(viewer));
   const params = await searchParams;
 
   // "this month" in Cairo time — the server clock is UTC on Vercel

@@ -40,6 +40,10 @@ export const config = {
     // AND `/activate26` (v36.7) — the public, READ-ONLY view of the LC's bid to
     // host Activate 26'. The editable board is `/activation`, which does NOT
     // start with "activate26" and so stays behind the session like every page.
-    "/((?!api/auth|api/cron|api/v1|login|inactive|book|privacy|delete-account|activate26|_next/static|_next/image|favicon.ico|icon.png|apple-icon.png|opengraph-image|icons|brand|manifest.webmanifest|sw.js|robots.txt|sitemap.xml|\\.well-known).*)",
+    //
+    // AND `/no-peace` (v38) — the public, READ-ONLY live war board. Its editor
+    // is `/war-room`, deliberately NOT a "no-peace…" path, which this prefix
+    // match would otherwise have made public too.
+    "/((?!api/auth|api/cron|api/v1|login|inactive|book|privacy|delete-account|activate26|no-peace|_next/static|_next/image|favicon.ico|icon.png|apple-icon.png|opengraph-image|icons|brand|manifest.webmanifest|sw.js|robots.txt|sitemap.xml|\\.well-known).*)",
   ],
 };

@@ -1,3 +1,4 @@
+import { gateTab } from "@/server/tabs";
 import {
   b2cCicStats, considerationStats, getViewer, getDashboard, listVisibleMembers,
   listTeamFilterOptions, memberWorksFunction, ogxDashboard, streakStats,
@@ -30,6 +31,7 @@ export default async function DashboardPage({
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const viewer = await getViewer();
+  await gateTab(viewer, "/dashboard");
   const params = await searchParams;
 
   // Which lanes may this viewer switch between? IGV members see IGV only;

@@ -136,6 +136,18 @@ async function buildGlobalRankings(topN: number): Promise<string | null> {
   return blocks.length ? blocks.join("\n\n") : null;
 }
 
+// ------------------------------------------------------------------ national standing
+
+/** Alexandria's place in CORE's national rankings, per program and stage —
+ *  the No Peace page's "national front" (v38). Rides the same 15-minute data
+ *  cache as the assistant digest; null when CORE is down. */
+export async function coreNationalStanding(): Promise<import("./war/model").NationalStanding | null> {
+  const html = await fetchCore("/");
+  if (!html) return null;
+  const { parseNationalStanding } = await import("./core-national");
+  return parseNationalStanding(html);
+}
+
 // ------------------------------------------------------------------ digest
 
 /** Live CORE digest for the assistant context. */

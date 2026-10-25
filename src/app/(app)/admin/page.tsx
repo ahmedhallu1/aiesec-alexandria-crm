@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { gateTab } from "@/server/tabs";
 import { auditFilterOptions, getRealViewer, getSystemHealth, listAuditPage } from "@/server/data";
 import { listApiKeys } from "@/server/api-keys";
 import { db } from "@/lib/supabase";
@@ -23,7 +23,7 @@ export default async function AdminPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const viewer = await getRealViewer();
-  if (!canUseAdminTools(viewer)) redirect("/");
+  await gateTab(viewer, "/admin", canUseAdminTools(viewer));
 
   const { cookies } = await import("next/headers");
   const showTestData = (await cookies()).get("sodio-test-mode")?.value === "1";

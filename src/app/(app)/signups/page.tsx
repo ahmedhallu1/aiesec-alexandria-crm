@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { gateTab } from "@/server/tabs";
 import {
   b2cCicAccess, b2cCicCallerTargets,
   cicCallerTargets, cicFirstCallerOptions, getViewer, listSignupLogs, listSignupsPage, ogxPlanCard, seesB2cCicQueue, seesCicQueue,
@@ -25,7 +25,7 @@ export default async function SignupsPage({
   const viewer = await getViewer();
   // B2C (v33.29) enters for its CIC queue — everything else stays OGX-gated
   const b2cOnly = !hasOgxAccess(viewer) && b2cCicAccess(viewer);
-  if (!hasOgxAccess(viewer) && !b2cOnly) redirect("/");
+  await gateTab(viewer, "/signups", hasOgxAccess(viewer) || b2cOnly);
   const fns: OgxFunction[] = b2cOnly ? ["OGT", "OGV"] : ogxFunctions(viewer);
   const sp = await searchParams;
 

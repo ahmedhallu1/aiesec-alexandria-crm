@@ -136,6 +136,19 @@ export function canSeeActivationBid(v: Viewer): boolean {
   return master(v) || v.role !== "Member";
 }
 
+/** THE WAR ROOM (v38) — where the "No Peace" war points are logged. The
+ *  code rule is the F&L VP (plus the LCP and the admins); anyone else gets it
+ *  from Settings → Tabs, and the war actions honour that same rule
+ *  (`tabAllows` in server/tabs.ts). NOT `master`: master covers every F&L
+ *  member, and the ask was the VP. */
+export function canSeeWarRoom(v: Viewer): boolean {
+  return (
+    v.isAdmin ||
+    v.role === "LCP" ||
+    (v.role === "LCVP" && (v.functions.includes("F&L") || v.sub_functions.includes("F&L")))
+  );
+}
+
 /** EB = LCP + LCVPs (Directors are explicitly NOT EB). */
 export const isEb = (v: Viewer) => master(v) || v.role === "LCVP";
 

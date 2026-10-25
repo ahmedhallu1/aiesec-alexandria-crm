@@ -1,3 +1,4 @@
+import { gateTab } from "@/server/tabs";
 import { canSeeLcConcerns } from "@/lib/rbac";
 import {
   getViewer, listAllMembers, listLcFeedback, listPastTouchPointsForFeedback,
@@ -9,6 +10,7 @@ export const metadata = { title: "Feedback" };
 
 export default async function LcFeedbackPage() {
   const viewer = await getViewer();
+  await gateTab(viewer, "/lc-feedback");
   const isInboxOwner = canSeeLcConcerns(viewer);
 
   const [all, inbox, touchPoints] = await Promise.all([

@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { gateTab } from "@/server/tabs";
 import {
   getViewer, listAllMembers, listEmailGroups, listMyEmails,
 } from "@/server/data";
@@ -18,7 +18,7 @@ export const metadata = { title: "Emails" };
  *  above, which just sent members back to a blank Gmail with no signature). */
 export default async function EmailsPage() {
   const viewer = await getViewer();
-  if (!canUseMailboxTab(viewer)) redirect("/");
+  await gateTab(viewer, "/emails", canUseMailboxTab(viewer));
 
   const [{ rows, recents }, members, groups] = await Promise.all([
     listMyEmails(viewer),

@@ -1,4 +1,5 @@
-import { notFound, redirect } from "next/navigation";
+import { gateTab } from "@/server/tabs";
+import { notFound } from "next/navigation";
 import { cxpAccess, getEp } from "@/server/cxp";
 import { CxpEpView, type EpDocRow } from "@/components/crm/cxp-ep-view";
 import { computeDeadline, deadlineInputsOf } from "@/lib/cxp/deadlines";
@@ -15,7 +16,8 @@ export default async function CxpEpPage({
   params: Promise<{ epOppId: string }>;
 }) {
   const access = await cxpAccess();
-  if (!access.allowed) redirect("/");
+  // v38 — the tab rule (Settings → Tabs) can open or close it on top
+  await gateTab(await getViewer(), "/cxp", access.allowed);
 
   const { epOppId } = await params;
   const found = await getEp(decodeURIComponent(epOppId));

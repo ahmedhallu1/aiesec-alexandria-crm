@@ -1,3 +1,4 @@
+import { gateTab } from "@/server/tabs";
 import {
   countUnassigned, getViewer, listAccountsPage, listManualArchived, listVisibleMembers,
   listReassignTargetsForViewer, listTeamFilterOptions, unreportedVisits,
@@ -20,6 +21,7 @@ export default async function AccountsPage({
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const viewer = await getViewer();
+  await gateTab(viewer, "/accounts");
   const params = await searchParams;
 
   const allowedFns = allowedAccountFunctions(viewer);

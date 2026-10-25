@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { gateTab } from "@/server/tabs";
 import { getViewer } from "@/server/data";
 import { getPdpPage } from "@/server/pdp";
 import { PdpView } from "@/components/crm/pdp-view";
@@ -30,7 +30,7 @@ export default async function PdpPage() {
     data.targets.mms.length > 0 ||
     data.targets.others.length > 0 ||
     data.runsProcess;
-  if (!touched) redirect("/");
+  await gateTab(viewer, "/pdp", touched);
 
   return <PdpView data={data} viewerId={viewer.id} viewerName={viewer.name} />;
 }

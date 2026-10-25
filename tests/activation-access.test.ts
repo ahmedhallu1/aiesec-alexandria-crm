@@ -29,8 +29,10 @@ describe("who can reach the bid page", () => {
     const layout = read("src/app/(app)/layout.tsx");
     expect(layout).toContain("canSeeActivationBid(viewer)");
     expect(layout).toMatch(/activation \? \["\/activation"\]/);
-    expect(read("src/components/crm/app-shell.tsx")).toContain('nav.activation ? [{ href: "/activation"');
-    expect(read("src/app/(app)/activation/page.tsx")).toMatch(/if \(!canSeeActivationBid\(viewer\)\) redirect/);
+    // v38 — the shell lists every tab with its code rule, and the page asks
+    // the tab rule (Settings → Tabs) on top of it
+    expect(read("src/components/crm/app-shell.tsx")).toMatch(/href: "\/activation",[^\n]*builtIn: nav\.activation/);
+    expect(read("src/app/(app)/activation/page.tsx")).toMatch(/gateTab\(viewer, "\/activation", canSeeActivationBid\(viewer\)/);
   });
 });
 

@@ -12,6 +12,7 @@ import { PAGE_SIZES } from "@/lib/page-size";
 import { exportsFor } from "@/server/exports";
 import { handoverFor, lcOverview } from "@/server/lc-term";
 import { SettingsHub, type HubTab } from "@/components/crm/settings-hub";
+import { tabManagerData } from "@/server/tabs";
 
 export const metadata = { title: "Settings" };
 
@@ -51,8 +52,11 @@ export default async function SettingsPage({
     "data",
     ...(handover ? (["handover"] as HubTab[]) : []),
     ...(lc && canRunLcTools(viewer) ? (["lc"] as HubTab[]) : []),
+    // v38 — the tab manager: the LCP and the admins
+    ...(canRunLcTools(viewer) ? (["tabs"] as HubTab[]) : []),
   ];
   const tab = tabs.includes(sp.tab as HubTab) ? (sp.tab as HubTab) : "notifications";
+  const tabManager = tab === "tabs" ? await tabManagerData() : null;
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
@@ -92,6 +96,7 @@ export default async function SettingsPage({
         exports={exportsFor(viewer).map((e) => ({ id: e.id, label: e.label, description: e.description }))}
         handover={handover}
         lc={lc}
+        tabManager={tabManager}
       />
     </div>
   );

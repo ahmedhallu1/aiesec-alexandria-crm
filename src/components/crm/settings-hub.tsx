@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  Bell, BookOpen, Building2, Database, ExternalLink, Landmark, Loader2, SlidersHorizontal, Users,
+  Bell, BookOpen, Building2, Database, ExternalLink, Landmark, LayoutList, Loader2, SlidersHorizontal, Users,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,8 +25,11 @@ import { LcSettingsSection } from "./lc-settings-section";
 import { ActiveToggle, FunctionDefaultsBlock, type FunctionSettingsCard } from "./profile-view";
 import { MmAccessCard } from "./mm-access-card";
 import type { MmAccessBlock } from "@/server/data";
+import type { TabRule } from "@/lib/tabs";
+import { TabManager } from "./tab-manager";
+import type { PickPerson } from "./people-pick";
 
-export type HubTab = "notifications" | "defaults" | "team" | "function" | "data" | "handover" | "lc";
+export type HubTab = "notifications" | "defaults" | "team" | "function" | "data" | "handover" | "lc" | "tabs";
 
 const TAB_META: Record<HubTab, { label: string; icon: typeof Bell; blurb: string }> = {
   notifications: { label: "Notifications & account", icon: Bell, blurb: "Every email and app notification, your sign-in details, how Sodio looks." },
@@ -36,6 +39,7 @@ const TAB_META: Record<HubTab, { label: string; icon: typeof Bell; blurb: string
   data: { label: "My data", icon: Database, blurb: "Download what you can see, as Excel or CSV." },
   handover: { label: "Handover", icon: BookOpen, blurb: "What the previous EB left for you." },
   lc: { label: "LC & new term", icon: Landmark, blurb: "New peak or term, membership, planning, handover." },
+  tabs: { label: "Tabs", icon: LayoutList, blurb: "Who sees which sidebar tab — rename, order, show or hide, open and remove on dates, retire." },
 };
 
 const SIGNUP_VIEW_LABEL: Record<string, string> = {
@@ -68,6 +72,7 @@ export function SettingsHub({
   exports,
   handover,
   lc,
+  tabManager = null,
 }: {
   tab: HubTab;
   tabs: HubTab[];
@@ -85,6 +90,7 @@ export function SettingsHub({
   exports: { id: string; label: string; description: string }[];
   handover: { handover: Handover; functions: string[]; state: LcTermState | null } | null;
   lc: LcOverview | null;
+  tabManager?: { rules: TabRule[]; people: PickPerson[] } | null;
 }) {
   const router = useRouter();
   const [navPending, startNav] = useTransition();
@@ -192,6 +198,8 @@ export function SettingsHub({
           <HandoverView data={handover} />
         ) : tab === "lc" && lc ? (
           <LcSettingsSection lc={lc} />
+        ) : tab === "tabs" && tabManager ? (
+          <TabManager rules={tabManager.rules} people={tabManager.people} />
         ) : null}
       </div>
     </div>

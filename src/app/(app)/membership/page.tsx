@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { gateTab } from "@/server/tabs";
 import { getViewer, listAllMembers, listTeamsRegistry } from "@/server/data";
 import { canManageMembership, canRunLcTools } from "@/lib/rbac";
 import { MembershipView } from "@/components/crm/membership-view";
@@ -7,7 +7,7 @@ export const metadata = { title: "Membership" };
 
 export default async function MembershipPage() {
   const viewer = await getViewer();
-  if (!canManageMembership(viewer)) redirect("/");
+  await gateTab(viewer, "/membership", canManageMembership(viewer));
   const { membershipSource } = await import("@/lib/google/sheets");
   const [members, teams, source] = await Promise.all([
     listAllMembers(),

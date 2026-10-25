@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { gateTab } from "@/server/tabs";
 import {
   cairoDayIso, clampDirectoryWindow, getViewer, listMembersDirectory,
 } from "@/server/data";
@@ -20,7 +20,7 @@ export default async function MembersPage({
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const viewer = await getViewer();
-  if (!hasTmAccess(viewer)) redirect("/");
+  await gateTab(viewer, "/members", hasTmAccess(viewer));
   const params = await searchParams;
   // clamped server-side: a hand-typed ?from=2099-01-01 can't widen the window
   const range = clampDirectoryWindow({ from: params.from, to: params.to });

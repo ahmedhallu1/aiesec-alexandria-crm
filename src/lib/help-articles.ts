@@ -78,6 +78,166 @@ export const HELP_ARTICLES: HelpArticle[] = [
   ]
  },
  {
+  "id": "no-peace-war",
+  "title": "No Peace — the war points board",
+  "emoji": "⚔️",
+  "category": "getting-started",
+  "audience": "Everyone (logging: the F&L VP)",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "no peace",
+   "war",
+   "war points",
+   "points",
+   "war room",
+   "rewards",
+   "activate",
+   "leaderboard",
+   "ranking",
+   "core",
+   "national",
+   "35",
+   "bonus",
+   "attendance",
+   "engagement",
+   "حرب",
+   "نقاط"
+  ],
+  "summary": "The LC's No Peace campaign (25 Oct → 25 Nov): the F&L VP logs war points in the War Room, and the public page /no-peace shows the standings live — with the rewards, the rules and where Alexandria stands nationally.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "**/no-peace** is the war board everyone can open — no account needed, made for phones. It counts down to **Activate 26'** at the top and to the **end of the war** under the title, shows Alexandria's **national rank from CORE** per program, the **podium**, **every soldier's points**, a **live feed of who just scored**, the **point system**, the **rewards** (tap a medal, or a falling parachute) and the **rules**. When a point is logged it lands on every open copy within a second — no refresh."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Achievement",
+     "War points"
+    ],
+    "rows": [
+     [
+      "OGV APD",
+      "7"
+     ],
+     [
+      "OGT APD",
+      "12"
+     ],
+     [
+      "10 SUs",
+      "2"
+     ],
+     [
+      "IGV APD",
+      "6"
+     ],
+     [
+      "IGT APD",
+      "10"
+     ],
+     [
+      "IGV OPEN",
+      "10"
+     ],
+     [
+      "IGT OPEN",
+      "15"
+     ],
+     [
+      "PARTNER",
+      "20"
+     ],
+     [
+      "PR DEAL",
+      "12"
+     ],
+     [
+      "Bonus (attendance, engagement…)",
+      "whatever the F&L VP sets"
+     ]
+    ]
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "You need **at least 35 war points** to compete for a reward. Points belong to the person who earned them — a member's achievement is **not** also counted for their MM. Ties share a rank. Only **active** members, Coordinators and Team Leaders compete (TM Coordinators are out); the F&L VP can change who competes in the War Room's settings."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open **War Room** in the sidebar ([here](/war-room)) — it's the F&L VP's (the LCP and admins too; anyone else can be given it in Settings → Tabs).",
+     "**Log points**: tick who scored (search, or add a whole function at once), pick what they did, set how many, and press **Log it**. A toast offers **Undo**.",
+     "**Bonus / penalty** is for checkpoint points like attendance and engagement: type the number (− for a penalty) and a comment — the comment stays inside Sodio, the page just says \"Bonus\".",
+     "**Entries** lists everything logged, with search and filters (person, achievement, who logged it, dates). Edit or delete any entry; deleted ones wait under **Deleted** and can be restored.",
+     "**Settings** edits the point values (changing one re-scores everything already logged), the rewards, the rules, the dates, who competes and what the public page shows."
+    ]
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Why does Alexandria show \"10+\" for a program?",
+      "a": "CORE only publishes the top 10 LCs per program. Outside it, it doesn't say where we are — and neither do we."
+     },
+     {
+      "q": "Can the page be taken down after the war?",
+      "a": "Yes — the LCP or an admin: Settings → Tabs → War Room → turn off the public page, or retire the tab and take the page down with it."
+     }
+    ]
+   }
+  ]
+ },
+  {
+  "id": "tab-manager",
+  "title": "Managing tabs — who sees what",
+  "emoji": "🗂️",
+  "category": "leaders",
+  "audience": "The LCP & admins",
+  "audienceKeys": [
+   "eb",
+   "admin"
+  ],
+  "keywords": [
+   "tabs",
+   "sidebar",
+   "hide tab",
+   "show tab",
+   "retire",
+   "delete tab",
+   "remove",
+   "visibility",
+   "access",
+   "rename",
+   "order",
+   "public page",
+   "settings"
+  ],
+  "summary": "Settings → Tabs lets the LCP and admins show or hide any sidebar tab for everyone, for roles, functions or named people — rename it, order it, open and remove it on dates, retire it, and take its public page down.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Open **Settings → Tabs** ([here](/profile/settings?tab=tabs)). Every tab follows its rule in the code until you set one. **Edit** opens the rule: a new name, who sees it to start with (**as the code says**, **everyone** or **nobody**), then **also show it to** and **hide it from** — roles, functions or named people. A person you name always wins over their role or function; on the same level, hiding wins."
+   },
+   {
+    "t": "callout",
+    "tone": "warn",
+    "md": "A hidden tab is gone from the sidebar **and** its page sends that person home. A tab you open to someone the code wouldn't opens the page for them, but the data inside still follows their role — a data module can look empty to them."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "**Show from / Remove on** — the tab appears and disappears by itself at those moments (the Activate bid tab after the bid, for example).",
+     "**Retire** (the bin) hides it from everyone right away; nothing is deleted, and **Restore** brings it back.",
+     "Tabs with a public page (Activate 26' → /activate26, War Room → /no-peace) have switches to take that page down, now or together with the tab.",
+     "The arrows set the LC's default order — a member's own arrangement still wins on their device."
+    ]
+   }
+  ]
+ },
+ {
   "id": "edits-save-themselves",
   "title": "Your account edits save themselves",
   "emoji": "✅",

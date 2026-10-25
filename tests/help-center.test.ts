@@ -19,6 +19,8 @@ const ROUTES = new Set([
   "/admin", "/help", "/ogt-mail", "/playbook",
   // v36.7 — the Activate 26' bid: editable in the app, read-only in public
   "/activation", "/activate26",
+  // v38 — the No Peace war: logged in the War Room, live in public
+  "/war-room", "/no-peace", "/profile/settings",
   // the CXP module (v35) — its first help article landed in v37
   "/cxp", "/cxp/weekly",
   // the settings hub (v36.2; sections since v37.2)

@@ -7,6 +7,36 @@
 > ~87% of it. This file is NOT auto-loaded — grep it for the reasoning behind
 > a past decision before changing that behaviour.
 
+- **2026-10-25 · v38** — **THE TAB MANAGER + THE "NO PEACE" WAR.** Migration
+  **0087** (`tab_rules`, `war_campaigns`, `war_entries`; RLS on, no policies;
+  applied with the release). ① **Settings → Tabs** (LCP + admins): every
+  sidebar tab can be renamed, ordered, shown/hidden for everyone / roles /
+  functions / named people, opened and removed on dates, retired (restorable)
+  and have its public page taken down. Hidden = gone from the sidebar AND
+  refused by the page (`gateTab` in every tab's page — the sidebar alone was
+  never a gate for raisers, who skip GateClient). The user chose "any tab,
+  anyone" for widening; the manager says the data inside still follows RBAC.
+  "/" never lands on a hidden tab. ② **The War Room** (`/war-room`, the F&L
+  VP by code): log war points for one or many people at once, bonus/penalty
+  with an internal comment, edit/delete/restore entries, and edit the point
+  table, rewards, rules, dates, competitors and page toggles — nothing about
+  the war lives only in code. ③ **`/no-peace`**, public and live: Activate
+  countdown bar + dispatch ticker, the declaration (the LC poster's two
+  halves — its middle is baked-in text), the war clock, the front line map,
+  Alexandria's national rank from CORE, the dog-tag podium, field
+  dispatches, the standings (search, function filter, 35+ filter, FLIP
+  reorder, rolling digits, rank arrows, ENLISTED stamp), the arsenal (flip
+  crates), the rewards (tilt medals → pop-ups; the falling parachutes open
+  them too) and the rules memo. Updates arrive by Supabase Realtime
+  BROADCAST of the whole public snapshot — no polling, no Vercel invocation
+  per viewer. Verified end to end against production with temporary
+  `zz-test` entries (deleted after). ⚠️ An uploaded avatar can be a 25 KB
+  data: URI — the snapshot keeps only short https avatars (105 KB → 15 KB per
+  push). ⚠️ Egypt is on summer time until the last Thursday of October: the
+  war clock resolves Cairo dates with `cairoInstant`, never a fixed +02:00.
+  The Activate countdown defaults to 2 Dec 09:00 (the bid page's day0),
+  editable in the War Room.
+
 - **2026-10-16 · v37.14** — **A FULL SYSTEM AUDIT, DRIVEN BY PRODUCTION DATA.**
   Migration **0086** (indexes + data repairs, applied with the release).
   Baseline first: 1015 tests green, tsc clean, build green, lint at the v37.8

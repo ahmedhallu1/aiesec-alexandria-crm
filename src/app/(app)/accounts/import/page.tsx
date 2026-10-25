@@ -1,3 +1,4 @@
+import { gateTab } from "@/server/tabs";
 import { redirect } from "next/navigation";
 import { getViewer, listVisibleMembers } from "@/server/data";
 import { allowedAccountFunctions, hasRaisingAccess } from "@/lib/rbac";
@@ -7,6 +8,7 @@ export const metadata = { title: "Import accounts" };
 
 export default async function ImportPage() {
   const viewer = await getViewer();
+  await gateTab(viewer, "/accounts");
   if (!hasRaisingAccess(viewer)) redirect("/");
   const allowedFns = allowedAccountFunctions(viewer);
   if (allowedFns.length === 0) redirect("/accounts");

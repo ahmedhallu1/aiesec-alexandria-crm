@@ -1,3 +1,4 @@
+import { gateTab } from "@/server/tabs";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { canViewAccount } from "@/lib/rbac";
@@ -36,6 +37,7 @@ export default async function AccountPage({
   searchParams: Promise<{ report?: string; open?: string }>;
 }) {
   const viewer = await getViewer();
+  await gateTab(viewer, "/accounts");
   const { id } = await params;
   const { report, open } = await searchParams;
 

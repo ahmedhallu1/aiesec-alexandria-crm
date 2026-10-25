@@ -9,7 +9,9 @@ import {
   isB2C, isTmCore, seesEveryLane,
 } from "@/lib/rbac";
 import { hasCxpAccess } from "@/lib/cxp/rbac";
-import { canSeeActivationBid } from "@/lib/rbac";
+import { canSeeActivationBid, canSeeWarRoom } from "@/lib/rbac";
+import { tabRules } from "@/server/tabs";
+import { tabOverridesFor } from "@/lib/tabs";
 import { signOut } from "@/lib/auth";
 import { AppShell } from "@/components/crm/app-shell";
 import { ComingSoon } from "@/components/crm/coming-soon";
@@ -109,11 +111,26 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // v36.8 — the Activate 26' bid: MMs and above, module or not. Like
   // /attendance it rides the gate without counting as "having a module".
   const activation = canSeeActivationBid(viewer);
+  // v38 — the No Peace War Room: the F&L VP (+ LCP/admins) by code
+  const warRoom = canSeeWarRoom(viewer);
+  // v38 — THE TAB MANAGER's rules for this person (Settings → Tabs). A tab
+  // they are shown by a rule joins the gate's routes; a hidden one is cut
+  // from the sidebar here and refused by its page (`tabAllows`).
+  const rules = await tabRules();
+  const tabOverrides = tabOverridesFor(rules, viewer);
+  const tabLabels = Object.fromEntries(
+    rules.filter((r) => r.label).map((r) => [r.href, r.label as string])
+  );
+  const tabPositions = Object.fromEntries(
+    rules.filter((r) => r.position !== null).map((r) => [r.href, r.position as number])
+  );
   const gateRoutes = [
     "/attendance",
     ...(mailbox ? ["/emails"] : []),
     ...(activation ? ["/activation"] : []),
+    ...(warRoom ? ["/war-room"] : []),
     ...extraRoutes,
+    ...Object.keys(tabOverrides).filter((h) => tabOverrides[h] === "show"),
   ];
 
   // THE GRANT NUDGE (v33.40): an AIESEC email exists on the row but no Google
@@ -173,7 +190,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         mailbox,
         cxp,
         activation,
+        warRoom,
       }}
+      tabs={{ overrides: tabOverrides, labels: tabLabels, positions: tabPositions }}
       signOutAction={async () => {
         "use server";
         // a lingering test view must never survive into the next sign-in

@@ -1,4 +1,5 @@
-import { redirect } from "next/navigation";
+import { getViewer } from "@/server/data";
+import { gateTab } from "@/server/tabs";
 import { cxpAccess, listEps } from "@/server/cxp";
 import { CxpEpsView } from "@/components/crm/cxp-eps-view";
 import type { CxpSide } from "@/lib/cxp/types";
@@ -17,7 +18,8 @@ export default async function CxpPage({
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const access = await cxpAccess();
-  if (!access.allowed) redirect("/");
+  // v38 — the tab rule (Settings → Tabs) can open or close it on top
+  await gateTab(await getViewer(), "/cxp", access.allowed);
   const sp = await searchParams;
 
   // the URL may only name a side this viewer actually reads

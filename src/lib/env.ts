@@ -5,6 +5,11 @@ export const env = {
   appUrl: (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/$/, ""),
   supabaseUrl: process.env.SUPABASE_URL ?? "",
   supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+  // LIVE PAGES (v38) — the project's PUBLISHABLE key, handed to the browser
+  // so a public page (/no-peace) can listen on a Realtime broadcast channel.
+  // Public by design: RLS is on for every table with no anon policies, so it
+  // reads nothing. Absent = the page falls back to a slow refresh.
+  supabasePublishableKey: process.env.SUPABASE_PUBLISHABLE_KEY ?? "",
   googleClientId: process.env.AUTH_GOOGLE_ID ?? "",
   googleClientSecret: process.env.AUTH_GOOGLE_SECRET ?? "",
   gmailSender: process.env.GMAIL_SENDER ?? "",

@@ -27,7 +27,9 @@ import {
   ClipboardCheck,
   ClipboardList,
   Tent,
+  Swords,
 } from "lucide-react";
+import { tabVisible, type TabOverride } from "@/lib/tabs";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -57,7 +59,14 @@ interface ShellProps {
     /** may open Health & Logs and the test view (v33) */
     adminTools: boolean;
   };
-  nav: { raising: boolean; dashboard: boolean; tm: boolean; membership: boolean; planning: boolean; ogtMail: boolean; signups: boolean; consideration: boolean; calendar: boolean; mailbox: boolean; cxp: boolean; activation: boolean };
+  nav: { raising: boolean; dashboard: boolean; tm: boolean; membership: boolean; planning: boolean; ogtMail: boolean; signups: boolean; consideration: boolean; calendar: boolean; mailbox: boolean; cxp: boolean; activation: boolean; warRoom: boolean };
+  /** v38 — the LC's tab rules for this person (Settings → Tabs): show/hide
+   *  overrides on top of `nav`, renamed labels and the LC's default order */
+  tabs?: {
+    overrides: Record<string, TabOverride>;
+    labels: Record<string, string>;
+    positions: Record<string, number>;
+  };
   signOutAction: () => Promise<void>;
   /** the admin's test-view pool — empty for everyone else (v33.42) */
   viewAsTargets?: ViewAsTarget[];
@@ -68,8 +77,10 @@ interface ShellProps {
 }
 
 export function AppShell({
-  user, nav, signOutAction, viewAsTargets = [], prank, children,
+  user, nav, tabs, signOutAction, viewAsTargets = [], prank, children,
 }: ShellProps) {
+  const ov = tabs?.overrides ?? {};
+  const on = (href: string, builtIn: boolean) => tabVisible(builtIn, ov[href]);
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   // slow route changes get the walking man after a beat — fast ones never
@@ -90,19 +101,17 @@ export function AppShell({
   // "/" redirect priority. Never "/": for non-raising viewers "/" renders as
   // a never-mounted child of the GateClient, so its redirect could never fire
   // on client navigation (the blank-home bug).
-  const homeHref = nav.raising
-    ? "/accounts"
-    : nav.signups
-      ? "/signups"
-      : nav.consideration
-        ? "/consideration"
-        : nav.tm
-          ? "/members"
-          : nav.membership
-            ? "/membership"
-            : nav.planning
-              ? "/planning"
-              : "/accounts";
+  // v38: a tab hidden from them by a rule is skipped
+  const homeHref =
+    ([
+      ["/accounts", nav.raising],
+      ["/signups", nav.signups],
+      ["/consideration", nav.consideration],
+      ["/members", nav.tm],
+      ["/membership", nav.membership],
+      ["/planning", nav.planning],
+    ] as [string, boolean][]).find(([href, builtIn]) => builtIn && on(href, builtIn))?.[0] ??
+    "/accounts";
 
   // The Dashboard belongs to ANYONE with a real lane — raising (ICX/B2B/B2C),
   // OGX (the OGT/OGV sign-up funnels, v28) and Consideration (v27/v29). It used
@@ -110,34 +119,37 @@ export function AppShell({
   // their own dashboard through the button on /signups.
   const dashboardItem = { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard };
 
-  // Accounts is the daily workspace — it leads, and "/" lands on it
-  const items = [
-    ...(nav.raising
-      ? [{ href: "/accounts", label: "Raising", icon: Building2 }, dashboardItem]
-      : []),
+  // Accounts is the daily workspace — it leads, and "/" lands on it.
+  // v38 — every tab is listed with its CODE rule (`builtIn`); the LC's tab
+  // rules then show or hide it (src/lib/tabs.ts), rename it and set the LC's
+  // default order. The Dashboard has two slots: right after Raising for a
+  // raiser, after their own module for everyone else.
+  const candidates: { href: string; label: string; icon: typeof Building2; builtIn: boolean; slot?: boolean }[] = [
+    { href: "/accounts", label: "Raising", icon: Building2, builtIn: nav.raising },
+    { ...dashboardItem, builtIn: nav.dashboard, slot: nav.raising },
     // v29: the calendar carries TM touch points too — everyone with a module
-    ...(nav.calendar ? [{ href: "/calendar", label: "Calendar", icon: CalendarDays }] : []),
-    ...(nav.signups ? [{ href: "/signups", label: "Sign-ups", icon: UserRoundPlus }] : []),
-    ...(nav.consideration
-      ? [{ href: "/consideration", label: "Consideration", icon: Globe2 }]
-      : []),
+    { href: "/calendar", label: "Calendar", icon: CalendarDays, builtIn: nav.calendar },
+    { href: "/signups", label: "Sign-ups", icon: UserRoundPlus, builtIn: nav.signups },
+    { href: "/consideration", label: "Consideration", icon: Globe2, builtIn: nav.consideration },
     // v35 — the ECB submission module, migrated from the standalone Internal
     // Auditing System. Sits beside Consideration: on the ICX side it is the
     // same crew's work, one step further down the EP's journey.
-    ...(nav.cxp ? [{ href: "/cxp", label: "CXP", icon: ClipboardCheck }] : []),
+    { href: "/cxp", label: "CXP", icon: ClipboardCheck, builtIn: nav.cxp },
     // non-raising lane owners: the Dashboard sits right after the module they
     // actually work in (Sign-ups / Consideration), never above it
-    ...(nav.dashboard && !nav.raising ? [dashboardItem] : []),
-    ...(nav.planning ? [{ href: "/planning", label: "Planning", icon: Target }] : []),
+    { ...dashboardItem, builtIn: nav.dashboard, slot: !nav.raising },
+    { href: "/planning", label: "Planning", icon: Target, builtIn: nav.planning },
     // v33.37 — the Expectation mail lives as a BUTTON inside the Emails tab
     // now (one tab fewer); the /ogt-mail route itself stays for the button.
-    ...(nav.tm ? [{ href: "/members", label: "Talent Management", icon: UsersRound }] : []),
-    ...(nav.membership ? [{ href: "/membership", label: "Membership", icon: Users }] : []),
+    { href: "/members", label: "Talent Management", icon: UsersRound, builtIn: nav.tm },
+    { href: "/membership", label: "Membership", icon: Users, builtIn: nav.membership },
     // v36.7 — the LC's bid to host Activate 26'. MMs and above since v36.8
     // (the public, view-only copy at /activate26 stays open to everyone)
-    ...(nav.activation ? [{ href: "/activation", label: "Activate 26' Bid", icon: Tent }] : []),
+    { href: "/activation", label: "Activate 26' Bid", icon: Tent, builtIn: nav.activation },
+    // v38 — the No Peace war: points logged here, shown live at /no-peace
+    { href: "/war-room", label: "War Room", icon: Swords, builtIn: nav.warRoom },
     // v29: attendance is everybody's — own history, plus whatever you record
-    { href: "/attendance", label: "Attendance", icon: CalendarCheck2 },
+    { href: "/attendance", label: "Attendance", icon: CalendarCheck2, builtIn: true },
     // v36 — one-on-ones and development plans, beside Attendance because both
     // are the TM process as it lands on a person. Deliberately NOT gated in
     // the nav: a Member with nobody under them still has their OWN plan to
@@ -145,15 +157,26 @@ export function AppShell({
     // Sheets never gave them (the sheet lived in their leader's Drive). The
     // PAGE gates itself server-side and sends away only somebody the process
     // does not touch at all.
-    { href: "/pdp", label: "PDP & O2O", icon: ClipboardList },
+    { href: "/pdp", label: "PDP & O2O", icon: ClipboardList, builtIn: true },
     // v33.24 — writing to partners, EPs and other LCs, with the LC's look
-    ...(nav.mailbox ? [{ href: "/emails", label: "Emails", icon: MailPlus }] : []),
-    { href: "/help", label: "Help", icon: BookOpen },
+    { href: "/emails", label: "Emails", icon: MailPlus, builtIn: nav.mailbox },
+    { href: "/help", label: "Help", icon: BookOpen, builtIn: true },
     // system feedback moved to the Profile page (v21) — this is feedback about
     // PEOPLE in the LC: shout-outs & concerns
-    { href: "/lc-feedback", label: "LC Feedback", icon: MessageSquareHeart },
-    ...(user.adminTools ? [{ href: "/admin", label: "Health & Logs", icon: Activity }] : []),
+    { href: "/lc-feedback", label: "LC Feedback", icon: MessageSquareHeart, builtIn: true },
+    { href: "/admin", label: "Health & Logs", icon: Activity, builtIn: user.adminTools },
   ];
+  const positions = tabs?.positions ?? {};
+  const visibleItems = candidates
+    .filter((c) => c.slot !== false && on(c.href, c.builtIn))
+    .map(({ href, label, icon }) => ({ href, label: tabs?.labels[href] ?? label, icon }));
+  // the LC's default order (Settings → Tabs); a member's own order below wins
+  const items = Object.keys(positions).length
+    ? visibleItems
+        .map((it, i) => ({ it, k: positions[it.href] ?? 1000 + i }))
+        .sort((a, b) => a.k - b.k)
+        .map((x) => x.it)
+    : visibleItems;
 
   // v26: members arrange their OWN sidebar — order persisted per browser
   const [navOrder, setNavOrder] = useState<string[] | null>(null);
