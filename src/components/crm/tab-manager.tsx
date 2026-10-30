@@ -17,13 +17,13 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { fmtDateTime, LC_FUNCTIONS, MEMBER_ROLES } from "@/lib/types";
+import { fmtDateTime } from "@/lib/types";
 import {
   SHOWN_DEFAULT, TAB_REGISTRY, describeRule, publicTwinLive, tabCanWiden, tabIsGone,
   type TabAudience, type TabBase, type TabDef, type TabRule,
 } from "@/lib/tabs";
 import { resetTabRule, restoreTab, retireTab, saveTabOrder, saveTabRule } from "@/server/tab-actions";
-import { ChipPick, PeoplePick, type PickPerson } from "./people-pick";
+import { AudienceBlock, type PickPerson } from "./people-pick";
 
 /** SETTINGS → TABS (v38) — the LCP and the admins decide who sees which
  *  sidebar tab, rename it, order it, open/close it on dates and retire it.
@@ -311,34 +311,6 @@ function RetireDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-const FUNCTION_CHOICES = [...LC_FUNCTIONS, "Raising", "Consideration", "ICX", "OGX", "Finance"];
-
-function AudienceBlock({
-  title, hint, value, onChange, people, tone,
-}: {
-  title: string;
-  hint: string;
-  value: TabAudience;
-  onChange: (a: TabAudience) => void;
-  people: PickPerson[];
-  tone: "primary" | "destructive";
-}) {
-  return (
-    <div className={cn("grid gap-2 rounded-lg border p-3", tone === "destructive" ? "border-destructive/30" : "border-primary/30")}>
-      <div>
-        <p className="text-sm font-semibold">{title}</p>
-        <p className="text-xs text-muted-foreground">{hint}</p>
-      </div>
-      <Label className="text-xs">Roles</Label>
-      <ChipPick tone={tone} options={MEMBER_ROLES} value={value.roles} onChange={(roles) => onChange({ ...value, roles })} />
-      <Label className="text-xs">Functions</Label>
-      <ChipPick tone={tone} options={FUNCTION_CHOICES} value={value.functions} onChange={(functions) => onChange({ ...value, functions })} />
-      <Label className="text-xs">People</Label>
-      <PeoplePick people={people} value={value.members} onChange={(members) => onChange({ ...value, members })} listHeight="max-h-40" />
-    </div>
   );
 }
 

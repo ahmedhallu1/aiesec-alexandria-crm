@@ -84,6 +84,9 @@ interface ViewerInfo {
   /** add/import archived names — leaders only (viewing is LC-wide) */
   canManageArchive: boolean;
   canRemoveArchived: boolean;
+  /** the bulk importer and the walk-in form, both switchable (v38.4) */
+  canImport: boolean;
+  canDirectVisit: boolean;
   allowedFns: ("IGV" | "IGT" | "B2B" | "BD" | "B2C")[];
   showFnFilter: boolean;
   seesOthers: boolean;
@@ -1231,26 +1234,30 @@ export function AccountsView({
             </>
           ) : !archived ? (
             <>
-              <Hint label="Got a sheet of market research? Import a whole CSV/Excel at once">
-                <Button variant="outline" asChild>
-                  <Link prefetch={false} href="/accounts/import">
-                    <FileUp className="size-4" /> Import
-                  </Link>
-                </Button>
-              </Hint>
+              {viewer.canImport ? (
+                <Hint label="Got a sheet of market research? Import a whole CSV/Excel at once">
+                  <Button variant="outline" asChild>
+                    <Link prefetch={false} href="/accounts/import">
+                      <FileUp className="size-4" /> Import
+                    </Link>
+                  </Button>
+                </Hint>
+              ) : null}
               {/* THE OTHER WAY ROUND (v33.24): no research, no booking — you
                   walked in and offered it. One form writes the MR, the
                   contact and the visit. */}
-              <Hint label="You walked in and offered it on the spot — logs the research, the contact and the visit together">
-                <Button
-                  variant="outline"
-                  data-tour="accounts:direct"
-                  onClick={() => setDirectOpen(true)}
-                  disabled={viewer.allowedFns.length === 0}
-                >
-                  <Footprints className="size-4" /> Direct visit
-                </Button>
-              </Hint>
+              {viewer.canDirectVisit ? (
+                <Hint label="You walked in and offered it on the spot — logs the research, the contact and the visit together">
+                  <Button
+                    variant="outline"
+                    data-tour="accounts:direct"
+                    onClick={() => setDirectOpen(true)}
+                    disabled={viewer.allowedFns.length === 0}
+                  >
+                    <Footprints className="size-4" /> Direct visit
+                  </Button>
+                </Hint>
+              ) : null}
               <Hint label="Add one account — checked against all ICX data and the archive">
                 <Button
                   data-tour="accounts:add"

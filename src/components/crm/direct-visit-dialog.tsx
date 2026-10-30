@@ -71,13 +71,27 @@ export function DirectVisitDialog({
   const [oop, setOop] = useState(false);
   const [oopReason, setOopReason] = useState("Not Interested");
 
+  // THE NAME IS ALREADY A LIVE ACCOUNT (v38.4) — log the walk-in ON it.
+  // The switch remembers WHICH account it was said about, not just "on": a
+  // bare boolean stayed on when the member typed a different name that also
+  // turned out to be a duplicate, and they'd have logged the visit onto a
+  // company they never agreed to.
+  const [onExistingId, setOnExistingId] = useState<string | null>(null);
+
   const { nameCheck, blocked, podio, retryPodio } = useAccountNameCheck(name, fn);
   const picked = DIRECT_VISIT_OUTCOMES.find((o) => o.key === outcome)!;
   // AN ARCHIVED NAME NO LONGER BLOCKS A DIRECT VISIT (v33.37): the walk-in
   // already happened. Logging it brings the account back — unless they turned
   // you away, in which case it stays archived and the attempt is logged on it.
   const archivedHit = nameCheck?.status === "archived";
-  const hardBlocked = blocked && !archivedHit;
+  /** AN ACTIVE ACCOUNT THE VIEWER MAY EDIT (v38.4) — theirs, their team's or
+   *  their function's. The server says so (`info.logVisit`); it is never
+   *  guessed here, and the member still has to choose it. */
+  const existingId =
+    nameCheck?.status === "duplicate" ? (nameCheck.info?.logVisit ?? null) : null;
+  /** the member chose "put it on the existing account" — and on THIS one */
+  const ontoExisting = !!existingId && onExistingId === existingId;
+  const hardBlocked = blocked && !archivedHit && !ontoExisting;
   // "come back another time" can be general ("they said pass by again"), a
   // day ("Sunday"), or a real booking — date and time are BOTH optional and
   // both visible; only date + time together book the return visit (v33.39)
@@ -88,7 +102,7 @@ export function DirectVisitDialog({
     setName(""); setProduct(""); setSubProduct(""); setProject("");
     setAccountType(""); setIndustry(""); setContacts([]); setComment("");
     setNextDate(""); setNextTime(""); setOutcome("presented"); setVisitDate(today);
-    setRequestedPodio(false); setRequestState(""); setOop(false);
+    setRequestedPodio(false); setRequestState(""); setOop(false); setOnExistingId(null);
     setVisitTime("12:00"); setOopReason("Not Interested"); // (v37.8) were left stale
   };
 
@@ -113,6 +127,7 @@ export function DirectVisitDialog({
         nextTime: nextDate ? nextTime : undefined,
         outOfProcess: oop && outcome === "turned_away",
         oopReason: oop ? oopReason : undefined,
+        onExisting: ontoExisting ? ("convert" as const) : undefined,
       });
       if (!res.ok) {
         toast.error(res.error);
@@ -137,8 +152,10 @@ export function DirectVisitDialog({
     name.trim().length >= 2 &&
     comment.trim().length >= 2 &&
     contactsValid(contacts) &&
-    // a revived archived account keeps its own fields — nothing to require
+    // a revived archived account — or one we are logging ONTO — keeps its own
+    // fields, so there is nothing to require here
     (archivedHit ||
+      ontoExisting ||
       ((fn !== "IGV" || !!project) &&
         (fn !== "IGT" || !!product) &&
         (fn !== "B2C" || !!accountType)));
@@ -203,6 +220,36 @@ export function DirectVisitDialog({
               you</b>. If the outcome is &quot;turned away&quot;, it stays
               archived and your attempt is logged on it instead.
             </p>
+          ) : existingId ? (
+            /* ALREADY AN ACCOUNT, AND IT IS YOURS TO WORK (v38.4). Refusing
+               the whole log threw away a visit that had already happened —
+               the member had researched the company the ordinary way and then
+               walked in. The walk-in goes onto that account: its owner, its
+               function and its history are untouched. */
+            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-400">
+              📁 <b>{name.trim()}</b> is already an account
+              {nameCheck?.info?.function ? ` on ${nameCheck.info.function}` : ""}
+              {nameCheck?.info?.responsible ? ` · ${nameCheck.info.responsible}` : ""}
+              {nameCheck?.info?.stage ? ` · ${nameCheck.info.stage}` : ""}.
+              <label className="mt-1.5 flex cursor-pointer items-center gap-2">
+                <Switch
+                  checked={ontoExisting}
+                  onCheckedChange={(on) => setOnExistingId(on ? existingId : null)}
+                />
+                <span>
+                  Log this walk-in <b>on that account</b> instead of adding a
+                  second one
+                </span>
+              </label>
+              {ontoExisting ? (
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  It keeps its owner, its function and its history. It gains
+                  today&apos;s contact attempt, the visit, the 🚶 direct-visit
+                  mark and whatever you collected at the door. The fields that
+                  describe a NEW account are gone — this one already has them.
+                </p>
+              ) : null}
+            </div>
           ) : hardBlocked ? (
             <p className="rounded-lg border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive">
               {nameCheck?.message ??
@@ -253,7 +300,7 @@ export function DirectVisitDialog({
             </button>
           ) : null}
 
-          {fn === "IGT" ? (
+          {!ontoExisting && fn === "IGT" ? (
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="grid gap-1.5">
                 <Label htmlFor={`${uid}-3`}>Product *</Label>
@@ -278,7 +325,7 @@ export function DirectVisitDialog({
               </div>
             </div>
           ) : null}
-          {fn === "IGV" ? (
+          {!ontoExisting && fn === "IGV" ? (
             <div className="grid gap-1.5">
               <Label htmlFor={`${uid}-5`}>Project *</Label>
               <Select value={project || undefined} onValueChange={setProject}>
@@ -291,7 +338,7 @@ export function DirectVisitDialog({
               </Select>
             </div>
           ) : null}
-          {fn !== "IGT" ? (
+          {!ontoExisting && fn !== "IGT" ? (
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="grid gap-1.5">
                 {/* B2C CARRIES ITS OWN THREE TYPES (v23, missed in v33.24) —
@@ -325,7 +372,7 @@ export function DirectVisitDialog({
             </div>
           ) : null}
 
-          {canSetRequestState ? (
+          {!ontoExisting && canSetRequestState ? (
             <div className="grid gap-1.5">
               <Label>
                 <a

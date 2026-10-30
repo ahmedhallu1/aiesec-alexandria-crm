@@ -74,6 +74,8 @@ interface Caps {
    *  [] = no move. Generalizes v33.15's B2B↔BD flip (v33.19): whoever may
    *  edit the account and works BOTH functions may relabel it. */
   fnTargets: AccountFunction[];
+  /** may they split a deal's opens across members? (v38.4, switchable) */
+  splitOpens: boolean;
 }
 
 const methodIcon = {
@@ -401,6 +403,7 @@ export function AccountDetailView({
         responsibleId={account.responsible_id}
         responsibleLabel={account.responsible_name}
         openCrews={openCrews}
+        canSplit={caps.splitOpens}
         open={dealOpen}
         onOpenChange={setDealOpen}
       />
@@ -2841,7 +2844,7 @@ function DeleteAccountDialog({
  *  IGV open. Saying so here moves the open into the IGV lane and the account
  *  with it — you keep both. */
 function DealDialog({
-  accountId, fn, dealNumber, responsibleId, responsibleLabel, openCrews,
+  accountId, fn, dealNumber, responsibleId, responsibleLabel, openCrews, canSplit,
   open, onOpenChange,
 }: {
   accountId: string;
@@ -2851,6 +2854,10 @@ function DealDialog({
   responsibleLabel: string | null;
   /** the crews the opens can be split across, keyed by function (v34.10) */
   openCrews: Record<string, { id: string; label: string }[]>;
+  /** Settings → Rules → "Split a deal's opens across members" (v38.4) —
+   *  off means every open goes to the account's responsible, which is what
+   *  the form already did before anyone touched the switch */
+  canSplit: boolean;
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
@@ -3138,7 +3145,7 @@ function DealDialog({
           ) : null}
 
           {/* v22: split the opens across members (default = all to the responsible) */}
-          {!isB2C && total > 0 && functionMembers.length > 1 ? (
+          {canSplit && !isB2C && total > 0 && functionMembers.length > 1 ? (
             <div className="rounded-lg border p-3">
               <label className="flex items-center justify-between gap-2 text-sm font-medium">
                 <span>Split the opens between members</span>

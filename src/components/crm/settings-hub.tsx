@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  Bell, BookOpen, Building2, Database, ExternalLink, Landmark, LayoutList, Loader2, SlidersHorizontal, Users,
+  Bell, BookOpen, Building2, Database, ExternalLink, Landmark, LayoutList, Loader2, ShieldCheck, SlidersHorizontal, Users,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,10 +26,12 @@ import { ActiveToggle, FunctionDefaultsBlock, type FunctionSettingsCard } from "
 import { MmAccessCard } from "./mm-access-card";
 import type { MmAccessBlock } from "@/server/data";
 import type { TabRule } from "@/lib/tabs";
+import type { PrivilegeRule } from "@/lib/privileges";
 import { TabManager } from "./tab-manager";
+import { PrivilegeManager } from "./privilege-manager";
 import type { PickPerson } from "./people-pick";
 
-export type HubTab = "notifications" | "defaults" | "team" | "function" | "data" | "handover" | "lc" | "tabs";
+export type HubTab = "notifications" | "defaults" | "team" | "function" | "data" | "handover" | "lc" | "tabs" | "rules";
 
 const TAB_META: Record<HubTab, { label: string; icon: typeof Bell; blurb: string }> = {
   notifications: { label: "Notifications & account", icon: Bell, blurb: "Every email and app notification, your sign-in details, how Sodio looks." },
@@ -40,6 +42,7 @@ const TAB_META: Record<HubTab, { label: string; icon: typeof Bell; blurb: string
   handover: { label: "Handover", icon: BookOpen, blurb: "What the previous EB left for you." },
   lc: { label: "LC & new term", icon: Landmark, blurb: "New peak or term, membership, planning, handover." },
   tabs: { label: "Tabs", icon: LayoutList, blurb: "Who sees which sidebar tab — rename, order, show or hide, open and remove on dates, retire." },
+  rules: { label: "Rules", icon: ShieldCheck, blurb: "What people may DO — reviving an archived account, deleting one, handing over an IR call. Change a rule without a deploy." },
 };
 
 const SIGNUP_VIEW_LABEL: Record<string, string> = {
@@ -73,6 +76,7 @@ export function SettingsHub({
   handover,
   lc,
   tabManager = null,
+  privileges = null,
 }: {
   tab: HubTab;
   tabs: HubTab[];
@@ -91,6 +95,7 @@ export function SettingsHub({
   handover: { handover: Handover; functions: string[]; state: LcTermState | null } | null;
   lc: LcOverview | null;
   tabManager?: { rules: TabRule[]; people: PickPerson[] } | null;
+  privileges?: { rules: PrivilegeRule[]; people: PickPerson[] } | null;
 }) {
   const router = useRouter();
   const [navPending, startNav] = useTransition();
@@ -198,6 +203,8 @@ export function SettingsHub({
           <HandoverView data={handover} />
         ) : tab === "lc" && lc ? (
           <LcSettingsSection lc={lc} />
+        ) : tab === "rules" && privileges ? (
+          <PrivilegeManager rules={privileges.rules} people={privileges.people} />
         ) : tab === "tabs" && tabManager ? (
           <TabManager rules={tabManager.rules} people={tabManager.people} />
         ) : null}

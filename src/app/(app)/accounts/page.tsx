@@ -6,6 +6,7 @@ import {
 import type { AccountFilters } from "@/server/data";
 import {
   accountScope, allowedAccountFunctions, canManageArchive,
+  canImportAccounts, canLogDirectVisit, canPurgeArchive,
   canSeeUnassigned, canSetRequestStateOnCreate, canViewArchive, icxFunctions,
 } from "@/lib/rbac";
 import { AccountsView } from "@/components/crm/accounts-view";
@@ -122,10 +123,13 @@ export default async function AccountsPage({
         canViewArchive: archiveAllowed,
         canManageArchive: canManageArchive(viewer),
         // v33.12 — MMs and above, matching who may work the archive at all.
-        // It cascades and cannot be undone, so never a plain Member.
-        canRemoveArchived:
-          viewer.isAdmin ||
-          ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(viewer.role),
+        // It cascades and cannot be undone, so never a plain Member by
+        // default; switchable since v38.4, and `bulkDeleteArchived` asks the
+        // very same predicate.
+        canRemoveArchived: canPurgeArchive(viewer),
+        // v38.4 — both switchable from Settings → Rules
+        canImport: canImportAccounts(viewer),
+        canDirectVisit: canLogDirectVisit(viewer),
         allowedFns,
         showFnFilter: allowedFns.length > 1,
         // IGV-only viewers: every account is IGV, so the Product column is

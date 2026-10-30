@@ -25,23 +25,38 @@ type Saved = { edge: Edge; frac: number; collapsed: boolean };
 const LS_KEY = "sodio-viewas-chip";
 const MARGIN = 12; // px gap between the chip and its snapped edge
 const MARGIN_COLLAPSED = 6; // the collapsed tab hugs the edge tighter
+/** THE BOTTOM-RIGHT CORNER IS TAKEN (v38.4). The Violet Man's button is
+ *  `fixed bottom-4 right-4 size-14` — 72×72 with its margin — at the same
+ *  z-50 as this chip. On a phone the expanded chip is nearly the full width,
+ *  so a bottom snap landed straight on top of it and one of the two became
+ *  unclickable (whichever painted first). A chip that would reach into that
+ *  square is lifted above it instead. */
+const FAB = 72;
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, hi));
 const isEdge = (v: unknown): v is Edge =>
   v === "left" || v === "right" || v === "top" || v === "bottom";
 
 /** Top-left corner (px, wrapper-relative) for a chip of w×h snapped to `edge`
- *  at `frac` (0..1 = chip CENTER along the free axis), clamped into view. */
+ *  at `frac` (0..1 = chip CENTER along the free axis), clamped into view and
+ *  kept off the assistant's button. */
 function snapPoint(
   edge: Edge, frac: number, W: number, H: number, w: number, h: number, m: number,
 ) {
   const x = clamp(frac * W - w / 2, m, Math.max(m, W - w - m));
   const y = clamp(frac * H - h / 2, m, Math.max(m, H - h - m));
+  const floor = Math.max(m, H - h - m); // the lowest the chip may sit
+  const overFab = Math.max(m, H - h - FAB - m); // one row above the button
   switch (edge) {
     case "left": return { x: m, y };
-    case "right": return { x: Math.max(m, W - w - m), y };
+    case "right":
+      return {
+        x: Math.max(m, W - w - m),
+        y: y + h > H - FAB ? overFab : y,
+      };
     case "top": return { x, y: m };
-    case "bottom": return { x, y: Math.max(m, H - h - m) };
+    case "bottom":
+      return { x, y: x + w > W - FAB ? overFab : floor };
   }
 }
 
@@ -281,13 +296,23 @@ export function ViewAsBanner({
       <div
         ref={chipRef}
         className={cn(
-          "pointer-events-auto absolute flex max-w-full select-none items-center rounded-full border bg-card text-sm font-medium backdrop-blur",
+          // max-w-full keeps it inside the safe-area box; every child below
+          // may shrink, or the row would still overflow a 360px phone (v38.4)
+          "pointer-events-auto absolute flex max-w-full select-none items-center overflow-hidden rounded-full border bg-card text-sm font-medium backdrop-blur",
           sandbox ? "ring-1 ring-cyan-400/60" : "ring-2 ring-amber-500/80",
           dragging ? "scale-[1.04] shadow-2xl" : "shadow-xl",
           animate && !dragging ? "transition-[left,top] duration-200 ease-out" : "transition-none",
           collapsed ? "p-0" : "gap-2 px-3 py-1.5",
         )}
-        style={{ left: pos.x, top: pos.y, visibility: ready ? undefined : "hidden" }}
+        style={{
+          left: pos.x,
+          top: pos.y,
+          // `max-w-full` is the WRAPPER's width, which leaves the chip 12px
+          // over the right edge once it is placed at its margin (v38.4) —
+          // the real ceiling is the box minus both margins.
+          maxWidth: box.W > 0 ? Math.max(120, box.W - 2 * margin) : undefined,
+          visibility: ready ? undefined : "hidden",
+        }}
       >
         {collapsed ? (
           <button
@@ -336,9 +361,9 @@ export function ViewAsBanner({
             </div>
 
             {/* controls — pointer-down stays here so they never start a drag */}
-            <div className="flex min-w-0 items-center gap-2" onPointerDown={stop}>
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2" onPointerDown={stop}>
               <Select value={activeId} onValueChange={switchTo} disabled={pending}>
-                <SelectTrigger className="h-7 w-auto max-w-44 gap-1.5 rounded-full bg-transparent px-2.5 text-sm font-semibold shadow-none sm:max-w-56">
+                <SelectTrigger className="h-7 w-auto min-w-0 flex-1 gap-1.5 rounded-full bg-transparent px-2.5 text-sm font-semibold shadow-none sm:max-w-56 sm:flex-none">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="max-h-72">
@@ -396,9 +421,13 @@ export function ViewAsBanner({
               <Button
                 size="sm"
                 variant={confirmExit ? "destructive" : "outline"}
-                className="h-7 shrink-0 rounded-full px-3"
+                // phone: the glyph alone, so the whole chip fits on one row.
+                // The armed state always says a word — a red X with no label
+                // is not a warning anybody reads (v38.4).
+                className="h-7 shrink-0 gap-1 rounded-full px-2 sm:px-3"
                 onClick={exit}
                 disabled={pending}
+                aria-label={confirmExit ? "Discard the sandbox and exit" : "Exit the test view"}
                 title={
                   sandbox
                     ? "Everything you did in this sandbox is undone when you leave"
@@ -406,7 +435,14 @@ export function ViewAsBanner({
                 }
               >
                 <X className="size-3.5" />
-                {confirmExit ? "Discard & exit?" : "Exit"}
+                {confirmExit ? (
+                  <>
+                    <span className="sm:hidden">Discard?</span>
+                    <span className="hidden sm:inline">Discard &amp; exit?</span>
+                  </>
+                ) : (
+                  <span className="hidden sm:inline">Exit</span>
+                )}
               </Button>
 
               <button

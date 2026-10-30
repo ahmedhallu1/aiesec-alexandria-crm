@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { LC_FUNCTIONS, MEMBER_ROLES } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export interface PickPerson {
@@ -188,6 +190,68 @@ export function ChipPick({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/** THE FUNCTIONS A PERMISSION RULE MAY NAME. The membership sheet's own
+ *  values plus the umbrella words the LC actually uses when it talks about
+ *  who may do something ("Raising", "ICX"). */
+export const FUNCTION_CHOICES = [
+  ...LC_FUNCTIONS,
+  "Raising",
+  "Consideration",
+  "ICX",
+  "OGX",
+  "Finance",
+];
+
+/** ONE AUDIENCE EDITOR, SHARED (v38.4). Settings → Tabs and Settings → Rules
+ *  both ask the same question — which roles, which functions, which named
+ *  people — and a second copy of this block is how the two screens would
+ *  start offering different answers. */
+export function AudienceBlock({
+  title, hint, value, onChange, people, tone,
+}: {
+  title: string;
+  hint: string;
+  value: { members: string[]; roles: string[]; functions: string[] };
+  onChange: (a: { members: string[]; roles: string[]; functions: string[] }) => void;
+  people: PickPerson[];
+  tone: "primary" | "destructive";
+}) {
+  return (
+    <div
+      className={cn(
+        "grid gap-2 rounded-lg border p-3",
+        tone === "destructive" ? "border-destructive/30" : "border-primary/30"
+      )}
+    >
+      <div>
+        <p className="text-sm font-semibold">{title}</p>
+        <p className="text-xs text-muted-foreground">{hint}</p>
+      </div>
+      <Label className="text-xs">Roles</Label>
+      <ChipPick
+        tone={tone}
+        options={MEMBER_ROLES}
+        value={value.roles}
+        onChange={(roles) => onChange({ ...value, roles })}
+      />
+      <Label className="text-xs">Functions</Label>
+      <ChipPick
+        tone={tone}
+        options={FUNCTION_CHOICES}
+        value={value.functions}
+        onChange={(functions) => onChange({ ...value, functions })}
+      />
+      <Label className="text-xs">People</Label>
+      <PeoplePick
+        people={people}
+        value={value.members}
+        onChange={(members) => onChange({ ...value, members })}
+        listHeight="max-h-40"
+      />
     </div>
   );
 }

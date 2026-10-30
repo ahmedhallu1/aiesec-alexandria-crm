@@ -110,7 +110,7 @@ export function PdpForm({
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o && !pending) onClose(); }}>
-      <DialogContent className="max-h-[92dvh] max-w-2xl overflow-y-auto">
+      <DialogContent className="max-h-[92dvh] sm:max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle dir="auto">📋 {target.name} · {data.monthLabel}</DialogTitle>
           <DialogDescription>

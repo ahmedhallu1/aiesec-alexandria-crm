@@ -169,6 +169,8 @@ interface ViewerInfo {
   canTargetOthers: boolean;
   /** MMs and above may hand a booked IR call to another host (v33.58) */
   canHandOverCalls: boolean;
+  /** may they log a call that was never booked through Sodio? (v38.4) */
+  canRecordManual: boolean;
   /** the record form's product default — the viewer's own side, when single */
   defaultProduct: "GV" | "GT" | null;
 }
@@ -454,7 +456,7 @@ function PartnerLcsTab({
           if (!o) setEditingLc(null);
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Edit {editingLc?.name}</DialogTitle>
             <DialogDescription>
@@ -518,7 +520,7 @@ function PartnerLcsTab({
           }
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Add an IR at {addingIrTo?.name}</DialogTitle>
             <DialogDescription>
@@ -621,7 +623,7 @@ function PartnerLcsTab({
       </Dialog>
 
       <Dialog open={!!removing} onOpenChange={(o) => { if (!o) setRemoving(null); }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Remove {removing?.name}?</DialogTitle>
             <DialogDescription>
@@ -1508,7 +1510,7 @@ function PartnerLcManageDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) { setEditingId(null); setConfirmDelete(null); onClose(); } }}>
-      <DialogContent className="max-h-[85dvh] max-w-lg overflow-y-auto">
+      <DialogContent className="max-h-[85dvh] sm:max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Partner LCs</DialogTitle>
           <DialogDescription>
@@ -1730,7 +1732,7 @@ function RecordPartnershipDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
             <span className="inline-flex items-center gap-2">
@@ -1964,7 +1966,7 @@ function AssignPartnershipDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
             🎯 Set {chosen ? <span dir="auto">{chosen.name}</span> : "an LC"} as a target
@@ -2261,9 +2263,15 @@ export function ConsiderationView({
         </p>
       </div>
 
-      {/* segmented tab control (like the accounts mobile view switcher) */}
+      {/* Segmented tab control. IT SCROLLS SIDEWAYS ON A PHONE (v38.4): five
+          tabs with words on them ("IR calls", "Approvals", "CVs", "Partner
+          LCs", "Expectation mail") measure well over 500px, and `w-fit` with
+          no wrap and no overflow pushed the last two off the right edge of a
+          375px screen — taking the whole page into horizontal scroll with
+          them. A strip that scrolls on its own keeps the labels (icons alone
+          do not say "Expectation mail") and leaves the page still. */}
       <div className="flex flex-wrap items-center gap-2">
-      <div className="flex w-fit items-center gap-1 rounded-lg bg-muted p-1">
+      <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-lg bg-muted p-1 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] sm:w-fit [&::-webkit-scrollbar]:hidden">
         {tabs.map((t) => (
           <button
             key={t.key}
@@ -2272,11 +2280,11 @@ export function ConsiderationView({
               setParams({ tab: t.key === "calls" ? null : t.key, page: null, q: null })
             }
             className={cn(
-              "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold transition-colors",
+              "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-semibold transition-colors",
               tab === t.key ? "bg-background shadow" : "text-muted-foreground"
             )}
           >
-            <t.icon className="size-4" />
+            <t.icon className="size-4 shrink-0" />
             {t.label}
           </button>
         ))}
@@ -2330,7 +2338,15 @@ export function ConsiderationView({
           <>
           {/* asks for times this host never opened — answered before anything
               else on the tab, because the IR is waiting on a person */}
-          <IrSlotRequestsCard requests={slotRequests} showHost={viewer.isVp} />
+          {/* an MM sees WHOSE request is waiting, so they can chase their own
+              person — answering it stays the host's (and a lead's) call, since
+              a yes books time the host never offered (v38.4) */}
+          <IrSlotRequestsCard
+            requests={slotRequests}
+            showHost={viewer.isVp || viewer.teamIds.length > 0}
+            viewerId={viewer.id}
+            canAnswerAny={viewer.isVp}
+          />
           <IrCallsTab
             pageSize={pageSize}
             pageSizeOptions={pageSizeOptions}
@@ -3283,7 +3299,24 @@ function IrCallsTab({
     schedFlag || schedSort !== "soonest"
   );
 
-  const canTouch = (c: IrCallRow) => viewer.isVp || c.member_id === viewer.id;
+  /** WHOSE CALL IS IT TO WORK? (v38.4)
+   *
+   *  It used to be the host or a VP/Director, full stop — so a Team Leader
+   *  watched their own member's call go past its slot with no way to file the
+   *  notes, chase a new time or call it off, even though "Hand over" has
+   *  accepted an MM's reach since v33.58. An MM answers for their people's
+   *  work everywhere else in Sodio; they answer for it here.
+   *
+   *  `teamIds` is the viewer's REACH (reachIds), so it already honours
+   *  Settings → My function → MM access, not just the direct team. */
+  const canTouch = (c: IrCallRow) =>
+    viewer.isVp ||
+    c.member_id === viewer.id ||
+    (!!c.member_id && viewer.teamIds.includes(c.member_id));
+  /** DELETING A LOG STAYS NARROWER. It leaves nothing behind — no history,
+   *  no email, no calendar event — so it is the host's own call or a
+   *  VP/Director's, never an MM's over somebody else's row. */
+  const canDelete = (c: IrCallRow) => viewer.isVp || c.member_id === viewer.id;
   const [deleting, setDeleting] = useState<IrCallRow | null>(null);
   const [deletePending, startDelete] = useTransition();
   const router = useRouter();
@@ -3394,7 +3427,7 @@ function IrCallsTab({
           </button>
         );
       case "actions":
-        return canTouch(c) ? (
+        return canDelete(c) ? (
           <Hint label="Delete this log — for a duplicate or a mistake">
             <Button aria-label="Delete this log"
               size="icon"
@@ -3663,9 +3696,17 @@ function IrCallsTab({
                     <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", CALL_STATUS_CHIP.scheduled.className)}>
                       {CALL_STATUS_CHIP.scheduled.label}
                     </span>
+                    {/* (v38.4) the chip says WHEN it was asked and who we are
+                        waiting on — "Reschedule asked" alone never answered
+                        "have they picked the new date yet?". The flag clears
+                        itself the moment the IR moves the call, and the
+                        "Moved … times" line below then carries the new one. */}
                     {c.reschedule_requested_at ? (
-                      <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
-                        Reschedule asked
+                      <span
+                        title={`Asked on ${fmtDateTime(c.reschedule_requested_at)} — waiting for the IR to pick a new time. When they do, this chip goes and the date above is the new one.`}
+                        className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400"
+                      >
+                        Reschedule asked · waiting on the IR
                       </span>
                     ) : null}
                     {c.email_bounced_at ? (
@@ -3814,6 +3855,7 @@ function IrCallsTab({
 
       {/* manual record — for calls that were never booked */}
       <div>
+        {viewer.canRecordManual ? (
         <Button
           variant="outline"
           size="sm"
@@ -3825,11 +3867,12 @@ function IrCallsTab({
           </span>
           <ChevronDown className={cn("size-4 transition-transform", manualOpen && "rotate-180")} />
         </Button>
+        ) : null}
         {/* DELETING A LOG is not the same as cancelling a call: cancelling tells
           the IR and keeps the history, this is for a row that shouldn't
           exist — a duplicate, a mis-click, a test (v33.5). */}
       <Dialog open={!!deleting} onOpenChange={(o) => { if (!o) setDeleting(null); }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Delete this call log?</DialogTitle>
             <DialogDescription>
@@ -3866,9 +3909,9 @@ function IrCallsTab({
         </DialogContent>
       </Dialog>
 
-      {manualOpen ? (
+      {manualOpen && viewer.canRecordManual ? (
           <div className="mt-2">
-            <ManualCallForm lcs={lcs} onLcCreated={onLcCreated} canManageLcs={viewer.isVp} />
+            <ManualCallForm lcs={lcs} onLcCreated={onLcCreated} canManageLcs={viewer.canManageLcs} />
           </div>
         ) : null}
       </div>
@@ -4129,6 +4172,15 @@ function IrCallsTab({
         call={detail}
         onClose={() => setDetail(null)}
         canFix={detail ? canTouch(detail) : false}
+        onDelete={
+          detail && detail.status !== "scheduled" && canDelete(detail)
+            ? () => {
+                const target = detail;
+                setDetail(null);
+                setDeleting(target);
+              }
+            : null
+        }
       />
     </div>
   );
@@ -4321,11 +4373,17 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
  *  correcting the address swaps the calendar attendee (Google re-sends the
  *  invite) and re-sends the confirmation with the manage link. */
 function IrCallDetailDialog({
-  call, onClose, canFix,
+  call, onClose, canFix, onDelete,
 }: {
   call: IrCallRow | null;
   onClose: () => void;
   canFix: boolean;
+  /** DELETING A LOG FROM A PHONE (v38.4). The bin lived only in the desktop
+   *  table's actions column, so on a phone — where the log is a list of
+   *  cards — a duplicate or a mis-click could not be removed at all. The
+   *  card opens this dialog, so the bin belongs here too. null = not theirs
+   *  to delete, or the call is still scheduled (cancel it instead). */
+  onDelete: (() => void) | null;
 }) {
   const router = useRouter();
   const [fixOpen, setFixOpen] = useState(false);
@@ -4366,7 +4424,7 @@ function IrCallDetailDialog({
 
   return (
     <Dialog open={!!call} onOpenChange={(o) => { if (!o) { setFixOpen(false); setNewEmail(""); onClose(); } }}>
-      <DialogContent className="max-h-[90dvh] max-w-lg overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] sm:max-w-lg overflow-y-auto">
         {call ? (
           <>
             <DialogHeader>
@@ -4507,6 +4565,18 @@ function IrCallDetailDialog({
               ) : null}
               <Row label="Logged">{fmtDateTime(call.booked_at ?? call.created_at)}</Row>
             </div>
+            {onDelete ? (
+              <div className="flex justify-end border-t pt-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground hover:text-destructive"
+                  onClick={onDelete}
+                >
+                  <Trash2 className="size-4" /> Delete this log
+                </Button>
+              </div>
+            ) : null}
           </>
         ) : null}
       </DialogContent>
@@ -4578,7 +4648,7 @@ function CompleteCallDialog({ call, onClose }: { call: IrCallRow | null; onClose
 
   return (
     <Dialog open={!!call} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-h-[90dvh] max-w-lg overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] sm:max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>In-call notes — {call?.partner_lc_name}</DialogTitle>
           <DialogDescription>
@@ -4688,7 +4758,7 @@ function HandOverCallDialog({
 
   return (
     <Dialog open={!!call} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-h-[90dvh] max-w-sm overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] sm:max-w-sm overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Hand this call to someone else</DialogTitle>
           <DialogDescription dir="auto">
@@ -4757,7 +4827,7 @@ function CancelCallDialog({ call, onClose }: { call: IrCallRow | null; onClose: 
   };
   return (
     <Dialog open={!!call} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-h-[90dvh] max-w-sm overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] sm:max-w-sm overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Cancel this call?</DialogTitle>
           <DialogDescription dir="auto">
@@ -4834,7 +4904,7 @@ function RequestRescheduleDialog({
   };
   return (
     <Dialog open={!!call} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-h-[90dvh] max-w-sm overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] sm:max-w-sm overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Ask to move this call?</DialogTitle>
           <DialogDescription dir="auto">
@@ -6024,7 +6094,7 @@ function CvEditDialog({
 
   return (
     <Dialog open={!!cv} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-h-[90dvh] max-w-md overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] sm:max-w-md overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Fix the CV&apos;s fields</DialogTitle>
           <DialogDescription dir="auto">
@@ -6168,7 +6238,7 @@ function CvDeleteDialog({ cv, onClose }: { cv: CvRow | null; onClose: () => void
   };
   return (
     <Dialog open={!!cv} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-h-[90dvh] max-w-sm overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] sm:max-w-sm overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Delete this CV?</DialogTitle>
           <DialogDescription dir="auto">

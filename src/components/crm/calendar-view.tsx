@@ -1109,7 +1109,7 @@ function ExcuseDialog({
 
   return (
     <Dialog open={!!tp} onOpenChange={(o) => { if (!o) { reset(); onClose(); } }}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>🙏 {tp?.label}</DialogTitle>
           <DialogDescription>

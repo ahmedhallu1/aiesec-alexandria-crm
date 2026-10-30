@@ -7,6 +7,49 @@
 > ~87% of it. This file is NOT auto-loaded — grep it for the reasoning behind
 > a past decision before changing that behaviour.
 
+- **2026-10-30 · v38.4** — **THE RULE MANAGER + A UI AUDIT (phones first).**
+  Migration **0089** (`privilege_rules`). ① **Settings → Rules**
+  (`canRunLcTools`): 17 rules that used to be role lists in code — revive /
+  manage / purge the archive, claim, reassign, delete-with-history, import,
+  the unowned pool, direct visits, cancelling someone else's deal, splitting
+  opens, the Podio state, IR team-calls / hand-over / record-by-hand, the
+  partner-LC registry, partnership targets for others — each now switchable
+  per role, function or named person, with the same precedence, the same
+  audience editor and the same "changed vs the code" reading as Settings →
+  Tabs. One door: every rule ends in `priv()` in rbac.ts and nothing else
+  reads `v.privileges`; `tests/privileges.test.ts` fails if a switch is not
+  wired, AND if a `priv()` key the manager cannot show appears. The one the
+  LCP asked for: *Bring an account back from the archive* → Everyone.
+  ② **An MM answers for their people's IR calls** — a Team Leader could hand
+  a member's call to somebody else (v33.58) but could not fill its notes,
+  chase a new time, fix a bounced address or cancel it; `canActOnIrCall` now
+  decides all five the same way (reach-aware), the buttons follow it, and
+  DELETING a log stays the host's or a lead's because it leaves nothing
+  behind. The host's **manager** is on the bell when an IR moves a call
+  ("…from X to Y"), the row says **Reschedule asked · waiting on the IR**
+  instead of a bare chip, and an MM now SEES their people's slot requests
+  (read-only — a yes books someone else's calendar).
+  ③ **A walk-in to a company you already have** no longer throws the visit
+  away: when the existing account is one you can work, the name check offers
+  *log this walk-in on that account* — it keeps its owner, function and
+  history, and gains today's contact, the visit, the 🚶 mark and the contacts
+  you collected (merged through the real clash guard); an unowned one becomes
+  yours. Never assumed: without the switch the old refusal stands, now
+  worded so it says what to do.
+  ④ **Phones.** The **test-view chip** was wider than a 375px screen — Exit
+  and the collapse arrow sat off the right edge — and parked underneath the
+  Violet Man's button at the same z-50: it now caps at the box minus both
+  margins, lets the picker shrink, drops the Exit label below `sm`, and lifts
+  itself over that corner. The **Consideration tab strip** (five tabs with
+  words on them, ~550px) pushed the whole page into horizontal scroll: it
+  scrolls on its own below `sm`. **17 dialogs** declared `max-w-md`/`max-w-lg`
+  with no breakpoint, which overrides the base `max-w-[calc(100%-2rem)]` and
+  ran them edge to edge on a phone (14 of them in Consideration) — all
+  prefixed `sm:`. ⑤ Tidying found on the way: the manual-call form asked
+  `isVp` for "add an LC" while the registry tab asked MM-and-above; the IR
+  hand-over rank lived in three places. Help: three new articles,
+  `HELP_VERSION` v38.4.
+
 - **2026-10-25 · v38.3** — **THE FUNCTION RACE + A 272-AGENT AUDIT OF v38.**
   Migration **0088** (the war's Realtime channel is listen-only for browsers;
   applied). ① **Function leaderboard**: functions race on TOTAL war points,

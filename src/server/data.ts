@@ -274,13 +274,24 @@ async function viewerFunctionSettings(m: {
 /** Everything a Viewer carries beyond the member row — one place, so the id
  *  and email paths can never drift apart. */
 async function assembleViewer(member: Member): Promise<Viewer> {
-  const [{ data: team }, fnConf] = await Promise.all([
+  const { privilegeOverridesForMember } = await import("./privileges");
+  const [{ data: team }, fnConf, privileges] = await Promise.all([
     db()
       .from("members")
       .select("id")
       .eq("stakeholder_id", member.id)
       .eq("is_active", true),
     viewerFunctionSettings(member),
+    // THE LC'S OWN RULE OVERRIDES (v38.4). Resolved HERE, once, because the
+    // predicates in rbac.ts are synchronous — the same reason fnSettings is.
+    // The table is held in module memory for a minute, so this is a read
+    // only when that memo is cold. It fails to {} = the code's own rules.
+    privilegeOverridesForMember({
+      id: member.id,
+      role: member.role,
+      functions: member.functions ?? [],
+      sub_functions: member.sub_functions ?? [],
+    }).catch(() => ({})),
   ]);
   const teamMemberIds = (team ?? []).map((t) => t.id as string);
   return {
@@ -292,6 +303,7 @@ async function assembleViewer(member: Member): Promise<Viewer> {
     reachMemberIds: await viewerReach(member, teamMemberIds, fnConf.fnSettings),
     openViewFns: fnConf.openViewFns,
     fnSettings: fnConf.fnSettings,
+    privileges,
   };
 }
 
@@ -8349,13 +8361,23 @@ export async function listIrSlotRequests(viewer: Viewer): Promise<IrSlotRequest[
     )
     .eq("status", "pending")
     .order("requested_at");
-  // a lead answers for whoever is away; everyone else sees their own
+  // A LEAD answers for whoever is away. AN MM SEES THEIR PEOPLE'S (v38.4,
+  // read-only — `respondToIrSlotRequest` is still the host's or a lead's):
+  // an IR asking for a time their host never opened sat in a queue only that
+  // host could see, so nobody could chase it for them. Seeing it is how an
+  // MM knows to.
   const isLead =
     viewer.isAdmin ||
     viewer.role === "LCP" ||
     ((viewer.role === "LCVP" || viewer.role === "Director") &&
       _hasConsiderationAccess(viewer));
-  if (!isLead) q = q.eq("member_id", viewer.id);
+  if (!isLead) {
+    const { canManageTeamIrCalls, reachIds } = await import("@/lib/rbac");
+    const mine = canManageTeamIrCalls(viewer)
+      ? [viewer.id, ...reachIds(viewer)]
+      : [viewer.id];
+    q = mine.length > 1 ? q.in("member_id", mine) : q.eq("member_id", viewer.id);
+  }
   const { data, error } = await q;
   if (error) {
     console.error("[ir-requests] list failed:", error.message);

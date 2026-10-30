@@ -238,6 +238,133 @@ export const HELP_ARTICLES: HelpArticle[] = [
   ]
  },
  {
+  "id": "rule-manager",
+  "title": "Changing a rule without a deploy",
+  "emoji": "\u2696\ufe0f",
+  "category": "leaders",
+  "audience": "The LCP & admins",
+  "audienceKeys": [
+   "eb",
+   "admin"
+  ],
+  "keywords": [
+   "rules",
+   "permissions",
+   "who can",
+   "allowed",
+   "archive",
+   "revive",
+   "delete account",
+   "cancel deal",
+   "hand over",
+   "privileges",
+   "settings",
+   "access"
+  ],
+  "summary": "Settings \u2192 Rules lets the LCP and admins change what people may DO \u2014 revive an archived account, delete one, hand over an IR call, split a deal's opens \u2014 for everyone, for roles, functions or named people.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Settings \u2192 **Tabs** decides which **pages** someone can open. Settings \u2192 **Rules** ([here](/profile/settings?tab=rules)) decides what they may **do** once they are there. Every rule follows the code until you change it, and each one prints, before you save, exactly what saying yes hands over."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "**Change** opens the rule: who may, to start with (**as the code says**, **everyone**, **nobody**), then **also allow** and **never allow** \u2014 roles, functions or named people.",
+     "A person you name always wins over their role or function; on the same level, **never allow** wins.",
+     "The commonest one: *Bring an account back from the archive* starts at Team Leaders and Coordinators. Set it to **Everyone** and any member can revive a name they found again.",
+     "**Back to the code's rule** on one rule, or **Put everything back** at the top, undoes it all."
+    ]
+   },
+   {
+    "t": "callout",
+    "tone": "warn",
+    "md": "A rule widens one **decision**, never what a person can **see**. A Member you let revive accounts still reaches only the archive the whole LC already reads, and one you let hand accounts on can still only pass on their own. Nothing here hands anyone another team's rows."
+   }
+  ]
+ },
+ {
+  "id": "walk-in-on-an-existing-account",
+  "title": "A walk-in to a company you already have",
+  "emoji": "\U0001f6b6",
+  "category": "raising",
+  "audience": "Everyone who works accounts",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "direct visit",
+   "walk in",
+   "already exists",
+   "duplicate",
+   "name taken",
+   "convert",
+   "existing account"
+  ],
+  "summary": "If the company is already an account of yours, Direct visit offers to log the walk-in ON it instead of refusing you \u2014 same owner, same function, plus today's contact and visit.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "You researched them last week and today you walked in. **Direct visit** used to stop at *that name already exists* and the whole visit was lost. Now, when the account is one you can work \u2014 yours, your team's or your function's \u2014 the name check offers a switch: **log this walk-in on that account**."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "The account keeps its owner, its function and everything already on it.",
+     "It gains today's contact attempt, the visit, the \U0001f6b6 direct-visit mark and whatever you collected at the door.",
+     "The fields that describe a NEW account disappear \u2014 that one already has them.",
+     "If nobody owned it, it becomes yours: you are the one who went."
+    ]
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "If the account belongs to somebody else, Sodio says whose it is \u2014 ask them, or your Team Leader, to log it."
+   }
+  ]
+ },
+ {
+  "id": "mm-on-team-ir-calls",
+  "title": "Your team's IR calls",
+  "emoji": "\U0001f91d",
+  "category": "leaders",
+  "audience": "Team Leaders & Coordinators in consideration",
+  "audienceKeys": [
+   "mm"
+  ],
+  "keywords": [
+   "IR call",
+   "team",
+   "mark done",
+   "call notes",
+   "reschedule",
+   "cancel",
+   "team leader",
+   "consideration"
+  ],
+  "summary": "A Team Leader or Coordinator can now fill the notes, chase a new time, fix a bounced IR email and cancel a call hosted by someone they manage \u2014 everything except deleting its log.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "On **Consideration \u2192 IR calls**, a call hosted by one of your people now carries the same buttons their own screen does: **Fill call notes** (which marks it done), **Reschedule**, **Hand over**, **Cancel**, and fixing a bounced IR address."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "**Deleting a log** is not included \u2014 it leaves no history, no email and no calendar event, so it stays with the host and the VPs.",
+     "**Reschedule asked \u00b7 waiting on the IR** on a row means the mail has gone and the IR is choosing. When they pick, the chip goes and the date on the row IS the new one.",
+     "You get a bell when an IR moves one of your people's calls, with the old time and the new one.",
+     "A request for a time your person never opened shows up for you too \u2014 but only they (or a VP) can say yes, because it books their calendar."
+    ]
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "Who counts as \u201cyour people\u201d is your MM access (Settings \u2192 My function), the same reach you have everywhere else \u2014 and the LCP can change the rule itself in Settings \u2192 Rules."
+   }
+  ]
+ },
+ {
   "id": "edits-save-themselves",
   "title": "Your account edits save themselves",
   "emoji": "✅",

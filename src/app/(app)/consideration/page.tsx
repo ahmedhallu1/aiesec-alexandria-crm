@@ -6,7 +6,9 @@ import {
   myIrBooking,
 } from "@/server/data";
 import {
-  canSeeCvPool, canUseIgtExpectationMail, fnSetting, hasConsiderationAccess, icxFunctions, reachIds,
+  canAssignPartnershipToOthers, canHandOverIrCalls, canManagePartnerLcs,
+  canRecordPastIrCall, canSeeCvPool,
+  canUseIgtExpectationMail, fnSetting, hasConsiderationAccess, icxFunctions, reachIds,
 } from "@/lib/rbac";
 import { env } from "@/lib/env";
 import {
@@ -80,12 +82,11 @@ export default async function ConsiderationPage({
     viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
 
   // 🤝 HAND-OVER (v33.58) — the same MM-and-above gate as partnership targets:
-  // a Member holds their calls, an MM redistributes them.
-  // handing a booked CALL to somebody else stays an MM-and-above act — it
-  // moves a commitment off one person's calendar onto another's
-  const canHandOverCalls =
-    viewer.isAdmin ||
-    ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(viewer.role);
+  // a Member holds their calls, an MM redistributes them, because it moves a
+  // commitment off one person's calendar onto another's. The rule lives in
+  // rbac.ts since v38.4 so Settings → Rules can change it without a deploy,
+  // and `reassignIrCall` asks the very same predicate.
+  const canHandOverCalls = canHandOverIrCalls(viewer);
   const [lcs, calls, cvs, booking, callOptions, crewAll, handoverTargets, slotRequests] = await Promise.all([
     listPartnerLcDetails(viewer),
     listIrCalls(viewer, tab === "calls" ? page : 0, pageSize, undefined, callFilters),
@@ -180,16 +181,15 @@ export default async function ConsiderationPage({
         showCvs,
         showExpectation,
         // removing a partner LC is an MM-and-up act: it is the shared
-        // registry every call and CV hangs off
-        canManageLcs:
-          viewer.isAdmin ||
-          ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(viewer.role),
+        // registry every call and CV hangs off (switchable since v38.4)
+        canManageLcs: canManagePartnerLcs(viewer),
         canAssignPartnerships,
         // MM AND ABOVE — the acts that touch SOMEBODY ELSE's target: handing
         // one out, clearing it, moving it along. Taking one yourself needs
         // only `canAssignPartnerships` (v35.1).
-        canTargetOthers: isLead || isMm,
+        canTargetOthers: canAssignPartnershipToOthers(viewer),
         canHandOverCalls,
+        canRecordManual: canRecordPastIrCall(viewer),
         defaultProduct,
       }}
     />

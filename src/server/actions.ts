@@ -34,7 +34,15 @@ import {
   raisingFunctionsOf,
   icxFunctions,
   isClaimableAccount,
+  canCancelOthersDeal,
+  canDeleteWorkedAccount,
+  canHandOverIrCalls,
+  canLogDirectVisit,
   canManageArchive,
+  canManageTeamIrCalls,
+  canPurgeArchive,
+  canRecordPastIrCall,
+  canSplitDealOpens,
   commentLabel,
   master,
   openTargetFunctions,
@@ -1386,6 +1394,10 @@ export async function recordDeal(
       slots_igte: clamp(a.igte),
     }))
     .filter((a) => a.member_id && a.slots_igv + a.slots_igta + a.slots_igte > 0);
+  // the form hides the switch when the rule is off; the action refuses the
+  // payload, because a hidden switch is not a rule (v38.4)
+  if (allocRows.length > 0 && !canSplitDealOpens(viewer))
+    return fail("Splitting a deal's opens isn't switched on for you — the opens go to the account's responsible.", "forbidden");
   if (allocRows.length > 0) {
     const ids = allocRows.map((a) => a.member_id);
     if (new Set(ids).size !== ids.length)
@@ -2734,9 +2746,8 @@ export async function cancelDeal(
   if (!account || !canEditAccount(viewer, account))
     return fail("You are not allowed to edit this account's deals.", "forbidden");
   // same authority as editing one: its owner, their leaders, or LCP-level
-  const lcpLevel = accountScope(viewer).kind === "all";
-  const isLead = viewer.role === "LCVP" || viewer.role === "Director";
-  if (deal.member_id !== viewer.id && !lcpLevel && !isLead)
+  // (switchable since v38.4 — Settings → Rules → "Cancel somebody else's deal")
+  if (deal.member_id !== viewer.id && !canCancelOthersDeal(viewer))
     return fail("Only the deal's owner, their leaders or the LCP can cancel it.", "forbidden");
 
   const why = (reason ?? "").replace(/\s+/g, " ").trim().slice(0, 300);
@@ -3840,6 +3851,10 @@ const directVisitSchema = z.object({
   /** turned away AND clearly dead — archive it there and then (v33.25) */
   outOfProcess: z.boolean().optional(),
   oopReason: z.string().trim().optional(),
+  /** THE NAME IS ALREADY AN ACTIVE ACCOUNT and the member said "log the
+   *  walk-in on that one" (v38.4). Never assumed: without it, an existing
+   *  name is refused exactly as before. */
+  onExisting: z.literal("convert").optional(),
 });
 
 /** A WALK-IN, LOGGED IN ONE ACT.
@@ -3870,6 +3885,9 @@ export async function logDirectVisit(
 
   if (!allowedAccountFunctions(viewer).includes(d.function))
     return fail(`You can only add ${allowedAccountFunctions(viewer).join(" / ") || "—"} accounts.`, "forbidden");
+  // switchable since v38.4 — Settings → Rules → "Log a direct (walk-in) visit"
+  if (!canLogDirectVisit(viewer))
+    return fail("Logging a walk-in isn't switched on for you — add the account and book the visit instead.", "forbidden");
   if (!viewer.id) return fail("Sign in first.", "forbidden");
 
   // it ALREADY HAPPENED — a direct visit in the future is a booking, and
@@ -3898,6 +3916,83 @@ export async function logDirectVisit(
   {
     const { checkAccountName } = await import("./data");
     const { duplicate } = await checkAccountName(d.name, d.function);
+
+    // ---- 0b. IT IS ALREADY AN ACCOUNT, AND IT IS LIVE (v38.4).
+    //
+    // The member researched this company the ordinary way last week, and
+    // today they walked in. `createAccount` refused the whole log ("that
+    // name already exists") and the walk-in — the contact, the visit, the
+    // outcome — was simply lost; there was no way to say "this one, then".
+    // There is now, and it is explicit: the form offers it, the member picks
+    // it, and `onExisting` carries the answer. The account keeps its
+    // function, its owner and its history; it gains the 🚶 flag, the
+    // contact attempt and the visit.
+    if (duplicate && !duplicate.out_of_process) {
+      if (d.onExisting !== "convert")
+        return fail(
+          `"${duplicate.name}" is already an account on ${duplicate.function ?? "the pipeline"} — tick "log this walk-in on it" to add today's visit to that account instead of a second copy.`
+        );
+      if (!canEditAccount(viewer, duplicate))
+        return fail(
+          `"${duplicate.name}" belongs to ${duplicate.responsible_name || "nobody yet"} — ask them (or your Team Leader) to log the walk-in on it.`,
+          "forbidden"
+        );
+      // an UNOWNED row is taken by the person who actually went (the visit
+      // is the evidence); an owned one never changes hands over a walk-in
+      const claim = duplicate.responsible_id ? {} : { responsible_id: viewer.id };
+
+      // WHAT YOU COLLECTED AT THE DOOR STILL LANDS. The form keeps its
+      // contacts editor on this path, so the new numbers/emails/links are
+      // MERGED into the account's own list (never replacing it) — through
+      // the same validation and the same cross-account clash guard every
+      // other contact edit goes through.
+      let contactPatch: Record<string, unknown> = {};
+      if ((d.contacts ?? []).length > 0) {
+        const { list: fresh, error: contactError } = cleanContacts(d.contacts);
+        if (contactError) return fail(contactError);
+        const have = Array.isArray(duplicate.contacts)
+          ? (duplicate.contacts as AccountContact[])
+          : [];
+        const seen = new Set(have.map((c) => `${c.kind}:${c.value.toLowerCase()}`));
+        const added = fresh.filter((c) => !seen.has(`${c.kind}:${c.value.toLowerCase()}`));
+        if (added.length > 0) {
+          const { contactClashes, clashRefusal } = await import("./contact-clashes");
+          const [clash] = await contactClashes(added, { excludeId: duplicate.id });
+          if (clash) return fail(clashRefusal(clash).message, "duplicate");
+          const merged = [...have, ...added];
+          contactPatch = { contacts: merged, ...legacyContactColumns(merged) };
+        }
+      }
+
+      // the sandbox has to be able to put this account back exactly as it was
+      await snapshotForUndo("accounts", duplicate.id);
+      const { error: convErr } = await db()
+        .from("accounts")
+        .update({ direct_visit: true, ...claim, ...contactPatch })
+        .eq("id", duplicate.id);
+      if (convErr) return fail(convErr.message);
+      await db().from("account_comments").insert({
+        account_id: duplicate.id,
+        member_id: viewer.id,
+        author_label: commentLabel(viewer),
+        body: `🚶 Logged as a direct visit on ${d.visitDate}: this account already existed, so the walk-in was recorded on it rather than as a new one.`,
+      });
+      await logAudit(viewer.id, "direct_visit_on_existing", "account", duplicate.id, {
+        outcome: d.outcome,
+        claimed: !duplicate.responsible_id,
+      });
+      const done = await finishDirectVisit(viewer, duplicate.id, d, outcome, when);
+      if (!done.ok) return done as ActionResult<never>;
+      return {
+        ok: true,
+        data: {
+          id: duplicate.id,
+          slug: accountSlug(duplicate.name),
+          visitDone: outcome.visitDone,
+        },
+      };
+    }
+
     if (duplicate?.out_of_process) {
       if (d.outcome === "turned_away") {
         await db().from("account_comments").insert({
@@ -5338,12 +5433,10 @@ export async function bulkDeleteArchived(
 ): Promise<ActionResult<{ deleted: number; failed: number }>> {
   const viewer = await getViewer();
   // MMs and above (v33.12) — the same people who may work the archive. Never a
-  // plain Member: this cascades through contacts, visits and deals, and the
-  // sandbox can't undo it.
-  const allowed =
-    viewer.isAdmin ||
-    ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(viewer.role);
-  if (!allowed)
+  // plain Member by default: this cascades through contacts, visits and
+  // deals, and the sandbox can't undo it. Switchable since v38.4
+  // (Settings → Rules → "Delete archived accounts for good").
+  if (!canPurgeArchive(viewer))
     return fail("Only MMs, VPs, Directors or the LCP delete archived accounts.", "forbidden");
   // a permanent delete cannot be journaled faithfully (children are gone) —
   // it has no place in ANY session that promises to undo everything on exit
@@ -5416,15 +5509,15 @@ export async function accountDeletionCheck(accountId: string): Promise<
     count("contact_attempts"), count("visits"), count("deals"), count("account_comments"),
   ]);
   const clean = contacts + visits + deals + comments === 0;
-  const isVp = viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
+  const mayDeleteWorked = canDeleteWorkedAccount(viewer);
   return {
     ok: true,
     data: {
       name: account.name,
       contacts, visits, deals, comments,
       clean,
-      allowed: clean || isVp,
-      needsVp: !clean && !isVp,
+      allowed: clean || mayDeleteWorked,
+      needsVp: !clean && !mayDeleteWorked,
     },
   };
 }
@@ -5474,8 +5567,7 @@ export async function deleteAccount(
   if (!check.ok || !check.data) return check.ok ? fail("Couldn't read the account.") : check;
   const { clean, contacts, visits, deals, comments } = check.data;
   if (!clean) {
-    const isVp = viewer.isAdmin || ["LCP", "LCVP", "Director"].includes(viewer.role);
-    if (!isVp)
+    if (!canDeleteWorkedAccount(viewer))
       return fail(
         `"${account.name}" has history on it (${contacts} contact(s), ${visits} visit(s), ${deals} deal(s), ${comments} comment(s)). Deleting it would destroy that record, so it takes a VP, Director or the LCP — or archive it instead.`,
         "forbidden"
@@ -5808,6 +5900,13 @@ export async function checkAccountNameLive(
           created_at: duplicate.created_at?.slice(0, 10) ?? null,
           open: duplicate.responsible_id ? null : `/accounts/${accountSlug(duplicate.name)}`,
           claim: takeable ? duplicate.id : null,
+          // A WALK-IN HAS SOMEWHERE TO GO (v38.4). The direct-visit form
+          // reads this: when the existing account is one this viewer may
+          // edit — their own, their team's, their function's — the visit
+          // can be logged ON it instead of being refused outright. Only the
+          // walk-in form offers it; the ordinary Add-account dialog ignores
+          // the field, because "add it again" has no honest answer there.
+          logVisit: canEditAccount(viewer, duplicate) ? duplicate.id : null,
         },
       },
     };
@@ -8822,6 +8921,25 @@ const isConsiderationLead = (viewer: Viewer) =>
   ((viewer.role === "LCVP" || viewer.role === "Director") &&
     hasConsiderationAccess(viewer));
 
+/** WHO MAY WORK A BOOKED CALL (v38.4) — its host, the MM whose reach covers
+ *  that host, or a VP/Director/LCP.
+ *
+ *  The MM was missing everywhere but `reassignIrCall`, which has accepted
+ *  `reachIds` since v33.58: a Team Leader could hand their member's call to
+ *  somebody else but could not file its notes, chase a new time, fix a
+ *  bounced address or call it off. One predicate now, so the five actions
+ *  and the buttons in `consideration-view` cannot drift apart again.
+ *
+ *  DELETING A LOG deliberately does NOT use this (see `deleteIrCall`): it
+ *  leaves no history, no email and no event, so it stays the host's own call
+ *  or a lead's. */
+const canActOnIrCall = (viewer: Viewer, call: { member_id: string | null }) =>
+  call.member_id === viewer.id ||
+  (canManageTeamIrCalls(viewer) &&
+    !!call.member_id &&
+    reachIds(viewer).includes(call.member_id)) ||
+  isConsiderationLead(viewer);
+
 /** Builds the stored demand text from the multi-pick chips (CV_INDUSTRIES)
  *  + the "Other…" free text. */
 function buildDemand(
@@ -8999,6 +9117,12 @@ export async function recordIrCall(input: {
 }): Promise<ActionResult<{ id: string; screenshotWarning?: string }>> {
   const viewer = await getViewer();
   if (!hasConsiderationAccess(viewer)) return considerationFail();
+  // switchable since v38.4 — Settings → Rules → "Record a past IR call by hand"
+  if (!canRecordPastIrCall(viewer))
+    return fail(
+      "Recording a past call by hand isn't switched on for you — calls booked through your link are logged for you.",
+      "forbidden"
+    );
 
   const resolved = await resolvePartnerLc(input);
   if ("error" in resolved) return resolved.error;
@@ -10190,8 +10314,11 @@ export async function completeIrCall(
   if (!call) return fail("That call no longer exists.");
   if (call.status !== "scheduled")
     return fail(`This call is already ${call.status}.`);
-  if (call.member_id !== viewer.id && !isConsiderationLead(viewer))
-    return fail("Only the call's owner or a VP/Director can fill its notes.", "forbidden");
+  if (!canActOnIrCall(viewer, call))
+    return fail(
+      "Only the call's host, their Team Leader or a VP/Director can fill its notes.",
+      "forbidden"
+    );
 
   const demand = buildDemand(input.demand, input.demandOther);
   if ("error" in demand) return demand.error;
@@ -10320,8 +10447,11 @@ export async function cancelIrCall(id: string, reason: string): Promise<ActionRe
     .maybeSingle<IrCallServerRow>();
   if (!call) return fail("That call no longer exists.");
   if (call.status !== "scheduled") return fail("Only scheduled calls can be cancelled.");
-  if (call.member_id !== viewer.id && !isConsiderationLead(viewer))
-    return fail("Only the call's owner or a VP/Director can cancel it.", "forbidden");
+  if (!canActOnIrCall(viewer, call))
+    return fail(
+      "Only the call's host, their Team Leader or a VP/Director can cancel it.",
+      "forbidden"
+    );
 
   await snapshotForUndo("ir_calls", id);
   const { error } = await db()
@@ -10438,10 +10568,8 @@ export async function reassignIrCall(
   const viewer = await getViewer();
   if (!hasConsiderationAccess(viewer)) return considerationFail();
   // MMs and above — the actor's own rank, checked before anything is read
-  const isMm =
-    viewer.isAdmin ||
-    ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(viewer.role);
-  if (!isMm)
+  // (switchable since v38.4 — Settings → Rules → "Hand a booked IR call")
+  if (!canHandOverIrCalls(viewer))
     return fail(
       "Handing a call to someone else is an MM's call to make — ask your TL or VP to move it.",
       "forbidden"
@@ -10783,8 +10911,11 @@ export async function updateIrBookerEmail(id: string, emailRaw: string): Promise
   if (!call) return fail("That call no longer exists.");
   if (call.status !== "scheduled")
     return fail("Only scheduled calls can have their email fixed.");
-  if (call.member_id !== viewer.id && !isConsiderationLead(viewer))
-    return fail("Only the call's owner or a VP/Director can fix the email.", "forbidden");
+  if (!canActOnIrCall(viewer, call))
+    return fail(
+      "Only the call's host, their Team Leader or a VP/Director can fix the email.",
+      "forbidden"
+    );
   const oldEmail = (call.booker_email ?? "").trim().toLowerCase() || null;
   // THE SAME ADDRESS IS A RETRY, NOT A MISTAKE (v33.36.1 — the Bhavika case:
   // her mailbox bounced for reasons on HER side, got fixed there, and the
@@ -11033,9 +11164,9 @@ export async function requestIrReschedule(
   if (!call) return fail("That call no longer exists.");
   if (call.status !== "scheduled")
     return fail("Only scheduled calls can be rescheduled.");
-  if (call.member_id !== viewer.id && !isConsiderationLead(viewer))
+  if (!canActOnIrCall(viewer, call))
     return fail(
-      "Only the call's owner or a VP/Director can request a reschedule.",
+      "Only the call's host, their Team Leader or a VP/Director can request a reschedule.",
       "forbidden"
     );
   if (!call.manage_token || !call.booker_email)
@@ -11271,14 +11402,27 @@ export async function rescheduleBookedCall(input: {
     }
   }
 
-  // owner: bell + email · IR: fresh confirmation — all best-effort
+  // owner + their manager: bell · owner: email · IR: fresh confirmation —
+  // all best-effort.
+  //
+  // THE MANAGER IS ON THIS BELL (v38.4). "Did they pick the new date?" was
+  // not answerable by the person who chased the reschedule: only the host
+  // was told, so a Team Leader had to re-open the call log and compare the
+  // time against what they remembered. The MM who answers for the host's
+  // calls hears when one of them moves.
   try {
     const { notifyMembers } = await import("./notify");
+    const { data: mgr } = await db()
+      .from("members")
+      .select("stakeholder_id")
+      .eq("id", owner.id)
+      .maybeSingle<{ stakeholder_id: string | null }>();
+    const audience = [...new Set([owner.id, ...(mgr?.stakeholder_id ? [mgr.stakeholder_id] : [])])];
     await notifyMembers(
-      [owner.id],
+      audience,
       "info",
       `🔁 IR call moved — ${call.partner_lc_name}`,
-      `${call.booker_name ? `${call.booker_name} of ` : ""}${call.partner_lc_name} moved the call from ${oldWhen} to ${newWhen}.`,
+      `${call.booker_name ? `${call.booker_name} of ` : ""}${call.partner_lc_name} moved the call (host: ${owner.name}) from ${oldWhen} to ${newWhen}.`,
       null,
       "/consideration",
       "ir_calls"

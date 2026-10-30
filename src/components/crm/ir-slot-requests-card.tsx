@@ -21,10 +21,17 @@ import { Label } from "@/components/ui/label";
 export function IrSlotRequestsCard({
   requests,
   showHost,
+  viewerId,
+  canAnswerAny,
 }: {
   requests: IrSlotRequest[];
   /** leads see the whole floor's asks, so the row has to say whose it is */
   showHost: boolean;
+  /** the signed-in member — an MM sees their people's asks but cannot
+   *  answer one: a yes books time on somebody else's calendar (v38.4) */
+  viewerId: string;
+  /** a VP/Director/LCP answers for whoever is away */
+  canAnswerAny: boolean;
 }) {
   const [openFor, setOpenFor] = useState<string | null>(null);
   const [comment, setComment] = useState("");
@@ -103,7 +110,14 @@ export function IrSlotRequestsCard({
               </p>
             ) : null}
 
-            {openFor === r.id ? (
+            {!(canAnswerAny || r.hostId === viewerId) ? (
+              /* not theirs to answer — a yes would book time on another
+                 person's calendar. Chase them instead (v38.4). */
+              <p className="mt-3 rounded-md border border-dashed p-2 text-xs text-muted-foreground">
+                {r.hostName ? `${r.hostName} answers this one` : "Its host answers this one"} —
+                nudge them, or ask a VP to take it.
+              </p>
+            ) : openFor === r.id ? (
               <div className="mt-3 grid gap-2">
                 <Label className="text-xs">
                   Anything to tell them? (optional — it reaches them word for word)

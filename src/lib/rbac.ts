@@ -7,6 +7,7 @@ import {
 } from "./types";
 import { expandTouchPointFns } from "./touch-points";
 import { functionDefaults, type FunctionSettings } from "./function-settings";
+import { privilegeAllowed, type PrivilegeOverride } from "./privileges";
 import { planFunctionsFor } from "./plan";
 
 /** A function's defaults as this request resolved them — falling back to the
@@ -59,6 +60,22 @@ export interface Viewer extends Member {
   /** every function's resolved defaults (v33.32) — read once per request so
    *  the sync predicates below can consult them without touching the DB */
   fnSettings?: Record<string, FunctionSettings>;
+  /** THE LC'S OWN RULE OVERRIDES (v38.4, Settings → Rules, migration 0089).
+   *  Resolved once per request in getViewer, exactly like fnSettings, so the
+   *  synchronous predicates below can honour them. Undefined / missing key =
+   *  the code's own answer, which is what every test and every pre-0089
+   *  Viewer gets. */
+  privileges?: Record<string, PrivilegeOverride>;
+}
+
+/** A SWITCHABLE RULE'S ANSWER (v38.4).
+ *
+ *  `builtIn` is what the code says; the LC's rule (if any) is laid over it.
+ *  Every predicate that appears in PRIVILEGE_REGISTRY ends in a call to
+ *  this, and nothing else reads `v.privileges` — so there is exactly one
+ *  place where "the screen beats the code" happens, and it is this line. */
+export function priv(v: Viewer, key: string, builtIn: boolean): boolean {
+  return privilegeAllowed(builtIn, v.privileges?.[key]);
 }
 
 export type AccountScope =
@@ -340,7 +357,8 @@ export function isClaimableAccount(v: Viewer, a: AccountLike): boolean {
   // they personally researched takes nothing from anyone. Before this, the
   // add-form told a Member "open it and hit Take it" about an account they
   // could neither open nor take.
-  return master(v) || allowedAccountFunctions(v).length > 0;
+  // switchable: Settings → Rules → "Take an unowned account from the pool"
+  return master(v) || priv(v, "account.claim", allowedAccountFunctions(v).length > 0);
 }
 
 /** AN MM — a Team Leader or a Coordinator (v36).
@@ -415,8 +433,11 @@ export function worksIcxRaisingOrB2b(v: Viewer): boolean {
  *  and B2C has never had one. */
 export function canSeeUnownedPool(v: Viewer): boolean {
   if (master(v)) return true;
+  // the crew that owns the research is never widened by a rule: a B2C leader
+  // has no business in a queue of ICX research whoever switches what on
   if (!worksIcxRaisingOrB2b(v)) return false;
-  return isMm(v) || v.role === "LCVP" || v.role === "Director";
+  // switchable: Settings → Rules → "See the unowned research pool"
+  return priv(v, "account.unownedPool", isMm(v) || v.role === "LCVP" || v.role === "Director");
 }
 
 /** The name the rest of the app has called it by since v33.2. ONE rule, not
@@ -507,9 +528,12 @@ export function raisingFunctionsOf(m: {
 export function canWorkArchived(v: Viewer, a: AccountLike): boolean {
   if (!a.out_of_process) return false;
   if (master(v) || isIcxLead(v)) return true;
-  return (
+  // switchable: Settings → Rules → "Bring an account back from the archive"
+  return priv(
+    v,
+    "archive.revive",
     (v.role === "Team Leader" || v.role === "Coordinator") &&
-    allowedAccountFunctions(v).length > 0
+      allowedAccountFunctions(v).length > 0
   );
 }
 
@@ -606,11 +630,16 @@ export function canReassignAccount(v: Viewer, a: AccountLike): boolean {
   // checked BEFORE the leader branch (v36), which returns outright and would
   // otherwise answer "no" for every function-less pool row
   if (isClaimableAccount(v, a)) return true;
-  if (isIcxLead(v))
-    return a.function != null && scopeFunctions(v).includes(a.function as AccountFunction);
-  if (actsOverOthers(v))
-    return a.responsible_id != null && [v.id, ...reachIds(v)].includes(a.responsible_id);
-  return false;
+  const builtIn = isIcxLead(v)
+    ? a.function != null && scopeFunctions(v).includes(a.function as AccountFunction)
+    : actsOverOthers(v)
+      ? a.responsible_id != null && [v.id, ...reachIds(v)].includes(a.responsible_id)
+      : false;
+  // SWITCHABLE, BUT NEVER WIDER THAN WHAT THEY CAN ALREADY EDIT (v38.4).
+  // Settings → Rules → "Hand an account to somebody else" hands out the
+  // DECISION, not reach: granting it to Members lets them pass on their own
+  // accounts, and still does not let anyone touch another team's row.
+  return priv(v, "account.reassign", builtIn) && (builtIn || canEditAccount(v, a));
 }
 
 /** Who a given viewer may reassign an account TO (v33.13).
@@ -666,9 +695,24 @@ export function canViewArchive(): boolean {
   return true;
 }
 
-/** Managing the archive (add/import names) stays with leaders. */
+/** Managing the archive (add/import names) stays with leaders — unless the
+ *  LC says otherwise (Settings → Rules → "Add or import names"). */
 export function canManageArchive(v: Viewer): boolean {
-  return master(v) || isIcxLead(v) || v.role === "Team Leader";
+  if (master(v)) return true;
+  return priv(v, "archive.manage", isIcxLead(v) || v.role === "Team Leader");
+}
+
+/** PERMANENTLY deleting archived accounts — it cascades through contacts,
+ *  visits and deals and the sandbox refuses it, so it was MMs and above.
+ *  Switchable: Settings → Rules → "Delete archived accounts for good".
+ *  (Lived inline in `bulkDeleteArchived` until v38.4.) */
+export function canPurgeArchive(v: Viewer): boolean {
+  if (master(v)) return true;
+  return priv(
+    v,
+    "archive.purge",
+    ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(v.role)
+  );
 }
 
 /** The TM (Talent Management) module: the whole-LC members directory with
@@ -915,12 +959,15 @@ export function hasPodioAccess(v: {
  *  who could set it afterwards — asking them to save, reopen and edit was
  *  busywork when they already know the answer (v33.2). */
 export function canSetRequestStateOnCreate(v: Viewer): boolean {
-  return (
-    master(v) ||
+  if (master(v)) return true;
+  // switchable: Settings → Rules → "Set the Podio state while adding"
+  return priv(
+    v,
+    "podio.stateOnCreate",
     isIcxLead(v) ||
-    v.role === "Team Leader" ||
-    v.role === "Coordinator" ||
-    hasPodioAccess(v)
+      v.role === "Team Leader" ||
+      v.role === "Coordinator" ||
+      hasPodioAccess(v)
   );
 }
 
@@ -1161,3 +1208,96 @@ export function canSeeFeedbackInbox(v: Viewer): boolean {
 export function canOpenCalendar(v: Viewer): boolean {
   return hasRaisingAccess(v) || hasConsiderationAccess(v) || hasOgxAccess(v) || hasTmAccess(v);
 }
+
+// ===================================================================
+// THE REST OF THE SWITCHABLE RULES (v38.4)
+//
+// Each of these used to be an inline role list in a page or an action — the
+// exact shape the house rule warns about ("never `role === 'Team Leader' &&
+// teamMemberIds` again"). They are predicates now, for the same two reasons
+// every other rule is: one place to read them, and one place for Settings →
+// Rules to lay the LC's own answer over the code's.
+// ===================================================================
+
+/** Deleting an account that already carries contacts, visits or deals — an
+ *  EMPTY one is anyone's to remove. Switchable: "Delete an account that has
+ *  history". (Inline in `deleteAccount` until v38.4.) */
+export function canDeleteWorkedAccount(v: Viewer): boolean {
+  if (v.isAdmin) return true;
+  return priv(v, "account.deleteWorked", ["LCP", "LCVP", "Director"].includes(v.role));
+}
+
+/** The bulk importer (/accounts/import). Switchable: "Import accounts from a
+ *  file" — the LC may want a peak where research arrives one row at a time. */
+export function canImportAccounts(v: Viewer): boolean {
+  return priv(v, "account.import", hasRaisingAccess(v) && allowedAccountFunctions(v).length > 0);
+}
+
+/** Logging a walk-in. Switchable: "Log a direct (walk-in) visit". */
+export function canLogDirectVisit(v: Viewer): boolean {
+  return priv(v, "visit.direct", allowedAccountFunctions(v).length > 0);
+}
+
+/** Cancelling a deal that is NOT yours — your own is always yours to cancel.
+ *  Switchable: "Cancel somebody else's deal". (Inline in `cancelDeal`.) */
+export function canCancelOthersDeal(v: Viewer): boolean {
+  if (accountScope(v).kind === "all") return true;
+  return priv(v, "deal.cancelOthers", v.role === "LCVP" || v.role === "Director");
+}
+
+/** The "split the opens" switch on the Record-deal popup. Switchable:
+ *  "Split a deal's opens across members". */
+export function canSplitDealOpens(v: Viewer): boolean {
+  return priv(v, "deal.split", true);
+}
+
+/** Working an IR call hosted by somebody this MM reaches — filling its
+ *  notes, chasing a new time, fixing the IR's email, calling it off. The
+ *  reach itself is still `reachIds`; this only says whether the rank carries
+ *  the right at all. Switchable: "Work an IR call hosted by one of your
+ *  people". Never covers DELETING a log. */
+export function canManageTeamIrCalls(v: Viewer): boolean {
+  return priv(v, "ir.manageTeamCalls", isMm(v));
+}
+
+/** Moving a booked call to a different host, keeping the time. Switchable:
+ *  "Hand a booked IR call to another host". (Inline in the consideration
+ *  page and `reassignIrCall` until v38.4.) */
+export function canHandOverIrCalls(v: Viewer): boolean {
+  if (v.isAdmin) return true;
+  return priv(
+    v,
+    "ir.handover",
+    ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(v.role)
+  );
+}
+
+/** Logging a call that was never booked through Sodio. Switchable:
+ *  "Record a past IR call by hand". */
+export function canRecordPastIrCall(v: Viewer): boolean {
+  return priv(v, "ir.recordManual", hasConsiderationAccess(v));
+}
+
+/** Editing the shared partner-LC registry. Switchable: "Add or remove a
+ *  partner LC". (Inline in the consideration page until v38.4.) */
+export function canManagePartnerLcs(v: Viewer): boolean {
+  if (v.isAdmin) return true;
+  return priv(
+    v,
+    "lc.manage",
+    ["LCP", "LCVP", "Director", "Team Leader", "Coordinator"].includes(v.role)
+  );
+}
+
+/** Handing out, clearing or moving SOMEBODY ELSE's 🎯 partnership target —
+ *  taking one yourself needs nothing. Switchable: "Hand a partnership target
+ *  to somebody else". */
+export function canAssignPartnershipToOthers(v: Viewer): boolean {
+  if (v.isAdmin) return true;
+  return priv(
+    v,
+    "partnership.assignOthers",
+    ["LCP", "LCVP", "Director"].includes(v.role) || isMm(v)
+  );
+}
+

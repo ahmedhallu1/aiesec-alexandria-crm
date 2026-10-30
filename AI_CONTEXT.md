@@ -15,7 +15,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-10-25 · Version: v38.3
+Last updated: 2026-10-30 · Version: v38.4
 
 ---
 
@@ -67,7 +67,7 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0061_touch_point_location` → `0062_close_rls_gaps` → `0063_prank_mode` →
 `0064_api_keys` → `0065_ir_slot_requests` → `0066_im_prompts` →
 `0067_member_settings` → `0068_cxp_module` → `0069_push_subscriptions` → `0070_b2c_cic_outcomes` →
-`0071_partnership_stage` → … → `0076_next_step_reminders` → `0077_visit_followups_gate` → `0078_contact_keys` → `0079_cv_drive_import` → `0080_redirect_links_and_locations` → `0081_activation_bid_and_tour_seen` → `0082_bd_b2b_planning` → `0083_cxp_staging_and_icx_approvals` → `0084_function_privileges_and_streak_index` → `0085_signup_batch_older` → `0086_list_indexes_and_ir_registry` → `0087_tab_rules_and_war` (0077's FILE was recreated from prod in v37.7)
+`0071_partnership_stage` → … → `0076_next_step_reminders` → `0077_visit_followups_gate` → `0078_contact_keys` → `0079_cv_drive_import` → `0080_redirect_links_and_locations` → `0081_activation_bid_and_tour_seen` → `0082_bd_b2b_planning` → `0083_cxp_staging_and_icx_approvals` → `0084_function_privileges_and_streak_index` → `0085_signup_batch_older` → `0086_list_indexes_and_ir_registry` → `0087_tab_rules_and_war` → `0088_war_realtime_private` → **`0089_privilege_rules`** (0077's FILE was recreated from prod in v37.7)
 (**all applied**, 0046–0063 during v33.22–v33.51, 0064–0067 during v34.5–v34.8,
 0069 during v35).
 
@@ -147,6 +147,27 @@ page calls `gateTab(viewer, href, builtInRule)` (server/tabs.ts, 30 s module
 memo, busted on save). "Show to" OPENS the page for anyone (the user chose
 "any tab, anyone") but the data inside still follows RBAC. The test view
 applies the impersonated member's rules.
+
+**THE RULE MANAGER (v38.4, Settings → Rules, `canRunLcTools` = LCP + admins,
+migration 0089)**: the tab manager decides which PAGES a person opens; this
+decides WHAT THEY MAY DO on one. Every switchable rule is a row in
+`PRIVILEGE_REGISTRY` (`src/lib/privileges.ts`) naming exactly one predicate in
+`rbac.ts`, and that predicate ends in `priv(v, "<key>", <builtIn>)` — the ONE
+place where a screen beats the code; nothing else reads `v.privileges`
+(pinned by `tests/privileges.test.ts`, both ways: a key with no `priv()` call
+fails, and a `priv()` call the manager cannot show fails). A `privilege_rules`
+row lays base (as the code says / everyone / nobody) + allow / deny audiences
+(roles, functions, named people; a named person beats a group, deny beats
+allow) over the built-in answer — the SAME precedence and the SAME audience
+editor as the tab rules (`AudienceBlock` in `people-pick.tsx`). Resolved once
+per request in `assembleViewer` (module memo, 60 s, busted on save; a failed
+read falls to the code's rules). The 17 rules: archive revive / manage /
+purge · account claim, reassign, delete-with-history, import, unowned pool ·
+direct visit · deal cancel-others, split · Podio state on create · IR
+team-calls, hand-over, record-by-hand · partner LCs · partnership targets for
+others. A rule widens ONE DECISION, never scope: `account.reassign` only ever
+applies on top of `canEditAccount`, and `account.unownedPool` never reaches a
+crew that doesn't work the research.
 
 **THE NO PEACE WAR (v38)**: the LC's points race, 25 Oct → 25 Nov 2026.
 The **War Room** (`/war-room`, code rule `canSeeWarRoom` = F&L VP + LCP +
@@ -724,6 +745,9 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | Deal counters + the Deal Done stage | DERIVED from the `deals` table in `recordDeal`/`updateDeal`/`cancelDeal` — the last cancel clears `slot_raised` (the view's stage reads it) |
 | Column-filter option lists (sign-ups, CIC, IR calls) | `memoOptions` in `data.ts` — module memory, 5 min; NOT `unstable_cache` (revalidatePath evicts it) |
 | Who sees which tab (rules, dates, retire, public twin) | `src/lib/tabs.ts` (pure, tested — `TAB_REGISTRY` lists every tab) · `src/server/tabs.ts` (`gateTab` on EVERY tab's page) · `src/server/tab-actions.ts` · `tab-manager.tsx` (Settings → Tabs) · a NEW tab = registry + shell `candidates` + `gateTab` in its page (pinned by `tests/tabs.test.ts`) |
+| Who may DO what (the switchable rules) | `src/lib/privileges.ts` (pure, tested — `PRIVILEGE_REGISTRY` lists every one) · `priv()` + the predicate in `src/lib/rbac.ts` (the only reader of `v.privileges`) · reads `src/server/privileges.ts` · writes `src/server/privilege-actions.ts` · `privilege-manager.tsx` (Settings → Rules) · a NEW rule = registry row + `priv()` call (pinned by `tests/privileges.test.ts`) |
+| Who may work a booked IR call (notes, cancel, reschedule, fix the email) | `canActOnIrCall` in `actions.ts` — host, the MM whose `reachIds` covers them (`canManageTeamIrCalls`), or a lead; `canTouch`/`canDelete` in `consideration-view.tsx` must agree. Deleting a log is deliberately NOT in it |
+| A walk-in onto an account that already exists | the `0b` block in `logDirectVisit` (`actions.ts`, needs `onExisting: "convert"` + `canEditAccount`) · `logVisit` on the duplicate in `checkAccountNameLive` · the switch in `direct-visit-dialog.tsx` |
 | The No Peace war (scoring, competitors, clock, public snapshot) | `src/lib/war/model.ts` (pure, tested) · reads `src/server/war.ts` · writes `src/server/war-actions.ts` (every write → `publish()` broadcast) · editor `src/components/war/war-room-view.tsx` · public `src/components/no-peace/*` (`board.tsx` layout, `scene.tsx` vector backdrop, `no-peace.css` namespaced `.np`) · route `src/app/no-peace` |
 | Live pushes to a public page | `broadcast`/`realtimeClientConfig` in `src/server/realtime.ts` · `useWarLive` in `components/no-peace/live.ts` · `wss://*.supabase.co` in the CSP |
 | CORE national ranking (per program/stage) | `src/lib/core-national.ts` (pure) · `coreNationalStanding` in `core-analytics.ts` |

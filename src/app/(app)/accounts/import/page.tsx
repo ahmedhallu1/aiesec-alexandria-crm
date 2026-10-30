@@ -1,7 +1,7 @@
 import { gateTab } from "@/server/tabs";
 import { redirect } from "next/navigation";
 import { getViewer, listVisibleMembers } from "@/server/data";
-import { allowedAccountFunctions, hasRaisingAccess } from "@/lib/rbac";
+import { allowedAccountFunctions, canImportAccounts, hasRaisingAccess } from "@/lib/rbac";
 import { ImportView } from "@/components/crm/import-view";
 
 export const metadata = { title: "Import accounts" };
@@ -14,6 +14,9 @@ export default async function ImportPage() {
   if (!hasRaisingAccess(viewer)) redirect("/accounts");
   const allowedFns = allowedAccountFunctions(viewer);
   if (allowedFns.length === 0) redirect("/accounts");
+  // the LC can switch bulk import off (v38.4) — the button goes AND the URL
+  // closes, because a hidden button is not a rule
+  if (!canImportAccounts(viewer)) redirect("/accounts");
 
   const members = await listVisibleMembers(viewer);
 
