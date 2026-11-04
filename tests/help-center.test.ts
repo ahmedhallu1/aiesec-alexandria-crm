@@ -21,6 +21,8 @@ const ROUTES = new Set([
   "/activation", "/activate26",
   // v38 — the No Peace war: logged in the War Room, live in public
   "/war-room", "/no-peace", "/profile/settings",
+  // v38.5 — Alex vs MUST: run in the app, live in public
+  "/lc-race", "/alex-vs-must",
   // the CXP module (v35) — its first help article landed in v37
   "/cxp", "/cxp/weekly",
   // the settings hub (v36.2; sections since v37.2)

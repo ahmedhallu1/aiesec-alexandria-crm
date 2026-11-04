@@ -15,7 +15,7 @@
 > missing" once. Also update the in-app **Help center**
 > (`src/lib/help-articles.ts` + `HELP_VERSION` in `help-content.ts`) with every release.
 
-Last updated: 2026-10-30 · Version: v38.4
+Last updated: 2026-11-04 · Version: v38.5
 
 ---
 
@@ -67,7 +67,7 @@ Supabase SQL editor (no CLI on this machine): `0001_init` → `0002_membership_v
 `0061_touch_point_location` → `0062_close_rls_gaps` → `0063_prank_mode` →
 `0064_api_keys` → `0065_ir_slot_requests` → `0066_im_prompts` →
 `0067_member_settings` → `0068_cxp_module` → `0069_push_subscriptions` → `0070_b2c_cic_outcomes` →
-`0071_partnership_stage` → … → `0076_next_step_reminders` → `0077_visit_followups_gate` → `0078_contact_keys` → `0079_cv_drive_import` → `0080_redirect_links_and_locations` → `0081_activation_bid_and_tour_seen` → `0082_bd_b2b_planning` → `0083_cxp_staging_and_icx_approvals` → `0084_function_privileges_and_streak_index` → `0085_signup_batch_older` → `0086_list_indexes_and_ir_registry` → `0087_tab_rules_and_war` → `0088_war_realtime_private` → **`0089_privilege_rules`** (0077's FILE was recreated from prod in v37.7)
+`0071_partnership_stage` → … → `0076_next_step_reminders` → `0077_visit_followups_gate` → `0078_contact_keys` → `0079_cv_drive_import` → `0080_redirect_links_and_locations` → `0081_activation_bid_and_tour_seen` → `0082_bd_b2b_planning` → `0083_cxp_staging_and_icx_approvals` → `0084_function_privileges_and_streak_index` → `0085_signup_batch_older` → `0086_list_indexes_and_ir_registry` → `0087_tab_rules_and_war` → `0088_war_realtime_private` → `0089_privilege_rules` → **`0090_lc_race_and_delegation`** (0077's FILE was recreated from prod in v37.7)
 (**all applied**, 0046–0063 during v33.22–v33.51, 0064–0067 during v34.5–v34.8,
 0069 during v35).
 
@@ -204,6 +204,38 @@ is live**; render the component on a temporary local route with fake data.
 Gating (v38.3): `homeRouteFor` (tabs.ts) is the only home rule; /admin and
 /membership are HIDE-ONLY in the tab manager (their pages expose data with no
 role check); `publicPageLive` fails CLOSED.
+
+**ALEX vs MUST (v38.5)** — the LC-to-LC race with AIESEC in MUST: first to
+**150 approvals** each (300 together) before **2 Dec 23:59** (day zero of
+Activate), plus a second track to **100 slots**. Public at **`/alex-vs-must`**
+(live over Realtime topic `alex-vs-must`, private/listen-only — 0090); run
+from the **"Alex vs MUST"** tab (`/lc-race`, `canSeeLcRace` = EB + admins,
+widened in Settings → Tabs; NOT under the public prefix). Settings JSON =
+`war_campaigns` row `alex-vs-must` (`src/lib/race/model.ts`). **Approvals come
+from CORE** (`coreLcApproved` → `parseCoreApproved`, the LC page's "approved
+26/27" panel; Alexandria id 899, MUST id 2818) minus a per-program BASELINE
+(4 Nov: 161 / 215). `observeCore` stores a `race_readings` row only when a
+number CHANGES — on board render, in the editor, and on the hourly
+sheets-export cron; the current count, the winner (first reading ≥ goal,
+inside the deadline) and the trail all derive from readings. Hand readings
+and a per-LC CORE switch cover a wrong/down CORE. **Slots**: Alexandria =
+Sodio deals since the start (`loadRaceDeals`, test accounts out; every deal
+action calls `publishRace()`), MUST = `race_entries` logged through its
+private, no-login desk **`/alex-vs-must/must/<token>`** (constant-time token
+check, `racerl` throttle, can only take back its own link entries; "Make a new
+link" kills the old one). The page is GSAP (loader race, custom cursor,
+pinned scroll-driven track on desktop) — `src/components/race/*`, CSS
+namespaced `.rc`.
+
+**ACTIVATE ON /no-peace (v38.5)** — `WarSettings.activate` (edited in **War
+Room → Activate**): the **APD goal** (150; counts the SAME approvals as Alex vs
+MUST — `homeApprovalsSinceStart`), the **delegation bus** (`activate_delegates`,
+ticked by the F&L VP via `setDelegates`; seat order = tick order), who's coming,
+and the registration card (COD message, dates, location, fees, down payment,
+payment number, https form link, deadline). **The reminder**
+(`server/activate-prompt.ts` + `ActivatePrompt`): everyone NOT ticked sees it
+once per app open (sessionStorage) until the registration deadline; a 60 s
+module memo, never a per-view query; never in a test view.
 
 **Profile "my people" card** (`profilePeople` in data.ts): Team Leader → their
 direct team · VP/Director → their whole function · LCP/admin → the EB
@@ -458,7 +490,9 @@ mutation through a `can*` predicate, **server-side**.
   nav, the layout's gate routes, the page — a Member is sent to `/activate26`
   — and every action, reads included), and since v38 `/no-peace` (the live
   war board; its editor `/war-room` is deliberately NOT a `no-peace…` path,
-  which the prefix matcher would have made public).
+  which the prefix matcher would have made public), and since v38.5
+  `/alex-vs-must` (the race board + MUST's token desk under it; the editor is
+  `/lc-race` for the same reason).
   ⚠️ Any new public asset folder must be added to the matcher or the proxy
   307s it to /login.
 - `/api/cron/*` guarded by `CRON_SECRET`. Feedback inbox = ONLY
@@ -751,6 +785,10 @@ src/components/crm/           views, dialogs, ContactsEditor, QuickActions, Tour
 | The No Peace war (scoring, competitors, clock, public snapshot) | `src/lib/war/model.ts` (pure, tested) · reads `src/server/war.ts` · writes `src/server/war-actions.ts` (every write → `publish()` broadcast) · editor `src/components/war/war-room-view.tsx` · public `src/components/no-peace/*` (`board.tsx` layout, `scene.tsx` vector backdrop, `no-peace.css` namespaced `.np`) · route `src/app/no-peace` |
 | Live pushes to a public page | `broadcast`/`realtimeClientConfig` in `src/server/realtime.ts` · `useWarLive` in `components/no-peace/live.ts` · `wss://*.supabase.co` in the CSP |
 | CORE national ranking (per program/stage) | `src/lib/core-national.ts` (pure) · `coreNationalStanding` in `core-analytics.ts` |
+| Alex vs MUST (race model, CORE parsing, readings, winner) | `src/lib/race/model.ts` (pure, tested in `tests/race.test.ts`) · reads/observer `src/server/race.ts` · writes `src/server/race-actions.ts` (editor + MUST's desk) · editor `race-editor.tsx` · public `src/components/race/board.tsx` + `race.css` · desk `desk.tsx` · routes `src/app/alex-vs-must` + `(app)/lc-race` |
+| CORE for one LC (approved per program) | `coreLcApproved` in `core-analytics.ts` · `parseCoreApproved` in `lib/race/model.ts` |
+| Activate on /no-peace (APD goal, bus, registration) | `ActivateSettings`/`buildActivate` in `lib/war/model.ts` · `loadDelegates`/`warSnapshot` in `server/war.ts` · `setDelegates` in `war-actions.ts` · `components/no-peace/activate.tsx` · `components/war/activate-panel.tsx` |
+| The "register for Activate" reminder | `src/server/activate-prompt.ts` (memo + who sees it) · `src/components/crm/activate-prompt.tsx` · rendered in `(app)/layout.tsx` |
 | Throttle buckets in app_settings | `RATE_BUCKET_SCOPES` + `pruneRateBuckets` in `src/server/rate-limit.ts` (nightly, after the backup) — a new scope must be added to the list (pinned) |
 
 ---

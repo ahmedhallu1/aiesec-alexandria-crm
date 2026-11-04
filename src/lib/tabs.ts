@@ -103,6 +103,10 @@ export const TAB_REGISTRY: TabDef[] = [
     href: "/war-room", label: "War Room", builtIn: "The F&L VP, the LCP and admins", publicHref: "/no-peace",
     shown: "They can log, edit and delete war points and change the war's settings.",
   },
+  {
+    href: "/lc-race", label: "Alex vs MUST", builtIn: "The EB (LCP + LCVPs) and admins", publicHref: "/alex-vs-must",
+    shown: "They can change the race's goals, start counts and dates, MUST's private link and the slots entries.",
+  },
   { href: "/attendance", label: "Attendance", builtIn: "Everyone" },
   { href: "/pdp", label: "PDP & O2O", builtIn: "Everyone the TM process touches" },
   { href: "/emails", label: "Emails", builtIn: "Everyone (the starting letters follow the role)" },

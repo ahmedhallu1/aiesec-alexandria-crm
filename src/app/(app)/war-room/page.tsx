@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { getViewer } from "@/server/data";
 import { canSeeWarRoom } from "@/lib/rbac";
 import { gateTab } from "@/server/tabs";
-import { loadWarEntries, loadWarPeople, loadWarSettings } from "@/server/war";
+import { loadDelegates, loadWarEntries, loadWarPeople, loadWarSettings } from "@/server/war";
 import { WAR_PUBLIC_PATH, WAR_ROOM_PATH } from "@/lib/war/model";
 import { WarRoomView } from "@/components/war/war-room-view";
 
@@ -15,10 +15,11 @@ export const metadata: Metadata = { title: "War Room" };
 export default async function WarRoomPage() {
   const viewer = await getViewer();
   await gateTab(viewer, WAR_ROOM_PATH, canSeeWarRoom(viewer));
-  const [{ settings, updatedAt, updatedBy }, people, entries] = await Promise.all([
+  const [{ settings, updatedAt, updatedBy }, people, entries, delegates] = await Promise.all([
     loadWarSettings(),
     loadWarPeople(),
     loadWarEntries({ withDeleted: true }),
+    loadDelegates(),
   ]);
   const base = process.env.NEXT_PUBLIC_APP_URL ?? "https://sodio.vercel.app";
   return (
@@ -27,6 +28,7 @@ export default async function WarRoomPage() {
       settingsMeta={{ updatedAt, updatedBy }}
       people={people}
       entries={entries}
+      delegates={delegates}
       publicUrl={`${base}${WAR_PUBLIC_PATH}`}
       readOnly={!!viewer.impersonated}
     />

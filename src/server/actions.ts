@@ -61,6 +61,7 @@ import { recordUndo, sandboxSuppressed, snapshotForUndo } from "./sandbox";
 // v29: every real piece of work stamps work_activity — the raw material of
 // AUTOMATIC working-hours attendance (see src/server/attendance.ts)
 import { stampWork } from "./work-activity";
+import { publishRace } from "./race";
 import { keepAlive } from "./background";
 import { sendEmail } from "@/lib/google/gmail";
 import { visitReportEmail } from "@/lib/email/templates";
@@ -1546,6 +1547,8 @@ export async function recordDeal(
   });
   await stampWork(viewer.id, "deal"); // v29: counts towards working hours
   refresh(accountId);
+  // v38.5 — Alexandria's slots in Alex vs MUST are Sodio's deals: push the board
+  publishRace();
   return {
     ok: true,
     data: {
@@ -2713,6 +2716,7 @@ export async function updateDeal(
     deal: dealId, fields: Object.keys(update),
   });
   refresh(deal.account_id);
+  publishRace();
   return { ok: true };
 }
 
@@ -2838,6 +2842,7 @@ export async function cancelDeal(
     reason: why || null,
   });
   refresh(deal.account_id);
+  publishRace();
   return { ok: true };
 }
 

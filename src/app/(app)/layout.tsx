@@ -14,6 +14,8 @@ import { GateClient } from "@/components/crm/gate-client";
 import { Tour } from "@/components/crm/tour";
 import { ViewAsBanner } from "@/components/crm/view-as-banner";
 import { GoogleGrantBanner } from "@/components/crm/google-grant-banner";
+import { ActivatePrompt } from "@/components/crm/activate-prompt";
+import { activatePromptFor } from "@/server/activate-prompt";
 import { db } from "@/lib/supabase";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -90,6 +92,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     ...(nav.mailbox ? ["/emails"] : []),
     ...(nav.activation ? ["/activation"] : []),
     ...(nav.warRoom ? ["/war-room"] : []),
+    ...(nav.lcRace ? ["/lc-race"] : []),
     ...extraRoutes,
     ...Object.keys(tabOverrides).filter((h) => tabOverrides[h] === "show"),
   ];
@@ -117,6 +120,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // the test-view pool: `listViewAsTargets` already gates on the admin
   // capability and returns [] for everyone else (v33.42)
   const viewAsTargets = canUseAdminTools(viewer) ? await listViewAsTargets() : [];
+
+  // v38.5 — "register for Activate", for everyone not ticked as registered,
+  // until the deadline. A memo lookup, not a query (server/activate-prompt.ts).
+  const activatePrompt = await activatePromptFor(viewer);
 
   // 🃏 PRANK MODE (v33.51) — off in a TEST VIEW on purpose: an admin looking
   // at somebody's screen to diagnose it must see the real thing, and pranking
@@ -159,6 +166,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         cxp: nav.cxp,
         activation: nav.activation,
         warRoom: nav.warRoom,
+        lcRace: nav.lcRace,
       }}
       homeHref={home}
       tabs={{ overrides: tabOverrides, labels: tabLabels, positions: tabPositions }}
@@ -172,6 +180,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       }}
     >
       {needsGoogleGrant ? <GoogleGrantBanner email={viewer.email!} /> : null}
+      {activatePrompt ? <ActivatePrompt data={activatePrompt} /> : null}
       {raising ? (
         children
       ) : (

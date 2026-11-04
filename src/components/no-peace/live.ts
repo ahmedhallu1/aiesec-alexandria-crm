@@ -48,6 +48,15 @@ export function validSnapshot(p: unknown, newestMs: number): p is WarSnapshot {
     isObj(r) && typeof r.id === "string" && typeof r.name === "string" && typeof r.fn === "string" && typeof r.role === "string" && typeof r.points === "number" && typeof r.rank === "number" && isObj(r.breakdown);
   const feedOk = (f: unknown) => isObj(f) && typeof f.id === "string" && typeof f.name === "string" && typeof f.label === "string" && typeof f.points === "number" && typeof f.at === "string";
   if (!p.rows.every(rowOk) || !p.feed.every(feedOk)) return false;
+  // v38.5 — the Activate half is optional (older pushes don't carry it)
+  if (st.activate !== undefined && !isObj(st.activate)) return false;
+  if (p.activate !== undefined) {
+    const act = p.activate;
+    if (!isObj(act) || !Array.isArray(act.delegates) || act.delegates.length > 2000) return false;
+    if (!act.delegates.every((d) => isObj(d) && typeof d.id === "string" && typeof d.name === "string")) return false;
+    if (act.apd !== null && !(isObj(act.apd) && typeof act.apd.value === "number" && typeof act.apd.goal === "number")) return false;
+    if (!isObj(st.activate)) return false;
+  }
   if (typeof p.at !== "string") return false;
   const at = Date.parse(p.at);
   // ahead of the newest snapshot we hold OR the local clock, whichever is

@@ -5,6 +5,7 @@ import { warSnapshot } from "@/server/war";
 import { realtimeClientConfig } from "@/server/realtime";
 import { coreNationalStanding } from "@/lib/core-analytics";
 import { WAR_ROOM_PATH } from "@/lib/war/model";
+import { RACE_EDITOR_PATH } from "@/lib/race/model";
 import { NoPeaceBoard } from "@/components/no-peace/board";
 
 /** PUBLIC (v38, no session — exempted in src/proxy.ts): AIESEC in
@@ -33,12 +34,13 @@ export const viewport: Viewport = { themeColor: "#091417" };
 export default async function NoPeacePage() {
   // all three at once — CORE is a slow outside fetch (cached 15 min), and it
   // used to wait for the snapshot before it even started
-  const [live, snapshot, core] = await Promise.all([
+  const [live, snapshot, core, racePublic] = await Promise.all([
     publicPageLive(WAR_ROOM_PATH),
     warSnapshot(),
     coreNationalStanding().catch(() => null),
+    publicPageLive(RACE_EDITOR_PATH),
   ]);
   if (!live) notFound();
   const national = snapshot.settings.show.national ? core : null;
-  return <NoPeaceBoard initial={snapshot} national={national} realtime={realtimeClientConfig()} />;
+  return <NoPeaceBoard initial={snapshot} national={national} realtime={realtimeClientConfig()} racePublic={racePublic} />;
 }

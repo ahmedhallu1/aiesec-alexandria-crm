@@ -17,13 +17,14 @@ const CORE_URL = "https://core.aiesec.org.eg";
 const ALEXANDRIA_LC_ID = 899;
 const REVALIDATE_SECONDS = 900;
 
-async function fetchCore(path: string): Promise<string | null> {
+async function fetchCore(path: string, opts: { fresh?: boolean } = {}): Promise<string | null> {
   // hard timeout so a slow/hanging CORE never stalls the request that needs it
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
   try {
     const res = await fetch(`${CORE_URL}${path}`, {
-      next: { revalidate: REVALIDATE_SECONDS },
+      // `fresh` is the race editor's "Read CORE now" — everything else rides the cache
+      ...(opts.fresh ? { cache: "no-store" as const } : { next: { revalidate: REVALIDATE_SECONDS } }),
       headers: { "User-Agent": "Sodio-CRM (AIESEC in Alexandria)" },
       signal: controller.signal,
     });
@@ -146,6 +147,21 @@ export async function coreNationalStanding(): Promise<import("./war/model").Nati
   if (!html) return null;
   const { parseNationalStanding } = await import("./core-national");
   return parseNationalStanding(html);
+}
+
+// ------------------------------------------------------------------ one LC's approvals
+
+/** An LC's "approved 26/27" counts on CORE — the Alex vs MUST race (v38.5)
+ *  reads both LCs through this. Same 15-minute cache unless `fresh`; null
+ *  when CORE is down or the page changed shape. */
+export async function coreLcApproved(
+  lcId: number,
+  opts: { fresh?: boolean } = {}
+): Promise<import("./race/model").CoreReading | null> {
+  const html = await fetchCore(`/analytics/lc/${lcId}/`, opts);
+  if (!html) return null;
+  const { parseCoreApproved } = await import("./race/model");
+  return parseCoreApproved(html);
 }
 
 // ------------------------------------------------------------------ digest

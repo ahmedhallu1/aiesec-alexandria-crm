@@ -28,6 +28,7 @@ import {
   ClipboardList,
   Tent,
   Swords,
+  Flag,
 } from "lucide-react";
 import { tabVisible, type TabOverride } from "@/lib/tabs";
 import { cn } from "@/lib/utils";
@@ -59,7 +60,7 @@ interface ShellProps {
     /** may open Health & Logs and the test view (v33) */
     adminTools: boolean;
   };
-  nav: { raising: boolean; dashboard: boolean; tm: boolean; membership: boolean; planning: boolean; ogtMail: boolean; signups: boolean; consideration: boolean; calendar: boolean; mailbox: boolean; cxp: boolean; activation: boolean; warRoom: boolean };
+  nav: { raising: boolean; dashboard: boolean; tm: boolean; membership: boolean; planning: boolean; ogtMail: boolean; signups: boolean; consideration: boolean; calendar: boolean; mailbox: boolean; cxp: boolean; activation: boolean; warRoom: boolean; lcRace: boolean };
   /** v38 — the LC's tab rules for this person (Settings → Tabs): show/hide
    *  overrides on top of `nav`, renamed labels and the LC's default order */
   tabs?: {
@@ -140,6 +141,8 @@ export function AppShell({
     { href: "/activation", label: "Activate 26' Bid", icon: Tent, builtIn: nav.activation },
     // v38 — the No Peace war: points logged here, shown live at /no-peace
     { href: "/war-room", label: "War Room", icon: Swords, builtIn: nav.warRoom },
+    // v38.5 — Alex vs MUST: the LC-to-LC race, shown live at /alex-vs-must
+    { href: "/lc-race", label: "Alex vs MUST", icon: Flag, builtIn: nav.lcRace },
     // v29: attendance is everybody's — own history, plus whatever you record
     { href: "/attendance", label: "Attendance", icon: CalendarCheck2, builtIn: true },
     // v36 — one-on-ones and development plans, beside Attendance because both

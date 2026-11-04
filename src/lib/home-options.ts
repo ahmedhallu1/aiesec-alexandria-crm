@@ -1,6 +1,6 @@
 import {
   canManageMembership, canOpenCalendar, canOpenPlanning, canSeeActivationBid,
-  canSeeWarRoom, canUseMailboxTab, hasConsiderationAccess, hasOgxAccess,
+  canSeeLcRace, canSeeWarRoom, canUseMailboxTab, hasConsiderationAccess, hasOgxAccess,
   hasRaisingAccess, hasTmAccess, isB2C, isTmCore, seesEveryLane, type Viewer,
 } from "@/lib/rbac";
 import { hasCxpAccess } from "@/lib/cxp/rbac";
@@ -53,6 +53,8 @@ export function navFlagsFor(v: Viewer) {
     activation: canSeeActivationBid(v),
     // v38 — the No Peace War Room: the F&L VP (+ LCP/admins) by code
     warRoom: canSeeWarRoom(v),
+    // v38.5 — Alex vs MUST, the race editor: the EB (+ admins) by code
+    lcRace: canSeeLcRace(v),
   };
 }
 

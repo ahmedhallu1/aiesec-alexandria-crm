@@ -7,6 +7,40 @@
 > ~87% of it. This file is NOT auto-loaded — grep it for the reasoning behind
 > a past decision before changing that behaviour.
 
+- **2026-11-04 · v38.5** — **ALEX vs MUST + ACTIVATE ON THE NO PEACE BOARD.**
+  Migration **0090** (`race_readings`, `race_entries`, `activate_delegates`,
+  the 'alex-vs-must' `war_campaigns` row, a listen-only Realtime policy for
+  topic 'alex-vs-must'). ① **/alex-vs-must** (public, live): AIESEC in
+  Alexandria vs AIESEC in MUST, first to **150 approvals** each (300
+  together) before **2 Dec 23:59** — counted from CORE's totals on 4 Nov
+  (Alexandria 161, MUST 215, kept PER PROGRAM as the baseline); a second
+  track races to **100 slots** (Alexandria = Sodio deals since the start,
+  MUST = its own entries). Built with **GSAP** (new dependency, page-only):
+  a loader that is itself a race, a custom cursor (fine pointers only), the
+  main track PINNED on desktop so the scroll drives both LCs from zero,
+  per-program breakdown, a stepped trail chart with pace projections, a
+  together-ring, the wire, a velocity-skewed marquee. ② **Readings, not
+  polls**: `observeCore` stores a `race_readings` row only when CORE's number
+  CHANGES — on board render, in the editor, and on the hourly sheets-export
+  cron, so "who got there first" (the first reading ≥ the goal) is never more
+  than an hour out. The editor can add a reading by hand or switch CORE off
+  per LC. ③ **MUST's desk** `/alex-vs-must/must/<token>` — no login; the
+  token is checked in constant time, throttled (`racerl`), can add MUST's
+  slots and take back only its own link entries; "Make a new link" kills the
+  old one. ④ **"Alex vs MUST" tab** (`/lc-race`, `canSeeLcRace` = EB +
+  admins — spelled out, `isEb` rides `master` and would admit all F&L).
+  ⑤ **No Peace → Activate**: the **150 APDs by Activate** goal (the SAME
+  count as the race, one number), the **delegation bus** (vector, fills seat
+  by seat, honks on a new delegate), **who's coming**, and the registration
+  card (the COD's message, fees, InstaPay/Wallet number with copy, form,
+  deadline) — all edited in the new **War Room → Activate** tab, where the
+  F&L VP ticks who registered (`setDelegates`). ⑥ **The reminder**: everyone
+  not ticked sees it once per app open (sessionStorage) until the
+  registration deadline — skip / copy the number / open the form; it waits
+  behind any other open dialog. Costs a 60 s module memo per page view, not
+  a query (`server/activate-prompt.ts`). ⚠️ The COD's DDL is 5/12/2026 — the
+  conference's own last day; editable if it was meant to be earlier.
+
 - **2026-10-30 · v38.4** — **THE RULE MANAGER + A UI AUDIT (phones first).**
   Migration **0089** (`privilege_rules`). ① **Settings → Rules**
   (`canRunLcTools`): 17 rules that used to be role lists in code — revive /

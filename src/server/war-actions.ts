@@ -13,6 +13,7 @@ import {
   warSettingsProblem, type WarSettings,
 } from "@/lib/war/model";
 import { cairoToday } from "@/lib/types";
+import { bustActivatePrompt } from "@/server/activate-prompt";
 
 /** WRITES for the No Peace war (v38).
  *
@@ -251,6 +252,37 @@ export async function saveWarSettings(patch: Record<string, unknown>): Promise<R
     );
   if (dbError) return fail(dbError.message);
   await logAudit(viewer.id, "war_settings", "war_campaigns", null, { keys: Object.keys(patch) });
+  if ("activate" in patch) bustActivatePrompt();
   await publish();
   return { ok: true, data: { settings: merged } };
+}
+
+/** ACTIVATE (v38.5) — tick (or untick) people as registered. One or many at
+ *  once; ticking someone already on the bus keeps their original seat (the
+ *  bus fills in the order people registered). Bumps the in-app reminder off
+ *  them within this instance at once, everywhere else within a minute. */
+export async function setDelegates(memberIds: string[], registered: boolean): Promise<Res<{ count: number }>> {
+  const { viewer, error } = await editor();
+  if (error) return fail(error);
+  const ids = [...new Set((memberIds ?? []).filter((x) => UUID.test(x)))];
+  if (ids.length === 0) return fail("Pick at least one person.");
+  if (ids.length > 300) return fail("At most 300 people at once.");
+  if (registered) {
+    const { data: found } = await db().from("members").select("id").in("id", ids);
+    if ((found ?? []).length !== ids.length) return fail("Someone in the list isn't a member any more.");
+    const { error: dbError } = await db()
+      .from("activate_delegates")
+      .upsert(
+        ids.map((member_id) => ({ campaign: WAR_SLUG, member_id, marked_by: viewer.id })),
+        { onConflict: "campaign,member_id", ignoreDuplicates: true }
+      );
+    if (dbError) return fail(dbError.message);
+  } else {
+    const { error: dbError } = await db().from("activate_delegates").delete().eq("campaign", WAR_SLUG).in("member_id", ids);
+    if (dbError) return fail(dbError.message);
+  }
+  await logAudit(viewer.id, registered ? "activate_register" : "activate_unregister", "activate_delegates", null, { people: ids.length, ids: ids.slice(0, 50) });
+  bustActivatePrompt();
+  await publish();
+  return { ok: true, data: { count: ids.length } };
 }

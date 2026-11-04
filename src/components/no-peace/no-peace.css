@@ -547,3 +547,95 @@
   /* still shown — faded in and out in place, nothing moves */
   .np .np-toast { animation: np-toast-fade 4.6s linear both !important; }
 }
+
+/* ------------------------------------------------------------ activate (v38.5)
+ * The road to Activate: the APD goal, the delegation bus, who's coming and the
+ * registration card. Same palette as the rest of the board — brass for what
+ * moves, AIESEC blue for the bus. */
+.np-act-grid { display: grid; gap: 20px; }
+@media (min-width: 1100px) {
+  .np-act-grid { grid-template-columns: minmax(0, 1fr) 380px; align-items: start; }
+  .np-reg { position: sticky; top: 140px; }
+}
+.np-act-main { display: grid; gap: 20px; min-width: 0; }
+
+.np-apd-body { padding: 4px 18px 18px; }
+.np-apd-count { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+.np-apd-count b { font-size: clamp(44px, 8vw, 64px); font-weight: 600; line-height: 1; color: var(--np-brass); }
+.np-apd-count span { font-size: 20px; color: var(--np-muted); }
+.np-apd-count em { font-style: normal; color: var(--np-mint); font-weight: 700; }
+.np-apd-road { position: relative; height: 16px; margin: 22px 26px 30px 0; border-radius: 99px; background: var(--np-surface-2); border: 1px solid var(--np-line-2); }
+.np-apd-fill { position: absolute; inset: 2px auto 2px 2px; max-width: calc(100% - 4px); border-radius: 99px; background: linear-gradient(90deg, #a77d2c, var(--np-brass)); box-shadow: 0 0 18px rgba(226, 179, 84, .45); transition: width 1.2s cubic-bezier(.2, .8, .2, 1); }
+.np-apd-mark { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--np-line-2); }
+.np-apd-mark.on { background: var(--np-brass-2); }
+.np-apd-mark small { position: absolute; top: calc(100% + 4px); left: 50%; translate: -50% 0; font-family: var(--np-mono); font-size: 10px; color: var(--np-faint); }
+.np-apd-flag { position: absolute; right: -26px; top: 50%; translate: 0 -50%; font-size: 20px; }
+.np-apd-tip { position: absolute; top: 50%; width: 22px; height: 22px; translate: -50% -50%; border-radius: 50%; background: var(--np-text); box-shadow: 0 0 0 4px var(--np-brass), 0 0 22px var(--np-brass); transition: left 1.2s cubic-bezier(.2, .8, .2, 1); }
+.np-apd-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; color: var(--np-muted); font-size: 14px; }
+.np-apd-meta b { color: var(--np-text); }
+.np-apd-race { display: inline-block; margin-top: 12px; font-size: 14px; font-weight: 600; color: var(--np-brass); }
+.np-apd-race:hover { text-decoration: underline; }
+
+.np-bus-stage { padding: 0 8px; overflow: hidden; }
+.np-bus { display: block; width: 100%; max-width: 640px; height: auto; margin: 0 auto; }
+.np-bus-sign { font-family: var(--np-mono); font-size: 11px; font-weight: 700; letter-spacing: .12em; fill: #ffb547; }
+.np-bus-ini { font-family: var(--np-mono); font-size: 12px; font-weight: 700; fill: #22190e; }
+.np-bus-more { font-family: var(--np-mono); font-size: 15px; font-weight: 700; fill: #024f9b; }
+.np-bus-count { font-family: var(--np-display); font-size: 24px; letter-spacing: .06em; fill: #fff; }
+.np-bus-body { animation: np-bob 1.1s ease-in-out infinite; transform-box: fill-box; }
+.np-wheel { animation: np-spin 1.4s linear infinite; transform-box: fill-box; transform-origin: center; }
+.np-road-dash { animation: np-road 0.9s linear infinite; }
+.np-bus-light { animation: np-blink 2.4s ease-in-out infinite; }
+.np-bus-face { animation: np-pop .5s cubic-bezier(.3, 1.6, .5, 1) both; transform-box: fill-box; transform-origin: center; }
+.np-honk { animation: np-honk 1.6s ease-out forwards; transform-box: fill-box; transform-origin: center; }
+.np-honk-t { font-family: var(--np-display); font-size: 14px; fill: var(--np-ink); }
+@keyframes np-bob { 50% { transform: translateY(-2px); } }
+@keyframes np-spin { to { transform: rotate(360deg); } }
+@keyframes np-road { to { stroke-dashoffset: 48; } }
+@keyframes np-blink { 50% { opacity: .45; } }
+@keyframes np-pop { from { transform: scale(0); } }
+@keyframes np-honk { 0% { opacity: 0; transform: scale(.4); } 15% { opacity: 1; transform: scale(1.1); } 30% { transform: scale(1); } 80% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .np-bus-body, .np-wheel, .np-road-dash, .np-bus-light, .np-bus-face, .np-honk { animation: none; }
+}
+.np-seats { padding: 6px 18px 18px; }
+.np-seats-bar { height: 8px; border-radius: 99px; background: var(--np-surface-2); overflow: hidden; }
+.np-seats-bar i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, #037ef3, #5fb2ff); transition: width 1s ease; }
+.np-seats p { margin: 10px 0 0; color: var(--np-muted); font-size: 14px; }
+.np-seats p b { color: var(--np-text); }
+
+.np-roster { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr)); gap: 8px; margin: 0; padding: 0 18px 18px; list-style: none; }
+@media (max-width: 560px) {
+  .np-roster { grid-template-columns: 1fr 1fr; gap: 6px; padding: 0 12px 14px; }
+  .np-roster li { grid-template-columns: auto 1fr; gap: 8px; padding: 7px 8px; }
+  .np-roster .np-seat { display: none; }
+  .np-roster-name b { font-size: 13px; }
+}
+.np-roster-more { display: block; margin: 0 auto 18px; min-height: 40px; padding: 0 18px; border-radius: 99px; border: 1px solid var(--np-line-2); background: transparent; color: var(--np-text); font: inherit; font-size: 14px; cursor: pointer; }
+.np-roster li { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; background: var(--np-surface-2); border: 1px solid var(--np-line); border-left: 3px solid #037ef3; transition: box-shadow .4s, border-color .4s; }
+.np-roster li.is-new { border-color: var(--np-brass); box-shadow: 0 0 0 1px var(--np-brass), 0 0 24px rgba(226, 179, 84, .35); animation: np-pop .5s cubic-bezier(.3, 1.6, .5, 1); }
+.np-seat { font-size: 11px; color: var(--np-faint); }
+.np-roster img, .np-roster-ini { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; }
+.np-roster-ini { display: grid; place-items: center; background: var(--np-brass); color: var(--np-ink); font-family: var(--np-mono); font-size: 11px; font-weight: 700; }
+.np-roster-name { min-width: 0; }
+.np-roster-name b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.np-roster-name small { color: var(--np-faint); font-size: 12px; }
+
+.np-reg { padding: 18px; border-color: rgba(226, 179, 84, .35); background: linear-gradient(170deg, #182a2c, var(--np-surface) 55%); }
+.np-reg-state { display: inline-flex; align-items: center; gap: 6px; font-family: var(--np-mono); font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--np-faint); }
+.np-reg-state.on { color: var(--np-mint); }
+.np-reg-state.on::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--np-mint); box-shadow: 0 0 10px var(--np-mint); }
+.np-reg-title { margin: 6px 0 0; font-family: var(--np-display); font-weight: 400; font-size: 30px; line-height: 1.05; }
+.np-reg-msg { margin: 14px 0 0; white-space: pre-line; line-height: 1.55; }
+.np-reg-facts { display: grid; gap: 0; margin: 16px 0 0; }
+.np-reg-facts > div { display: grid; grid-template-columns: 110px 1fr; gap: 10px; padding: 10px 0; border-top: 1px solid var(--np-line); }
+.np-reg-facts dt { font-family: var(--np-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--np-muted); padding-top: 2px; }
+.np-reg-facts dd { margin: 0; min-width: 0; }
+.np-reg-pay { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.np-reg-pay b { font-size: 17px; letter-spacing: .04em; color: var(--np-brass-2); }
+.np-reg-copy { min-height: 32px; padding: 0 12px; border-radius: 99px; border: 1px solid var(--np-line-2); background: transparent; color: var(--np-text); font: inherit; font-size: 13px; cursor: pointer; }
+.np-reg-copy:hover { border-color: var(--np-brass); }
+.np-reg-left { color: var(--np-brass); }
+.np-reg-go { width: 100%; justify-content: center; margin-top: 16px; }
+.np-reg-foot { margin: 12px 0 0; font-size: 13px; color: var(--np-muted); }
+.np-btn-act { border-color: rgba(3, 126, 243, .6); }

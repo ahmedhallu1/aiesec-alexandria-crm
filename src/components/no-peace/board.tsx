@@ -3,13 +3,14 @@
 import "./no-peace.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  BONUS, rewardFor, splitDuration, warClock, warDay, warPhase, warProgress,
+  BONUS, cairoInstant, rewardFor, splitDuration, warClock, warDay, warPhase, warProgress,
   type FeedItem, type FunctionRow, type NationalStanding, type PointGroup, type Reward, type StandingRow, type WarSnapshot,
 } from "@/lib/war/model";
 import { marker, stencil } from "./fonts";
 import { useWarLive, type LiveState } from "./live";
 import { HarbourScene } from "./scene";
 import { Odometer, Reveal, initials, useFlip, useNow } from "./bits";
+import { ActivateFront } from "./activate";
 
 /** /no-peace — AIESEC in Alexandria's war board (v38, redesigned v38.1).
  *
@@ -98,10 +99,13 @@ export function NoPeaceBoard({
   initial,
   national,
   realtime,
+  racePublic = false,
 }: {
   initial: WarSnapshot;
   national: NationalStanding | null;
   realtime: { url: string; key: string } | null;
+  /** v38.5 — Alex vs MUST is public, so the APD goal can link to it */
+  racePublic?: boolean;
 }) {
   const { snap, state } = useWarLive(initial, realtime);
   const s = snap.settings;
@@ -151,6 +155,13 @@ export function NoPeaceBoard({
     ...(s.show.feed ? [{ id: "live", label: "Live feed" }] : []),
     { id: "rewards", label: "Rewards" },
     ...(s.show.national ? [{ id: "national", label: "National" }] : []),
+    // v38.5 — the road to Activate, and the registration card beside it
+    ...(s.activate?.enabled && snap.activate
+      ? [
+          { id: "activate", label: "Activate" },
+          { id: "register", label: "Register" },
+        ]
+      : []),
     { id: "points", label: "Point system" },
     ...(s.rules.length ? [{ id: "rules", label: "Rules" }] : []),
   ];
@@ -173,6 +184,7 @@ export function NoPeaceBoard({
           </aside>
         </div>
 
+        <ActivateFront snap={snap} now={now} racePublic={racePublic} />
         <PointSystem snap={snap} />
         {s.rules.length ? <Rules rules={s.rules} /> : null}
       </main>
@@ -238,7 +250,8 @@ export function NoPeaceBoard({
  *  From 1100px the rail sits BESIDE the leaderboard, so its cards' tops cross
  *  the line while the reader is still on the board — there they are skipped
  *  and light up only from a click. */
-const RAIL_IDS = new Set(["live", "rewards", "national"]);
+// v38.5: the registration card sits beside the Activate column from 1100px too
+const RAIL_IDS = new Set(["live", "rewards", "national", "register"]);
 function useScrollSpy(ids: string[]): { active: string; pick: (id: string) => void } {
   const key = ids.join(",");
   const [active, setActive] = useState(ids[0] ?? "");
@@ -413,6 +426,11 @@ function Hero({ snap, now, onRewards }: { snap: WarSnapshot; now: number | null;
             <button type="button" className="np-btn np-btn-ghost" onClick={onRewards}>
               War rewards
             </button>
+            {s.activate?.enabled && snap.activate && (now === null || now <= cairoInstant(s.activate.deadline, "23:59")) ? (
+              <a href="#register" className="np-btn np-btn-ghost np-btn-act">
+                Register for {s.activate.name}
+              </a>
+            ) : null}
           </div>
         </div>
 

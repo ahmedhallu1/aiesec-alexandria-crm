@@ -61,6 +61,36 @@ export interface FunctionBoardSettings {
   exclude: string[];
 }
 
+/** ACTIVATE (v38.5) — the conference the war ends at, on the same board: the
+ *  LC's APD goal for it, the delegation bus (who registered, ticked by the
+ *  F&L VP in the War Room) and the registration details the in-app reminder
+ *  shows to everyone not ticked yet. Every word here is edited in the War
+ *  Room → Activate. */
+export interface ActivateSettings {
+  /** show the Activate sections on /no-peace */
+  enabled: boolean;
+  /** approvals by Activate — counted from Alex vs MUST's start (one number) */
+  apdGoal: number;
+  /** seats on the bus = the delegation target */
+  seats: number;
+  name: string;
+  dates: string;
+  location: string;
+  fees: string;
+  downPayment: string;
+  payVia: string;
+  payNumber: string;
+  /** https only */
+  formUrl: string;
+  /** YYYY-MM-DD (Cairo) — registration closes after this day; the reminder stops */
+  deadline: string;
+  /** the Chief of Delegates' message, shown as written */
+  announcement: string;
+  signedBy: string;
+  /** remind everyone not registered each time they open Sodio */
+  prompt: boolean;
+}
+
 export interface WarSettings {
   name: string;
   tagline: string;
@@ -81,7 +111,28 @@ export interface WarSettings {
   show: { national: boolean; feed: boolean; breakdown: boolean; avatars: boolean };
   /** v38.3 — functions race each other on total points (see functionStandings) */
   functionBoard: FunctionBoardSettings;
+  /** v38.5 — Activate: APD goal, the delegation bus, registration */
+  activate: ActivateSettings;
 }
+
+export const DEFAULT_ACTIVATE: ActivateSettings = {
+  enabled: true,
+  apdGoal: 150,
+  seats: 60,
+  name: "ACTIVATE",
+  dates: "3rd, 4th, 5th of December",
+  location: "Alexandria Youth City (Abu Qir)",
+  fees: "~2000 EGP (not confirmed)",
+  downPayment: "1000 EGP",
+  payVia: "InstaPay or Wallet",
+  payNumber: "01555571812",
+  formUrl: "https://forms.gle/YPQEnkmDRqnXrj3F6",
+  deadline: "2026-12-05",
+  announcement:
+    "Heeyyy AIESEC 💙\nThis is your Chief of Delegates (COD), I'm happily announcing the internal registration form for ACTIVATE 🔥🔥🔥",
+  signedBy: "Your Chief of Delegates",
+  prompt: true,
+};
 
 export const DEFAULT_POINT_TYPES: PointType[] = [
   { key: "ogv_apd", label: "OGV APD", points: 7, group: "OGX", hint: "An OGV approval" },
@@ -130,6 +181,7 @@ export const DEFAULT_WAR: WarSettings = {
   show: { national: true, feed: true, breakdown: true, avatars: true },
   // the LC's call: CXP, TM, IM and F&L are not part of the function race
   functionBoard: { enabled: true, exclude: ["CXP", "TM", "IM", "F&L"] },
+  activate: DEFAULT_ACTIVATE,
 };
 
 export const COMPETITOR_ROLES = ["Member", "Coordinator", "Team Leader", "Director", "LCVP", "LCP"] as const;
@@ -212,6 +264,38 @@ function cleanRewards(v: unknown): Reward[] {
     .sort((a, b) => a.rank - b.rank);
 }
 
+export const isHttpsUrl = (v: unknown): v is string => {
+  if (typeof v !== "string" || v.length > 300) return false;
+  try {
+    return new URL(v).protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
+function resolveActivate(v: unknown): ActivateSettings {
+  const r = v && typeof v === "object" ? (v as Record<string, unknown>) : {};
+  const d = DEFAULT_ACTIVATE;
+  const txt = (k: keyof ActivateSettings, max: number) => (k in r ? str(r[k], max) : (d[k] as string));
+  return {
+    enabled: typeof r.enabled === "boolean" ? r.enabled : d.enabled,
+    apdGoal: int(r.apdGoal, 1, 100000, d.apdGoal),
+    seats: int(r.seats, 1, 1000, d.seats),
+    name: str(r.name, 30) || d.name,
+    dates: txt("dates", 80),
+    location: txt("location", 120),
+    fees: txt("fees", 80),
+    downPayment: txt("downPayment", 80),
+    payVia: txt("payVia", 60),
+    payNumber: "payNumber" in r ? str(r.payNumber, 30) : d.payNumber,
+    formUrl: "formUrl" in r ? (isHttpsUrl(r.formUrl) ? r.formUrl : "") : d.formUrl,
+    deadline: isIsoDate(r.deadline) ? r.deadline : d.deadline,
+    announcement: "announcement" in r ? (typeof r.announcement === "string" ? r.announcement.trim().slice(0, 1200) : "") : d.announcement,
+    signedBy: txt("signedBy", 60),
+    prompt: typeof r.prompt === "boolean" ? r.prompt : d.prompt,
+  };
+}
+
 /** Stored JSON → full settings. Every missing or broken key falls back to the
  *  default, so a half-written row can never break the page. */
 export function resolveWarSettings(raw: unknown, name?: string | null): WarSettings {
@@ -253,6 +337,7 @@ export function resolveWarSettings(raw: unknown, name?: string | null): WarSetti
       enabled: bool(fb.enabled, d.functionBoard.enabled),
       exclude: "exclude" in fb ? strList(fb.exclude, 30, 20) : d.functionBoard.exclude,
     },
+    activate: resolveActivate(r.activate),
     show: {
       national: bool(show.national, d.show.national),
       feed: bool(show.feed, d.show.feed),
@@ -295,6 +380,16 @@ export function warSettingsProblem(patch: Record<string, unknown>, stored: unkno
       if (ranks.has(rank)) return `Two rewards are set for rank ${rank} — give each rank one reward.`;
       ranks.add(rank);
     }
+  }
+  if ("activate" in patch) {
+    const a = patch.activate && typeof patch.activate === "object" ? (patch.activate as Record<string, unknown>) : null;
+    if (!a) return "The Activate settings didn't come through — reload and try again.";
+    if (!whole(a.apdGoal, 1, 100000)) return "The APD goal must be a whole number from 1 up.";
+    if (!whole(a.seats, 1, 1000)) return "Seats on the bus must be a whole number from 1 to 1000.";
+    if (!isIsoDate(a.deadline)) return "The registration deadline isn't a real date.";
+    if (typeof a.formUrl === "string" && a.formUrl.trim() && !isHttpsUrl(a.formUrl.trim()))
+      return "The registration form link must start with https://";
+    if (typeof a.announcement === "string" && a.announcement.length > 1200) return "The announcement is too long (1200 characters at most).";
   }
   if ("minPoints" in patch && !whole(patch.minPoints, 0, 10000))
     return "Points to compete must be a whole number from 0 to 10000.";
@@ -602,6 +697,46 @@ export function functionStandings(rows: StandingRow[], fb: FunctionBoardSettings
   return list;
 }
 
+/** What the in-app "register for Activate" reminder shows (v38.5). */
+export type ActivatePromptData = Pick<
+  ActivateSettings,
+  "name" | "dates" | "location" | "fees" | "downPayment" | "payVia" | "payNumber" | "formUrl" | "deadline" | "announcement" | "signedBy"
+> & { seatsTaken: number; seats: number };
+
+/** Activate on the board: who's on the bus (registered, in the order they
+ *  were ticked) and how far the APD goal has come. */
+export interface Delegate {
+  id: string;
+  name: string;
+  fn: string;
+  avatar: string | null;
+}
+
+export interface ActivateSnapshot {
+  delegates: Delegate[];
+  /** null = no CORE reading yet */
+  apd: { value: number; goal: number; readAt: string } | null;
+}
+
+/** People + the ticked ids (oldest tick first) → the bus. Only people who
+ *  still exist; an inactive member stays on the bus if they were ticked —
+ *  they paid, they're coming. */
+export function buildActivate(
+  people: WarPerson[],
+  ticked: { member_id: string; marked_at: string }[],
+  s: ActivateSettings,
+  apd: { value: number; readAt: string } | null,
+  opts: { avatars?: boolean } = {}
+): ActivateSnapshot {
+  const byId = new Map(people.map((p) => [p.id, p]));
+  const delegates = [...ticked]
+    .sort((a, b) => a.marked_at.localeCompare(b.marked_at))
+    .map((t) => byId.get(t.member_id))
+    .filter((p): p is WarPerson => !!p)
+    .map((p) => ({ id: p.id, name: p.name, fn: primaryFunction(p), avatar: opts.avatars === false ? null : publicAvatar(p.avatar_url) }));
+  return { delegates, apd: apd ? { value: apd.value, goal: s.apdGoal, readAt: apd.readAt } : null };
+}
+
 /** What /no-peace renders and what every live update carries. Public by
  *  design: names (the LC chose full names), points, what they scored. Never
  *  an email, a phone, a note or who logged it. */
@@ -612,6 +747,8 @@ export interface WarSnapshot {
   /** the function race (empty when switched off) */
   functions: FunctionRow[];
   totals: { points: number; entries: number; troops: number; enlisted: number; byKind: Record<string, { qty: number; points: number }> };
+  /** v38.5 — the Activate sections (absent on a snapshot from before) */
+  activate?: ActivateSnapshot;
   at: string;
 }
 

@@ -44,6 +44,10 @@ export const config = {
     // AND `/no-peace` (v38) — the public, READ-ONLY live war board. Its editor
     // is `/war-room`, deliberately NOT a "no-peace…" path, which this prefix
     // match would otherwise have made public too.
-    "/((?!api/auth|api/cron|api/v1|login|inactive|book|privacy|delete-account|activate26|no-peace|_next/static|_next/image|favicon.ico|icon.png|apple-icon.png|opengraph-image|icons|brand|manifest.webmanifest|sw.js|robots.txt|sitemap.xml|\\.well-known).*)",
+    //
+    // AND `/alex-vs-must` (v38.5) — the public race board, and under it MUST's
+    // private slots desk (/alex-vs-must/must/<token>, checked by the token).
+    // The editor is `/lc-race`, NOT an "alex-vs-must…" path, for the same reason.
+    "/((?!api/auth|api/cron|api/v1|login|inactive|book|privacy|delete-account|activate26|no-peace|alex-vs-must|_next/static|_next/image|favicon.ico|icon.png|apple-icon.png|opengraph-image|icons|brand|manifest.webmanifest|sw.js|robots.txt|sitemap.xml|\\.well-known).*)",
   ],
 };

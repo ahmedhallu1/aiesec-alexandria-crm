@@ -167,6 +167,14 @@ export function canSeeWarRoom(v: Viewer): boolean {
   );
 }
 
+/** ALEX vs MUST (v38.5) — the race editor (/lc-race): the EB (LCP + LCVPs)
+ *  and the admins, as the LC asked; anyone else from Settings → Tabs, and the
+ *  race actions ask the same `tabAllows`. Spelled out on purpose — `isEb`
+ *  rides `master`, which also admits every F&L member. */
+export function canSeeLcRace(v: Viewer): boolean {
+  return v.isAdmin || v.role === "LCP" || v.role === "LCVP" || canUseAdminTools(v);
+}
+
 /** EB = LCP + LCVPs (Directors are explicitly NOT EB). */
 export const isEb = (v: Viewer) => master(v) || v.role === "LCVP";
 

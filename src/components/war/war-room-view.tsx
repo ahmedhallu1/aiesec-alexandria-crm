@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Check, Copy, ExternalLink, Gift, ListChecks, Loader2, Medal, Minus, Pencil, Plus, Radio, RotateCcw,
-  ScrollText, Search, Settings2, Swords, Trash2, Trophy, Undo2, Users, X,
+  ScrollText, Search, Settings2, Swords, Trash2, Trophy, Undo2, Users, X, Bus,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,13 +31,16 @@ import {
 } from "@/server/war-actions";
 import { ChipPick, PeoplePick, type PickPerson } from "@/components/crm/people-pick";
 import { useNow } from "@/components/no-peace/bits";
+import { ActivatePanel } from "./activate-panel";
 
-type Tab = "log" | "standings" | "entries" | "settings";
+type Tab = "log" | "standings" | "entries" | "activate" | "settings";
 
 const TABS: { key: Tab; label: string; short: string; icon: typeof Swords }[] = [
   { key: "log", label: "Log points", short: "Log", icon: Plus },
   { key: "standings", label: "Standings", short: "Standings", icon: Trophy },
   { key: "entries", label: "Entries", short: "Entries", icon: ListChecks },
+  // v38.5 — who registered for Activate, and what the board / reminder say
+  { key: "activate", label: "Activate", short: "Activate", icon: Bus },
   { key: "settings", label: "Settings", short: "Settings", icon: Settings2 },
 ];
 
@@ -72,6 +75,7 @@ export function WarRoomView({
   settingsMeta,
   people,
   entries,
+  delegates,
   publicUrl,
   readOnly,
 }: {
@@ -79,6 +83,7 @@ export function WarRoomView({
   settingsMeta: { updatedAt: string | null; updatedBy: string | null };
   people: WarPerson[];
   entries: WarEntryRow[];
+  delegates: { member_id: string; marked_at: string; marked_by_name: string | null }[];
   publicUrl: string;
   readOnly: boolean;
 }) {
@@ -129,8 +134,8 @@ export function WarRoomView({
         </p>
       ) : null}
 
-      {/* four equal cells on a phone (all four tabs visible, 44px tall), a row of pills from sm up */}
-      <div className="grid grid-cols-4 gap-1 rounded-xl border bg-card p-1 sm:flex">
+      {/* five equal cells on a phone (every tab visible, 44px tall), a row of pills from sm up */}
+      <div className="grid grid-cols-5 gap-1 rounded-xl border bg-card p-1 sm:flex">
         {TABS.map((t) => (
           <button
             key={t.key}
@@ -169,6 +174,8 @@ export function WarRoomView({
           onFocusChange={setFocusPerson}
           readOnly={readOnly}
         />
+      ) : tab === "activate" ? (
+        <ActivatePanel settings={settings} people={people} ticks={delegates} readOnly={readOnly} />
       ) : (
         <SettingsPanel
           settings={settings}

@@ -39,7 +39,7 @@ export async function underHourlyLimit(
 /** Every scope that writes an hourly bucket into app_settings — the booking,
  *  login, reset and API throttles. Keep this list in step with the callers. */
 export const RATE_BUCKET_SCOPES = [
-  "bookrl", "loginrl", "pwid", "pwip", "resetip", "resetmember", "apirl",
+  "bookrl", "loginrl", "pwid", "pwip", "resetip", "resetmember", "apirl", "racerl",
 ] as const;
 
 /** DEAD BUCKETS GO (v37.14). A bucket is keyed by the hour it counts, so it is

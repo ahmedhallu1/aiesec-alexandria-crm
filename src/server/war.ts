@@ -4,8 +4,10 @@ import "server-only";
  *  page. Model and rules: src/lib/war/model.ts. */
 
 import { db } from "@/lib/supabase";
+import { broadcast } from "@/server/realtime";
+import { bustTabRules, publicPageLive } from "@/server/tabs";
 import {
-  WAR_SLUG, buildSnapshot, resolveWarSettings,
+  WAR_ROOM_PATH, WAR_SLUG, buildActivate, buildSnapshot, resolveWarSettings,
   type WarEntry, type WarPerson, type WarSettings, type WarSnapshot,
 } from "@/lib/war/model";
 
@@ -102,14 +104,44 @@ export async function loadWarEntries(opts: { withDeleted?: boolean } = {}): Prom
   return [...out.values()].reverse();
 }
 
+/** Who is registered for Activate (v38.5), oldest tick first. */
+export async function loadDelegates(): Promise<{ member_id: string; marked_at: string; marked_by_name: string | null }[]> {
+  const { data, error } = await db()
+    .from("activate_delegates")
+    .select("member_id, marked_at, marker:members!marked_by(name)")
+    .eq("campaign", WAR_SLUG)
+    .order("marked_at", { ascending: true })
+    .limit(2000);
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((r) => {
+    const row = r as Record<string, unknown> & { marker?: { name?: string } | null };
+    return { member_id: row.member_id as string, marked_at: row.marked_at as string, marked_by_name: row.marker?.name ?? null };
+  });
+}
+
 /** The public snapshot — what /no-peace renders and every live push carries. */
 export async function warSnapshot(): Promise<WarSnapshot> {
   // stamped BEFORE the reads: a later `at` must never carry older data
   const at = new Date().toISOString();
-  const [{ settings }, people, entries] = await Promise.all([
+  const { homeApprovalsSinceStart } = await import("@/server/race");
+  const [{ settings }, people, entries, ticked, apd] = await Promise.all([
     loadWarSettings(),
     loadWarPeople(),
     loadWarEntries(),
+    // the Activate half must never take the war board down with it
+    loadDelegates().catch(() => []),
+    homeApprovalsSinceStart().catch(() => null),
   ]);
-  return buildSnapshot(people, entries, settings, undefined, at);
+  const snap = buildSnapshot(people, entries, settings, undefined, at);
+  if (!settings.activate.enabled) return snap;
+  return { ...snap, activate: buildActivate(people, ticked, settings.activate, apd, { avatars: settings.show.avatars }) };
+}
+
+/** Push the board to every open /no-peace page — unless it's switched off.
+ *  For callers outside the War Room's own actions (a CORE reading moving the
+ *  Activate APD goal). Throws on a failed read; callers catch. */
+export async function broadcastWar(): Promise<void> {
+  bustTabRules();
+  if (!(await publicPageLive(WAR_ROOM_PATH))) return;
+  broadcast(WAR_SLUG, "snapshot", await warSnapshot());
 }

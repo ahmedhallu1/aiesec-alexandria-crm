@@ -172,6 +172,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
      "**Log points**: tick who scored (search, or add a whole function at once), pick what they did, set how many, and press **Log it**. A toast offers **Undo**.",
      "**Bonus / penalty** is for checkpoint points like attendance and engagement: type the number (− for a penalty) and a comment — the comment stays inside Sodio, the page just says \"Bonus\".",
      "**Entries** lists everything logged, with search and filters (person, achievement, who logged it, dates). Edit or delete any entry; deleted ones wait under **Deleted** and can be restored.",
+     "**Activate** is where you tick who registered for Activate (they board the bus on /no-peace and stop getting the reminder) and edit the registration details.",
      "**Settings** edits the point values (changing one re-scores everything already logged), the rewards, the rules, the dates, who competes and what the public page shows."
     ]
    },
@@ -187,6 +188,133 @@ export const HELP_ARTICLES: HelpArticle[] = [
       "a": "Yes — the LCP or an admin: Settings → Tabs → War Room → turn off the public page, or retire the tab and take the page down with it."
      }
     ]
+   }
+  ]
+ },
+ {
+  "id": "alex-vs-must",
+  "title": "Alex vs MUST — the race to 150",
+  "emoji": "🏁",
+  "category": "getting-started",
+  "audience": "Everyone (managing: the EB)",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "alex vs must",
+   "must",
+   "race",
+   "150",
+   "approvals",
+   "apd",
+   "slots",
+   "core",
+   "competition",
+   "lc race",
+   "سباق"
+  ],
+  "summary": "AIESEC in Alexandria vs AIESEC in MUST: first LC to 150 approvals (counted from 4 Nov) before 2 Dec wins, with a second race to 100 slots. Live at /alex-vs-must.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "**/alex-vs-must** is the public race board — no account needed. Both LCs start from zero on the day the race opened (CORE then read **Alexandria 161** and **MUST 215** approvals) and race to **150 approvals each** before **2 December** (day zero of Activate). Whoever reaches 150 **first** wins — the board shows who leads, by how much, each LC's pace per day, what they need per day to make it, which programs the approvals come from, the trail of every change, and the 300 both LCs make together. A second track races to **100 slots**."
+   },
+   {
+    "t": "table",
+    "headers": [
+     "Number",
+     "Where it comes from"
+    ],
+    "rows": [
+     [
+      "Approvals (both LCs)",
+      "CORE — read when the board opens and every hour; a reading is kept each time a number changes"
+     ],
+     [
+      "Alexandria's slots",
+      "Sodio — every deal recorded since the start (IGV / IGTa / IGTe opens)"
+     ],
+     [
+      "MUST's slots",
+      "MUST itself, through its private link (no login)"
+     ]
+    ]
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open **Alex vs MUST** in the sidebar ([here](/lc-race)) — it's the EB's (LCP, LCVPs) and the admins'; anyone else can be given it in Settings → Tabs.",
+     "**MUST's private link**: press **Create MUST's link**, copy it and send it to MUST's VP. Anyone with it can add slots for MUST, so **Make a new link** kills the old one at once. The switch beside it pauses MUST's logging.",
+     "**Approvals from CORE**: **Read CORE now** checks both LCs immediately. If CORE is wrong or down, **Add reading by hand**, or switch CORE off for that LC so only your readings count.",
+     "**The race**: title, tagline, dates, goals, each LC's name, colour, CORE id and start counts per program (**Use today's CORE** restarts an LC's count from today). Save from the bar at the bottom.",
+     "**Slots entries**: MUST's entries arrive here; delete a wrong one (it can be restored), or add slots for either LC by hand — Alexandria's Sodio deals already count on their own."
+    ]
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "The same approvals feed the **150 APDs by Activate** goal on /no-peace — one number for both pages."
+   },
+   {
+    "t": "faq",
+    "faqItems": [
+     {
+      "q": "Why didn't the board move the second an approval happened?",
+      "a": "CORE updates on its own schedule and Sodio reads it when the board opens and every hour. Slots move instantly."
+     },
+     {
+      "q": "Can the page be taken down?",
+      "a": "Yes — the LCP or an admin: Settings → Tabs → Alex vs MUST → turn off the public page. MUST's link goes down with it."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "activate-registration",
+  "title": "Registering for Activate — the delegation bus",
+  "emoji": "🚌",
+  "category": "getting-started",
+  "audience": "Everyone (ticking: the F&L VP)",
+  "audienceKeys": [
+   "everyone"
+  ],
+  "keywords": [
+   "activate",
+   "register",
+   "registration",
+   "delegation",
+   "delegates",
+   "bus",
+   "cod",
+   "instapay",
+   "wallet",
+   "down payment",
+   "form",
+   "تسجيل"
+  ],
+  "summary": "Activate (3–5 December, Alexandria Youth City): register through the form, pay the down payment, and your name climbs onto the delegation bus on /no-peace once the F&L VP confirms it.",
+  "blocks": [
+   {
+    "t": "p",
+    "md": "Until the registration deadline, Sodio reminds you **each time you open it** — with the dates, the fees, the InstaPay / Wallet number (one tap copies it) and the form. **Skip for now** closes it until your next visit. Once the F&L VP ticks you as registered, the reminder stops for good."
+   },
+   {
+    "t": "p",
+    "md": "The **Activate** section of **/no-peace** has everything in one place: the LC's goal of **150 APDs by Activate** (live from CORE), the **delegation bus** that fills seat by seat as people register, **who's coming** in the order they registered, and the **registration card** with the Chief of Delegates' message."
+   },
+   {
+    "t": "steps",
+    "items": [
+     "Open the form (from the reminder or /no-peace → Register) and fill it in.",
+     "Pay the down payment to the number shown.",
+     "The F&L VP ticks you in **War Room → Activate** — you take the next seat on the bus."
+    ]
+   },
+   {
+    "t": "callout",
+    "tone": "info",
+    "md": "F&L VP: **War Room → Activate** lists every active member with a switch — search, filter Registered / Not yet, and tick. Below it you edit every word the board and the reminder show (dates, location, fees, payment number, form link, deadline, the COD's message, the APD goal and the bus's seats), and **Preview the reminder** before saving."
    }
   ]
  },

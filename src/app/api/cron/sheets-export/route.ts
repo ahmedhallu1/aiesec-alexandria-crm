@@ -31,8 +31,13 @@ export async function GET(req: NextRequest) {
       signupsError = e instanceof Error ? e.message : String(e);
       console.error("[sheets-export] signup mirror failed:", signupsError);
     }
+    // v38.5 — Alex vs MUST: read CORE once an hour so "who reached 150
+    // first" is never more than an hour out, even with nobody on the board.
+    // observeCore never throws.
+    const { observeCore } = await import("@/server/race");
+    const race = await observeCore();
     await markCronRun("sheets-export");
-    return NextResponse.json({ ok: true, signups, signupsError });
+    return NextResponse.json({ ok: true, signups, signupsError, raceReadingStored: race.changed });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "export failed" },
