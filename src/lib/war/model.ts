@@ -127,7 +127,7 @@ export const DEFAULT_ACTIVATE: ActivateSettings = {
   payVia: "InstaPay or Wallet",
   payNumber: "01555571812",
   formUrl: "https://forms.gle/YPQEnkmDRqnXrj3F6",
-  deadline: "2026-12-05",
+  deadline: "2026-11-06",
   announcement:
     "Heeyyy AIESEC 💙\nThis is your Chief of Delegates (COD), I'm happily announcing the internal registration form for ACTIVATE 🔥🔥🔥",
   signedBy: "Your Chief of Delegates",

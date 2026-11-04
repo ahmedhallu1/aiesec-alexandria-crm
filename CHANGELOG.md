@@ -38,8 +38,8 @@
   not ticked sees it once per app open (sessionStorage) until the
   registration deadline — skip / copy the number / open the form; it waits
   behind any other open dialog. Costs a 60 s module memo per page view, not
-  a query (`server/activate-prompt.ts`). ⚠️ The COD's DDL is 5/12/2026 — the
-  conference's own last day; editable if it was meant to be earlier.
+  a query (`server/activate-prompt.ts`). The registration DDL is **6/11/2026**
+  (payment deadline; the reminder stops after it).
 
 - **2026-10-30 · v38.4** — **THE RULE MANAGER + A UI AUDIT (phones first).**
   Migration **0089** (`privilege_rules`). ① **Settings → Rules**

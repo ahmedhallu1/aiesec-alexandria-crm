@@ -160,7 +160,7 @@ describe("Activate on the No Peace board", () => {
     expect(w.activate.apdGoal).toBe(150);
     expect(w.activate.formUrl).toBe("https://forms.gle/YPQEnkmDRqnXrj3F6");
     expect(w.activate.payNumber).toBe("01555571812");
-    expect(w.activate.deadline).toBe("2026-12-05");
+    expect(w.activate.deadline).toBe("2026-11-06");
   });
   it("a form link that isn't https is refused, and never stored", () => {
     expect(warSettingsProblem({ activate: { ...DEFAULT_ACTIVATE, formUrl: "javascript:alert(1)" } })).toMatch(/https/);

@@ -108,13 +108,7 @@ export function RaceBoard({ initial, realtime }: { initial: RaceSnapshot; realti
             <a href="http://elevate2point0.com/" target="_blank" rel="noreferrer" data-cursor="link" data-cursor-label="2.0">
               Made by
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/brand/no-peace/two-point-o-18.png"
-                srcSet="/brand/no-peace/two-point-o-18.png 1x, /brand/no-peace/two-point-o-36.png 2x, /brand/no-peace/two-point-o-54.png 3x"
-                alt="2.0"
-                width={37}
-                height={18}
-              />
+              <img src="/brand/2.0-dark.png" alt="2.0" width={36} height={18} />
             </a>
           </div>
         </div>
@@ -423,9 +417,9 @@ function Hero({ snap, now, ready }: { snap: RaceSnapshot; now: number | null; re
                 {a[side].value}
               </b>
               <span className="rc-vs-of">of {a[side].goal} approvals</span>
-              {i === 0 ? <span className="rc-vs-x" aria-hidden>VS</span> : null}
             </div>
           ))}
+          <span className="rc-vs-x" aria-hidden>VS</span>
         </div>
 
         {winner ? (

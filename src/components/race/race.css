@@ -546,7 +546,8 @@ html.rc-cursor-on .rc * {
 }
 .rc-vs-x {
   position: absolute;
-  right: -25px;
+  left: 50%;
+  margin-left: -20px;
   top: 50%;
   translate: 0 -50%;
   z-index: 2;
@@ -560,9 +561,6 @@ html.rc-cursor-on .rc * {
   font-weight: 800;
   font-size: 13px;
   box-shadow: 0 0 0 6px var(--bg), 0 0 30px rgba(117, 82, 204, 0.6);
-}
-.rc-vs-side.is-home {
-  overflow: visible;
 }
 .rc-winner {
   display: inline-flex;
@@ -654,7 +652,7 @@ html.rc-cursor-on .rc * {
   .rc-vs-x {
     width: 34px;
     height: 34px;
-    right: -22px;
+    margin-left: -17px;
     font-size: 11px;
   }
   .rc-clock > div {
@@ -1277,7 +1275,8 @@ html.rc-cursor-on .rc * {
   text-decoration: none;
 }
 .rc-credit img {
-  filter: invert(1);
+  height: 18px;
+  width: auto;
 }
 
 /* ------------------------------------------------------------------ MUST's desk */
